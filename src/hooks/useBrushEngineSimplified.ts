@@ -134,8 +134,12 @@ const normalizeRectForCanvas = (
   };
 };
 
-const pick2D = (c: HTMLCanvasElement | OffscreenCanvas | null) =>
-  c?.getContext?.('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) ?? null;
+type TwoDContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+const pick2D = (c: HTMLCanvasElement | OffscreenCanvas | null): TwoDContext | null =>
+  (c?.getContext?.('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as
+    | TwoDContext
+    | null) ?? null;
 
 const sampleMaskA = (
   mask: HTMLCanvasElement | OffscreenCanvas | null,

@@ -2,7 +2,7 @@
  * Manager for gradient calculation Web Worker
  */
 
-import { parseCssColor } from '@/utils/color/parseCssColor';
+import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
 
 export interface GradientStop {
   position: number;
@@ -12,7 +12,12 @@ export interface GradientStop {
 type WorkerMessageType = 'updateGradient' | 'shiftPalette' | 'applyToBuffer';
 
 interface WorkerPayloadMap {
-  updateGradient: { stops: GradientStop[] };
+  updateGradient: {
+    stops?: GradientStop[];
+    palette?: Uint8ClampedArray;
+    paletteSize?: number;
+    key?: string;
+  };
   shiftPalette: { offset: number };
   applyToBuffer: { indexData: Uint8Array; offset: number };
 }
@@ -31,6 +36,7 @@ export class GradientWorkerManager {
   private requestId = 0;
   private pendingRequests = new Map<number, WorkerRequest>();
   private isSupported: boolean;
+  private lastPaletteHandle: PaletteHandle | null = null;
 
   constructor() {
     this.isSupported = typeof Worker !== 'undefined';
@@ -50,23 +56,6 @@ export class GradientWorkerManager {
         this.worker = null;
       }
     }
-  }
-
-  private parseColor(color: string): { r: number; g: number; b: number; a: number } {
-    return parseCssColor(color, { r: 0, g: 0, b: 0, a: 255 });
-  }
-
-  private interpolateColor(
-    color1: { r: number; g: number; b: number; a: number },
-    color2: { r: number; g: number; b: number; a: number },
-    t: number
-  ) {
-    return {
-      r: Math.round(color1.r + (color2.r - color1.r) * t),
-      g: Math.round(color1.g + (color2.g - color1.g) * t),
-      b: Math.round(color1.b + (color2.b - color1.b) * t),
-      a: Math.round(color1.a + (color2.a - color1.a) * t)
-    };
   }
 
   private handleMessage(event: MessageEvent<WorkerResponseMessage>) {
@@ -135,12 +124,24 @@ export class GradientWorkerManager {
    * Update gradient in worker
    */
   async updateGradient(stops: GradientStop[]): Promise<Uint8ClampedArray> {
+    const handle = ensurePalette({ stops });
+    this.lastPaletteHandle = handle;
+
     if (!this.isSupported || !this.worker) {
-      // Fallback to synchronous calculation
-      return this.updateGradientSync(stops);
+      return new Uint8ClampedArray(handle.rgba);
     }
-    
-    return await this.sendMessage('updateGradient', { stops });
+
+    const paletteCopy = new Uint8ClampedArray(handle.rgba);
+    return await this.sendMessage(
+      'updateGradient',
+      {
+        stops,
+        palette: paletteCopy,
+        paletteSize: handle.size,
+        key: handle.key,
+      },
+      [paletteCopy.buffer]
+    );
   }
 
   /**
@@ -148,7 +149,7 @@ export class GradientWorkerManager {
    */
   async shiftPalette(offset: number): Promise<Uint8ClampedArray> {
     if (!this.isSupported || !this.worker) {
-      throw new Error('Worker not available for palette shifting');
+      return this.shiftPaletteLocally(offset);
     }
     
     return await this.sendMessage('shiftPalette', { offset });
@@ -159,7 +160,7 @@ export class GradientWorkerManager {
    */
   async applyToBuffer(indexData: Uint8Array, offset: number = 0): Promise<Uint8ClampedArray> {
     if (!this.isSupported || !this.worker) {
-      throw new Error('Worker not available for buffer application');
+      return this.applyPaletteLocally(indexData, offset);
     }
     
     // Transfer indexData to worker (zero-copy)
@@ -177,52 +178,74 @@ export class GradientWorkerManager {
   /**
    * Fallback synchronous gradient update
    */
-  private updateGradientSync(stops: GradientStop[]): Uint8ClampedArray {
-    const paletteSize = 256;
-    const colors = new Uint8ClampedArray(paletteSize * 4);
-    if (stops.length === 0) {
-      return colors;
+  private ensurePaletteHandle(): PaletteHandle {
+    if (this.lastPaletteHandle) {
+      return this.lastPaletteHandle;
+    }
+    this.lastPaletteHandle = ensurePalette();
+    return this.lastPaletteHandle;
+  }
+
+  private shiftPaletteLocally(offset: number): Uint8ClampedArray {
+    const handle = this.ensurePaletteHandle();
+    const palette = handle.rgba;
+    const paletteSize = Math.max(1, Math.floor(palette.length / 4));
+    if (paletteSize === 0) {
+      return new Uint8ClampedArray();
     }
 
-    const normalizedStops = [...stops].sort((a, b) => a.position - b.position);
-    if (normalizedStops[0].position > 0) {
-      normalizedStops.unshift({ position: 0, color: normalizedStops[0].color });
+    const normalizedOffset = ((offset % 1) + 1) % 1;
+    const shift = Math.floor(normalizedOffset * paletteSize);
+    if (shift === 0) {
+      return new Uint8ClampedArray(palette);
     }
-    const lastIndex = normalizedStops.length - 1;
-    if (normalizedStops[lastIndex].position < 1) {
-      normalizedStops.push({ position: 1, color: normalizedStops[lastIndex].color });
-    }
-    
-    // Simplified gradient generation
+
+    const shifted = new Uint8ClampedArray(palette.length);
     for (let i = 0; i < paletteSize; i++) {
-      const position = i / (paletteSize - 1);
+      const sourceIndex = (i + shift) % paletteSize;
+      const src = sourceIndex * 4;
+      const dst = i * 4;
+      shifted[dst] = palette[src];
+      shifted[dst + 1] = palette[src + 1];
+      shifted[dst + 2] = palette[src + 2];
+      shifted[dst + 3] = palette[src + 3];
+    }
 
-      let leftStop = normalizedStops[0];
-      let rightStop = normalizedStops[normalizedStops.length - 1];
-      for (let j = 0; j < normalizedStops.length - 1; j++) {
-        const current = normalizedStops[j];
-        const next = normalizedStops[j + 1];
-        if (position >= current.position && position <= next.position) {
-          leftStop = current;
-          rightStop = next;
-          break;
-        }
+    return shifted;
+  }
+
+  private applyPaletteLocally(indexData: Uint8Array, offset: number): Uint8ClampedArray {
+    const palette = this.shiftPaletteLocally(offset);
+    const pixels = new Uint8ClampedArray(indexData.length * 4);
+    const paletteSize = Math.max(1, Math.floor(palette.length / 4));
+
+    for (let i = 0; i < indexData.length; i++) {
+      const colorIndex = indexData[i];
+      if (colorIndex === 0) {
+        const idx = i * 4;
+        pixels[idx] = 0;
+        pixels[idx + 1] = 0;
+        pixels[idx + 2] = 0;
+        pixels[idx + 3] = 0;
+        continue;
       }
 
-      const leftColor = this.parseColor(leftStop.color);
-      const rightColor = this.parseColor(rightStop.color);
-      const range = rightStop.position - leftStop.position;
-      const t = range === 0 ? 0 : (position - leftStop.position) / range;
-      const color = this.interpolateColor(leftColor, rightColor, t);
+      let paletteIndex = colorIndex - 1;
+      if (paletteIndex < 0) {
+        paletteIndex = 0;
+      } else if (paletteIndex >= paletteSize) {
+        paletteIndex = paletteSize - 1;
+      }
 
-      const idx = i * 4;
-      colors[idx] = color.r;
-      colors[idx + 1] = color.g;
-      colors[idx + 2] = color.b;
-      colors[idx + 3] = color.a;
+      const src = paletteIndex * 4;
+      const dst = i * 4;
+      pixels[dst] = palette[src];
+      pixels[dst + 1] = palette[src + 1];
+      pixels[dst + 2] = palette[src + 2];
+      pixels[dst + 3] = palette[src + 3];
     }
-    
-    return colors;
+
+    return pixels;
   }
 
   /**

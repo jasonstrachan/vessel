@@ -7,7 +7,7 @@
 import { ColorQuantizer, QuantizationOptions } from './ColorQuantizer';
 import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
 import { CPUColorCycleRenderer } from './rendering/CPUColorCycleRenderer';
-import { GradientPalette } from '../GradientPalette';
+import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import type { Layer } from '../../types';
 
 export interface RecolorEngineConfig {
@@ -276,17 +276,17 @@ export class RecolorEngine {
             this.glRenderer.resize(width, height);
           }
 
-          const gradientKey = JSON.stringify(settings.gradient || []);
-          if (this.lastPaletteHash !== gradientKey) {
-            const gp = new GradientPalette(
-              settings.gradient || [
-                { position: 0, color: '#000000' },
-                { position: 1, color: '#ffffff' },
-              ]
-            );
-            const paletteRGBA = gp.getPaletteColors();
-            this.glRenderer.setPaletteColors(paletteRGBA);
-            this.lastPaletteHash = gradientKey;
+          const gradientStops =
+            settings.gradient && settings.gradient.length > 0
+              ? settings.gradient
+              : [
+                  { position: 0, color: '#000000' },
+                  { position: 1, color: '#ffffff' },
+                ];
+          const paletteHandle = ensurePalette({ stops: gradientStops });
+          if (this.lastPaletteHash !== paletteHandle.key) {
+            this.glRenderer.setPaletteColors(paletteHandle.rgba);
+            this.lastPaletteHash = paletteHandle.key;
           }
 
           const bands = Math.max(1, settings.cycleColors || 16);

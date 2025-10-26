@@ -5,6 +5,7 @@
 
 import { IndexBuffer } from './IndexBuffer';
 import { GradientPalette, GradientStop } from './GradientPalette';
+import { ensurePalette } from '@/lib/colorCycle/paletteService';
 
 export interface ColorCycleConfig {
   width: number;
@@ -36,6 +37,7 @@ export class ColorCycleRenderer {
     // Initialize buffers
     this.indexBuffer = new IndexBuffer(config.width, config.height);
     this.gradientPalette = new GradientPalette(config.gradientStops);
+    ensurePalette({ palette: this.gradientPalette });
     
     // Create rendering canvas
     this.canvas = document.createElement('canvas');
@@ -72,6 +74,7 @@ export class ColorCycleRenderer {
   private updateIndexBufferPalette() {
     const paletteStrings = this.gradientPalette.getPaletteStrings();
     this.indexBuffer.setPalette(paletteStrings);
+    ensurePalette({ palette: this.gradientPalette });
   }
   
   /**

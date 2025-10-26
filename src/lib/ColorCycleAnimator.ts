@@ -11,6 +11,8 @@ import { AnimationController } from './AnimationController';
 import { WebGLColorCycleRenderer } from './colorCycle/rendering/WebGLColorCycleRenderer';
 import { canvasPool } from '../utils/canvasPool';
 
+import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
+
 export interface ColorCycleAnimatorConfig {
   width: number;
   height: number;
@@ -53,8 +55,7 @@ export class ColorCycleAnimator {
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
   
-  // Performance optimization: cache palette as 32-bit values
-  private cachedPalette32: Uint32Array | null = null;
+  private paletteHandle: PaletteHandle | null = null;
   
   constructor(config: ColorCycleAnimatorConfig) {
     this.forceCanvas2D = Boolean(config.forceCanvas2D);
@@ -66,6 +67,7 @@ export class ColorCycleAnimator {
       this.gradientPalette = config.gradientStops 
         ? new GradientPalette(config.gradientStops)
         : GradientPalette.createRainbow();
+      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       // Use canvas pool for better performance
       this.canvas = canvasPool.acquire(config.width, config.height);
       const ctx = this.canvas.getContext('2d', {
@@ -123,6 +125,7 @@ export class ColorCycleAnimator {
       this.gradientPalette = config.gradientStops 
         ? new GradientPalette(config.gradientStops)
         : GradientPalette.createRainbow();
+      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       
       // Use canvas pool for better performance
       this.canvas = canvasPool.acquire(config.width, config.height);
@@ -204,13 +207,12 @@ export class ColorCycleAnimator {
   private updateIndexBufferPalette() {
     const paletteStrings = this.gradientPalette.getPaletteStrings();
     this.indexBuffer.setPalette(paletteStrings);
-    // Invalidate cached palette when gradient changes
-    this.cachedPalette32 = null;
+    this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
+    const handle = this.paletteHandle;
     // If GPU renderer exists, upload palette once (as base palette)
     if (!this.forceCanvas2D && this.glRenderer) {
       try {
-        const paletteRGBA = this.gradientPalette.getPaletteColors();
-        this.glRenderer.setPaletteColors(paletteRGBA);
+        this.glRenderer.setPaletteColors(handle.rgba);
         this._glPaletteReady = true;
       } catch {}
     } else {
@@ -223,6 +225,13 @@ export class ColorCycleAnimator {
    */
   hasWebGL(): boolean {
     return !this.forceCanvas2D && !!this.glRenderer;
+  }
+
+  private getPaletteHandle(): PaletteHandle {
+    if (!this.paletteHandle) {
+      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
+    }
+    return this.paletteHandle;
   }
 
   setForceCanvas2D(force: boolean) {
@@ -353,8 +362,8 @@ export class ColorCycleAnimator {
         // Ensure palette is available on GPU (lazy init can defer initial upload)
         if (!this._glPaletteReady) {
           try {
-            const paletteRGBA = this.gradientPalette.getPaletteColors();
-            this.glRenderer.setPaletteColors(paletteRGBA);
+            const paletteHandle = this.getPaletteHandle();
+            this.glRenderer.setPaletteColors(paletteHandle.rgba);
             this._glPaletteReady = true;
             // quiet
           } catch {}
@@ -407,15 +416,7 @@ export class ColorCycleAnimator {
 
       const pixels = this.imageData.data;
       const pixels32 = new Uint32Array(pixels.buffer);
-
-      if (!this.cachedPalette32) {
-        this.cachedPalette32 = new Uint32Array(256);
-        for (let i = 0; i < 256; i++) {
-          const color = this.gradientPalette.getColor(i);
-          this.cachedPalette32[i] = (color.a << 24) | (color.b << 16) | (color.g << 8) | color.r;
-        }
-      }
-      const palette32 = this.cachedPalette32;
+      const palette32 = this.getPaletteHandle().uint32;
 
       const animOffset = Math.floor(Math.abs(offset) * 256);
       const backward = this.flowDirection === 'backward';

@@ -6,7 +6,7 @@ import { parseCssColor } from '@/utils/color/parseCssColor';
 
 type UpdateGradientMessage = {
   type: 'updateGradient';
-  data: { stops: GradientStop[] };
+  data: { stops?: GradientStop[]; palette?: Uint8ClampedArray; paletteSize?: number };
   id: number;
 };
 
@@ -67,7 +67,13 @@ class GradientProcessor {
     };
   }
 
-  updateGradient(stops: GradientStop[]) {
+  updateGradient(stops?: GradientStop[], incomingPalette?: Uint8ClampedArray) {
+    if (incomingPalette && incomingPalette.length > 0) {
+      return this.setPaletteColors(incomingPalette);
+    }
+    if (!stops || stops.length === 0) {
+      return this.colors;
+    }
     this.gradientStops = [...stops];
     this.gradientStops.sort((a, b) => a.position - b.position);
     
@@ -97,6 +103,16 @@ class GradientProcessor {
       this.colors[idx + 3] = color.a;
     }
     
+    return this.colors;
+  }
+
+  private setPaletteColors(palette: Uint8ClampedArray): Uint8ClampedArray {
+    if (palette.length !== this.colors.length) {
+      this.colors = new Uint8ClampedArray(palette);
+      this.paletteSize = Math.max(1, palette.length / 4);
+    } else {
+      this.colors.set(palette);
+    }
     return this.colors;
   }
 
@@ -196,7 +212,7 @@ self.onmessage = (e: MessageEvent<GradientWorkerMessage>) => {
     
     switch (type) {
       case 'updateGradient':
-        result = processor.updateGradient(data.stops);
+        result = processor.updateGradient(data.stops, data.palette);
         dedicatedWorkerScope.postMessage(
           { id, type: 'success', result } satisfies WorkerSuccessMessage,
           [result.buffer]

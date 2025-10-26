@@ -11,6 +11,8 @@ import { IndexBuffer } from '../../lib/IndexBuffer';
 import { GradientPalette } from '../../lib/GradientPalette';
 import { AnimationController } from '../../lib/AnimationController';
 
+import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
+
 export interface OptimizedBrushOptions {
   useOffscreenCanvas?: boolean;
   useWebWorkers?: boolean;
@@ -30,6 +32,7 @@ export class ColorCycleBrushOptimized {
   // Core components
   private indexBuffer: IndexBuffer;
   private gradientPalette: GradientPalette;
+  private paletteHandle: PaletteHandle | null = null;
   private animationController: AnimationController;
   
   // Performance components
@@ -70,6 +73,7 @@ export class ColorCycleBrushOptimized {
     // Initialize core components
     this.indexBuffer = new IndexBuffer(this.width, this.height);
     this.gradientPalette = GradientPalette.createRainbow();
+    this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
     
     // Initialize animation controller
     this.animationController = new AnimationController();
@@ -208,11 +212,12 @@ export class ColorCycleBrushOptimized {
     
     // Use WASM for palette application if available
     if (this.useWASM && this.wasmAccelerator) {
-      const pixels = this.wasmAccelerator.applyPaletteToBuffer(
-        indexData,
-        this.gradientPalette.getPaletteColors(),
-        this.cycleOffset
-      );
+        const paletteHandle = this.getPaletteHandle();
+        const pixels = this.wasmAccelerator.applyPaletteToBuffer(
+          indexData,
+          paletteHandle.rgba,
+          this.cycleOffset
+        );
       
       if (pixels) {
         imageData = new ImageData(pixels, this.width, this.height);
@@ -299,14 +304,24 @@ export class ColorCycleBrushOptimized {
         this.gradientPalette = new GradientPalette();
         // Update the internal palette data
         this.gradientPalette.updateFromGradient(stops);
+        this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       } catch (error) {
         console.warn('ColorCycleBrushOptimized worker gradient update failed, falling back to local update', error);
         // Fallback to regular update
         this.gradientPalette.updateFromGradient(stops);
+        this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       }
     } else {
       this.gradientPalette.updateFromGradient(stops);
+      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
     }
+  }
+
+  private getPaletteHandle(): PaletteHandle {
+    if (!this.paletteHandle) {
+      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
+    }
+    return this.paletteHandle;
   }
 
   /**
