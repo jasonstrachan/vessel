@@ -221,12 +221,55 @@ export function useRecolorState(
 
   // Settings management
   const updateLayerSpeed = useCallback((layerId: string, speed: number) => {
-    try {
-      recolorManager.setLayerSpeed(layerId, speed);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update speed';
-      actions.setError(errorMessage);
-    }
+    const clampedSpeed = Math.max(0.02, Math.min(2.0, Number.isFinite(speed) ? speed : 0.1));
+
+    void (async () => {
+      try {
+        const store = useAppStore.getState();
+        const layer = store.layers.find(l => l.id === layerId);
+
+        if (!layer || !isRecolorLayer(layer) || !layer.colorCycleData?.recolorSettings?.animation) {
+          actions.setError('Select a recolor layer before adjusting speed.');
+          return;
+        }
+
+        const nextRecolorSettings = {
+          ...layer.colorCycleData.recolorSettings,
+          animation: {
+            ...layer.colorCycleData.recolorSettings.animation,
+            speed: clampedSpeed
+          }
+        };
+
+        try {
+          store.updateLayer(layerId, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              recolorSettings: nextRecolorSettings
+            }
+          });
+        } catch (storeError) {
+          console.warn('[useRecolorState] Failed to push speed into store state:', storeError);
+        }
+
+        let applied = recolorManager.setLayerSpeed(layerId, clampedSpeed);
+
+        if (!applied) {
+          const latestLayer = useAppStore.getState().layers.find(l => l.id === layerId);
+          if (latestLayer) {
+            await recolorManager.registerExistingLayer(latestLayer);
+            applied = recolorManager.setLayerSpeed(layerId, clampedSpeed);
+          }
+        }
+
+        if (!applied) {
+          actions.setError('Animation is paused. Press Play once, then adjust speed again.');
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to update speed';
+        actions.setError(errorMessage);
+      }
+    })();
   }, [recolorManager, actions]);
 
   const updateLayerCycleColors = useCallback((layerId: string, cycleColors: number) => {
