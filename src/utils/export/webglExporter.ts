@@ -18,6 +18,7 @@ import type {
 } from '@/types';
 import { packArrayToB64Z } from '@/utils/export/b64z';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
+import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
 const gobletDiagnosticsDefault = process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true';
 
@@ -173,6 +174,7 @@ const PROPERTY_MINIFY_MAP = {
   mode: 'md',
   isAnimating: 'ia',
   brushState: 'bs',
+  alphaMask: 'amk',
   gradientStops: 'gs',
   indexBuffer: 'ib',
   palette: 'pl',
@@ -239,6 +241,18 @@ interface WebGLSerializedColorCycle {
   isAnimating: boolean;
   recolorSettings?: Record<string, unknown>;
   brushState?: WebGLSerializedBrushState;
+  alphaMask?: WebGLSerializedAlphaMask;
+}
+
+interface WebGLSerializedAlphaMask {
+  width: number;
+  height: number;
+  data: number[] | string;
+}
+
+interface SerializedAlphaMaskResult {
+  payload: WebGLSerializedAlphaMask;
+  values: Uint8Array;
 }
 
 export interface WebGLLayerSource {
@@ -1497,6 +1511,109 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
   return undefined;
 };
 
+const resolveColorCycleMaskImage = (layer: Layer): ImageData | undefined => {
+  const data = layer.colorCycleData;
+  if (!data) {
+    return undefined;
+  }
+  if (data.eraseMaskImageData) {
+    return data.eraseMaskImageData;
+  }
+  return captureCanvasImageData(data.eraseMask ?? null) ?? undefined;
+};
+
+const extractAlphaChannel = (imageData: ImageData): Uint8Array => {
+  const width = Math.max(1, Math.floor(imageData.width));
+  const height = Math.max(1, Math.floor(imageData.height));
+  const total = width * height;
+  const alpha = new Uint8Array(total);
+  const source = imageData.data;
+  for (let i = 0, aIdx = 3; i < total && aIdx < source.length; i += 1, aIdx += 4) {
+    alpha[i] = source[aIdx] ?? 0;
+  }
+  return alpha;
+};
+
+const resampleAlphaChannel = (imageData: ImageData, width: number, height: number): Uint8Array => {
+  const targetWidth = Math.max(1, Math.floor(width));
+  const targetHeight = Math.max(1, Math.floor(height));
+  const sourceWidth = Math.max(1, Math.floor(imageData.width));
+  const sourceHeight = Math.max(1, Math.floor(imageData.height));
+
+  if (sourceWidth === targetWidth && sourceHeight === targetHeight) {
+    return extractAlphaChannel(imageData);
+  }
+
+  const result = new Uint8Array(targetWidth * targetHeight);
+  const srcData = imageData.data;
+  const scaleX = sourceWidth / targetWidth;
+  const scaleY = sourceHeight / targetHeight;
+
+  for (let y = 0; y < targetHeight; y += 1) {
+    const srcY = Math.min(sourceHeight - 1, Math.max(0, Math.floor(y * scaleY)));
+    for (let x = 0; x < targetWidth; x += 1) {
+      const srcX = Math.min(sourceWidth - 1, Math.max(0, Math.floor(x * scaleX)));
+      const srcIndex = (srcY * sourceWidth + srcX) * 4 + 3;
+      result[y * targetWidth + x] = srcData[srcIndex] ?? 0;
+    }
+  }
+
+  return result;
+};
+
+const serializeColorCycleAlphaMask = async (
+  layer: Layer,
+  width: number,
+  height: number
+): Promise<SerializedAlphaMaskResult | undefined> => {
+  const maskSource = resolveColorCycleMaskImage(layer);
+  if (!maskSource) {
+    return undefined;
+  }
+
+  const normalizedWidth = Math.max(1, Math.floor(width));
+  const normalizedHeight = Math.max(1, Math.floor(height));
+  const alphaValues = resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight);
+
+  let hasCoverage = false;
+  for (let i = 0; i < alphaValues.length; i += 1) {
+    if (alphaValues[i] > 0) {
+      hasCoverage = true;
+      break;
+    }
+  }
+
+  if (!hasCoverage) {
+    return undefined;
+  }
+
+  const encoded = await packNumericArrayForExport(alphaValues);
+  if (!encoded) {
+    return undefined;
+  }
+
+  return {
+    payload: {
+      width: normalizedWidth,
+      height: normalizedHeight,
+      data: encoded
+    },
+    values: alphaValues
+  };
+};
+
+const applyAlphaMaskToIndexBuffer = (indices: number[] | undefined, mask: Uint8Array): void => {
+  if (!indices || indices.length === 0 || mask.length === 0) {
+    return;
+  }
+  const length = Math.min(indices.length, mask.length);
+  for (let i = 0; i < length; i += 1) {
+    if (mask[i] > 0) {
+      indices[i] = 0;
+    }
+  }
+};
+
 const hasNonZeroMagnitude = (value: unknown): boolean => {
   const numeric = toNum(value, 0);
   return Math.abs(numeric) > 0;
@@ -1646,33 +1763,47 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
     };
   }
 
+  let brushState: WebGLSerializedBrushState | undefined;
   if (!data.recolorSettings) {
-    const brushState = serializeBrushState(layer);
-    if (brushState) {
-      const encodedIndexBuffer = await packNumericArrayForExport(brushState.indexBuffer);
-      const preparedBrushState: WebGLSerializedBrushState = {
-        ...brushState,
-        indexBuffer: encodedIndexBuffer ?? []
-      };
-
-      serialized.brushState = preparedBrushState;
-      if (!serialized.gradient || serialized.gradient.length === 0) {
-        serialized.gradient = preparedBrushState.gradientStops;
-      }
-      if (gobletDiagnosticsActive) {
-        const summary = summarizeEncodedBuffer(preparedBrushState.indexBuffer, Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer.length : 0);
-        gobletDebugLog('[webglExporter] Brush state included for layer via serialize()', {
-          layerId: layer.id,
-          width: preparedBrushState.width,
-          height: preparedBrushState.height,
-          indices: summary.length,
-          encoding: summary.encoding,
-          paletteSize: preparedBrushState.palette?.length ?? null,
-          sample: summary.preview
-        });
-      }
-    } else {
+    brushState = serializeBrushState(layer);
+    if (!brushState) {
       console.warn('[webglExporter] No brush state could be extracted for layer', layer.id);
+    }
+  }
+
+  const maskDimensions = brushState
+    ? { width: brushState.width, height: brushState.height }
+    : getLayerSurfaceSize(layer);
+  const alphaMaskResult = await serializeColorCycleAlphaMask(layer, maskDimensions.width, maskDimensions.height);
+  if (alphaMaskResult) {
+    serialized.alphaMask = alphaMaskResult.payload;
+    if (brushState && Array.isArray(brushState.indexBuffer)) {
+      applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
+    }
+  }
+
+  if (brushState) {
+    const encodedIndexBuffer = await packNumericArrayForExport(brushState.indexBuffer);
+    const preparedBrushState: WebGLSerializedBrushState = {
+      ...brushState,
+      indexBuffer: encodedIndexBuffer ?? []
+    };
+
+    serialized.brushState = preparedBrushState;
+    if (!serialized.gradient || serialized.gradient.length === 0) {
+      serialized.gradient = preparedBrushState.gradientStops;
+    }
+    if (gobletDiagnosticsActive) {
+      const summary = summarizeEncodedBuffer(preparedBrushState.indexBuffer, Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer.length : 0);
+      gobletDebugLog('[webglExporter] Brush state included for layer via serialize()', {
+        layerId: layer.id,
+        width: preparedBrushState.width,
+        height: preparedBrushState.height,
+        indices: summary.length,
+        encoding: summary.encoding,
+        paletteSize: preparedBrushState.palette?.length ?? null,
+        sample: summary.preview
+      });
     }
   }
 

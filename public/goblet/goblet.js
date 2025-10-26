@@ -1397,6 +1397,7 @@ const PROPERTY_UNMINIFY_MAP = {
   md: 'mode',
   ia: 'isAnimating',
   bs: 'brushState',
+  amk: 'alphaMask',
   gs: 'gradientStops',
   ib: 'indexBuffer',
   pl: 'palette',
@@ -1787,6 +1788,53 @@ const hasNumericPayload = (value) => {
     return value.length > 0;
   }
   return false;
+};
+
+const resizeAlphaMaskBuffer = (source, srcWidth, srcHeight, destWidth, destHeight) => {
+  if (!source || !source.length) {
+    return null;
+  }
+  const targetWidth = Math.max(1, Math.round(destWidth));
+  const targetHeight = Math.max(1, Math.round(destHeight));
+  const width = Math.max(1, Math.round(srcWidth));
+  const height = Math.max(1, Math.round(srcHeight));
+  if (width === targetWidth && height === targetHeight) {
+    if (source.length === width * height) {
+      return source;
+    }
+    const normalized = new Uint8Array(width * height);
+    normalized.set(source.subarray(0, Math.min(source.length, normalized.length)));
+    return normalized;
+  }
+  const output = new Uint8Array(targetWidth * targetHeight);
+  const scaleX = width / targetWidth;
+  const scaleY = height / targetHeight;
+  for (let y = 0; y < targetHeight; y += 1) {
+    const srcY = Math.min(height - 1, Math.max(0, Math.floor(y * scaleY)));
+    for (let x = 0; x < targetWidth; x += 1) {
+      const srcX = Math.min(width - 1, Math.max(0, Math.floor(x * scaleX)));
+      const srcIdx = srcY * width + srcX;
+      const dstIdx = y * targetWidth + x;
+      output[dstIdx] = source[srcIdx] ?? 0;
+    }
+  }
+  return output;
+};
+
+const applyMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
+  if (!alphaBuffer || !maskBuffer) {
+    return;
+  }
+  const pixelCount = Math.min(maskBuffer.length, Math.floor(alphaBuffer.length / 4));
+  for (let i = 0, alphaIndex = 3; i < pixelCount; i += 1, alphaIndex += 4) {
+    const erase = maskBuffer[i];
+    if (!erase) {
+      continue;
+    }
+    const current = alphaBuffer[alphaIndex] || 0;
+    const next = Math.max(0, Math.round((current * (255 - erase)) / 255));
+    alphaBuffer[alphaIndex] = next;
+  }
 };
 
 // ------------------------------------------------------------
@@ -2184,7 +2232,53 @@ class ColorCycleLayerPlayer {
       this.phaseMap = buildLuminancePhaseMap(this.baseImageData);
     }
 
+    if (colorCycle.alphaMask) {
+      await this.applyAlphaMask(colorCycle.alphaMask);
+      probeAlphaMask();
+    }
+
     this.renderFrame();
+  }
+
+  async applyAlphaMask(maskConfig) {
+    if (!maskConfig || !maskConfig.data) {
+      return;
+    }
+    const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
+    const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
+    const payload = await resolveNumericBuffer(maskConfig.data);
+    if (!payload || !payload.length) {
+      return;
+    }
+
+    const expected = width * height;
+    let working = payload;
+    if (working.length !== expected) {
+      diagnostics.warn('[goblet] Alpha mask payload length mismatch', {
+        layerId: this.layer?.id ?? null,
+        expected,
+        actual: working.length
+      });
+      const normalized = new Uint8Array(expected);
+      normalized.set(working.subarray(0, Math.min(working.length, normalized.length)));
+      working = normalized;
+    }
+
+    const resized = resizeAlphaMaskBuffer(working, width, height, this.width, this.height);
+    if (!resized || !resized.length) {
+      return;
+    }
+
+    const alphaSize = this.width * this.height * 4;
+    if (!this.alpha || this.alpha.length < alphaSize) {
+      const buffer = new Uint8ClampedArray(alphaSize);
+      for (let i = 3; i < buffer.length; i += 4) {
+        buffer[i] = 255;
+      }
+      this.alpha = buffer;
+    }
+
+    applyMaskToAlphaChannel(this.alpha, resized);
   }
 
   async initializeBrushMode(colorCycle, brushState) {

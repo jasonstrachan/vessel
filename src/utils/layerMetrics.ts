@@ -14,6 +14,15 @@ export interface LayerContentMetrics {
   contentBounds: ContentBounds;
 }
 
+export interface LayerMetricsOptions {
+  /**
+   * When true (default), color-cycle layers are treated as full-surface canvases
+   * so downstream consumers don't shrink their bounds after masking/erasing.
+   * Callers can opt-out to request tight bounds for CC layers when needed.
+   */
+  lockColorCycleSurfaceBounds?: boolean;
+}
+
 type LegacyLayerBounds = {
   x?: number;
   y?: number;
@@ -136,13 +145,16 @@ export const clampPercent = (value: number): number => clamp(toNum(value, 0), -1
 
 export const computeLayerContentMetrics = (
   layer: Layer,
-  project: Project
+  project: Project,
+  options: LayerMetricsOptions = {}
 ): LayerContentMetrics => {
   const surfaceSize = getLayerSurfaceSize(layer, project);
+  const lockColorCycleSurfaceBounds = options.lockColorCycleSurfaceBounds ?? true;
+  const shouldLockColorCycleSurface = lockColorCycleSurfaceBounds && layer.layerType === 'color-cycle';
 
   let bounds: ContentBounds | null = null;
 
-  if (layer.imageData) {
+  if (!shouldLockColorCycleSurface && layer.imageData) {
     try {
       bounds = computeContentBoundsFromImageData(layer.imageData);
     } catch (error) {
@@ -150,15 +162,22 @@ export const computeLayerContentMetrics = (
     }
   }
 
-  if (!bounds) {
+  if (!shouldLockColorCycleSurface && !bounds) {
     bounds = computeCanvasContentBounds(layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | null);
   }
 
-  if (!bounds && layer.colorCycleData?.canvas) {
+  if (!shouldLockColorCycleSurface && !bounds && layer.colorCycleData?.canvas) {
     bounds = computeCanvasContentBounds(layer.colorCycleData.canvas as HTMLCanvasElement | OffscreenCanvas | null);
   }
 
-  const contentBounds = normalizeContentBounds(bounds, surfaceSize);
+  const contentBounds = shouldLockColorCycleSurface
+    ? {
+        x: 0,
+        y: 0,
+        width: Math.max(MIN_DIMENSION, surfaceSize.width),
+        height: Math.max(MIN_DIMENSION, surfaceSize.height)
+      }
+    : normalizeContentBounds(bounds, surfaceSize);
 
   return {
     surfaceSize,
@@ -225,7 +244,9 @@ export const computeLayerPercentOffset = (
     }
   }
 
-  const metrics = computeLayerContentMetrics(layer, project);
+  const metrics = computeLayerContentMetrics(layer, project, {
+    lockColorCycleSurfaceBounds: false
+  });
   const layerBounds = (layer as { bounds?: LegacyLayerBounds | null }).bounds;
   const frame = (layer as { frame?: { x?: number; y?: number } }).frame;
 
