@@ -7,7 +7,7 @@ import { useAppStore } from '../../stores/useAppStore';
 const ColorPickerPanel = React.memo(() => {
   // Use individual selectors to avoid unstable object references  
   const palette = useAppStore(state => state.palette);
-  const setPaletteColor = useAppStore(state => state.setPaletteColor);
+  const setActiveColor = useAppStore(state => state.setActiveColor);
   const setActivePaletteSlot = useAppStore(state => state.setActivePaletteSlot);
   
   const { foregroundColor, backgroundColor, activeSlot } = palette;
@@ -56,9 +56,9 @@ const ColorPickerPanel = React.memo(() => {
     setRgbValues(rgb);
   }, [activeColor, hexToRgb]);
 
-  const schedulePaletteUpdate = useCallback((slot: 'foreground' | 'background', color: string) => {
-    setPaletteColor(slot, color);
-  }, [setPaletteColor]);
+  const scheduleActiveColorUpdate = useCallback((color: string) => {
+    setActiveColor(color);
+  }, [setActiveColor]);
 
   // Cleanup RAF
   // Generic RGB value update function
@@ -66,8 +66,8 @@ const ColorPickerPanel = React.memo(() => {
     const newRgb = { ...rgbValues, [component]: value };
     setRgbValues(newRgb);
     const hexColor = rgbToHex(newRgb.r, newRgb.g, newRgb.b);
-    schedulePaletteUpdate(activeSlot, hexColor);
-  }, [rgbValues, rgbToHex, schedulePaletteUpdate, activeSlot]);
+    scheduleActiveColorUpdate(hexColor);
+  }, [rgbValues, rgbToHex, scheduleActiveColorUpdate]);
 
   // Handle RGB slider changes (memoized individual handlers with throttling)
   const handleRedChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -125,13 +125,13 @@ const ColorPickerPanel = React.memo(() => {
 
   // Stable color change handlers - directly call appropriate setter to avoid re-render loops
   const handleColorChange = useCallback((color: string) => {
-    schedulePaletteUpdate(activeSlot, color);
-  }, [activeSlot, schedulePaletteUpdate]);
+    setActiveColor(color);
+  }, [setActiveColor]);
 
   // Stable color select handler for ColorSwatches
   const handleColorSelect = useCallback((color: string) => {
-    setPaletteColor(activeSlot, color);
-  }, [activeSlot, setPaletteColor]);
+    setActiveColor(color);
+  }, [setActiveColor]);
 
   return (
     <div className="h-full overflow-y-auto bg-[#1A1A1A]">

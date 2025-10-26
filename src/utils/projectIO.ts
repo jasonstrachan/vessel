@@ -9,8 +9,9 @@ import type {
   LayerAlignmentSettings,
   ExportContainerLayout,
   PaletteState
-} from '../types';
-import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from './layoutDefaults';
+} from '@/types';
+import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
+import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
 // Vessel project file format version
 const PROJECT_VERSION = '1.0.0';
@@ -132,6 +133,11 @@ interface SerializedColorCycleLayerData {
   brushSpeed?: number;
   recolorSettings?: SerializedColorCycleRecolorSettings;
   brushState?: PersistedColorCycleBrushState;
+  canvasImageData?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  eraseMaskImageData?: string;
+  eraseMaskVersion?: number;
   // Legacy fallback data retained for backward compatibility
   webGLState?: {
     gradients: Array<{ gradientStops: Array<{ position: number; color: string }> }>;
@@ -342,13 +348,45 @@ function serializeLayer(layer: Layer): SerializedLayer {
   
   // Serialize color cycle data if present
   if (layer.layerType === 'color-cycle') {
-    const colorCycleData = layer.colorCycleData || {};
+    const sourceColorCycleData = layer.colorCycleData || {};
+    const canvasImageData = sourceColorCycleData.canvasImageData ?? captureCanvasImageData(sourceColorCycleData.canvas ?? null);
+    const eraseMaskImageData = sourceColorCycleData.eraseMaskImageData ?? captureCanvasImageData(sourceColorCycleData.eraseMask ?? null);
+    const colorCycleData = {
+      ...sourceColorCycleData,
+      canvasImageData: canvasImageData ?? sourceColorCycleData.canvasImageData,
+      eraseMaskImageData: eraseMaskImageData ?? sourceColorCycleData.eraseMaskImageData
+    };
     const serializedColorCycle: SerializedColorCycleLayerData = {
       gradient: colorCycleData.gradient,
       isAnimating: Boolean(colorCycleData.isAnimating),
       mode: colorCycleData.mode,
       brushSpeed: colorCycleData.brushSpeed
     };
+
+    if (colorCycleData.canvasImageData) {
+      try {
+        serializedColorCycle.canvasImageData = imageDataToDataUrl(colorCycleData.canvasImageData);
+        serializedColorCycle.canvasWidth = colorCycleData.canvasImageData.width;
+        serializedColorCycle.canvasHeight = colorCycleData.canvasImageData.height;
+      } catch (error) {
+        console.warn('[projectIO] Failed to serialize color cycle canvas image data:', error);
+      }
+    } else if (colorCycleData.canvas?.width && colorCycleData.canvas?.height) {
+      serializedColorCycle.canvasWidth = colorCycleData.canvas.width;
+      serializedColorCycle.canvasHeight = colorCycleData.canvas.height;
+    }
+
+    if (colorCycleData.eraseMaskImageData) {
+      try {
+        serializedColorCycle.eraseMaskImageData = imageDataToDataUrl(colorCycleData.eraseMaskImageData);
+      } catch (error) {
+        console.warn('[projectIO] Failed to serialize color cycle erase mask:', error);
+      }
+    }
+
+    if (typeof colorCycleData.eraseMaskVersion === 'number') {
+      serializedColorCycle.eraseMaskVersion = colorCycleData.eraseMaskVersion;
+    }
 
     if (colorCycleData.recolorSettings) {
       const recolor = colorCycleData.recolorSettings;
@@ -521,8 +559,10 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
   if (serializedLayer.colorCycleData) {
     // Create canvas for color cycle rendering
     const colorCycleCanvas = document.createElement('canvas');
-    colorCycleCanvas.width = projectWidth;
-    colorCycleCanvas.height = projectHeight;
+    const canvasWidth = serializedLayer.colorCycleData.canvasWidth ?? projectWidth;
+    const canvasHeight = serializedLayer.colorCycleData.canvasHeight ?? projectHeight;
+    colorCycleCanvas.width = Math.max(1, canvasWidth);
+    colorCycleCanvas.height = Math.max(1, canvasHeight);
 
     const baseColorCycleData: NonNullable<Layer['colorCycleData']> = {
       gradient: serializedLayer.colorCycleData.gradient,
@@ -538,6 +578,33 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
         baseColorCycleData.recolorSettings = await deserializeRecolorSettings(serializedLayer.colorCycleData.recolorSettings);
       } catch (error) {
         console.error('[projectIO] Failed to restore color cycle recolor settings:', error);
+      }
+    }
+
+    if (serializedLayer.colorCycleData.canvasImageData) {
+      try {
+        const imageData = await dataUrlToImageData(serializedLayer.colorCycleData.canvasImageData);
+        baseColorCycleData.canvasImageData = imageData;
+        const ctx = colorCycleCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+        ctx?.putImageData(imageData, 0, 0);
+      } catch (error) {
+        console.warn('[projectIO] Failed to restore color cycle canvas image data:', error);
+      }
+    }
+
+    if (serializedLayer.colorCycleData.eraseMaskImageData) {
+      try {
+        const eraseMaskData = await dataUrlToImageData(serializedLayer.colorCycleData.eraseMaskImageData);
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = eraseMaskData.width;
+        maskCanvas.height = eraseMaskData.height;
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+        maskCtx?.putImageData(eraseMaskData, 0, 0);
+        baseColorCycleData.eraseMask = maskCanvas;
+        baseColorCycleData.eraseMaskImageData = eraseMaskData;
+        baseColorCycleData.eraseMaskVersion = serializedLayer.colorCycleData.eraseMaskVersion ?? 0;
+      } catch (error) {
+        console.warn('[projectIO] Failed to restore color cycle erase mask:', error);
       }
     }
 

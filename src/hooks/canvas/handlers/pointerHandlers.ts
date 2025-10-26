@@ -122,7 +122,7 @@ const cl = {
   },
 };
 // -----------------------------------------------------------
-import { useAppStore } from '../../../stores/useAppStore';
+import { selectActivePaletteColor, useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type {
   ContourLinesBasis,
@@ -959,11 +959,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    store.setPaletteColor(activeSlot, sampledHex);
-
-    if (activeSlot === 'foreground') {
-      store.setBrushSettings({ color: sampledHex });
-    }
+    store.setActiveColor(sampledHex);
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1497,23 +1493,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             ? captureColorCycleBrushState(activeLayer.id)
             : null;
 
-        // Parse fill color - handle both hex and rgb formats
-        const fillColor = tools.brushSettings.color;
-        let r = 0, g = 0, b = 0;
-        
-        if (fillColor.startsWith('#')) {
-          // Handle hex color
-          const hex = fillColor.slice(1);
-          r = parseInt(hex.substring(0, 2), 16);
-          g = parseInt(hex.substring(2, 4), 16);
-          b = parseInt(hex.substring(4, 6), 16);
-        } else if (fillColor.startsWith('rgb')) {
-          // Handle rgb/rgba color
-          const matches = fillColor.match(/\d+/g);
-          if (matches) {
-            [r, g, b] = matches.map(Number);
-          }
-        }
+        const activeFillColor = selectActivePaletteColor(useAppStore.getState());
+        const { r, g, b } = hexToRgb(cssColorToHex(activeFillColor));
 
         // Perform flood fill on the current image data
         const { imageData: filledImageData, bounds: fillBounds } = floodFill(

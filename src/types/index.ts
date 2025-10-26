@@ -146,6 +146,7 @@ export interface Layer {
     eraseMask?: HTMLCanvasElement;
     eraseMaskImageData?: ImageData;
     eraseMaskVersion?: number;
+    brushState?: unknown;
 
     // Recolor mode data (new functionality)
     recolorSettings?: {

@@ -3,6 +3,7 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { applyViewStateFromSnapshot } from '@/history/helpers/viewState';
 import type { CanvasSnapshot, Layer } from '@/types';
+import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 
 const isColorCycleLayer = (
   layer: Layer | undefined | null
@@ -105,7 +106,8 @@ const rebuildLayersFromSnapshot = (
         ...snapshotColorCycle,
         canvas,
         isAnimating: false,
-        colorCycleBrush: snapshotColorCycle.colorCycleBrush
+        colorCycleBrush: undefined,
+        brushState: (snapshotColorCycle.brushState ?? null) as ColorCycleSerializedState | null,
       }
     } as Layer;
   });
@@ -130,6 +132,71 @@ export const applyLegacySnapshot = async (
     store.setLayers(restoredLayers);
     if (snapshot.activeLayerId) {
       store.setActiveLayer(snapshot.activeLayerId);
+    }
+
+    const manager = getColorCycleBrushManager();
+    const rehydrateColorCycleLayer = async (layer: Layer): Promise<void> => {
+      if (!isColorCycleLayer(layer) || !layer.colorCycleData) {
+        return;
+      }
+
+      const width = layer.colorCycleData.canvas?.width ?? layer.colorCycleData.canvasWidth ?? snapshot.projectSize?.width ?? store.project?.width ?? 1;
+      const height = layer.colorCycleData.canvas?.height ?? layer.colorCycleData.canvasHeight ?? snapshot.projectSize?.height ?? store.project?.height ?? 1;
+      if (!width || !height) {
+        return;
+      }
+
+      try {
+        store.initColorCycleForLayer(layer.id, width, height);
+      } catch {
+        // continue even if init fails
+      }
+
+      const liveState = useAppStore.getState();
+      const liveLayer = liveState.layers.find((candidate) => candidate.id === layer.id);
+      const liveColorData = liveLayer?.colorCycleData;
+
+      if (liveColorData?.canvas && layer.colorCycleData.canvasImageData) {
+        try {
+          const ctx = liveColorData.canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+          ctx?.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+        } catch {
+          // ignore canvas restore failures
+        }
+      }
+
+      if (liveColorData?.eraseMask && layer.colorCycleData.eraseMaskImageData) {
+        try {
+          const maskCtx = liveColorData.eraseMask.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+          maskCtx?.putImageData(layer.colorCycleData.eraseMaskImageData, 0, 0);
+        } catch {
+          // ignore mask restore failures
+        }
+      }
+
+      const brush = manager.getBrush(layer.id);
+      const serializedState = (layer.colorCycleData.brushState ?? null) as ColorCycleSerializedState | null;
+      if (brush && serializedState) {
+        const runtimeBrush = brush as unknown as {
+          restoreFullState?: (state: ColorCycleSerializedState, opts?: unknown) => void;
+          updateColorCycleTexture?: () => void;
+          render?: (ping?: boolean) => void;
+        };
+        try {
+          runtimeBrush.restoreFullState?.(serializedState);
+          runtimeBrush.updateColorCycleTexture?.();
+          if (layer.colorCycleData.hasContent) {
+            runtimeBrush.render?.(false);
+          }
+        } catch {
+          // brush restore best-effort
+        }
+      }
+    };
+
+    for (const layer of restoredLayers) {
+      // eslint-disable-next-line no-await-in-loop
+      await rehydrateColorCycleLayer(layer);
     }
 
     useAppStore.setState((state) => {
@@ -175,15 +242,6 @@ export const applyLegacySnapshot = async (
     } catch {
       // ignore capture failures
     }
-
-    restoredLayers.forEach((layer) => {
-      if (isColorCycleLayer(layer) && !layer.colorCycleData.colorCycleBrush) {
-        const canvas = layer.colorCycleData.canvas;
-        if (canvas) {
-          store.initColorCycleForLayer(layer.id, canvas.width, canvas.height);
-        }
-      }
-    });
 
     useAppStore.setState({
       layersNeedRecomposition: true,

@@ -418,6 +418,7 @@ import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDe
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
 import type { HistoryEntry } from '@/history/actionTypes';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
+import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -644,6 +645,7 @@ export interface AppState {
   // Palette State
   palette: PaletteState;
   setPaletteColor: (slot: 'foreground' | 'background', color: string) => void;
+  setActiveColor: (color: string) => void;
   swapPaletteColors: () => void;
   setActivePaletteSlot: (slot: 'foreground' | 'background') => void;
   syncPaletteFromTool: (color: string, slot?: 'foreground' | 'background') => void;
@@ -897,10 +899,12 @@ const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultPresetSettings
 };
 
-type PersistedColorCycleData = NonNullable<Layer['colorCycleData']> & {
+type PersistedColorCycleData = Omit<NonNullable<Layer['colorCycleData']>, 'brushState'> & {
   canvasImageData?: ImageData;
   canvasWidth?: number;
   canvasHeight?: number;
+  eraseMaskImageData?: ImageData;
+  brushState?: ColorCycleSerializedState | null;
 };
 
 type LayerHistorySnapshot = Layer & { colorCycleData?: PersistedColorCycleData };
@@ -918,7 +922,7 @@ interface CloneLayerForHistoryOptions {
   activeLayerId: string;
   isColorCycleTarget?: boolean;
   isColorCycleAction?: boolean;
-  previousLayersById?: Map<string, LayerHistorySnapshot>;
+  previousLayersById?: Map<string, LayerHistorySnapshot | Layer>;
   contextOptions?: CanvasRenderingContext2DSettings;
 }
 
@@ -940,9 +944,9 @@ const cloneLayerForHistory = (
     previousLayersById &&
     layer.id !== activeLayerId
   ) {
-    const previousLayer = previousLayersById.get(layer.id);
-    if (previousLayer) {
-      return previousLayer;
+    const previousLayer = previousLayersById.get(layer.id) as LayerHistorySnapshot | Layer | undefined;
+    if (previousLayer && 'alignment' in previousLayer) {
+      return previousLayer as LayerHistorySnapshot;
     }
   }
 
@@ -953,8 +957,9 @@ const cloneLayerForHistory = (
     ? cloneImageDataForHistory(layer.imageData)
     : layer.imageData;
 
+  const { colorCycleData: _colorCycleData, ...layerWithoutCC } = layer;
   const layerCopy: LayerHistorySnapshot = {
-    ...layer,
+    ...layerWithoutCC,
     layerType: layer.layerType,
     imageData: clonedImageData ?? null,
     alignment: cloneLayerAlignment(layer.alignment),
@@ -988,7 +993,7 @@ const cloneLayerForHistory = (
       }
     }
 
-    let hasCCPixels = captured ? false : true;
+    let hasCCPixels = Boolean(layer.colorCycleData.hasContent);
     if (captured?.data) {
       const data = captured.data;
       const step = Math.max(4, Math.floor(data.length / 4096));
@@ -1000,18 +1005,38 @@ const cloneLayerForHistory = (
       }
     }
 
-    if (hasCCPixels) {
-      layerCopy.colorCycleData = {
-        ...layer.colorCycleData,
-        gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
-        canvasImageData: captured,
-        canvasWidth: layer.colorCycleData.canvas?.width,
-        canvasHeight: layer.colorCycleData.canvas?.height,
-      };
-    } else {
-      delete layerCopy.colorCycleData;
-      layerCopy.layerType = 'normal';
-    }
+    const shouldCaptureBrushState =
+      layer.layerType === 'color-cycle' &&
+      (isColorCycleTarget || isCCActionForLayer || layer.id === activeLayerId);
+    const existingBrushState = (layer.colorCycleData.brushState ?? null) as ColorCycleSerializedState | null;
+    const brushState = shouldCaptureBrushState
+      ? captureColorCycleBrushState(layer.id)
+      : existingBrushState;
+
+    const canvasImageData = captured ?? layer.colorCycleData.canvasImageData;
+    const canvasWidth =
+      layer.colorCycleData.canvas?.width ??
+      captured?.width ??
+      layer.colorCycleData.canvasWidth;
+    const canvasHeight =
+      layer.colorCycleData.canvas?.height ??
+      captured?.height ??
+      layer.colorCycleData.canvasHeight;
+    const eraseMaskImageData =
+      captureCanvasImageData(layer.colorCycleData.eraseMask ?? null) ??
+      layer.colorCycleData.eraseMaskImageData;
+
+    layerCopy.layerType = 'color-cycle';
+    layerCopy.colorCycleData = {
+      ...layer.colorCycleData,
+      hasContent: hasCCPixels,
+      gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
+      canvasImageData,
+      canvasWidth,
+      canvasHeight,
+      eraseMaskImageData,
+      brushState,
+    } satisfies PersistedColorCycleData;
   }
 
   return layerCopy;
@@ -1040,7 +1065,7 @@ const createHistorySnapshotFromState = (
   const resolvedActiveLayerId =
     activeLayerId ?? state.activeLayerId ?? state.layers[0]?.id ?? '';
   const previousLayersById = previousSnapshot
-    ? new Map(previousSnapshot.layers.map((layer) => [layer.id, layer]))
+    ? new Map<string, LayerHistorySnapshot | Layer>(previousSnapshot.layers.map((layer) => [layer.id, layer]))
     : undefined;
 
   const contextOptions: CanvasRenderingContext2DSettings = { willReadFrequently: true };
@@ -1817,21 +1842,44 @@ export const useAppStore = create<AppState>()(
       })),
       
       setPaletteColor: (slot, color) => set((state) => {
+        const currentColor =
+          slot === 'background'
+            ? state.palette.backgroundColor
+            : state.palette.foregroundColor;
+        if (currentColor === color) {
+          return state;
+        }
+
         const nextPalette: PaletteState =
           slot === 'background'
             ? { ...state.palette, backgroundColor: color }
             : { ...state.palette, foregroundColor: color };
-        if (
-          state.palette.foregroundColor === nextPalette.foregroundColor &&
-          state.palette.backgroundColor === nextPalette.backgroundColor
-        ) {
-          return state;
-        }
-        return {
+
+        const result: Partial<AppState> = {
           palette: nextPalette,
-          paletteDirty: true
+          paletteDirty: true,
         };
+
+        if (state.project) {
+          result.project = { ...state.project, palette: nextPalette };
+        }
+
+        if (slot === 'foreground') {
+          result.tools = {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              color,
+            },
+          };
+        }
+
+        return result;
       }),
+      setActiveColor: (color) => {
+        const slot = (get().palette.activeSlot ?? 'foreground');
+        get().setPaletteColor(slot, color);
+      },
       swapPaletteColors: () => set((state) => {
         const nextPalette: PaletteState = {
           ...state.palette,
@@ -5966,6 +6014,10 @@ export const selectColorCycleSuspendDepth = (state: AppState): number =>
   state.colorCyclePlayback.suspendDepth;
 export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>
   state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0;
+export const selectActivePaletteColor = (state: AppState): string =>
+  state.palette.activeSlot === 'background'
+    ? state.palette.backgroundColor
+    : state.palette.foregroundColor;
 
 setColorCycleStoreStateGetter(() => useAppStore.getState());
 configureMaskManager({

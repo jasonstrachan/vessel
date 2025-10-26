@@ -2,32 +2,7 @@
 // Saves projects silently without user interaction
 
 import type { Project, Layer } from '../types';
-
-const captureCanvasImageData = (canvas?: HTMLCanvasElement | null): ImageData | undefined => {
-  if (typeof HTMLCanvasElement === 'undefined' || !canvas) {
-    return undefined;
-  }
-
-  const width = Math.floor((canvas as HTMLCanvasElement).width ?? 0);
-  const height = Math.floor((canvas as HTMLCanvasElement).height ?? 0);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return undefined;
-  }
-
-  const context = canvas.getContext('2d', {
-    willReadFrequently: true
-  } as CanvasRenderingContext2DSettings);
-  if (!context) {
-    return undefined;
-  }
-
-  try {
-    return context.getImageData(0, 0, width, height);
-  } catch (error) {
-    console.warn('[BackgroundStorage] Failed to capture canvas image data.', error);
-    return undefined;
-  }
-};
+import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
 const sanitizeColorCycleData = (
   colorCycleData: Layer['colorCycleData']
