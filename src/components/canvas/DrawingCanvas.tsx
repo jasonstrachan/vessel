@@ -103,6 +103,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
   const layers = useAppStore((state) => state.layers);
+  const referenceLayerId = useAppStore((state) => state.referenceLayerId);
   const activeLayerId = useAppStore((state) => state.activeLayerId);
   const selectionStart = useAppStore((state) => state.selectionStart);
   const selectionEnd = useAppStore((state) => state.selectionEnd);
@@ -288,7 +289,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [layers]);
   
   // Small cache to avoid redundant getImageData calls when pointer stays in same pixel
-  const lastSampleRef = useRef<{ x: number; y: number; color: string }>({ x: -1, y: -1, color: '#000000' });
+  const lastSampleRef = useRef<{ x: number; y: number; color: string; layerId: string | null }>({
+    x: -1,
+    y: -1,
+    color: '#000000',
+    layerId: null
+  });
 
   type CompositeSampleOptions = {
     radius?: number;
@@ -365,6 +371,53 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     []
   );
 
+  const sampleColorFromReferenceLayer = useCallback(
+    (x: number, y: number): string | null => {
+      if (!referenceLayerId) {
+        return null;
+      }
+
+      const layer = layers.find((candidate) => candidate.id === referenceLayerId);
+      if (!layer || !layer.framebuffer) {
+        return null;
+      }
+
+      const width = layer.framebuffer.width;
+      const height = layer.framebuffer.height;
+      if (width <= 0 || height <= 0) {
+        return null;
+      }
+
+      const clampedX = Math.max(0, Math.min(width - 1, Math.floor(x)));
+      const clampedY = Math.max(0, Math.min(height - 1, Math.floor(y)));
+
+      if (layer.imageData && layer.imageData.width === width && layer.imageData.height === height) {
+        const baseIndex = (clampedY * layer.imageData.width + clampedX) * 4;
+        const data = layer.imageData.data;
+        const alpha = data[baseIndex + 3];
+        if (alpha === 0) {
+          return null;
+        }
+        return rgbToHex(data[baseIndex], data[baseIndex + 1], data[baseIndex + 2]);
+      }
+
+      const ctx = layer.framebuffer.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as
+        | CanvasRenderingContext2D
+        | OffscreenCanvasRenderingContext2D
+        | null;
+      if (!ctx) {
+        return null;
+      }
+
+      const sample = ctx.getImageData(clampedX, clampedY, 1, 1).data;
+      if (sample[3] === 0) {
+        return null;
+      }
+      return rgbToHex(sample[0], sample[1], sample[2]);
+    },
+    [layers, referenceLayerId]
+  );
+
   // Helper function to sample color at position (cached per pixel)
   const sampleColorAtPosition = useCallback(
     (x: number, y: number): string => {
@@ -376,15 +429,24 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
       // Return cached color if sampling the same pixel as last time
       const last = lastSampleRef.current;
-      if (last.x === clampedX && last.y === clampedY) {
+      const cacheLayerId = referenceLayerId ?? null;
+      if (last.x === clampedX && last.y === clampedY && last.layerId === cacheLayerId) {
         return last.color;
       }
 
+      if (referenceLayerId) {
+        const referenceColor = sampleColorFromReferenceLayer(clampedX, clampedY);
+        if (referenceColor) {
+          lastSampleRef.current = { x: clampedX, y: clampedY, color: referenceColor, layerId: cacheLayerId };
+          return referenceColor;
+        }
+      }
+
       const color = sampleCompositeOpaque(clampedX, clampedY, { radius: 1, preferSolid: true });
-      lastSampleRef.current = { x: clampedX, y: clampedY, color };
+      lastSampleRef.current = { x: clampedX, y: clampedY, color, layerId: cacheLayerId };
       return color;
     },
-    [sampleCompositeOpaque]
+    [sampleCompositeOpaque, sampleColorFromReferenceLayer, referenceLayerId]
   );
   
   // Helper function to sample colors along line
@@ -1337,35 +1399,39 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   // Direct DOM keyboard handling for instant panning response
   React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore when typing in inputs or editable areas
-      const target = e.target as HTMLElement | null;
-      if (target && (
+    const isTextEntryTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+      if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
         target.isContentEditable
-      )) {
-        // Space must take precedence even if focus is in inputs (e.g., toggles)
-        if (e.code !== 'Space') return;
+      ) {
+        return true;
       }
+      return false;
+    };
 
-      // Read current scope (but allow Space regardless of most scopes)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+
+      // Read current scope (only allow Space handling on canvas or brush editor modal)
       const currentScope = useAppStore.getState().ui.keyboardScope;
+      const brushEditorStatus = useAppStore.getState().brushEditor.status;
+      const scopeAllowsSpace =
+        currentScope === 'canvas' || (currentScope === 'modal' && brushEditorStatus === 'EDITING');
 
       // Space should take precedence over most actions (except modals)
       if (e.code === 'Space' && !isSpacePressedRef.current) {
+        if (!scopeAllowsSpace || isTextEntryTarget(target)) {
+          return;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
         // quiet
-
-        // Allow panning even when brush editor modal is open - it should only block other modal types
-        if (currentScope === 'modal') {
-          // Check if it's the brush editor modal specifically - allow panning for brush editor
-          const brushEditor = useAppStore.getState().brushEditor;
-          if (brushEditor.status !== 'EDITING') return;
-        }
 
         isSpacePressedRef.current = true;
         setShowBrushCursorRef.current(false);
@@ -1385,19 +1451,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Non-space keys respect keyboard scope
       if (currentScope !== 'canvas') return;
     };
-    
+
     const handleKeyUp = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        target.isContentEditable
-      )) {
-        // Allow Space release to flow even if an input is focused
-        if (e.code !== 'Space') return;
-      }
+      const currentScope = useAppStore.getState().ui.keyboardScope;
+      const brushEditorStatus = useAppStore.getState().brushEditor.status;
+      const scopeAllowsSpace =
+        currentScope === 'canvas' || (currentScope === 'modal' && brushEditorStatus === 'EDITING');
+
       if (e.code === 'Space') {
+        if (!scopeAllowsSpace || isTextEntryTarget(target)) {
+          return;
+        }
+
         e.preventDefault();
         e.stopPropagation();
         isSpacePressedRef.current = false;
@@ -1829,7 +1895,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     lastCompositeHashRef.current = layersHash;
     compositeCanvasDirtyRef.current = false;
     // Reset last sampled pixel cache after recomposition
-    lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)' };
+    lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null };
 
     // Reset the recomposition flag if it was set
     if (layersNeedRecomposition) {

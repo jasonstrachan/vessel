@@ -190,6 +190,7 @@ const PROPERTY_MINIFY_MAP = {
   includeHiddenLayers: 'ihl',
   embedCanvasFallback: 'ecf',
   minifyOutput: 'mo',
+  htmlTitle: 'htl',
   perfectLoop: 'plp',
   fps: 'fps',
   totalFrames: 'tfm',
@@ -338,6 +339,7 @@ export interface WebGLExportMetadata {
     minifyOutput: boolean;
     perfectLoop: boolean;
     bundleFormat: WebGLExportBundleFormat;
+    htmlTitle: string;
   };
   layers: WebGLLayerMetadata[];
   gradients?: SerializedGradientStops[];
@@ -370,6 +372,7 @@ export interface WebGLExportRequest {
   enableGobletDiagnostics?: boolean;
   assetPrefix?: string;
   compositeLayersToCanvas?: (targetCanvas: HTMLCanvasElement) => void;
+  htmlTitle?: string;
 }
 
 const isHTMLCanvas = (canvas: unknown): canvas is HTMLCanvasElement => {
@@ -2017,7 +2020,13 @@ const downloadBlob = (blob: Blob, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-type GobletAssetName = 'index.html' | 'goblet.js' | 'alignFitResolver.js' | 'num.js' | 'fflate-inflate.js';
+type GobletAssetName =
+  | 'index.html'
+  | 'goblet.js'
+  | 'alignFitResolver.js'
+  | 'num.js'
+  | 'fflate-inflate.js'
+  | 'goblet-inline.js';
 
 const gobletAssetCache = new Map<string, Promise<string>>();
 
@@ -2120,6 +2129,41 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
     .replace(/\$/g, '\\$')
     .replace(/</g, '\\u003C')
     .replace(/>/g, '\\u003E');
+};
+
+const DEFAULT_HTML_TITLE = 'Goblet';
+
+const sanitizeHtmlTitle = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return DEFAULT_HTML_TITLE;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return DEFAULT_HTML_TITLE;
+  }
+  return trimmed.slice(0, 120);
+};
+
+const escapeHtmlEntities = (value: string): string => {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+const applyHtmlTitleToTemplate = (html: string, title: string): string => {
+  const escapedTitle = escapeHtmlEntities(title);
+  const titlePattern = /<title>[\s\S]*?<\/title>/i;
+  if (titlePattern.test(html)) {
+    return html.replace(titlePattern, `<title>${escapedTitle}</title>`);
+  }
+  const headClose = html.indexOf('</head>');
+  if (headClose !== -1) {
+    return `${html.slice(0, headClose)}<title>${escapedTitle}</title>${html.slice(headClose)}`;
+  }
+  return `<title>${escapedTitle}</title>${html}`;
 };
 
 const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\$&');
@@ -2346,38 +2390,10 @@ const buildInlineNumRuntime = (numJs: string): string => {
   return sanitized ? `${sanitized}\n` : '';
 };
 
-const buildSingleFileScript = (
-  scriptContent: string,
-  gobletRuntime: string,
-  alignRuntime: string,
-  numRuntime: string,
-  inflateRuntime: string,
-  metadataJson: string,
-  diagnosticsEnabled: boolean
-): string => {
-  const withoutImport = stripGobletImport(scriptContent);
-  const runtimeWithoutAlignImport = stripModuleImportStatement(gobletRuntime, './alignFitResolver.js');
-  const runtimeWithoutNumImport = stripModuleImportStatement(runtimeWithoutAlignImport, './num.js');
-  const runtimeWithoutInflateImport = stripModuleImportStatement(runtimeWithoutNumImport, './fflate-inflate.js');
-  const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutInflateImport);
-  const inlineInflate = inlineInflateAlreadyPresent ? '' : buildInlineInflateRuntime(inflateRuntime);
-  const inlineAlign = buildInlineAlignRuntime(alignRuntime);
-  const inlineNum = buildInlineNumRuntime(numRuntime);
-  const runtimePrefixParts = [] as string[];
-  if (inlineNum) {
-    runtimePrefixParts.push(inlineNum);
-  }
-  if (inlineAlign) {
-    runtimePrefixParts.push(inlineAlign);
-  }
-  if (inlineInflate) {
-    runtimePrefixParts.push(inlineInflate);
-  }
-  const runtimePrefix = runtimePrefixParts.length > 0 ? `\n${runtimePrefixParts.join('\n')}\n` : '\n';
-  const runtime = `${runtimePrefix}${runtimeWithoutInflateImport}\n`;
+const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: boolean): string => {
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
-  const snippet = `
+  return `
       const diagnosticsDefault = ${diagnosticsLiteral};
       const resolveDiagnostics = () => {
         if (!diagnosticsDefault) {
@@ -2505,6 +2521,50 @@ const buildSingleFileScript = (
       };
       void renderPackagedBundle();
 `;
+};
+
+const buildSingleFileScript = (
+  scriptContent: string,
+  gobletRuntime: string,
+  alignRuntime: string,
+  numRuntime: string,
+  inflateRuntime: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean
+): string => {
+  const withoutImport = stripGobletImport(scriptContent);
+  const runtimeWithoutAlignImport = stripModuleImportStatement(gobletRuntime, './alignFitResolver.js');
+  const runtimeWithoutNumImport = stripModuleImportStatement(runtimeWithoutAlignImport, './num.js');
+  const runtimeWithoutInflateImport = stripModuleImportStatement(runtimeWithoutNumImport, './fflate-inflate.js');
+  const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutInflateImport);
+  const inlineInflate = inlineInflateAlreadyPresent ? '' : buildInlineInflateRuntime(inflateRuntime);
+  const inlineAlign = buildInlineAlignRuntime(alignRuntime);
+  const inlineNum = buildInlineNumRuntime(numRuntime);
+  const runtimePrefixParts = [] as string[];
+  if (inlineNum) {
+    runtimePrefixParts.push(inlineNum);
+  }
+  if (inlineAlign) {
+    runtimePrefixParts.push(inlineAlign);
+  }
+  if (inlineInflate) {
+    runtimePrefixParts.push(inlineInflate);
+  }
+  const runtimePrefix = runtimePrefixParts.length > 0 ? `\n${runtimePrefixParts.join('\n')}\n` : '\n';
+  const runtime = `${runtimePrefix}${runtimeWithoutInflateImport}\n`;
+  const snippet = buildSingleFileRenderSnippet(metadataJson, diagnosticsEnabled);
+  return `${runtime}${withoutImport}${snippet}`;
+};
+
+const buildSingleFileScriptFromBundledRuntime = (
+  scriptContent: string,
+  bundledRuntime: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean
+): string => {
+  const withoutImport = stripGobletImport(scriptContent);
+  const runtime = bundledRuntime.endsWith('\n') ? bundledRuntime : `${bundledRuntime}\n`;
+  const snippet = buildSingleFileRenderSnippet(metadataJson, diagnosticsEnabled);
   return `${runtime}${withoutImport}${snippet}`;
 };
 
@@ -2569,6 +2629,17 @@ const createSingleFileGobletHtml = (
   );
 };
 
+const createSingleFileGobletHtmlFromBundledRuntime = (
+  template: string,
+  bundledRuntime: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean
+): string => {
+  return transformModuleScript(template, (script) =>
+    buildSingleFileScriptFromBundledRuntime(script, bundledRuntime, metadataJson, diagnosticsEnabled)
+  );
+};
+
 export const exportProjectAsWebGL = async (
   options: WebGLExportRequest
 ): Promise<WebGLExportMetadata> => {
@@ -2581,6 +2652,7 @@ export const exportProjectAsWebGL = async (
   gobletDiagnosticsActive = diagnosticsEnabled;
 
   try {
+    const resolvedHtmlTitle = sanitizeHtmlTitle(options.htmlTitle ?? DEFAULT_HTML_TITLE);
 
   const metricsMap = new Map<string, LayerExportMetrics>();
   options.layers.forEach((layer) => {
@@ -2850,7 +2922,8 @@ export const exportProjectAsWebGL = async (
       embedCanvasFallback: options.embedCanvasFallback,
       minifyOutput: options.minify,
       perfectLoop: options.perfectLoop,
-      bundleFormat
+      bundleFormat,
+      htmlTitle: resolvedHtmlTitle
     },
     layers: metadataLayers
   };
@@ -2901,26 +2974,64 @@ export const exportProjectAsWebGL = async (
   }
 
   let indexHtml: string;
-  let gobletJs: string;
-  let alignJs: string;
-  let numJs: string;
-  let inflateJs: string;
   try {
-    [indexHtml, gobletJs, alignJs, numJs, inflateJs] = await Promise.all([
-      fetchGobletAsset('index.html', options.assetPrefix),
-      fetchGobletAsset('goblet.js', options.assetPrefix),
-      fetchGobletAsset('alignFitResolver.js', options.assetPrefix),
-      fetchGobletAsset('num.js', options.assetPrefix),
-      fetchGobletAsset('fflate-inflate.js', options.assetPrefix)
-    ]);
+    indexHtml = await fetchGobletAsset('index.html', options.assetPrefix);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
-    throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
+      throw new Error(`[webglExporter] Failed to load Goblet template: ${message}`);
   }
+  const indexHtmlWithTitle = applyHtmlTitleToTemplate(indexHtml, resolvedHtmlTitle);
+
+  let baseRuntimeAssetsPromise: Promise<[string, string, string, string]> | null = null;
+  const ensureBaseRuntimeAssets = () => {
+    if (!baseRuntimeAssetsPromise) {
+      baseRuntimeAssetsPromise = Promise.all([
+        fetchGobletAsset('goblet.js', options.assetPrefix),
+        fetchGobletAsset('alignFitResolver.js', options.assetPrefix),
+        fetchGobletAsset('num.js', options.assetPrefix),
+        fetchGobletAsset('fflate-inflate.js', options.assetPrefix)
+      ]);
+    }
+    return baseRuntimeAssetsPromise;
+  };
+
+  const loadBundledRuntime = async (): Promise<string | null> => {
+    try {
+      return await fetchGobletAsset('goblet-inline.js', options.assetPrefix);
+    } catch (error) {
+      gobletDebugWarn('[webglExporter] Failed to load prebundled Goblet runtime, using legacy inline path', error);
+      return null;
+    }
+  };
 
   if (bundleFormat === 'single-html') {
+    const bundledRuntime = await loadBundledRuntime();
+    if (bundledRuntime) {
+      const singleFileHtml = createSingleFileGobletHtmlFromBundledRuntime(
+        indexHtmlWithTitle,
+        bundledRuntime,
+        json,
+        diagnosticsEnabled
+      );
+      const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
+      downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
+      return metadata;
+    }
+
+    let gobletJs: string;
+    let alignJs: string;
+    let numJs: string;
+    let inflateJs: string;
+    try {
+      [gobletJs, alignJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+    } catch (error) {
+      baseRuntimeAssetsPromise = null;
+      const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
+      throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
+    }
+
     const singleFileHtml = createSingleFileGobletHtml(
-      indexHtml,
+      indexHtmlWithTitle,
       gobletJs,
       alignJs,
       numJs,
@@ -2934,9 +3045,21 @@ export const exportProjectAsWebGL = async (
   }
 
   if (bundleFormat === 'zip') {
+    let gobletJs: string;
+    let alignJs: string;
+    let numJs: string;
+    let inflateJs: string;
+    try {
+      [gobletJs, alignJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+    } catch (error) {
+      baseRuntimeAssetsPromise = null;
+      const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
+      throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
+    }
+
     const JSZip = await loadJSZip();
     const zip = new JSZip();
-    zip.file('index.html', createZipGobletHtml(indexHtml, jsonFilename, json, diagnosticsEnabled));
+    zip.file('index.html', createZipGobletHtml(indexHtmlWithTitle, jsonFilename, json, diagnosticsEnabled));
     zip.file('goblet.js', gobletJs);
     zip.file('alignFitResolver.js', alignJs);
     zip.file('num.js', numJs);

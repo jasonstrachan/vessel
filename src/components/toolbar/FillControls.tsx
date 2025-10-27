@@ -42,6 +42,20 @@ export default function FillControls() {
           />
         </div>
       </div>
+
+      {/* Erase Instead */}
+      <div>
+        <div className="flex items-center gap-2">
+          <label htmlFor="fill-erase-toggle" className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            Erase
+          </label>
+          <CustomSwitch
+            id="fill-erase-toggle"
+            checked={fillSettings.eraseInstead}
+            onChange={(checked) => setFillSettings({ eraseInstead: checked })}
+          />
+        </div>
+      </div>
     </div>
   );
 }

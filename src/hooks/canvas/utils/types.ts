@@ -35,6 +35,7 @@ export interface ToolsState {
   fillSettings: {
     threshold: number;
     contiguous: boolean;
+    eraseInstead: boolean;
   };
   eraserSettings?: {
     opacity?: number;

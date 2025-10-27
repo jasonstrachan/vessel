@@ -145,8 +145,8 @@ const ColorPickerPanel = React.memo(() => {
       </div>
 
       {/* RGB Sliders - Full Width Section */}
-      <div className="px-2 pb-1 bg-[#1A1A1A]">
-        <div className="flex items-start gap-3">
+      <div className="px-0 pb-1 bg-[#1A1A1A]">
+        <div className="flex items-start gap-0">
           <PaletteSwatches
             foregroundColor={foregroundColor}
             backgroundColor={backgroundColor}

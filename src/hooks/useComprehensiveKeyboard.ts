@@ -160,16 +160,12 @@ export function useComprehensiveKeyboard({
 
     // Ignore if typing in text-focused inputs or editable elements
     const target = event.target as HTMLElement | null;
+    if (isTextEntryTarget(target)) {
+      return;
+    }
     if (target instanceof HTMLInputElement) {
-      if (isTextEntryTarget(target)) {
-        if (event.code !== 'Space') {
-          return;
-        }
-      } else if (event.code !== 'Space' && !isBracketShortcut) {
-        return;
-      }
-    } else if (isTextEntryTarget(target)) {
-      if (event.code !== 'Space') {
+      // Non-textual inputs (e.g., sliders) still allow Space and bracket shortcuts
+      if (event.code !== 'Space' && !isBracketShortcut) {
         return;
       }
     } else if (target instanceof HTMLSelectElement) {
@@ -462,6 +458,14 @@ export function useComprehensiveKeyboard({
       const currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
       if (!allowedScopes.includes(currentScope) && event.code !== 'Space') return;
     } catch {}
+
+    const target = event.target as HTMLElement | null;
+    if (isTextEntryTarget(target)) {
+      return;
+    }
+    if (target instanceof HTMLSelectElement && event.code !== 'Space') {
+      return;
+    }
 
 
     // Update modifier states

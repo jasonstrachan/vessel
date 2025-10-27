@@ -188,6 +188,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglMinify = webglExportSettings.minifyOutput;
   const webglBundleFormat = webglExportSettings.bundleFormat;
   const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
+  const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
   const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('fill');
 
   const [isExporting, setIsExporting] = useState(false);
@@ -495,9 +496,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   }, [getColorCycleGradient]);
 
   const filenameBase = useMemo(() => {
-    const name = project?.name || 'Vessel';
-    return name.replace(/\s+/g, '_');
-  }, [project?.name]);
+    const sourceName = exportKind === 'webgl'
+      ? (webglHtmlTitle?.trim() || 'Goblet')
+      : (project?.name?.trim() || 'Vessel');
+    const sanitized = sourceName
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Za-z0-9._-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    return sanitized || 'Vessel';
+  }, [exportKind, project?.name, webglHtmlTitle]);
 
   const composeBaseCanvas = (): HTMLCanvasElement => {
     const base = document.createElement('canvas');
@@ -1107,7 +1115,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       filenameBase,
       bundleFormat: webglBundleFormat,
       enableGobletDiagnostics: webglEnableDiagnostics,
-      compositeLayersToCanvas
+      compositeLayersToCanvas,
+      htmlTitle: webglHtmlTitle
     });
 
     setProgress(100);
@@ -1702,6 +1711,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
                     {BUNDLE_FORMAT_DESCRIPTIONS[webglBundleFormat]}
                   </p>
+                  <div className="flex flex-col gap-1">
+                    <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`} htmlFor="goblet-html-title">
+                      HTML title
+                    </label>
+                    <Input
+                      id="goblet-html-title"
+                      type="text"
+                      maxLength={120}
+                      value={webglHtmlTitle}
+                      onChange={(event) => updateWebglExportSettings({ htmlTitle: event.target.value })}
+                      placeholder="Goblet"
+                      className={INPUT_OVERRIDE_CLASS}
+                      disabled={isExporting}
+                    />
+                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                      Used as the document title for Goblet HTML exports{webglBundleFormat === 'json' ? ' (JSON-only downloads ignore this value).' : '.'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

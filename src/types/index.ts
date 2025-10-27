@@ -74,6 +74,7 @@ export interface WebGLExportSettings {
   minifyOutput: boolean;
   bundleFormat: WebGLExportBundleFormat;
   enableGobletDiagnostics: boolean;
+  htmlTitle: string;
 }
 
 export interface PaletteState {
@@ -312,6 +313,7 @@ export interface ToolState {
   fillSettings: {
     threshold: number;
     contiguous: boolean;
+    eraseInstead: boolean;
   };
   shapeMode: boolean; // When true, draws closed polygon shapes with current brush
 }

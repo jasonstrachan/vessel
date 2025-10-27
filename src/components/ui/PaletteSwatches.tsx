@@ -60,7 +60,7 @@ const PaletteSwatches = function PaletteSwatches({
     const isActive = activeSlot === slot;
     const outlineColor = outlineColorFor(background);
     const activeStyle = isActive
-      ? { boxShadow: `0 0 0 2px ${outlineColor}` }
+      ? { borderColor: outlineColor }
       : undefined;
 
     return (
@@ -78,7 +78,7 @@ const PaletteSwatches = function PaletteSwatches({
   };
 
   return (
-    <div className="flex w-8 flex-col items-center gap-0 py-1">
+    <div className="flex w-8 flex-col items-center gap-0">
       {renderSwatch(foregroundColor, 'foreground', 'foreground')}
       {renderSwatch(backgroundColor, 'background', 'background')}
     </div>

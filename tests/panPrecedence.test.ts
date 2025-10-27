@@ -35,7 +35,7 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
         brushShape: ({} as any).ROUND || 'round',
         pressureEnabled: false,
       },
-      fillSettings: { threshold: 0, contiguous: true },
+      fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
       eraserSettings: { opacity: 1 },
       shapeMode: false,
     },

@@ -30,6 +30,8 @@ const LayersPanel: React.FC = () => {
   const setSelectedLayerIds = useAppStore(state => state.setSelectedLayerIds);
   const initColorCycleForLayer = useAppStore(state => state.initColorCycleForLayer);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const referenceLayerId = useAppStore(state => state.referenceLayerId);
+  const setReferenceLayer = useAppStore(state => state.setReferenceLayer);
 
   const handleAddRegularLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
@@ -279,6 +281,7 @@ const LayersPanel: React.FC = () => {
           const isColorCycle = layer.layerType === 'color-cycle';
           const gradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
           const isMenuOpen = layerMenuState?.layerId === layer.id;
+          const isReferenceLayer = referenceLayerId === layer.id;
           const sliderPercent = Math.round(layer.opacity * 100);
           const rowVisualClass = isActive
             ? 'bg-[#D9D9D9] text-[#1A1A1A]'
@@ -357,9 +360,27 @@ const LayersPanel: React.FC = () => {
                         <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
                           {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
                         </span>
+                        {isReferenceLayer && (
+                          <span
+                            className="px-1 text-[9px] leading-4 bg-[#2F3C27] text-[#C9F6B5] border border-[#47603D]"
+                            title="Reference layer for sampling"
+                          >
+                            Reference
+                          </span>
+                        )}
                       </>
                     ) : (
-                      <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>Regular</span>
+                      <>
+                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>Regular</span>
+                        {isReferenceLayer && (
+                          <span
+                            className="px-1 text-[9px] leading-4 bg-[#2F3C27] text-[#C9F6B5] border border-[#47603D]"
+                            title="Reference layer for sampling"
+                          >
+                            Reference
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -405,7 +426,7 @@ const LayersPanel: React.FC = () => {
                           event.stopPropagation();
                           handleToggleTransparencyLock(layer.id);
                         }}
-                        className={`w-full flex items-center gap-3 px-2 py-1.5 text-sm border border-[#545454] transition-colors ${
+                        className={`w-full flex items-center gap-3 px-2 py-1 text-xs border border-[#545454] transition-colors ${
                           layer.transparencyLocked ? 'bg-[#3C3C3C] text-[#F8D866]' : 'bg-transparent text-[#B0B0B0]'
                         } hover:bg-[#3C3C3C]`}
                         aria-pressed={layer.transparencyLocked === true}
@@ -419,11 +440,26 @@ const LayersPanel: React.FC = () => {
                           event.stopPropagation();
                           handleToggleLock(layer.id);
                         }}
-                        className={`w-full flex items-center justify-center px-2 py-1 text-sm border border-[#545454] transition-colors ${
+                        className={`w-full flex items-center justify-center px-2 py-1 text-xs border border-[#545454] transition-colors ${
                           layer.locked ? 'text-[#D9D9D9] bg-[#3A3A3A]' : 'text-[#B0B0B0] bg-transparent'
                         } hover:bg-[#3A3A3A]`}
                       >
                         <span>{layer.locked ? 'Unlock layer' : 'Lock layer'}</span>
+                      </button>
+                      <button
+                        onClick={event => {
+                          event.stopPropagation();
+                          setReferenceLayer(isReferenceLayer ? null : layer.id);
+                        }}
+                        className={`w-full flex items-center justify-center px-2 py-1 text-xs border transition-colors ${
+                          isReferenceLayer
+                            ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29]'
+                            : 'border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A]'
+                        }`}
+                        title="Use this layer when sampling colors"
+                        aria-pressed={isReferenceLayer}
+                      >
+                        <span>{isReferenceLayer ? 'Unmark reference layer' : 'Mark as reference layer'}</span>
                       </button>
                       <button
                         onClick={event => {
@@ -434,7 +470,7 @@ const LayersPanel: React.FC = () => {
                           handleDeleteLayer(layer.id);
                           setLayerMenuState(null);
                         }}
-                        className={`w-full flex items-center justify-center px-2 py-1 text-sm border transition-colors ${
+                        className={`w-full flex items-center justify-center px-2 py-1 text-xs border transition-colors ${
                           layers.length > 1
                             ? 'border-[#803232] text-[#FF6B6B] hover:bg-[#3A1F1F]'
                             : 'border-[#3A3A3A] text-[#555] cursor-not-allowed'

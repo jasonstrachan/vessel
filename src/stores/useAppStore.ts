@@ -420,6 +420,59 @@ import type { HistoryEntry } from '@/history/actionTypes';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
+const COLOR_CYCLE_PRESET_IDS = ['color-cycle-stroke', 'color-cycle-triangle', 'color-cycle-shape'] as const;
+
+type GradientStops = BrushSettings['colorCycleGradient'];
+
+const cloneGradientStops = (stops?: GradientStops): GradientStops => {
+  if (!stops) {
+    return undefined;
+  }
+  return stops.map(stop => ({ ...stop }));
+};
+
+const gradientsEqual = (a?: GradientStops, b?: GradientStops): boolean => {
+  if (!a || !b) {
+    return !a && !b;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    const lhs = a[i];
+    const rhs = b[i];
+    if (!rhs) {
+      return false;
+    }
+    if (
+      (lhs.color ?? '') !== (rhs.color ?? '') ||
+      Number(lhs.position ?? 0) !== Number(rhs.position ?? 0)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const findStoredColorCycleGradient = (
+  savedSettings: Record<string, Partial<BrushSettings>>
+): { gradient: NonNullable<GradientStops>; version?: number } | null => {
+  for (const presetId of COLOR_CYCLE_PRESET_IDS) {
+    const entry = savedSettings[presetId];
+    if (entry?.colorCycleGradient && entry.colorCycleGradient.length > 0) {
+      return {
+        gradient: entry.colorCycleGradient as NonNullable<GradientStops>,
+        version: entry.colorCycleGradientVersion
+      };
+    }
+  }
+  return null;
+};
+
+const isColorCyclePresetId = (id: string): id is (typeof COLOR_CYCLE_PRESET_IDS)[number] => {
+  return COLOR_CYCLE_PRESET_IDS.includes(id as (typeof COLOR_CYCLE_PRESET_IDS)[number]);
+};
+
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
   return {
@@ -842,12 +895,14 @@ export interface AppState {
   layers: Layer[];
   activeLayerId: string | null;
   selectedLayerIds: string[];
+  referenceLayerId: string | null;
   currentLayer: number;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>) => void;
   setActiveLayer: (id: string) => void;
   setLayers: (layers: Layer[]) => void;
+  setReferenceLayer: (id: string | null) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
@@ -1255,7 +1310,8 @@ const defaultToolState: ToolState = {
   },
   fillSettings: {
     threshold: 0,
-    contiguous: true
+    contiguous: true,
+    eraseInstead: false
   },
   shapeMode: false
 };
@@ -1625,7 +1681,8 @@ export const useAppStore = create<AppState>()(
           embedCanvasFallback: false,
           minifyOutput: true,
           bundleFormat: 'single-html',
-          enableGobletDiagnostics: process.env.NODE_ENV !== 'production'
+          enableGobletDiagnostics: process.env.NODE_ENV !== 'production',
+          htmlTitle: 'Goblet'
         },
       setProject: (project) => set((state) => {
         const normalized = normalizeProject(project);
@@ -1693,7 +1750,8 @@ export const useAppStore = create<AppState>()(
           project: projectWithPalette,
           palette: nextPalette,
           tools: nextTools,
-          paletteDirty: false
+          paletteDirty: false,
+          referenceLayerId: null
         };
       }),
       setExportLayout: (layout) => set((state) => {
@@ -2873,31 +2931,6 @@ export const useAppStore = create<AppState>()(
         try {
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
-        const gradientsEqual = (
-          a?: BrushSettings['colorCycleGradient'],
-          b?: BrushSettings['colorCycleGradient']
-        ): boolean => {
-          if (!a || !b) {
-            return !a && !b;
-          }
-          if (a.length !== b.length) {
-            return false;
-          }
-          for (let i = 0; i < a.length; i++) {
-            const lhs = a[i];
-            const rhs = b[i];
-            if (!rhs) {
-              return false;
-            }
-            if (
-              (lhs.color ?? '') !== (rhs.color ?? '') ||
-              Number(lhs.position ?? 0) !== Number(rhs.position ?? 0)
-            ) {
-              return false;
-            }
-          }
-          return true;
-        };
         const explicitGradientVersion = settings.colorCycleGradientVersion;
         if (settings.colorCycleGradient !== undefined && explicitGradientVersion === undefined) {
           const gradientChanged = !gradientsEqual(
@@ -3381,6 +3414,7 @@ export const useAppStore = create<AppState>()(
         const userOverrides = get().loadBrushSettings(preset.id);
         const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
         const currentSettings = state.tools.brushSettings;
+        let updatedBrushSpecificSettings = state.brushSpecificSettings;
 
 
         // Determine if the new preset is custom or default
@@ -3406,7 +3440,7 @@ export const useAppStore = create<AppState>()(
           blendMode: currentSettings.blendMode,
           size: appropriateSize            // Use appropriate size based on brush type
         };
-        
+
         // Preserve Color Cycle dynamics across preset switches unless user changes them
         // This keeps animation feel consistent between Color Cycle variants
         if (currentSettings.colorCycleSpeed !== undefined) {
@@ -3418,7 +3452,47 @@ export const useAppStore = create<AppState>()(
         if (currentSettings.colorCycleFillMode !== undefined) {
           newBrushSettings.colorCycleFillMode = currentSettings.colorCycleFillMode;
         }
-        
+
+        const previousGradient = currentSettings.colorCycleGradient;
+        const previousGradientVersion = currentSettings.colorCycleGradientVersion;
+        const storedGradientEntry = findStoredColorCycleGradient(state.brushSpecificSettings);
+        const shouldApplyColorCycleGradient = isColorCycleBrushShape(newBrushSettings.brushShape);
+
+        if (shouldApplyColorCycleGradient) {
+          const gradientSource = previousGradient && previousGradient.length > 0
+            ? previousGradient
+            : storedGradientEntry?.gradient;
+          const gradientVersionSource = previousGradient && previousGradient.length > 0
+            ? previousGradientVersion
+            : storedGradientEntry?.version;
+
+          if (gradientSource && gradientSource.length > 0) {
+            const gradientClone = cloneGradientStops(gradientSource);
+            if (gradientClone && gradientClone.length > 0) {
+              newBrushSettings.colorCycleGradient = gradientClone;
+              if (typeof gradientVersionSource === 'number') {
+                newBrushSettings.colorCycleGradientVersion = gradientVersionSource;
+              }
+
+              if (isColorCyclePresetId(preset.id)) {
+                const existingSettings = state.brushSpecificSettings[preset.id] || {};
+                updatedBrushSpecificSettings = {
+                  ...updatedBrushSpecificSettings,
+                  [preset.id]: {
+                    ...existingSettings,
+                    colorCycleGradient: cloneGradientStops(gradientSource),
+                    ...(typeof gradientVersionSource === 'number'
+                      ? { colorCycleGradientVersion: gradientVersionSource }
+                      : existingSettings.colorCycleGradientVersion !== undefined
+                        ? { colorCycleGradientVersion: existingSettings.colorCycleGradientVersion }
+                        : {})
+                  }
+                };
+              }
+            }
+          }
+        }
+
         // Handle custom brush presets specifically
         if (preset.isCustomBrush) {
           const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
@@ -3548,8 +3622,11 @@ export const useAppStore = create<AppState>()(
         }
 
         // Clear temporary brush when switching away from custom brushes
+        const brushSpecificSettingsChanged = updatedBrushSpecificSettings !== state.brushSpecificSettings;
+
         const updatedState = {
           ...state,
+          ...(brushSpecificSettingsChanged ? { brushSpecificSettings: updatedBrushSpecificSettings } : {}),
           currentBrushPreset: preset,
           activeBrushComponents: components,
           globalBrushSize: appropriateSize, // Update global size to match new brush
@@ -3652,6 +3729,7 @@ export const useAppStore = create<AppState>()(
       layers: [],
       activeLayerId: null,
       selectedLayerIds: [],
+      referenceLayerId: null,
       currentLayer: 0,
       addLayer: (layer) => {
         if (__DEV__) {
@@ -3861,7 +3939,8 @@ export const useAppStore = create<AppState>()(
           return {
             layers: syncedLayers,
             activeLayerId: newActiveLayerId,
-          selectedLayerIds: nextSelection
+            selectedLayerIds: nextSelection,
+            referenceLayerId: state.referenceLayerId === id ? null : state.referenceLayerId
           // Remove the project update entirely - only update top-level layers
         };
         });
@@ -4283,9 +4362,19 @@ export const useAppStore = create<AppState>()(
 
         set({
           layers: syncedLayers,
-          selectedLayerIds: nextSelection
+          selectedLayerIds: nextSelection,
+          referenceLayerId: state.referenceLayerId && syncedLayers.some(layer => layer.id === state.referenceLayerId)
+            ? state.referenceLayerId
+            : null
         });
       },
+      setReferenceLayer: (id) => set((state) => {
+        if (id && !state.layers.some(layer => layer.id === id)) {
+          return { referenceLayerId: null };
+        }
+
+        return { referenceLayerId: id ?? null };
+      }),
       updateLayerAlignment: (layerId, alignment) => set((state) => {
         const targetLayer = state.layers.find(layer => layer.id === layerId);
 
@@ -5354,6 +5443,7 @@ export const useAppStore = create<AppState>()(
             activeLayerId: loadedProject.layers[0]?.id || null,
             selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
             layersNeedRecomposition: true,
+            referenceLayerId: null,
             // Restore view state if available
             canvas: loadedProject.viewState ? {
               ...get().canvas,
@@ -5612,6 +5702,7 @@ export const useAppStore = create<AppState>()(
           layers: syncedLayers, // Only set top-level layers
           activeLayerId: defaultLayerId,
           selectedLayerIds: defaultLayerId ? [defaultLayerId] : [],
+          referenceLayerId: null,
           canvas: {
             ...get().canvas,
             canvasWidth: width,

@@ -1492,15 +1492,21 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             ? captureColorCycleBrushState(activeLayer.id)
             : null;
 
-        const activeFillColor = selectActivePaletteColor(useAppStore.getState());
-        const { r, g, b } = hexToRgb(cssColorToHex(activeFillColor));
+        const shouldErase = tools.fillSettings.eraseInstead;
+        const fillColor = shouldErase
+          ? { r: 0, g: 0, b: 0, a: 0 }
+          : (() => {
+              const activeFillColor = selectActivePaletteColor(useAppStore.getState());
+              const { r, g, b } = hexToRgb(cssColorToHex(activeFillColor));
+              return { r, g, b, a: 255 };
+            })();
 
         // Perform flood fill on the current image data
         const { imageData: filledImageData, bounds: fillBounds } = floodFill(
           currentImageData,
           Math.floor(worldPos.x),
           Math.floor(worldPos.y),
-          { r, g, b, a: 255 },
+          fillColor,
           {
             threshold: tools.fillSettings.threshold,
             contiguous: tools.fillSettings.contiguous
@@ -1542,8 +1548,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           beforeImage,
           beforeColorState,
           actionType: 'fill',
-          description: 'Flood fill',
-          tool: 'fill',
+          description: shouldErase ? 'Flood erase' : 'Flood fill',
+          tool: shouldErase ? 'eraser-fill' : 'fill',
           bitmapRoi: fillBounds ?? undefined,
         }).catch((error) => {
           if (process.env.NODE_ENV !== 'production') {

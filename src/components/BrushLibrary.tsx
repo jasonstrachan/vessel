@@ -7,6 +7,9 @@ import PlusButton from './ui/PlusButton';
 import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
+const BRUSH_ICON_SIZE = 32;
+const BRUSH_TEXT_LINE_HEIGHT = 11;
+
 const BrushLibrary = () => {
   // FIX: Use individual selectors to avoid creating new objects on every render
   const brushPresets = useAppStore((state) => state.brushPresets);
@@ -71,7 +74,7 @@ const BrushLibrary = () => {
     brushPresets.forEach(preset => {
       if (!preset.isCustomBrush) {
         thumbnails[preset.id] = generateBrushThumbnail(preset, {
-          size: 40,
+          size: BRUSH_ICON_SIZE,
           brushColor: '#D9D9D9',
           backgroundColor: 'transparent'
         });
@@ -301,10 +304,10 @@ const BrushLibrary = () => {
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
         {allBrushes.map((preset) => {
           const isSpamBrush = preset.id === 'spam-brush';
-          const iconSizePx = 40;
+          const iconSizePx = BRUSH_ICON_SIZE;
           const textStyle = {
             fontSize: isSpamBrush ? '13px' : '12px',
-            lineHeight: '16px'
+            lineHeight: `${BRUSH_TEXT_LINE_HEIGHT}px`
           };
           const renderFallbackIcon = (shape: 'square' | 'circle' | 'text', highlight: boolean) => {
             if (shape === 'text') {
@@ -464,12 +467,12 @@ const BrushLibrary = () => {
                     <img
                       src={brushThumbnails['color-cycle-shape']}
                       alt={`Color cycle + recolor icon`}
-                      width={40}
-                      height={40}
+                      width={BRUSH_ICON_SIZE}
+                      height={BRUSH_ICON_SIZE}
                       style={{
                         imageRendering: 'auto',
-                        width: '40px',
-                        height: '40px',
+                        width: `${BRUSH_ICON_SIZE}px`,
+                        height: `${BRUSH_ICON_SIZE}px`,
                         display: 'block',
                         flexShrink: 0,
                         filter: tools.currentTool === 'recolor' ? 'invert(1)' : 'none'
@@ -477,19 +480,25 @@ const BrushLibrary = () => {
                     />
                   ) : (
                     <div
-                      className="w-10 h-10 flex items-center justify-center"
                       style={{
                         fontSize: '12px',
                         flexShrink: 0,
+                        width: `${BRUSH_ICON_SIZE}px`,
+                        height: `${BRUSH_ICON_SIZE}px`,
                         color: tools.currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9',
                         border: tools.currentTool === 'recolor' ? '2px solid #1A1A1A' : '2px solid #D9D9D9'
                       }}
+                      className="flex items-center justify-center"
                     >
                       □
                     </div>
                   )}
                   <span
-                    style={{ fontSize: '12px', lineHeight: '16px', color: tools.currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9' }}
+                    style={{
+                      fontSize: '12px',
+                      lineHeight: `${BRUSH_TEXT_LINE_HEIGHT}px`,
+                      color: tools.currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9'
+                    }}
                     className={tools.currentTool === 'recolor' ? '' : 'transition-colors group-hover:text-[#F3F3F7]'}
                   >
                     Color cycle + recolor

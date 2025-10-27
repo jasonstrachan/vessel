@@ -7,7 +7,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className = '', variant = 'default', fullWidth = false, type = 'text', dragSensitivity = 1, onChange, value, onBlur, ...props }, ref) => {
+  ({ className = '', variant = 'default', fullWidth = false, type = 'text', dragSensitivity = 1, onChange, value, onBlur, inputMode, ...props }, ref) => {
     const internalRef = useRef<HTMLInputElement>(null);
     const inputRef = (ref as React.RefObject<HTMLInputElement>) || internalRef;
     
@@ -133,14 +133,15 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     ].filter(Boolean).join(' ');
 
     const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-      // Prevent virtual keyboard for stylus/pen input on non-number inputs
-      if (type !== 'number' && e.nativeEvent.detail === 0) {
-        // Reset drag state when blurring due to stylus
+      // For numeric draggables, prevent stylus taps (detail === 0) from summoning keyboards
+      if (type === 'number' && e.nativeEvent.detail === 0) {
         dragState.current.isDragging = false;
         dragState.current.pointerDown = false;
         e.target.blur();
       }
     }, [type]);
+
+    const resolvedInputMode = inputMode ?? (type === 'number' ? 'numeric' : undefined);
 
     return (
       <input
@@ -148,7 +149,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         type={type}
         className={combinedClasses}
         suppressHydrationWarning
-        inputMode={type === 'number' ? 'numeric' : 'none'}
+        inputMode={resolvedInputMode}
         readOnly={false}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

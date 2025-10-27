@@ -9,6 +9,14 @@ Scope
 
 - Applies to the entire repository unless a deeper, directory‑local AGENTS.md overrides specific guidance.
 
+Research & Discovery Expectations
+
+- Read the existing narrative before coding. Start with `README.md` and any topic-specific doc under `docs/` to understand prior decisions and open footguns.
+- Map the execution path you are touching: inspect `src/app/page.tsx`, the relevant component/hook/service, and associated store slices before introducing changes. Follow imports using the `@/*` alias so you understand how data flows end to end.
+- Use `rg` (e.g., `rg symbolName src/`) to locate current implementations, historical helpers, and tests. If similar logic already exists (often in `src/utils`, `src/lib`, `src/components/retroui`, or `src/hooks/brushEngine`), extend it instead of recreating it.
+- Check nearby tests (`tests/`, `src/**/__tests__/`) and fixtures (`assets/`, `public/`) to see how behavior is validated. Update or add cases in the same area when you change logic.
+- When reviving or pruning features, look in `refactor/`, `agents/`, and `docs/` for prior art so that new work aligns with recent architecture refactors.
+
 Project Overview
 
 - Tech: Next.js + TypeScript. Static export for GitHub Pages with `basePath='/vessel'`.
@@ -106,6 +114,12 @@ Clean, Reusable Code
   - Composition over inheritance: compose small components and hooks for reuse.
   - Pure by default: utilities should be side‑effect free and deterministic.
 
+- Reuse & Decommission
+  - Prefer extending the nearest existing module over adding a new one. For UI, reach into `src/components/retroui`/`ui`; for brush logic, lean on `BrushRegistry`, `BrushPlugin`, or helpers in `src/brushes/plugins` before introducing a new abstraction.
+  - When new code replaces an older path, delete or adapt the superseded code in the same patch (components, hooks, styles, docs, and tests). Do not leave parallel implementations in place.
+  - Keep new modules small and composable; expose typed helpers from `src/lib` or `src/utils` and import them via `@/*` to avoid deep relative paths.
+  - If you must diverge from an established pattern, document why in code comments and AGENTS notes, and file a follow-up in `DEBUG_PLAN.md` so future work stays consistent.
+
 - Types First
   - Model domain with explicit types/interfaces and discriminated unions.
   - Prefer narrow, precise types; avoid `any`. Use generics where it improves reuse.
@@ -146,6 +160,7 @@ Clean, Reusable Code
   - Is there duplicated logic I can extract safely?
   - Are side effects isolated and cleaned up?
   - Will this be easy to test with small unit tests?
+  - Have I reused existing helpers/patterns and removed any obsolete code paths this change supersedes?
 
 Primary Commands
 
@@ -255,6 +270,7 @@ Agent Directives
 - Keep changes minimal and surgical; fix root causes rather than adding workarounds.
 - Update or add tests when altering logic; run `npm test`, `npm run type-check`, and `npm run lint` before proposing a PR.
 - Match existing patterns; avoid reorganizing folders/files unless requested.
+- Before introducing a new abstraction, confirm there is no existing hook/component/service that can be extended; if you do create one, remove or deprecate the prior entry points in the same change.
 - When editing, use small, focused patches. Do not introduce licenses/headers.
 - For ambiguous tasks, propose a short plan and confirm assumptions.
 - When reading/searching code, prefer `rg`; read files in ≤250‑line chunks.
