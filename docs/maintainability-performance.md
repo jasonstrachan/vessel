@@ -3,7 +3,8 @@
 This document captures prioritized, actionable recommendations to make Vessel easier to maintain and faster in practice. It’s organized so you can apply improvements incrementally.
 
 ## High‑Impact Performance
-- Reuse floating‑paste canvas: In `src/components/canvas/DrawingCanvas.tsx`, don’t create a canvas per frame for floating paste. Keep a single `pasteCanvas` in a ref, resize as needed.
+- Reuse floating-paste canvas: In `src/components/canvas/DrawingCanvas.tsx`, don’t create a canvas per frame for floating paste. Keep a single `pasteCanvas` in a ref, resize as needed.
+- Floating paste transforms: `FloatingPasteOverlay` now reuses the shared rect-handle math so pasted bitmaps can be positioned and resized interactively before committing. Any future transform affordances should plug into this overlay rather than bolting custom hit testing onto the canvas.
 - Reduce full recompositions: Drive `compositeLayersToCanvas` only when a compact layer change hash changes (id, visible, opacity, imageData version). Avoid recomposing on every color‑cycle frame; overlay animated CC layers atop a cached composite when possible.
 - Offload palette/gradient work: Use `src/lib/performance/GradientWorkerManager.ts` + `src/workers/gradientWorker.ts` for gradient generation and palette shifting everywhere (avoid synchronous paths).
 - OffscreenCanvas/ImageBitmap: Integrate `src/lib/performance/OffscreenRenderer.ts` and `src/lib/performance/ImageBitmapTransfer.ts` in render/composite paths when supported to reduce main‑thread blocking.

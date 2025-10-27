@@ -21,7 +21,6 @@ const BrushLibrary = () => {
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const switchTool = useToolSwitcher();
-  const startBrushEdit = useAppStore((state) => state.startBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
@@ -230,61 +229,9 @@ const BrushLibrary = () => {
     // Switch to Brush tool first to avoid any chance of preset
     // application being overwritten by a subsequent tool change.
     await switchTool('brush');
-    // Then apply the selected preset (preserve edit mode if active)
-    setBrushPreset(preset, true);
-  };
-
-  const handleEditClick = (e: React.MouseEvent, preset: BrushPreset) => {
-    e.stopPropagation();
-    
-    if (!currentOffscreenCanvas) {
-      console.error('No offscreen canvas reference available in store');
-      return;
-    }
-    
-    // For regular brushes, we need to create a temporary custom brush from the current brush state
-    if (!preset.isCustomBrush) {
-      // First, select the brush preset to use it as the base for editing
-      setBrushPreset(preset);
-      
-      // Draw a sample of the brush to create a custom brush from it
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = 64;
-      tempCanvas.height = 64;
-      const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
-      
-      if (ctx) {
-        // Clear with transparency
-        ctx.clearRect(0, 0, 64, 64);
-        
-        // Draw a sample brush stroke in the center
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.arc(32, 32, 20, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Get the image data to create a temporary custom brush
-        ctx.getImageData(0, 0, 64, 64);
-        
-        // Start editing with this temporary brush data
-        // Use the preset ID as the brush ID for editing
-        startBrushEdit(preset.id, currentOffscreenCanvas);
-      }
-    } else {
-      // For custom brushes, use the existing logic - DON'T call setBrushPreset
-      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-      const isEditingThisBrush = brushEditor.status === 'EDITING' && brushEditor.editingBrushId === customBrushId;
-
-      if (isEditingThisBrush) {
-        // Do nothing - already editing this brush
-        return;
-      } else {
-        if (brushEditor.status === 'EDITING') {
-          cancelBrushEdit(currentOffscreenCanvas);
-        }
-        startBrushEdit(customBrushId, currentOffscreenCanvas);
-      }
-    }
+    const preserveEditMode = preset.isCustomBrush;
+    // Then apply the selected preset (preserve edit mode only for custom brushes)
+    setBrushPreset(preset, preserveEditMode);
   };
 
   return (
@@ -415,17 +362,6 @@ const BrushLibrary = () => {
                 </div>
                 {preset.isCustomBrush && (
                 <div className="flex items-center space-x-0.5">
-                    <button
-                      onClick={(e) => handleEditClick(e, preset)}
-                      className={`px-1.5 py-0 text-xs transition-colors opacity-60 hover:opacity-100 border rounded ${
-                        isActive
-                          ? 'text-[#1A1A1A] border-[#1A1A1A] hover:border-green-400 hover:text-green-600'
-                          : 'text-[#D9D9D9] border-[#606060] hover:text-green-400 hover:border-green-400'
-                      }`}
-                      title={brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
-                    >
-                      {brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
-                    </button>
                     <span className="text-[#D9D9D9] w-3 text-center" style={{ fontSize: '12px' }}>
                       {preset.isDefault ? '★' : '☆'}
                     </span>

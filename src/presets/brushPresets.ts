@@ -841,9 +841,9 @@ export const polygonDitherPreset: BrushPreset = {
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
-  defaultBrushPreset,
-  roundPixel4Preset,
   roundSquare6Preset,
+  roundPixel4Preset,
+  defaultBrushPreset,
   colorCycleStrokeBrushPreset,
   colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,

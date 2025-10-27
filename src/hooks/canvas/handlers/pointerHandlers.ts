@@ -1207,8 +1207,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     if (event.button === 0 && floatingPaste) {
       const pasteX = floatingPaste.position.x;
       const pasteY = floatingPaste.position.y;
-      const pasteWidth = floatingPaste.width;
-      const pasteHeight = floatingPaste.height;
+      const pasteWidth = floatingPaste.displayWidth ?? floatingPaste.width;
+      const pasteHeight = floatingPaste.displayHeight ?? floatingPaste.height;
 
       if (worldPos.x >= pasteX && worldPos.x <= pasteX + pasteWidth &&
           worldPos.y >= pasteY && worldPos.y <= pasteY + pasteHeight) {

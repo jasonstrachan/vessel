@@ -19,6 +19,8 @@ export interface FloatingPaste {
   originalPosition: { x: number; y: number };
   width: number;
   height: number;
+  displayWidth: number;
+  displayHeight: number;
   sourceLayerId?: string | null;
 }
 

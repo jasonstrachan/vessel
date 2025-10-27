@@ -421,7 +421,7 @@
 - **'C' Hotkey**: Press 'C' to quickly enter selection mode for creating custom brushes
 - **Full Pipeline Compatibility**: Custom brushes work seamlessly with the new world/screen space separation
 - **Composite Canvas Integration**: Automatically sets currentOffscreenCanvas for brush creation from selections
-- **BrushEditorUI Modal**: Added to main page for editing custom brushes with real-time preview
+- **BrushEditorUI Panel**: Lives under Brush Settings and edits custom brushes with real-time preview
 - **Features Preserved**:
   - Create brushes from selections
   - Test brushes before saving (temporaryCustomBrush)

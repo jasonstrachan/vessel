@@ -5,11 +5,13 @@ import BrushControls from '@/components/toolbar/BrushControls';
 import FillControls from '@/components/toolbar/FillControls';
 import { CustomBrushPanel } from '@/components/toolbar/CustomBrushPanel';
 import { ColorCycleUI } from '@/components/colorCycle/integration/ColorCycleUI';
+import BrushEditorUI from '@/components/BrushEditorUI';
 import { useAppStore } from '@/stores/useAppStore';
 import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
 
 const BrushSettingsPanel: React.FC = () => {
   const currentTool = useAppStore(state => state.tools.currentTool);
+  const brushEditorStatus = useAppStore(state => state.brushEditor.status);
 
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
@@ -23,6 +25,7 @@ const BrushSettingsPanel: React.FC = () => {
           </div>
         )}
         {currentTool === 'color-adjust' && <ColorAdjustToolPanel />}
+        <BrushEditorUI key={brushEditorStatus} />
       </div>
     </div>
   );

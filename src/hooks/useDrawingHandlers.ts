@@ -292,20 +292,47 @@ const noopPromise = async () => {};
 
 const ROI_PADDING_PX = 2;
 
-const computeStrokeCapturePadding = (settings?: BrushSettings | null): number => {
+const computeStrokeCapturePadding = (
+  settings?: BrushSettings | null,
+  customBrush?: CustomBrushStrokeData | null
+): number => {
   if (!settings) {
     return 0;
   }
-  const size = typeof settings.size === 'number' && Number.isFinite(settings.size)
+
+  const sliderSize = typeof settings.size === 'number' && Number.isFinite(settings.size)
     ? settings.size
     : 1;
-  const radius = Math.max(1, size) / 2;
+
+  let effectiveSize = sliderSize;
+
+  if (customBrush && !customBrush.isResampler) {
+    const maxDimension = Math.max(customBrush.width ?? 0, customBrush.height ?? 0);
+    if (Number.isFinite(maxDimension) && maxDimension > 0) {
+      const scale = sliderSize / 100;
+      effectiveSize = Math.max(1, maxDimension * (Number.isFinite(scale) ? scale : 1));
+    }
+  } else if (customBrush?.isResampler) {
+    effectiveSize = Math.max(1, sliderSize);
+  }
+
+  if (settings.pressureEnabled) {
+    const maxPressure = typeof settings.maxPressure === 'number' && Number.isFinite(settings.maxPressure)
+      ? settings.maxPressure
+      : undefined;
+    if (typeof maxPressure === 'number') {
+      effectiveSize = Math.max(effectiveSize, maxPressure);
+    }
+  }
+
+  const radius = Math.max(1, effectiveSize) / 2;
   const antialiasPadding = settings.antialiasing ? 2 : 0;
   const softEdgePadding = settings.brushShape && (
     settings.brushShape === BrushShape.ROUND ||
     settings.brushShape === BrushShape.RISOGRAPH_SOFT ||
     settings.brushShape === BrushShape.RISOGRAPH_ULTRA
   ) ? 2 : 0;
+
   return radius + Math.max(antialiasPadding, softEdgePadding);
 };
 
@@ -1519,7 +1546,8 @@ export function useDrawingHandlers({
 
     if (currentTool === 'brush') {
       strokeBoundingBoxRef.current = createBoundingBox(worldPos);
-      strokeCapturePaddingRef.current = computeStrokeCapturePadding(brushSettings);
+      const activeCustomBrush = resolveActiveCustomBrushData(currentState) ?? resamplerBrushDataRef.current;
+      strokeCapturePaddingRef.current = computeStrokeCapturePadding(brushSettings, activeCustomBrush ?? null);
     } else {
       strokeBoundingBoxRef.current = null;
       strokeCapturePaddingRef.current = 0;
@@ -2490,7 +2518,8 @@ export function useDrawingHandlers({
 
     if (currentState.tools.currentTool === 'brush') {
       strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
-      const dynamicPadding = computeStrokeCapturePadding(currentState.tools.brushSettings);
+      const activeCustomBrush = resolveActiveCustomBrushData(currentState) ?? resamplerBrushDataRef.current;
+      const dynamicPadding = computeStrokeCapturePadding(currentState.tools.brushSettings, activeCustomBrush ?? null);
       if (dynamicPadding > strokeCapturePaddingRef.current) {
         strokeCapturePaddingRef.current = dynamicPadding;
       }
@@ -4847,3 +4876,8 @@ function getColorCycleBrushFlags(settings: BrushSettings) {
     isAny: isStandard || isShapeVariant || isCustom
   };
 }
+
+export const __TESTING__ = {
+  computeStrokeCapturePadding,
+  resolveActiveCustomBrushData
+};

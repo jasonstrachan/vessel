@@ -31,7 +31,7 @@ Structure & Architecture
   - `src/pages/` — legacy/auxiliary routes for testing and performance (`PerformanceTest.tsx`, `TestRunner.tsx`). App Router is primary.
 
 - UI Components (`src/components/`)
-  - Top-level components: `LeftToolbar.tsx`, `BrushLibrary.tsx`, `ControlsPanel.tsx`, `MinimalLayerList.tsx`, `FeedbackStrip.tsx`, `BrushEditorUI.tsx`.
+  - Top-level components: `LeftToolbar.tsx`, `BrushLibrary.tsx`, `ControlsPanel.tsx`, `MinimalLayerList.tsx`, `FeedbackStrip.tsx`, `BrushEditorUI.tsx` (inline editor).
   - Canvas suite (`src/components/canvas/`): `DrawingCanvas.tsx` (core renderer and input surface), `BrushCursor.tsx`, `SimplifiedColorCycleManager.ts`.
   - Subfolders: `brushes/`, `colorCycle/`, `toolbar/`, `ui/`, `icons/`, `modals/`, `panels/`, `retroui/` (UI composition helpers).
 
@@ -95,7 +95,7 @@ Runtime Data Flow (High level)
 Component Relationships
 
 - `app/page.tsx` lays out the shell: `LeftToolbar` (tools), central `DrawingCanvas` (render surface + handlers), right column with `ColorPickerPanel`, `BrushLibrary`, `ControlsPanel`.
-- `BrushEditorUI`, `DocumentModal`, `SettingsModal` mount at root and bind to `useAppStore.ui.modals`.
+- `BrushEditorUI` now renders inside the Brush Settings panel; `DocumentModal` and `SettingsModal` still mount at root via `useAppStore.ui.modals`.
 - `MinimalLayerList` reflects `useAppStore.layers` and provides quick operations; composition triggers via `layersNeedRecomposition` flag.
 
 Key Conventions & Couplings

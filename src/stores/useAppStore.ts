@@ -792,6 +792,8 @@ export interface AppState {
     originalPosition: { x: number; y: number };
     width: number;
     height: number;
+    displayWidth: number;
+    displayHeight: number;
     sourceLayerId?: string | null;
   } | null;
   setFloatingPaste: (paste: {
@@ -799,10 +801,13 @@ export interface AppState {
     position: { x: number; y: number };
     width: number;
     height: number;
+    displayWidth?: number;
+    displayHeight?: number;
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
+  updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
   commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
   
@@ -2631,6 +2636,8 @@ export const useAppStore = create<AppState>()(
           originalPosition: paste.originalPosition ?? paste.position,
           width: paste.width,
           height: paste.height,
+          displayWidth: paste.displayWidth ?? paste.width,
+          displayHeight: paste.displayHeight ?? paste.height,
           sourceLayerId: paste.sourceLayerId ?? null
         } : null 
       }),
@@ -2638,6 +2645,14 @@ export const useAppStore = create<AppState>()(
         floatingPaste: state.floatingPaste ? {
           ...state.floatingPaste,
           position
+        } : null
+      })),
+      updateFloatingPasteRect: (rect) => set((state) => ({
+        floatingPaste: state.floatingPaste ? {
+          ...state.floatingPaste,
+          position: { x: rect.x, y: rect.y },
+          displayWidth: rect.width,
+          displayHeight: rect.height
         } : null
       })),
       commitFloatingPaste: async () => {
@@ -2683,7 +2698,13 @@ export const useAppStore = create<AppState>()(
           const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
           if (pasteCtx) {
             pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
-            tempCtx.drawImage(pasteCanvas, floatingPaste.position.x, floatingPaste.position.y);
+            tempCtx.drawImage(
+              pasteCanvas,
+              floatingPaste.position.x,
+              floatingPaste.position.y,
+              Math.round(floatingPaste.displayWidth),
+              Math.round(floatingPaste.displayHeight)
+            );
           }
 
           // Capture composited result to the active layer
@@ -4992,7 +5013,7 @@ export const useAppStore = create<AppState>()(
         const originalCanvasState = ctx.createImageData(bounds.width, bounds.height);
         
         // NOTE: We don't draw the brush onto the main canvas here
-        // The BrushEditorUI component will display it in its own modal canvas
+        // The BrushEditorUI panel renders and manages its own off-main canvas
 
         // Automatically select the brush being edited
         const newBrushSettings = {
@@ -5045,7 +5066,7 @@ export const useAppStore = create<AppState>()(
         
         // Find the original brush data (unused variable removed)
         
-        // Create a composite canvas to match the modal canvas size
+        // Create a composite canvas to match the inline editor canvas size
         const compositeCanvas = document.createElement('canvas');
         compositeCanvas.width = canvas.width;
         compositeCanvas.height = canvas.height;
@@ -5053,9 +5074,9 @@ export const useAppStore = create<AppState>()(
 
         if (!compositeCtx) return state;
         
-        // Get the pixels directly from the modal canvas (starts at 0,0)
+        // Get the pixels directly from the inline editor canvas (starts at 0,0)
         // Note: The canvas already has the hue/lightness/saturation adjustments applied
-        // by the BrushEditorUI component's useEffect, so we don't need to apply them again
+        // by the BrushEditorUI component's effect, so we don't need to apply them again
         const editedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         
         // Put the image data on the composite canvas
@@ -5099,7 +5120,7 @@ export const useAppStore = create<AppState>()(
           thumbnail = thumbnailCanvas.toDataURL();
         }
 
-        // Note: The canvas parameter here should be the modal canvas from BrushEditorUI,
+        // Note: The canvas parameter here should be the inline canvas from BrushEditorUI,
         // not the main canvas. We don't need to clear it since it's a separate UI element
         // that will be hidden after saving. The main canvas will be properly recomposed
         // via the layersNeedRecomposition flag below
@@ -5206,7 +5227,7 @@ export const useAppStore = create<AppState>()(
         }
 
         // NOTE: We don't need to restore anything to the main canvas
-        // The brush editor works entirely in its own modal canvas
+        // The brush editor works entirely in its own inline canvas
 
         // Clear currentBrushTip when canceling brush edit
         return { 

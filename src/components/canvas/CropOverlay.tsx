@@ -2,7 +2,21 @@
 
 import React, { useCallback, useMemo, useRef } from 'react';
 import { useCropState } from '@/hooks/useCropState';
-import type { CropHandle, CropState, Rectangle } from '@/types';
+import type { CropHandle, CropState } from '@/types';
+import {
+  HANDLE_SIZE,
+  handleCursor,
+  handleDefinitions,
+  MIN_RECT_SIZE,
+  moveRect,
+  normalizeRect,
+  rectEquals,
+  resizeRect,
+  snapRectToBounds,
+  deriveHandleFromDrag,
+  clampValue,
+  type Point,
+} from './RectHandles';
 
 interface CropOverlayProps {
   projectWidth: number;
@@ -19,177 +33,7 @@ type InteractionState =
   | { type: 'resizing'; start: Point; initialRect: Rectangle; handle: CropHandle }
   | { type: 'moving'; start: Point; initialRect: Rectangle };
 
-type Point = { x: number; y: number };
-
-const MIN_CROP_SIZE = 1;
-
-const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
-
-const rectEquals = (a: Rectangle | null, b: Rectangle | null): boolean => {
-  if (!a || !b) {
-    return a === b;
-  }
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-};
-
-const normalizeRect = (start: Point, end: Point): Rectangle => {
-  const minX = Math.min(start.x, end.x);
-  const minY = Math.min(start.y, end.y);
-  const maxX = Math.max(start.x, end.x);
-  const maxY = Math.max(start.y, end.y);
-  return {
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
-  };
-};
-
-const snapRectToBounds = (rect: Rectangle, maxWidth: number, maxHeight: number): Rectangle => {
-  let x = rect.x;
-  let y = rect.y;
-  let width = Math.max(rect.width, MIN_CROP_SIZE);
-  let height = Math.max(rect.height, MIN_CROP_SIZE);
-
-  if (x < 0) {
-    width += x;
-    x = 0;
-  }
-  if (y < 0) {
-    height += y;
-    y = 0;
-  }
-
-  if (x + width > maxWidth) {
-    width = maxWidth - x;
-  }
-  if (y + height > maxHeight) {
-    height = maxHeight - y;
-  }
-
-  width = Math.max(MIN_CROP_SIZE, Math.min(width, maxWidth));
-  height = Math.max(MIN_CROP_SIZE, Math.min(height, maxHeight));
-
-  return {
-    x: Math.round(clamp(x, 0, maxWidth - MIN_CROP_SIZE)),
-    y: Math.round(clamp(y, 0, maxHeight - MIN_CROP_SIZE)),
-    width: Math.round(width),
-    height: Math.round(height),
-  };
-};
-
-const deriveHandleFromDrag = (start: Point, current: Point): CropHandle => {
-  const horizontal = current.x >= start.x ? 'right' : 'left';
-  const vertical = current.y >= start.y ? 'bottom' : 'top';
-  return `${vertical}-${horizontal}` as CropHandle;
-};
-
-const resizeRect = (
-  initialRect: Rectangle,
-  handle: CropHandle,
-  current: Point,
-  maxWidth: number,
-  maxHeight: number,
-): Rectangle => {
-  const leftInitial = initialRect.x;
-  const topInitial = initialRect.y;
-  const rightInitial = initialRect.x + initialRect.width;
-  const bottomInitial = initialRect.y + initialRect.height;
-
-  let left = leftInitial;
-  let right = rightInitial;
-  let top = topInitial;
-  let bottom = bottomInitial;
-
-  if (handle.includes('left')) {
-    const clamped = clamp(Math.round(current.x), 0, rightInitial - MIN_CROP_SIZE);
-    left = Math.min(clamped, rightInitial - MIN_CROP_SIZE);
-  }
-
-  if (handle.includes('right')) {
-    const clamped = clamp(Math.round(current.x), left + MIN_CROP_SIZE, maxWidth);
-    right = Math.max(clamped, left + MIN_CROP_SIZE);
-  }
-
-  if (handle.includes('top')) {
-    const clamped = clamp(Math.round(current.y), 0, bottomInitial - MIN_CROP_SIZE);
-    top = Math.min(clamped, bottomInitial - MIN_CROP_SIZE);
-  }
-
-  if (handle.includes('bottom')) {
-    const clamped = clamp(Math.round(current.y), top + MIN_CROP_SIZE, maxHeight);
-    bottom = Math.max(clamped, top + MIN_CROP_SIZE);
-  }
-
-  return snapRectToBounds(
-    {
-      x: left,
-      y: top,
-      width: right - left,
-      height: bottom - top,
-    },
-    maxWidth,
-    maxHeight,
-  );
-};
-
-const moveRect = (
-  initialRect: Rectangle,
-  start: Point,
-  current: Point,
-  maxWidth: number,
-  maxHeight: number,
-): Rectangle => {
-  const deltaX = Math.round(current.x - start.x);
-  const deltaY = Math.round(current.y - start.y);
-
-  let nextX = initialRect.x + deltaX;
-  let nextY = initialRect.y + deltaY;
-
-  nextX = clamp(nextX, 0, maxWidth - initialRect.width);
-  nextY = clamp(nextY, 0, maxHeight - initialRect.height);
-
-  return {
-    x: Math.round(nextX),
-    y: Math.round(nextY),
-    width: initialRect.width,
-    height: initialRect.height,
-  };
-};
-
-const handleCursor = (handle: CropHandle): React.CSSProperties['cursor'] => {
-  switch (handle) {
-    case 'top-left':
-    case 'bottom-right':
-      return 'nwse-resize';
-    case 'top-right':
-    case 'bottom-left':
-      return 'nesw-resize';
-    case 'left':
-    case 'right':
-      return 'ew-resize';
-    case 'top':
-    case 'bottom':
-      return 'ns-resize';
-    case 'center':
-      return 'move';
-    default:
-      return 'crosshair';
-  }
-};
-
-const HANDLE_SIZE = 10;
-
-const handleDefinitions: Array<{ handle: CropHandle; offsetX: number; offsetY: number }> = [
-  { handle: 'top-left', offsetX: -0.5, offsetY: -0.5 },
-  { handle: 'top', offsetX: 0, offsetY: -0.5 },
-  { handle: 'top-right', offsetX: 0.5, offsetY: -0.5 },
-  { handle: 'right', offsetX: 0.5, offsetY: 0 },
-  { handle: 'bottom-right', offsetX: 0.5, offsetY: 0.5 },
-  { handle: 'bottom', offsetX: 0, offsetY: 0.5 },
-  { handle: 'bottom-left', offsetX: -0.5, offsetY: 0.5 },
-  { handle: 'left', offsetX: -0.5, offsetY: 0 },
-];
+const clamp = clampValue;
 
 const CropOverlay: React.FC<CropOverlayProps> = ({
   projectWidth,
@@ -274,8 +118,8 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
         {
           x: worldPoint.x,
           y: worldPoint.y,
-          width: MIN_CROP_SIZE,
-          height: MIN_CROP_SIZE,
+          width: MIN_RECT_SIZE,
+          height: MIN_RECT_SIZE,
         },
         projectWidth,
         projectHeight,

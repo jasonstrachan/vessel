@@ -10,6 +10,7 @@ import { BrushShape } from '@/types';
 const ColorAdjustmentsPanel: React.FC = () => {
   const brushSettings = useAppStore(state => state.tools.brushSettings);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const brushEditorStatus = useAppStore(state => state.brushEditor.status);
 
   const hueShift = brushSettings.hueShift ?? 0;
   const saturation = brushSettings.saturationAdjust ?? 100;
@@ -43,7 +44,7 @@ const ColorAdjustmentsPanel: React.FC = () => {
     }
   }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
 
-  if (brushSettings.brushShape !== BrushShape.CUSTOM) {
+  if (brushEditorStatus === 'EDITING' || brushSettings.brushShape !== BrushShape.CUSTOM) {
     return null;
   }
 

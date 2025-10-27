@@ -10,7 +10,6 @@ import BrushLibraryPanel from '../components/panels/BrushLibraryPanel';
 import BrushSettingsPanel from '../components/panels/BrushSettingsPanel';
 import ColorAdjustmentsPanel from '../components/panels/ColorAdjustmentsPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
-import BrushEditorUI from '../components/BrushEditorUI';
 import ConsoleSilencer from '../components/dev/ConsoleSilencer';
 import FeedbackStrip from '../components/FeedbackStrip';
 import FPSMeter from '../components/dev/FPSMeter';
@@ -208,7 +207,6 @@ export default function Home() {
       />
       
       {/* Brush Editor UI Modal */}
-      <BrushEditorUI />
 
       {/* TEST: Plugin Brush Test Panel - Disabled due to render loop */}
       {/* <TestPluginBrushes /> */}

@@ -14,6 +14,7 @@ import type { Layer, Tool } from '../../types';
 import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/utils/types';
 import BrushCursor from './BrushCursor';
 import CropOverlay from './CropOverlay';
+import FloatingPasteOverlay from './FloatingPasteOverlay';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
@@ -556,55 +557,82 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         ctx.save();
         ctx.translate(offsetX, offsetY);
         ctx.scale(scale, scale);
-        
-        // Ensure we have a reusable paste canvas
-        if (!pasteCanvasRef.current) {
-          pasteCanvasRef.current = document.createElement('canvas');
-        }
-        const pasteCanvas = pasteCanvasRef.current;
 
-        // Resize only when dimensions change
-        let needsUpdate = false;
-        if (pasteCanvas.width !== floatingPaste.width || pasteCanvas.height !== floatingPaste.height) {
-          pasteCanvas.width = floatingPaste.width;
-          pasteCanvas.height = floatingPaste.height;
-          needsUpdate = true;
-        }
+        const pasteX = floatingPaste.position.x;
+        const pasteY = floatingPaste.position.y;
+        const renderWidth = floatingPaste.displayWidth ?? floatingPaste.width;
+        const renderHeight = floatingPaste.displayHeight ?? floatingPaste.height;
 
-        // Update image data only when it changes or canvas resized
-        if (lastPasteInfoRef.current.imageData !== floatingPaste.imageData || needsUpdate) {
-          const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
-          if (pasteCtx) {
-            pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
-            lastPasteInfoRef.current = {
-              imageData: floatingPaste.imageData,
-              width: pasteCanvas.width,
-              height: pasteCanvas.height,
-            };
+        // Skip draw when the entire rectangle sits outside the project bounds
+        const fullyOutside =
+          pasteX + renderWidth <= 0 ||
+          pasteY + renderHeight <= 0 ||
+          pasteX >= project.width ||
+          pasteY >= project.height;
+
+        if (!fullyOutside) {
+          // Ensure we have a reusable paste canvas
+          if (!pasteCanvasRef.current) {
+            pasteCanvasRef.current = document.createElement('canvas');
           }
+          const pasteCanvas = pasteCanvasRef.current;
+
+          // Resize only when dimensions change
+          let needsUpdate = false;
+          if (pasteCanvas.width !== floatingPaste.width || pasteCanvas.height !== floatingPaste.height) {
+            pasteCanvas.width = floatingPaste.width;
+            pasteCanvas.height = floatingPaste.height;
+            needsUpdate = true;
+          }
+
+          // Update image data only when it changes or canvas resized
+          if (lastPasteInfoRef.current.imageData !== floatingPaste.imageData || needsUpdate) {
+            const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
+            if (pasteCtx) {
+              pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
+              lastPasteInfoRef.current = {
+                imageData: floatingPaste.imageData,
+                width: pasteCanvas.width,
+                height: pasteCanvas.height,
+              };
+            }
+          }
+
+          // Draw the floating paste clipped to the project bounds
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, project.width, project.height);
+          ctx.clip();
+
+          ctx.drawImage(
+            pasteCanvas,
+            floatingPaste.position.x,
+            floatingPaste.position.y,
+            renderWidth,
+            renderHeight
+          );
+
+          // Draw marching ants selection border around the paste (clipped to canvas bounds)
+          const x = floatingPaste.position.x;
+          const y = floatingPaste.position.y;
+          const width = renderWidth;
+          const height = renderHeight;
+          
+          // White background line
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2 / scale;
+          ctx.setLineDash([]);
+          ctx.strokeRect(x, y, width, height);
+          
+          // Black dashed line for marching ants
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 1 / scale;
+          ctx.setLineDash([5 / scale, 5 / scale]);
+          ctx.lineDashOffset = -marchingAntsOffset / scale;
+          ctx.strokeRect(x, y, width, height);
+
+          ctx.restore();
         }
-
-        // Draw the floating paste at its position
-        ctx.drawImage(pasteCanvas, floatingPaste.position.x, floatingPaste.position.y);
-
-        // Draw marching ants selection border around the paste
-        const x = floatingPaste.position.x;
-        const y = floatingPaste.position.y;
-        const width = floatingPaste.width;
-        const height = floatingPaste.height;
-        
-        // White background line
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2 / scale;
-        ctx.setLineDash([]);
-        ctx.strokeRect(x, y, width, height);
-        
-        // Black dashed line for marching ants
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1 / scale;
-        ctx.setLineDash([5 / scale, 5 / scale]);
-        ctx.lineDashOffset = -marchingAntsOffset / scale;
-        ctx.strokeRect(x, y, width, height);
 
         ctx.restore();
       }
@@ -2334,6 +2362,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           cursor: cursorStyle,
         }}
       />
+
+      {project && floatingPaste ? (
+        <FloatingPasteOverlay
+          projectWidth={project.width}
+          projectHeight={project.height}
+          zoom={canvasZoom || 1}
+          offsetX={pan.panState.offsetX}
+          offsetY={pan.panState.offsetY}
+        />
+      ) : null}
 
       {tools.currentTool === 'crop' && project ? (
         <CropOverlay
