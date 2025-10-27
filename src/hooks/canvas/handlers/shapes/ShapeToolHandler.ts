@@ -12,7 +12,7 @@ import { getPreviewRenderer } from '@/shapeFill/paramPreview';
 import { getFillStrategy } from '@/shapeFill/strategies';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamKey } from '@/shapeFill/types';
-import { commitLayerHistory } from '@/history/helpers/layerHistory';
+import { registerToolFlush } from '@/utils/toolFlushRegistry';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -219,6 +219,11 @@ const shapeFillHistoryContext: ShapeFillHistoryContext = {
   bbox: null,
 };
 
+const isShapeFillToolActive = (): boolean => {
+  const state = useAppStore.getState();
+  return state.tools.currentTool === 'brush' && state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+};
+
 const resetShapeFillHistoryContext = () => {
   shapeFillHistoryContext.layerId = undefined;
   shapeFillHistoryContext.beforeImage = null;
@@ -307,6 +312,15 @@ export const createShapeToolHandler = (
   // Operation tracking and canvas management
   const opController = new OpController();
   const canvasManager = new CanvasManager();
+
+  const SHAPE_FILL_FLUSH_KEY = 'shape-tool:shape-fill-finalize';
+  let pendingShapeFillFinalize: Promise<void> | null = null;
+
+  registerToolFlush(SHAPE_FILL_FLUSH_KEY, async () => {
+    if (pendingShapeFillFinalize) {
+      await pendingShapeFillFinalize;
+    }
+  });
 
   let shapeAdjustHelper: ShapeAdjustHelper | null = null;
   type OverlayRect = { x: number; y: number; width: number; height: number };
@@ -506,7 +520,20 @@ export const createShapeToolHandler = (
   //  - On finalize we composite that overlay with the active raster layer snapshot here,
   //    persist via captureCanvasToActiveLayer, and write explicit history so undo works.
   //  - Color-cycle layers (or other brushes) fall back to drawingHandlers.finalizeDrawing().
-  const finalizeShapeFillResult = async (): Promise<boolean> => {
+  const trackPendingShapeFillFinalize = <T>(promise: Promise<T>): Promise<T> => {
+    const tracker = promise
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        if (pendingShapeFillFinalize === tracker) {
+          pendingShapeFillFinalize = null;
+        }
+      });
+    pendingShapeFillFinalize = tracker;
+    return promise;
+  };
+
+  const runShapeFillFinalize = async (): Promise<boolean> => {
     const store = useAppStore.getState();
     const payload = store.finalizeShapeFillSession();
     if (!payload) {
@@ -627,66 +654,35 @@ export const createShapeToolHandler = (
       return result;
     }
 
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = Math.max(1, Math.round(canvasWidth));
-    tempCanvas.height = Math.max(1, Math.round(canvasHeight));
-    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, alpha: true });
-
-    if (!tempCtx) {
-      const result = await fallbackFinalize();
-      stateMachine.finalizationComplete();
-      if (project) {
-        try {
-          useAppStore.getState().setLayersNeedRecomposition(true);
-        } catch {
-          // quiet
-        }
-        compositeCanvasDirtyRef.current = true;
-      }
-      clearCurrentPreview();
-      interaction.dispatch({ type: 'DRAWING_END' });
-      setNeedsRedraw(prev => prev + 1);
-      return result;
-    }
-
-    if (activeLayer.imageData) {
-      tempCtx.putImageData(activeLayer.imageData, 0, 0);
-    }
-    tempCtx.globalCompositeOperation = 'source-over';
-    tempCtx.globalAlpha = 1;
-    tempCtx.drawImage(drawingCanvas, 0, 0);
-
     // Close the shape session now so its history transaction completes before layer history begins.
     store.cancelShapeFillSession();
 
     const postCancelState = useAppStore.getState();
     const roiProject =
-      projectSnapshot ?? { width: tempCanvas.width, height: tempCanvas.height };
+      projectSnapshot ?? { width: drawingCanvas.width, height: drawingCanvas.height };
     const roi = boundingBoxToRoi(shapeFillHistoryContext.bbox ?? effectiveBoundingBox, roiProject);
-    await postCancelState.captureCanvasToActiveLayer(tempCanvas, roi);
 
     const coalesce =
       shapeFillHistoryContext.layerId === activeLayer.id && shapeFillHistoryContext.coalesceKey
         ? { key: shapeFillHistoryContext.coalesceKey, maxIntervalMs: 300 }
         : undefined;
 
-    await commitLayerHistory({
-      layerId: activeLayer.id,
+    await drawingHandlers.commitRasterOverlay({
+      layer: activeLayer,
+      overlayCanvas: drawingCanvas,
       beforeImage,
       beforeColorState: null,
-      actionType: 'fill',
-      description: historyDescription,
+      historyAction: 'fill',
+      historyDescription,
       tool: postCancelState.tools.currentTool,
       coalesce,
-      bitmapRoi: roi,
+      bitmapRoi: roi ?? undefined,
     });
 
     resetShapeFillHistoryContext();
 
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawingHandlers.drawingCanvasHasContent.current = false;
-    tempCanvas.width = 1;
-    tempCanvas.height = 1;
 
     stateMachine.finalizationComplete();
 
@@ -703,6 +699,10 @@ export const createShapeToolHandler = (
     interaction.dispatch({ type: 'DRAWING_END' });
     setNeedsRedraw(prev => prev + 1);
     return true;
+  };
+
+  const finalizeShapeFillResult = (): Promise<boolean> => {
+    return trackPendingShapeFillFinalize(runShapeFillFinalize());
   };
 
   const logShapeFillEvent = (label: string, extra: Record<string, unknown> = {}) => {
@@ -1379,7 +1379,7 @@ export const createShapeToolHandler = (
 
   const isPolygonGradientBrush = () => tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
   const isColorCycleShapeBrush = () => tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-  const isShapeFillBrush = () => tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+  const isShapeFillBrush = () => isShapeFillToolActive();
   const isContourPolygonBrush = () => {
     const shape = tools.brushSettings.brushShape;
     return (
@@ -3017,5 +3017,9 @@ export const createShapeToolHandler = (
       return handled;
     },
   };
+};
+
+export const __shapeToolTestUtils = {
+  isShapeFillToolActive,
 };
 const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing', 'rotation', 'thickness']);

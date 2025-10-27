@@ -32,7 +32,11 @@ export function getColorCycleBrushFlags(settings: BrushSettings) {
 }
 
 export function resolveDrawingPipeline(tools: ToolSnapshot): DrawingPipeline {
-  const { brushSettings, shapeMode } = tools;
+  const { brushSettings, shapeMode, currentTool } = tools;
+  const toolSupportsBrushPipelines = currentTool === 'brush' || currentTool === 'custom';
+  if (!toolSupportsBrushPipelines) {
+    return 'standard-stroke';
+  }
   const shape = brushSettings.brushShape;
   const ccFlags = getColorCycleBrushFlags(brushSettings);
 

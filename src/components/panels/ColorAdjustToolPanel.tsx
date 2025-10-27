@@ -4,6 +4,7 @@ import React, { useMemo, useCallback, useEffect } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import type { ColorAdjustParams, Tool } from '@/types';
+import { useToolSwitcher } from '@/utils/toolSwitch';
 
 type ParamKey = keyof ColorAdjustParams;
 
@@ -27,7 +28,6 @@ const ColorAdjustToolPanel: React.FC = () => {
   const applyColorAdjust = useAppStore((state) => state.applyColorAdjust);
   const cancelColorAdjust = useAppStore((state) => state.cancelColorAdjust);
   const resetColorAdjustParams = useAppStore((state) => state.resetColorAdjustParams);
-  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const startColorAdjustSession = useAppStore((state) => state.startColorAdjustSession);
   const previousTool = useAppStore((state) => state.tools.previousTool);
   const hasValidLayer = useAppStore((state) => {
@@ -44,6 +44,7 @@ const ColorAdjustToolPanel: React.FC = () => {
     const layer = state.layers.find((l) => l.id === state.activeLayerId);
     return layer?.name ?? 'Layer';
   });
+  const switchTool = useToolSwitcher();
 
   const handleSliderChange = useCallback(
     (key: ParamKey) => (value: number) => {
@@ -63,14 +64,14 @@ const ColorAdjustToolPanel: React.FC = () => {
   const handleApply = useCallback(async () => {
     await applyColorAdjust();
     const nextTool = resolveFallbackTool(previousTool as Tool | null);
-    setCurrentTool(nextTool);
-  }, [applyColorAdjust, previousTool, resolveFallbackTool, setCurrentTool]);
+    await switchTool(nextTool);
+  }, [applyColorAdjust, previousTool, resolveFallbackTool, switchTool]);
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback(async () => {
     cancelColorAdjust();
     const nextTool = resolveFallbackTool(previousTool as Tool | null);
-    setCurrentTool(nextTool);
-  }, [cancelColorAdjust, previousTool, resolveFallbackTool, setCurrentTool]);
+    await switchTool(nextTool);
+  }, [cancelColorAdjust, previousTool, resolveFallbackTool, switchTool]);
 
   const handleReset = useCallback(() => {
     resetColorAdjustParams();

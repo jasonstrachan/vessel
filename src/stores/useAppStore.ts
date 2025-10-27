@@ -451,6 +451,23 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
 };
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';
+const SHAPE_CAPABLE_TOOLS: Tool[] = ['brush', 'custom'];
+const isShapeCapableTool = (tool?: Tool | null): boolean => {
+  if (!tool) {
+    return false;
+  }
+  return SHAPE_CAPABLE_TOOLS.includes(tool);
+};
+const isColorCycleBrushShape = (shape?: BrushShape): boolean => {
+  if (!shape) {
+    return false;
+  }
+  return (
+    shape === BrushShape.COLOR_CYCLE ||
+    shape === BrushShape.COLOR_CYCLE_TRIANGLE ||
+    shape === BrushShape.COLOR_CYCLE_SHAPE
+  );
+};
 let colorAdjustPreviewHandle: number | null = null;
 
 const cancelScheduledColorAdjustPreview = (): void => {
@@ -2755,10 +2772,15 @@ export const useAppStore = create<AppState>()(
 
         const newBrushSettings = { ...state.tools.brushSettings };
         const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+        const currentToolSupportsShapes = isShapeCapableTool(state.tools.currentTool);
+        const nextToolSupportsShapes = isShapeCapableTool(tool);
+        const isCurrentColorCycleBrush = isColorCycleBrushShape(state.tools.brushSettings.brushShape);
         
         // Track last regular tool and brush shape when switching from regular brush
         let lastRegularTool = state.tools.lastRegularTool;
         let lastRegularBrushShape = state.tools.lastRegularBrushShape;
+        let lastRegularShapeMode = state.tools.lastRegularShapeMode;
+        let lastColorCycleShapeMode = state.tools.lastColorCycleShapeMode;
         
         if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') &&
             tool !== 'brush' && tool !== 'eraser') {
@@ -2784,6 +2806,21 @@ export const useAppStore = create<AppState>()(
         if (wasShapeFillBrush && tool !== 'brush') {
           newShapeMode = false;
         }
+
+        if (currentToolSupportsShapes && !nextToolSupportsShapes) {
+          if (isCurrentColorCycleBrush) {
+            lastColorCycleShapeMode = state.tools.shapeMode;
+          } else {
+            lastRegularShapeMode = state.tools.shapeMode;
+          }
+          newShapeMode = false;
+        } else if (!currentToolSupportsShapes && nextToolSupportsShapes) {
+          const nextIsColorCycleBrush = isColorCycleBrushShape(newBrushSettings.brushShape);
+          newShapeMode = nextIsColorCycleBrush
+            ? (lastColorCycleShapeMode ?? false)
+            : (lastRegularShapeMode ?? false);
+        }
+
         if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser' || state.tools.currentTool === 'custom') &&
             tool !== 'brush' && tool !== 'eraser' && tool !== 'custom') {
           newShapeMode = false;
@@ -2808,6 +2845,8 @@ export const useAppStore = create<AppState>()(
             currentTool: tool,
             lastRegularTool: lastRegularTool,
             lastRegularBrushShape: lastRegularBrushShape,
+            lastRegularShapeMode,
+            lastColorCycleShapeMode,
             brushSettings: newBrushSettings,
             shapeMode: newShapeMode
           }

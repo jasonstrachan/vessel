@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
-import { BrushShape, type BrushSettings, type CustomBrush, type Layer, type CanvasSnapshot } from '../types';
+import { BrushShape, type BrushSettings, type CustomBrush, type Layer, type CanvasSnapshot, type Tool } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
@@ -93,6 +93,20 @@ type StampCmd = {
 
 type CaptureRegion = { x: number; y: number; width: number; height: number };
 type RecomposeRegion = { x: number; y: number; width: number; height: number };
+
+type CommitRasterOverlayOptions = {
+  layer: Layer;
+  overlayCanvas: HTMLCanvasElement | null;
+  beforeImage: ImageData | null;
+  beforeColorState: ColorCycleSerializedState | null;
+  historyAction: CanvasSnapshot['actionType'];
+  historyDescription: string;
+  tool: string;
+  coalesce?: LayerHistoryPayload['coalesce'];
+  bitmapRoi?: CaptureRegion;
+  skipHistory?: boolean;
+  skipBitmapDelta?: boolean;
+};
 
 const BRUSH_HISTORY_COALESCE_WINDOW_MS = 250;
 const STOP_COOLDOWN_MS = 200;
@@ -274,6 +288,8 @@ const withTiming = async <T>(label: string, task: () => Promise<T>): Promise<T> 
   }
 };
 
+const noopPromise = async () => {};
+
 const ROI_PADDING_PX = 2;
 
 const createBoundingBox = (point: { x: number; y: number }): BoundingBox => ({
@@ -442,6 +458,61 @@ export function useDrawingHandlers({
   });
   const maskManager = useMemo(() => getMaskManager(), []);
   const eraserToolRef = useRef<EraserTool | null>(null);
+
+  const commitRasterOverlay = useCallback(async (options: CommitRasterOverlayOptions) => {
+    if (!project) {
+      return;
+    }
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = project.width;
+    tempCanvas.height = project.height;
+    const tempCtx = tempCanvas.getContext('2d', {
+      willReadFrequently: true,
+      alpha: true,
+    });
+
+    if (!tempCtx) {
+      return;
+    }
+
+    if (options.layer.imageData) {
+      tempCtx.putImageData(options.layer.imageData, 0, 0);
+    }
+
+    if (options.overlayCanvas) {
+      tempCtx.globalCompositeOperation = 'source-over';
+      tempCtx.globalAlpha = 1;
+      tempCtx.drawImage(options.overlayCanvas, 0, 0);
+    }
+
+    await withTiming('cc:capture', () =>
+      captureCanvasToActiveLayer(tempCanvas, options.bitmapRoi)
+    );
+
+    tempCanvas.width = 1;
+    tempCanvas.height = 1;
+    const clearCtx = tempCanvas.getContext('2d');
+    clearCtx?.clearRect(0, 0, 1, 1);
+
+    if (options.skipHistory) {
+      return;
+    }
+
+    await withTiming('cc:commit', () =>
+      commitLayerHistory({
+        layerId: options.layer.id,
+        beforeImage: options.beforeImage,
+        beforeColorState: options.beforeColorState,
+        actionType: options.historyAction,
+        description: options.historyDescription,
+        tool: options.tool,
+        coalesce: options.coalesce,
+        bitmapRoi: options.bitmapRoi ?? undefined,
+        skipBitmapDelta: options.skipBitmapDelta ?? false,
+      })
+    );
+  }, [captureCanvasToActiveLayer, project]);
   const eraserRoiRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const createBrushStampSource = useCallback(
     () =>
@@ -2475,15 +2546,12 @@ export function useDrawingHandlers({
       return;
     }
 
-    if (FF.ERASER_V2 && snapshot.tools.currentTool === 'eraser' && eraserToolRef.current) {
-      const activeTool = eraserToolRef.current;
-      try {
-        activeTool.end();
-      } finally {
-        eraserRoiRef.current = activeTool.getROI();
-        eraserToolRef.current = null;
-      }
-    }
+    const pendingEraserTool =
+      FF.ERASER_V2 && snapshot.tools.currentTool === 'eraser'
+        ? eraserToolRef.current
+        : null;
+
+    const finalizeTool = snapshot.tools.currentTool as Tool | 'eraser';
 
     try {
       if (isBusyRef) isBusyRef.current = true;
@@ -2517,6 +2585,17 @@ export function useDrawingHandlers({
         } catch {}
       }
 
+      if (pendingEraserTool) {
+        try {
+          pendingEraserTool.end();
+        } finally {
+          eraserRoiRef.current = pendingEraserTool.getROI();
+          if (eraserToolRef.current === pendingEraserTool) {
+            eraserToolRef.current = null;
+          }
+        }
+      }
+
       const finalizeAfterQueue = async () => {
         // Cancel any pending batch timer
         if (strokeBatchTimerRef.current) {
@@ -2531,13 +2610,14 @@ export function useDrawingHandlers({
         stampCounterRef.current = 0;
 
         // Finalize the stroke (draw any waiting pixels) for modular engine
-        if (brushEngine.finalizeStroke && drawingCtxRef.current) {
+        const shouldSkipEngineFinalize = FF.ERASER_V2 && finalizeTool === 'eraser';
+        if (!shouldSkipEngineFinalize && brushEngine.finalizeStroke && drawingCtxRef.current) {
           brushEngine.finalizeStroke(drawingCtxRef.current);
         }
 
         let currentState = snapshot;
         let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-        const currentTool = currentState.tools.currentTool;
+        const currentTool: Tool | 'eraser' = currentState.tools.currentTool as Tool | 'eraser';
         const currentBrushId = currentState.currentBrushPreset?.id;
         
         // End stroke for user brushes
@@ -2572,6 +2652,16 @@ export function useDrawingHandlers({
               }
             : undefined;
 
+          let historyHandled = false;
+          const boundingBoxRoi =
+            project
+              ? boundingBoxToCaptureRegion(
+                  strokeBoundingBoxRef.current,
+                  ROI_PADDING_PX,
+                  project
+                )
+              : undefined;
+
           if (currentTool === 'eraser') {
             const historyAction = historyActionOverride ?? 'eraser';
             const historyDescription = historyDescriptionOverride ?? 'Eraser Stroke';
@@ -2579,55 +2669,11 @@ export function useDrawingHandlers({
             const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
             const layerCanvas = activeLayer.colorCycleData?.canvas ?? null;
 
-            if (FF.ERASER_V2) {
-              if (isColorCycleLayer && layerCanvas) {
-                await withTiming('cc:capture', () =>
-                  captureCanvasToActiveLayer(layerCanvas, roiForEraser ?? undefined)
-                );
-                if (!skipSave) {
-                  await withTiming('cc:commit', () =>
-                    commitLayerHistory({
-                      layerId: activeLayerIdString,
-                      beforeImage: layerBeforeImage,
-                      beforeColorState: layerBeforeColorState,
-                      actionType: historyAction,
-                      description: historyDescription,
-                      tool: 'eraser',
-                      coalesce: coalescePayload,
-                      bitmapRoi: roiForEraser ?? undefined,
-                      skipBitmapDelta: true,
-                    })
-                  );
-                }
-              } else if (drawingCanvas) {
-                if (skipSave) {
-                  await withTiming('cc:capture', () =>
-                    captureCanvasToActiveLayer(drawingCanvas, roiForEraser ?? undefined)
-                  );
-                } else {
-                  await withTiming('cc:capture', () =>
-                    captureCanvasToActiveLayer(drawingCanvas, roiForEraser ?? undefined)
-                  );
-                  await withTiming('cc:commit', () =>
-                    commitLayerHistory({
-                      layerId: activeLayerIdString,
-                      beforeImage: layerBeforeImage,
-                      beforeColorState: layerBeforeColorState,
-                      actionType: historyAction,
-                      description: historyDescription,
-                      tool: 'eraser',
-                      coalesce: coalescePayload,
-                      bitmapRoi: roiForEraser ?? undefined,
-                    })
-                  );
-                }
-              }
-              eraserRoiRef.current = null;
-            } else if (drawingCanvas) {
-              if (skipSave) {
-                await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
-              } else {
-                await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+            if (FF.ERASER_V2 && isColorCycleLayer && layerCanvas) {
+              await withTiming('cc:capture', () =>
+                captureCanvasToActiveLayer(layerCanvas, roiForEraser ?? undefined)
+              );
+              if (!skipSave) {
                 await withTiming('cc:commit', () =>
                   commitLayerHistory({
                     layerId: activeLayerIdString,
@@ -2637,11 +2683,40 @@ export function useDrawingHandlers({
                     description: historyDescription,
                     tool: 'eraser',
                     coalesce: coalescePayload,
+                    bitmapRoi: roiForEraser ?? undefined,
+                    skipBitmapDelta: true,
                   })
                 );
+                historyHandled = true;
+              }
+            } else if (drawingCanvas) {
+              if (skipSave) {
+                await withTiming('cc:capture', () =>
+                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? boundingBoxRoi) ?? undefined)
+                );
+              } else {
+                await withTiming('cc:capture', () =>
+                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? boundingBoxRoi) ?? undefined)
+                );
+                await withTiming('cc:commit', () =>
+                  commitLayerHistory({
+                    layerId: activeLayerIdString,
+                    beforeImage: layerBeforeImage,
+                    beforeColorState: layerBeforeColorState,
+                    actionType: historyAction,
+                    description: historyDescription,
+                    tool: 'eraser',
+                    coalesce: coalescePayload,
+                    bitmapRoi: (roiForEraser ?? boundingBoxRoi) ?? undefined,
+                    // Raster eraser strokes must record bitmap deltas so undo restores erased pixels.
+                    skipBitmapDelta: false,
+                  })
+                );
+                historyHandled = true;
               }
             }
-            
+
+            eraserRoiRef.current = null;
           } else { // Brush tool
             const activeSettings = currentState.tools.brushSettings;
             const activeFlags = getColorCycleBrushFlags(activeSettings);
@@ -2741,6 +2816,22 @@ export function useDrawingHandlers({
 
             const isShapeMode = currentState.tools.shapeMode;
 
+            const resolvedHistoryAction =
+              historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
+
+            const resolvedHistoryDescription = historyDescriptionOverride ?? (() => {
+              if (isShapeMode) {
+                if (isColorCycleLayer && isColorCycleBrush) {
+                  return 'Color Cycle Fill';
+                }
+                return getShapeFillHistoryDescription();
+              }
+              if (isColorCycleLayer && isColorCycleBrush) {
+                return 'Color Cycle Stroke';
+              }
+              return 'Brush Stroke';
+            })();
+
             let brushForCleanup: ManagedColorCycleBrush | undefined;
             let deferredLayerCanvas: HTMLCanvasElement | null = null;
             let strokeCaptureRoi: CaptureRegion | undefined;
@@ -2826,38 +2917,20 @@ export function useDrawingHandlers({
               // history entry and break CC undo granularity. Skip saving in this edge case.
               // Reduce noise: suppressed finalize debug
             } else {
-              // Raster brush/eraser on normal layer: composite overlay buffer into temp canvas,
-              // then capture & commit bitmap history.
-              // Regular layers: composite drawing onto layer
-              const tempCanvas = document.createElement('canvas');
-              tempCanvas.width = project.width;
-              tempCanvas.height = project.height;
-              const tempCtx = tempCanvas.getContext('2d', {
-                willReadFrequently: true,
-                alpha: true
+              await commitRasterOverlay({
+                layer: activeLayer,
+                overlayCanvas: drawingCanvasRef.current ?? null,
+                beforeImage: layerBeforeImage,
+                beforeColorState: layerBeforeColorState,
+                historyAction: resolvedHistoryAction,
+                historyDescription: resolvedHistoryDescription,
+                tool: currentTool,
+                coalesce: skipSave ? undefined : coalescePayload,
+                bitmapRoi: boundingBoxRoi ?? undefined,
+                skipHistory: skipSave,
               });
-              
-              if (tempCtx) {
-                if (activeLayer.imageData) {
-                  tempCtx.putImageData(activeLayer.imageData, 0, 0);
-                }
-                // Don't re-apply opacity and blend mode - they were already applied during drawing
-                tempCtx.globalCompositeOperation = 'source-over';
-                tempCtx.globalAlpha = 1;
-                if (drawingCanvas) {
-                  tempCtx.drawImage(drawingCanvas, 0, 0);
-                }
-
-                await withTiming('cc:capture', () => captureCanvasToActiveLayer(tempCanvas));
-                
-                
-                
-                // Clean up temporary canvas to prevent memory leak
-                tempCanvas.width = 1;
-                tempCanvas.height = 1;
-                tempCtx.clearRect(0, 0, 1, 1);
+              historyHandled = historyHandled || !skipSave;
             }
-          }
 
           // Clear transient drawing canvas content before scheduling history work
           const polygonState = currentState.polygonGradientState;
@@ -2877,37 +2950,17 @@ export function useDrawingHandlers({
 
           releaseBusyLock();
 
-          if (!skipSave) {
-            const actionType = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
-            const defaultDescription = (() => {
-              if (isShapeMode) {
-                if (isColorCycleLayer && isColorCycleBrush) {
-                  return 'Color Cycle Fill';
-                }
-                return getShapeFillHistoryDescription();
-              }
-              if (isColorCycleLayer && isColorCycleBrush) {
-                return 'Color Cycle Stroke';
-              }
-              return 'Brush Stroke';
-            })();
-            const historyDescription = historyDescriptionOverride ?? defaultDescription;
+          if (!skipSave && !historyHandled) {
+            const actionType = resolvedHistoryAction;
+            const historyDescription = resolvedHistoryDescription;
             const shouldSkipBitmapDelta = shouldDisableCoalescing;
             const coalesceForHistory = shouldSkipBitmapDelta ? undefined : coalescePayload;
 
-              if (brushForCleanup?.flush) {
-                brushForCleanup.flush(activeLayerIdString);
-              }
+            if (brushForCleanup?.flush) {
+              brushForCleanup.flush(activeLayerIdString);
+            }
 
-              const historyBitmapRoi =
-                strokeCaptureRoi ??
-                (project
-                  ? boundingBoxToCaptureRegion(
-                      strokeBoundingBoxRef.current,
-                      ROI_PADDING_PX,
-                      project
-                    )
-                  : undefined);
+            const historyBitmapRoi = strokeCaptureRoi ?? boundingBoxRoi;
 
               const shouldDeferColorCycleSave =
                 isColorCycleLayer &&
@@ -4695,7 +4748,8 @@ export function useDrawingHandlers({
     startContinuousColorCycleAnimation,
     stopContinuousColorCycleAnimation,
     resumeColorCycleAfterInteraction,
-    setFeedbackCallback
+    setFeedbackCallback,
+    commitRasterOverlay
   };
 }
 

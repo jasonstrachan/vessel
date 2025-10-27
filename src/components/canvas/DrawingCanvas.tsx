@@ -20,6 +20,8 @@ import { getPresetStops } from '@/utils/gradientPresets';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { computeShapeFillColors } from '@/shapeFill/colorUtils';
+import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
+import { useToolSwitcher } from '@/utils/toolSwitch';
 import { FillStage } from '@/shapeFill/types';
 
 type GradientStop = { position: number; color: string };
@@ -133,7 +135,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const {
     setSelectionBounds,
     clearSelection,
-    setCurrentTool,
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
     setCanvasDimensions,
@@ -152,11 +153,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     cancelColorAdjust,
   } = useAppStore();
 
+  const switchTool = useToolSwitcher();
+
   const setCurrentToolById = useCallback(
     (toolId: string) => {
-      setCurrentTool(toolId as Tool);
+      void switchTool(toolId as Tool);
     },
-    [setCurrentTool]
+    [switchTool]
   );
 
   const setFloatingPasteFromHandlers = useCallback(
@@ -917,10 +920,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         store.commitShapeFillParameter();
       }
 
-      const updatedSession = useAppStore.getState().shapeFill.session;
-      if (!updatedSession || updatedSession.stage === FillStage.Finalized) {
-        const payload = useAppStore.getState().finalizeShapeFillSession();
-        if (payload) {
+      const payload = useAppStore.getState().finalizeShapeFillSession();
+      if (payload) {
           if (!drawingHandlers.drawingCanvasRef.current) {
             drawingHandlers.initDrawingCanvas();
           }
@@ -995,8 +996,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             return true;
           }
         }
-      }
-
       return true;
     }
 
@@ -1030,6 +1029,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     stateMachine,
     tools.shapeMode
   ]);
+
+  useEffect(() => {
+    const key = 'drawing-canvas:finalize-shapes';
+    registerToolFlush(key, async () => {
+      await finalizeActiveShape();
+    });
+    return () => unregisterToolFlush(key);
+  }, [finalizeActiveShape]);
   
   // Extract the color cycle animation functions for use by BrushControls
   const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation, setFeedbackCallback } = drawingHandlers;
@@ -1465,13 +1472,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       useAppStore.getState().loadProject().catch(() => {});
     },
     onCustomTool: () => {
-      setCurrentTool('custom');
-    },
-    onEraserPressed: () => {
-      // Eraser key pressed - tool switch handled in hook
-    },
-    onEraserReleased: () => {
-      // Eraser key released - tool restoration handled in hook
+      void switchTool('custom');
     },
     onUndo: async () => {
       if (!useAppStore.getState().canUndo()) {
@@ -1607,7 +1608,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const fallbackTool = (previousTool ?? 'brush') as Tool;
         const resolvedTool: Tool =
           fallbackTool === 'color-adjust' ? 'brush' : fallbackTool;
-        setCurrentTool(resolvedTool);
+        void switchTool(resolvedTool);
         return;
       }
 

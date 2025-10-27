@@ -1,9 +1,13 @@
+"use client";
+
 import React from 'react';
-import { useAppStore } from '../stores/useAppStore';
-import { Tool } from '../types';
+import { useAppStore } from '@/stores/useAppStore';
+import { Tool } from '@/types';
+import { useToolSwitcher } from '@/utils/toolSwitch';
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, setCurrentTool, saveProject, loadProject, toggleModal } = useAppStore();
+  const { tools: toolState, saveProject, loadProject, toggleModal } = useAppStore();
+  const switchTool = useToolSwitcher();
 
   const baseButtonStyle: React.CSSProperties = {
     fontFamily: 'IBM Plex Mono, "Courier New", monospace',
@@ -59,7 +63,7 @@ const LeftToolbar = () => {
     } else if (toolId === 'options') {
       toggleModal('settings');
     } else {
-      setCurrentTool(toolId);
+      await switchTool(toolId);
     }
   };
 

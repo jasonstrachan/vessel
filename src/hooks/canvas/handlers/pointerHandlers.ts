@@ -123,6 +123,7 @@ const cl = {
 };
 // -----------------------------------------------------------
 import { selectActivePaletteColor, useAppStore } from '../../../stores/useAppStore';
+import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type {
   ContourLinesBasis,
@@ -1312,7 +1313,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     // Only allow shape handlers when using brush/eraser/custom tools
     // This prevents shape mode from intercepting other tools like fill, eyedropper, etc.
-    if (tools.currentTool === 'brush' || tools.currentTool === 'eraser' || tools.currentTool === 'custom') {
+    if (tools.currentTool === 'brush' || tools.currentTool === 'custom') {
       const rewriteHandled = shapeHandler.handlePointerDown(event);
       if (rewriteHandled) {
         const polygonState = useAppStore.getState().polygonGradientState;
@@ -1359,7 +1360,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     if (
       event.button === 0 &&
-      (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
+      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
       tools.shapeMode &&
       tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
@@ -1368,13 +1369,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE
     ) {
       // quiet
-      // Strictly block incompatible brush/layer combinations (but allow eraser on any layer)
-      if (tools.currentTool !== 'eraser') {
-        const compat = checkLayerBrushCompatibility();
-        if (!compat.ok) {
-          deps.feedback?.(compat.message);
-          return;
-        }
+      // Strictly block incompatible brush/layer combinations before starting shape drawing
+      const compat = checkLayerBrushCompatibility();
+      if (!compat.ok) {
+        deps.feedback?.(compat.message);
+        return;
       }
 
       // Initialize snapping anchors for this stroke
@@ -1720,16 +1719,16 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // BUT ONLY if we're not in pan mode, NOT using gradient/contour tools,
       // AND the active tool actually supports painting (brush/eraser).
       // This prevents painting while the 'recolor' tool is selected.
-      if (
-        currentMode === 'IDLE' &&
-        (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
+    if (
+      currentMode === 'IDLE' &&
+      (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
         !toolStateMachine.isRectangleGradient &&
         !toolStateMachine.isPolygonGradient &&
         !toolStateMachine.isColorCycleShape &&
         !toolStateMachine.isContourPolygon
       ) {
         interaction.dispatch({ type: 'DRAWING_START', pressure });
-        if (tools.shapeMode) {
+        if (tools.shapeMode && tools.currentTool === 'brush') {
           drawingHandlers.startShapeDrawing(worldPos, pressure);
         } else {
           const brushPresetId = (() => {
@@ -2770,7 +2769,7 @@ function cssColorToHex(color: string): string {
       if (interaction.refs.selectionStart.current) {
         setSelectionBounds(interaction.refs.selectionStart.current, worldPos);
         if (tools.currentTool === 'custom') {
-          deps.setCurrentTool('brush');
+          void flushAndSetCurrentTool('brush');
           clearSelection();
           updateBrushCursorVisibility(); // Show brush cursor again after custom brush selection
         }

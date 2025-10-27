@@ -1,8 +1,11 @@
+"use client";
+
 import React, { useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape, BrushPreset, ComponentType } from '../types';
 import PlusButton from './ui/PlusButton';
 import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
+import { useToolSwitcher } from '@/utils/toolSwitch';
 
 const BrushLibrary = () => {
   // FIX: Use individual selectors to avoid creating new objects on every render
@@ -14,7 +17,7 @@ const BrushLibrary = () => {
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
-  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const switchTool = useToolSwitcher();
   const startBrushEdit = useAppStore((state) => state.startBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
@@ -220,10 +223,10 @@ const BrushLibrary = () => {
     }
   };
   
-  const handlePresetClick = (preset: BrushPreset) => {
+  const handlePresetClick = async (preset: BrushPreset) => {
     // Switch to Brush tool first to avoid any chance of preset
     // application being overwritten by a subsequent tool change.
-    setCurrentTool('brush');
+    await switchTool('brush');
     // Then apply the selected preset (preserve edit mode if active)
     setBrushPreset(preset, true);
   };
@@ -448,7 +451,7 @@ const BrushLibrary = () => {
               <div
                 onClick={(e) => {
                   e.stopPropagation();
-                  setCurrentTool('recolor');
+                  void switchTool('recolor');
                 }}
                 className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${
                   tools.currentTool === 'recolor' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]'

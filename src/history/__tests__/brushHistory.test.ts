@@ -285,3 +285,79 @@ describe('brush history coalescing', () => {
     expect(firstEntry.id).not.toBe(secondEntry.id);
   });
 });
+
+describe('eraser history persistence', () => {
+  beforeEach(() => {
+    resetHistoryAndStore();
+  });
+
+  afterEach(() => {
+    resetHistoryAndStore();
+  });
+
+  it('records raster eraser strokes as undoable entries', async () => {
+    const filled = createImage([
+      255, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const afterErase = createImage([
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const layer = createLayer('eraser-layer', cloneImage(filled));
+    installLayer(layer);
+
+    updateLayerImage(layer.id, cloneImage(afterErase));
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(filled),
+      beforeColorState: null,
+      actionType: 'eraser',
+      description: 'Eraser stroke',
+      tool: 'eraser',
+      bitmapRoi: { x: 0, y: 0, width: 1, height: 1 },
+      skipBitmapDelta: false,
+    });
+
+    const entries = historyManager.entries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.action).toBe('eraser-stroke');
+  });
+
+  it('drops eraser history if bitmap deltas are skipped (regression guard)', async () => {
+    const filled = createImage([
+      255, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const afterErase = createImage([
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const layer = createLayer('eraser-layer-skip', cloneImage(filled));
+    installLayer(layer);
+
+    updateLayerImage(layer.id, cloneImage(afterErase));
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(filled),
+      beforeColorState: null,
+      actionType: 'eraser',
+      description: 'Skipped bitmap delta',
+      tool: 'eraser',
+      bitmapRoi: { x: 0, y: 0, width: 1, height: 1 },
+      skipBitmapDelta: true,
+    });
+
+    expect(historyManager.entries()).toHaveLength(0);
+  });
+});

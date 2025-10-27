@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape, Tool } from '../types';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
 // Treat these input types as text entry fields so we don't hijack shortcuts while typing.
 const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
@@ -124,6 +125,11 @@ export function useComprehensiveKeyboard({
   const onRedoRef = useRef(onRedo);
   const onSaveRef = useRef(onSave);
   const onOpenRef = useRef(onOpen);
+
+  const switchTool = useCallback(async (tool: Tool) => {
+    await flushPendingToolWork();
+    setCurrentTool(tool);
+  }, [setCurrentTool]);
   
   // Update refs when callbacks change
   useEffect(() => {
@@ -138,7 +144,7 @@ export function useComprehensiveKeyboard({
     onOpenRef.current = onOpen;
   }, [onSpacePressed, onSpaceReleased, onCustomTool, onEraserPressed, onEraserReleased, onUndo, onRedo, onSave, onOpen]);
 
-  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+  const handleKeyDown = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
 
     // Respect keyboard scope: bail if current scope not allowed (Space handled below regardless)
@@ -253,7 +259,7 @@ export function useComprehensiveKeyboard({
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
       event.preventDefault();
       selectAllActiveLayerPixels();
-      setCurrentTool('selection');
+      await switchTool('selection');
       return;
     }
 
@@ -261,6 +267,7 @@ export function useComprehensiveKeyboard({
     if (event.key === 'c' || event.key === 'C') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
+        await switchTool('custom');
         void onCustomToolRef.current?.();
         return;
       }
@@ -270,7 +277,7 @@ export function useComprehensiveKeyboard({
     if (event.key === 'f' || event.key === 'F') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
-        setCurrentTool('fill');
+        await switchTool('fill');
         return;
       }
     }
@@ -279,7 +286,7 @@ export function useComprehensiveKeyboard({
     if (event.key === 'b' || event.key === 'B') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
-        setCurrentTool('brush');
+        await switchTool('brush');
         return;
       }
     }
@@ -294,15 +301,19 @@ export function useComprehensiveKeyboard({
         
         // Store current tool for potential temporary mode
         if (tools.currentTool !== 'eraser') {
-          previousToolRef.current = tools.currentTool;
+          try {
+            await onEraserPressedRef.current?.();
+          } catch {
+            // ignore finalize errors; fall back to default behavior
+          }
+          const originTool = tools.currentTool;
+          previousToolRef.current = originTool;
           isTemporaryEraserRef.current = true;
-          setCurrentTool('eraser');
+          await switchTool('eraser');
         } else {
           // Already in eraser mode, keep it
           isTemporaryEraserRef.current = false;
         }
-        
-        void onEraserPressedRef.current?.();
         return;
       }
     }
@@ -311,7 +322,7 @@ export function useComprehensiveKeyboard({
     if (event.key === 'm' || event.key === 'M') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
-        setCurrentTool('selection');
+        await switchTool('selection');
         return;
       }
     }
@@ -329,7 +340,7 @@ export function useComprehensiveKeyboard({
         }
 
         isColorPickerHeldRef.current = true;
-        setCurrentTool('color-picker');
+        await switchTool('color-picker');
         return;
       }
     }
@@ -439,11 +450,11 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
-      tools, polygonGradientState, setCurrentTool, setGlobalBrushSize, setEraserSettings,
+      tools, polygonGradientState, switchTool, setGlobalBrushSize, setEraserSettings,
       deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd,
       floatingPaste, setFloatingPaste, setPaletteColor, swapPaletteColors]);
 
-  const handleKeyUp = useCallback((event: KeyboardEvent) => {
+  const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
 
     // Respect keyboard scope
@@ -482,7 +493,7 @@ export function useComprehensiveKeyboard({
       if (isColorPickerHeldRef.current) {
         const previousTool = colorPickerPreviousToolRef.current;
         if (previousTool && previousTool !== 'color-picker') {
-          setCurrentTool(previousTool);
+          await switchTool(previousTool);
         }
         isColorPickerHeldRef.current = false;
         colorPickerPreviousToolRef.current = null;
@@ -495,6 +506,12 @@ export function useComprehensiveKeyboard({
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
         
+        try {
+          await onEraserReleasedRef.current?.();
+        } catch {
+          // ignore finalize errors on release
+        }
+
         // Calculate hold duration
         const holdDuration = Date.now() - eraserPressTimeRef.current;
         const isQuickTap = holdDuration < 200; // Tap if held less than 200ms
@@ -502,7 +519,7 @@ export function useComprehensiveKeyboard({
         // If it was temporary mode and a hold (not a tap), restore previous tool
         if (isTemporaryEraserRef.current && previousToolRef.current && !isQuickTap) {
           // Restore previous tool
-          setCurrentTool(previousToolRef.current as Tool);
+          await switchTool(previousToolRef.current as Tool);
           previousToolRef.current = null;
           isTemporaryEraserRef.current = false;
         } else if (isTemporaryEraserRef.current && isQuickTap) {
@@ -510,12 +527,10 @@ export function useComprehensiveKeyboard({
           previousToolRef.current = null;
           isTemporaryEraserRef.current = false;
         }
-        
-        void onEraserReleasedRef.current?.();
         return;
       }
     }
-  }, [enabled, allowedScopes, setCurrentTool]);
+  }, [enabled, allowedScopes, switchTool]);
 
   // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {
@@ -540,13 +555,13 @@ export function useComprehensiveKeyboard({
       if (isColorPickerHeldRef.current) {
         const previousTool = colorPickerPreviousToolRef.current;
         if (previousTool && previousTool !== 'color-picker') {
-          useAppStore.getState().setCurrentTool(previousTool);
+          void switchTool(previousTool);
         }
         isColorPickerHeldRef.current = false;
         colorPickerPreviousToolRef.current = null;
       }
     }
-  }, []);
+  }, [switchTool]);
 
   useEffect(() => {
     if (!enabled) return;
