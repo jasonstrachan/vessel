@@ -292,6 +292,23 @@ const noopPromise = async () => {};
 
 const ROI_PADDING_PX = 2;
 
+const computeStrokeCapturePadding = (settings?: BrushSettings | null): number => {
+  if (!settings) {
+    return 0;
+  }
+  const size = typeof settings.size === 'number' && Number.isFinite(settings.size)
+    ? settings.size
+    : 1;
+  const radius = Math.max(1, size) / 2;
+  const antialiasPadding = settings.antialiasing ? 2 : 0;
+  const softEdgePadding = settings.brushShape && (
+    settings.brushShape === BrushShape.ROUND ||
+    settings.brushShape === BrushShape.RISOGRAPH_SOFT ||
+    settings.brushShape === BrushShape.RISOGRAPH_ULTRA
+  ) ? 2 : 0;
+  return radius + Math.max(antialiasPadding, softEdgePadding);
+};
+
 const createBoundingBox = (point: { x: number; y: number }): BoundingBox => ({
   minX: point.x,
   minY: point.y,
@@ -640,6 +657,7 @@ export function useDrawingHandlers({
   // Store resampler brush data for the entire stroke
   const resamplerBrushDataRef = useRef<CustomBrushStrokeData | undefined>(undefined);
   const strokeBoundingBoxRef = useRef<BoundingBox | null>(null);
+  const strokeCapturePaddingRef = useRef(0);
   
   // Track stamp count for continuous resampling
   const stampCounterRef = useRef<number>(0);
@@ -1501,8 +1519,10 @@ export function useDrawingHandlers({
 
     if (currentTool === 'brush') {
       strokeBoundingBoxRef.current = createBoundingBox(worldPos);
+      strokeCapturePaddingRef.current = computeStrokeCapturePadding(brushSettings);
     } else {
       strokeBoundingBoxRef.current = null;
+      strokeCapturePaddingRef.current = 0;
     }
 
     // Layer type handling and validation
@@ -2470,6 +2490,10 @@ export function useDrawingHandlers({
 
     if (currentState.tools.currentTool === 'brush') {
       strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
+      const dynamicPadding = computeStrokeCapturePadding(currentState.tools.brushSettings);
+      if (dynamicPadding > strokeCapturePaddingRef.current) {
+        strokeCapturePaddingRef.current = dynamicPadding;
+      }
     }
 
     // Add to batch
@@ -2657,7 +2681,7 @@ export function useDrawingHandlers({
             project
               ? boundingBoxToCaptureRegion(
                   strokeBoundingBoxRef.current,
-                  ROI_PADDING_PX,
+                  ROI_PADDING_PX + strokeCapturePaddingRef.current,
                   project
                 )
               : undefined;
@@ -2845,7 +2869,7 @@ export function useDrawingHandlers({
                 perfMark('cc:roi:start');
                 strokeCaptureRoi = boundingBoxToCaptureRegion(
                   strokeBoundingBoxRef.current,
-                  ROI_PADDING_PX,
+                  ROI_PADDING_PX + strokeCapturePaddingRef.current,
                   project
                 );
                 perfMark('cc:roi:end');
@@ -3079,6 +3103,7 @@ export function useDrawingHandlers({
       await resumeColorCycleAfterInteraction();
       endFinalizeVisibleTimer();
       strokeBoundingBoxRef.current = null;
+      strokeCapturePaddingRef.current = 0;
       if (isBusyRef) isBusyRef.current = false;
     }
   }, [
@@ -3117,6 +3142,7 @@ export function useDrawingHandlers({
   
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     strokeBoundingBoxRef.current = null;
+    strokeCapturePaddingRef.current = 0;
     // If we're selecting direction for linear gradient, record the direction
     if (isSelectingDirectionRef.current) {
       directionPreviewRef.current = worldPos;
@@ -4105,7 +4131,7 @@ export function useDrawingHandlers({
                 project
                   ? boundingBoxToCaptureRegion(
                       strokeBoundingBoxRef.current,
-                      ROI_PADDING_PX,
+                      ROI_PADDING_PX + strokeCapturePaddingRef.current,
                       project
                     )
                   : undefined,

@@ -7,7 +7,6 @@ import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
 import ProgressSlider from '@/components/ui/ProgressSlider';
-import LockTransparencyIcon from '@/components/icons/LockTransparencyIcon';
 
 const LayersPanel: React.FC = () => {
   const [layerMenuState, setLayerMenuState] = React.useState<{
@@ -402,12 +401,12 @@ const LayersPanel: React.FC = () => {
                 {isMenuOpen && (
                   <div
                     ref={opacityPopoverRef}
-                    className={`absolute z-50 w-52 border border-[#666] bg-[#2A2A32] p-3 shadow-lg space-y-3 ${
+                    className={`absolute z-50 w-52 border border-[#666] bg-[#2A2A32] p-2.5 shadow-lg space-y-2 ${
                       layerMenuState.vertical === 'below' ? 'top-full mt-2' : 'bottom-full mb-2'
                     } ${layerMenuState.horizontal === 'right' ? 'right-2' : 'left-2'}`}
                     onClick={event => event.stopPropagation()}
                   >
-                    <div className="space-y-3">
+                    <div className="space-y-1.5">
                       <div
                         onPointerDown={event => event.stopPropagation()}
                         onClick={event => event.stopPropagation()}
@@ -426,21 +425,20 @@ const LayersPanel: React.FC = () => {
                           event.stopPropagation();
                           handleToggleTransparencyLock(layer.id);
                         }}
-                        className={`w-full flex items-center gap-3 px-2 py-1 text-xs border border-[#545454] transition-colors ${
+                        className={`w-full flex items-center justify-center gap-2 px-1.5 py-0.5 text-[11px] border border-[#545454] transition-colors ${
                           layer.transparencyLocked ? 'bg-[#3C3C3C] text-[#F8D866]' : 'bg-transparent text-[#B0B0B0]'
                         } hover:bg-[#3C3C3C]`}
                         aria-pressed={layer.transparencyLocked === true}
                         title={layer.transparencyLocked ? 'Unlock transparent pixels' : 'Lock transparent pixels'}
                       >
-                        <LockTransparencyIcon locked={layer.transparencyLocked === true} size={18} />
-                        <span>Transparency</span>
+                        <span>{layer.transparencyLocked ? 'Unlock transparency' : 'Lock transparency'}</span>
                       </button>
                       <button
                         onClick={event => {
                           event.stopPropagation();
                           handleToggleLock(layer.id);
                         }}
-                        className={`w-full flex items-center justify-center px-2 py-1 text-xs border border-[#545454] transition-colors ${
+                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] transition-colors ${
                           layer.locked ? 'text-[#D9D9D9] bg-[#3A3A3A]' : 'text-[#B0B0B0] bg-transparent'
                         } hover:bg-[#3A3A3A]`}
                       >
@@ -451,7 +449,7 @@ const LayersPanel: React.FC = () => {
                           event.stopPropagation();
                           setReferenceLayer(isReferenceLayer ? null : layer.id);
                         }}
-                        className={`w-full flex items-center justify-center px-2 py-1 text-xs border transition-colors ${
+                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
                           isReferenceLayer
                             ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29]'
                             : 'border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A]'
@@ -470,7 +468,7 @@ const LayersPanel: React.FC = () => {
                           handleDeleteLayer(layer.id);
                           setLayerMenuState(null);
                         }}
-                        className={`w-full flex items-center justify-center px-2 py-1 text-xs border transition-colors ${
+                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
                           layers.length > 1
                             ? 'border-[#803232] text-[#FF6B6B] hover:bg-[#3A1F1F]'
                             : 'border-[#3A3A3A] text-[#555] cursor-not-allowed'
