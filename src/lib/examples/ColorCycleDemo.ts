@@ -6,7 +6,7 @@
 import { ColorCycleAnimator } from '../ColorCycleAnimator';
 import { AnimationController } from '../AnimationController';
 
-const GRADIENT_PRESETS = ['rainbow', 'fire', 'ocean', 'sunset', 'grayscale'] as const;
+const GRADIENT_PRESETS = ['bw-stripes', 'rainbow', 'fire', 'ocean', 'sunset', 'grayscale'] as const;
 type GradientPresetName = typeof GRADIENT_PRESETS[number];
 
 export class ColorCycleDemo {
@@ -275,8 +275,8 @@ export class ColorCycleDemo {
    * Create animated transition between gradients
    */
   animateGradientTransition(
-    fromPreset: 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale',
-    toPreset: 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale',
+    fromPreset: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale',
+    toPreset: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale',
     duration: number = 2000
   ) {
     // This would interpolate between gradient stops over time

@@ -9,6 +9,29 @@ export type PresetGradient = {
 // Central list of preset gradients to share across UI and rendering
 export const GRADIENT_PRESETS: PresetGradient[] = [
   {
+    id: 'bw-stripes',
+    name: 'Black & White Stripes',
+    stops: [
+      { position: 0.0, color: '#000000' },
+      { position: 0.0625, color: '#ffffff' },
+      { position: 0.125, color: '#000000' },
+      { position: 0.1875, color: '#ffffff' },
+      { position: 0.25, color: '#000000' },
+      { position: 0.3125, color: '#ffffff' },
+      { position: 0.375, color: '#000000' },
+      { position: 0.4375, color: '#ffffff' },
+      { position: 0.5, color: '#000000' },
+      { position: 0.5625, color: '#ffffff' },
+      { position: 0.625, color: '#000000' },
+      { position: 0.6875, color: '#ffffff' },
+      { position: 0.75, color: '#000000' },
+      { position: 0.8125, color: '#ffffff' },
+      { position: 0.875, color: '#000000' },
+      { position: 0.9375, color: '#ffffff' },
+      { position: 1.0, color: '#000000' }
+    ]
+  },
+  {
     id: 'rainbow',
     name: 'Rainbow',
     stops: [
@@ -62,7 +85,7 @@ export const GRADIENT_PRESETS: PresetGradient[] = [
   }
 ];
 
-export const DEFAULT_GRADIENT_ID = 'rainbow';
+export const DEFAULT_GRADIENT_ID = 'bw-stripes';
 
 export const DEFAULT_GRADIENT_STOPS: PresetGradientStop[] = (() => {
   const preset = GRADIENT_PRESETS.find(p => p.id === DEFAULT_GRADIENT_ID);

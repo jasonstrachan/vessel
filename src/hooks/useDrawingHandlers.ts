@@ -30,6 +30,7 @@ import { perfMark, perfMeasure, timeAsync, timeSync } from '@/utils/perf/ccPerfP
 import { getMaskManager } from '@/layers/MaskManager';
 import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
 import { EraserTool } from '@/tools/EraserTool';
+import { unwrapAngle } from '@/utils/angles';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -115,6 +116,26 @@ const SYNTHETIC_STOP_THROTTLE_MS = 200;
 const START_CC_COOLDOWN_MS = 200;
 const SKIP_CC_LOG_THROTTLE_MS = 1000;
 const HISTORY_FINALIZE_LANE = '__history__';
+
+const ROTATION_DISTANCE_EPSILON = 1e-3;
+
+const resolveBrushRotation = (
+  rotationEnabled: boolean,
+  dx: number,
+  dy: number,
+  distance: number,
+  previousRotation: number | undefined
+): { rotation: number; nextRotation: number | undefined } => {
+  if (!rotationEnabled) {
+    return { rotation: 0, nextRotation: undefined };
+  }
+  const baseRotation = Math.atan2(dy, dx);
+  const rotation =
+    distance >= ROTATION_DISTANCE_EPSILON
+      ? unwrapAngle(previousRotation, baseRotation)
+      : previousRotation ?? baseRotation;
+  return { rotation, nextRotation: rotation };
+};
 
 const SYNTHETIC_CC_STOP_REASONS = new Set<string>([
   'shape-tool-start',
@@ -695,6 +716,7 @@ export function useDrawingHandlers({
   // Track distance for color cycle stamp spacing
   const colorCycleDistanceRef = useRef<number>(0);
   const colorCycleLastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const colorCycleLastRotationRef = useRef<number | undefined>(undefined);
   
   // Pixel queue for color cycle dashed pattern support
   const colorCyclePixelQueue = useRef(createPixelQueue());
@@ -1740,6 +1762,7 @@ export function useDrawingHandlers({
       }
     } catch {}
     let colorCyclePlayingAtStrokeStart = false;
+    colorCycleLastRotationRef.current = undefined;
 
     // Reset stroke for new drawing (modular engine)
     if (brushEngine.resetStroke) {
@@ -1762,6 +1785,7 @@ export function useDrawingHandlers({
       // Reset distance tracking for consistent spacing
       colorCycleDistanceRef.current = 0;
       colorCycleLastPosRef.current = null;
+      colorCycleLastRotationRef.current = undefined;
 
       // Reset pixel queue for dashed pattern support
       try {
@@ -1953,11 +1977,16 @@ export function useDrawingHandlers({
               const distance = Math.sqrt(dx * dx + dy * dy);
 
               colorCycleDistanceRef.current += distance;
+              const { rotation, nextRotation } = resolveBrushRotation(
+                !!currentState.tools.brushSettings.rotationEnabled,
+                dx,
+                dy,
+                distance,
+                colorCycleLastRotationRef.current
+              );
+              colorCycleLastRotationRef.current = nextRotation;
 
               if (colorCycleDistanceRef.current >= effectiveSpacing) {
-                const rotation = currentState.tools.brushSettings.rotationEnabled
-                  ? Math.atan2(dy, dx)
-                  : 0;
                 const targetCtx = getCCStampTargetCtx();
                 if (!targetCtx) return;
                 targetCtx.globalCompositeOperation = 'source-over';
@@ -1985,6 +2014,7 @@ export function useDrawingHandlers({
                 });
               });
               markDirty(stampX, stampY);
+              colorCycleLastRotationRef.current = 0;
             }
 
             colorCycleLastPosRef.current = worldPos;
@@ -1997,11 +2027,16 @@ export function useDrawingHandlers({
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             colorCycleDistanceRef.current += distance;
+            const { rotation, nextRotation } = resolveBrushRotation(
+              !!currentState.tools.brushSettings.rotationEnabled,
+              dx,
+              dy,
+              distance,
+              colorCycleLastRotationRef.current
+            );
+            colorCycleLastRotationRef.current = nextRotation;
 
             if (colorCycleDistanceRef.current >= effectiveSpacing) {
-              const rotation = currentState.tools.brushSettings.rotationEnabled
-                ? Math.atan2(dy, dx)
-                : 0;
               const targetCtx = getCCStampTargetCtx();
               if (!targetCtx) return;
               targetCtx.globalCompositeOperation = 'source-over';
@@ -2025,6 +2060,7 @@ export function useDrawingHandlers({
               brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, 0);
             });
             markDirty(stampX, stampY);
+            colorCycleLastRotationRef.current = 0;
           }
 
           colorCycleLastPosRef.current = worldPos;
@@ -2294,8 +2330,15 @@ export function useDrawingHandlers({
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
                 colorCycleDistanceRef.current += distance;
+                const { rotation, nextRotation } = resolveBrushRotation(
+                  rotationEnabled,
+                  dx,
+                  dy,
+                  distance,
+                  colorCycleLastRotationRef.current
+                );
+                colorCycleLastRotationRef.current = nextRotation;
 
-                const rotation = rotationEnabled ? Math.atan2(dy, dx) : 0;
                 let enqueuedStamps = false;
                 let roiMinX = Number.POSITIVE_INFINITY;
                 let roiMinY = Number.POSITIVE_INFINITY;
@@ -2382,6 +2425,8 @@ export function useDrawingHandlers({
                     }
                   }
                 }
+              } else {
+                colorCycleLastRotationRef.current = rotationEnabled ? 0 : undefined;
               }
 
               colorCycleLastPosRef.current = clippedEnd;

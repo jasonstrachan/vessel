@@ -1,4 +1,5 @@
 import { GradientPalette } from '../GradientPalette';
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
 describe('GradientPalette', () => {
   let palette: GradientPalette;
@@ -153,6 +154,18 @@ describe('GradientPalette', () => {
   });
   
   describe('preset gradients', () => {
+    it('should create default alternating black and white gradient', () => {
+      const defaultPalette = GradientPalette.createDefault();
+      const stops = defaultPalette.getGradientStops();
+
+      expect(stops).toEqual(DEFAULT_GRADIENT_STOPS);
+
+      // Ensure alternating colors
+      for (let i = 1; i < stops.length; i++) {
+        expect(stops[i].color).not.toBe(stops[i - 1].color);
+      }
+    });
+
     it('should create rainbow gradient', () => {
       const rainbow = GradientPalette.createRainbow();
       const stops = rainbow.getGradientStops();

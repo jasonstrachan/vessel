@@ -315,11 +315,14 @@ export class ColorCycleRenderer {
   static createWithPreset(
     width: number, 
     height: number, 
-    preset: 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale'
+    preset: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale'
   ): ColorCycleRenderer {
     let gradient: GradientPalette;
     
     switch (preset) {
+      case 'bw-stripes':
+        gradient = GradientPalette.createDefault();
+        break;
       case 'rainbow':
         gradient = GradientPalette.createRainbow();
         break;

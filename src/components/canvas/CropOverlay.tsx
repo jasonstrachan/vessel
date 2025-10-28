@@ -2,7 +2,7 @@
 
 import React, { useCallback, useMemo, useRef } from 'react';
 import { useCropState } from '@/hooks/useCropState';
-import type { CropHandle, CropState } from '@/types';
+import type { CropHandle, CropState, Rectangle } from '@/types';
 import {
   HANDLE_SIZE,
   handleCursor,

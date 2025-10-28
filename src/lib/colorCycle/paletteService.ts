@@ -137,7 +137,7 @@ function resolvePalette(request: PaletteRequest): GradientPalette {
   if (request.stops && request.stops.length > 0) {
     return new GradientPalette(request.stops);
   }
-  return GradientPalette.createRainbow();
+  return GradientPalette.createDefault();
 }
 
 export function ensurePalette(request: PaletteRequest = {}): PaletteHandle {

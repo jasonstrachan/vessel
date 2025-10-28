@@ -14,7 +14,7 @@ export interface RecolorOptions {
   quantizationMode?: 'rgb332' | 'oklab-median-cut';
   ditherMode?: 'off' | 'bayer4' | 'bayer8';
   cycleColors?: number;
-  gradientPreset?: 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'custom';
+  gradientPreset?: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'custom';
   customGradient?: Array<{ position: number; color: string }>;
 }
 

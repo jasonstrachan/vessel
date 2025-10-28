@@ -3,6 +3,8 @@
  * Supports color cycling animation and smooth gradient interpolation
  */
 
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
+
 export interface GradientStop {
   position: number; // 0.0 to 1.0
   color: string | { r: number; g: number; b: number };    // CSS color string or RGB object
@@ -302,6 +304,13 @@ export class GradientPalette {
     }
   }
   
+  /**
+   * Create the default alternating black and white gradient used by color cycle brushes.
+   */
+  static createDefault(): GradientPalette {
+    return new GradientPalette(DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })));
+  }
+
   /**
    * Create a smooth rainbow gradient
    */

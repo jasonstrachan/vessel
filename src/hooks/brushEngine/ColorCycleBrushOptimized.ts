@@ -72,7 +72,7 @@ export class ColorCycleBrushOptimized {
     
     // Initialize core components
     this.indexBuffer = new IndexBuffer(this.width, this.height);
-    this.gradientPalette = GradientPalette.createRainbow();
+    this.gradientPalette = GradientPalette.createDefault();
     this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
     
     // Initialize animation controller

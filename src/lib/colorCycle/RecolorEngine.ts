@@ -8,6 +8,7 @@ import { ColorQuantizer, QuantizationOptions } from './ColorQuantizer';
 import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
 import { CPUColorCycleRenderer } from './rendering/CPUColorCycleRenderer';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
+import { DEFAULT_GRADIENT_ID, DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import type { Layer } from '../../types';
 
 export interface RecolorEngineConfig {
@@ -96,7 +97,7 @@ export class RecolorEngine {
     cycleColors?: number; // 8-256, default 16
     quality?: 'fast' | 'balanced' | 'best';
     useSpatialHash?: boolean;
-    gradientPreset?: 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'custom';
+    gradientPreset?: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'custom';
     customGradient?: Array<{ position: number; color: string }>;
   } = {}): boolean {
     try {
@@ -128,7 +129,7 @@ export class RecolorEngine {
         cycleColors = 16,
         quality = 'balanced',
         useSpatialHash = true,
-        gradientPreset = 'rainbow',
+        gradientPreset = DEFAULT_GRADIENT_ID,
         customGradient
       } = options;
       
@@ -323,6 +324,8 @@ export class RecolorEngine {
    */
   private createPresetGradient(preset: string): Array<{ position: number; color: string }> {
     switch (preset) {
+      case 'bw-stripes':
+        return DEFAULT_GRADIENT_STOPS.map(stop => ({ position: stop.position, color: stop.color }));
       case 'rainbow':
         return [
           { position: 0, color: '#ff0000' },

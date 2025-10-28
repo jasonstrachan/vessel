@@ -1,7 +1,12 @@
 // File backup service for automatic file-based autosaves
-// Saves autosave copies as actual .tb files to user-selected directory
+// Saves autosave copies as actual .vs files to user-selected directory (legacy .tb still supported)
 
 import type { Project, Layer } from '../types';
+import {
+  PROJECT_FILE_ACCEPT,
+  PROJECT_FILE_EXTENSION,
+  PROJECT_FILE_MIME
+} from '@/constants/projectFiles';
 
 export class FileBackupService {
   private directoryHandle: FileSystemDirectoryHandle | null = null;
@@ -31,10 +36,10 @@ export class FileBackupService {
           startIn?: string;
         }) => Promise<FileSystemFileHandle>;
       }).showSaveFilePicker!({
-        suggestedName: 'autosave.tb',
+        suggestedName: `autosave${PROJECT_FILE_EXTENSION}`,
         types: [{
           description: 'Vessel files',
-          accept: { 'application/json': ['.tb'] }
+          accept: { [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT }
         }],
         startIn: 'documents'
       });
@@ -108,7 +113,7 @@ export class FileBackupService {
       } else {
         // Generate timestamped filename for directory mode
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        filename = `${project.name}_autosave_${timestamp}.tb`;
+        filename = `${project.name}_autosave_${timestamp}${PROJECT_FILE_EXTENSION}`;
         fileHandle = await this.directoryHandle!.getFileHandle(filename, { create: true });
       }
 

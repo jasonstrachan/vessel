@@ -229,7 +229,7 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
       {fileBackup.enabled && fileBackup.backupPath && (
         <div className="mt-2 p-2 bg-[#1a1a1a] rounded border border-[#3a3a3a]">
           <p className="text-green-300 text-xs">
-            ✓ File backup active - autosaves {fileBackup.mode === 'single-file' ? 'overwrite your chosen file' : 'create timestamped .tb files'}
+            ✓ File backup active - autosaves {fileBackup.mode === 'single-file' ? 'overwrite your chosen file' : 'create timestamped .vs files (legacy .tb still loads)'}
           </p>
         </div>
       )}

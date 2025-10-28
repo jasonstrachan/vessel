@@ -12,9 +12,32 @@ import type {
 } from '@/types';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
+import {
+  LEGACY_PROJECT_FILE_EXTENSION,
+  PROJECT_FILE_ACCEPT,
+  PROJECT_FILE_EXTENSION,
+  PROJECT_FILE_MIME
+} from '@/constants/projectFiles';
 
 // Vessel project file format version
 const PROJECT_VERSION = '1.0.0';
+
+function ensureProjectFilename(name: string): string {
+  const normalized = name.trim();
+  if (!normalized) {
+    return `untitled${PROJECT_FILE_EXTENSION}`;
+  }
+
+  const lower = normalized.toLowerCase();
+  if (
+    lower.endsWith(PROJECT_FILE_EXTENSION) ||
+    lower.endsWith(LEGACY_PROJECT_FILE_EXTENSION)
+  ) {
+    return normalized;
+  }
+
+  return `${normalized}${PROJECT_FILE_EXTENSION}`;
+}
 
 export interface VesselProject {
   version: string;
@@ -839,7 +862,7 @@ export async function deserializeProject(projectData: string): Promise<Project> 
 // Save project to file using File System Access API with fallback
 export async function saveProjectToFile(project: Project, filename?: string, layers?: Layer[]): Promise<void> {
   const projectData = await serializeProject(project, layers);
-  const fileName = filename || `${project.name}.tb`;
+  const fileName = ensureProjectFilename(filename ?? project.name);
   
   // Check if File System Access API is supported
   if ('showSaveFilePicker' in window) {
@@ -853,7 +876,7 @@ export async function saveProjectToFile(project: Project, filename?: string, lay
         suggestedName: fileName,
         types: [{
           description: 'Vessel Project Files',
-          accept: { 'application/json': ['.tb'] }
+          accept: { [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT }
         }]
       });
       
@@ -867,7 +890,7 @@ export async function saveProjectToFile(project: Project, filename?: string, lay
   }
   
   // Fallback: create download link
-  const blob = new Blob([projectData], { type: 'application/json' });
+  const blob = new Blob([projectData], { type: PROJECT_FILE_MIME });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -891,7 +914,7 @@ export async function loadProjectFromFile(): Promise<Project> {
       }).showOpenFilePicker!({
         types: [{
           description: 'Vessel Project Files',
-          accept: { 'application/json': ['.tb'] }
+          accept: { [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT }
         }],
         multiple: false
       });
@@ -908,7 +931,7 @@ export async function loadProjectFromFile(): Promise<Project> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.tb,application/json';
+    input.accept = `${PROJECT_FILE_ACCEPT.join(',')},${PROJECT_FILE_MIME}`;
     
     input.onchange = async (event) => {
       const file = (event.target as HTMLInputElement).files?.[0];

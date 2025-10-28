@@ -176,6 +176,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         position: paste.position,
         width: paste.width,
         height: paste.height,
+        displayWidth: paste.displayWidth ?? paste.width,
+        displayHeight: paste.displayHeight ?? paste.height,
         originalPosition: paste.originalPosition ?? paste.position,
         sourceLayerId: paste.sourceLayerId ?? null
       });
@@ -2160,7 +2162,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 imageData: pasteImageData,
                 position: { x: imageX, y: imageY }, // Start at the centered position
                 width: imageWidth,
-                height: imageHeight
+                height: imageHeight,
+                displayWidth: imageWidth,
+                displayHeight: imageHeight
               });
               
               // Trigger redraw to show floating paste

@@ -481,7 +481,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
   type ContourBasis = NonNullable<ReturnType<typeof prepareContourLinesBasis>>;
 
-  const extractSelectionAsFloatingPaste = (): { imageData: ImageData; position: Point; width: number; height: number; layerId: string } | null => {
+  const extractSelectionAsFloatingPaste = (): {
+    imageData: ImageData;
+    position: Point;
+    width: number;
+    height: number;
+    displayWidth: number;
+    displayHeight: number;
+    layerId: string;
+  } | null => {
     const {
       project,
       layers,
@@ -579,6 +587,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       position: { x: clampedMinX, y: clampedMinY },
       width: safeWidth,
       height: safeHeight,
+      displayWidth: safeWidth,
+      displayHeight: safeHeight,
       layerId: activeLayerId
     };
   };
@@ -1277,6 +1287,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             position: floatingData.position,
             width: floatingData.width,
             height: floatingData.height,
+            displayWidth: floatingData.displayWidth,
+            displayHeight: floatingData.displayHeight,
             originalPosition: floatingData.position,
             sourceLayerId: floatingData.layerId
           });

@@ -66,7 +66,7 @@ export class ColorCycleAnimator {
       this.indexBuffer = new IndexBuffer(config.width, config.height);
       this.gradientPalette = config.gradientStops 
         ? new GradientPalette(config.gradientStops)
-        : GradientPalette.createRainbow();
+        : GradientPalette.createDefault();
       this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       // Use canvas pool for better performance
       this.canvas = canvasPool.acquire(config.width, config.height);
@@ -124,7 +124,7 @@ export class ColorCycleAnimator {
       this.indexBuffer = new IndexBuffer(config.width, config.height);
       this.gradientPalette = config.gradientStops 
         ? new GradientPalette(config.gradientStops)
-        : GradientPalette.createRainbow();
+        : GradientPalette.createDefault();
       this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       
       // Use canvas pool for better performance
@@ -645,10 +645,13 @@ export class ColorCycleAnimator {
   /**
    * Use preset gradient
    */
-  setPresetGradient(preset: 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale') {
+  setPresetGradient(preset: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale') {
     let palette: GradientPalette;
     
     switch (preset) {
+      case 'bw-stripes':
+        palette = GradientPalette.createDefault();
+        break;
       case 'rainbow':
         palette = GradientPalette.createRainbow();
         break;
