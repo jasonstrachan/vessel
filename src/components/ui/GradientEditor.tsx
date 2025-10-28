@@ -638,7 +638,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   const handleRemoveGradient = useCallback((gradientId: string) => {
     const gradient = savedGradients.find(g => g.id === gradientId);
-    
+
     // Don't permanently delete default gradients, just hide them for this session
     if (gradient?.isDefault) {
       const updated = savedGradients.filter(g => g.id !== gradientId);
@@ -650,12 +650,30 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       setSavedGradients(updated);
       saveCustomGradients(updated);
     }
-    
+
     // If removing the selected gradient, clear selection
     if (selectedGradientId === gradientId) {
       setSelectedGradientId('');
     }
   }, [savedGradients, selectedGradientId]);
+
+  const handleReorderSavedGradients = useCallback((fromSlot: number, toSlot: number) => {
+    if (fromSlot === toSlot) {
+      return;
+    }
+
+    setSavedGradients(prev => {
+      if (fromSlot < 0 || fromSlot >= prev.length) {
+        return prev;
+      }
+      const safeTo = Math.max(0, Math.min(toSlot, prev.length - 1));
+      const updated = [...prev];
+      const [moved] = updated.splice(fromSlot, 1);
+      updated.splice(safeTo, 0, moved);
+      saveCustomGradients(updated);
+      return updated;
+    });
+  }, []);
 
 
   // Render gradient preview for dropdown option
@@ -742,6 +760,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
             }
         }}
           placeholder="Select gradient..."
+          reorderable={savedGradients.length > 1}
+          canReorderOption={(option) => !option.isAction && option.value !== 'original'}
+          onReorder={handleReorderSavedGradients}
           renderOption={(option) => {
             // Live preview for "Original" using active layer palette
             if (option.value === 'original') {

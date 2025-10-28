@@ -51,6 +51,7 @@ export class ColorCycleAnimator {
   private currentStrokeIndex: number = 1;
   private maxStrokeIndex: number = 0;
   private flowDirection: 'forward' | 'backward' = 'backward'; // Flow direction toggle (default: backward)
+  private gradientSignature: string | null = null;
   
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
@@ -67,6 +68,9 @@ export class ColorCycleAnimator {
       this.gradientPalette = config.gradientStops 
         ? new GradientPalette(config.gradientStops)
         : GradientPalette.createDefault();
+      this.gradientSignature = config.gradientStops
+        ? ColorCycleAnimator.computeGradientSignature(config.gradientStops)
+        : 'preset:bw-stripes';
       this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       // Use canvas pool for better performance
       this.canvas = canvasPool.acquire(config.width, config.height);
@@ -125,6 +129,9 @@ export class ColorCycleAnimator {
       this.gradientPalette = config.gradientStops 
         ? new GradientPalette(config.gradientStops)
         : GradientPalette.createDefault();
+      this.gradientSignature = config.gradientStops
+        ? ColorCycleAnimator.computeGradientSignature(config.gradientStops)
+        : 'preset:bw-stripes';
       this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
       
       // Use canvas pool for better performance
@@ -637,7 +644,16 @@ export class ColorCycleAnimator {
    * Update gradient
    */
   setGradient(stops: GradientStop[]) {
+    const signature = ColorCycleAnimator.computeGradientSignature(stops);
+    if (this.gradientSignature === signature) {
+      return;
+    }
+    this.gradientSignature = signature;
+
     this.gradientPalette.updateFromGradient(stops);
+    // Reset palette progression so the next stamp starts at the beginning
+    this.nextIndex = 1;
+    this.currentStrokeIndex = 1;
     this.updateIndexBufferPalette();
     this.renderFrame(this.animationController.getOffset());
   }
@@ -647,6 +663,11 @@ export class ColorCycleAnimator {
    */
   setPresetGradient(preset: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale') {
     let palette: GradientPalette;
+    const signature = `preset:${preset}`;
+
+    if (this.gradientSignature === signature) {
+      return;
+    }
     
     switch (preset) {
       case 'bw-stripes':
@@ -671,6 +692,7 @@ export class ColorCycleAnimator {
     }
     
     this.gradientPalette = palette;
+    this.gradientSignature = signature;
     this.updateIndexBufferPalette();
     this.renderFrame(this.animationController.getOffset());
   }
@@ -1036,5 +1058,25 @@ export class ColorCycleAnimator {
    */
   destroy() {
     this.cleanup();
+  }
+
+  private static computeGradientSignature(stops: GradientStop[]): string {
+    if (!stops || stops.length === 0) {
+      return '[]';
+    }
+
+    return stops
+      .map((stop) => {
+        const pos = Number.isFinite(stop.position) ? stop.position.toFixed(6) : 'NaN';
+        if (typeof stop.color === 'string') {
+          return `${pos}:${stop.color}`;
+        }
+        if (stop.color && typeof stop.color === 'object') {
+          const { r = 0, g = 0, b = 0 } = stop.color as { r?: number; g?: number; b?: number };
+          return `${pos}:${Math.round(r)}-${Math.round(g)}-${Math.round(b)}`;
+        }
+        return `${pos}:?`;
+      })
+      .join('|');
   }
 }

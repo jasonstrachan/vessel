@@ -182,4 +182,41 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
     expect(paintTriangleSpy).toHaveBeenCalledTimes(1);
     expect(paintSquareSpy).not.toHaveBeenCalled();
   });
+
+  it('restarts band progression after switching gradient presets', () => {
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = 64;
+    baseCanvas.height = 64;
+
+    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 10, fps: 30 });
+    brush.setGradient(
+      [
+        { position: 0, color: '#ff0000' },
+        { position: 0.5, color: '#00ff00' },
+        { position: 1, color: '#0000ff' }
+      ],
+      'layer-cycle'
+    );
+
+    brush.paint(20, 20, 'layer-cycle');
+    brush.paint(24, 24, 'layer-cycle');
+
+    paintSquareSpy.mockClear();
+
+    brush.setGradient(
+      [
+        { position: 0.0, color: '#000000' },
+        { position: 0.9, color: '#ffffff' },
+        { position: 1.0, color: '#000000' }
+      ],
+      'layer-cycle'
+    );
+
+    brush.paint(28, 28, 'layer-cycle');
+    brush.paint(32, 32, 'layer-cycle');
+    brush.paint(36, 36, 'layer-cycle');
+
+    const indices = paintSquareSpy.mock.calls.map(call => call[0]);
+    expect(indices).toEqual([1, 24, 47]);
+  });
 });

@@ -12,23 +12,17 @@ export const GRADIENT_PRESETS: PresetGradient[] = [
     id: 'bw-stripes',
     name: 'Black & White Stripes',
     stops: [
-      { position: 0.0, color: '#000000' },
-      { position: 0.0625, color: '#ffffff' },
-      { position: 0.125, color: '#000000' },
-      { position: 0.1875, color: '#ffffff' },
-      { position: 0.25, color: '#000000' },
-      { position: 0.3125, color: '#ffffff' },
-      { position: 0.375, color: '#000000' },
-      { position: 0.4375, color: '#ffffff' },
-      { position: 0.5, color: '#000000' },
-      { position: 0.5625, color: '#ffffff' },
-      { position: 0.625, color: '#000000' },
-      { position: 0.6875, color: '#ffffff' },
-      { position: 0.75, color: '#000000' },
-      { position: 0.8125, color: '#ffffff' },
-      { position: 0.875, color: '#000000' },
-      { position: 0.9375, color: '#ffffff' },
-      { position: 1.0, color: '#000000' }
+      { position: 0.0, color: '#000000' },   // deep black
+      { position: 0.1, color: '#1f1f1f' },   // easing toward gray
+      { position: 0.2, color: '#3f3f3f' },
+      { position: 0.3, color: '#5f5f5f' },
+      { position: 0.4, color: '#7f7f7f' },
+      { position: 0.5, color: '#9f9f9f' },
+      { position: 0.6, color: '#bfbfbf' },
+      { position: 0.7, color: '#dfdfdf' },
+      { position: 0.8, color: '#f5f5f5' },
+      { position: 0.9, color: '#ffffff' },   // single white apex
+      { position: 1.0, color: '#000000' }    // wrap back to black for loop continuity
     ]
   },
   {

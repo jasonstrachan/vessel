@@ -184,6 +184,7 @@ export class ColorCycleBrushCanvas2D {
 
   private customStampSourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
   private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
+  private gradientSignatures: Map<string, string> = new Map();
   
   constructor(canvas: HTMLCanvasElement, options: {
     brushSize?: number;
@@ -684,6 +685,14 @@ export class ColorCycleBrushCanvas2D {
     const id = layerId || this.activeLayerId || 'default';
     const animator = this.getAnimator(id);
 
+    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops);
+    const previousSignature = this.gradientSignatures.get(id);
+    const gradientChanged = signature !== previousSignature;
+
+    if (gradientChanged) {
+      this.gradientSignatures.set(id, signature);
+    }
+
     // Update gradient
     animator.setGradient(stops);
 
@@ -692,11 +701,16 @@ export class ColorCycleBrushCanvas2D {
       this.currentGradientStops = Array.isArray(stops) && stops.length > 0 ? [...stops] : this.currentGradientStops;
     } catch {}
     
-    // Store in layer data
-    const strokeData = this.layerStrokes.get(id);
-    if (strokeData) {
-      strokeData.currentGradientIndex = strokeData.gradientLayerIndices.length;
-      strokeData.gradientLayerIndices.push(strokeData.currentGradientIndex);
+    if (gradientChanged) {
+      // Reset stamp sequencing so the new gradient starts from the first band
+      this.stampCounter = 0;
+
+      const strokeData = this.layerStrokes.get(id);
+      if (strokeData) {
+        strokeData.stampCounter = 0;
+        strokeData.currentGradientIndex = strokeData.gradientLayerIndices.length;
+        strokeData.gradientLayerIndices.push(strokeData.currentGradientIndex);
+      }
     }
   }
   
@@ -3289,7 +3303,29 @@ export class ColorCycleBrushCanvas2D {
     // Clear stroke data
     this.layerStrokes.clear();
     this.dirtyLayers.clear();
+    this.gradientSignatures.clear();
     
     console.log('ColorCycleBrushCanvas2D disposed');
+  }
+
+  private static computeGradientSignature(stops: GradientStop[]): string {
+    if (!stops || stops.length === 0) {
+      return '[]';
+    }
+
+    return stops
+      .map((stop) => {
+        const pos = Number.isFinite(stop.position) ? stop.position.toFixed(6) : 'NaN';
+        const color = stop.color;
+        if (typeof color === 'string') {
+          return `${pos}:${color}`;
+        }
+        if (color && typeof color === 'object') {
+          const { r = 0, g = 0, b = 0 } = color as { r?: number; g?: number; b?: number };
+          return `${pos}:${Math.round(r)}-${Math.round(g)}-${Math.round(b)}`;
+        }
+        return `${pos}:?`;
+      })
+      .join('|');
   }
 }
