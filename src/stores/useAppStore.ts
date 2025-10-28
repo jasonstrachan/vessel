@@ -392,7 +392,7 @@ import {
 } from '../utils/projectIO';
 // import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
-import { adjustHueAndSaturation, applyColorAdjustments } from '../utils/imageProcessing';
+import { adjustHueLightnessSaturation, applyColorAdjustments } from '../utils/imageProcessing';
 import { debugLog, logError, __DEV__, recordBreadcrumb } from '../utils/debug';
 import { applyCroppedLayers } from '@/utils/crop/apply';
 import { rebuildCCLayerAfterCrop, rebuildRecolorLayersAfterCrop } from '@/utils/crop/ccRebuild';
@@ -938,6 +938,7 @@ export interface AppState {
     width?: number;
     height?: number;
   }) => void;
+  refreshCurrentBrushTipFromSource: () => void;
   
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
@@ -3016,6 +3017,9 @@ export const useAppStore = create<AppState>()(
           if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
           if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
           if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
+          if (settings.hueShift !== undefined) settingsToSave.hueShift = newSettings.hueShift;
+          if (settings.lightnessAdjust !== undefined) settingsToSave.lightnessAdjust = newSettings.lightnessAdjust;
+          if (settings.saturationAdjust !== undefined) settingsToSave.saturationAdjust = newSettings.saturationAdjust;
           if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
           if (settings.rectGradientPresetId !== undefined) settingsToSave.rectGradientPresetId = newSettings.rectGradientPresetId;
           if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
@@ -3082,6 +3086,39 @@ export const useAppStore = create<AppState>()(
         }
         
         
+        // Keep brush editor adjustments in sync while editing
+        let nextBrushEditor = state.brushEditor;
+        if (state.brushEditor.status === 'EDITING') {
+          const nextHueShift = settings.hueShift !== undefined
+            ? settings.hueShift
+            : newSettings.hueShift !== undefined
+              ? newSettings.hueShift
+              : state.brushEditor.hueShift;
+          const nextLightness = settings.lightnessAdjust !== undefined
+            ? settings.lightnessAdjust
+            : newSettings.lightnessAdjust !== undefined
+              ? newSettings.lightnessAdjust
+              : state.brushEditor.lightness;
+          const nextSaturation = settings.saturationAdjust !== undefined
+            ? settings.saturationAdjust
+            : newSettings.saturationAdjust !== undefined
+              ? newSettings.saturationAdjust
+              : state.brushEditor.saturation;
+
+          if (
+            nextHueShift !== state.brushEditor.hueShift ||
+            nextLightness !== state.brushEditor.lightness ||
+            nextSaturation !== state.brushEditor.saturation
+          ) {
+            nextBrushEditor = {
+              ...state.brushEditor,
+              hueShift: nextHueShift,
+              lightness: nextLightness,
+              saturation: nextSaturation
+            };
+          }
+        }
+        
         // Clear temporary brush when switching away from custom brushes
         let updatedState = {
           ...state,
@@ -3092,6 +3129,13 @@ export const useAppStore = create<AppState>()(
           // Update globalBrushSize if we're switching brush types
           ...(newGlobalBrushSize !== undefined ? { globalBrushSize: newGlobalBrushSize } : {})
         };
+
+        if (nextBrushEditor !== state.brushEditor) {
+          updatedState = {
+            ...updatedState,
+            brushEditor: nextBrushEditor
+          };
+        }
         
         
         // Apply brush settings save if needed (avoid circular dependency)
@@ -3522,6 +3566,7 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.selectedCustomBrush = customBrushId;
           newBrushSettings.useSwatchColor = false;
           newBrushSettings.hueShift = 0;
+          newBrushSettings.lightnessAdjust = 0;
           newBrushSettings.saturationAdjust = 100;
           
           // CRITICAL FIX: Load the custom brush data into currentBrushTip
@@ -4809,6 +4854,7 @@ export const useAppStore = create<AppState>()(
           size: 100, // New custom brush starts at 100%
           useSwatchColor: false, // Ensure it uses the brush's colors
           hueShift: 0,           // <--- CRITICAL: Reset global hueShift here
+          lightnessAdjust: 0,    // Reset lightness when selecting new brush
           saturationAdjust: 100  // <--- CRITICAL: Reset global saturationAdjust here
         };
 
@@ -4868,13 +4914,15 @@ export const useAppStore = create<AppState>()(
         
         // Apply hue shift and saturation adjustments if they're not at defaults
         const hasHueShift = currentBrushSettings.hueShift !== 0;
+        const hasLightnessAdjust = currentBrushSettings.lightnessAdjust !== 0;
         const hasSaturationAdjust = currentBrushSettings.saturationAdjust !== 100;
         
-        if (hasHueShift || hasSaturationAdjust) {
-          // Apply the hue shift and saturation adjustments to the brush ImageData
-          finalImageData = adjustHueAndSaturation(
+        if (hasHueShift || hasLightnessAdjust || hasSaturationAdjust) {
+          // Apply the hue/lightness/saturation adjustments to the brush ImageData
+          finalImageData = adjustHueLightnessSaturation(
             customBrush.imageData,
             currentBrushSettings.hueShift || 0,
+            currentBrushSettings.lightnessAdjust || 0,
             currentBrushSettings.saturationAdjust || 100
           );
         }
@@ -4909,6 +4957,7 @@ export const useAppStore = create<AppState>()(
               currentBrushTip: undefined, // Clear currentBrushTip since the brush is now saved
               useSwatchColor: false, // Default to false so custom brushes use their tip colors
               hueShift: 0,           // Reset since transformations are now baked into the brush
+              lightnessAdjust: 0,
               saturationAdjust: 100, // Reset since transformations are now baked into the brush
               size: 100              // New custom brush starts at 100%
             }
@@ -5034,15 +5083,22 @@ export const useAppStore = create<AppState>()(
         brushCache.clear();
         scaledBrushCache.clear();
         
+        const preserveAdjustments =
+          state.brushEditor.status === 'EDITING' && state.brushEditor.editingBrushId === brushId;
+
+        const nextHueShift = preserveAdjustments ? state.brushEditor.hueShift : 0;
+        const nextLightness = preserveAdjustments ? state.brushEditor.lightness : 0;
+        const nextSaturation = preserveAdjustments ? state.brushEditor.saturation : 100;
+
         return {
           brushEditor: {
             status: 'EDITING' as const,
             editingBrushId: brushId,
             editingBounds: bounds,
             originalCanvasState,
-            hueShift: 0,  // Reset adjustments for new edit
-            lightness: 0,
-            saturation: 100,
+            hueShift: nextHueShift,  // Preserve adjustments when reloading the same brush
+            lightness: nextLightness,
+            saturation: nextSaturation,
             editingBrushData: brushData // Store the brush data for reference
           },
           tools: {
@@ -5192,13 +5248,34 @@ export const useAppStore = create<AppState>()(
         };
       }),
       setBrushEditorHue: (hue: number) => set((state) => ({
-        brushEditor: { ...state.brushEditor, hueShift: hue }
+        brushEditor: { ...state.brushEditor, hueShift: hue },
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            hueShift: hue
+          }
+        }
       })),
       setBrushEditorLightness: (lightness: number) => set((state) => ({
-        brushEditor: { ...state.brushEditor, lightness: lightness }
+        brushEditor: { ...state.brushEditor, lightness },
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            lightnessAdjust: lightness
+          }
+        }
       })),
       setBrushEditorSaturation: (saturation: number) => set((state) => ({
-        brushEditor: { ...state.brushEditor, saturation: saturation }
+        brushEditor: { ...state.brushEditor, saturation },
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            saturationAdjust: saturation
+          }
+        }
       })),
       updateCurrentBrushTip: (brushTip) => set((state) => ({
         tools: {
@@ -5209,6 +5286,59 @@ export const useAppStore = create<AppState>()(
           }
         }
       })),
+      refreshCurrentBrushTipFromSource: () => set((state) => {
+        if (state.brushEditor.status === 'EDITING') {
+          return {};
+        }
+
+        const settings = state.tools.brushSettings;
+        if (settings.brushShape !== BrushShape.CUSTOM || !settings.selectedCustomBrush) {
+          return {};
+        }
+
+        const brushId = settings.selectedCustomBrush;
+        const fromProject = state.project?.customBrushes?.find((brush) => brush.id === brushId);
+        const fromTemporary = state.temporaryCustomBrush && state.temporaryCustomBrush.id === brushId
+          ? state.temporaryCustomBrush
+          : null;
+        const sourceBrush = fromProject || fromTemporary;
+        if (!sourceBrush) {
+          return {};
+        }
+
+        const hueShift = settings.hueShift ?? 0;
+        const lightnessAdjust = settings.lightnessAdjust ?? 0;
+        const saturationAdjust = settings.saturationAdjust ?? 100;
+
+        const needsAdjustment = hueShift !== 0 || lightnessAdjust !== 0 || saturationAdjust !== 100;
+        const baseImageData = sourceBrush.imageData;
+        const adjustedImageData = needsAdjustment
+          ? adjustHueLightnessSaturation(baseImageData, hueShift, lightnessAdjust, saturationAdjust)
+          : new ImageData(new Uint8ClampedArray(baseImageData.data), baseImageData.width, baseImageData.height);
+
+        const nextBrushTip = {
+          imageData: adjustedImageData,
+          brushId: sourceBrush.id,
+          isColorizable: false,
+          width: sourceBrush.width,
+          height: sourceBrush.height
+        } as BrushSettings['currentBrushTip'];
+
+        try {
+          scaledBrushCache.clearForBrush('current-brush-tip');
+          scaledBrushCache.clearForBrush(sourceBrush.id);
+        } catch {}
+
+        return {
+          tools: {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              currentBrushTip: nextBrushTip
+            }
+          }
+        };
+      }),
       cancelBrushEdit: () => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
           return { 

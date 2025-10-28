@@ -145,6 +145,13 @@ select option:active {
     width: 100%;
     height: 100%;
     background-color: var(--slider-surface-color, #000000);
+    background-image: var(
+      --slider-track-gradient,
+      linear-gradient(to right, transparent, transparent)
+    );
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    background-position: center;
     overflow: hidden;
     color: var(--slider-pattern-color, currentColor);
     --ascii-slider-pattern-size: var(

@@ -8,7 +8,6 @@ import AlignmentPanel from '../components/panels/AlignmentPanel';
 import AnimationControlsPanel from '../components/panels/AnimationControlsPanel';
 import BrushLibraryPanel from '../components/panels/BrushLibraryPanel';
 import BrushSettingsPanel from '../components/panels/BrushSettingsPanel';
-import ColorAdjustmentsPanel from '../components/panels/ColorAdjustmentsPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import ConsoleSilencer from '../components/dev/ConsoleSilencer';
 import FeedbackStrip from '../components/FeedbackStrip';
@@ -178,7 +177,6 @@ export default function Home() {
         <div className="flex-shrink-0">
           <ColorPickerPanel />
         </div>
-        <ColorAdjustmentsPanel />
         <div className="flex-1 min-h-0 overflow-hidden">
           <BrushLibraryPanel />
         </div>

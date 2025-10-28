@@ -1163,8 +1163,15 @@ export const useBrushEngine = () => {
       } else {
         // --- NON-JITTER PATH (uses the existing fast cache) ---
         const scaledCanvas = scaledBrushCache.createScaledBrush(
-          customBrush, scale, rotation, color, isColorizable, isPressureSensitive,
-          tools.brushSettings.hueShift || 0, tools.brushSettings.saturationAdjust || 100
+          customBrush,
+          scale,
+          rotation,
+          color,
+          isColorizable,
+          isPressureSensitive,
+          tools.brushSettings.hueShift || 0,
+          tools.brushSettings.lightnessAdjust || 0,
+          tools.brushSettings.saturationAdjust || 100
         );
         
         const centerX = x - scaledCanvas.width / 2;

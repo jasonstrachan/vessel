@@ -5,7 +5,7 @@
 
 import { CustomBrush } from '../types';
 import { canvasPool } from './canvasPool';
-import { adjustHueAndSaturation } from './imageProcessing';
+import { adjustHueLightnessSaturation } from './imageProcessing';
 
 interface ScaledBrushData {
   canvas: HTMLCanvasElement;
@@ -16,6 +16,7 @@ interface ScaledBrushData {
   color?: string;
   isColorizable: boolean;
   hueShift: number;
+  lightnessAdjust: number;
   saturation: number;
   timestamp: number;
   customBrushId: string;
@@ -39,6 +40,7 @@ class ScaledBrushCache {
     isColorizable?: boolean,
     isPressureSensitive?: boolean,
     hueShift?: number,
+    lightness?: number,
     saturation?: number
   ): string {
     // Adaptive cache key precision based on scale size
@@ -64,6 +66,7 @@ class ScaledBrushCache {
     
     const roundedRotation = Math.round(rotation * 100) / 100;
     const roundedHueShift = Math.round((hueShift || 0) * 10) / 10;
+    const roundedLightness = Math.round((lightness || 0) * 10) / 10;
     const roundedSaturation = Math.round((saturation || 100) * 10) / 10;
     
     const parts = [
@@ -73,6 +76,7 @@ class ScaledBrushCache {
       color || 'none',
       isColorizable ? '1' : '0',
       roundedHueShift.toFixed(1),
+      roundedLightness.toFixed(1),
       roundedSaturation.toFixed(1)
     ];
     
@@ -125,6 +129,7 @@ class ScaledBrushCache {
   private createProcessedBaseCanvas(
     customBrush: CustomBrush,
     hueShift: number,
+    lightnessAdjust: number,
     saturationPercent: number,
     color?: string,
     isColorizable?: boolean
@@ -154,10 +159,11 @@ class ScaledBrushCache {
       // Apply hue/saturation adjustments using the unified function
       let processedImageData = customBrush.imageData;
       
-      if (hueShift !== 0 || saturationPercent !== 100) {
-        processedImageData = adjustHueAndSaturation(
+      if (hueShift !== 0 || lightnessAdjust !== 0 || saturationPercent !== 100) {
+        processedImageData = adjustHueLightnessSaturation(
           customBrush.imageData,
           hueShift,
+          lightnessAdjust,
           saturationPercent
         );
       }
@@ -183,10 +189,11 @@ class ScaledBrushCache {
     isColorizable?: boolean,
     isPressureSensitive?: boolean,
     hueShift?: number,
+    lightness?: number,
     saturation?: number
   ): HTMLCanvasElement {
     // Always check the cache. The key is unique for static hue/saturation values.
-    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
+    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, lightness, saturation);
     
     const cached = this.get(cacheKey);
     if (cached) {
@@ -200,11 +207,13 @@ class ScaledBrushCache {
 
     // Create processed base canvas with all color transformations applied
     const finalHueShift = hueShift || 0;
+    const finalLightness = lightness || 0;
     const finalSaturation = saturation || 100;
-    
+
     const baseCanvas = this.createProcessedBaseCanvas(
       customBrush,
       finalHueShift,
+      finalLightness,
       finalSaturation,
       color,
       isColorizable
@@ -254,6 +263,7 @@ class ScaledBrushCache {
       color,
       isColorizable: isColorizable || false,
       hueShift: finalHueShift,
+      lightnessAdjust: finalLightness,
       saturation: finalSaturation,
       timestamp: Date.now(),
       customBrushId: customBrush.id
@@ -359,6 +369,7 @@ class ScaledBrushCache {
     isColorizable?: boolean,
     isPressureSensitive?: boolean,
     hueShift?: number,
+    lightness?: number,
     saturation?: number
   ): void {
     // For pressure-sensitive brushes, cache more granular sizes
@@ -371,12 +382,12 @@ class ScaledBrushCache {
       if (index >= scales.length) return;
       
       const scale = scales[index];
-      const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable, isPressureSensitive, hueShift, saturation);
+      const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable, isPressureSensitive, hueShift, lightness, saturation);
       
       // Skip if already cached
       if (!this.cache.has(cacheKey)) {
         try {
-          this.createScaledBrush(customBrush, scale, 0, color, isColorizable, isPressureSensitive, hueShift, saturation);
+          this.createScaledBrush(customBrush, scale, 0, color, isColorizable, isPressureSensitive, hueShift, lightness, saturation);
         } catch {
           // Pre-caching failed silently - not critical for functionality
         }

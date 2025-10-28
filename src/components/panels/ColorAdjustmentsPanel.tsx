@@ -13,6 +13,7 @@ const ColorAdjustmentsPanel: React.FC = () => {
   const brushEditorStatus = useAppStore(state => state.brushEditor.status);
 
   const hueShift = brushSettings.hueShift ?? 0;
+  const lightness = brushSettings.lightnessAdjust ?? 0;
   const saturation = brushSettings.saturationAdjust ?? 100;
 
   const getCurrentBrushId = React.useCallback(() => {
@@ -44,16 +45,29 @@ const ColorAdjustmentsPanel: React.FC = () => {
     }
   }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
 
+  const handleLightnessChange = React.useCallback((newLightness: number) => {
+    setBrushSettings({ lightnessAdjust: newLightness });
+
+    if (brushSettings.brushShape === BrushShape.CUSTOM) {
+      const brushId = getCurrentBrushId();
+      scaledBrushCache.clearForBrush(brushId);
+      scaledBrushCache.clearForBrush('current-brush-tip');
+      brushCache.clear();
+    }
+  }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
+
   if (brushEditorStatus === 'EDITING' || brushSettings.brushShape !== BrushShape.CUSTOM) {
     return null;
   }
 
   return (
-    <div className="bg-[#1A1A1A] border-t border-[#404040] px-4 py-3">
+    <div className="bg-[#1A1A1A] border-t border-[#404040] px-4 pb-0 pt-3">
       <ColorSlidersPanel
         hueShift={hueShift}
+        lightness={lightness}
         saturation={saturation}
         onHueShiftChange={handleHueShiftChange}
+        onLightnessChange={handleLightnessChange}
         onSaturationChange={handleSaturationChange}
         brushShape={brushSettings.brushShape}
       />

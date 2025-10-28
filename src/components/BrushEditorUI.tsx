@@ -7,6 +7,9 @@ import React, {
   useRef,
   useState
 } from 'react';
+import { HueSlider } from '@/components/ui/HueSlider';
+import { LightnessSlider } from '@/components/ui/LightnessSlider';
+import { SaturationSlider } from '@/components/ui/SaturationSlider';
 import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 import { useKeyboardScope } from '@/hooks/useKeyboardScope';
 import { useAppStore } from '@/stores/useAppStore';
@@ -16,53 +19,12 @@ import { scaledBrushCache } from '@/utils/scaledBrushCache';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 10;
+const HUE_SLIDER_SAMPLE_COUNT = 24;
+const LIGHTNESS_SLIDER_SAMPLE_COUNT = 16;
+const SATURATION_SLIDER_SAMPLE_COUNT = 16;
+const SATURATION_SLIDER_MAX = 200;
 
-const buildBrushEditorSliderStyle = (
-  gradient: string,
-  value: number,
-  min: number,
-  max: number
-): React.CSSProperties & {
-  '--slider-progress': string;
-  '--slider-track-gradient': string;
-  '--ascii-thumb-size': string;
-  '--ascii-thumb-hitbox': string;
-} => ({
-  width: '100%',
-  height: '20px',
-  borderRadius: '0',
-  outline: 'none',
-  appearance: 'none' as React.CSSProperties['appearance'],
-  WebkitAppearance: 'none' as React.CSSProperties['WebkitAppearance'],
-  cursor: 'pointer',
-  background: 'transparent',
-  '--slider-track-gradient': gradient,
-  '--ascii-thumb-size': '16px',
-  '--ascii-thumb-hitbox': '20px',
-  '--slider-progress': `${((value - min) / Math.max(max - min, 1)) * 100}%`
-});
-
-const HUE_GRADIENT = [
-  'hsl(0, 100%, 50%)',
-  'hsl(60, 100%, 50%)',
-  'hsl(120, 100%, 50%)',
-  'hsl(180, 100%, 50%)',
-  'hsl(240, 100%, 50%)',
-  'hsl(300, 100%, 50%)',
-  'hsl(360, 100%, 50%)'
-].join(', ');
-
-const LIGHTNESS_GRADIENT = [
-  'hsl(0, 0%, 0%)',
-  'hsl(0, 0%, 50%)',
-  'hsl(0, 0%, 100%)'
-].join(', ');
-
-const SATURATION_GRADIENT = [
-  'hsl(0, 0%, 50%)',
-  'hsl(0, 50%, 50%)',
-  'hsl(0, 100%, 50%)'
-].join(', ');
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const InlineBrushEditor: React.FC = () => {
   const brushEditor = useAppStore((state) => state.brushEditor);
@@ -73,11 +35,15 @@ const InlineBrushEditor: React.FC = () => {
   const brushShape = useAppStore((state) => state.tools.brushSettings.brushShape);
   const selectedCustomBrush = useAppStore((state) => state.tools.brushSettings.selectedCustomBrush);
   const currentBrushTip = useAppStore((state) => state.tools.brushSettings.currentBrushTip);
+  const brushHueShift = useAppStore((state) => state.tools.brushSettings.hueShift ?? 0);
+  const brushLightnessAdjust = useAppStore((state) => state.tools.brushSettings.lightnessAdjust ?? 0);
+  const brushSaturationAdjust = useAppStore((state) => state.tools.brushSettings.saturationAdjust ?? 100);
   const setBrushEditorHue = useAppStore((state) => state.setBrushEditorHue);
   const setBrushEditorLightness = useAppStore((state) => state.setBrushEditorLightness);
   const setBrushEditorSaturation = useAppStore((state) => state.setBrushEditorSaturation);
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
   const startBrushEdit = useAppStore((state) => state.startBrushEdit);
+  const refreshCurrentBrushTipFromSource = useAppStore((state) => state.refreshCurrentBrushTipFromSource);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -105,13 +71,106 @@ const InlineBrushEditor: React.FC = () => {
   const canvasPixelWidth = editingBounds?.width ?? 0;
   const canvasPixelHeight = editingBounds?.height ?? 0;
 
+  const isCustomBrushActive = brushShape === BrushShape.CUSTOM;
+  const hasCustomBrushTipPreview = isCustomBrushActive && !!currentBrushTip?.imageData;
+
   const previewWidth = currentBrushTip?.width ?? (canvasPixelWidth || 128);
   const previewHeight = currentBrushTip?.height ?? (canvasPixelHeight || 128);
+
+  const activeHueShift = isEditing ? brushEditor.hueShift : brushHueShift;
+  const activeLightness = isEditing ? brushEditor.lightness : brushLightnessAdjust;
+  const activeSaturation = isEditing ? brushEditor.saturation : brushSaturationAdjust;
 
   const containerHeight = useMemo(() => {
     const target = (isEditing ? canvasPixelHeight : previewHeight) + 100;
     return Math.max(200, Math.min(target, 420));
   }, [canvasPixelHeight, isEditing, previewHeight]);
+
+  const averageBrushColor = useMemo(() => {
+    const imageData = isEditing ? basePixels : currentBrushTip?.imageData ?? basePixels;
+    if (!imageData) return null;
+    const data = imageData.data;
+    let totalAlpha = 0;
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] / 255;
+      if (alpha <= 0) continue;
+      totalAlpha += alpha;
+      sumR += data[i] * alpha;
+      sumG += data[i + 1] * alpha;
+      sumB += data[i + 2] * alpha;
+    }
+
+    if (totalAlpha === 0) {
+      return null;
+    }
+
+    return {
+      r: Math.round(sumR / totalAlpha),
+      g: Math.round(sumG / totalAlpha),
+      b: Math.round(sumB / totalAlpha)
+    };
+  }, [basePixels, currentBrushTip?.imageData, isEditing]);
+
+  const baseBrushHsl = useMemo(() => {
+    if (!averageBrushColor) return null;
+    const [h, s, l] = rgbToHsl(averageBrushColor.r, averageBrushColor.g, averageBrushColor.b);
+    return { h, s, l };
+  }, [averageBrushColor]);
+
+  const hueTrackGradient = useMemo(() => {
+    if (!baseBrushHsl) return undefined;
+    const lightness = clamp(baseBrushHsl.l + activeLightness, 0, 100);
+    const saturation = clamp(baseBrushHsl.s * (activeSaturation / 100), 0, 100);
+    const stops: string[] = [];
+
+    for (let i = 0; i <= HUE_SLIDER_SAMPLE_COUNT; i++) {
+      const t = i / HUE_SLIDER_SAMPLE_COUNT;
+      const sampleHueShift = -180 + 360 * t;
+      const hue = (baseBrushHsl.h + sampleHueShift + 360) % 360;
+      const [r, g, b] = hslToRgb(hue, saturation, lightness);
+      stops.push(`rgb(${r}, ${g}, ${b}) ${(t * 100).toFixed(2)}%`);
+    }
+
+    return `linear-gradient(to right, ${stops.join(', ')})`;
+  }, [activeLightness, activeSaturation, baseBrushHsl]);
+
+  const lightnessTrackGradient = useMemo(() => {
+    if (!baseBrushHsl) return undefined;
+    const hue = (baseBrushHsl.h + activeHueShift + 360) % 360;
+    const saturation = clamp(baseBrushHsl.s * (activeSaturation / 100), 0, 100);
+    const stops: string[] = [];
+
+    for (let i = 0; i <= LIGHTNESS_SLIDER_SAMPLE_COUNT; i++) {
+      const t = i / LIGHTNESS_SLIDER_SAMPLE_COUNT;
+      const sampleLightness = -100 + 200 * t;
+      const lightness = clamp(baseBrushHsl.l + sampleLightness, 0, 100);
+      const [r, g, b] = hslToRgb(hue, saturation, lightness);
+      stops.push(`rgb(${r}, ${g}, ${b}) ${(t * 100).toFixed(2)}%`);
+    }
+
+    return `linear-gradient(to right, ${stops.join(', ')})`;
+  }, [activeHueShift, activeSaturation, baseBrushHsl]);
+
+  const saturationTrackGradient = useMemo(() => {
+    if (!baseBrushHsl) return undefined;
+    const hue = (baseBrushHsl.h + activeHueShift + 360) % 360;
+    const lightness = clamp(baseBrushHsl.l + activeLightness, 0, 100);
+    const stops: string[] = [];
+
+    for (let i = 0; i <= SATURATION_SLIDER_SAMPLE_COUNT; i++) {
+      const t = i / SATURATION_SLIDER_SAMPLE_COUNT;
+      const sampleSaturationPercent = SATURATION_SLIDER_MAX * t;
+      const saturation = clamp(baseBrushHsl.s * (sampleSaturationPercent / 100), 0, 100);
+      const [r, g, b] = hslToRgb(hue, saturation, lightness);
+      stops.push(`rgb(${r}, ${g}, ${b}) ${(t * 100).toFixed(2)}%`);
+    }
+
+    return `linear-gradient(to right, ${stops.join(', ')})`;
+  }, [activeHueShift, activeLightness, baseBrushHsl]);
 
   const getCanvasContext = useCallback(() => {
     if (!canvasRef.current) return null;
@@ -148,6 +207,8 @@ const InlineBrushEditor: React.FC = () => {
 
   useEffect(() => {
     if (isEditing) return;
+    if (!hasCustomBrushTipPreview) return;
+
     const canvas = previewCanvasRef.current;
     if (!canvas) return;
 
@@ -163,7 +224,7 @@ const InlineBrushEditor: React.FC = () => {
     if (currentBrushTip?.imageData) {
       ctx.putImageData(currentBrushTip.imageData, 0, 0);
     }
-  }, [currentBrushTip?.imageData, isEditing, previewHeight, previewWidth]);
+  }, [currentBrushTip?.imageData, hasCustomBrushTipPreview, isEditing, previewHeight, previewWidth]);
 
   useEffect(() => () => {
     if (autoSaveTimeoutRef.current !== null) {
@@ -283,6 +344,27 @@ const InlineBrushEditor: React.FC = () => {
       canvasContextRef.current = null;
     }
   }, [brushEditor.status]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    if (!hasCustomBrushTipPreview) return;
+
+    const timeout = window.setTimeout(() => {
+      refreshCurrentBrushTipFromSource();
+    }, 60);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [
+    brushHueShift,
+    brushLightnessAdjust,
+    brushSaturationAdjust,
+    currentBrushTip?.brushId,
+    hasCustomBrushTipPreview,
+    isEditing,
+    refreshCurrentBrushTipFromSource
+  ]);
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -500,27 +582,30 @@ const InlineBrushEditor: React.FC = () => {
   }, []);
 
   const handleHueChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    (value: number[]) => {
+      if (value[0] === undefined) return;
       modificationPendingRef.current = true;
-      setBrushEditorHue(Number(event.target.value));
+      setBrushEditorHue(value[0]);
       scheduleAutoSave();
     },
     [scheduleAutoSave, setBrushEditorHue]
   );
 
   const handleLightnessChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    (value: number[]) => {
+      if (value[0] === undefined) return;
       modificationPendingRef.current = true;
-      setBrushEditorLightness(Number(event.target.value));
+      setBrushEditorLightness(value[0]);
       scheduleAutoSave();
     },
     [scheduleAutoSave, setBrushEditorLightness]
   );
 
   const handleSaturationChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    (value: number[]) => {
+      if (value[0] === undefined) return;
       modificationPendingRef.current = true;
-      setBrushEditorSaturation(Number(event.target.value));
+      setBrushEditorSaturation(value[0]);
       scheduleAutoSave();
     },
     [scheduleAutoSave, setBrushEditorSaturation]
@@ -673,13 +758,16 @@ const InlineBrushEditor: React.FC = () => {
       const canvasWidth = canvasElement.width;
       const canvasHeight = canvasElement.height;
 
-      const centeredPan = {
-        x: (containerRect.width - canvasWidth) / 2,
-        y: (containerRect.height - canvasHeight) / 2
-      };
+      const padding = 20;
+      const availableWidth = Math.max(containerRect.width - padding * 2, 1);
+      const availableHeight = Math.max(containerRect.height - padding * 2, 1);
+      const scaleToFit = Math.min(availableWidth / canvasWidth, availableHeight / canvasHeight, 1);
 
-      setPan(centeredPan);
-      setZoom(1);
+      const offsetX = (containerRect.width - canvasWidth * scaleToFit) / 2;
+      const offsetY = (containerRect.height - canvasHeight * scaleToFit) / 2;
+
+      setPan({ x: offsetX, y: offsetY });
+      setZoom(scaleToFit);
     });
 
     return () => {
@@ -738,25 +826,6 @@ const InlineBrushEditor: React.FC = () => {
     };
   }, [brushEditor.status]);
 
-  const hueSliderStyle = buildBrushEditorSliderStyle(
-    `linear-gradient(to right, ${HUE_GRADIENT})`,
-    brushEditor.hueShift,
-    -180,
-    180
-  );
-  const lightnessSliderStyle = buildBrushEditorSliderStyle(
-    `linear-gradient(to right, ${LIGHTNESS_GRADIENT})`,
-    brushEditor.lightness,
-    -100,
-    100
-  );
-  const saturationSliderStyle = buildBrushEditorSliderStyle(
-    `linear-gradient(to right, ${SATURATION_GRADIENT})`,
-    brushEditor.saturation,
-    0,
-    200
-  );
-
   return (
     <div
       ref={editorRef}
@@ -765,9 +834,41 @@ const InlineBrushEditor: React.FC = () => {
     >
       {isEditing ? (
         <>
+          <div className="flex flex-col gap-2">
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-[#AAAAAA]">Hue Shift</label>
+              <HueSlider
+                value={[brushEditor.hueShift]}
+                onValueChange={handleHueChange}
+                trackGradient={hueTrackGradient}
+                aria-label="Hue Shift"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-[#AAAAAA]">Lightness</label>
+              <LightnessSlider
+                value={[brushEditor.lightness]}
+                onValueChange={handleLightnessChange}
+                trackGradient={lightnessTrackGradient}
+                aria-label="Lightness"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-[#AAAAAA]">Saturation</label>
+              <SaturationSlider
+                value={[brushEditor.saturation]}
+                onValueChange={handleSaturationChange}
+                hue={brushEditor.hueShift}
+                max={SATURATION_SLIDER_MAX}
+                trackGradient={saturationTrackGradient}
+                aria-label="Saturation"
+              />
+            </div>
+          </div>
+
           <div
             ref={containerRef}
-            className="relative mb-3 overflow-hidden rounded border border-[#2E2E2E] bg-[#3A3A3A]"
+            className="relative overflow-hidden rounded border border-[#2E2E2E] bg-[#3A3A3A]"
             style={{ height: containerHeight }}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handleContainerPointerMove}
@@ -777,21 +878,22 @@ const InlineBrushEditor: React.FC = () => {
             onContextMenu={handleContextMenu}
           >
             <div
-              className="absolute inset-0"
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                transformOrigin: '0 0',
-                backgroundImage:
-                  'linear-gradient(45deg, #e9e9ec 25%, transparent 25%),' +
-                  'linear-gradient(-45deg, #e9e9ec 25%, transparent 25%),' +
-                  'linear-gradient(45deg, transparent 75%, #e9e9ec 75%),' +
-                  'linear-gradient(-45deg, transparent 75%, #e9e9ec 75%)',
-                backgroundSize: '20px 20px',
-                backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                width: canvasPixelWidth ? `${canvasPixelWidth}px` : 'auto',
-                height: canvasPixelHeight ? `${canvasPixelHeight}px` : 'auto'
-              }}
-            >
+            className="absolute inset-0"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: '0 0',
+              backgroundColor: '#f6f6f8',
+              backgroundImage:
+                'linear-gradient(45deg, #e9e9ec 25%, transparent 25%),' +
+                'linear-gradient(-45deg, #e9e9ec 25%, transparent 25%),' +
+                'linear-gradient(45deg, transparent 75%, #e9e9ec 75%),' +
+                'linear-gradient(-45deg, transparent 75%, #e9e9ec 75%)',
+              backgroundSize: '20px 20px',
+              backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+              width: canvasPixelWidth ? `${canvasPixelWidth}px` : 'auto',
+              height: canvasPixelHeight ? `${canvasPixelHeight}px` : 'auto'
+            }}
+          >
               <canvas
                 ref={canvasRef}
                 className="block"
@@ -808,54 +910,16 @@ const InlineBrushEditor: React.FC = () => {
               />
             </div>
           </div>
-
-          <div className="flex flex-col gap-2">
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-[#AAAAAA]">Hue Shift</label>
-              <input
-                className="brush-editor-slider slider w-full"
-                type="range"
-                min="-180"
-                max="180"
-                value={brushEditor.hueShift}
-                onChange={handleHueChange}
-                style={hueSliderStyle}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-[#AAAAAA]">Lightness</label>
-              <input
-                className="brush-editor-slider slider w-full"
-                type="range"
-                min="-100"
-                max="100"
-                value={brushEditor.lightness}
-                onChange={handleLightnessChange}
-                style={lightnessSliderStyle}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-[#AAAAAA]">Saturation</label>
-              <input
-                className="brush-editor-slider slider w-full"
-                type="range"
-                min="0"
-                max="200"
-                value={brushEditor.saturation}
-                onChange={handleSaturationChange}
-                style={saturationSliderStyle}
-              />
-            </div>
-          </div>
         </>
-      ) : currentBrushTip?.imageData ? (
+      ) : hasCustomBrushTipPreview ? (
         <div
-          className="relative mb-3 overflow-hidden rounded border border-[#2E2E2E] bg-[#3A3A3A]"
+          className="relative overflow-hidden rounded border border-[#2E2E2E] bg-[#3A3A3A]"
           style={{ height: containerHeight }}
         >
           <div
             className="absolute inset-0 flex items-center justify-center"
             style={{
+              backgroundColor: '#f6f6f8',
               backgroundImage:
                 'linear-gradient(45deg, #e9e9ec 25%, transparent 25%),' +
                 'linear-gradient(-45deg, #e9e9ec 25%, transparent 25%),' +
@@ -865,15 +929,26 @@ const InlineBrushEditor: React.FC = () => {
               backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
             }}
           >
-            <canvas
-              ref={previewCanvasRef}
-              className="block"
+            <div
+              className="flex items-center justify-center"
               style={{
-                imageRendering: 'pixelated',
-                width: `${previewWidth}px`,
-                height: `${previewHeight}px`
+                padding: '20px',
+                width: '100%',
+                height: '100%'
               }}
-            />
+            >
+              <canvas
+                ref={previewCanvasRef}
+                className="block"
+                style={{
+                  imageRendering: 'pixelated',
+                  maxWidth: 'calc(100% - 40px)',
+                  maxHeight: 'calc(100% - 40px)',
+                  width: `${previewWidth}px`,
+                  height: `${previewHeight}px`
+                }}
+              />
+            </div>
           </div>
         </div>
       ) : (

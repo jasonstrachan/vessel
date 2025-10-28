@@ -62,18 +62,8 @@ function notify(event: PaletteCacheEvent): void {
     }
   }
 
-  const total = stats.hits + stats.misses;
-  const shouldLog =
-    event.type === 'miss' || (total > 0 && total % LOG_SAMPLE_INTERVAL === 0);
-  if (shouldLog) {
-    cacheLog.debug('palette cache stats', {
-      type: event.type,
-      key: event.key,
-      hits: stats.hits,
-      misses: stats.misses,
-      hitRate: total ? stats.hits / total : 0,
-    });
-  }
+  // Intentionally mute verbose logging to avoid noise in development consoles.
+  // Stats remain accessible via performanceMonitor.getMetrics() if needed.
 }
 
 function recordEvent(type: PaletteCacheEventType, key: string, size: number): void {

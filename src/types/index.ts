@@ -449,6 +449,7 @@ export interface BrushSettings {
   shapeEnabled: boolean;
   // Hue and saturation adjustments for custom brushes
   hueShift?: number; // -180 to 180 degrees
+  lightnessAdjust?: number; // -100 to 100 percent
   saturationAdjust?: number; // 0 to 200 percent
   // Color jitter for randomizing colors per brush stamp
   colorJitter: number; // 0 to 100 (0 = no jitter, 100 = full spectrum jitter)

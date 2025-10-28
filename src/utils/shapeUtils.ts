@@ -1,5 +1,5 @@
 import { ShapePoint, CustomBrush, BrushShape } from '../types';
-import { adjustHueAndSaturation } from './imageProcessing';
+import { adjustHueLightnessSaturation } from './imageProcessing';
 
 /**
  * Creates a closed path from an array of points
@@ -98,6 +98,7 @@ export function renderShape(
   customBrush?: CustomBrush,
   useSwatchColor?: boolean,
   hueShift?: number,
+  lightnessAdjust?: number,
   saturationAdjust?: number,
   brushShape?: BrushShape,
   antiAliasing?: boolean,
@@ -134,10 +135,12 @@ export function renderShape(
       
       // Apply hue shift and saturation adjustments if needed
       if ((hueShift !== undefined && hueShift !== 0) || 
+          (lightnessAdjust !== undefined && lightnessAdjust !== 0) ||
           (saturationAdjust !== undefined && saturationAdjust !== 100)) {
-        imageData = adjustHueAndSaturation(
+        imageData = adjustHueLightnessSaturation(
           imageData, 
           hueShift || 0, 
+          lightnessAdjust || 0,
           saturationAdjust || 100
         );
       }
@@ -170,6 +173,7 @@ export function renderShapePreview(
   useSwatchColor?: boolean,
   brushOpacity: number = 1.0,
   hueShift?: number,
+  lightnessAdjust?: number,
   saturationAdjust?: number,
   brushShape?: BrushShape,
   antiAliasing?: boolean,
@@ -178,7 +182,7 @@ export function renderShapePreview(
   ctx.save();
   ctx.globalAlpha = brushOpacity * 0.7; // Slightly more transparent for preview, but respect brush opacity
   
-  renderShape(ctx, path, color, customBrush, useSwatchColor, hueShift, saturationAdjust, brushShape, antiAliasing, points);
+  renderShape(ctx, path, color, customBrush, useSwatchColor, hueShift, lightnessAdjust, saturationAdjust, brushShape, antiAliasing, points);
   
   ctx.restore();
 }

@@ -6,12 +6,65 @@ import FillControls from '@/components/toolbar/FillControls';
 import { CustomBrushPanel } from '@/components/toolbar/CustomBrushPanel';
 import { ColorCycleUI } from '@/components/colorCycle/integration/ColorCycleUI';
 import BrushEditorUI from '@/components/BrushEditorUI';
+import ColorSlidersPanel from '@/components/panels/ColorSlidersPanel';
 import { useAppStore } from '@/stores/useAppStore';
 import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
+import { brushCache } from '@/utils/brushCache';
+import { scaledBrushCache } from '@/utils/scaledBrushCache';
+import { BrushShape } from '@/types';
 
 const BrushSettingsPanel: React.FC = () => {
   const currentTool = useAppStore(state => state.tools.currentTool);
   const brushEditorStatus = useAppStore(state => state.brushEditor.status);
+  const brushSettings = useAppStore(state => state.tools.brushSettings);
+  const setBrushSettings = useAppStore(state => state.setBrushSettings);
+
+  const hueShift = brushSettings.hueShift ?? 0;
+  const lightness = brushSettings.lightnessAdjust ?? 0;
+  const saturation = brushSettings.saturationAdjust ?? 100;
+
+  const getCurrentBrushId = React.useCallback(() => {
+    if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
+      return brushSettings.selectedCustomBrush;
+    }
+    return `standard_${brushSettings.brushShape}`;
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush]);
+
+  const handleHueShiftChange = React.useCallback((newHueShift: number) => {
+    setBrushSettings({ hueShift: newHueShift });
+
+    if (brushSettings.brushShape === BrushShape.CUSTOM) {
+      const brushId = getCurrentBrushId();
+      scaledBrushCache.clearForBrush(brushId);
+      scaledBrushCache.clearForBrush('current-brush-tip');
+      brushCache.clear();
+    }
+  }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
+
+  const handleSaturationChange = React.useCallback((newSaturation: number) => {
+    setBrushSettings({ saturationAdjust: newSaturation });
+
+    if (brushSettings.brushShape === BrushShape.CUSTOM) {
+      const brushId = getCurrentBrushId();
+      scaledBrushCache.clearForBrush(brushId);
+      scaledBrushCache.clearForBrush('current-brush-tip');
+      brushCache.clear();
+    }
+  }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
+
+  const handleLightnessChange = React.useCallback((newLightness: number) => {
+    setBrushSettings({ lightnessAdjust: newLightness });
+
+    if (brushSettings.brushShape === BrushShape.CUSTOM) {
+      const brushId = getCurrentBrushId();
+      scaledBrushCache.clearForBrush(brushId);
+      scaledBrushCache.clearForBrush('current-brush-tip');
+      brushCache.clear();
+    }
+  }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
+
+  const shouldShowBrushEditor =
+    brushSettings.brushShape === BrushShape.CUSTOM || brushEditorStatus === 'EDITING';
 
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
@@ -19,13 +72,26 @@ const BrushSettingsPanel: React.FC = () => {
         {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
         {currentTool === 'fill' && <FillControls />}
         {currentTool === 'custom' && <CustomBrushPanel />}
+        {brushSettings.brushShape === BrushShape.CUSTOM && (
+          <div className="px-4 pb-0">
+            <ColorSlidersPanel
+              hueShift={hueShift}
+              lightness={lightness}
+              saturation={saturation}
+              onHueShiftChange={handleHueShiftChange}
+              onLightnessChange={handleLightnessChange}
+              onSaturationChange={handleSaturationChange}
+              brushShape={brushSettings.brushShape}
+            />
+          </div>
+        )}
         {currentTool === 'recolor' && (
           <div className="p-2">
             <ColorCycleUI isVisible={true} />
           </div>
         )}
         {currentTool === 'color-adjust' && <ColorAdjustToolPanel />}
-        <BrushEditorUI key={brushEditorStatus} />
+        {shouldShowBrushEditor && <BrushEditorUI key={brushEditorStatus} />}
       </div>
     </div>
   );
