@@ -165,6 +165,7 @@ export class ColorCycleBrushCanvas2D {
   // Stamp tracking for gradient progression
   private stampCounter: number = 0;
   private totalGradientSteps: number = 256; // Total colors in gradient
+  private flowDirection: 'forward' | 'backward' = 'forward';
   
   // Batched rendering
   private renderScheduled: boolean = false;
@@ -291,6 +292,7 @@ export class ColorCycleBrushCanvas2D {
         forceCanvas2D: this.forceCanvas2D
       });
       // quiet
+      animator.setFlowDirection(this.flowDirection);
       
       // Defer full initialization until first paint
       this.deferredAnimatorSizes.set(animator, { width: this.width, height: this.height });
@@ -2861,6 +2863,7 @@ export class ColorCycleBrushCanvas2D {
    * Set flow direction (API compatible)
    */
   setFlowDirection(direction: 'forward' | 'backward') {
+    this.flowDirection = direction;
     this.animators.forEach(animator => animator.setFlowDirection(direction));
   }
   

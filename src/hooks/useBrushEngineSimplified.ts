@@ -1965,6 +1965,9 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.setGradient(gradientToUse, activeLayerId);
       }
       
+      const flowForward = tools.brushSettings.colorCycleFlowForward;
+      colorCycleBrush.setFlowDirection(flowForward === false ? 'backward' : 'forward');
+      
       return colorCycleBrush;
     } catch (error) {
       console.error('[ColorCycle] Error initializing brush:', error);

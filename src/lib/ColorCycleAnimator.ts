@@ -50,7 +50,7 @@ export class ColorCycleAnimator {
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
   private currentStrokeIndex: number = 1;
   private maxStrokeIndex: number = 0;
-  private flowDirection: 'forward' | 'backward' = 'backward'; // Flow direction toggle (default: backward)
+  private flowDirection: 'forward' | 'backward' = 'forward'; // Flow direction toggle (default: forward)
   private gradientSignature: string | null = null;
   
   // Callbacks

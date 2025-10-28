@@ -1,6 +1,7 @@
 const setIndexSpy = jest.fn();
 const paintSquareSpy = jest.fn();
 const paintTriangleSpy = jest.fn();
+const setFlowDirectionSpy = jest.fn();
 
 jest.mock('../../../lib/ColorCycleAnimator', () => {
   return {
@@ -34,6 +35,9 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
         canvas.width = this.width;
         canvas.height = this.height;
         return canvas;
+      }
+      setFlowDirection(direction: 'forward' | 'backward') {
+        setFlowDirectionSpy(direction);
       }
       setIndex(x: number, y: number, colorIndex: number) {
         setIndexSpy({ x, y, colorIndex });
@@ -96,6 +100,7 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
     setIndexSpy.mockClear();
     paintSquareSpy.mockClear();
     paintTriangleSpy.mockClear();
+    setFlowDirectionSpy.mockClear();
   });
 
   it('records setIndex calls for custom stamps', () => {
@@ -218,5 +223,25 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
 
     const indices = paintSquareSpy.mock.calls.map(call => call[0]);
     expect(indices).toEqual([1, 24, 47]);
+  });
+
+  it('applies stored flow direction when creating a new animator', () => {
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = 64;
+    baseCanvas.height = 64;
+
+    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 8, fps: 30 });
+    brush.setFlowDirection('backward');
+    setFlowDirectionSpy.mockClear();
+
+    brush.setGradient(
+      [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' }
+      ],
+      'layer-flow'
+    );
+
+    expect(setFlowDirectionSpy).toHaveBeenCalledWith('backward');
   });
 });
