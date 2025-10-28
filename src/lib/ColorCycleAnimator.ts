@@ -412,61 +412,27 @@ export class ColorCycleAnimator {
         return;
       }
 
-      // Fallback CPU path (unchanged behavior)
+      // Fallback CPU path
       if (!this._renderPathLogged) { this._renderPathLogged = true; }
-      // Ensure imageData is created (for lazy init)
-      if (!this.imageData) {
-        this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-      }
+
       const indexData = this.indexBuffer.getDirectData();
       if (!indexData) return;
 
-      const pixels = this.imageData.data;
-      const pixels32 = new Uint32Array(pixels.buffer);
-      const palette32 = this.getPaletteHandle().uint32;
+      if (!this.imageData) {
+        this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
+      }
 
-      const animOffset = Math.floor(Math.abs(offset) * 256);
-      const backward = this.flowDirection === 'backward';
-      const mapPaletteIndex = (idx: number): number => {
-        if (idx <= 0) return -1;
-        if (idx >= 255) return 255;
-        return idx - 1;
-      };
+      const dir = this.flowDirection === 'backward' ? -1 : 1;
+      const phase = ((offset * dir) % 1 + 1) % 1;
+      const shift = (phase * 256) | 0;
 
-      if (animOffset > 0) {
-        if (backward) {
-          for (let i = 0; i < indexData.length; i++) {
-            const colorIndex = indexData[i];
-            if (colorIndex === 0) {
-              pixels32[i] = 0;
-              continue;
-            }
-            const paletteIndex = mapPaletteIndex(colorIndex);
-            const shifted = (paletteIndex - animOffset + 256 * 100) % 256;
-            pixels32[i] = palette32[shifted];
-          }
-        } else {
-          for (let i = 0; i < indexData.length; i++) {
-            const colorIndex = indexData[i];
-            if (colorIndex === 0) {
-              pixels32[i] = 0;
-              continue;
-            }
-            const paletteIndex = mapPaletteIndex(colorIndex);
-            const shifted = (paletteIndex + animOffset) % 256;
-            pixels32[i] = palette32[shifted];
-          }
-        }
-      } else {
-        for (let i = 0; i < indexData.length; i++) {
-          const colorIndex = indexData[i];
-          if (colorIndex === 0) {
-            pixels32[i] = 0;
-            continue;
-          }
-          const paletteIndex = mapPaletteIndex(colorIndex);
-          pixels32[i] = palette32[paletteIndex];
-        }
+      const pixels32 = new Uint32Array(this.imageData.data.buffer);
+      const basePalette32 = this.getPaletteHandle().uint32;
+      const rotatedPalette = ColorCycleAnimator.rotatePalette256(basePalette32, shift);
+
+      for (let i = 0; i < indexData.length; i++) {
+        const colorIndex = indexData[i];
+        pixels32[i] = colorIndex === 0 ? 0 : rotatedPalette[(colorIndex - 1) & 255];
       }
 
       this.ctx.putImageData(this.imageData, 0, 0);
@@ -760,7 +726,16 @@ export class ColorCycleAnimator {
    * Set animation speed
    */
   setSpeed(speed: number) {
-    this.animationController.setSpeed(speed);
+    if (!Number.isFinite(speed)) {
+      return;
+    }
+
+    const direction = speed >= 0 ? 'forward' : 'backward';
+    if (direction !== this.flowDirection) {
+      this.setFlowDirection(direction);
+    }
+
+    this.animationController.setSpeed(Math.abs(speed));
   }
   
   /**
@@ -920,6 +895,16 @@ export class ColorCycleAnimator {
     if (!this.animationController.isPlaying()) {
       this.forceRender();
     }
+  }
+
+  private static rotatePalette256(palette: Uint32Array, shift: number): Uint32Array {
+    const rotated = new Uint32Array(256);
+    const mask = 255;
+    const normalizedShift = shift & mask;
+    for (let i = 0; i < 256; i++) {
+      rotated[i] = palette[(i + normalizedShift) & mask];
+    }
+    return rotated;
   }
   
   /**

@@ -1994,7 +1994,17 @@ export const useBrushEngineSimplified = () => {
     void shouldPlay;
     // Animation loop temporarily disabled; rendering is driven directly via renderDirectToCanvas.
   }, []);
-  
+
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (!colorCycleBrush) {
+      return;
+    }
+
+    const direction = tools.brushSettings.colorCycleFlowForward === false ? 'backward' : 'forward';
+    colorCycleBrush.setFlowDirection(direction);
+  }, [getActiveLayerColorCycleBrush, tools.brushSettings.colorCycleFlowForward, activeLayerId]);
+
   /**
    * Render Color Cycle output onto the provided context.
    * Applies opacity and optionally combines blend mode with transparency lock.
