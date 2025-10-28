@@ -50,7 +50,9 @@ export class ColorCycleAnimator {
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
   private currentStrokeIndex: number = 1;
   private maxStrokeIndex: number = 0;
-  private flowDirection: 'forward' | 'backward' = 'forward'; // Flow direction toggle (default: forward)
+  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'forward'; // Flow direction mode
+  private lastControllerOffset: number = 0;
+  private pingPongAscending: boolean = true;
   private gradientSignature: string | null = null;
   
   // Callbacks
@@ -381,16 +383,14 @@ export class ColorCycleAnimator {
         if (!indexData) return;
 
         // Compute forward/backward offset in [0,1)
-        const dir = this.flowDirection === 'backward' ? -1 : 1;
-        let o = offset * dir;
-        o = ((o % 1) + 1) % 1;
+        const phase = this.computePhase(offset);
 
         // Upload index texture only when data changed
         if (this._glIndexDirty) {
           this.glRenderer.setIndexData(indexData);
           this._glIndexDirty = false;
         }
-        this.glRenderer.render(o);
+        this.glRenderer.render(phase);
 
         // Optional one-time sample to verify visible output by drawing into the 2D canvas
         if (!this._renderSampledOnce) {
@@ -422,8 +422,7 @@ export class ColorCycleAnimator {
         this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
       }
 
-      const dir = this.flowDirection === 'backward' ? -1 : 1;
-      const phase = ((offset * dir) % 1 + 1) % 1;
+      const phase = this.computePhase(offset);
       const shift = (phase * 256) | 0;
 
       const pixels32 = new Uint32Array(this.imageData.data.buffer);
@@ -730,12 +729,7 @@ export class ColorCycleAnimator {
       return;
     }
 
-    const direction = speed >= 0 ? 'forward' : 'backward';
-    if (direction !== this.flowDirection) {
-      this.setFlowDirection(direction);
-    }
-
-    this.animationController.setSpeed(Math.abs(speed));
+    this.animationController.setSpeed(Math.max(0, Math.abs(speed)));
   }
   
   /**
@@ -874,27 +868,69 @@ export class ColorCycleAnimator {
   /**
    * Set flow direction
    */
-  setFlowDirection(direction: 'forward' | 'backward') {
-    this.flowDirection = direction;
+  setFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
+    if (mode === this.flowMode) {
+      return;
+    }
+    this.flowMode = mode;
+    if (mode === 'pingpong') {
+      this.lastControllerOffset = this.animationController.getOffset();
+      this.pingPongAscending = true;
+    }
     // Always re-render to show the change immediately
     this.forceRender();
+  }
+
+  setFlowDirection(direction: 'forward' | 'backward') {
+    this.setFlowMode(direction === 'backward' ? 'reverse' : 'forward');
   }
   
   /**
    * Get flow direction
    */
   getFlowDirection(): 'forward' | 'backward' {
-    return this.flowDirection;
+    return this.flowMode === 'reverse' ? 'backward' : 'forward';
+  }
+
+  getFlowMode(): 'forward' | 'reverse' | 'pingpong' {
+    return this.flowMode;
   }
   
   /**
    * Toggle flow direction
    */
   toggleFlowDirection() {
-    this.flowDirection = this.flowDirection === 'forward' ? 'backward' : 'forward';
-    if (!this.animationController.isPlaying()) {
-      this.forceRender();
+    if (this.flowMode === 'pingpong') {
+      this.setFlowMode('forward');
+      return;
     }
+    this.setFlowMode(this.flowMode === 'forward' ? 'reverse' : 'forward');
+  }
+
+  get flowDirection(): 'forward' | 'backward' {
+    return this.getFlowDirection();
+  }
+
+  set flowDirection(direction: 'forward' | 'backward') {
+    this.setFlowDirection(direction);
+  }
+
+  private computePhase(offset: number): number {
+    if (this.flowMode === 'pingpong') {
+      // Detect wrap-around of controller offset to flip direction
+      if (this.lastControllerOffset - offset > 0.5) {
+        this.pingPongAscending = !this.pingPongAscending;
+      }
+      this.lastControllerOffset = offset;
+
+      return this.pingPongAscending ? offset : 1 - offset;
+    }
+
+    this.lastControllerOffset = offset;
+
+    const dir = this.flowMode === 'reverse' ? -1 : 1;
+    const signed = offset * dir;
+    return ((signed % 1) + 1) % 1;
   }
 
   private static rotatePalette256(palette: Uint32Array, shift: number): Uint32Array {

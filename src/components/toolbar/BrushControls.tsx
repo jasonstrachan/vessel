@@ -8,13 +8,13 @@ import { useAppStore } from "../../stores/useAppStore";
 import { BrushShape, type Layer } from "../../types";
 import { createDefaultLayerAlignment } from "@/utils/layoutDefaults";
 import Input from "../ui/Input";
-import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
 // Using ProgressSlider to match pixel square brush opacity style
 import Dropdown from "../ui/Dropdown";
 import ButtonGroup from "../ui/ButtonGroup";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
+import CustomSwitch from "../ui/CustomSwitch";
 import { isStrokeBrush } from "../../utils/brushCategories";
 import {
   DEFAULT_GRADIENT_STOPS,
@@ -117,6 +117,7 @@ const BrushControls = () => {
     currentTool === 'eraser' ? eraserSettings : brushSettings;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
+  const currentFlowMode = activeSettings.colorCycleFlowMode ?? 'forward';
 
   // Use the appropriate settings and setter based on current tool
   const setActiveSettings =
@@ -318,24 +319,18 @@ const BrushControls = () => {
           <ButtonGroup
             options={[
               { label: 'Stroke', value: 'stroke' },
-              { label: 'Triangle', value: 'triangle' },
               { label: 'Shape', value: 'shape' }
             ]}
             value={
               activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
                 ? 'shape'
-                : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
-                  ? 'triangle'
-                  : 'stroke'
+                : 'stroke'
             }
             onChange={(value) => {
               const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
               const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
-              const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
               if (value === 'shape' && shapePreset) {
                 setBrushPreset(shapePreset, true);
-              } else if (value === 'triangle' && trianglePreset) {
-                setBrushPreset(trianglePreset, true);
               } else if (value === 'stroke' && strokePreset) {
                 setBrushPreset(strokePreset, true);
               }
@@ -431,19 +426,30 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Flow Direction Toggle */}
+        {/* Flow Direction */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Flow
             </label>
-            <CustomSwitch
-              checked={activeSettings.colorCycleFlowForward === true}
-              onChange={(checked) => {
-                setActiveSettings({ colorCycleFlowForward: checked });
-                // Set flow direction based on toggle state
-                colorCycleRuntimeHandlers.setFlowDirection?.(checked ? 'forward' : 'backward');
+            <ButtonGroup
+              options={[
+                { label: 'Reverse', value: 'forward' },
+                { label: 'Forward', value: 'reverse' },
+                { label: 'Ping Pong', value: 'pingpong' }
+              ]}
+              value={currentFlowMode}
+              onChange={(value) => {
+                const mode = value === 'reverse' || value === 'pingpong' ? value : 'forward';
+                setActiveSettings({ colorCycleFlowMode: mode });
+                if (colorCycleRuntimeHandlers.setFlowMode) {
+                  colorCycleRuntimeHandlers.setFlowMode(mode);
+                } else if (colorCycleRuntimeHandlers.setFlowDirection) {
+                  colorCycleRuntimeHandlers.setFlowDirection(mode === 'reverse' ? 'backward' : 'forward');
+                }
               }}
+              size="sm"
+              className="flex-1"
             />
           </div>
         </div>

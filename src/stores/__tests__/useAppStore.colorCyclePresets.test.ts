@@ -1,5 +1,5 @@
-import { colorCycleStrokeBrushPreset, colorCycleTriangleBrushPreset, defaultBrushPreset } from '@/presets/brushPresets';
-import { BrushShape } from '@/types';
+import { colorCycleShapeBrushPreset, colorCycleStrokeBrushPreset, defaultBrushPreset } from '@/presets/brushPresets';
+import { BrushShape, type BrushSettings } from '@/types';
 
 const mockBrush = {
   setActiveLayer: jest.fn(),
@@ -62,7 +62,7 @@ describe('useAppStore color cycle brush presets', () => {
     store.setBrushPreset(colorCycleStrokeBrushPreset);
     store.setBrushSettings({ colorCycleGradient: customGradient });
 
-    store.setBrushPreset(colorCycleTriangleBrushPreset);
+    store.setBrushPreset(colorCycleShapeBrushPreset);
 
     expect(useAppStore.getState().tools.brushSettings.colorCycleGradient).toEqual(customGradient);
   });
@@ -73,8 +73,22 @@ describe('useAppStore color cycle brush presets', () => {
     store.setBrushSettings({ colorCycleGradient: customGradient });
 
     store.setBrushPreset(defaultBrushPreset);
-    store.setBrushPreset(colorCycleTriangleBrushPreset);
+    store.setBrushPreset(colorCycleShapeBrushPreset);
 
     expect(useAppStore.getState().tools.brushSettings.colorCycleGradient).toEqual(customGradient);
+  });
+
+  it('updates brush settings with the selected flow mode', () => {
+    const store = useAppStore.getState();
+    store.setBrushSettings({ colorCycleFlowMode: 'pingpong' });
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('pingpong');
+  });
+
+  it('normalizes legacy flow forward flags into the new flow mode', () => {
+    const store = useAppStore.getState();
+    store.setBrushSettings({ colorCycleFlowForward: false } as unknown as Partial<BrushSettings>);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('reverse');
   });
 });

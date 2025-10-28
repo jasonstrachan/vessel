@@ -39,6 +39,7 @@ export const pixelBrushSettings: BrushSettings = {
   contourLines2Density: 4,
   contourLines2Alternate: false,
   customBrushColorCycle: false,
+  colorCycleFlowMode: 'forward',
   colorCycleFillMode: 'concentric',
   triangleFillSize: 36,
   triangleFillJitter: 35,
@@ -112,6 +113,7 @@ export const defaultBrushSettings: BrushSettings = {
   contourLines2Spacing: 4, // Default base spacing for Lines2 brush
   contourLines2Density: 4, // Default line bundle density
   contourLines2Alternate: false, // Default to uniform direction
+  colorCycleFlowMode: 'forward',
   colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
   shapeGradientMode: 'contour', // Default to contour mode for shape gradient brushes
   triangleFillSize: 36,
@@ -443,64 +445,6 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     maxPressure: 200,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: false // Force shape mode OFF for stroke variant
-  }
-};
-
-// Color Cycle Triangle Brush Components (stroke variant with triangle tip)
-export const colorCycleTriangleBrushComponents: BrushComponent[] = [
-  {
-    id: 'color-cycle-triangle-size',
-    type: ComponentType.SIZE_MODIFIER,
-    parameters: {
-      minSize: 1,
-      maxSize: 500,
-      pressureInfluence: 0
-    },
-    priority: 10,
-    enabled: true
-  },
-  {
-    id: 'color-cycle-triangle-opacity',
-    type: ComponentType.OPACITY_MODIFIER,
-    parameters: {
-      pressureInfluence: 0.5
-    },
-    priority: 20,
-    enabled: true
-  },
-  {
-    id: 'color-cycle-triangle-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.COLOR_CYCLE_TRIANGLE
-    },
-    priority: 40,
-    enabled: true
-  }
-];
-
-export const colorCycleTriangleBrushPreset: BrushPreset = {
-  id: 'color-cycle-triangle',
-  name: 'Color Cycle Triangle',
-  category: 'Special',
-  components: colorCycleTriangleBrushComponents,
-  thumbnail: '/assets/images/Square.png',
-  tags: ['color', 'cycle', 'animated', 'special', 'triangle'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {
-    size: 20,
-    opacity: 1,
-    spacing: 2,
-    colorCycleSpeed: 0.1,
-    colorCycleFPS: 30,
-    gradientBands: 12,
-    pressureEnabled: true,
-    minPressure: 50,
-    maxPressure: 200,
-    colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
-    shapeEnabled: false
   }
 };
 
@@ -847,7 +791,6 @@ export const brushPresets: BrushPreset[] = [
   roundPixel4Preset,
   defaultBrushPreset,
   colorCycleStrokeBrushPreset,
-  colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
@@ -859,6 +802,9 @@ export const brushPresets: BrushPreset[] = [
 
 // Helper functions
 export const getBrushPresetById = (id: string): BrushPreset | undefined => {
+  if (id === 'color-cycle-triangle') {
+    return colorCycleStrokeBrushPreset; // Legacy alias: triangle preset now maps to stroke variant
+  }
   return brushPresets.find(preset => preset.id === id);
 };
 

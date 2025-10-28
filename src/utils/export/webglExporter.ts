@@ -230,7 +230,7 @@ interface WebGLSerializedBrushState {
   palette?: Array<string | number>;
   animationOffset: number;
   targetFPS?: number;
-  flowDirection?: 'forward' | 'reverse';
+  flowDirection?: 'forward' | 'reverse' | 'pingpong';
   alphaMode?: 'source' | 'opaque-indices';
 }
 
@@ -416,7 +416,7 @@ const normalizeImageDataUrl = (dataUrl: unknown): string | undefined => {
   return trimmed;
 };
 
-const normalizeBrushFlowDirection = (direction: unknown): 'forward' | 'reverse' | undefined => {
+const normalizeBrushFlowDirection = (direction: unknown): 'forward' | 'reverse' | 'pingpong' | undefined => {
   if (typeof direction !== 'string') {
     return undefined;
   }
@@ -427,6 +427,9 @@ const normalizeBrushFlowDirection = (direction: unknown): 'forward' | 'reverse' 
   }
   if (trimmed === 'reverse' || trimmed === 'backward') {
     return 'reverse';
+  }
+  if (trimmed === 'pingpong' || trimmed === 'ping-pong' || trimmed === 'bounce') {
+    return 'pingpong';
   }
 
   return undefined;
@@ -502,19 +505,34 @@ const deduplicateGradients = (metadata: WebGLExportMetadata): void => {
 
 const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => layer;
 
-const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'reverse' | undefined => {
+const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'reverse' | 'pingpong' | undefined => {
   if (!animator || typeof animator !== 'object') {
     return undefined;
   }
 
   const animatorAny = animator as {
+    getFlowMode?: () => unknown;
     getFlowDirection?: () => unknown;
+    flowMode?: unknown;
     flowDirection?: unknown;
     animationController?: {
+      getMode?: () => unknown;
       getDirection?: () => unknown;
+      flowMode?: unknown;
       flowDirection?: unknown;
     };
   };
+
+  if (typeof animatorAny.getFlowMode === 'function') {
+    try {
+      const detected = normalizeBrushFlowDirection(animatorAny.getFlowMode());
+      if (detected) {
+        return detected;
+      }
+    } catch (error) {
+      console.debug('[webglExporter] Failed to read flow mode via animator.getFlowMode()', error);
+    }
+  }
 
   if (typeof animatorAny.getFlowDirection === 'function') {
     try {
@@ -527,6 +545,11 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
     }
   }
 
+  const modeDirect = normalizeBrushFlowDirection(animatorAny.flowMode);
+  if (modeDirect) {
+    return modeDirect;
+  }
+
   const direct = normalizeBrushFlowDirection(animatorAny.flowDirection);
   if (direct) {
     return direct;
@@ -534,6 +557,17 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
 
   const controller = animatorAny.animationController;
   if (controller) {
+    if (typeof controller.getMode === 'function') {
+      try {
+        const detected = normalizeBrushFlowDirection(controller.getMode());
+        if (detected) {
+          return detected;
+        }
+      } catch (error) {
+        console.debug('[webglExporter] Failed to read flow mode via animationController.getMode()', error);
+      }
+    }
+
     if (typeof controller.getDirection === 'function') {
       try {
         const detected = normalizeBrushFlowDirection(controller.getDirection());
@@ -545,6 +579,11 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
       }
     }
 
+    const controllerModeDirect = normalizeBrushFlowDirection(controller.flowMode);
+    if (controllerModeDirect) {
+      return controllerModeDirect;
+    }
+
     const controllerDirect = normalizeBrushFlowDirection(controller.flowDirection);
     if (controllerDirect) {
       return controllerDirect;
@@ -554,14 +593,16 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
   return undefined;
 };
 
-const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 'reverse' | undefined => {
+const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 'reverse' | 'pingpong' | undefined => {
   if (!brush || typeof brush !== 'object') {
     return undefined;
   }
 
   const brushAny = brush as {
+    flowMode?: unknown;
     flowDirection?: unknown;
     getFlowDirection?: () => unknown;
+    getFlowMode?: () => unknown;
     animators?: Map<string, unknown> | {
       get?: (key: string) => unknown;
       size?: number;
@@ -569,9 +610,25 @@ const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 
     };
   };
 
+  const modeDirect = normalizeBrushFlowDirection(brushAny.flowMode);
+  if (modeDirect) {
+    return modeDirect;
+  }
+
   const direct = normalizeBrushFlowDirection(brushAny.flowDirection);
   if (direct) {
     return direct;
+  }
+
+  if (typeof brushAny.getFlowMode === 'function') {
+    try {
+      const detected = normalizeBrushFlowDirection(brushAny.getFlowMode());
+      if (detected) {
+        return detected;
+      }
+    } catch (error) {
+      console.debug('[webglExporter] Failed to read brush flow mode via getFlowMode()', error);
+    }
   }
 
   if (typeof brushAny.getFlowDirection === 'function') {

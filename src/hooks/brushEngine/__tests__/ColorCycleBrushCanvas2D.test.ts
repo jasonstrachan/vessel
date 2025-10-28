@@ -36,6 +36,9 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
         canvas.height = this.height;
         return canvas;
       }
+      setFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
+        setFlowDirectionSpy(mode);
+      }
       setFlowDirection(direction: 'forward' | 'backward') {
         setFlowDirectionSpy(direction);
       }
@@ -242,6 +245,26 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
       'layer-flow'
     );
 
-    expect(setFlowDirectionSpy).toHaveBeenCalledWith('backward');
+    expect(setFlowDirectionSpy).toHaveBeenCalledWith('reverse');
+  });
+
+  it('propagates pingpong flow mode to new animators', () => {
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = 64;
+    baseCanvas.height = 64;
+
+    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 8, fps: 30 });
+    brush.setFlowMode('pingpong');
+    setFlowDirectionSpy.mockClear();
+
+    brush.setGradient(
+      [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' }
+      ],
+      'layer-flow-mode'
+    );
+
+    expect(setFlowDirectionSpy).toHaveBeenCalledWith('pingpong');
   });
 });

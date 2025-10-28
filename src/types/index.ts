@@ -516,8 +516,8 @@ export interface BrushSettings {
   ribbonJitter?: number; // Seed jitter fraction for variation
   ribbonAnchorFalloff?: number; // How strongly anchors influence step size
   ribbonSeed?: number; // Deterministic seed for ribbon noise / distribution
-  // Color cycle flow direction
-  colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow
+  // Color cycle flow direction mode
+  colorCycleFlowMode?: 'forward' | 'reverse' | 'pingpong';
 
   // Custom brush color cycle toggle
   customBrushColorCycle?: boolean; // true = cycle gradient colors per stamp for custom brushes

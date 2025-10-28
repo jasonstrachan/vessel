@@ -420,7 +420,7 @@ import type { HistoryEntry } from '@/history/actionTypes';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
-const COLOR_CYCLE_PRESET_IDS = ['color-cycle-stroke', 'color-cycle-triangle', 'color-cycle-shape'] as const;
+const COLOR_CYCLE_PRESET_IDS = ['color-cycle-stroke', 'color-cycle-shape'] as const;
 
 type GradientStops = BrushSettings['colorCycleGradient'];
 
@@ -498,7 +498,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
     colorCycleSpeed: settings.colorCycleSpeed,
     colorCycleGradient: settings.colorCycleGradient,
     colorCycleFPS: settings.colorCycleFPS,
-    colorCycleFlowForward: settings.colorCycleFlowForward,
+    colorCycleFlowMode: settings.colorCycleFlowMode,
     gradientBands: settings.gradientBands
   };
 };
@@ -692,6 +692,7 @@ export interface AppState {
     start?: (reason?: string) => void;
     stop?: (reason?: string) => void;
     updateGradient?: (stops: Array<{ position: number; color: string }>) => void;
+    setFlowMode?: (mode: 'forward' | 'reverse' | 'pingpong') => void;
     setFlowDirection?: (direction: 'forward' | 'backward') => void;
   };
   setColorCycleRuntimeHandlers: (
@@ -2948,9 +2949,18 @@ export const useAppStore = create<AppState>()(
           }
         }
       },
-      setBrushSettings: (settings) => set((state) => {
+      setBrushSettings: (incomingSettings) => set((state) => {
         // quiet
         try {
+        const settings = {
+          ...incomingSettings,
+        } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+
+        if (settings.colorCycleFlowForward !== undefined) {
+          settings.colorCycleFlowMode = settings.colorCycleFlowForward === false ? 'reverse' : 'forward';
+          delete settings.colorCycleFlowForward;
+        }
+
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
         const explicitGradientVersion = settings.colorCycleGradientVersion;
@@ -3026,6 +3036,9 @@ export const useAppStore = create<AppState>()(
           if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
           if (settings.colorCycleGradient !== undefined) {
             settingsToSave.colorCycleGradient = newSettings.colorCycleGradient;
+          }
+          if (settings.colorCycleFlowMode !== undefined) {
+            settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
           }
           if (
             settings.colorCycleGradient !== undefined ||
@@ -3659,8 +3672,6 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.brushShape = BrushShape.COLOR_CYCLE_SHAPE;
         } else if (preset.id === 'color-cycle-stroke') {
           newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
-        } else if (preset.id === 'color-cycle-triangle') {
-          newBrushSettings.brushShape = BrushShape.COLOR_CYCLE_TRIANGLE;
         }
         
         // Decide shapeMode based on brush domain (Color Cycle vs regular)
@@ -3677,7 +3688,7 @@ export const useAppStore = create<AppState>()(
           // Respect explicit CC variant presets; otherwise restore last CC shape mode
           if (preset.id === 'color-cycle-shape') {
             nextShapeMode = true;
-          } else if (preset.id === 'color-cycle-stroke' || preset.id === 'color-cycle-triangle') {
+          } else if (preset.id === 'color-cycle-stroke') {
             nextShapeMode = false;
           } else {
             nextShapeMode = state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode ?? false;
@@ -6274,8 +6285,17 @@ export const useAppStore = create<AppState>()(
       loadBrushSettings: (brushId) => {
         const state = get();
         const loadedSettings = state.brushSpecificSettings[brushId] || {};
-        
-        return loadedSettings;
+
+        const normalized = {
+          ...loadedSettings,
+        } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+
+        if (normalized.colorCycleFlowForward !== undefined) {
+          normalized.colorCycleFlowMode = normalized.colorCycleFlowForward === false ? 'reverse' : 'forward';
+          delete normalized.colorCycleFlowForward;
+        }
+
+        return normalized;
       },
       clearBrushSettings: (brushId) => set((state) => {
         const { [brushId]: removed, ...remaining } = state.brushSpecificSettings;

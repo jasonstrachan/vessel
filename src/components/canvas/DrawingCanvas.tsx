@@ -468,12 +468,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [sampleColorAtPosition]);
   
   // Drawing function - base implementation without hooks
-  const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null) => {
+  const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio: number = 1) => {
     const { scale, offsetX, offsetY } = transform;
-    
-    // Clear canvas
+    const dpr = devicePixelRatio || 1;
+    const canvasPixelWidth = ctx.canvas.width;
+    const canvasPixelHeight = ctx.canvas.height;
+    const displayWidth = canvasPixelWidth / dpr;
+    const displayHeight = canvasPixelHeight / dpr;
+
+    // Clear canvas at device resolution
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#141514';
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.fillRect(0, 0, canvasPixelWidth, canvasPixelHeight);
+    ctx.restore();
     
     if (project && layers.length > 0) {
       ctx.save();
@@ -489,8 +497,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Only draw visible checkers - ensure we stay within canvas bounds
       const startX = Math.floor(Math.max(0, -offsetX / scale) / (checkerSize * 2)) * (checkerSize * 2);
       const startY = Math.floor(Math.max(0, -offsetY / scale) / (checkerSize * 2)) * (checkerSize * 2);
-      const endX = Math.min(project.width, Math.ceil((ctx.canvas.width - offsetX) / scale));
-      const endY = Math.min(project.height, Math.ceil((ctx.canvas.height - offsetY) / scale));
+      const endX = Math.min(project.width, Math.ceil((displayWidth - offsetX) / scale));
+      const endY = Math.min(project.height, Math.ceil((displayHeight - offsetY) / scale));
       
       for (let x = startX; x < endX; x += checkerSize * 2) {
         for (let y = startY; y < endY; y += checkerSize * 2) {
@@ -550,7 +558,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
       ctx.strokeStyle = '#141514';
-      ctx.lineWidth = 2 / scale;
+      ctx.lineWidth = 2 / (scale * dpr);
       ctx.strokeRect(0, 0, project.width, project.height);
       ctx.restore();
       
@@ -622,15 +630,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           
           // White background line
           ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2 / scale;
+          ctx.lineWidth = 2 / (scale * dpr);
           ctx.setLineDash([]);
           ctx.strokeRect(x, y, width, height);
           
           // Black dashed line for marching ants
           ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1 / scale;
-          ctx.setLineDash([5 / scale, 5 / scale]);
-          ctx.lineDashOffset = -marchingAntsOffset / scale;
+          ctx.lineWidth = 1 / (scale * dpr);
+          const dashLength = 5 / (scale * dpr);
+          ctx.setLineDash([dashLength, dashLength]);
+          ctx.lineDashOffset = -marchingAntsOffset / (scale * dpr);
           ctx.strokeRect(x, y, width, height);
 
           ctx.restore();
@@ -655,14 +664,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const height = Math.abs(end.y - start.y);
           
           ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1 / scale;
+          ctx.lineWidth = 1 / (scale * dpr);
           ctx.setLineDash([]);
           ctx.strokeRect(x, y, width, height);
           
           ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1 / scale;
-          ctx.setLineDash([5 / scale, 5 / scale]);
-          ctx.lineDashOffset = -marchingAntsOffset / scale;
+          ctx.lineWidth = 1 / (scale * dpr);
+          const selectionDash = 5 / (scale * dpr);
+          ctx.setLineDash([selectionDash, selectionDash]);
+          ctx.lineDashOffset = -marchingAntsOffset / (scale * dpr);
           ctx.strokeRect(x, y, width, height);
         }
         
@@ -815,6 +825,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const drawingAnimationFrameRef = useRef<number | null>(null);
   const previewAnimationFrameRef = useRef<number | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const devicePixelRatioRef = useRef(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
   // Run initial centering once after sizing
   const hasCenteredRef = useRef(false);
 
@@ -1153,15 +1164,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [showFeedback, setFeedbackCallback]);
   
   const updateColorCycleGradientRef = useRef(brushEngine.updateColorCycleGradient);
-  const setColorCycleFlowDirectionRef = useRef(brushEngine.setColorCycleFlowDirection);
+  const setColorCycleFlowModeRef = useRef(brushEngine.setColorCycleFlowMode);
 
   useEffect(() => {
     updateColorCycleGradientRef.current = brushEngine.updateColorCycleGradient;
   }, [brushEngine.updateColorCycleGradient]);
 
   useEffect(() => {
-    setColorCycleFlowDirectionRef.current = brushEngine.setColorCycleFlowDirection;
-  }, [brushEngine.setColorCycleFlowDirection]);
+    setColorCycleFlowModeRef.current = brushEngine.setColorCycleFlowMode;
+  }, [brushEngine.setColorCycleFlowMode]);
 
   // Simplified color cycle animation manager
   const colorCycleManagerRef = useRef<SimplifiedColorCycleManager | null>(null);
@@ -1287,8 +1298,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       stop: wrappedStopAnimation,
       updateGradient: (stops: Array<{ position: number; color: string }>) =>
         updateColorCycleGradientRef.current?.(stops),
+      setFlowMode: (mode: 'forward' | 'reverse' | 'pingpong') =>
+        setColorCycleFlowModeRef.current?.(mode),
       setFlowDirection: (direction: 'forward' | 'backward') =>
-        setColorCycleFlowDirectionRef.current?.(direction),
+        setColorCycleFlowModeRef.current?.(direction === 'backward' ? 'reverse' : 'forward'),
     });
 
     return () => {
@@ -1339,16 +1352,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Wrapper draw function that uses current hook values
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
+    const dpr = devicePixelRatioRef.current || 1;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawBase(
-      ctx, 
-      transform, 
+      ctx,
+      transform,
       skipDrawingCanvas,
       drawingHandlers.drawingCanvasRef.current,
       interaction.state.isDrawing,
       drawingHandlers.drawingCanvasHasContent.current,
       interaction.state.isSelecting,
-      interaction.refs.selectionStart.current
+      interaction.refs.selectionStart.current,
+      dpr
     );
+    ctx.restore();
   }, [drawBase, drawingHandlers, interaction]);
   
   // Update drawRef when draw changes and trigger initial draw
@@ -2202,25 +2220,42 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     
     let lastWidth = 0;
     let lastHeight = 0;
+    let lastDpr = devicePixelRatioRef.current;
     
     const handleResize = () => {
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return;
       
       const { width, height } = wrapper.getBoundingClientRect();
+      const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
       
-      // Only update if dimensions actually changed
-      if (width !== lastWidth || height !== lastHeight) {
+      // Only update if dimensions or DPR changed
+      if (width !== lastWidth || height !== lastHeight || dpr !== lastDpr) {
         lastWidth = width;
         lastHeight = height;
-        canvas.width = width;
-        canvas.height = height;
+        lastDpr = dpr;
+        devicePixelRatioRef.current = dpr;
+
+        const targetWidth = Math.max(1, Math.round(width * dpr));
+        const targetHeight = Math.max(1, Math.round(height * dpr));
+        if (canvas.width !== targetWidth) {
+          canvas.width = targetWidth;
+        }
+        if (canvas.height !== targetHeight) {
+          canvas.height = targetHeight;
+        }
         
-        // Also resize overlay canvas
+        // Also resize overlay canvas (kept in CSS pixel resolution)
         const overlayCanvas = overlayCanvasRef.current;
         if (overlayCanvas) {
-          overlayCanvas.width = width;
-          overlayCanvas.height = height;
+          const overlayWidth = Math.max(1, Math.round(width));
+          const overlayHeight = Math.max(1, Math.round(height));
+          if (overlayCanvas.width !== overlayWidth) {
+            overlayCanvas.width = overlayWidth;
+          }
+          if (overlayCanvas.height !== overlayHeight) {
+            overlayCanvas.height = overlayHeight;
+          }
         }
         
         setCanvasDimensions(width, height);
