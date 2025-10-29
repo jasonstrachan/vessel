@@ -263,7 +263,40 @@ export class GradientPalette {
     }
     return strings;
   }
-  
+
+  /**
+   * Convert a normalized position [0,1] to a 1-based palette index compatible with IndexBuffer
+   */
+  getIndexForPosition(position: number): number {
+    if (!Number.isFinite(position)) {
+      return 1;
+    }
+
+    const clamped = Math.max(0, Math.min(1, position));
+    const rawIndex = Math.round(clamped * Math.max(1, this.paletteSize - 1));
+    // IndexBuffer reserves 0 for transparent; shift to 1-based range.
+    return Math.max(1, Math.min(255, rawIndex + 1));
+  }
+
+  /**
+   * Convert a discrete step to a palette index without generating CSS strings.
+   * `totalSteps` represents the wrapping range of the caller; defaults to palette resolution.
+   */
+  getIndexForStep(step: number, totalSteps: number = this.paletteSize): number {
+    if (!Number.isFinite(step) || !Number.isFinite(totalSteps) || totalSteps <= 0) {
+      return 1;
+    }
+
+    const wrappedTotal = Math.max(1, Math.floor(totalSteps));
+    if (wrappedTotal === 1) {
+      return 1;
+    }
+
+    const normalizedStep = ((Math.floor(step) % wrappedTotal) + wrappedTotal) % wrappedTotal;
+    const position = normalizedStep / (wrappedTotal - 1);
+    return this.getIndexForPosition(position);
+  }
+
   /**
    * Apply palette to ImageData using index buffer
    */

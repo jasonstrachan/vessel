@@ -138,7 +138,7 @@ describe('IndexBuffer', () => {
       expect(buffer.getPixel(50, 8)).toBe(0);
       expect(buffer.getPixel(50, 12)).toBe(0);
     });
-    
+
     it('should handle boundary clipping', () => {
       buffer.paint(-5, 50, 10, '#ff0000');
       buffer.paint(105, 50, 10, '#ff0000');
@@ -149,7 +149,46 @@ describe('IndexBuffer', () => {
       expect(filled.length).toBe(0);
     });
   });
-  
+
+  describe('index-based helpers', () => {
+    beforeEach(() => {
+      buffer.setPalette(['#111111', '#222222', '#333333']);
+    });
+
+    it('should paint directly with indices without expanding the palette', () => {
+      const beforePaletteSize = buffer.getPalette().length;
+      expect(beforePaletteSize).toBe(4);
+
+      buffer.paintWithIndex(25, 25, 6, 2);
+
+      expect(buffer.getPixel(25, 25)).toBe(2);
+      expect(buffer.needsRedraw()).toBe(true);
+      expect(buffer.getPalette().length).toBe(beforePaletteSize);
+    });
+
+    it('should clamp indices outside the palette range', () => {
+      buffer.paintSquareWithIndex(40, 40, 4, 240);
+      expect(buffer.getPixel(40, 40)).toBe(3);
+    });
+
+    it('should flood fill using numeric indices', () => {
+      for (let x = 10; x <= 30; x++) {
+        buffer.setPixel(x, 10, 1);
+        buffer.setPixel(x, 30, 1);
+      }
+      for (let y = 10; y <= 30; y++) {
+        buffer.setPixel(10, y, 1);
+        buffer.setPixel(30, y, 1);
+      }
+
+      buffer.fillWithIndex(20, 20, 200);
+
+      expect(buffer.getPixel(20, 20)).toBe(3);
+      expect(buffer.getPixel(11, 11)).toBe(3);
+      expect(buffer.getPixel(9, 9)).toBe(0);
+    });
+  });
+
   describe('fill operation', () => {
     beforeEach(() => {
       buffer.setPalette(['#ff0000', '#00ff00', '#0000ff']);

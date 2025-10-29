@@ -182,8 +182,7 @@ export class ColorCycleBrushOptimized {
     // Fallback to regular painting
     const brushX = Math.floor(x);
     const brushY = Math.floor(y);
-    const color = this.gradientPalette.getColorString(this.currentColorIndex);
-    this.indexBuffer.paint(brushX, brushY, this.brushSize, color);
+    this.indexBuffer.paintWithIndex(brushX, brushY, this.brushSize, this.currentColorIndex);
   }
 
   /**

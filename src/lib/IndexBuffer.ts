@@ -113,41 +113,59 @@ export class IndexBuffer {
     
     return newIndex;
   }
-  
-  /**
-   * Paint pixels with a circular brush
-   */
-  paint(x: number, y: number, brushSize: number, color: string) {
-    const colorIndex = this.getColorIndex(color);
+
+  private normalizeColorIndex(colorIndex: number): number {
+    if (!Number.isFinite(colorIndex)) {
+      return 0;
+    }
+
+    const clamped = Math.max(0, Math.min(255, Math.round(colorIndex)));
+    if (this.palette.length <= 1) {
+      return clamped;
+    }
+
+    const maxIndex = Math.min(255, this.palette.length - 1);
+    return Math.max(0, Math.min(maxIndex, clamped));
+  }
+
+  private paintCircleInternal(x: number, y: number, brushSize: number, colorIndex: number) {
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const radius = brushSize / 2;
     const radiusSq = radius * radius;
-    
-    // Calculate bounds - use center of pixel for calculations
+
     const centerX = Math.floor(x);
     const centerY = Math.floor(y);
-    
+
     const minX = Math.max(0, Math.floor(centerX - radius));
     const maxX = Math.min(this.width - 1, Math.ceil(centerX + radius));
     const minY = Math.max(0, Math.floor(centerY - radius));
     const maxY = Math.min(this.height - 1, Math.ceil(centerY + radius));
-    
-    // Paint circular area
+
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
-        const dx = px + 0.5 - x;  // Center of pixel
-        const dy = py + 0.5 - y;  // Center of pixel
-        
-        // Check if pixel is within circle
+        const dx = px + 0.5 - x;
+        const dy = py + 0.5 - y;
+
         if (dx * dx + dy * dy <= radiusSq) {
-          const index = py * this.width + px;
-          if (process.env.DEBUG_INDEX === 'true') {
-            console.log('paint hit', { px, py, index, colorIndex, dx, dy, radiusSq });
-          }
-          this.data[index] = colorIndex;
+          const dataIndex = py * this.width + px;
+          this.data[dataIndex] = normalizedIndex;
         }
       }
     }
-    
+  }
+
+  /**
+   * Paint pixels with a circular brush
+   */
+  paint(x: number, y: number, brushSize: number, color: string) {
+    // TODO(color-cycle): remove once all callers migrate to paintWithIndex.
+    const colorIndex = this.getColorIndex(color);
+    this.paintCircleInternal(x, y, brushSize, colorIndex);
+    this.isDirty = true;
+  }
+
+  paintWithIndex(x: number, y: number, brushSize: number, colorIndex: number) {
+    this.paintCircleInternal(x, y, brushSize, colorIndex);
     this.isDirty = true;
   }
   
@@ -155,31 +173,51 @@ export class IndexBuffer {
    * Paint pixels with a square brush
    */
   paintSquare(x: number, y: number, brushSize: number, color: string) {
+    // TODO(color-cycle): remove once all callers migrate to paintSquareWithIndex.
     const colorIndex = this.getColorIndex(color);
+    this.paintSquareInternal(x, y, brushSize, colorIndex);
+    this.isDirty = true;
+  }
+
+  paintSquareWithIndex(x: number, y: number, brushSize: number, colorIndex: number) {
+    this.paintSquareInternal(x, y, brushSize, colorIndex);
+    this.isDirty = true;
+  }
+
+  private paintSquareInternal(x: number, y: number, brushSize: number, colorIndex: number) {
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const halfSize = brushSize / 2;
-    
-    // Calculate bounds
+
     const minX = Math.max(0, Math.floor(x - halfSize));
     const maxX = Math.min(this.width - 1, Math.floor(x + halfSize));
     const minY = Math.max(0, Math.floor(y - halfSize));
     const maxY = Math.min(this.height - 1, Math.floor(y + halfSize));
-    
-    // Paint square area
+
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
-        const index = py * this.width + px;
-        this.data[index] = colorIndex;
+        const dataIndex = py * this.width + px;
+        this.data[dataIndex] = normalizedIndex;
       }
     }
-    
-    this.isDirty = true;
   }
 
   /**
    * Paint pixels with a triangle brush (isoceles, flat base)
    */
   paintTriangle(x: number, y: number, brushSize: number, color: string) {
+    // TODO(color-cycle): remove once all callers migrate to paintTriangleWithIndex.
     const colorIndex = this.getColorIndex(color);
+    this.paintTriangleInternal(x, y, brushSize, colorIndex);
+    this.isDirty = true;
+  }
+
+  paintTriangleWithIndex(x: number, y: number, brushSize: number, colorIndex: number) {
+    this.paintTriangleInternal(x, y, brushSize, colorIndex);
+    this.isDirty = true;
+  }
+
+  private paintTriangleInternal(x: number, y: number, brushSize: number, colorIndex: number) {
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const halfSize = brushSize / 2;
 
     const topX = x;
@@ -207,35 +245,53 @@ export class IndexBuffer {
         const b3 = sign(sampleX, sampleY, rightX, rightY, topX, topY) <= 0;
 
         if ((b1 === b2) && (b2 === b3)) {
-          const index = py * this.width + px;
-          this.data[index] = colorIndex;
+          const dataIndex = py * this.width + px;
+          this.data[dataIndex] = normalizedIndex;
         }
       }
     }
-
-    this.isDirty = true;
   }
-  
+
   /**
    * Draw a line between two points
    */
   paintLine(x0: number, y0: number, x1: number, y1: number, brushSize: number, color: string) {
+    // TODO(color-cycle): remove once all callers migrate to paintLineWithIndex.
+    const colorIndex = this.getColorIndex(color);
+    this.paintLineInternal(x0, y0, x1, y1, brushSize, colorIndex);
+    this.isDirty = true;
+  }
+
+  paintLineWithIndex(x0: number, y0: number, x1: number, y1: number, brushSize: number, colorIndex: number) {
+    this.paintLineInternal(x0, y0, x1, y1, brushSize, colorIndex);
+    this.isDirty = true;
+  }
+
+  private paintLineInternal(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    brushSize: number,
+    colorIndex: number
+  ) {
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const dx = Math.abs(x1 - x0);
     const dy = Math.abs(y1 - y0);
     const sx = x0 < x1 ? 1 : -1;
     const sy = y0 < y1 ? 1 : -1;
     let err = dx - dy;
-    
+
     let x = x0;
     let y = y0;
-    
-    // Use Bresenham's algorithm for line drawing
+
     while (true) {
-      // Paint at current position
-      this.paint(x, y, brushSize, color);
-      
-      if (x === x1 && y === y1) break;
-      
+      this.paintCircleInternal(x, y, brushSize, normalizedIndex);
+
+      if (x === x1 && y === y1) {
+        break;
+      }
+
       const e2 = 2 * err;
       if (e2 > -dy) {
         err -= dy;
@@ -247,44 +303,60 @@ export class IndexBuffer {
       }
     }
   }
-  
+
   /**
    * Fill an area with a color (flood fill)
    */
   fill(x: number, y: number, color: string) {
+    // TODO(color-cycle): remove once all callers migrate to fillWithIndex.
+    const colorIndex = this.getColorIndex(color);
+    if (this.fillInternal(x, y, colorIndex)) {
+      this.isDirty = true;
+    }
+  }
+
+  fillWithIndex(x: number, y: number, colorIndex: number) {
+    if (this.fillInternal(x, y, colorIndex)) {
+      this.isDirty = true;
+    }
+  }
+
+  private fillInternal(x: number, y: number, colorIndex: number): boolean {
     x = Math.floor(x);
     y = Math.floor(y);
-    
-    // Boundary check
-    if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
-    
-    const colorIndex = this.getColorIndex(color);
+
+    if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+      return false;
+    }
+
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const targetIndex = this.data[y * this.width + x];
-    
-    // Don't fill if same color
-    if (targetIndex === colorIndex) return;
-    
-    // Stack-based flood fill
+
+    if (targetIndex === normalizedIndex) {
+      return false;
+    }
+
     const stack: Array<[number, number]> = [[x, y]];
-    
+    let filled = false;
+
     while (stack.length > 0) {
       const [fx, fy] = stack.pop()!;
-      const index = fy * this.width + fx;
-      
-      // Skip if already filled or different color
-      if (this.data[index] !== targetIndex) continue;
-      
-      // Fill this pixel
-      this.data[index] = colorIndex;
-      
-      // Add neighbors to stack
+      const dataIndex = fy * this.width + fx;
+
+      if (this.data[dataIndex] !== targetIndex) {
+        continue;
+      }
+
+      this.data[dataIndex] = normalizedIndex;
+      filled = true;
+
       if (fx > 0) stack.push([fx - 1, fy]);
       if (fx < this.width - 1) stack.push([fx + 1, fy]);
       if (fy > 0) stack.push([fx, fy - 1]);
       if (fy < this.height - 1) stack.push([fx, fy + 1]);
     }
-    
-    this.isDirty = true;
+
+    return filled;
   }
   
   /**

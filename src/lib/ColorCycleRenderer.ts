@@ -5,7 +5,7 @@
 
 import { IndexBuffer } from './IndexBuffer';
 import { GradientPalette, GradientStop } from './GradientPalette';
-import { ensurePalette } from '@/lib/colorCycle/paletteService';
+import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
 
 export interface ColorCycleConfig {
   width: number;
@@ -18,6 +18,7 @@ export interface ColorCycleConfig {
 export class ColorCycleRenderer {
   private indexBuffer: IndexBuffer;
   private gradientPalette: GradientPalette;
+  private paletteHandle: PaletteHandle | null = null;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   
@@ -37,7 +38,7 @@ export class ColorCycleRenderer {
     // Initialize buffers
     this.indexBuffer = new IndexBuffer(config.width, config.height);
     this.gradientPalette = new GradientPalette(config.gradientStops);
-    ensurePalette({ palette: this.gradientPalette });
+    this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
     
     // Create rendering canvas
     this.canvas = document.createElement('canvas');
@@ -74,7 +75,19 @@ export class ColorCycleRenderer {
   private updateIndexBufferPalette() {
     const paletteStrings = this.gradientPalette.getPaletteStrings();
     this.indexBuffer.setPalette(paletteStrings);
-    ensurePalette({ palette: this.gradientPalette });
+    this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
+  }
+
+  private getPaletteHandle(): PaletteHandle {
+    if (!this.paletteHandle) {
+      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
+    }
+    return this.paletteHandle;
+  }
+
+  private getPaletteSpan(): number {
+    const handle = this.getPaletteHandle();
+    return Math.max(1, Math.min(255, handle.uint32.length));
   }
   
   /**
@@ -85,14 +98,22 @@ export class ColorCycleRenderer {
     if (this.colorToIndex.has(color)) {
       return this.colorToIndex.get(color)!;
     }
-    
+
     // Assign next available index
     const index = this.nextColorIndex;
     this.colorToIndex.set(color, index);
-    
+
     // Wrap around if we exceed 255 (very unlikely in practice)
-    this.nextColorIndex = (this.nextColorIndex % 255) + 1;
-    
+    const paletteSpan = this.getPaletteSpan();
+    this.nextColorIndex = (this.nextColorIndex % paletteSpan) + 1;
+
+    return index;
+  }
+
+  private getNextSequentialIndex(): number {
+    const index = this.nextColorIndex;
+    const paletteSpan = this.getPaletteSpan();
+    this.nextColorIndex = (this.nextColorIndex % paletteSpan) + 1;
     return index;
   }
   
@@ -101,33 +122,25 @@ export class ColorCycleRenderer {
    */
   paint(x: number, y: number, brushSize: number, color?: string) {
     // If no color specified, use gradient position based on stroke progress
-    const gradientIndex = color ? this.getGradientIndex(color) : this.nextColorIndex;
-    
-    // Convert gradient index to palette color
-    const paletteColor = this.gradientPalette.getColorString(gradientIndex);
-    
-    // Paint to index buffer
-    this.indexBuffer.paint(x, y, brushSize, paletteColor);
+    const gradientIndex = color ? this.getGradientIndex(color) : this.getNextSequentialIndex();
+
+    this.indexBuffer.paintWithIndex(x, y, brushSize, gradientIndex);
   }
   
   /**
    * Paint a line
    */
   paintLine(x0: number, y0: number, x1: number, y1: number, brushSize: number, color?: string) {
-    const gradientIndex = color ? this.getGradientIndex(color) : this.nextColorIndex;
-    const paletteColor = this.gradientPalette.getColorString(gradientIndex);
-    
-    this.indexBuffer.paintLine(x0, y0, x1, y1, brushSize, paletteColor);
+    const gradientIndex = color ? this.getGradientIndex(color) : this.getNextSequentialIndex();
+    this.indexBuffer.paintLineWithIndex(x0, y0, x1, y1, brushSize, gradientIndex);
   }
   
   /**
    * Fill an area
    */
   fill(x: number, y: number, color?: string) {
-    const gradientIndex = color ? this.getGradientIndex(color) : this.nextColorIndex;
-    const paletteColor = this.gradientPalette.getColorString(gradientIndex);
-    
-    this.indexBuffer.fill(x, y, paletteColor);
+    const gradientIndex = color ? this.getGradientIndex(color) : this.getNextSequentialIndex();
+    this.indexBuffer.fillWithIndex(x, y, gradientIndex);
   }
   
   /**
@@ -137,6 +150,7 @@ export class ColorCycleRenderer {
     this.indexBuffer.clear();
     this.nextColorIndex = 1;
     this.colorToIndex.clear();
+    this.paletteHandle = null;
   }
   
   /**
@@ -145,6 +159,8 @@ export class ColorCycleRenderer {
   setGradient(stops: GradientStop[]) {
     this.gradientPalette.updateFromGradient(stops);
     this.updateIndexBufferPalette();
+    this.nextColorIndex = 1;
+    this.colorToIndex.clear();
   }
   
   /**

@@ -8,6 +8,7 @@ export interface PaletteHandle {
   rgba: Uint8ClampedArray;
   rgbaByteLength: number;
   uint32: Uint32Array;
+  stopIndices: Uint8Array;
 }
 
 export type PaletteCacheEventType = 'hit' | 'miss';
@@ -123,6 +124,25 @@ function packToUint32(rgba: Uint8ClampedArray, size: number): Uint32Array {
   return target;
 }
 
+function packStopIndices(stops: GradientStop[], paletteSize: number): Uint8Array {
+  if (!stops.length) {
+    return new Uint8Array(0);
+  }
+
+  const map = new Uint8Array(stops.length);
+  const span = Math.max(1, Math.min(255, paletteSize));
+
+  for (let i = 0; i < stops.length; i++) {
+    const stop = stops[i];
+    const rawPos = typeof stop.position === 'number' && Number.isFinite(stop.position) ? stop.position : 0;
+    const clamped = Math.max(0, Math.min(1, rawPos));
+    const scaled = Math.round(clamped * (span - 1)) + 1;
+    map[i] = Math.max(1, Math.min(255, scaled));
+  }
+
+  return map;
+}
+
 function resolveStops(request: PaletteRequest, palette: GradientPalette): GradientStop[] {
   if (request.stops && request.stops.length > 0) {
     return request.stops;
@@ -153,12 +173,14 @@ export function ensurePalette(request: PaletteRequest = {}): PaletteHandle {
 
   const rgba = palette.getPaletteColors();
   const uint32 = packToUint32(rgba, size);
+  const stopIndices = packStopIndices(stops, rgba.length / 4);
   const handle: PaletteHandle = {
     key,
     size,
     rgba,
     rgbaByteLength: rgba.byteLength,
     uint32,
+    stopIndices,
   };
   cache.set(key, { handle });
   recordEvent('miss', key, handle.rgbaByteLength);

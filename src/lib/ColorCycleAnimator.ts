@@ -449,11 +449,9 @@ export class ColorCycleAnimator {
     // Use provided index or auto-increment
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
     
-    // Get color from palette
-    const color = this.gradientPalette.getColorString(index);
-    
-    // Paint to index buffer
-    this.indexBuffer.paint(x, y, brushSize, color);
+    // Paint to index buffer using numeric index
+    this.indexBuffer.paintWithIndex(x, y, brushSize, index);
+    this._glIndexDirty = true;
     
     // If not animating, render immediately
     if (!this.animationController.isPlaying()) {
@@ -493,10 +491,8 @@ export class ColorCycleAnimator {
       // Use provided color index or auto-increment
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
       
-      const color = this.gradientPalette.getColorString(index);
-      
       // Paint to index buffer with the specific color index - NO RENDERING
-      this.indexBuffer.paintSquare(x, y, brushSize, color);
+      this.indexBuffer.paintSquareWithIndex(x, y, brushSize, index);
       this._glIndexDirty = true;
       
       // REMOVED per-stamp rendering - caller handles batched rendering
@@ -512,8 +508,7 @@ export class ColorCycleAnimator {
   paintTriangle(x: number, y: number, brushSize: number, colorIndex?: number) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-      const color = this.gradientPalette.getColorString(index);
-      this.indexBuffer.paintTriangle(x, y, brushSize, color);
+      this.indexBuffer.paintTriangleWithIndex(x, y, brushSize, index);
       this._glIndexDirty = true;
     } catch (error) {
       console.error('[ColorCycleAnimator] Error in paintTriangle:', error);
@@ -525,9 +520,8 @@ export class ColorCycleAnimator {
    */
   paintLine(x0: number, y0: number, x1: number, y1: number, brushSize: number, colorIndex?: number) {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-    const color = this.gradientPalette.getColorString(index);
     
-    this.indexBuffer.paintLine(x0, y0, x1, y1, brushSize, color);
+    this.indexBuffer.paintLineWithIndex(x0, y0, x1, y1, brushSize, index);
     this._glIndexDirty = true;
     
     // REMOVED per-stamp rendering - caller handles batched rendering
@@ -538,9 +532,8 @@ export class ColorCycleAnimator {
    */
   fill(x: number, y: number, colorIndex?: number) {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-    const color = this.gradientPalette.getColorString(index);
     
-    this.indexBuffer.fill(x, y, color);
+    this.indexBuffer.fillWithIndex(x, y, index);
     this._glIndexDirty = true;
     
     if (!this.animationController.isPlaying()) {
@@ -554,7 +547,13 @@ export class ColorCycleAnimator {
   private nextIndex: number = 1;
   private getNextColorIndex(): number {
     const index = this.nextIndex;
-    this.nextIndex = (this.nextIndex % 255) + 1;
+    try {
+      const paletteHandle = this.getPaletteHandle();
+      const paletteSpan = Math.max(1, Math.min(255, paletteHandle.uint32.length));
+      this.nextIndex = (this.nextIndex % paletteSpan) + 1;
+    } catch {
+      this.nextIndex = (this.nextIndex % 255) + 1;
+    }
     return index;
   }
   

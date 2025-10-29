@@ -152,6 +152,32 @@ describe('GradientPalette', () => {
       }
     });
   });
+
+  describe('index helpers', () => {
+    beforeEach(() => {
+      palette.updateFromGradient([
+        { position: 0, color: '#000000' },
+        { position: 0.5, color: '#888888' },
+        { position: 1, color: '#ffffff' }
+      ]);
+    });
+
+    it('maps normalized positions to 1-based palette indices', () => {
+      expect(palette.getIndexForPosition(-0.25)).toBe(1);
+      expect(palette.getIndexForPosition(0)).toBe(1);
+      expect(palette.getIndexForPosition(0.5)).toBeGreaterThan(120);
+      expect(palette.getIndexForPosition(0.5)).toBeLessThan(140);
+      expect(palette.getIndexForPosition(1)).toBe(255);
+      expect(palette.getIndexForPosition(1.5)).toBe(255);
+    });
+
+    it('derives palette indices from discrete steps without string conversions', () => {
+      expect(palette.getIndexForStep(0, 8)).toBe(1);
+      expect(palette.getIndexForStep(7, 8)).toBe(255);
+      expect(palette.getIndexForStep(8, 8)).toBe(1);
+      expect(palette.getIndexForStep(15, 8)).toBe(255);
+    });
+  });
   
   describe('preset gradients', () => {
     it('should create default alternating black and white gradient', () => {
