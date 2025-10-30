@@ -1817,8 +1817,24 @@ export const useAppStore = create<AppState>()(
         const normalized = normalizeProject(project);
         setActiveHistoryDocument(normalized.id);
         const nextPalette = normalized.palette ?? createDefaultPalette();
+        const storedBrushes = lastStoredCustomBrushSnapshot?.brushes ?? [];
+        const storedDefaultId = lastStoredCustomBrushSnapshot?.defaultCustomBrushId ?? null;
+
+        const mergedCustomBrushes = mergeCustomBrushCollections(normalized.customBrushes ?? [], storedBrushes);
+        const mergedDefaultCustomBrushId = (() => {
+          if (storedDefaultId && mergedCustomBrushes.some((brush) => brush.id === storedDefaultId)) {
+            return storedDefaultId;
+          }
+          if (normalized.defaultCustomBrushId && mergedCustomBrushes.some((brush) => brush.id === normalized.defaultCustomBrushId)) {
+            return normalized.defaultCustomBrushId;
+          }
+          return null;
+        })();
+
         const projectWithPalette = {
           ...normalized,
+          customBrushes: mergedCustomBrushes,
+          defaultCustomBrushId: mergedDefaultCustomBrushId,
           palette: nextPalette
         };
 
