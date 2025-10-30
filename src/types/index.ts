@@ -93,6 +93,7 @@ export interface Project {
   createdAt: Date;
   updatedAt: Date;
   customBrushes: CustomBrush[];
+  defaultCustomBrushId?: string | null;
   // Canvas view state
   viewState?: {
     zoom: number;

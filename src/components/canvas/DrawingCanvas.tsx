@@ -469,9 +469,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [sampleColorAtPosition]);
   
   // Drawing function - base implementation without hooks
-  const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio: number) => {
+  const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio = 1) => {
     const { scale, offsetX, offsetY } = transform;
-    const dpr = devicePixelRatio || 1;
+    const dpr = devicePixelRatio;
     const canvasPixelWidth = ctx.canvas.width;
     const canvasPixelHeight = ctx.canvas.height;
     const displayWidth = canvasPixelWidth / dpr;

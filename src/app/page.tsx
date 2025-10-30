@@ -59,16 +59,33 @@ export default function Home() {
 
   // Create default project on initial load if no layers exist
   useEffect(() => {
-    const store = useAppStore.getState();
-    // Check top-level layers, not project.layers
-    if (store.layers.length === 0) {
-      newProject(2000, 2000, 'Untitled');
-    } else {
-      // quiet
-    }
-    
-    // Preload risograph texture to avoid lag on first use
-    preloadRisographTexture();
+    let cancelled = false;
+
+    const run = async () => {
+      const store = useAppStore.getState();
+      if (store.ensureCustomBrushHydrated) {
+        await store.ensureCustomBrushHydrated();
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      const latest = useAppStore.getState();
+      // Check top-level layers, not project.layers
+      if (latest.layers.length === 0) {
+        newProject(2000, 2000, 'Untitled');
+      }
+
+      // Preload risograph texture to avoid lag on first use
+      preloadRisographTexture();
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [newProject]); // Include newProject dependency
 
   // Load settings from localStorage on initial mount only

@@ -55,6 +55,7 @@ export interface VesselProject {
     backgroundColor: string;
     layers: SerializedLayer[];
     customBrushes: SerializedCustomBrush[];
+    defaultCustomBrushId?: string | null;
     thumbnail?: string;
     brushSpecificSettings?: Record<string, unknown>;
     globalBrushSize?: number;
@@ -800,6 +801,7 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       backgroundColor: project.backgroundColor,
       layers: serializedLayers,
       customBrushes: serializedCustomBrushes,
+      defaultCustomBrushId: project.defaultCustomBrushId ?? null,
       thumbnail: thumbnail || undefined,
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
@@ -841,6 +843,12 @@ export async function deserializeProject(projectData: string): Promise<Project> 
     serializedProject.customBrushes.map(deserializeCustomBrush)
   );
   
+  const serializedDefaultId = serializedProject.defaultCustomBrushId ?? null;
+  const defaultCustomBrushId =
+    serializedDefaultId && customBrushes.some((brush) => brush.id === serializedDefaultId)
+      ? serializedDefaultId
+      : null;
+  
   
   return {
     id: serializedProject.id,
@@ -850,6 +858,7 @@ export async function deserializeProject(projectData: string): Promise<Project> 
     backgroundColor: serializedProject.backgroundColor,
     layers,
     customBrushes,
+    defaultCustomBrushId,
     createdAt: new Date(vesselProject.metadata.created),
     updatedAt: new Date(vesselProject.metadata.modified),
     brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,

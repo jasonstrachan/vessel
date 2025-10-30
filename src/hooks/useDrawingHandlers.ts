@@ -429,6 +429,28 @@ const captureRegionFromPoints = (
   return boundingBoxToCaptureRegion(bbox, padding, project);
 };
 
+const shouldPixelAlignBrush = (settings: BrushSettings | null | undefined): boolean => {
+  if (!settings) {
+    return false;
+  }
+  if (settings.brushShape === BrushShape.PIXEL_ROUND) {
+    return true;
+  }
+  return settings.brushShape === BrushShape.SQUARE && settings.antialiasing === false;
+};
+
+const alignPointToPixel = <T extends { x: number; y: number }>(point: T, shouldAlign: boolean): T => {
+  if (!shouldAlign) {
+    return point;
+  }
+  const alignedX = Math.round(point.x);
+  const alignedY = Math.round(point.y);
+  if (alignedX === point.x && alignedY === point.y) {
+    return point;
+  }
+  return { ...point, x: alignedX, y: alignedY };
+};
+
 const isColorCycleLayerWithData = (
   layer: Layer | undefined | null
 ): layer is Layer & { colorCycleData: NonNullable<Layer['colorCycleData']> } =>
@@ -1554,13 +1576,15 @@ export function useDrawingHandlers({
     ctx.stroke();
   }, []);
   
-  const startDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+  const startDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // removed debug log
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     const brushSettings = currentState.tools.brushSettings;
+    const alignPixelStrokes = shouldPixelAlignBrush(brushSettings);
     const ccFlags = getColorCycleBrushFlags(brushSettings);
+    const worldPos = alignPointToPixel(rawWorldPos, alignPixelStrokes);
 
 
     // Early return if no project
@@ -2170,6 +2194,7 @@ export function useDrawingHandlers({
     const drawCtx = drawingCtxRef.current;
 
     const brushSettings = currentState.tools.brushSettings;
+    const alignPixelStrokes = shouldPixelAlignBrush(brushSettings);
     const brushSize = brushSettings.size || 1;
     const doSnap = shouldApplyGridSnapPure(brushSettings);
     const gridSpacing = doSnap ? calculateGridSpacing() : 0;
@@ -2186,6 +2211,7 @@ export function useDrawingHandlers({
     
     const boundary = { x: 0, y: 0, width: project.width, height: project.height };
     const ccProcessFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
+    const shouldAlignStroke = alignPixelStrokes && !ccProcessFlags.isAny;
     
     // Process all points in the batch
     for (let i = 0; i < batch.length; i++) {
@@ -2201,12 +2227,14 @@ export function useDrawingHandlers({
       
       if (clippedSegment) {
         const [clippedStart, clippedEnd] = clippedSegment;
+        const drawFrom = alignPointToPixel(clippedStart, shouldAlignStroke);
+        const drawTo = alignPointToPixel(clippedEnd, shouldAlignStroke);
         
         if (currentTool === 'eraser') {
           if (FF.ERASER_V2) {
             const eraserTool = eraserToolRef.current;
             if (eraserTool) {
-              eraserTool.move(clippedEnd, pressure, clippedStart);
+              eraserTool.move(drawTo, pressure, drawFrom);
               const roi = eraserTool.getROI();
               eraserRoiRef.current = roi;
               if (roi) {
@@ -2225,18 +2253,18 @@ export function useDrawingHandlers({
               if (canMirrorBrush) {
                 drawCtx.globalAlpha = eraserOpacity;
                 if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
-                  userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, pressure);
+                  userBrushEngine.continueStroke(drawCtx, drawTo.x, drawTo.y, pressure);
                 } else if (brushEngine) {
                   const customBrushData: CustomBrushStrokeData | undefined =
                     resolveActiveCustomBrushData(currentState);
-                  brushEngine.drawBrush(drawCtx, clippedStart, clippedEnd, { pressure, customBrushData });
+                  brushEngine.drawBrush(drawCtx, drawFrom, drawTo, { pressure, customBrushData });
                 } else {
                   drawCtx.globalAlpha = 1;
-                  drawEraserSegment(drawCtx, clippedStart, clippedEnd);
+                  drawEraserSegment(drawCtx, drawFrom, drawTo);
                 }
               } else {
                 drawCtx.globalAlpha = 1;
-                drawEraserSegment(drawCtx, clippedStart, clippedEnd);
+                drawEraserSegment(drawCtx, drawFrom, drawTo);
               }
             } finally {
               drawCtx.restore();
@@ -2244,7 +2272,7 @@ export function useDrawingHandlers({
           }
         } else {
           if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
-            userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, pressure);
+            userBrushEngine.continueStroke(drawCtx, drawTo.x, drawTo.y, pressure);
           } else if (brushEngine) {
             drawCtx.globalAlpha = 1.0;
             drawCtx.globalCompositeOperation = 'source-over';
@@ -2511,8 +2539,8 @@ export function useDrawingHandlers({
             
             brushEngine.drawBrush(
               drawCtx,
-              clippedStart,
-              clippedEnd,
+              drawFrom,
+              drawTo,
               { pressure, customBrushData }
             );
           }
@@ -2549,7 +2577,7 @@ export function useDrawingHandlers({
     scheduleRecompose
   ]);
 
-  const continueDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+  const continueDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // Check if layer is still visible before continuing drawing
     const currentState = useAppStore.getState();
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -2560,11 +2588,13 @@ export function useDrawingHandlers({
 
     const now = performance.now();
     const throttleBudget = THROTTLE_MS;
+    const brushSettings = currentState.tools.brushSettings;
+    const worldPos = alignPointToPixel(rawWorldPos, shouldPixelAlignBrush(brushSettings));
 
     if (currentState.tools.currentTool === 'brush') {
       strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
       const activeCustomBrush = resolveActiveCustomBrushData(currentState) ?? resamplerBrushDataRef.current;
-      const dynamicPadding = computeStrokeCapturePadding(currentState.tools.brushSettings, activeCustomBrush ?? null);
+      const dynamicPadding = computeStrokeCapturePadding(brushSettings, activeCustomBrush ?? null);
       if (dynamicPadding > strokeCapturePaddingRef.current) {
         strokeCapturePaddingRef.current = dynamicPadding;
       }

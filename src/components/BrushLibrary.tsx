@@ -2,10 +2,11 @@
 
 import React, { useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushShape, BrushPreset, ComponentType } from '../types';
+import { BrushShape, BrushPreset } from '../types';
 import PlusButton from './ui/PlusButton';
 import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
 import { useToolSwitcher } from '@/utils/toolSwitch';
+import { createCustomBrushPreset } from '@/utils/customBrushPreset';
 
 const BRUSH_ICON_SIZE = 32;
 const BRUSH_TEXT_LINE_HEIGHT = 11;
@@ -15,6 +16,7 @@ const BrushLibrary = () => {
   const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const project = useAppStore((state) => state.project);
+  const defaultCustomBrushId = project?.defaultCustomBrushId ?? null;
   const tools = useAppStore((state) => state.tools);
   const brushEditor = useAppStore((state) => state.brushEditor);
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
@@ -25,40 +27,18 @@ const BrushLibrary = () => {
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
   const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
+  const setDefaultCustomBrush = useAppStore((state) => state.setDefaultCustomBrush);
   
   // Create combined list of brushes: regular presets + custom brushes from project
   const customBrushPresets = React.useMemo(() => {
     if (!project?.customBrushes) return [];
-    
-    
-    return project.customBrushes.map(customBrush => ({
-      id: `custom_${customBrush.id}`,
-      name: customBrush.name,
-      category: 'Custom',
-      components: [
-        {
-          id: 'custom-shape-renderer',
-          type: ComponentType.SHAPE_RENDERER,
-          parameters: {
-            shape: BrushShape.CUSTOM
-          },
-          priority: 40,
-          enabled: true
-        }
-      ],
-      thumbnail: customBrush.thumbnail,
-      tags: ['custom', 'loaded'],
-      isDefault: false,
-      createdAt: new Date(customBrush.createdAt),
-      modifiedAt: new Date(customBrush.createdAt),
-      isCustomBrush: true,
-      customBrushData: {
-        imageData: customBrush.imageData,
-        width: customBrush.width,
-        height: customBrush.height
-      }
-    } as BrushPreset));
-  }, [project?.customBrushes]);
+
+    return project.customBrushes.map((customBrush) =>
+      createCustomBrushPreset(customBrush, {
+        isDefault: defaultCustomBrushId === customBrush.id
+      })
+    );
+  }, [project?.customBrushes, defaultCustomBrushId]);
 
   // Generate thumbnails for regular brush presets (client-side only)
   const [brushThumbnails, setBrushThumbnails] = React.useState<Record<string, string>>({});
@@ -221,6 +201,26 @@ const BrushLibrary = () => {
       removeBrushPreset(presetId);
     }
   };
+
+  const toggleDefaultForPreset = React.useCallback(
+    (preset: BrushPreset) => {
+      if (!preset.isCustomBrush || !preset.id.startsWith('custom_')) {
+        return;
+      }
+
+      const originalCustomBrushId = preset.id.substring(7);
+      if (!originalCustomBrushId) {
+        return;
+      }
+
+      if (defaultCustomBrushId === originalCustomBrushId) {
+        setDefaultCustomBrush(null);
+      } else {
+        setDefaultCustomBrush(originalCustomBrushId);
+      }
+    },
+    [defaultCustomBrushId, setDefaultCustomBrush]
+  );
   
   const handlePresetClick = async (preset: BrushPreset) => {
     // Switch to Brush tool first to avoid any chance of preset
@@ -307,6 +307,14 @@ const BrushLibrary = () => {
             {preset.id !== 'color-cycle-shape' && (
               <div
                 onClick={() => handlePresetClick(preset)}
+                onContextMenu={(event) => {
+                  if (!preset.isCustomBrush) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleDefaultForPreset(preset);
+                }}
                 className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${rowClass}`}
               >
                 <div className="flex items-center gap-0.5">
@@ -354,26 +362,41 @@ const BrushLibrary = () => {
                   </span>
                 </div>
                 {preset.isCustomBrush && (
-                <div className="flex items-center space-x-0.5">
-                    <span className="text-[#D9D9D9] w-3 text-center" style={{ fontSize: '12px' }}>
+                  <div className="flex items-center space-x-0.5">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleDefaultForPreset(preset);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        toggleDefaultForPreset(preset);
+                      }}
+                      className={`w-3 h-3 text-center flex items-center justify-center transition-colors ${
+                        isActive ? 'text-[#5A5A5A]' : 'text-[#D9D9D9]'
+                      } ${preset.isDefault ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
+                      style={{ fontSize: '12px' }}
+                      title={preset.isDefault ? 'Unset as default brush' : 'Set as default brush'}
+                      aria-pressed={preset.isDefault}
+                    >
                       {preset.isDefault ? '★' : '☆'}
-                    </span>
-                    {!preset.isDefault && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeletePreset(preset.id);
-                        }}
-                        className={`w-3 h-3 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center ${
-                          isActive ? 'text-[#5A5A5A] hover:text-red-600' : 'text-[#D9D9D9] hover:text-red-400'
-                        }`}
-                        title={`Delete ${preset.name}`}
-                        style={{ fontSize: '14px' }}
-                      >
-                        ×
-                      </button>
-                   )}
-                 </div>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeletePreset(preset.id);
+                      }}
+                      className={`w-3 h-3 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center ${
+                        isActive ? 'text-[#5A5A5A] hover:text-red-600' : 'text-[#D9D9D9] hover:text-red-400'
+                      }`}
+                      title={`Delete ${preset.name}`}
+                      style={{ fontSize: '14px' }}
+                    >
+                      ×
+                    </button>
+                  </div>
                 )}
               </div>
             )}

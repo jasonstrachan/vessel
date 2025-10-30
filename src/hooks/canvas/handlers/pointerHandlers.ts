@@ -291,6 +291,50 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     });
   };
 
+  const shouldPixelAlignCursor = (
+    settings: { brushShape?: BrushShape; antialiasing?: boolean } | null | undefined
+  ): boolean => {
+    if (!settings) return false;
+    if (settings.brushShape === BrushShape.PIXEL_ROUND) return true;
+    return settings.brushShape === BrushShape.SQUARE && settings.antialiasing === false;
+  };
+
+  const alignPointToPixel = <T extends Point>(point: T, shouldAlign: boolean): T => {
+    if (!shouldAlign) {
+      return point;
+    }
+    const alignedX = Math.round(point.x);
+    const alignedY = Math.round(point.y);
+    if (alignedX === point.x && alignedY === point.y) {
+      return point;
+    }
+    return { ...point, x: alignedX, y: alignedY };
+  };
+
+  const updateAlignedMousePosition = (
+    worldPos: Point,
+    rect: DOMRect | undefined | null,
+    scale: number,
+    alignToPixel: boolean
+  ) => {
+    const displayWorld = alignToPixel
+      ? { x: worldPos.x + 0.5, y: worldPos.y + 0.5 }
+      : worldPos;
+
+    if (!rect) {
+      setMousePosition({
+        x: displayWorld.x * scale,
+        y: displayWorld.y * scale,
+      });
+      return;
+    }
+    const screenPos = pan.worldToScreen(displayWorld.x, displayWorld.y, scale);
+    setMousePosition({
+      x: rect.left + screenPos.x,
+      y: rect.top + screenPos.y,
+    });
+  };
+
   const setContourLinesState = (partialState: Partial<ContourLinesState>) => {
     contourLinesStateRef.current = {
       ...contourLinesStateRef.current,
@@ -984,7 +1028,20 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     if (adjustSessionActive) {
       isMouseDownRef.current = true;
       pointerInsideCanvas = true;
-      setMousePosition({ x: event.clientX, y: event.clientY });
+      const { canvas, tools } = getDynamicDeps();
+      const rect = canvasRef.current?.getBoundingClientRect();
+      const pointerPos = rect
+        ? {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          }
+        : { x: 0, y: 0 };
+      const scale = canvas?.zoom || 1;
+      const worldPosAligned = alignPointToPixel(
+        pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
+        shouldPixelAlignCursor(tools.brushSettings)
+      );
+      updateAlignedMousePosition(worldPosAligned, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
       event.preventDefault();
       (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
       if (shapeHandler.handlePointerDown(event)) {
@@ -1032,7 +1089,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
 
     pointerInsideCanvas = true;
-    setMousePosition({ x: event.clientX, y: event.clientY });
+    const shouldAlignCursor = shouldPixelAlignCursor(tools.brushSettings);
     
     const rect = canvasRef.current?.getBoundingClientRect();
     const pointerPos = rect ? {
@@ -1076,7 +1133,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
     
     const scale = canvas?.zoom || 1;
-    const worldPos = pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
+    const worldPos = alignPointToPixel(
+      pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
+      shouldAlignCursor
+    );
+    updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
     // Intentionally quiet
 
     if (tools.currentTool === 'color-picker') {
@@ -1863,17 +1924,22 @@ function cssColorToHex(color: string): string {
     void layers;
     void activeLayerId;
     const rect = canvasRef.current?.getBoundingClientRect();
-    const currentPointerPos = rect ? {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    } : { x: 0, y: 0 };
+    const currentPointerPos = rect
+      ? {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        }
+      : { x: 0, y: 0 };
     const scale = canvas?.zoom || 1;
 
     pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
-    const worldPos = pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale);
+    const shouldAlignCursor = shouldPixelAlignCursor(tools.brushSettings);
+    const worldPos = alignPointToPixel(
+      pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale),
+      shouldAlignCursor
+    );
 
-    // Always update cursor position immediately for responsive feel
-    setMousePosition({ x: event.clientX, y: event.clientY });
+    updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
 
     if (tools.currentTool === 'color-picker') {
       setCursorStyle('crosshair');
@@ -2956,7 +3022,20 @@ function cssColorToHex(color: string): string {
 
     if (adjustSessionActive) {
       pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
-      setMousePosition({ x: event.clientX, y: event.clientY });
+      const { canvas, tools } = getDynamicDeps();
+      const rect = canvasRef.current?.getBoundingClientRect();
+      const pointerPos = rect
+        ? {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          }
+        : { x: 0, y: 0 };
+      const scale = canvas?.zoom || 1;
+      const worldPos = alignPointToPixel(
+        pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
+        shouldPixelAlignCursor(tools.brushSettings)
+      );
+      updateAlignedMousePosition(worldPos, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
       if (shapeHandler.handlePointerMove(event)) {
         return;
       }

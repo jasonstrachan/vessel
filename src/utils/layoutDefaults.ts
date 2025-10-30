@@ -186,9 +186,19 @@ export const normalizePalette = (palette?: PaletteState | null): PaletteState =>
   };
 };
 
-export const normalizeProject = (project: Project): Project => ({
-  ...project,
-  exportLayout: cloneExportLayout(project.exportLayout),
-  layers: normalizeLayers(project.layers),
-  palette: normalizePalette(project.palette)
-});
+export const normalizeProject = (project: Project): Project => {
+  const customBrushes = Array.isArray(project.customBrushes) ? project.customBrushes : [];
+  const defaultCustomBrushId =
+    customBrushes.find((brush) => brush.id === project.defaultCustomBrushId) !== undefined
+      ? project.defaultCustomBrushId ?? null
+      : null;
+
+  return {
+    ...project,
+    customBrushes,
+    defaultCustomBrushId,
+    exportLayout: cloneExportLayout(project.exportLayout),
+    layers: normalizeLayers(project.layers),
+    palette: normalizePalette(project.palette)
+  };
+};

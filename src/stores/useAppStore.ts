@@ -340,6 +340,31 @@ import { configureMaskManager } from '@/layers/MaskManager';
 // Get global manager instance
 const colorCycleBrushManager = getColorCycleBrushManager();
 
+let isHydratingStoredCustomBrushes = false;
+let customBrushHydrationPromise: Promise<void> | null = null;
+let lastStoredCustomBrushSnapshot: {
+  brushes: CustomBrush[];
+  defaultCustomBrushId: string | null;
+} | null = null;
+
+const mergeCustomBrushCollections = (
+  projectBrushes: CustomBrush[],
+  storedBrushes: CustomBrush[]
+): CustomBrush[] => {
+  const merged = new Map<string, CustomBrush>();
+  // Stored brushes are baseline
+  storedBrushes.forEach((brush) => {
+    merged.set(brush.id, brush);
+  });
+
+  // Project brushes can override stored ones
+  projectBrushes.forEach((brush) => {
+    merged.set(brush.id, brush);
+  });
+
+  return Array.from(merged.values());
+};
+
 // Setup layer ID getter for orphan cleanup
 if (typeof window !== 'undefined') {
   setTimeout(() => {
@@ -390,6 +415,12 @@ import {
   exportProjectAsPNG,
   restoreColorCycleBrushes
 } from '../utils/projectIO';
+import { createCustomBrushPreset } from '@/utils/customBrushPreset';
+import {
+  loadCustomBrushesFromStorage,
+  saveCustomBrushesToStorage,
+  clearStoredCustomBrushes
+} from '@/utils/customBrushPersistence';
 // import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '../constants/canvas';
 import { adjustHueLightnessSaturation, applyColorAdjustments } from '../utils/imageProcessing';
@@ -922,7 +953,9 @@ export interface AppState {
   addCustomBrush: (brush: CustomBrush) => void;
   updateCustomBrush: (brushId: string, updates: Partial<CustomBrush>) => void;
   removeCustomBrush: (brushId: string) => void;
+  setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
+  ensureCustomBrushHydrated: () => Promise<void>;
   
   // Brush Editor State
   brushEditor: BrushEditorState;
@@ -1640,12 +1673,100 @@ export const useAppStore = create<AppState>()(
   // TEMPORARILY DISABLE DEVTOOLS TO SEE IF IT'S THE CAUSE
   // devtools(
     (set, get) => {
-      
+      const startCustomBrushHydration = () => {
+        if (typeof window === 'undefined') {
+          return Promise.resolve();
+        }
+        if (!customBrushHydrationPromise) {
+          customBrushHydrationPromise = hydrateCustomBrushesFromStorage();
+        }
+        return customBrushHydrationPromise;
+      };
+
+      const persistCustomBrushes = () => {
+        if (typeof window === 'undefined' || isHydratingStoredCustomBrushes) {
+          return;
+        }
+        const state = get();
+        if (!state.project) {
+          clearStoredCustomBrushes();
+          lastStoredCustomBrushSnapshot = null;
+          return;
+        }
+
+        try {
+          saveCustomBrushesToStorage(state.project.customBrushes, state.project.defaultCustomBrushId ?? null);
+          lastStoredCustomBrushSnapshot = {
+            brushes: state.project.customBrushes,
+            defaultCustomBrushId: state.project.defaultCustomBrushId ?? null
+          };
+        } catch (error) {
+          console.warn('[Store] Failed to persist custom brushes.', error);
+        }
+      };
+
+      const hydrateCustomBrushesFromStorage = async () => {
+        if (typeof window === 'undefined') {
+          return;
+        }
+        if (isHydratingStoredCustomBrushes) {
+          return;
+        }
+
+        try {
+          isHydratingStoredCustomBrushes = true;
+          const stored = await loadCustomBrushesFromStorage();
+          if (!stored) {
+            return;
+          }
+
+          const { brushes, defaultCustomBrushId } = stored;
+          if (!Array.isArray(brushes) || brushes.length === 0) {
+            clearStoredCustomBrushes();
+            lastStoredCustomBrushSnapshot = null;
+            return;
+          }
+
+          const hasDefault = defaultCustomBrushId ? brushes.some((brush) => brush.id === defaultCustomBrushId) : false;
+
+          lastStoredCustomBrushSnapshot = {
+            brushes,
+            defaultCustomBrushId: hasDefault ? defaultCustomBrushId : null
+          };
+
+          set((state) => {
+            if (!state.project) {
+              return state;
+            }
+
+            return {
+              project: {
+                ...state.project,
+                customBrushes: mergeCustomBrushCollections(state.project.customBrushes, brushes),
+                defaultCustomBrushId: hasDefault ? defaultCustomBrushId : state.project.defaultCustomBrushId ?? null
+              }
+            };
+          });
+
+          if (hasDefault && defaultCustomBrushId) {
+            get().setDefaultCustomBrush(defaultCustomBrushId);
+          } else {
+            persistCustomBrushes();
+          }
+        } catch (error) {
+          console.warn('[Store] Failed to hydrate custom brushes from storage.', error);
+          clearStoredCustomBrushes();
+        } finally {
+          isHydratingStoredCustomBrushes = false;
+        }
+      };
+
       // Expose store globally for debugging and test utilities
       if (typeof window !== 'undefined') {
         setTimeout(() => {
           (window as Window & { __vesselStore?: typeof useAppStore }).__vesselStore = useAppStore;
         }, 0);
+        void startCustomBrushHydration();
       }
 
       const shapeFillOrchestratorInstance = new ShapeFillOrchestrator();
@@ -1678,6 +1799,7 @@ export const useAppStore = create<AppState>()(
           createdAt: new Date(),
           updatedAt: new Date(),
           customBrushes: [],
+          defaultCustomBrushId: null,
           brushSpecificSettings: {},
           exportLayout: createDefaultExportLayout(),
           palette: initialPalette
@@ -1691,7 +1813,7 @@ export const useAppStore = create<AppState>()(
           enableGobletDiagnostics: process.env.NODE_ENV !== 'production',
           htmlTitle: 'Goblet'
         },
-      setProject: (project) => set((state) => {
+      setProject: (project) => {
         const normalized = normalizeProject(project);
         setActiveHistoryDocument(normalized.id);
         const nextPalette = normalized.palette ?? createDefaultPalette();
@@ -1699,35 +1821,47 @@ export const useAppStore = create<AppState>()(
           ...normalized,
           palette: nextPalette
         };
-        const nextTools = {
-          ...state.tools,
-          brushSettings: {
-            ...state.tools.brushSettings,
-            color: nextPalette.foregroundColor
-          },
-          eraserSettings:
-            state.tools.currentTool === 'eraser'
-              ? { ...state.tools.eraserSettings, color: nextPalette.foregroundColor }
-              : state.tools.eraserSettings
-        };
-        return {
-          project: projectWithPalette,
-          palette: nextPalette,
-          tools: nextTools,
-          paletteDirty: false
-        };
-      }),
-      updateProject: (updates) => set((state) => {
-        if (!state.project) {
-          return { project: null };
+
+        set((state) => {
+          const nextTools = {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              color: nextPalette.foregroundColor
+            },
+            eraserSettings:
+              state.tools.currentTool === 'eraser'
+                ? { ...state.tools.eraserSettings, color: nextPalette.foregroundColor }
+                : state.tools.eraserSettings
+          };
+
+          return {
+            project: projectWithPalette,
+            palette: nextPalette,
+            tools: nextTools,
+            paletteDirty: false
+          };
+        });
+
+        if (projectWithPalette.defaultCustomBrushId) {
+          get().setDefaultCustomBrush(projectWithPalette.defaultCustomBrushId);
+        }
+
+        persistCustomBrushes();
+      },
+      updateProject: (updates) => {
+        const stateBefore = get();
+        if (!stateBefore.project) {
+          set({ project: null });
+          return;
         }
 
         const baseProject = {
-          ...state.project,
+          ...stateBefore.project,
           ...updates,
           exportLayout: 'exportLayout' in updates
             ? cloneExportLayout(updates.exportLayout)
-            : cloneExportLayout(state.project.exportLayout)
+            : cloneExportLayout(stateBefore.project.exportLayout)
         };
 
         const normalized = normalizeProject(baseProject);
@@ -1736,31 +1870,42 @@ export const useAppStore = create<AppState>()(
           setActiveHistoryDocument(normalized.id);
         }
 
-        const nextPalette = normalized.palette ?? state.palette ?? createDefaultPalette();
+        const nextPalette = normalized.palette ?? stateBefore.palette ?? createDefaultPalette();
         const projectWithPalette = {
           ...normalized,
           palette: nextPalette
         };
-        const nextTools = {
-          ...state.tools,
-          brushSettings: {
-            ...state.tools.brushSettings,
-            color: nextPalette.foregroundColor
-          },
-          eraserSettings:
-            state.tools.currentTool === 'eraser'
-              ? { ...state.tools.eraserSettings, color: nextPalette.foregroundColor }
-              : state.tools.eraserSettings
-        };
 
-        return {
-          project: projectWithPalette,
-          palette: nextPalette,
-          tools: nextTools,
-          paletteDirty: false,
-          referenceLayerId: null
-        };
-      }),
+        set((state) => {
+          const nextTools = {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              color: nextPalette.foregroundColor
+            },
+            eraserSettings:
+              state.tools.currentTool === 'eraser'
+                ? { ...state.tools.eraserSettings, color: nextPalette.foregroundColor }
+                : state.tools.eraserSettings
+          };
+
+          return {
+            project: projectWithPalette,
+            palette: nextPalette,
+            tools: nextTools,
+            paletteDirty: false,
+            referenceLayerId: null
+          };
+        });
+
+        const previousDefault = stateBefore.project.defaultCustomBrushId ?? null;
+        const nextDefault = projectWithPalette.defaultCustomBrushId ?? null;
+        if (nextDefault && nextDefault !== previousDefault) {
+          get().setDefaultCustomBrush(nextDefault);
+        }
+
+        persistCustomBrushes();
+      },
       setExportLayout: (layout) => set((state) => {
         if (!state.project) {
           return state;
@@ -4834,15 +4979,16 @@ export const useAppStore = create<AppState>()(
       },
       
       // Custom Brush Management
-      addCustomBrush: (brush) => set((state) => {
-        console.log('[STORE] Adding custom brush:', {
-          id: brush.id,
-          name: brush.name,
-          hasImageData: !!brush.imageData,
-          width: brush.width,
-          height: brush.height,
-          dataLength: brush.imageData?.data?.length
-        });
+      addCustomBrush: (brush) => {
+        set((state) => {
+          console.log('[STORE] Adding custom brush:', {
+            id: brush.id,
+            name: brush.name,
+            hasImageData: !!brush.imageData,
+            width: brush.width,
+            height: brush.height,
+            dataLength: brush.imageData?.data?.length
+          });
         
         const newProject = state.project ? {
           ...state.project,
@@ -4882,32 +5028,76 @@ export const useAppStore = create<AppState>()(
             }
           }
         };
-      }),
-      updateCustomBrush: (brushId, updates) => set((state) => {
-        if (!state.project) return state;
-        
-        const updatedBrushes = state.project.customBrushes.map(brush => 
-          brush.id === brushId ? { ...brush, ...updates } : brush
-        );
-        
-        return {
+        });
+        persistCustomBrushes();
+      },
+      updateCustomBrush: (brushId, updates) => {
+        set((state) => {
+          if (!state.project) return state;
+          
+          const updatedBrushes = state.project.customBrushes.map(brush => 
+            brush.id === brushId ? { ...brush, ...updates } : brush
+          );
+          
+          return {
+            project: {
+              ...state.project,
+              customBrushes: updatedBrushes
+            }
+          };
+        });
+        persistCustomBrushes();
+      },
+      removeCustomBrush: (brushId) => {
+        set((state) => {
+          if (!state.project) return state;
+
+          const remainingBrushes = state.project.customBrushes.filter(b => b.id !== brushId);
+          const defaultBrushCleared =
+            state.project.defaultCustomBrushId && state.project.defaultCustomBrushId === brushId;
+
+          return {
+            project: {
+              ...state.project,
+              customBrushes: remainingBrushes,
+              defaultCustomBrushId: defaultBrushCleared ? null : state.project.defaultCustomBrushId
+            }
+          };
+        });
+        persistCustomBrushes();
+      },
+      setDefaultCustomBrush: (brushId) => {
+        const state = get();
+        if (!state.project) return;
+
+        const targetBrush =
+          brushId !== null
+            ? state.project.customBrushes.find((brush) => brush.id === brushId) ?? null
+            : null;
+
+        const nextDefaultId = targetBrush ? targetBrush.id : null;
+
+        set((current) => ({
           project: {
-            ...state.project,
-            customBrushes: updatedBrushes
+            ...current.project!,
+            defaultCustomBrushId: nextDefaultId,
+            updatedAt: new Date()
+          },
+          autosave: {
+            ...current.autosave,
+            hasUnsavedChanges: true
           }
-        };
-      }),
-      removeCustomBrush: (brushId) => set((state) => {
-        if (!state.project) return state;
-        
-        return {
-          project: {
-            ...state.project,
-            customBrushes: state.project.customBrushes.filter(b => b.id !== brushId)
-          }
-        };
-      }),
-      saveCustomBrushAsPreset: (customBrushId) => set((state) => {
+        }));
+
+        if (targetBrush) {
+          const preset = createCustomBrushPreset(targetBrush, { isDefault: true });
+          get().setBrushPreset(preset, true);
+        }
+
+        persistCustomBrushes();
+      },
+      saveCustomBrushAsPreset: (customBrushId) => {
+        set((state) => {
         // This function should actually just save temporary brushes to the project
         // Check if this is a temporary brush
         if (!state.temporaryCustomBrush || state.temporaryCustomBrush.id !== customBrushId) {
@@ -4974,7 +5164,10 @@ export const useAppStore = create<AppState>()(
             }
           }
         };
-      }),
+        });
+        persistCustomBrushes();
+      },
+      ensureCustomBrushHydrated: () => startCustomBrushHydration(),
       
       removeBrushPreset: (presetId) => set((state) => {
         // Don't allow deletion of default presets
@@ -5761,6 +5954,8 @@ export const useAppStore = create<AppState>()(
       newProject: (width: number, height: number, name = 'Untitled') => {
         const currentState = get();
         const layerIdFactory = () => `layer-${Date.now()}-${Math.random()}`;
+        const existingCustomBrushes = currentState.project?.customBrushes ?? [];
+        const existingDefaultCustomBrushId = currentState.project?.defaultCustomBrushId ?? null;
 
         // Create the base regular layer (Layer 1)
         const defaultLayerId = layerIdFactory();
@@ -5840,7 +6035,8 @@ export const useAppStore = create<AppState>()(
           backgroundColor: 'transparent',
           createdAt: new Date(),
           updatedAt: new Date(),
-          customBrushes: [],
+          customBrushes: existingCustomBrushes,
+          defaultCustomBrushId: existingDefaultCustomBrushId,
           brushSpecificSettings: {},
           exportLayout: createDefaultExportLayout(),
           palette: newPalette
@@ -5886,6 +6082,8 @@ export const useAppStore = create<AppState>()(
         
         // Clear history for new project
         get().clearHistory();
+
+        persistCustomBrushes();
       },
       
       compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {

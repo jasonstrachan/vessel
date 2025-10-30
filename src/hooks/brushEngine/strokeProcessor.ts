@@ -443,6 +443,10 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
   ) => {
     const roundedX = Math.round(currentX);
     const roundedY = Math.round(currentY);
+    const usePixelSpacing = settings.pixelAlignment || settings.shape === BrushShape.PIXEL_ROUND;
+    const spacingThreshold = usePixelSpacing
+      ? Math.max(1, Math.round(settings.spacing || 1))
+      : Math.max(settings.spacing, 0.0001);
     
     if (!queue.initialized) {
       // First pixel - initialize queue
@@ -466,24 +470,34 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
     }
     
     // Calculate distance from last stroke position to current position
-    const distance = Math.sqrt(
-      Math.pow(roundedX - queue.lastStrokePosition.x, 2) + 
-      Math.pow(roundedY - queue.lastStrokePosition.y, 2)
-    );
+    const distance = usePixelSpacing
+      ? Math.max(
+          Math.abs(roundedX - queue.lastStrokePosition.x),
+          Math.abs(roundedY - queue.lastStrokePosition.y)
+        )
+      : Math.sqrt(
+          Math.pow(roundedX - queue.lastStrokePosition.x, 2) +
+          Math.pow(roundedY - queue.lastStrokePosition.y, 2)
+        );
     queue.accumulatedDistance += distance;
     
     // Apply waiting pixel algorithm for ALL brushes (from original working implementation)
     // If current pixel is NOT a neighbor to lastDrawn, draw waiting pixel
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
       // Draw the waiting shape only if accumulated distance exceeds spacing
-      if (queue.accumulatedDistance >= settings.spacing) {
+      if (queue.accumulatedDistance >= spacingThreshold) {
         // Check if we should draw this stamp (cursor-speed independent)
         if (shouldDrawStamp(brushSettings, queue, settings.size, false)) {
           const jitteredColor = deps.applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
           deps.drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
         }
-        queue.accumulatedDistance -= settings.spacing;
+        if (usePixelSpacing) {
+          queue.accumulatedDistance = Math.max(0, queue.accumulatedDistance - spacingThreshold);
+          queue.accumulatedDistance = Math.round(queue.accumulatedDistance);
+        } else {
+          queue.accumulatedDistance -= spacingThreshold;
+        }
         queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
       }
       
