@@ -24,6 +24,7 @@ import { computeShapeFillColors } from '@/shapeFill/colorUtils';
 import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { FillStage } from '@/shapeFill/types';
+import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '@/constants/canvas';
 
 type GradientStop = { position: number; color: string };
 
@@ -468,7 +469,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [sampleColorAtPosition]);
   
   // Drawing function - base implementation without hooks
-  const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio: number = 1) => {
+  const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio: number) => {
     const { scale, offsetX, offsetY } = transform;
     const dpr = devicePixelRatio || 1;
     const canvasPixelWidth = ctx.canvas.width;
@@ -484,6 +485,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     ctx.restore();
     
     if (project && layers.length > 0) {
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
@@ -552,13 +556,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Note: Color cycle animation is now rendered to the drawing canvas
       // in useDrawingHandlers, so it gets composited in the correct layer order
       ctx.restore();
-      
+
       // Draw subtle border matching background to mask checker anti-alias fringe
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
       ctx.strokeStyle = '#141514';
-      ctx.lineWidth = 2 / (scale * dpr);
+      ctx.lineWidth = 2 / scale;
       ctx.strokeRect(0, 0, project.width, project.height);
       ctx.restore();
       
@@ -627,19 +631,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const y = floatingPaste.position.y;
           const width = renderWidth;
           const height = renderHeight;
-          
+
           // White background line
           ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2 / (scale * dpr);
+          ctx.lineWidth = 2 / scale;
           ctx.setLineDash([]);
           ctx.strokeRect(x, y, width, height);
-          
+
           // Black dashed line for marching ants
           ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1 / (scale * dpr);
-          const dashLength = 5 / (scale * dpr);
+          ctx.lineWidth = 1 / scale;
+          const dashLength = 5 / scale;
           ctx.setLineDash([dashLength, dashLength]);
-          ctx.lineDashOffset = -marchingAntsOffset / (scale * dpr);
+          ctx.lineDashOffset = -marchingAntsOffset / scale;
           ctx.strokeRect(x, y, width, height);
 
           ctx.restore();
@@ -647,37 +651,39 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
         ctx.restore();
       }
-      
+
       // Draw selection
       if ((selectionStart && selectionEnd) || (isSelecting && selectionStartRef)) {
         ctx.save();
         ctx.translate(offsetX, offsetY);
         ctx.scale(scale, scale);
-        
+
         const start = selectionStart || selectionStartRef;
         const end = selectionEnd || { x: 0, y: 0 };
-        
+
         if (start) {
           const x = Math.min(start.x, end.x);
           const y = Math.min(start.y, end.y);
           const width = Math.abs(end.x - start.x);
           const height = Math.abs(end.y - start.y);
-          
+
           ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1 / (scale * dpr);
+          ctx.lineWidth = 1 / scale;
           ctx.setLineDash([]);
           ctx.strokeRect(x, y, width, height);
-          
+
           ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1 / (scale * dpr);
-          const selectionDash = 5 / (scale * dpr);
+          ctx.lineWidth = 1 / scale;
+          const selectionDash = 5 / scale;
           ctx.setLineDash([selectionDash, selectionDash]);
-          ctx.lineDashOffset = -marchingAntsOffset / (scale * dpr);
+          ctx.lineDashOffset = -marchingAntsOffset / scale;
           ctx.strokeRect(x, y, width, height);
         }
-        
+
         ctx.restore();
       }
+
+      ctx.restore();
     }
   }, [
     project,
@@ -1354,7 +1360,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
     const dpr = devicePixelRatioRef.current || 1;
     ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawBase(
       ctx,
       transform,
@@ -2019,9 +2024,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const scrollSensitivity = 0.001;
         const zoomFactor = 1 - e.deltaY * scrollSensitivity;
         
-        // Limit max zoom to 10 (1000%) to prevent precision issues
-        const maxZoom = 10;
-        const newScale = Math.max(0.1, Math.min(currentScale * zoomFactor, maxZoom));
+        // Clamp zoom to configured range to avoid precision drift at extremes
+        const newScale = Math.max(
+          MIN_CANVAS_ZOOM,
+          Math.min(currentScale * zoomFactor, MAX_CANVAS_ZOOM)
+        );
         
         // Only update if there's an actual change to prevent precision errors
         if (Math.abs(newScale - currentScale) < 0.0001) return;

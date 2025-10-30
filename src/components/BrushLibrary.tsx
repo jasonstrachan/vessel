@@ -71,6 +71,9 @@ const BrushLibrary = () => {
     const thumbnails: Record<string, string> = {};
 
     brushPresets.forEach(preset => {
+      if (preset.id === 'color-cycle-triangle') {
+        return; // Hide triangle duplicate in the library; switcher handles it
+      }
       if (!preset.isCustomBrush) {
         thumbnails[preset.id] = generateBrushThumbnail(preset, {
           size: BRUSH_ICON_SIZE,
@@ -85,7 +88,10 @@ const BrushLibrary = () => {
 
   // Combine all brushes: regular presets + custom brushes
   const allBrushes = React.useMemo(() => {
-    const combined = [...brushPresets, ...customBrushPresets];
+    const combined = [
+      ...brushPresets.filter(preset => preset.id !== 'color-cycle-triangle'),
+      ...customBrushPresets
+    ];
     
     // Sort brushes: Pixel Art first (with square brushes prioritized), then other categories
     return combined.sort((a, b) => {

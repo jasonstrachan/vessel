@@ -448,6 +448,64 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
   }
 };
 
+// Color Cycle Triangle Brush Components (shape mode OFF, triangle stamp)
+export const colorCycleTriangleBrushComponents: BrushComponent[] = [
+  {
+    id: 'color-cycle-triangle-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 500,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-triangle-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.5
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-triangle-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.COLOR_CYCLE_TRIANGLE
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const colorCycleTriangleBrushPreset: BrushPreset = {
+  id: 'color-cycle-triangle',
+  name: 'Color Cycle Triangle',
+  category: 'Special',
+  components: colorCycleTriangleBrushComponents,
+  thumbnail: '/assets/images/Square.png',
+  tags: ['color', 'cycle', 'animated', 'special', 'triangle'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 20,
+    opacity: 1,
+    spacing: 2,
+    colorCycleSpeed: 0.1,
+    colorCycleFPS: 30,
+    gradientBands: 12,
+    pressureEnabled: true,
+    minPressure: 50,
+    maxPressure: 200,
+    colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
+    shapeEnabled: false
+  }
+};
+
 // Color Cycle Shape Brush Components (shape mode ON)
 export const colorCycleShapeBrushComponents: BrushComponent[] = [
   {
@@ -791,6 +849,7 @@ export const brushPresets: BrushPreset[] = [
   roundPixel4Preset,
   defaultBrushPreset,
   colorCycleStrokeBrushPreset,
+  colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
@@ -802,9 +861,6 @@ export const brushPresets: BrushPreset[] = [
 
 // Helper functions
 export const getBrushPresetById = (id: string): BrushPreset | undefined => {
-  if (id === 'color-cycle-triangle') {
-    return colorCycleStrokeBrushPreset; // Legacy alias: triangle preset now maps to stroke variant
-  }
   return brushPresets.find(preset => preset.id === id);
 };
 

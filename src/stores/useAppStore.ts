@@ -391,7 +391,7 @@ import {
   restoreColorCycleBrushes
 } from '../utils/projectIO';
 // import { memoryManager } from '../utils/memoryCleanup';
-import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
+import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '../constants/canvas';
 import { adjustHueLightnessSaturation, applyColorAdjustments } from '../utils/imageProcessing';
 import { debugLog, logError, __DEV__, recordBreadcrumb } from '../utils/debug';
 import { applyCroppedLayers } from '@/utils/crop/apply';
@@ -420,7 +420,7 @@ import type { HistoryEntry } from '@/history/actionTypes';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
-const COLOR_CYCLE_PRESET_IDS = ['color-cycle-stroke', 'color-cycle-shape'] as const;
+const COLOR_CYCLE_PRESET_IDS = ['color-cycle-stroke', 'color-cycle-triangle', 'color-cycle-shape'] as const;
 
 type GradientStops = BrushSettings['colorCycleGradient'];
 
@@ -2030,7 +2030,7 @@ export const useAppStore = create<AppState>()(
       // History State
       history: defaultHistoryState,
       setZoom: (zoom) => set((state) => ({
-        canvas: { ...state.canvas, zoom: Math.max(0.1, Math.min(10, zoom)) }
+        canvas: { ...state.canvas, zoom: Math.max(MIN_CANVAS_ZOOM, Math.min(MAX_CANVAS_ZOOM, zoom)) }
       })),
       setRotation: (rotation) => set((state) => ({
         canvas: { ...state.canvas, rotation }

@@ -314,23 +314,29 @@ const BrushControls = () => {
   if (isColorCycleBrush(activeSettings.brushShape)) {
     return (
       <div className="p-4">
-        {/* Color Cycle variant switcher (Stroke vs Shape) */}
+        {/* Color Cycle variant switcher (Stroke vs Triangle vs Shape) */}
         <div className="mb-3">
           <ButtonGroup
             options={[
               { label: 'Stroke', value: 'stroke' },
+              { label: 'Triangle', value: 'triangle' },
               { label: 'Shape', value: 'shape' }
             ]}
             value={
               activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
                 ? 'shape'
-                : 'stroke'
+                : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+                  ? 'triangle'
+                  : 'stroke'
             }
             onChange={(value) => {
               const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
               const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
+              const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
               if (value === 'shape' && shapePreset) {
                 setBrushPreset(shapePreset, true);
+              } else if (value === 'triangle' && trianglePreset) {
+                setBrushPreset(trianglePreset, true);
               } else if (value === 'stroke' && strokePreset) {
                 setBrushPreset(strokePreset, true);
               }

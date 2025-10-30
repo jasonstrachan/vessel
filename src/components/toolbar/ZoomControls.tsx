@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '../../constants/canvas';
 import { useAppStore } from '../../stores/useAppStore';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
 import Input from '../ui/Input';
@@ -21,12 +22,12 @@ export default function ZoomControls() {
   };
 
   const handleZoomIn = () => {
-    const newZoom = Math.min(10, calculateZoomIncrement(zoom, 'in'));
+    const newZoom = Math.min(MAX_CANVAS_ZOOM, calculateZoomIncrement(zoom, 'in'));
     zoomAtCenter(newZoom);
   };
 
   const handleZoomOut = () => {
-    const newZoom = Math.max(0.1, calculateZoomIncrement(zoom, 'out'));
+    const newZoom = Math.max(MIN_CANVAS_ZOOM, calculateZoomIncrement(zoom, 'out'));
     zoomAtCenter(newZoom);
   };
 
@@ -73,8 +74,8 @@ export default function ZoomControls() {
         </label>
         <Input
           type="range"
-          min="0.1"
-          max="10"
+          min={MIN_CANVAS_ZOOM}
+          max={MAX_CANVAS_ZOOM}
           step="0.1"
           value={zoom}
           onChange={(e) => {
