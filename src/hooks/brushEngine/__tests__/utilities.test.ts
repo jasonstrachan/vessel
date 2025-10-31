@@ -122,26 +122,26 @@ describe('Brush Utilities', () => {
     });
 
     test('applies pressure when enabled', () => {
-      const size = calculatePressureSize(10, 1.0, 1, 20, true);
-      expect(size).toBe(20); // Max pressure = max size
+      const size = calculatePressureSize(10, 1.0, 100, 200, true);
+      expect(size).toBe(20); // 200% of base
     });
 
     test('applies pressure deadzone', () => {
-      const size = calculatePressureSize(10, 0.1, 1, 20, true);
-      expect(size).toBe(1); // Below threshold = min size
+      const size = calculatePressureSize(10, 0.05, 50, 200, true);
+      expect(size).toBe(5); // 50% of base
     });
 
     test('interpolates pressure correctly', () => {
-      const size = calculatePressureSize(10, 0.6, 1, 20, true);
-      expect(size).toBeGreaterThan(1);
+      const size = calculatePressureSize(10, 0.6, 50, 200, true);
+      expect(size).toBeGreaterThan(5);
       expect(size).toBeLessThan(20);
     });
 
     test('handles full pressure range', () => {
-      const minSize = calculatePressureSize(10, 0, 5, 15, true);
+      const minSize = calculatePressureSize(10, 0, 50, 150, true);
       expect(minSize).toBe(5);
-      
-      const maxSize = calculatePressureSize(10, 1, 5, 15, true);
+
+      const maxSize = calculatePressureSize(10, 1, 50, 150, true);
       expect(maxSize).toBe(15);
     });
   });

@@ -1,11 +1,17 @@
 'use client';
 
-import React, { memo, useMemo, useRef, useEffect } from 'react';
+import React, {
+  forwardRef,
+  memo,
+  useCallback,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import { BrushShape } from '../../types';
 
 interface BrushCursorProps {
-  screenX: number;
-  screenY: number;
   size: number;
   brushShape: BrushShape;
   zoom: number;
@@ -16,6 +22,10 @@ interface BrushCursorProps {
     height: number;
   } | null;
   visible: boolean;
+}
+
+export interface BrushCursorHandle {
+  setPosition: (screenX: number, screenY: number) => void;
 }
 
 // Cache for cursor data URLs to prevent recreation
@@ -102,32 +112,43 @@ const useCursorDataURL = (
   }, [brushShape, screenSize]);
 };
 
-const BrushCursor = memo(function BrushCursor({
-  screenX,
-  screenY,
+const BrushCursorComponent = ({
   size,
   brushShape,
   zoom,
   visible,
   customBrush,
-}: BrushCursorProps) {
+}: BrushCursorProps, ref: React.Ref<BrushCursorHandle>) => {
   const cursorRef = useRef<HTMLDivElement>(null);
-  
+  const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
   // Calculate screen size differently for custom brushes (percentage) vs regular brushes (pixels)
   const screenSize = brushShape === BrushShape.CUSTOM && customBrush
     ? Math.max(4, (size / 100) * Math.max(customBrush.width, customBrush.height) * zoom)
     : Math.max(4, size * zoom);
-    
+
   const cursorDataURL = useCursorDataURL(brushShape, screenSize);
 
-  // Use direct DOM manipulation for position updates to avoid React re-renders
-  useEffect(() => {
-    if (!cursorRef.current || !visible) return;
-    
+  const applyTransform = useCallback((screenX: number, screenY: number) => {
+    lastPositionRef.current = { x: screenX, y: screenY };
     const element = cursorRef.current;
-    // Center all cursors properly
-    element.style.transform = `translate(${screenX - Math.ceil(screenSize) / 2}px, ${screenY - Math.ceil(screenSize) / 2}px)`;
-  }, [screenX, screenY, screenSize, visible]);
+    if (!element) return;
+
+    const half = Math.ceil(screenSize) / 2;
+    element.style.transform = `translate(${screenX - half}px, ${screenY - half}px)`;
+  }, [screenSize]);
+
+  useImperativeHandle(ref, () => ({
+    setPosition: (screenX: number, screenY: number) => {
+      applyTransform(screenX, screenY);
+    }
+  }), [applyTransform]);
+
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const { x, y } = lastPositionRef.current;
+    applyTransform(x, y);
+  }, [applyTransform, visible]);
 
   if (!visible) return null;
 
@@ -170,6 +191,8 @@ const BrushCursor = memo(function BrushCursor({
       }}
     />
   );
-});
+};
+
+const BrushCursor = memo(forwardRef<BrushCursorHandle, BrushCursorProps>(BrushCursorComponent));
 
 export default BrushCursor;

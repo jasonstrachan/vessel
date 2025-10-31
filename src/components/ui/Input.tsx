@@ -7,7 +7,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className = '', variant = 'default', fullWidth = false, type = 'text', dragSensitivity = 1, onChange, value, onBlur, inputMode, ...props }, ref) => {
+  ({ className = '', variant = 'default', fullWidth = false, type = 'text', dragSensitivity = 1, onChange, value, onBlur, onFocus, inputMode, ...props }, ref) => {
     const internalRef = useRef<HTMLInputElement>(null);
     const inputRef = (ref as React.RefObject<HTMLInputElement>) || internalRef;
     
@@ -132,16 +132,19 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
       className
     ].filter(Boolean).join(' ');
 
-    const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-      // For numeric draggables, prevent stylus taps (detail === 0) from summoning keyboards
-      if (type === 'number' && e.nativeEvent.detail === 0) {
-        dragState.current.isDragging = false;
-        dragState.current.pointerDown = false;
-        e.target.blur();
-      }
-    }, [type]);
-
     const resolvedInputMode = inputMode ?? (type === 'number' ? 'numeric' : undefined);
+    const handleBlurEvent = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+      dragState.current.pointerDown = false;
+      if (onBlur) {
+        onBlur(e);
+      }
+    }, [onBlur]);
+
+    const handleFocusEvent = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+      if (onFocus) {
+        onFocus(e);
+      }
+    }, [onFocus]);
 
     return (
       <input
@@ -156,8 +159,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         onPointerUp={handlePointerUp}
         onChange={onChange}
         value={value}
-        onFocus={handleFocus}
-        onBlur={onBlur}
+        onFocus={handleFocusEvent}
+        onBlur={handleBlurEvent}
         {...props}
       />
     );

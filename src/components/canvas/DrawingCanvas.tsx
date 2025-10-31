@@ -12,7 +12,7 @@ import { useCropState } from '../../hooks/useCropState';
 import { BrushShape } from '../../types';
 import type { Layer, Tool } from '../../types';
 import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/utils/types';
-import BrushCursor from './BrushCursor';
+import BrushCursor, { type BrushCursorHandle } from './BrushCursor';
 import CropOverlay from './CropOverlay';
 import FloatingPasteOverlay from './FloatingPasteOverlay';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
@@ -187,14 +187,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   );
 
   // Mouse position for brush cursor
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const mousePositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [showBrushCursor, setShowBrushCursor] = useState(false);
   const [marchingAntsOffset, setMarchingAntsOffset] = useState(0);
-  const mousePositionRef = useRef(mousePosition);
+  const brushCursorHandleRef = useRef<BrushCursorHandle | null>(null);
 
-  useEffect(() => {
-    mousePositionRef.current = mousePosition;
-  }, [mousePosition]);
+  const setCursorScreenPosition = useCallback((screenX: number, screenY: number) => {
+    mousePositionRef.current = { x: screenX, y: screenY };
+    brushCursorHandleRef.current?.setPosition(screenX, screenY);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -206,9 +207,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const isPointerInsideCanvas = useCallback(() => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    const { x, y } = mousePosition;
+    const { x, y } = mousePositionRef.current;
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-  }, [mousePosition]);
+  }, []);
   
   // Determine cursor style based on tool and brush shape
   const defaultCursorStyle = useMemo(() => {
@@ -1856,7 +1857,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     // Cursor state
     setCursorStyle,
     setShowBrushCursor,
-    setMousePosition,
+    setCursorPosition: setCursorScreenPosition,
     
     // Hooks
     interaction,
@@ -2448,8 +2449,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const brushTip = tools.brushSettings.currentBrushTip;
         return (
           <BrushCursor
-            screenX={mousePosition.x}
-            screenY={mousePosition.y}
+            ref={brushCursorHandleRef}
             size={cursorSize}
             brushShape={brushShapeForCursor}
             zoom={canvasZoom || 1}

@@ -4,6 +4,7 @@
  */
 
 import type { BrushSettings } from '@/types';
+import { resolvePressureSizing } from '@/utils/pressureSizing';
 
 /**
  * Calculate grid spacing from brush settings
@@ -57,28 +58,17 @@ export const calculateBrushSpacing = (
 export const calculatePressureSize = (
   baseSize: number,
   pressure: number,
-  minPressure: number,
-  maxPressure: number,
+  minPercent: number,
+  maxPercent: number,
   pressureEnabled: boolean
 ): number => {
-  if (!pressureEnabled) {
-    return baseSize;
-  }
+  const sizing = resolvePressureSizing(baseSize, {
+    enabled: pressureEnabled,
+    minPercent,
+    maxPercent,
+  });
 
-  const clampedPressure = Math.max(0, Math.min(1, pressure));
-  const minSize = Math.max(1, Math.floor(minPressure || baseSize));
-  const maxSize = Math.max(minSize, Math.floor(maxPressure || baseSize));
-
-  if (clampedPressure <= 0.1) {
-    return minSize;
-  }
-  if (clampedPressure >= 0.99) {
-    return maxSize;
-  }
-
-  const t = (clampedPressure - 0.1) / 0.89;
-  const interpolated = minSize + (maxSize - minSize) * Math.max(0, Math.min(1, t));
-  return Math.max(1, Math.round(interpolated));
+  return Math.max(1, Math.round(sizing.sample(pressure) * 2));
 };
 
 /**

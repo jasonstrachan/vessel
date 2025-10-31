@@ -5,7 +5,7 @@
 
 import React from "react";
 import { useAppStore } from "../../stores/useAppStore";
-import { BrushShape, type Layer } from "../../types";
+import { BrushShape, type BrushSettings, type Layer } from "../../types";
 import { createDefaultLayerAlignment } from "@/utils/layoutDefaults";
 import Input from "../ui/Input";
 import ProgressSlider from "../ui/ProgressSlider";
@@ -22,7 +22,16 @@ import {
   getPresetStops
 } from '@/utils/gradientPresets';
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
+import {
+  PRESSURE_MIN_PERCENT,
+  PRESSURE_MAX_PERCENT,
+  clampPressurePercent,
+  getDefaultMaxPressurePercent,
+} from '@/utils/pressureSettings';
 import ShapeFillControls from "./ShapeFillControls";
+
+const PRESSURE_MIN_BOUND = PRESSURE_MIN_PERCENT;
+const PRESSURE_MAX_BOUND = PRESSURE_MAX_PERCENT;
 
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
@@ -126,6 +135,175 @@ const BrushControls = () => {
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
   const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
   const eraserLinkSize = eraserSettings.linkSizeToBrush !== false;
+
+  const [pressureDraft, setPressureDraft] = React.useState(() => ({
+    min: (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString(),
+    max: (
+      activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape)
+    ).toString(),
+  }));
+  const [pressureEditing, setPressureEditing] = React.useState<{ min: boolean; max: boolean }>({
+    min: false,
+    max: false,
+  });
+
+  const updatePressureEditing = React.useCallback((key: 'min' | 'max', value: boolean) => {
+    setPressureEditing((prev) => {
+      if (prev[key] === value) {
+        return prev;
+      }
+      return { ...prev, [key]: value };
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (pressureEditing.min) {
+      return;
+    }
+    const nextMin = (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString();
+    setPressureDraft((draft) => (draft.min === nextMin ? draft : { ...draft, min: nextMin }));
+  }, [activeSettings.minPressure, pressureEditing.min]);
+
+  React.useEffect(() => {
+    if (pressureEditing.max) {
+      return;
+    }
+    const nextMax = (
+      activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape)
+    ).toString();
+    setPressureDraft((draft) => (draft.max === nextMax ? draft : { ...draft, max: nextMax }));
+  }, [activeSettings.maxPressure, activeSettings.brushShape, pressureEditing.max]);
+
+  React.useEffect(() => {
+    if (activeSettings.pressureEnabled) {
+      return;
+    }
+    setPressureEditing((prev) =>
+      prev.min === false && prev.max === false ? prev : { min: false, max: false }
+    );
+    const nextMin = (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString();
+    const nextMax = (
+      activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape)
+    ).toString();
+    setPressureDraft((draft) =>
+      draft.min === nextMin && draft.max === nextMax ? draft : { min: nextMin, max: nextMax }
+    );
+  }, [
+    activeSettings.pressureEnabled,
+    activeSettings.minPressure,
+    activeSettings.maxPressure,
+    activeSettings.brushShape,
+  ]);
+
+  const handleMinChange = React.useCallback(
+    (raw: string) => {
+      if (raw === '') {
+        setPressureDraft((draft) => (draft.min === '' ? draft : { ...draft, min: '' }));
+        return;
+      }
+      const parsed = Number.parseInt(raw, 10);
+      if (Number.isNaN(parsed)) {
+        return;
+      }
+      const clamped = clampPressurePercent(parsed);
+      const currentMax =
+        activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape);
+      const updates: Partial<BrushSettings> = { minPressure: clamped };
+      let nextMax = currentMax;
+      if (currentMax < clamped) {
+        updates.maxPressure = clamped;
+        nextMax = clamped;
+      }
+      setActiveSettings(updates);
+      setPressureDraft((draft) => {
+        const minString = clamped.toString();
+        const maxString = nextMax.toString();
+        if (draft.min === minString && draft.max === maxString) {
+          return draft;
+        }
+        return { ...draft, min: minString, max: maxString };
+      });
+    },
+    [activeSettings.maxPressure, activeSettings.brushShape, setActiveSettings]
+  );
+
+  const handleMinFocus = React.useCallback(() => {
+    updatePressureEditing('min', true);
+  }, [updatePressureEditing]);
+
+  const handleMinBlur = React.useCallback(() => {
+    updatePressureEditing('min', false);
+    if (pressureDraft.min === '') {
+      const fallback = clampPressurePercent(activeSettings.minPressure ?? PRESSURE_MIN_BOUND);
+      const currentMax =
+        activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape);
+      const updates: Partial<BrushSettings> = { minPressure: fallback };
+      let nextMax = currentMax;
+      if (currentMax < fallback) {
+        updates.maxPressure = fallback;
+        nextMax = fallback;
+      }
+      setActiveSettings(updates);
+      setPressureDraft((draft) => {
+        const minString = fallback.toString();
+        const maxString = nextMax.toString();
+        if (draft.min === minString && draft.max === maxString) {
+          return draft;
+        }
+        return { ...draft, min: minString, max: maxString };
+      });
+      return;
+    }
+    handleMinChange(pressureDraft.min);
+  }, [
+    pressureDraft.min,
+    activeSettings.minPressure,
+    activeSettings.maxPressure,
+    activeSettings.brushShape,
+    updatePressureEditing,
+    handleMinChange,
+    setActiveSettings,
+  ]);
+
+  const handleMaxChange = React.useCallback(
+    (raw: string) => {
+      if (raw === '') {
+        setPressureDraft((draft) => (draft.max === '' ? draft : { ...draft, max: '' }));
+        return;
+      }
+      const parsed = Number.parseInt(raw, 10);
+      if (Number.isNaN(parsed)) {
+        return;
+      }
+      const baseMin = clampPressurePercent(activeSettings.minPressure ?? PRESSURE_MIN_BOUND);
+      const clamped = Math.max(clampPressurePercent(parsed), baseMin);
+      const nextString = clamped.toString();
+      setActiveSettings({ maxPressure: clamped });
+      setPressureDraft((draft) => (draft.max === nextString ? draft : { ...draft, max: nextString }));
+    },
+    [activeSettings.minPressure, setActiveSettings]
+  );
+
+  const handleMaxFocus = React.useCallback(() => {
+    updatePressureEditing('max', true);
+  }, [updatePressureEditing]);
+
+  const handleMaxBlur = React.useCallback(() => {
+    updatePressureEditing('max', false);
+    if (pressureDraft.max === '') {
+      setActiveSettings({ maxPressure: undefined });
+      const fallback = getDefaultMaxPressurePercent(activeSettings.brushShape).toString();
+      setPressureDraft((draft) => (draft.max === fallback ? draft : { ...draft, max: fallback }));
+      return;
+    }
+    handleMaxChange(pressureDraft.max);
+  }, [
+    pressureDraft.max,
+    activeSettings.brushShape,
+    updatePressureEditing,
+    handleMaxChange,
+    setActiveSettings,
+  ]);
 
   React.useEffect(() => {
     // Only auto-enable shapeMode for SHAPE_FILL when the current tool is 'brush'
@@ -648,13 +826,10 @@ const BrushControls = () => {
                   <Input
                     type="number"
                     variant="compact"
-                    value={activeSettings.minPressure || 1}
-                    onChange={(e) => {
-                      const newMin = parseInt(e.target.value) || 1;
-                      setActiveSettings({
-                        minPressure: newMin,
-                      });
-                    }}
+                    value={pressureDraft.min}
+                    onChange={(e) => handleMinChange(e.target.value)}
+                    onFocus={handleMinFocus}
+                    onBlur={handleMinBlur}
                     min="1"
                     max="1000"
                     className="w-12 bg-transparent"
@@ -665,11 +840,10 @@ const BrushControls = () => {
                   <Input
                     type="number"
                     variant="compact"
-                    value={activeSettings.maxPressure ?? 200}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value);
-                      setActiveSettings({ maxPressure: value || undefined });
-                    }}
+                    value={pressureDraft.max}
+                    onChange={(e) => handleMaxChange(e.target.value)}
+                    onFocus={handleMaxFocus}
+                    onBlur={handleMaxBlur}
                     min="1"
                     max="1000"
                     className="w-12 bg-transparent"
@@ -866,11 +1040,10 @@ const BrushControls = () => {
                 <Input
                   type="number"
                   variant="compact"
-                  value={activeSettings.minPressure || 1}
-                  onChange={(e) => {
-                    const newMin = parseInt(e.target.value) || 1;
-                    setActiveSettings({ minPressure: newMin });
-                  }}
+                  value={pressureDraft.min}
+                  onChange={(e) => handleMinChange(e.target.value)}
+                  onFocus={handleMinFocus}
+                  onBlur={handleMinBlur}
                   min="1"
                   max="1000"
                     className="w-12 bg-transparent"
@@ -881,11 +1054,10 @@ const BrushControls = () => {
                 <Input
                   type="number"
                   variant="compact"
-                  value={activeSettings.maxPressure ?? 200}
-                  onChange={(e) => {
-                    const value = parseInt(e.target.value);
-                    setActiveSettings({ maxPressure: value || undefined });
-                  }}
+                  value={pressureDraft.max}
+                  onChange={(e) => handleMaxChange(e.target.value)}
+                  onFocus={handleMaxFocus}
+                  onBlur={handleMaxBlur}
                   min="1"
                   max="1000"
                     className="w-12 bg-transparent"
@@ -1109,13 +1281,10 @@ const BrushControls = () => {
                 <Input
                   type="number"
                   variant="compact"
-                  value={activeSettings.minPressure || 1}
-                  onChange={(e) => {
-                    const newMin = parseInt(e.target.value) || 1;
-                    setActiveSettings({
-                      minPressure: newMin,
-                    });
-                  }}
+                  value={pressureDraft.min}
+                  onChange={(e) => handleMinChange(e.target.value)}
+                  onFocus={handleMinFocus}
+                  onBlur={handleMinBlur}
                   min="1"
                   max="1000"
                   className="w-12 bg-transparent"
@@ -1126,11 +1295,10 @@ const BrushControls = () => {
                 <Input
                   type="number"
                   variant="compact"
-                  value={activeSettings.maxPressure ?? 200}
-                  onChange={(e) => {
-                    const value = parseInt(e.target.value);
-                    setActiveSettings({ maxPressure: value || undefined });
-                  }}
+                  value={pressureDraft.max}
+                  onChange={(e) => handleMaxChange(e.target.value)}
+                  onFocus={handleMaxFocus}
+                  onBlur={handleMaxBlur}
                   min="1"
                   max="1000"
                   className="w-12 bg-transparent"
@@ -1773,13 +1941,10 @@ const BrushControls = () => {
               <Input
                 type="number"
                 variant="compact"
-                value={activeSettings.minPressure || 1}
-                onChange={(e) => {
-                  const newMin = parseInt(e.target.value) || 1;
-                  setActiveSettings({
-                    minPressure: newMin,
-                  });
-                }}
+                value={pressureDraft.min}
+                onChange={(e) => handleMinChange(e.target.value)}
+                onFocus={handleMinFocus}
+                onBlur={handleMinBlur}
                 min="1"
                 max="1000"
                 className="w-8 bg-transparent"
@@ -1790,11 +1955,10 @@ const BrushControls = () => {
               <Input
                 type="number"
                 variant="compact"
-                value={activeSettings.maxPressure ?? 100}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value);
-                  setActiveSettings({ maxPressure: value || undefined });
-                }}
+                value={pressureDraft.max}
+                onChange={(e) => handleMaxChange(e.target.value)}
+                onFocus={handleMaxFocus}
+                onBlur={handleMaxBlur}
                 min="1"
                 max="1000"
                 className="w-8 bg-transparent"

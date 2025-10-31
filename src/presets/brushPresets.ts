@@ -11,9 +11,9 @@ export const pixelBrushSettings: BrushSettings = {
   pressure: 1,
   rotation: 0,
   antialiasing: false,
-  pressureEnabled: false,
-  minPressure: 1,
-  maxPressure: 2,
+  pressureEnabled: true,
+  minPressure: 100,   // Maintain 1px at light pressure
+  maxPressure: 300,   // Grow to 3px at firm pressure
   rotationEnabled: false,
   rotationConfig: {
     enabled: false,
@@ -195,7 +195,9 @@ export const pixelBrushPreset: BrushPreset = {
   preferredSettings: {
     size: 1,
     antialiasing: false,
-    pressureEnabled: false,
+    pressureEnabled: true,
+    minPressure: 100,
+    maxPressure: 300,
     rotationEnabled: false,
     dashedEnabled: false,
     gridSnapEnabled: false,
@@ -331,7 +333,18 @@ export const roundPixel4Preset: BrushPreset = {
   tags: ['pixel', 'round', '4px', 'hard'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 4,
+    antialiasing: false,
+    pressureEnabled: true,
+    minPressure: 100,
+    maxPressure: 300,
+    rotationEnabled: false,
+    dashedEnabled: false,
+    gridSnapEnabled: false,
+    shapeEnabled: false
+  }
 };
 
 // 6px Round Square Brush Components
@@ -896,9 +909,9 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;
-    settings.pressureEnabled = true;
-    settings.minPressure = 50;  // 50% size at min pressure
-    settings.maxPressure = 200; // 200% size at max pressure
+    settings.pressureEnabled = false;
+    settings.minPressure = 1;
+    settings.maxPressure = undefined;
   }
   // Removed hardcoded opacity, spacing, colorJitter - these should come from user preferences or store defaults
   

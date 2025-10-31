@@ -336,6 +336,7 @@ import type { FillParams, ShapeFillId, ShapeFillSession, ShapeFillParamKey, Vec2
 import { FillStage } from '@/shapeFill/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { configureMaskManager } from '@/layers/MaskManager';
+import { clampPressurePercent, getDefaultMaxPressurePercent } from '@/utils/pressureSettings';
 
 // Get global manager instance
 const colorCycleBrushManager = getColorCycleBrushManager();
@@ -504,6 +505,41 @@ const isColorCyclePresetId = (id: string): id is (typeof COLOR_CYCLE_PRESET_IDS)
   return COLOR_CYCLE_PRESET_IDS.includes(id as (typeof COLOR_CYCLE_PRESET_IDS)[number]);
 };
 
+type PressureSettings = {
+  enabled: boolean;
+  min: number;
+  max: number;
+};
+
+const applyPressureUpdate = (current: PressureSettings, updates: Partial<PressureSettings>): PressureSettings => {
+  const nextEnabled = updates.enabled ?? current.enabled;
+  const nextMin = clampPressurePercent(updates.min ?? current.min);
+  const nextMaxRaw = clampPressurePercent(updates.max ?? current.max);
+  const nextMax = Math.max(nextMin, nextMaxRaw);
+
+  return {
+    enabled: nextEnabled,
+    min: nextMin,
+    max: nextMax,
+  };
+};
+
+const applyPressureToTools = (tools: ToolState, pressure: PressureSettings): ToolState => ({
+  ...tools,
+  brushSettings: {
+    ...tools.brushSettings,
+    pressureEnabled: pressure.enabled,
+    minPressure: pressure.min,
+    maxPressure: pressure.max,
+  },
+  eraserSettings: {
+    ...tools.eraserSettings,
+    pressureEnabled: pressure.enabled,
+    minPressure: pressure.min,
+    maxPressure: pressure.max,
+  },
+});
+
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
   return {
@@ -514,9 +550,6 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
     risographIntensity: settings.risographIntensity,
     ditherEnabled: settings.ditherEnabled,
     fillResolution: settings.fillResolution,
-    pressureEnabled: settings.pressureEnabled,
-    minPressure: settings.minPressure,
-    maxPressure: settings.maxPressure,
     rotationEnabled: settings.rotationEnabled,
     dashedEnabled: settings.dashedEnabled,
     dashLength: settings.dashLength,
@@ -737,6 +770,8 @@ export interface AppState {
   // Global brush settings
   globalBrushSize: number;
   setGlobalBrushSize: (size: number) => void;
+  pressureSettings: PressureSettings;
+  setPressureSettings: (settings: Partial<PressureSettings>) => void;
   
   // Unified size settings - one for all default brushes, one for all custom brushes
   defaultBrushesSize: number;  // Pixel-based size for all default brushes
@@ -1009,6 +1044,15 @@ const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset)
 const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
   ...defaultPresetSettings
+};
+
+const defaultPressureSettings: PressureSettings = {
+  enabled: Boolean(defaultBrushSettingsForStore.pressureEnabled),
+  min: clampPressurePercent(defaultBrushSettingsForStore.minPressure ?? 100),
+  max: clampPressurePercent(
+    defaultBrushSettingsForStore.maxPressure ??
+      getDefaultMaxPressurePercent(defaultBrushSettingsForStore.brushShape)
+  ),
 };
 
 type PersistedColorCycleData = Omit<NonNullable<Layer['colorCycleData']>, 'brushState'> & {
@@ -2013,11 +2057,20 @@ export const useAppStore = create<AppState>()(
       },
       colorCycleRuntimeHandlers: {},
       setColorCycleRuntimeHandlers: (handlers) => set(() => ({
-        colorCycleRuntimeHandlers: handlers ?? {}
-      })),
+      colorCycleRuntimeHandlers: handlers ?? {}
+    })),
       
       // Global brush settings
       globalBrushSize: defaultBrushSettingsForStore.size ?? 5,
+      pressureSettings: defaultPressureSettings,
+      setPressureSettings: (updates) => set((state) => {
+        const nextPressure = applyPressureUpdate(state.pressureSettings, updates);
+        const nextTools = applyPressureToTools(state.tools, nextPressure);
+        return {
+          pressureSettings: nextPressure,
+          tools: nextTools,
+        };
+      }),
       
       // Unified size settings - one for all default brushes, one for all custom brushes
       defaultBrushesSize: 5,   // 5px for all default brushes
@@ -3080,8 +3133,16 @@ export const useAppStore = create<AppState>()(
           });
         }
 
-        return {
-          tools: {
+        const pressure = state.pressureSettings;
+        const syncedBrushSettings = {
+          ...newBrushSettings,
+          pressureEnabled: pressure.enabled,
+          minPressure: pressure.min,
+          maxPressure: pressure.max,
+        };
+
+        const nextTools = applyPressureToTools(
+          {
             ...state.tools,
             previousTool: state.tools.currentTool,
             currentTool: tool,
@@ -3089,9 +3150,14 @@ export const useAppStore = create<AppState>()(
             lastRegularBrushShape: lastRegularBrushShape,
             lastRegularShapeMode,
             lastColorCycleShapeMode,
-            brushSettings: newBrushSettings,
+            brushSettings: syncedBrushSettings,
             shapeMode: newShapeMode
-          }
+          },
+          pressure
+        );
+
+        return {
+          tools: nextTools
         };
         });
         } catch {}
@@ -3117,13 +3183,53 @@ export const useAppStore = create<AppState>()(
           ...incomingSettings,
         } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
 
+        const pressureUpdates: Partial<PressureSettings> = {};
+        let hasPressureUpdate = false;
+
+        if (Object.prototype.hasOwnProperty.call(settings, 'pressureEnabled')) {
+          const value = settings.pressureEnabled;
+          if (value !== undefined) {
+            pressureUpdates.enabled = Boolean(value);
+            hasPressureUpdate = true;
+          }
+          delete settings.pressureEnabled;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(settings, 'minPressure')) {
+          const value = settings.minPressure;
+          if (value !== undefined) {
+            pressureUpdates.min = Number(value);
+            hasPressureUpdate = true;
+          }
+          delete settings.minPressure;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(settings, 'maxPressure')) {
+          const value = settings.maxPressure;
+          if (value !== undefined) {
+            pressureUpdates.max = Number(value);
+            hasPressureUpdate = true;
+          }
+          delete settings.maxPressure;
+        }
+
+        const nextPressure = hasPressureUpdate
+          ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
+          : state.pressureSettings;
+
         if (settings.colorCycleFlowForward !== undefined) {
           settings.colorCycleFlowMode = settings.colorCycleFlowForward === false ? 'reverse' : 'forward';
           delete settings.colorCycleFlowForward;
         }
 
         const currentSettings = state.tools.brushSettings;
-        const newSettings = { ...currentSettings, ...settings };
+        let newSettings = { ...currentSettings, ...settings };
+        newSettings = {
+          ...newSettings,
+          pressureEnabled: nextPressure.enabled,
+          minPressure: nextPressure.min,
+          maxPressure: nextPressure.max,
+        };
         const explicitGradientVersion = settings.colorCycleGradientVersion;
         if (settings.colorCycleGradient !== undefined && explicitGradientVersion === undefined) {
           const gradientChanged = !gradientsEqual(
@@ -3169,18 +3275,21 @@ export const useAppStore = create<AppState>()(
           const settingsToSave: Partial<BrushSettings> = {
             ...existingSavedSettings
           };
+
+          delete settingsToSave.pressureEnabled;
+          delete settingsToSave.minPressure;
+          delete settingsToSave.maxPressure;
           
           // Update with changed settings
-          if (settings.size !== undefined) settingsToSave.size = newSettings.size;
+        if (settings.size !== undefined && newSettings.brushShape !== BrushShape.CUSTOM) {
+          settingsToSave.size = newSettings.size;
+        }
           if (settings.opacity !== undefined) settingsToSave.opacity = newSettings.opacity;
           if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
           if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
           if (settings.risographIntensity !== undefined) settingsToSave.risographIntensity = newSettings.risographIntensity;
           if (settings.ditherEnabled !== undefined) settingsToSave.ditherEnabled = newSettings.ditherEnabled;
           if (settings.fillResolution !== undefined) settingsToSave.fillResolution = newSettings.fillResolution;
-          if (settings.pressureEnabled !== undefined) settingsToSave.pressureEnabled = newSettings.pressureEnabled;
-          if (settings.minPressure !== undefined) settingsToSave.minPressure = newSettings.minPressure;
-          if (settings.maxPressure !== undefined) settingsToSave.maxPressure = newSettings.maxPressure;
           if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
           if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;
           if (settings.dashLength !== undefined) settingsToSave.dashLength = newSettings.dashLength;
@@ -3301,7 +3410,13 @@ export const useAppStore = create<AppState>()(
             brushSettings: newSettings
           },
           // Update globalBrushSize if we're switching brush types
-          ...(newGlobalBrushSize !== undefined ? { globalBrushSize: newGlobalBrushSize } : {})
+          ...(newGlobalBrushSize !== undefined ? { globalBrushSize: newGlobalBrushSize } : {}),
+          pressureSettings: nextPressure
+        };
+
+        updatedState = {
+          ...updatedState,
+          tools: applyPressureToTools(updatedState.tools, nextPressure)
         };
 
         if (nextBrushEditor !== state.brushEditor) {
@@ -3353,8 +3468,50 @@ export const useAppStore = create<AppState>()(
           return state;
         }
       }),
-      setEraserSettings: (settings) => set((state) => {
-        const next = { ...state.tools.eraserSettings, ...settings };
+      setEraserSettings: (incomingSettings) => set((state) => {
+        const settings = { ...incomingSettings } as Partial<BrushSettings>;
+
+        const pressureUpdates: Partial<PressureSettings> = {};
+        let hasPressureUpdate = false;
+
+        if (Object.prototype.hasOwnProperty.call(settings, 'pressureEnabled')) {
+          const value = settings.pressureEnabled;
+          if (value !== undefined) {
+            pressureUpdates.enabled = Boolean(value);
+            hasPressureUpdate = true;
+          }
+          delete settings.pressureEnabled;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(settings, 'minPressure')) {
+          const value = settings.minPressure;
+          if (value !== undefined) {
+            pressureUpdates.min = Number(value);
+            hasPressureUpdate = true;
+          }
+          delete settings.minPressure;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(settings, 'maxPressure')) {
+          const value = settings.maxPressure;
+          if (value !== undefined) {
+            pressureUpdates.max = Number(value);
+            hasPressureUpdate = true;
+          }
+          delete settings.maxPressure;
+        }
+
+        const nextPressure = hasPressureUpdate
+          ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
+          : state.pressureSettings;
+
+        const next = {
+          ...state.tools.eraserSettings,
+          ...settings,
+          pressureEnabled: nextPressure.enabled,
+          minPressure: nextPressure.min,
+          maxPressure: nextPressure.max,
+        };
         if (settings.linkSizeToBrush === true) {
           const syncSize = state.globalBrushSize ?? next.size;
           if (typeof syncSize === 'number') {
@@ -3374,18 +3531,24 @@ export const useAppStore = create<AppState>()(
           };
         }
 
-        const nextTools: ToolState = {
+        const baseTools: ToolState = {
           ...state.tools,
           eraserSettings: next,
           brushSettings: paletteUpdate
             ? { ...state.tools.brushSettings, color: paletteUpdate.foregroundColor }
             : state.tools.brushSettings
         };
+
+        const nextTools = applyPressureToTools(baseTools, nextPressure);
+        const baseReturn = {
+          tools: nextTools,
+          pressureSettings: nextPressure,
+        };
         if (!paletteUpdate) {
-          return { tools: nextTools };
+          return baseReturn;
         }
         return {
-          tools: nextTools,
+          ...baseReturn,
           palette: paletteUpdate,
           project: state.project ? { ...state.project, palette: paletteUpdate } : null
         };
@@ -3650,7 +3813,14 @@ export const useAppStore = create<AppState>()(
 
         set((state) => {
         // --- THIS IS THE NEW, ROBUST REPLACEMENT ---
-        const userOverrides = get().loadBrushSettings(preset.id);
+        let userOverrides = get().loadBrushSettings(preset.id);
+        if (preset.isCustomBrush && userOverrides) {
+          userOverrides = { ...userOverrides };
+          delete userOverrides.size;
+          delete userOverrides.pressureEnabled;
+          delete userOverrides.minPressure;
+          delete userOverrides.maxPressure;
+        }
         const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
         const currentSettings = state.tools.brushSettings;
         let updatedBrushSpecificSettings = state.brushSpecificSettings;
@@ -3662,15 +3832,15 @@ export const useAppStore = create<AppState>()(
         // Get appropriate size for this brush type using individual brush-specific sizing
         let appropriateSize;
         if (isNewPresetCustom) {
-          // Custom brushes use the stored custom brush size
-          appropriateSize = state.customBrushesSize;
+          // Custom brushes reset to 100% (original size)
+          appropriateSize = 100;
         } else {
           // Default brushes use saved size if available, otherwise shared size
           const savedSize = userOverrides.size;
           appropriateSize = savedSize !== undefined ? savedSize : state.defaultBrushesSize;
         }
-        
-        const newBrushSettings: BrushSettings = {
+
+        let newBrushSettings: BrushSettings = {
           ...defaultBrushSettingsForStore, // 1. Start with the absolute base defaults.
           ...presetDefaults,               // 2. Apply the preset settings (which now includes user overrides).
           
@@ -3678,6 +3848,14 @@ export const useAppStore = create<AppState>()(
           color: currentSettings.color,
           blendMode: currentSettings.blendMode,
           size: appropriateSize            // Use appropriate size based on brush type
+        };
+
+        const globalPressure = state.pressureSettings;
+        newBrushSettings = {
+          ...newBrushSettings,
+          pressureEnabled: globalPressure.enabled,
+          minPressure: globalPressure.min,
+          maxPressure: globalPressure.max,
         };
 
         // Preserve Color Cycle dynamics across preset switches unless user changes them
@@ -3862,12 +4040,15 @@ export const useAppStore = create<AppState>()(
         // Clear temporary brush when switching away from custom brushes
         const brushSpecificSettingsChanged = updatedBrushSpecificSettings !== state.brushSpecificSettings;
 
+        const nextCustomBrushesSize = isNewPresetCustom ? appropriateSize : state.customBrushesSize;
+
         const updatedState = {
           ...state,
           ...(brushSpecificSettingsChanged ? { brushSpecificSettings: updatedBrushSpecificSettings } : {}),
           currentBrushPreset: preset,
           activeBrushComponents: components,
           globalBrushSize: appropriateSize, // Update global size to match new brush
+          customBrushesSize: nextCustomBrushesSize,
           tools: {
             ...state.tools,
             // Keep shapeMode separate between CC and default brushes
@@ -3879,18 +4060,24 @@ export const useAppStore = create<AppState>()(
             brushSettings: newBrushSettings
           }
         };
+
+        const pressureSyncedState = {
+          ...updatedState,
+          pressureSettings: globalPressure,
+          tools: applyPressureToTools(updatedState.tools, globalPressure)
+        };
         
         // If switching away from custom brush, discard temporary brush
         if (presetDefaults.brushShape !== undefined && 
             currentSettings.brushShape === BrushShape.CUSTOM && 
             presetDefaults.brushShape !== BrushShape.CUSTOM) {
           return {
-            ...updatedState,
+            ...pressureSyncedState,
             temporaryCustomBrush: null
           };
         }
         
-        return updatedState;
+        return pressureSyncedState;
         });
       },
       getBrushPresets: () => brushPresets,
@@ -5028,7 +5215,10 @@ export const useAppStore = create<AppState>()(
           useSwatchColor: false, // Ensure it uses the brush's colors
           hueShift: 0,           // <--- CRITICAL: Reset global hueShift here
           lightnessAdjust: 0,    // Reset lightness when selecting new brush
-          saturationAdjust: 100  // <--- CRITICAL: Reset global saturationAdjust here
+          saturationAdjust: 100,  // <--- CRITICAL: Reset global saturationAdjust here
+          pressureEnabled: false,
+          minPressure: 1,
+          maxPressure: undefined
         };
 
         return {
@@ -5176,7 +5366,10 @@ export const useAppStore = create<AppState>()(
               hueShift: 0,           // Reset since transformations are now baked into the brush
               lightnessAdjust: 0,
               saturationAdjust: 100, // Reset since transformations are now baked into the brush
-              size: 100              // New custom brush starts at 100%
+              size: 100,             // New custom brush starts at 100%
+              pressureEnabled: false,
+              minPressure: 1,
+              maxPressure: undefined
             }
           }
         };
@@ -6508,6 +6701,10 @@ export const useAppStore = create<AppState>()(
           normalized.colorCycleFlowMode = normalized.colorCycleFlowForward === false ? 'reverse' : 'forward';
           delete normalized.colorCycleFlowForward;
         }
+
+        delete normalized.pressureEnabled;
+        delete normalized.minPressure;
+        delete normalized.maxPressure;
 
         return normalized;
       },

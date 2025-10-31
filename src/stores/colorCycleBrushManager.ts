@@ -9,6 +9,7 @@ import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCyc
 import { defaultBrushSettings } from '@/presets/brushPresets';
 import type { BrushSettings, Layer } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 
 type BrushWithOptionalControls = ColorCycleBrushImplementation & {
   usesWebGL?: boolean;
@@ -126,15 +127,16 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       if (typeof currentSettings.spacing === 'number') {
         brush.setBandSpacing(currentSettings.spacing);
       }
-      if (typeof currentSettings.pressureEnabled === 'boolean') {
-        brush.setPressureEnabled(currentSettings.pressureEnabled);
-      }
-      if (typeof currentSettings.minPressure === 'number') {
-        brush.setMinPressure(currentSettings.minPressure);
-      }
-      if (typeof currentSettings.maxPressure === 'number') {
-        brush.setMaxPressure(currentSettings.maxPressure);
-      }
+      const baseSize = Math.max(1, Math.round(currentSettings.size ?? defaultBrushSettings.size ?? 1));
+      const pressureRange = resolveBrushPressureRange(currentSettings);
+      const pressureActive = pressureRange.enabled;
+      const minPercent = pressureActive ? pressureRange.minPercent : 100;
+      const maxPercent = pressureActive ? pressureRange.maxPercent : 100;
+
+      brush.setBrushSize(baseSize);
+      brush.setPressureEnabled(pressureActive);
+      brush.setMinPressure(minPercent);
+      brush.setMaxPressure(maxPercent);
       if (typeof currentSettings.ditherEnabled === 'boolean') {
         brush.setDitherEnabled(currentSettings.ditherEnabled);
       }
@@ -293,15 +295,16 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
             if (typeof currentSettings.spacing === 'number') {
               existingBrush.setBandSpacing(currentSettings.spacing);
             }
-            if (typeof currentSettings.pressureEnabled === 'boolean') {
-              existingBrush.setPressureEnabled(currentSettings.pressureEnabled);
-            }
-            if (typeof currentSettings.minPressure === 'number') {
-              existingBrush.setMinPressure(currentSettings.minPressure);
-            }
-            if (typeof currentSettings.maxPressure === 'number') {
-              existingBrush.setMaxPressure(currentSettings.maxPressure);
-            }
+            const baseSize = Math.max(1, Math.round(currentSettings.size ?? defaultBrushSettings.size ?? 1));
+            const pressureRange = resolveBrushPressureRange(currentSettings);
+            const pressureActive = pressureRange.enabled;
+            const minPercent = pressureActive ? pressureRange.minPercent : 100;
+            const maxPercent = pressureActive ? pressureRange.maxPercent : 100;
+
+            existingBrush.setBrushSize(baseSize);
+            existingBrush.setPressureEnabled(pressureActive);
+            existingBrush.setMinPressure(minPercent);
+            existingBrush.setMaxPressure(maxPercent);
             if (typeof currentSettings.ditherEnabled === 'boolean') {
               existingBrush.setDitherEnabled(currentSettings.ditherEnabled);
             }

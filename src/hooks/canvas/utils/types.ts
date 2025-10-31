@@ -138,7 +138,7 @@ export interface EventHandlerDependencies {
   // Cursor state
   setCursorStyle: React.Dispatch<React.SetStateAction<string>>;
   setShowBrushCursor: React.Dispatch<React.SetStateAction<boolean>>;
-  setMousePosition: React.Dispatch<React.SetStateAction<{ x: number; y: number }>>;
+  setCursorPosition: (screenX: number, screenY: number) => void;
   
   // Hooks
   interaction: {

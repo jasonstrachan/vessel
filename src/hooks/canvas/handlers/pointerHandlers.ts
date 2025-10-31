@@ -227,7 +227,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     floatingPasteOriginalPos,
     setCursorStyle,
     setShowBrushCursor,
-    setMousePosition,
+    setCursorPosition,
     updateFloatingPastePosition,
     setFloatingPaste,
     commitFloatingPaste,
@@ -322,17 +322,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       : worldPos;
 
     if (!rect) {
-      setMousePosition({
-        x: displayWorld.x * scale,
-        y: displayWorld.y * scale,
-      });
+      setCursorPosition(displayWorld.x * scale, displayWorld.y * scale);
       return;
     }
     const screenPos = pan.worldToScreen(displayWorld.x, displayWorld.y, scale);
-    setMousePosition({
-      x: rect.left + screenPos.x,
-      y: rect.top + screenPos.y,
-    });
+    setCursorPosition(rect.left + screenPos.x, rect.top + screenPos.y);
   };
 
   const setContourLinesState = (partialState: Partial<ContourLinesState>) => {

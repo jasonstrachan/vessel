@@ -4,6 +4,7 @@
  */
 
 import { applyPressureCurve, type CurvePreset } from './pressureCurve';
+import { clampPressurePercent } from './pressureSettings';
 
 interface PressureResult {
   adjustedSize: number;
@@ -61,14 +62,15 @@ class PressureOptimizer {
 
     // minPressure and maxPressure from UI are percentages (1-1000)
     // Convert them to percentage values for the pressure curve
-    const minPercent = settings.minPressure !== undefined ? settings.minPressure : 100;
-    const maxPercent = settings.maxPressure !== undefined ? settings.maxPressure : 100;
+    const minPercent = clampPressurePercent(settings.minPressure !== undefined ? settings.minPressure : 100);
+    const maxPercent = clampPressurePercent(settings.maxPressure !== undefined ? settings.maxPressure : 100);
+    const clampedMax = Math.max(minPercent, maxPercent);
     
     const cacheKey = this.getCacheKey(
       baseSize,
       settings.rawPressure,
       minPercent,
-      maxPercent,
+      clampedMax,
       settings.pressureEnabled
     );
 
@@ -88,7 +90,7 @@ class PressureOptimizer {
     const multiplier = applyPressureCurve(
       settings.rawPressure,
       minPercent,  // Percentage format (1-1000)
-      maxPercent,  // Percentage format (1-1000)
+      clampedMax,  // Percentage format (1-1000)
       curveType
     );
     

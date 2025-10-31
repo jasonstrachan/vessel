@@ -81,7 +81,7 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     // Cursor state
     setCursorStyle: jest.fn(),
     setShowBrushCursor: jest.fn(),
-    setMousePosition: jest.fn(),
+    setCursorPosition: jest.fn(),
 
     // Hooks stubs
     interaction: { state: {}, dispatch: jest.fn(), refs: { selectionStart: { current: null }, drawAnimationFrame: { current: null }, lastDrawPos: { current: null }, drawingCanvas: { current: null }, drawingCanvasHasContent: { current: false }, isCapturing: { current: false } } },

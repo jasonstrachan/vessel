@@ -10,6 +10,7 @@ import { BrushShape, type Layer } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 
@@ -2081,16 +2082,16 @@ export const useBrushEngineSimplified = () => {
     rotation: number = 0,
     options?: DrawColorCycleOptions
   ) => {
-    // Compute effective pressure settings (store may not reflect forced CC values)
-    const storePressureEnabled = tools.brushSettings.pressureEnabled;
+    // Compute effective pressure settings shared with raster brushes
+    const baseBrushSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
+    const pressureRange = resolveBrushPressureRange(tools.brushSettings);
     const isStrokeVariant =
       tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
       tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
-    const effectivePressureEnabled = isStrokeVariant ? true : !!storePressureEnabled;
-    const effectiveMin = tools.brushSettings.minPressure ?? 50;
-    const effectiveMax = tools.brushSettings.maxPressure ?? 200;
-    
-    
+    const pressureActive = isStrokeVariant ? true : pressureRange.enabled;
+    const minPercent = pressureActive ? pressureRange.minPercent : 100;
+    const maxPercent = pressureActive ? pressureRange.maxPercent : 100;
+
     try {
       // DEFENSIVE GUARD: Check if color cycle brush should be used
       // This prevents crashes when incompatible layer types are used
@@ -2098,7 +2099,7 @@ export const useBrushEngineSimplified = () => {
       if (!colorCycleBrush) {
         return;
       }
-      
+
       // Ensure pressure settings are applied (might be a newly created brush)
       // Log current settings to debug - only once per stroke to avoid spam
       if (!ctx.canvas.dataset.loggedSettings) {
@@ -2114,12 +2115,10 @@ export const useBrushEngineSimplified = () => {
       // Set pressure settings FIRST before painting
       try {
         // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
-        const shouldEnablePressure = effectivePressureEnabled;
-        colorCycleBrush.setPressureEnabled(shouldEnablePressure);
-        // quiet
+        colorCycleBrush.setPressureEnabled(pressureActive);
         // Always set pressure values, using sensible defaults if not specified
-        colorCycleBrush.setMinPressure(effectiveMin);
-        colorCycleBrush.setMaxPressure(effectiveMax);
+        colorCycleBrush.setMinPressure(minPercent);
+        colorCycleBrush.setMaxPressure(maxPercent);
       } catch (error) {
         console.error('[CC DrawCycle] Error setting pressure:', error);
       }
@@ -2133,14 +2132,15 @@ export const useBrushEngineSimplified = () => {
         console.error('[CC DrawCycle] Error setting stamp shape:', error);
       }
       
-      let brushSizeSetting = tools.brushSettings.size || 1;
+      let brushSizeSetting = baseBrushSize;
       if (options?.customStamp) {
         const stamp = options.customStamp;
         if (stamp.isResampler) {
           brushSizeSetting = tools.brushSettings.size || brushSizeSetting;
         } else {
           const maxDimension = Math.max(stamp.width, stamp.height) || 1;
-          brushSizeSetting = (tools.brushSettings.size / 100) * maxDimension;
+          const baseSizePercent = tools.brushSettings.size / 100;
+          brushSizeSetting = baseSizePercent * maxDimension;
         }
       }
 
@@ -2525,41 +2525,39 @@ export const useBrushEngineSimplified = () => {
 
   // Perceptual dithering removed
   
-  // Update pressure enabled when it changes
+  // Sync pressure configuration with active color cycle brush
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush) {
-      try {
-        colorCycleBrush.setPressureEnabled(tools.brushSettings.pressureEnabled || false);
-      } catch (error) {
-        console.error('[CC Effect] Failed to set pressure enabled:', error);
-      }
+    if (!colorCycleBrush) {
+      return;
     }
-  }, [tools.brushSettings.pressureEnabled, activeLayerId, getActiveLayerColorCycleBrush]);
-  
-  // Update min pressure when it changes
-  useEffect(() => {
-    const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && tools.brushSettings.minPressure) {
-      try {
-        colorCycleBrush.setMinPressure(tools.brushSettings.minPressure);
-      } catch (error) {
-        console.error('[CC Effect] Failed to set min pressure:', error);
-      }
+
+    const baseBrushSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
+    const { enabled, minPercent: rangeMinPercent, maxPercent: rangeMaxPercent } = resolveBrushPressureRange(tools.brushSettings);
+    const isStrokeVariant =
+      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
+    const shouldEnablePressure = isStrokeVariant ? true : enabled;
+    const minPercent = shouldEnablePressure ? rangeMinPercent : 100;
+    const maxPercent = shouldEnablePressure ? rangeMaxPercent : 100;
+
+    try {
+      colorCycleBrush.setPressureEnabled(shouldEnablePressure);
+      colorCycleBrush.setBrushSize(baseBrushSize);
+      colorCycleBrush.setMinPressure(minPercent);
+      colorCycleBrush.setMaxPressure(maxPercent);
+    } catch (error) {
+      console.error('[CC Effect] Failed to sync pressure settings:', error);
     }
-  }, [tools.brushSettings.minPressure, activeLayerId, getActiveLayerColorCycleBrush]);
-  
-  // Update max pressure when it changes
-  useEffect(() => {
-    const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && tools.brushSettings.maxPressure) {
-      try {
-        colorCycleBrush.setMaxPressure(tools.brushSettings.maxPressure);
-      } catch (error) {
-        console.error('[CC Effect] Failed to set max pressure:', error);
-      }
-    }
-  }, [tools.brushSettings.maxPressure, activeLayerId, getActiveLayerColorCycleBrush]);
+  }, [
+    activeLayerId,
+    getActiveLayerColorCycleBrush,
+    tools.brushSettings.pressureEnabled,
+    tools.brushSettings.minPressure,
+    tools.brushSettings.maxPressure,
+    tools.brushSettings.brushShape,
+    tools.brushSettings.size,
+  ]);
 
   useEffect(() => {
     let previous = selectEffectiveColorCyclePlaying(useAppStore.getState());

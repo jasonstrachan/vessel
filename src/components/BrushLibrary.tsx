@@ -35,7 +35,8 @@ const BrushLibrary = () => {
 
     return project.customBrushes.map((customBrush) =>
       createCustomBrushPreset(customBrush, {
-        isDefault: defaultCustomBrushId === customBrush.id
+        isDefault: defaultCustomBrushId === customBrush.id,
+        thumbnail: customBrush.thumbnail
       })
     );
   }, [project?.customBrushes, defaultCustomBrushId]);
@@ -319,25 +320,48 @@ const BrushLibrary = () => {
               >
                 <div className="flex items-center gap-0.5">
                   {preset.isCustomBrush ? (
-                    preset.thumbnail ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={preset.thumbnail}
-                        alt={`${preset.name} thumbnail`}
-                        width={iconSizePx}
-                        height={iconSizePx}
-                        style={{
-                          imageRendering: 'pixelated',
-                          width: `${iconSizePx}px`,
-                          height: `${iconSizePx}px`,
-                          display: 'block',
-                          flexShrink: 0,
-                          filter: isActive ? 'invert(1)' : 'none'
-                        }}
-                      />
-                    ) : (
-                      renderFallbackIcon(isSpamBrush ? 'text' : 'square', isActive)
-                    )
+                    <div
+                      style={{
+                        width: `${iconSizePx}px`,
+                        height: `${iconSizePx}px`,
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '4px',
+                        border: isActive ? '1px solid #1A1A1A' : '1px solid #3D3D3D',
+                        padding: '2px',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      {preset.thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={preset.thumbnail}
+                          alt={`${preset.name} thumbnail`}
+                          width={iconSizePx - 4}
+                          height={iconSizePx - 4}
+                          style={{
+                            imageRendering: 'pixelated',
+                            width: '100%',
+                            height: '100%',
+                            display: 'block'
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            backgroundImage:
+                              'linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%), linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%)',
+                            backgroundSize: '6px 6px',
+                            backgroundPosition: '0 0, 3px 3px'
+                          }}
+                        />
+                      )}
+                    </div>
                   ) : brushThumbnails[preset.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img

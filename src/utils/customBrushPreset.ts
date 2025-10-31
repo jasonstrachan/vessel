@@ -2,6 +2,7 @@ import { BrushPreset, BrushShape, ComponentType, CustomBrush } from '@/types';
 
 interface CustomBrushPresetOptions {
   isDefault?: boolean;
+  thumbnail?: string;
 }
 
 export function createCustomBrushPreset(
@@ -23,7 +24,7 @@ export function createCustomBrushPreset(
         enabled: true
       }
     ],
-    thumbnail: brush.thumbnail,
+    thumbnail: options.thumbnail ?? brush.thumbnail,
     tags: ['custom', 'loaded'],
     isDefault: Boolean(options.isDefault),
     createdAt: new Date(brush.createdAt),
