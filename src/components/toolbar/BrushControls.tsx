@@ -77,7 +77,6 @@ const BrushControls = () => {
     currentTool === 'eraser' ? eraserSettings : brushSettings;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
-  const currentFlowMode = activeSettings.colorCycleFlowMode ?? 'forward';
 
   // Use the appropriate settings and setter based on current tool
   const setActiveSettings =
@@ -561,34 +560,6 @@ const BrushControls = () => {
               step={5}
               onChange={(value) => setActiveSettings({ colorCycleFPS: Math.round(value) })}
               aria-label="Frames Per Second"
-              className="flex-1"
-            />
-          </div>
-        </div>
-
-        {/* Flow Direction */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Flow
-            </label>
-            <ButtonGroup
-              options={[
-                { label: 'Reverse', value: 'forward' },
-                { label: 'Forward', value: 'reverse' },
-                { label: 'Ping Pong', value: 'pingpong' }
-              ]}
-              value={currentFlowMode}
-              onChange={(value) => {
-                const mode = value === 'reverse' || value === 'pingpong' ? value : 'forward';
-                setActiveSettings({ colorCycleFlowMode: mode });
-                if (colorCycleRuntimeHandlers.setFlowMode) {
-                  colorCycleRuntimeHandlers.setFlowMode(mode);
-                } else if (colorCycleRuntimeHandlers.setFlowDirection) {
-                  colorCycleRuntimeHandlers.setFlowDirection(mode === 'reverse' ? 'backward' : 'forward');
-                }
-              }}
-              size="sm"
               className="flex-1"
             />
           </div>

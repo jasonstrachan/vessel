@@ -2,6 +2,7 @@
 
 import React from 'react';
 import ProgressSlider from '@/components/ui/ProgressSlider';
+import ButtonGroup from '@/components/ui/ButtonGroup';
 import { useAppStore, selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
 
 const AnimationControlsPanel: React.FC = () => {
@@ -9,12 +10,14 @@ const AnimationControlsPanel: React.FC = () => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
   const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
+  const colorCycleFlowMode = useAppStore(state => state.tools.brushSettings.colorCycleFlowMode ?? 'forward');
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const updateLayer = useAppStore(state => state.updateLayer);
   const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
   const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
   const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const isSuspended = desiredPlaying && suspendDepth > 0;
 
@@ -63,11 +66,26 @@ const AnimationControlsPanel: React.FC = () => {
     }
   }, [desiredPlaying, pauseColorCycle, playColorCycle]);
 
+  const handleFlowModeChange = React.useCallback((value: string) => {
+    const nextMode: 'forward' | 'reverse' | 'pingpong' =
+      value === 'reverse' || value === 'pingpong' ? value : 'forward';
+
+    setBrushSettings({ colorCycleFlowMode: nextMode });
+
+    if (nextMode === 'reverse' || nextMode === 'pingpong' || nextMode === 'forward') {
+      if (colorCycleRuntimeHandlers.setFlowMode) {
+        colorCycleRuntimeHandlers.setFlowMode(nextMode);
+      } else if (colorCycleRuntimeHandlers.setFlowDirection) {
+        colorCycleRuntimeHandlers.setFlowDirection(nextMode === 'reverse' ? 'backward' : 'forward');
+      }
+    }
+  }, [colorCycleRuntimeHandlers, setBrushSettings]);
+
   return (
     <div className="bg-[#1A1A1A] border-t border-[#404040]">
       <div className="px-4 py-3 space-y-3">
         <div className="flex items-center gap-2">
-          <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Speed</span>
+          <span className="text-[#D9D9D9] w-12" style={{ fontSize: '14px' }}>Speed</span>
           <ProgressSlider
             value={colorCycleSpeedValue}
             min={0.02}
@@ -76,6 +94,21 @@ const AnimationControlsPanel: React.FC = () => {
             onChange={handleSpeedChange}
             aria-label="Color Cycle Speed"
             className="flex-1"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[#D9D9D9] w-12" style={{ fontSize: '14px' }}>Flow</span>
+          <ButtonGroup
+            options={[
+              { label: '-->', value: 'forward' },
+              { label: '<--', value: 'reverse' },
+              { label: '<-->', value: 'pingpong' }
+            ]}
+            value={colorCycleFlowMode}
+            onChange={handleFlowModeChange}
+            className="flex-1 [&>button]:flex-1"
+            size="sm"
           />
         </div>
 
