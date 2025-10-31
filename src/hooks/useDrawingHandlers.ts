@@ -25,7 +25,7 @@ import { FinalizeQueue } from '@/lib/canvas';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
-import { markPendingColorCycleSaveEnd, markPendingColorCycleSaveStart, registerFinalizeQueue } from '@/stores/pendingColorCycleSaves';
+import { trackPendingColorCycleSave, registerFinalizeQueue } from '@/stores/pendingColorCycleSaves';
 import { perfMark, perfMeasure, timeAsync, timeSync } from '@/utils/perf/ccPerfProbe';
 import { getMaskManager } from '@/layers/MaskManager';
 import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
@@ -826,8 +826,7 @@ export function useDrawingHandlers({
       beforeImage = null,
       skipBitmapDelta = true,
       roi,
-    }: DeferredColorCycleSaveOptions) => {
-      markPendingColorCycleSaveStart(layerId);
+    }: DeferredColorCycleSaveOptions): Promise<void> => {
       const shouldCaptureCanvas = !skipBitmapDelta;
       let sanitizedRoi: CaptureRegion | undefined;
 
@@ -896,27 +895,37 @@ export function useDrawingHandlers({
         });
       };
 
-      const scheduleError = (error: unknown) => {
-        logError('Deferred color cycle save failed', error);
-        markPendingColorCycleSaveEnd(layerId, error);
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('[cc:defer] finalize queue rejected', error);
-        }
-      };
+      const trackedPromise = new Promise<void>((resolve, reject) => {
+        const scheduleError = (error: unknown) => {
+          logError('Deferred color cycle save failed', error);
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('[cc:defer] finalize queue rejected', error);
+          }
+          reject(error);
+        };
 
-      runIdle(() => {
+        const schedule = () => {
+          try {
+            const capturePromise = finalizeQueueRef.current.enqueue(captureStage, layerId);
+            capturePromise
+              .then(() => finalizeQueueRef.current.enqueue(commitStage, HISTORY_FINALIZE_LANE))
+              .then(resolve)
+              .catch(scheduleError);
+          } catch (error) {
+            scheduleError(error);
+          }
+        };
+
         try {
-          const capturePromise = finalizeQueueRef.current.enqueue(captureStage, layerId);
-          capturePromise
-            .then(() => finalizeQueueRef.current.enqueue(commitStage, HISTORY_FINALIZE_LANE))
-            .then(() => {
-              markPendingColorCycleSaveEnd(layerId);
-            })
-            .catch(scheduleError);
+          runIdle(schedule);
         } catch (error) {
           scheduleError(error);
         }
       });
+
+      trackPendingColorCycleSave(layerId, trackedPromise);
+
+      return trackedPromise;
     },
     [captureCanvasToActiveLayer, project, runIdle, runIdleAsync]
   );
