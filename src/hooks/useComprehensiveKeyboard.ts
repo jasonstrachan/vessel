@@ -104,6 +104,7 @@ export function useComprehensiveKeyboard({
     tools, 
     polygonGradientState,
     setGlobalBrushSize,
+    setCustomBrushSizePercent,
     setEraserSettings,
     deleteSelectedPixels,
     selectAllActiveLayerPixels,
@@ -347,19 +348,28 @@ export function useComprehensiveKeyboard({
       if (onBrushSizeDecrease) {
         onBrushSizeDecrease();
       } else {
-        // Default implementation
         const isEraserActive = tools.currentTool === 'eraser';
         const { brushSettings, eraserSettings } = tools;
-        const currentSize = isEraserActive
-          ? (eraserSettings?.size ?? brushSettings.size ?? 1)
-          : (brushSettings.size ?? 1);
-        const adjustment = 1;
-        const minSize = 1;
-        const newSize = Math.max(minSize, currentSize - adjustment);
-        if (isEraserActive) {
-          setEraserSettings({ size: newSize });
+        if (brushSettings.brushShape === BrushShape.CUSTOM) {
+          const currentPercent = brushSettings.customBrushSizePercent ?? 100;
+          const newPercent = Math.max(5, currentPercent - 5);
+          setCustomBrushSizePercent(newPercent);
+          if (isEraserActive && eraserSettings?.linkSizeToBrush === false) {
+            const updatedSize = useAppStore.getState().tools.brushSettings.size ?? 1;
+            setEraserSettings({ size: updatedSize });
+          }
         } else {
-          setGlobalBrushSize(newSize);
+          const currentSize = isEraserActive
+            ? (eraserSettings?.size ?? brushSettings.size ?? 1)
+            : (brushSettings.size ?? 1);
+          const adjustment = 1;
+          const minSize = 1;
+          const newSize = Math.max(minSize, currentSize - adjustment);
+          if (isEraserActive) {
+            setEraserSettings({ size: newSize });
+          } else {
+            setGlobalBrushSize(newSize);
+          }
         }
       }
       return;
@@ -370,19 +380,28 @@ export function useComprehensiveKeyboard({
       if (onBrushSizeIncrease) {
         onBrushSizeIncrease();
       } else {
-        // Default implementation
         const isEraserActive = tools.currentTool === 'eraser';
         const { brushSettings, eraserSettings } = tools;
-        const currentSize = isEraserActive
-          ? (eraserSettings?.size ?? brushSettings.size ?? 1)
-          : (brushSettings.size ?? 1);
-        const adjustment = 1;
-        const maxSize = 500;
-        const newSize = Math.min(maxSize, currentSize + adjustment);
-        if (isEraserActive) {
-          setEraserSettings({ size: newSize });
+        if (brushSettings.brushShape === BrushShape.CUSTOM) {
+          const currentPercent = brushSettings.customBrushSizePercent ?? 100;
+          const newPercent = Math.min(1000, currentPercent + 5);
+          setCustomBrushSizePercent(newPercent);
+          if (isEraserActive && eraserSettings?.linkSizeToBrush === false) {
+            const updatedSize = useAppStore.getState().tools.brushSettings.size ?? 1;
+            setEraserSettings({ size: updatedSize });
+          }
         } else {
-          setGlobalBrushSize(newSize);
+          const currentSize = isEraserActive
+            ? (eraserSettings?.size ?? brushSettings.size ?? 1)
+            : (brushSettings.size ?? 1);
+          const adjustment = 1;
+          const maxSize = 500;
+          const newSize = Math.min(maxSize, currentSize + adjustment);
+          if (isEraserActive) {
+            setEraserSettings({ size: newSize });
+          } else {
+            setGlobalBrushSize(newSize);
+          }
         }
       }
       return;

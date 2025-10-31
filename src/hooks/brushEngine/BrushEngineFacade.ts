@@ -178,10 +178,8 @@ export class BrushEngineFacade {
     // For custom brushes, scale based on the brush's max dimension
     let baseSize = brushSettings.size;
     if (customBrushData && !customBrushData.isResampler) {
-      // Custom brushes: size slider (1-100) represents percentage of max dimension
-      // BUT NOT for Resampler - it already captured at the right size
       const maxDimension = Math.max(customBrushData.width, customBrushData.height);
-      baseSize = (brushSettings.size / 100) * maxDimension;
+      baseSize = Math.max(1, brushSettings.size ?? maxDimension);
     } else if (customBrushData?.isResampler) {
       // Resampler: use the original brush size, not the captured size
       // This allows the captured pattern to be scaled to match the brush cursor size

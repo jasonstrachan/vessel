@@ -2134,9 +2134,8 @@ export const useBrushEngineSimplified = () => {
         if (stamp.isResampler) {
           brushSizeSetting = tools.brushSettings.size || brushSizeSetting;
         } else {
-          const maxDimension = Math.max(stamp.width, stamp.height) || 1;
-          const baseSizePercent = tools.brushSettings.size / 100;
-          brushSizeSetting = baseSizePercent * maxDimension;
+          const sizeValue = tools.brushSettings.size;
+          brushSizeSetting = Math.max(1, typeof sizeValue === 'number' ? sizeValue : Math.max(stamp.width, stamp.height) || 1);
         }
       }
 

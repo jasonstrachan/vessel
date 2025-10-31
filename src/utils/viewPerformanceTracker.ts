@@ -42,6 +42,9 @@ class ViewPerformanceTracker {
 
   enableDebugLogging(enabled: boolean): void {
     this.debugLogging = enabled;
+    if (!enabled) {
+      this.reset();
+    }
   }
 
   record(type: SessionType, durationMs: number): void {
@@ -113,6 +116,7 @@ class ViewPerformanceTracker {
 }
 
 export const viewPerformanceTracker = new ViewPerformanceTracker();
+viewPerformanceTracker.enableDebugLogging(false);
 
 if (process.env.NODE_ENV !== 'production') {
   (globalThis as typeof globalThis & { vesselViewPerf?: ViewPerformanceTracker }).vesselViewPerf =

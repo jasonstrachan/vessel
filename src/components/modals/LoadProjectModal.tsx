@@ -491,9 +491,13 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     }
   }, []);
 
-  const processProjectFile = useCallback(async (file: File) => {
+  const processProjectFile = useCallback(async (file: File, options?: { autoImport?: boolean }) => {
+    const autoImport = options?.autoImport ?? false;
     setIsProcessing(true);
     setError(null);
+    if (autoImport) {
+      setApplyInFlight(true);
+    }
 
     try {
       const text = await file.text();
@@ -514,18 +518,26 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
 
       setProjectData(text);
       setPreview(previewDetails);
-      setCachedProject(null);
       updateSelectionForEntry(file.name);
+      setCachedProject(null);
+
+      let hydratedProject: Project | null = null;
+      const ensureHydratedProject = async (): Promise<Project> => {
+        if (!hydratedProject) {
+          hydratedProject = await deserializeProject(text);
+        }
+        return hydratedProject;
+      };
 
       if (!project.thumbnail) {
         try {
-          const hydratedProject = await deserializeProject(text);
+          const hydrated = await ensureHydratedProject();
           const thumbnail = generateProjectThumbnail(
-            hydratedProject,
-            hydratedProject.layers ?? [],
+            hydrated,
+            hydrated.layers ?? [],
             256
           );
-          setCachedProject(hydratedProject);
+          setCachedProject(hydrated);
           setPreview(prev => prev ? {
             ...prev,
             thumbnail,
@@ -533,6 +545,20 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
           } : prev);
         } catch (thumbnailError) {
           console.warn('[LoadProjectModal] Failed to generate thumbnail', thumbnailError);
+        }
+      } else {
+        setCachedProject(null);
+      }
+
+      if (autoImport) {
+        try {
+          const hydrated = await ensureHydratedProject();
+          setCachedProject(hydrated);
+          await importProject(hydrated, { fileName: file.name });
+          closeModal();
+          return;
+        } catch (importError) {
+          throw importError;
         }
       }
     } catch (err) {
@@ -543,8 +569,11 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
       setError(err instanceof Error ? err.message : 'Failed to read project file');
     } finally {
       setIsProcessing(false);
+      if (autoImport) {
+        setApplyInFlight(false);
+      }
     }
-  }, [updateSelectionForEntry]);
+  }, [closeModal, importProject, updateSelectionForEntry]);
 
   const ensureModalOpenForDrop = useCallback(() => {
     if (!isOpen) {
@@ -878,18 +907,18 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     };
   }, [directoryEntries.length, directoryHandle, isOpen, scanDirectoryForProjects]);
 
-  const handleDirectoryEntrySelect = useCallback(async (entry: DirectoryProjectEntry) => {
+  const handleDirectoryEntrySelect = useCallback(async (entry: DirectoryProjectEntry, options?: { autoImport?: boolean }) => {
     try {
       const file = await entry.handle.getFile();
       ensureModalOpenForDrop();
-      void processProjectFile(file);
+      void processProjectFile(file, options);
     } catch (error) {
       console.error('[LoadProjectModal] Failed to open file from directory', error);
       setDirectoryError(error instanceof Error ? error.message : 'Failed to open file from folder');
     }
   }, [ensureModalOpenForDrop, processProjectFile]);
 
-  const selectEntryAtIndex = useCallback((index: number, loadProject: boolean = true) => {
+  const selectEntryAtIndex = useCallback((index: number, loadProject: boolean = true, autoImport: boolean = false) => {
     const entries = directoryEntriesRef.current;
     if (index < 0 || index >= entries.length) {
       return;
@@ -897,7 +926,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     const entry = entries[index];
     updateSelectionForEntry(entry.name);
     if (loadProject) {
-      void handleDirectoryEntrySelect(entry);
+      void handleDirectoryEntrySelect(entry, { autoImport });
     }
   }, [handleDirectoryEntrySelect, updateSelectionForEntry]);
 
@@ -1176,21 +1205,31 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
                 {directoryHandle ? 'No project files in this folder.' : 'Pick a folder to browse project files.'}
               </div>
             ) : (
-              directoryEntries.map((entry, index) => (
-                <button
-                  key={entry.name}
-                  onClick={() => selectEntryAtIndex(index, true)}
-                  onDoubleClick={() => selectEntryAtIndex(index, true)}
-                  className={`text-left px-2 py-1 rounded border transition-colors ${selectedEntryIndex === index ? 'border-[#8AE9FF] bg-[#0A1A1F]' : 'border-transparent hover:bg-[#242424]'}`}
-                >
-                  <div className="text-[#D9D9D9] text-sm truncate">{entry.name}</div>
-                  {entry.lastModified && (
-                    <div className="text-[#8C8C8C] text-[11px]">
-                      {new Date(entry.lastModified).toLocaleString()}
-                    </div>
-                  )}
-                </button>
-              ))
+              directoryEntries.map((entry, index) => {
+                const isSelected = selectedEntryIndex === index;
+                const buttonClass = `text-left px-2 py-1 rounded border transition-colors ${
+                  isSelected
+                    ? 'border-[#0A1A1F] bg-[#F2F2F2] text-[#0A1A1F]'
+                    : 'border-transparent hover:bg-[#242424] text-[#D9D9D9]'
+                }`;
+                const timestampClass = isSelected ? 'text-[#3A3A3A] text-[11px]' : 'text-[#8C8C8C] text-[11px]';
+
+                return (
+                  <button
+                    key={entry.name}
+                    onClick={() => selectEntryAtIndex(index, true)}
+                    onDoubleClick={() => selectEntryAtIndex(index, true, true)}
+                    className={buttonClass}
+                  >
+                    <div className="text-sm truncate">{entry.name}</div>
+                    {entry.lastModified && (
+                      <div className={timestampClass}>
+                        {new Date(entry.lastModified).toLocaleString()}
+                      </div>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>

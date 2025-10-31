@@ -37,10 +37,14 @@ const BrushControls = () => {
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const setEraserSettings = useAppStore(state => state.setEraserSettings);
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
+  const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
   const brushSettings = useAppStore(state => state.tools.brushSettings);
   const eraserSettings = useAppStore(state => state.tools.eraserSettings);
   const currentTool = useAppStore(state => state.tools.currentTool);
   const globalBrushSize = useAppStore(state => state.globalBrushSize);
+  const customBrushPercent = useAppStore(
+    state => state.tools.brushSettings.customBrushSizePercent ?? 100
+  );
   const shapeMode = useAppStore(state => state.tools.shapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
@@ -1090,16 +1094,23 @@ const BrushControls = () => {
               Size {sizeUnit}
             </label>
             <ProgressSlider
-              value={globalBrushSize}
+              value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
               min={isActiveCustomBrush ? 5 : 1}
               max={isActiveCustomBrush ? 1000 : 500}
               step={isActiveCustomBrush ? 5 : 1}
               onChange={(value) => {
-                // For custom brushes, ensure we stay on 5% increments and clamp to bounds
-                const rawValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
-                const min = isActiveCustomBrush ? 5 : 1;
-                const max = isActiveCustomBrush ? 1000 : 500;
-                const next = Math.min(max, Math.max(min, rawValue));
+                if (isActiveCustomBrush) {
+                  setCustomBrushSizePercent(value);
+                  if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
+                    const updatedSize =
+                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                    setEraserSettings({ size: updatedSize });
+                  }
+                  return;
+                }
+                const min = 1;
+                const max = 500;
+                const next = Math.min(max, Math.max(min, Math.round(value)));
                 setGlobalBrushSize(next);
                 if (currentTool === 'eraser') {
                   setEraserSettings({ size: next });
@@ -1721,16 +1732,23 @@ const BrushControls = () => {
             Size {sizeUnit}
           </label>
           <ProgressSlider
-            value={globalBrushSize}
+            value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
             min={isActiveCustomBrush ? 5 : 1}
             max={isActiveCustomBrush ? 1000 : 500}
             step={isActiveCustomBrush ? 5 : 1}
             onChange={(value) => {
-              // For custom brushes, ensure we stay on 5% increments and clamp to bounds
-              const rawValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
-              const min = isActiveCustomBrush ? 5 : 1;
-              const max = isActiveCustomBrush ? 1000 : 500;
-              const next = Math.min(max, Math.max(min, rawValue));
+              if (isActiveCustomBrush) {
+                setCustomBrushSizePercent(value);
+                if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
+                  const updatedSize =
+                    useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                  setEraserSettings({ size: updatedSize });
+                }
+                return;
+              }
+              const min = 1;
+              const max = 500;
+              const next = Math.min(max, Math.max(min, Math.round(value)));
               setGlobalBrushSize(next);
               if (currentTool === 'eraser') {
                 setEraserSettings({ size: next });

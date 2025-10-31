@@ -773,6 +773,7 @@ export interface AppState {
   // Global brush settings
   globalBrushSize: number;
   setGlobalBrushSize: (size: number) => void;
+  setCustomBrushSizePercent: (percent: number) => void;
   pressureSettings: PressureSettings;
   setPressureSettings: (settings: Partial<PressureSettings>) => void;
   
@@ -1040,6 +1041,86 @@ const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset)
 const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
   ...defaultPresetSettings
+};
+
+const CUSTOM_BRUSH_PERCENT_MIN = 5;
+const CUSTOM_BRUSH_PERCENT_MAX = 1000;
+const CUSTOM_BRUSH_PERCENT_STEP = 5;
+
+const clampCustomBrushPercent = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return CUSTOM_BRUSH_PERCENT_MIN;
+  }
+  return Math.min(CUSTOM_BRUSH_PERCENT_MAX, Math.max(CUSTOM_BRUSH_PERCENT_MIN, value));
+};
+
+const quantizeCustomBrushPercent = (value: number): number => {
+  return Math.round(value / CUSTOM_BRUSH_PERCENT_STEP) * CUSTOM_BRUSH_PERCENT_STEP;
+};
+
+type CustomBrushDimensionInfo = {
+  width: number;
+  height: number;
+  maxDimension: number;
+} | null;
+
+const resolveCustomBrushDimensions = (
+  state: AppState,
+  brushSettings: BrushSettings
+): CustomBrushDimensionInfo => {
+  const tip = brushSettings.currentBrushTip;
+  if (tip) {
+    const width = tip.width ?? tip.imageData.width;
+    const height = tip.height ?? tip.imageData.height;
+    const maxDimension = Math.max(width, height);
+    return maxDimension > 0 ? { width, height, maxDimension } : null;
+  }
+
+  const selectedId = brushSettings.selectedCustomBrush;
+  if (!selectedId) {
+    return null;
+  }
+
+  if (state.temporaryCustomBrush?.id === selectedId) {
+    const { width, height } = state.temporaryCustomBrush;
+    const maxDimension = Math.max(width, height);
+    return maxDimension > 0 ? { width, height, maxDimension } : null;
+  }
+
+  const projectBrush = state.project?.customBrushes?.find(brush => brush.id === selectedId);
+  if (projectBrush) {
+    const { width, height } = projectBrush;
+    const maxDimension = Math.max(width, height);
+    return maxDimension > 0 ? { width, height, maxDimension } : null;
+  }
+
+  return null;
+};
+
+const pixelsFromCustomPercent = (
+  percent: number,
+  state: AppState,
+  brushSettings: BrushSettings
+): number | null => {
+  const dims = resolveCustomBrushDimensions(state, brushSettings);
+  if (!dims) {
+    return null;
+  }
+  const clamped = clampCustomBrushPercent(percent);
+  return Math.max(1, Math.round((dims.maxDimension * clamped) / 100));
+};
+
+const percentFromPixelSize = (
+  pixelSize: number,
+  state: AppState,
+  brushSettings: BrushSettings
+): number | null => {
+  const dims = resolveCustomBrushDimensions(state, brushSettings);
+  if (!dims || dims.maxDimension === 0) {
+    return null;
+  }
+  const rawPercent = (pixelSize / dims.maxDimension) * 100;
+  return clampCustomBrushPercent(rawPercent);
 };
 
 const defaultPressureSettings: PressureSettings = {
@@ -2250,21 +2331,69 @@ export const useAppStore = create<AppState>()(
       }),
       setGlobalBrushSize: (size) => set((state) => {
         const tools = state.tools;
-        const updatedBrushSettings = {
+        const nextSize = Math.max(1, Math.round(size));
+        const updatedBrushSettings: BrushSettings = {
           ...tools.brushSettings,
-          size
+          size: nextSize
         };
+
+        if (updatedBrushSettings.brushShape === BrushShape.CUSTOM) {
+          const derivedPercent = percentFromPixelSize(nextSize, state, updatedBrushSettings);
+          if (derivedPercent !== null) {
+            updatedBrushSettings.customBrushSizePercent = quantizeCustomBrushPercent(derivedPercent);
+          } else if (updatedBrushSettings.customBrushSizePercent === undefined) {
+            updatedBrushSettings.customBrushSizePercent = 100;
+          }
+        } else {
+          updatedBrushSettings.customBrushSizePercent = undefined;
+        }
         
         const shouldSyncEraser = tools.eraserSettings.linkSizeToBrush !== false;
         const updatedEraserSettings = shouldSyncEraser
-          ? { ...tools.eraserSettings, size }
+          ? { ...tools.eraserSettings, size: nextSize }
           : tools.eraserSettings;
 
         return {
-          globalBrushSize: size,
+          globalBrushSize: nextSize,
           tools: {
             ...tools,
             brushSettings: updatedBrushSettings,
+            eraserSettings: updatedEraserSettings
+          }
+        };
+      }),
+      setCustomBrushSizePercent: (percent) => set((state) => {
+        const tools = state.tools;
+        const quantized = quantizeCustomBrushPercent(clampCustomBrushPercent(percent));
+        const brushSettings = tools.brushSettings;
+        let pixelSize = brushSettings.size ?? state.globalBrushSize ?? 1;
+
+        if (brushSettings.brushShape === BrushShape.CUSTOM) {
+          const computed = pixelsFromCustomPercent(quantized, state, brushSettings);
+          if (computed !== null) {
+            pixelSize = computed;
+          }
+        } else {
+          pixelSize = Math.max(1, Math.round(percent));
+        }
+
+        const nextBrushSettings: BrushSettings = {
+          ...brushSettings,
+          size: pixelSize,
+          customBrushSizePercent:
+            brushSettings.brushShape === BrushShape.CUSTOM ? quantized : undefined
+        };
+
+        const shouldSyncEraser = tools.eraserSettings.linkSizeToBrush !== false;
+        const updatedEraserSettings = shouldSyncEraser
+          ? { ...tools.eraserSettings, size: pixelSize }
+          : tools.eraserSettings;
+
+        return {
+          globalBrushSize: pixelSize,
+          tools: {
+            ...tools,
+            brushSettings: nextBrushSettings,
             eraserSettings: updatedEraserSettings
           }
         };
@@ -3316,6 +3445,18 @@ export const useAppStore = create<AppState>()(
           ...incomingSettings,
         } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
 
+        let incomingCustomPercent: number | undefined;
+        if (Object.prototype.hasOwnProperty.call(settings, 'customBrushSizePercent')) {
+          const rawPercent = settings.customBrushSizePercent;
+          if (rawPercent !== undefined && rawPercent !== null) {
+            const numericPercent = Number(rawPercent);
+            if (Number.isFinite(numericPercent)) {
+              incomingCustomPercent = numericPercent;
+            }
+          }
+          delete settings.customBrushSizePercent;
+        }
+
         const pressureUpdates: Partial<PressureSettings> = {};
         let hasPressureUpdate = false;
 
@@ -3357,6 +3498,64 @@ export const useAppStore = create<AppState>()(
 
         const currentSettings = state.tools.brushSettings;
         let newSettings = { ...currentSettings, ...settings };
+
+        const nextBrushShape = settings.brushShape ?? currentSettings.brushShape;
+        if (nextBrushShape === BrushShape.CUSTOM) {
+          let percentToApply = incomingCustomPercent;
+
+          if (percentToApply === undefined && typeof settings.size === 'number') {
+            const derived = percentFromPixelSize(
+              settings.size,
+              state,
+              { ...newSettings, brushShape: nextBrushShape }
+            );
+            if (derived !== null) {
+              percentToApply = derived;
+            }
+          }
+
+          if (percentToApply === undefined && typeof newSettings.customBrushSizePercent === 'number') {
+            percentToApply = newSettings.customBrushSizePercent;
+          }
+
+          if (percentToApply === undefined) {
+            const baseSize = typeof newSettings.size === 'number'
+              ? newSettings.size
+              : state.globalBrushSize ?? 1;
+            const derived = percentFromPixelSize(baseSize, state, newSettings);
+            percentToApply = derived ?? 100;
+          }
+
+          percentToApply = quantizeCustomBrushPercent(clampCustomBrushPercent(percentToApply));
+          const computedSize =
+            pixelsFromCustomPercent(
+              percentToApply,
+              state,
+              {
+                ...newSettings,
+                brushShape: nextBrushShape,
+                customBrushSizePercent: percentToApply
+              }
+            ) ?? (typeof newSettings.size === 'number' ? newSettings.size : state.globalBrushSize ?? 1);
+
+          newSettings = {
+            ...newSettings,
+            brushShape: nextBrushShape,
+            size: Math.max(1, Math.round(computedSize)),
+            customBrushSizePercent: percentToApply
+          };
+        } else {
+          if (incomingCustomPercent !== undefined && Number.isFinite(incomingCustomPercent)) {
+            const fallbackSize = Math.max(1, Math.round(incomingCustomPercent));
+            newSettings = { ...newSettings, size: fallbackSize };
+          }
+          newSettings = {
+            ...newSettings,
+            customBrushSizePercent: undefined,
+            brushShape: nextBrushShape
+          };
+        }
+
         newSettings = {
           ...newSettings,
           pressureEnabled: nextPressure.enabled,

@@ -122,10 +122,8 @@ const BrushCursorComponent = ({
   const cursorRef = useRef<HTMLDivElement>(null);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Calculate screen size differently for custom brushes (percentage) vs regular brushes (pixels)
-  const screenSize = brushShape === BrushShape.CUSTOM && customBrush
-    ? Math.max(4, (size / 100) * Math.max(customBrush.width, customBrush.height) * zoom)
-    : Math.max(4, size * zoom);
+  const baseCursorSize = Number.isFinite(size) ? size : 1;
+  const screenSize = Math.max(4, baseCursorSize * zoom);
 
   const cursorDataURL = useCursorDataURL(brushShape, screenSize);
 

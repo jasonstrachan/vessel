@@ -147,12 +147,16 @@ export function calculateGridSize(brushSettings: BrushSettings, customBrush?: Cu
   let finalSize: number;
   
   if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush && customBrush) {
-    // For custom brushes, use the larger dimension (width or height) as grid size
-    const baseDimension = Math.max(customBrush.width, customBrush.height);
-    finalSize = (brushSettings.size / 100) * baseDimension;
+    if (typeof brushSettings.size === 'number' && Number.isFinite(brushSettings.size)) {
+      finalSize = brushSettings.size;
+    } else {
+      const baseDimension = Math.max(customBrush.width, customBrush.height);
+      const percent = brushSettings.customBrushSizePercent ?? 100;
+      finalSize = (percent / 100) * baseDimension;
+    }
   } else {
     // For regular brushes, size is in pixels
-    finalSize = brushSettings.size;
+    finalSize = typeof brushSettings.size === 'number' ? brushSettings.size : 1;
   }
   
   // Grid size is always based on base brush size, not pressure-modified size
@@ -165,7 +169,16 @@ export function calculateGridSize(brushSettings: BrushSettings, customBrush?: Cu
  * Returns { width, height } for rectangular grids
  */
 export function calculateGridDimensions(brushSettings: BrushSettings, customBrush?: CustomBrush, actualSize?: number): { width: number; height: number } {
-  const effectiveActualSize = actualSize || brushSettings.size;
+  const baseSize = typeof brushSettings.size === 'number' ? brushSettings.size : undefined;
+  const estimatedSizeForCustom = (() => {
+    if (!customBrush || brushSettings.brushShape !== BrushShape.CUSTOM) {
+      return undefined;
+    }
+    const maxDimension = Math.max(customBrush.width, customBrush.height);
+    return Math.max(1, Math.round(((brushSettings.customBrushSizePercent ?? 100) / 100) * maxDimension));
+  })();
+
+  const effectiveActualSize = actualSize ?? baseSize ?? estimatedSizeForCustom ?? 1;
   
   // Check cache first
   const cached = gridSnapCache.getCachedGridDimensions(brushSettings, customBrush, effectiveActualSize);
@@ -179,7 +192,8 @@ export function calculateGridDimensions(brushSettings: BrushSettings, customBrus
     // For custom brushes, use exact brush dimensions for perfect tiling
     // Scale factor should match the brush engine's calculation: actualSize divided by max dimension
     const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
-    const scaleFactor = effectiveActualSize / customBrushMaxDimension;
+    const sizeForScale = effectiveActualSize || 1;
+    const scaleFactor = sizeForScale / customBrushMaxDimension;
     const gridWidth = customBrush.width * scaleFactor;
     const gridHeight = customBrush.height * scaleFactor;
     

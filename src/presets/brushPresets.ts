@@ -4,6 +4,7 @@ import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 // Default brush settings for pixel-perfect drawing
 export const pixelBrushSettings: BrushSettings = {
   size: 1,
+  customBrushSizePercent: 100,
   opacity: 1,
   color: '#000000',
   blendMode: 'source-over',
@@ -67,6 +68,7 @@ export const pixelBrushSettings: BrushSettings = {
 // Default brush settings for smooth drawing
 export const defaultBrushSettings: BrushSettings = {
   size: 100,
+  customBrushSizePercent: 100,
   opacity: 1,
   color: '#000000',
   blendMode: 'source-over',

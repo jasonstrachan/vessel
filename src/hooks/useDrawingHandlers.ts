@@ -3734,7 +3734,8 @@ export function useDrawingHandlers({
             // quiet
             } catch {}
             // Calculate scaled size based on brush settings, maintaining aspect ratio
-            const scale = tools.brushSettings.size / 100;
+            const maxDimension = Math.max(customBrushWidth, customBrushHeight) || 1;
+            const scale = (tools.brushSettings.size ?? maxDimension) / maxDimension;
             // Ensure at least 1px to avoid zero-size tiles causing artifacts
             const scaledWidth = Math.max(1, Math.round(customBrushWidth * scale));
             const scaledHeight = Math.max(1, Math.round(customBrushHeight * scale));
