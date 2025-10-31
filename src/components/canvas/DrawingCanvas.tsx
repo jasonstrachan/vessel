@@ -25,6 +25,7 @@ import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistr
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { FillStage } from '@/shapeFill/types';
 import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '@/constants/canvas';
+import { viewPerformanceTracker } from '@/utils/viewPerformanceTracker';
 
 type GradientStop = { position: number; color: string };
 
@@ -43,6 +44,47 @@ const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
 const rgbToHex = (r: number, g: number, b: number): string => {
   const toHex = (value: number) => value.toString(16).padStart(2, '0');
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+interface VisibleWorldRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const computeVisibleWorldRect = (
+  offsetX: number,
+  offsetY: number,
+  scale: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  projectWidth: number,
+  projectHeight: number
+): VisibleWorldRect | null => {
+  if (scale <= 0 || projectWidth <= 0 || projectHeight <= 0) {
+    return null;
+  }
+
+  const invScale = 1 / scale;
+  const startX = Math.max(0, -offsetX * invScale);
+  const startY = Math.max(0, -offsetY * invScale);
+  const endX = Math.min(projectWidth, startX + viewportWidth * invScale);
+  const endY = Math.min(projectHeight, startY + viewportHeight * invScale);
+
+  const width = Math.max(0, endX - startX);
+  const height = Math.max(0, endY - startY);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return {
+    x: startX,
+    y: startY,
+    width,
+    height
+  };
 };
 
 const isColorCyclePlaybackActive = () =>
@@ -114,6 +156,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const canvasZoom = useAppStore((state) => state.canvas.zoom);
   const canvasOffsetX = useAppStore((state) => state.canvas.offsetX);
   const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
+  const compositeBitmap = useAppStore((state) => state.currentCompositeBitmap);
   const currentTool = useAppStore((state) => state.tools.currentTool);
   const brushSettings = useAppStore((state) => state.tools.brushSettings);
   const fillSettings = useAppStore((state) => state.tools.fillSettings);
@@ -191,6 +234,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const [showBrushCursor, setShowBrushCursor] = useState(false);
   const [marchingAntsOffset, setMarchingAntsOffset] = useState(0);
   const brushCursorHandleRef = useRef<BrushCursorHandle | null>(null);
+
+  const checkerPatternCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const checkerPatternCacheRef = useRef<WeakMap<CanvasRenderingContext2D, CanvasPattern | null>>(new WeakMap());
+  const isZoomingRef = useRef(false);
+  const zoomEndTimeoutRef = useRef<number | null>(null);
 
   const setCursorScreenPosition = useCallback((screenX: number, screenY: number) => {
     mousePositionRef.current = { x: screenX, y: screenY };
@@ -477,6 +525,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     const canvasPixelHeight = ctx.canvas.height;
     const displayWidth = canvasPixelWidth / dpr;
     const displayHeight = canvasPixelHeight / dpr;
+    const visibleRect = project
+      ? computeVisibleWorldRect(
+          offsetX,
+          offsetY,
+          scale,
+          displayWidth,
+          displayHeight,
+          project.width,
+          project.height
+        )
+      : null;
 
     // Clear canvas at device resolution
     ctx.save();
@@ -492,32 +551,63 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
-      
-      // Draw checkerboard using simple fills (more efficient for panning)
+
       const checkerSize = 10;
-      ctx.fillStyle = '#f6f6f8';
-      ctx.fillRect(0, 0, project.width, project.height);
-      ctx.fillStyle = '#e9e9ec';
-      
-      // Only draw visible checkers - ensure we stay within canvas bounds
-      const startX = Math.floor(Math.max(0, -offsetX / scale) / (checkerSize * 2)) * (checkerSize * 2);
-      const startY = Math.floor(Math.max(0, -offsetY / scale) / (checkerSize * 2)) * (checkerSize * 2);
-      const endX = Math.min(project.width, Math.ceil((displayWidth - offsetX) / scale));
-      const endY = Math.min(project.height, Math.ceil((displayHeight - offsetY) / scale));
-      
-      for (let x = startX; x < endX; x += checkerSize * 2) {
-        for (let y = startY; y < endY; y += checkerSize * 2) {
-          // Clip checkers to canvas bounds
-          const w1 = Math.min(checkerSize, project.width - x);
-          const h1 = Math.min(checkerSize, project.height - y);
-          const w2 = Math.min(checkerSize, project.width - (x + checkerSize));
-          const h2 = Math.min(checkerSize, project.height - (y + checkerSize));
-          
-          if (w1 > 0 && h1 > 0) ctx.fillRect(x, y, w1, h1);
-          if (w2 > 0 && h2 > 0) ctx.fillRect(x + checkerSize, y + checkerSize, w2, h2);
+      const checkerTileSize = checkerSize * 2;
+
+      if (!checkerPatternCanvasRef.current) {
+        const patternCanvas = document.createElement('canvas');
+        patternCanvas.width = checkerTileSize;
+        patternCanvas.height = checkerTileSize;
+        const patternCtx = patternCanvas.getContext('2d');
+        if (patternCtx) {
+          patternCtx.fillStyle = '#f6f6f8';
+          patternCtx.fillRect(0, 0, checkerTileSize, checkerTileSize);
+          patternCtx.fillStyle = '#e9e9ec';
+          patternCtx.fillRect(0, 0, checkerSize, checkerSize);
+          patternCtx.fillRect(checkerSize, checkerSize, checkerSize, checkerSize);
+        }
+        checkerPatternCanvasRef.current = patternCanvas;
+      }
+
+      let checkerPattern: CanvasPattern | null | undefined;
+      if (checkerPatternCanvasRef.current) {
+        checkerPattern = checkerPatternCacheRef.current.get(ctx);
+        if (!checkerPattern) {
+          checkerPattern = ctx.createPattern(checkerPatternCanvasRef.current, 'repeat');
+          checkerPatternCacheRef.current.set(ctx, checkerPattern);
         }
       }
-      
+
+      if (checkerPattern && visibleRect) {
+        ctx.fillStyle = checkerPattern;
+        ctx.fillRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
+      } else {
+        // Fallback to original drawing if pattern creation fails
+        const startX =
+          Math.floor(Math.max(0, -offsetX / scale) / (checkerSize * 2)) * (checkerSize * 2);
+        const startY =
+          Math.floor(Math.max(0, -offsetY / scale) / (checkerSize * 2)) * (checkerSize * 2);
+        const endX = Math.min(project.width, Math.ceil((displayWidth - offsetX) / scale));
+        const endY = Math.min(project.height, Math.ceil((displayHeight - offsetY) / scale));
+
+        ctx.fillStyle = '#f6f6f8';
+        ctx.fillRect(0, 0, project.width, project.height);
+        ctx.fillStyle = '#e9e9ec';
+
+        for (let x = startX; x < endX; x += checkerSize * 2) {
+          for (let y = startY; y < endY; y += checkerSize * 2) {
+            const w1 = Math.min(checkerSize, project.width - x);
+            const h1 = Math.min(checkerSize, project.height - y);
+            const w2 = Math.min(checkerSize, project.width - (x + checkerSize));
+            const h2 = Math.min(checkerSize, project.height - (y + checkerSize));
+
+            if (w1 > 0 && h1 > 0) ctx.fillRect(x, y, w1, h1);
+            if (w2 > 0 && h2 > 0) ctx.fillRect(x + checkerSize, y + checkerSize, w2, h2);
+          }
+        }
+      }
+
       const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
         (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
       ctx.imageSmoothingEnabled = !isPixelBrush && scale < 3;
@@ -526,13 +616,56 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Check if we're actively erasing
       const isActivelyErasing = tools.currentTool === 'eraser' && isDrawing && drawingCanvasRef && drawingCanvasHasContent;
       
-      // Draw composite canvas ONLY if we're not actively erasing
-      if (compositeCanvasRef.current && !isActivelyErasing) {
-        ctx.drawImage(compositeCanvasRef.current, 0, 0);
+      // Draw composite bitmap/canvas ONLY if we're not actively erasing
+      if (!isActivelyErasing && visibleRect) {
+        const { x, y, width, height } = visibleRect;
+        if (width > 0 && height > 0) {
+          let compositeDrawn = false;
+          if (compositeBitmap) {
+            try {
+              ctx.drawImage(
+                compositeBitmap,
+                x,
+                y,
+                width,
+                height,
+                x,
+                y,
+                width,
+                height
+              );
+              compositeDrawn = true;
+            } catch (error) {
+              const isInvalidState =
+                error instanceof DOMException && error.name === 'InvalidStateError';
+              if (isInvalidState) {
+                const state = useAppStore.getState();
+                state.setCurrentCompositeBitmap(null);
+                state.setLayersNeedRecomposition(true);
+              } else {
+                throw error;
+              }
+            }
+          }
+
+          if (!compositeDrawn && compositeCanvasRef.current) {
+            ctx.drawImage(
+              compositeCanvasRef.current,
+              x,
+              y,
+              width,
+              height,
+              x,
+              y,
+              width,
+              height
+            );
+          }
+        }
       }
       
       // Draw temporary drawing canvas
-      if (!skipDrawingCanvas && drawingCanvasRef && (isDrawing || drawingCanvasHasContent)) {
+      if (!skipDrawingCanvas && drawingCanvasRef && (isDrawing || drawingCanvasHasContent) && visibleRect) {
         // Strictly avoid overlaying CC animation frames above the stack.
         // Skip drawing the overlay when ANY brush-based Color Cycle layer is animating
         // or when the animation manager is playing.
@@ -550,7 +683,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (!overlayBlockedByAnimation || activelyDrawing) {
           // For eraser, the drawing canvas contains the entire modified layer
           // For brush, it's just the new strokes to overlay
-          ctx.drawImage(drawingCanvasRef, 0, 0);
+          const { x, y, width, height } = visibleRect;
+          if (width > 0 && height > 0) {
+            ctx.drawImage(
+              drawingCanvasRef,
+              x,
+              y,
+              width,
+              height,
+              x,
+              y,
+              width,
+              height
+            );
+          }
         }
       }
       
@@ -695,7 +841,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     selectionStart,
     selectionEnd,
     marchingAntsOffset,
-    floatingPaste
+    floatingPaste,
+    compositeBitmap
   ]);
   
   // Use custom hooks
@@ -742,6 +889,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       viewTransformRef.current.offsetX = state.offsetX;
       viewTransformRef.current.offsetY = state.offsetY;
 
+      if (event === 'start') {
+        viewPerformanceTracker.startSession('pan');
+      }
+
       if (event === 'change' || event === 'set') {
         pendingPanStateRef.current = state;
         if (pendingPanCommitRef.current != null) {
@@ -769,6 +920,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         ) {
           commitPanToStore(state);
         }
+
+        viewPerformanceTracker.endSession('pan');
       }
     };
 
@@ -780,6 +933,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         pendingPanCommitRef.current = null;
       }
       pendingPanStateRef.current = null;
+      viewPerformanceTracker.endSession('pan');
       unsubscribe();
     };
   }, [commitPanToStore, subscribeToPan]);
@@ -1359,6 +1513,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Wrapper draw function that uses current hook values
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
+    const shouldMeasure = process.env.NODE_ENV !== 'production';
+    const frameStart = shouldMeasure ? performance.now() : 0;
     const dpr = devicePixelRatioRef.current || 1;
     ctx.save();
     drawBase(
@@ -1373,7 +1529,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       dpr
     );
     ctx.restore();
-  }, [drawBase, drawingHandlers, interaction]);
+    if (shouldMeasure) {
+      const duration = performance.now() - frameStart;
+      const isPanActive = pan.getState().isPanning;
+      if (isPanActive) {
+        viewPerformanceTracker.record('pan', duration);
+      } else if (isZoomingRef.current) {
+        viewPerformanceTracker.record('zoom', duration);
+      } else {
+        viewPerformanceTracker.record('draw', duration);
+      }
+    }
+  }, [drawBase, drawingHandlers, interaction, pan]);
   
   // Update drawRef when draw changes and trigger initial draw
   useEffect(() => {
@@ -1589,7 +1756,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       useAppStore.getState().saveProject().catch(() => {});
     },
     onOpen: () => {
-      useAppStore.getState().loadProject().catch(() => {});
+      useAppStore.getState().toggleModal('loadProject');
     },
     onCustomTool: () => {
       void switchTool('custom');
@@ -2006,6 +2173,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Handle wheel events for zooming and panning
   useEffect(() => {
+    const shouldMeasure = process.env.NODE_ENV !== 'production';
+
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
 
@@ -2040,6 +2209,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const newOffsetX = mouseX - worldX * newScale;
         const newOffsetY = mouseY - worldY * newScale;
         
+        if (shouldMeasure) {
+          viewPerformanceTracker.startSession('zoom');
+          isZoomingRef.current = true;
+          if (zoomEndTimeoutRef.current !== null) {
+            window.clearTimeout(zoomEndTimeoutRef.current);
+          }
+          zoomEndTimeoutRef.current = window.setTimeout(() => {
+            isZoomingRef.current = false;
+            viewPerformanceTracker.endSession('zoom');
+            zoomEndTimeoutRef.current = null;
+          }, 160);
+        }
+
         // Set state and let React handle the redraw
         setZoom(newScale);
         // Update pan to keep zoom centered on cursor
@@ -2058,6 +2240,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (canvasElement) {
         canvasElement.removeEventListener('wheel', handleWheel);
       }
+      if (zoomEndTimeoutRef.current !== null) {
+        window.clearTimeout(zoomEndTimeoutRef.current);
+        zoomEndTimeoutRef.current = null;
+      }
+      isZoomingRef.current = false;
     };
     // The ref handles stale data, so dependencies can be minimal and stable.
   }, [setZoom, setPan, viewTransformRef]);

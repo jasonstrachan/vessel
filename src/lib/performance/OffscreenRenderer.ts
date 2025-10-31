@@ -105,6 +105,16 @@ export class OffscreenRenderer {
   }
 
   /**
+   * Snapshot current offscreen contents as an ImageBitmap (if supported)
+   */
+  async snapshot(): Promise<ImageBitmap | HTMLCanvasElement> {
+    if (this.isOffscreenSupported && this.offscreenCanvas instanceof OffscreenCanvas) {
+      return await createImageBitmap(this.offscreenCanvas);
+    }
+    return this.offscreenCanvas as HTMLCanvasElement;
+  }
+
+  /**
    * Clear the offscreen canvas
    */
   clear() {

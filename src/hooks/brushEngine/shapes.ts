@@ -5,7 +5,7 @@
 
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
-import { getRisographPattern } from '@/utils/risographTexture';
+import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
 
 // Cache for pre-rotated pixel stamps
 const rotatedStampCache = new Map<string, HTMLCanvasElement>();
@@ -64,11 +64,6 @@ function getRotatedPixelStamp(
   
   return rotCanvas;
 }
-
-// Cache for riso effect settings to avoid recalculation
-let cachedRisoAlpha = 0;
-let cachedRisoIntensity = -1;
-let cachedRisoIsPixel = false;
 
 /**
  * Settings for drawing shapes
@@ -816,15 +811,11 @@ export const applyRisographTexture = (
     return;
   }
   
-  // Check if we need to recalculate cached alpha value
   const isPixelBrush = !ctx.imageSmoothingEnabled;
-  
-  if (cachedRisoIntensity !== intensity || cachedRisoIsPixel !== isPixelBrush) {
-    cachedRisoIntensity = intensity;
-    cachedRisoIsPixel = isPixelBrush;
-    cachedRisoAlpha = isPixelBrush 
-      ? (intensity / 100) * 0.6
-      : (intensity / 100) * 0.35;
+  const effect = getRisographEffectSettings(intensity, { isPixelBrush });
+
+  if (effect.alpha <= 0) {
+    return;
   }
   
   // Store original values (much faster than save/restore)
@@ -835,13 +826,15 @@ export const applyRisographTexture = (
   // Apply risograph effect
   ctx.globalCompositeOperation = 'multiply';
   // Combine the risograph alpha with the existing alpha (e.g., from brush opacity)
-  ctx.globalAlpha = originalAlpha * cachedRisoAlpha;
+  ctx.globalAlpha = originalAlpha * effect.alpha;
   ctx.fillStyle = risoPattern;
   
   // Draw slightly larger to cover the shape (matching monolithic)
   const risoSize = size * 1.1;
   const halfSize = risoSize / 2;
-  ctx.fillRect(x - halfSize, y - halfSize, risoSize, risoSize);
+  const jitterX = (Math.random() - 0.5) * effect.jitter;
+  const jitterY = (Math.random() - 0.5) * effect.jitter;
+  ctx.fillRect(x - halfSize + jitterX, y - halfSize + jitterY, risoSize, risoSize);
   
   // Restore original values
   ctx.globalAlpha = originalAlpha;

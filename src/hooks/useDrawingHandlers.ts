@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape, type BrushSettings, type CustomBrush, type Layer, type CanvasSnapshot, type Tool } from '../types';
-import { getRisographPattern } from '../utils/risographTexture';
+import { getRisographPattern, getRisographEffectSettings } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
@@ -3849,58 +3849,65 @@ export function useDrawingHandlers({
               // Save current state
               drawCtx.save();
               
-              // Add misregistration offset
-              const effectStrength = risographIntensity / 100;
-              const misregX = (Math.random() - 0.5) * effectStrength * 2;
-              const misregY = (Math.random() - 0.5) * effectStrength * 2;
-              drawCtx.translate(misregX, misregY);
-              
-              // Create clipping path for the polygon (with optional roughness)
-              drawCtx.beginPath();
-              if (isPixelBrush) {
-                // For pixel brushes, use pixel-aligned coordinates
-                drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
-                for (let i = 1; i < shapePointsRef.current.length; i++) {
-                  if (tools.brushSettings.risographOutline) {
-                    // Add slight roughness to edges only if outline is enabled
-                    const roughX = Math.round(shapePointsRef.current[i].x + (Math.random() - 0.5) * effectStrength);
-                    const roughY = Math.round(shapePointsRef.current[i].y + (Math.random() - 0.5) * effectStrength);
-                    drawCtx.lineTo(roughX, roughY);
-                  } else {
-                    // Clean edges without roughness, pixel-aligned
-                    drawCtx.lineTo(Math.round(shapePointsRef.current[i].x), Math.round(shapePointsRef.current[i].y));
-                  }
-                }
+              const effect = getRisographEffectSettings(risographIntensity, { isPixelBrush });
+              if (effect.alpha <= 0) {
+                drawCtx.restore();
               } else {
-                // For smooth brushes, use original coordinates
-                drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
-                for (let i = 1; i < shapePointsRef.current.length; i++) {
-                  if (tools.brushSettings.risographOutline) {
-                    // Add slight roughness to edges only if outline is enabled
-                    const roughX = shapePointsRef.current[i].x + (Math.random() - 0.5) * effectStrength;
-                    const roughY = shapePointsRef.current[i].y + (Math.random() - 0.5) * effectStrength;
-                    drawCtx.lineTo(roughX, roughY);
-                  } else {
-                    // Clean edges without roughness
-                    drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                // Add misregistration offset
+                const misregX = (Math.random() - 0.5) * effect.jitter;
+                const misregY = (Math.random() - 0.5) * effect.jitter;
+                drawCtx.translate(misregX, misregY);
+                
+                // Create clipping path for the polygon (with optional roughness)
+                drawCtx.beginPath();
+                if (isPixelBrush) {
+                  // For pixel brushes, use pixel-aligned coordinates
+                  drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
+                  for (let i = 1; i < shapePointsRef.current.length; i++) {
+                    if (tools.brushSettings.risographOutline) {
+                      // Add slight roughness to edges only if outline is enabled
+                      const roughX = Math.round(
+                        shapePointsRef.current[i].x + (Math.random() - 0.5) * effect.outlineJitter
+                      );
+                      const roughY = Math.round(
+                        shapePointsRef.current[i].y + (Math.random() - 0.5) * effect.outlineJitter
+                      );
+                      drawCtx.lineTo(roughX, roughY);
+                    } else {
+                      // Clean edges without roughness, pixel-aligned
+                      drawCtx.lineTo(Math.round(shapePointsRef.current[i].x), Math.round(shapePointsRef.current[i].y));
+                    }
+                  }
+                } else {
+                  // For smooth brushes, use original coordinates
+                  drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+                  for (let i = 1; i < shapePointsRef.current.length; i++) {
+                    if (tools.brushSettings.risographOutline) {
+                      // Add slight roughness to edges only if outline is enabled
+                      const roughX = shapePointsRef.current[i].x + (Math.random() - 0.5) * effect.outlineJitter;
+                      const roughY = shapePointsRef.current[i].y + (Math.random() - 0.5) * effect.outlineJitter;
+                      drawCtx.lineTo(roughX, roughY);
+                    } else {
+                      // Clean edges without roughness
+                      drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                    }
                   }
                 }
+                drawCtx.closePath();
+                drawCtx.clip();
+                
+                // Apply texture with appropriate alpha based on brush type
+                // Shape fills need stronger effect since they don't have overlapping stamps like strokes
+                // Use higher multiplier to match visual strength of strokes
+                drawCtx.globalCompositeOperation = 'multiply';
+                const fillAlpha = Math.min(effect.alpha * (isPixelBrush ? 1.05 : 0.95), 0.98);
+                drawCtx.globalAlpha = fillAlpha;
+                drawCtx.fillStyle = pattern;
+                drawCtx.fillRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+                
+                // Restore state
+                drawCtx.restore();
               }
-              drawCtx.closePath();
-              drawCtx.clip();
-              
-              // Apply texture with appropriate alpha based on brush type
-              // Shape fills need stronger effect since they don't have overlapping stamps like strokes
-              // Use higher multiplier to match visual strength of strokes
-              const risoAlpha = isPixelBrush ? 0.8 : 0.5;
-              
-              drawCtx.globalCompositeOperation = 'multiply';
-              drawCtx.globalAlpha = effectStrength * risoAlpha;
-              drawCtx.fillStyle = pattern;
-              drawCtx.fillRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
-              
-              // Restore state
-              drawCtx.restore();
             }
           }
           } // End of !isColorCycleLayer block

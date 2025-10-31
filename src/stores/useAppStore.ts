@@ -335,6 +335,7 @@ import { getFillStrategy, listFillStrategies } from '@/shapeFill/strategies';
 import type { FillParams, ShapeFillId, ShapeFillSession, ShapeFillParamKey, Vec2 } from '@/shapeFill/types';
 import { FillStage } from '@/shapeFill/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import { configureMaskManager } from '@/layers/MaskManager';
 import { clampPressurePercent, getDefaultMaxPressurePercent } from '@/utils/pressureSettings';
 
@@ -738,6 +739,8 @@ export interface AppState {
   paletteDirty: boolean;
   // Project State
   project: Project | null;
+  projectFilename: string | null;
+  projectFileHandle: FileSystemFileHandle | null;
   setProject: (project: Project) => void;
   updateProject: (updates: Partial<Project>) => void;
   setExportLayout: (layout: ExportContainerLayout) => void;
@@ -1005,10 +1008,13 @@ export interface AppState {
   // Canvas Reference Management
   currentOffscreenCanvas: HTMLCanvasElement | null;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
+  currentCompositeBitmap: ImageBitmap | null;
+  setCurrentCompositeBitmap: (bitmap: ImageBitmap | null) => void;
   
   // Project Save/Load Management
   saveProject: (filename?: string) => Promise<void>;
   loadProject: () => Promise<void>;
+  importProject: (project: Project, options?: { fileName?: string | null }) => Promise<void>;
   exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
@@ -1409,7 +1415,8 @@ const defaultUIState: UIState = {
     export: false,
     settings: false,
     help: false,
-    document: false
+    document: false,
+    loadProject: false
   },
   theme: 'dark',
   notifications: [],
@@ -1739,6 +1746,182 @@ export const useAppStore = create<AppState>()(
         }
       };
 
+      const scheduleCompositeBitmapRelease = (bitmap: ImageBitmap) => {
+        const dispose = () => {
+          try {
+            bitmap.close();
+          } catch {
+            // ignore close errors
+          }
+        };
+
+        if (typeof window === 'undefined') {
+          dispose();
+          return;
+        }
+
+        const MAX_ATTEMPTS = 3;
+        let attempts = 0;
+
+        const tryDispose = () => {
+          if (get().currentCompositeBitmap === bitmap && attempts < MAX_ATTEMPTS) {
+            attempts += 1;
+            window.requestAnimationFrame(tryDispose);
+            return;
+          }
+          dispose();
+        };
+
+        window.setTimeout(tryDispose, 160);
+      };
+
+      const applyLoadedProject = async (loadedProject: Project) => {
+        const state = get();
+
+        const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers);
+
+        const finalLayers = layersWithRestoredColorCycles || loadedProject.layers;
+        console.log('🔵 LOAD PROJECT - Final layers being set:', finalLayers.map(l => ({
+          id: l.id?.substring(0, 20),
+          type: l.layerType,
+          hasColorCycleData: !!l.colorCycleData
+        })));
+
+        const normalizedProject = normalizeProject(loadedProject);
+        const normalizedPalette = normalizedProject.palette ?? createDefaultPalette();
+        const projectWithPalette = {
+          ...normalizedProject,
+          palette: normalizedPalette
+        };
+        const toolsWithPalette = {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            color: normalizedPalette.foregroundColor
+          },
+          eraserSettings:
+            state.tools.currentTool === 'eraser'
+              ? { ...state.tools.eraserSettings, color: normalizedPalette.foregroundColor }
+              : state.tools.eraserSettings
+        };
+        const normalizedLayers = normalizeLayers(finalLayers);
+        const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
+
+        set({
+          project: projectWithPalette,
+          palette: normalizedPalette,
+          paletteDirty: false,
+          layers: syncedLayers,
+          activeLayerId: loadedProject.layers[0]?.id || null,
+          selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
+          layersNeedRecomposition: true,
+          referenceLayerId: null,
+          canvas: loadedProject.viewState ? {
+            ...get().canvas,
+            zoom: loadedProject.viewState.zoom
+          } : get().canvas,
+          brushSpecificSettings: loadedProject.brushSpecificSettings || {},
+          globalBrushSize: loadedProject.globalBrushSize || 10,
+          tools: toolsWithPalette
+        });
+
+        state.setCanvasDimensions(loadedProject.width, loadedProject.height);
+
+        const currentState = get();
+        if (currentState.tools && currentState.globalBrushSize) {
+          set((s) => ({
+            tools: {
+              ...s.tools,
+              brushSettings: {
+                ...s.tools.brushSettings,
+                size: currentState.globalBrushSize
+              }
+            }
+          }));
+        }
+
+        if (colorCycleBrushManager) {
+          const postLoadState = get();
+          const colorCycleLayerIds = new Set(
+            postLoadState.layers
+              .filter(layer => layer.layerType === 'color-cycle')
+              .map(layer => layer.id)
+          );
+
+          try {
+            colorCycleBrushManager.cleanupOrphanedBrushes(colorCycleLayerIds);
+          } catch (error) {
+            console.warn('[Store] Failed to cleanup orphaned color cycle brushes during load:', error);
+          }
+
+          const now = Date.now();
+          const projectWidth = postLoadState.project?.width ?? loadedProject.width ?? 0;
+          const projectHeight = postLoadState.project?.height ?? loadedProject.height ?? 0;
+
+          for (const layer of postLoadState.layers) {
+            if (layer.layerType !== 'color-cycle' || !layer.colorCycleData?.colorCycleBrush) {
+              continue;
+            }
+
+            const brush = layer.colorCycleData.colorCycleBrush as ColorCycleBrushImplementation & {
+              setLayerId?: (layerId: string) => void;
+              isUsingWebGL?: () => boolean;
+            };
+
+            try {
+              brush.setLayerId?.(layer.id);
+            } catch (error) {
+              console.warn('[Store] Failed to set layerId on restored color cycle brush:', error);
+            }
+
+            colorCycleBrushManager.brushes.set(layer.id, brush);
+            colorCycleBrushManager.brushMetadata.set(layer.id, {
+              layerId: layer.id,
+              created: now,
+              lastUsed: now,
+              width: layer.colorCycleData.canvas?.width ?? projectWidth,
+              height: layer.colorCycleData.canvas?.height ?? projectHeight,
+              gradientHash: undefined,
+              isActive: false
+            });
+            colorCycleBrushManager.activeResources.add(layer.id);
+            colorCycleBrushManager.activeResources.add(`canvas_${layer.id}`);
+
+            try {
+              if (brush.isUsingWebGL?.()) {
+                colorCycleBrushManager.activeResources.add(`webgl_${layer.id}`);
+              }
+            } catch (error) {
+              console.warn('[Store] Failed to register WebGL resource for restored CC brush:', error);
+            }
+          }
+
+          if (postLoadState.activeLayerId) {
+            try {
+              colorCycleBrushManager.setActiveState(postLoadState.activeLayerId, true);
+            } catch (error) {
+              console.warn('[Store] Failed to set active CC brush state during load:', error);
+            }
+          }
+        }
+
+        state.clearHistory();
+
+        setTimeout(() => {
+          const currentState = get();
+          if (currentState.layersNeedRecomposition === false) {
+            set({ layersNeedRecomposition: true });
+          }
+        }, 100);
+
+        state.addNotification({
+          type: 'success',
+          title: 'Project Loaded',
+          message: `${loadedProject.name} has been loaded successfully`,
+          timestamp: new Date()
+        });
+      };
+
       const hydrateCustomBrushesFromStorage = async () => {
         if (typeof window === 'undefined') {
           return;
@@ -1838,6 +2021,8 @@ export const useAppStore = create<AppState>()(
           exportLayout: createDefaultExportLayout(),
           palette: initialPalette
         },
+        projectFilename: null,
+        projectFileHandle: null,
         palette: initialPalette,
         webglExportSettings: {
           includeHiddenLayers: true,
@@ -1889,7 +2074,9 @@ export const useAppStore = create<AppState>()(
             project: projectWithPalette,
             palette: nextPalette,
             tools: nextTools,
-            paletteDirty: false
+            paletteDirty: false,
+            projectFilename: null,
+            projectFileHandle: null
           };
         });
 
@@ -3706,6 +3893,14 @@ export const useAppStore = create<AppState>()(
       // Canvas Reference
       currentOffscreenCanvas: null,
       setCurrentOffscreenCanvas: (canvas) => set({ currentOffscreenCanvas: canvas }),
+      currentCompositeBitmap: null,
+      setCurrentCompositeBitmap: (bitmap) => {
+        const previous = get().currentCompositeBitmap;
+        set({ currentCompositeBitmap: bitmap ?? null });
+        if (previous && previous !== bitmap) {
+          scheduleCompositeBitmapRelease(previous);
+        }
+      },
       setBrushPreset: (preset, preserveEditMode = false) => {
         const stateBeforeSwitch = get();
         // Save current settings before switching
@@ -5845,12 +6040,22 @@ export const useAppStore = create<AppState>()(
             palette: freshState.palette
           };
           
-          await saveProjectToFile(projectWithViewState, filename, freshState.layers);
-          set({ paletteDirty: false });
+          const preferredName = filename ?? state.projectFilename ?? state.project.name;
+          const { fileName: savedFileName, fileHandle } = await saveProjectToFile(
+            projectWithViewState,
+            preferredName,
+            freshState.layers,
+            state.projectFileHandle
+          );
+          set({
+            paletteDirty: false,
+            projectFilename: savedFileName,
+            projectFileHandle: fileHandle ?? null
+          });
           state.addNotification({
             type: 'success',
             title: 'Project Saved',
-            message: `${state.project.name} has been saved successfully`,
+            message: `${savedFileName || state.project.name} has been saved successfully`,
             timestamp: new Date()
           });
         } catch (error) {
@@ -5866,163 +6071,33 @@ export const useAppStore = create<AppState>()(
       
       loadProject: async () => {
         const state = get();
-        
+
         try {
-          const loadedProject = await loadProjectFromFile();
-          
-          // Restore color cycle brushes for CC layers BEFORE setting them in store
-          // This ensures the layers have their colorCycleData properly populated
-          const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers);
-          
-          // VERIFICATION: Log layer states before setting
-          const finalLayers = layersWithRestoredColorCycles || loadedProject.layers;
-          console.log('🔵 LOAD PROJECT - Final layers being set:', finalLayers.map(l => ({
-            id: l.id?.substring(0, 20),
-            type: l.layerType,
-            hasColorCycleData: !!l.colorCycleData
-          })));
-          
-          const normalizedProject = normalizeProject(loadedProject);
-          const normalizedPalette = normalizedProject.palette ?? createDefaultPalette();
-          const projectWithPalette = {
-            ...normalizedProject,
-            palette: normalizedPalette
-          };
-          const toolsWithPalette = {
-            ...state.tools,
-            brushSettings: {
-              ...state.tools.brushSettings,
-              color: normalizedPalette.foregroundColor
-            },
-            eraserSettings:
-              state.tools.currentTool === 'eraser'
-                ? { ...state.tools.eraserSettings, color: normalizedPalette.foregroundColor }
-                : state.tools.eraserSettings
-          };
-          const normalizedLayers = normalizeLayers(finalLayers);
-          const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
-
-          // Update the store with the loaded project and restored layers
+          const { project: loadedProject, fileName, fileHandle } = await loadProjectFromFile();
+          await applyLoadedProject(loadedProject);
           set({
-            project: projectWithPalette,
-            palette: normalizedPalette,
-            paletteDirty: false,
-            layers: syncedLayers,
-            activeLayerId: loadedProject.layers[0]?.id || null,
-            selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
-            layersNeedRecomposition: true,
-            referenceLayerId: null,
-            // Restore view state if available
-            canvas: loadedProject.viewState ? {
-              ...get().canvas,
-              zoom: loadedProject.viewState.zoom
-            } : get().canvas,
-            // Restore brush-specific settings
-            brushSpecificSettings: loadedProject.brushSpecificSettings || {},
-            // Restore global brush size
-            globalBrushSize: loadedProject.globalBrushSize || 10,
-            tools: toolsWithPalette
+            projectFilename: fileName ?? null,
+            projectFileHandle: fileHandle ?? null
           });
-          
-          // Restore canvas dimensions to match the loaded project
-          state.setCanvasDimensions(loadedProject.width, loadedProject.height);
-          
-          // Update current brush size to match global
-          const currentState = get();
-          if (currentState.tools && currentState.globalBrushSize) {
-            set((s) => ({
-              tools: {
-                ...s.tools,
-                brushSettings: {
-                  ...s.tools.brushSettings,
-                  size: currentState.globalBrushSize
-                }
-              }
-            }));
-          }
-
-          // Register restored color cycle brushes with the manager so they aren't recreated blank
-          if (colorCycleBrushManager) {
-            const postLoadState = get();
-            const colorCycleLayerIds = new Set(
-              postLoadState.layers
-                .filter(layer => layer.layerType === 'color-cycle')
-                .map(layer => layer.id)
-            );
-
-            try {
-              colorCycleBrushManager.cleanupOrphanedBrushes(colorCycleLayerIds);
-            } catch (error) {
-              console.warn('[Store] Failed to cleanup orphaned color cycle brushes during load:', error);
-            }
-
-            const now = Date.now();
-            const projectWidth = postLoadState.project?.width ?? loadedProject.width ?? 0;
-            const projectHeight = postLoadState.project?.height ?? loadedProject.height ?? 0;
-
-            for (const layer of postLoadState.layers) {
-              if (layer.layerType !== 'color-cycle' || !layer.colorCycleData?.colorCycleBrush) {
-                continue;
-              }
-
-              const brush = layer.colorCycleData.colorCycleBrush as ColorCycleBrushImplementation & {
-                setLayerId?: (layerId: string) => void;
-                isUsingWebGL?: () => boolean;
-              };
-
-              try {
-                brush.setLayerId?.(layer.id);
-              } catch (error) {
-                console.warn('[Store] Failed to set layerId on restored color cycle brush:', error);
-              }
-
-              colorCycleBrushManager.brushes.set(layer.id, brush);
-              colorCycleBrushManager.brushMetadata.set(layer.id, {
-                layerId: layer.id,
-                created: now,
-                lastUsed: now,
-                width: layer.colorCycleData.canvas?.width ?? projectWidth,
-                height: layer.colorCycleData.canvas?.height ?? projectHeight,
-                gradientHash: undefined,
-                isActive: false
-              });
-              colorCycleBrushManager.activeResources.add(layer.id);
-              colorCycleBrushManager.activeResources.add(`canvas_${layer.id}`);
-
-              try {
-                if (brush.isUsingWebGL?.()) {
-                  colorCycleBrushManager.activeResources.add(`webgl_${layer.id}`);
-                }
-              } catch (error) {
-                console.warn('[Store] Failed to register WebGL resource for restored CC brush:', error);
-              }
-            }
-
-            if (postLoadState.activeLayerId) {
-              try {
-                colorCycleBrushManager.setActiveState(postLoadState.activeLayerId, true);
-              } catch (error) {
-                console.warn('[Store] Failed to set active CC brush state during load:', error);
-              }
-            }
-          }
-          
-          // Clear history when loading a new project
-          state.clearHistory();
-          
-          // Force recomposition after a short delay to ensure canvas is ready
-          setTimeout(() => {
-            const currentState = get();
-            if (currentState.layersNeedRecomposition === false) {
-              set({ layersNeedRecomposition: true });
-            }
-          }, 100);
-          
+        } catch (error) {
           state.addNotification({
-            type: 'success',
-            title: 'Project Loaded',
-            message: `${loadedProject.name} has been loaded successfully`,
+            type: 'error',
+            title: 'Load Failed',
+            message: error instanceof Error ? error.message : 'Failed to load project',
             timestamp: new Date()
+          });
+          throw error;
+        }
+      },
+
+      importProject: async (project, options) => {
+        const state = get();
+
+        try {
+          await applyLoadedProject(project);
+          set({
+            projectFilename: options?.fileName ?? null,
+            projectFileHandle: null
           });
         } catch (error) {
           state.addNotification({
@@ -6170,6 +6245,8 @@ export const useAppStore = create<AppState>()(
           project: projectWithPalette,
           palette: normalizedPalette,
           paletteDirty: false,
+          projectFilename: null,
+          projectFileHandle: null,
           layers: syncedLayers, // Only set top-level layers
           activeLayerId: defaultLayerId,
           selectedLayerIds: defaultLayerId ? [defaultLayerId] : [],
@@ -6202,119 +6279,158 @@ export const useAppStore = create<AppState>()(
       compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {
         const state = get();
 
+        const createLayerTransferCanvas = (width: number, height: number) => {
+          if (typeof OffscreenCanvas !== 'undefined') {
+            return new OffscreenCanvas(width, height);
+          }
+          const layerCanvas = document.createElement('canvas');
+          layerCanvas.width = width;
+          layerCanvas.height = height;
+          return layerCanvas;
+        };
+
         try {
           if (!state.project || !state.layers.length) {
+            get().setCurrentCompositeBitmap(null);
             return;
           }
 
-          const ctx = targetCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
-          if (!ctx) {
-            return;
-          }
-
-          // Check if we should use pixel-perfect rendering (based on current tool/brush)
-          const currentState = get();
-          const isPixelBrush = currentState.tools.brushSettings.brushShape === 'pixel_round' ||
-                               (currentState.tools.brushSettings.brushShape === 'square' && !currentState.tools.brushSettings.antialiasing);
-
-          // Set image smoothing based on brush type
-          ctx.imageSmoothingEnabled = !isPixelBrush;
-
-          // Set canvas dimensions to match project size
           const expectedWidth = state.project.width;
           const expectedHeight = state.project.height;
 
-          // Only resize canvas if dimensions don't match
           if (targetCanvas.width !== expectedWidth || targetCanvas.height !== expectedHeight) {
             targetCanvas.width = expectedWidth;
             targetCanvas.height = expectedHeight;
           }
 
-          // Clear the canvas
-          ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-
-          // Draw background color if not transparent
-          if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
-            ctx.fillStyle = state.project.backgroundColor;
-            ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+          const baseCtx = targetCanvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          ) as CanvasRenderingContext2D | null;
+          if (!baseCtx) {
+            get().setCurrentCompositeBitmap(null);
+            return;
           }
 
-          const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
+          const currentState = get();
+          const isPixelBrush =
+            currentState.tools.brushSettings.brushShape === 'pixel_round' ||
+            (currentState.tools.brushSettings.brushShape === 'square' &&
+              !currentState.tools.brushSettings.antialiasing);
+          baseCtx.imageSmoothingEnabled = !isPixelBrush;
 
-          for (const layer of sortedLayers) {
-            try {
-              if (!layer.visible) continue;
+          const drawLayers = (
+            ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+          ) => {
+            ctx.clearRect(0, 0, expectedWidth, expectedHeight);
 
-              // Brush-based Color Cycle (Canvas2D path)
-              if (
-                layer.layerType === 'color-cycle' &&
-                layer.colorCycleData?.canvas &&
-                layer.colorCycleData?.mode !== 'recolor'
-              ) {
-                const mgr = getColorCycleBrushManager();
-                const brush = mgr?.getBrush(layer.id);
-                const wantPlaying = !!layer.colorCycleData.isAnimating;
+            if (state.project?.backgroundColor && state.project.backgroundColor !== 'transparent') {
+              ctx.fillStyle = state.project.backgroundColor;
+              ctx.fillRect(0, 0, expectedWidth, expectedHeight);
+            }
 
-                if (brush) {
-                  try {
-                    const playing = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+            const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
 
-                    if (wantPlaying && !playing) {
-                      brush.startAnimation?.();
-                    } else if (!wantPlaying && playing) {
-                      brush.stopAnimation?.();
+            for (const layer of sortedLayers) {
+              try {
+                if (!layer.visible) continue;
+
+                if (
+                  layer.layerType === 'color-cycle' &&
+                  layer.colorCycleData?.canvas &&
+                  layer.colorCycleData?.mode !== 'recolor'
+                ) {
+                  const mgr = getColorCycleBrushManager();
+                  const brush = mgr?.getBrush(layer.id);
+                  const wantPlaying = !!layer.colorCycleData.isAnimating;
+
+                  if (brush) {
+                    try {
+                      const playing = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+
+                      if (wantPlaying && !playing) {
+                        brush.startAnimation?.();
+                      } else if (!wantPlaying && playing) {
+                        brush.stopAnimation?.();
+                      }
+
+                      if (wantPlaying) {
+                        brush.updateAnimation?.();
+                      }
+                      brush.renderDirectToCanvas?.(layer.colorCycleData.canvas, layer.id);
+                    } catch (error) {
+                      logError('[compose] CC advance/render failed', error);
                     }
-
-                    if (wantPlaying) {
-                      brush.updateAnimation?.();
-                    }
-                    brush.renderDirectToCanvas?.(layer.colorCycleData.canvas, layer.id);
-                  } catch (e) {
-                    logError('[compose] CC advance/render failed', e);
                   }
+
+                  ctx.globalCompositeOperation = layer.blendMode;
+                  ctx.globalAlpha = layer.opacity;
+                  ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
+                  continue;
                 }
 
-                ctx.globalCompositeOperation = layer.blendMode;
-                ctx.globalAlpha = layer.opacity;
-                ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
-                continue;
-              }
+                if (
+                  layer.layerType === 'color-cycle' &&
+                  layer.colorCycleData?.mode === 'recolor' &&
+                  layer.colorCycleData.canvas
+                ) {
+                  ctx.globalCompositeOperation = layer.blendMode;
+                  ctx.globalAlpha = layer.opacity;
+                  ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
+                  continue;
+                }
 
-              // Recolor mode (GPU path): draw GPU-updated canvas if available
-              if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor' && layer.colorCycleData.canvas) {
-                ctx.globalCompositeOperation = layer.blendMode;
-                ctx.globalAlpha = layer.opacity;
-                ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
-                continue;
-              }
+                if (!layer.imageData) {
+                  continue;
+                }
 
-              // Normal layers
-              if (!layer.imageData) {
-                continue;
-              }
-              const layerImageData = layer.imageData;
-              const layerCanvas = document.createElement('canvas');
-              layerCanvas.width = layerImageData.width;
-              layerCanvas.height = layerImageData.height;
-              const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
-              if (layerCtx) {
+                const layerImageData = layer.imageData;
+                const layerCanvas = createLayerTransferCanvas(
+                  layerImageData.width,
+                  layerImageData.height
+                );
+                const layerCtx = layerCanvas.getContext(
+                  '2d',
+                  { willReadFrequently: true } as CanvasRenderingContext2DSettings
+                ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+                if (!layerCtx) {
+                  continue;
+                }
                 layerCtx.putImageData(layerImageData, 0, 0);
                 ctx.globalCompositeOperation = layer.blendMode;
                 ctx.globalAlpha = layer.opacity;
-                ctx.drawImage(layerCanvas, 0, 0);
+                ctx.drawImage(layerCanvas as CanvasImageSource, 0, 0);
+              } catch (layerError) {
+                logError('[compose] Layer compose error', layerError);
               }
-            } catch (layerError) {
-              logError('[compose] Layer compose error', layerError);
-              // Continue composing remaining layers
             }
-          }
 
-          // Reset context state
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 1.0;
-        } catch (e) {
-          logError('[compose] Compose failed', e);
-        } finally {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1.0;
+          };
+
+          const renderWithFallback = () => {
+            drawLayers(baseCtx);
+            get().setCurrentCompositeBitmap(null);
+          };
+
+          if (compositeBitmapManager.isSupported()) {
+            void compositeBitmapManager
+              .render(expectedWidth, expectedHeight, drawLayers, targetCanvas)
+              .then((bitmap) => {
+                const setBitmap = get().setCurrentCompositeBitmap;
+                setBitmap(bitmap ?? null);
+              })
+              .catch((error) => {
+                logError('[compose] Offscreen composite failed', error);
+                renderWithFallback();
+              });
+          } else {
+            renderWithFallback();
+          }
+        } catch (error) {
+          logError('[compose] Compose failed', error);
+          get().setCurrentCompositeBitmap(null);
         }
       },
       

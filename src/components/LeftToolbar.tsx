@@ -6,7 +6,7 @@ import { Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, saveProject, loadProject, toggleModal } = useAppStore();
+  const { tools: toolState, saveProject, toggleModal } = useAppStore();
   const switchTool = useToolSwitcher();
 
   const baseButtonStyle: React.CSSProperties = {
@@ -52,12 +52,7 @@ const LeftToolbar = () => {
         alert(`Save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else if (toolId === 'load') {
-      try {
-        await loadProject();
-        
-      } catch (error) {
-        alert(`Load failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      toggleModal('loadProject');
     } else if (toolId === 'export' || toolId === 'export-png') {
       toggleModal('export');
     } else if (toolId === 'options') {

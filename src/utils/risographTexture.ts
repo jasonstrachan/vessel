@@ -5,6 +5,55 @@
 let cachedRisographTexture: HTMLCanvasElement | null = null;
 const cachedPatternMap = new WeakMap<CanvasRenderingContext2D, CanvasPattern>();
 
+const clamp01 = (value: number): number => {
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+};
+
+export interface RisographEffectSettings {
+  alpha: number;
+  jitter: number;
+  outlineJitter: number;
+}
+
+export interface RisographEffectOptions {
+  isPixelBrush?: boolean;
+}
+
+/**
+ * Map slider intensity to effect parameters shared across brush paths.
+ * Keeps alpha and jitter growth consistent no matter which renderer applies the effect.
+ */
+export const getRisographEffectSettings = (
+  intensity: number,
+  options: RisographEffectOptions = {}
+): RisographEffectSettings => {
+  const { isPixelBrush = false } = options;
+  const normalized = clamp01(intensity / 100);
+
+  if (normalized === 0) {
+    return { alpha: 0, jitter: 0, outlineJitter: 0 };
+  }
+
+  // Ease curve keeps low values gentle while letting the upper range push aggressively.
+  const eased = Math.pow(normalized, 0.85);
+  const alphaBase = 0.18 + eased * 0.82; // 18% baseline to keep light grain visible early on.
+  const alpha = Math.min(alphaBase * (isPixelBrush ? 1.05 : 1), 0.95);
+
+  // Jitter grows faster than linear so mid/high values show clear plate misalignment.
+  const jitter = Math.pow(normalized, 1.2) * 3; // Up to roughly ±3px translation.
+
+  // Outline jitter stays lower than translation to avoid tearing edges apart.
+  const outlineJitter = Math.pow(normalized, 1.1) * (isPixelBrush ? 1 : 1.3);
+
+  return {
+    alpha,
+    jitter,
+    outlineJitter
+  };
+};
+
 /**
  * Creates an optimized risograph noise texture using GPU-accelerated operations.
  * Uses procedural generation with canvas operations instead of pixel manipulation
@@ -15,7 +64,7 @@ const getRisographTexture = (): HTMLCanvasElement => {
     return cachedRisographTexture;
   }
 
-  const size = 256; // Smaller size for better performance, still tiles well
+  const size = 512; // Higher resolution for finer grain while still tiling cleanly
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -30,13 +79,13 @@ const getRisographTexture = (): HTMLCanvasElement => {
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, size, size);
   
-  // Generate noise using small rects (much faster than pixel manipulation)
-  const dotSize = 2;
+  // Generate noise using single-pixel dots for a tighter texture
+  const dotSize = 1;
   ctx.fillStyle = 'black';
   
   for (let y = 0; y < size; y += dotSize) {
     for (let x = 0; x < size; x += dotSize) {
-      if (Math.random() > 0.3) {
+      if (Math.random() > 0.38) {
         ctx.fillRect(x, y, dotSize, dotSize);
       }
     }

@@ -728,7 +728,7 @@ async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): P
 }
 
 // Generate thumbnail from project layers
-function generateProjectThumbnail(project: Project, layers: Layer[], maxSize: number = 128): string {
+export function generateProjectThumbnail(project: Project, layers: Layer[], maxSize: number = 256): string {
   const canvas = document.createElement('canvas');
   const aspectRatio = project.width / project.height;
   
@@ -869,9 +869,26 @@ export async function deserializeProject(projectData: string): Promise<Project> 
 }
 
 // Save project to file using File System Access API with fallback
-export async function saveProjectToFile(project: Project, filename?: string, layers?: Layer[]): Promise<void> {
+export async function saveProjectToFile(
+  project: Project,
+  filename?: string | null,
+  layers?: Layer[],
+  existingHandle?: FileSystemFileHandle | null
+): Promise<{ fileName: string; fileHandle: FileSystemFileHandle | null }> {
   const projectData = await serializeProject(project, layers);
-  const fileName = ensureProjectFilename(filename ?? project.name);
+  const fileName = ensureProjectFilename((filename ?? project.name) || '');
+
+  // Reuse existing handle when available
+  if (existingHandle) {
+    try {
+      const writable = await existingHandle.createWritable();
+      await writable.write(projectData);
+      await writable.close();
+      return { fileName: existingHandle.name ?? fileName, fileHandle: existingHandle };
+    } catch {
+      // If reuse fails (permission revoked, etc.), fall back to picker
+    }
+  }
   
   // Check if File System Access API is supported
   if ('showSaveFilePicker' in window) {
@@ -892,7 +909,7 @@ export async function saveProjectToFile(project: Project, filename?: string, lay
       const writable = await fileHandle.createWritable();
       await writable.write(projectData);
       await writable.close();
-      return;
+      return { fileName: fileHandle.name ?? fileName, fileHandle };
     } catch {
       // User cancelled or API not supported, fall back to download
     }
@@ -908,10 +925,16 @@ export async function saveProjectToFile(project: Project, filename?: string, lay
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+
+  return { fileName, fileHandle: null };
 }
 
 // Load project from file
-export async function loadProjectFromFile(): Promise<Project> {
+export async function loadProjectFromFile(): Promise<{
+  project: Project;
+  fileName?: string;
+  fileHandle?: FileSystemFileHandle | null;
+}> {
   // Check if File System Access API is supported
   if ('showOpenFilePicker' in window) {
     try {
@@ -930,7 +953,8 @@ export async function loadProjectFromFile(): Promise<Project> {
       
       const file = await fileHandle.getFile();
       const projectData = await file.text();
-      return await deserializeProject(projectData);
+      const project = await deserializeProject(projectData);
+      return { project, fileName: file.name, fileHandle };
     } catch {
       // User cancelled or API not supported, fall back to file input
     }
@@ -952,7 +976,7 @@ export async function loadProjectFromFile(): Promise<Project> {
       try {
         const projectData = await file.text();
         const project = await deserializeProject(projectData);
-        resolve(project);
+        resolve({ project, fileName: file.name, fileHandle: null });
       } catch (error) {
         reject(error);
       }

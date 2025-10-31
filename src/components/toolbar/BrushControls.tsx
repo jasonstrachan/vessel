@@ -5,8 +5,7 @@
 
 import React from "react";
 import { useAppStore } from "../../stores/useAppStore";
-import { BrushShape, type BrushSettings, type Layer } from "../../types";
-import { createDefaultLayerAlignment } from "@/utils/layoutDefaults";
+import { BrushShape, type BrushSettings } from "../../types";
 import Input from "../ui/Input";
 import ProgressSlider from "../ui/ProgressSlider";
 // Using ProgressSlider to match pixel square brush opacity style
@@ -55,70 +54,18 @@ const BrushControls = () => {
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
   
-  const ensureCustomColorCycleLayer = React.useCallback(() => {
+  const showColorCycleLayerHint = React.useCallback(() => {
     const state = useAppStore.getState();
-    const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
-    if (activeLayer?.layerType === 'color-cycle') {
-      return activeLayer.id;
+    if (typeof state.addNotification !== 'function') {
+      return;
     }
 
-    const ccLayerCount = state.layers.filter(l => l.layerType === 'color-cycle').length;
-    const width = state.project?.width || 1920;
-    const height = state.project?.height || 1080;
-
-    const makeFramebuffer = (w: number, h: number): OffscreenCanvas | HTMLCanvasElement => {
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, w);
-      canvas.height = Math.max(1, h);
-      return canvas;
-    };
-    const makeMaskCanvas = (w: number, h: number): HTMLCanvasElement => {
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, w);
-      canvas.height = Math.max(1, h);
-      return canvas;
-    };
-
-    const gradient = state.tools.brushSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
-    const playback = state.colorCyclePlayback;
-    const isPlaying = playback.desiredPlaying && playback.suspendDepth === 0;
-    const eraseMask = makeMaskCanvas(width, height);
-
-    const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `CC Brush ${ccLayerCount + 1}`,
-      visible: true,
-      opacity: 1,
-      blendMode: 'source-over',
-      locked: false,
-      transparencyLocked: false,
-      imageData: null,
-      framebuffer: makeFramebuffer(width, height),
-      alignment: createDefaultLayerAlignment(),
-      layerType: 'color-cycle',
-      colorCycleData: {
-        mode: 'brush',
-        gradient: gradient.map(stop => ({ ...stop })),
-        isAnimating: isPlaying,
-        brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
-        eraseMask,
-        eraseMaskVersion: 0
-      }
-    };
-
-    try {
-      const newLayerId = state.addLayer(newLayer);
-      if (newLayerId) {
-        if (state.project) {
-          state.initColorCycleForLayer(newLayerId, width, height);
-        }
-        state.setActiveLayer(newLayerId);
-        state.setBrushSettings({ customBrushColorCycle: true });
-      }
-      return newLayerId;
-    } catch (error) {
-      console.error('[BrushControls] Failed to create CC layer for custom brush:', error);
-      return null;
-    }
+    state.addNotification({
+      type: 'info',
+      title: 'Select a color cycle layer',
+      message: 'Custom brush color cycling only works on color cycle layers. Pick one in the Layers panel first.',
+      timestamp: new Date()
+    });
   }, []);
 
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
@@ -409,6 +356,15 @@ const BrushControls = () => {
   }, [activeSettings.colorCycleGradient]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
+    const state = useAppStore.getState();
+    const activeLayer = state.layers.find(layer => layer.id === state.activeLayerId);
+
+    if (checked && activeLayer?.layerType !== 'color-cycle') {
+      showColorCycleLayerHint();
+      setActiveSettings({ customBrushColorCycle: false });
+      return;
+    }
+
     const updates: Partial<typeof activeSettings> = {
       customBrushColorCycle: checked
     };
@@ -423,11 +379,7 @@ const BrushControls = () => {
     }
 
     setActiveSettings(updates);
-
-    if (checked) {
-      ensureCustomColorCycleLayer();
-    }
-  }, [activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, ensureCustomColorCycleLayer, setActiveSettings]);
+  }, [activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, setActiveSettings, showColorCycleLayerHint]);
 
   // Ensure Color Cycle brushes start with a sensible spacing value even when no preset overrides exist
   React.useEffect(() => {
@@ -1140,13 +1092,14 @@ const BrushControls = () => {
             <ProgressSlider
               value={globalBrushSize}
               min={isActiveCustomBrush ? 5 : 1}
-              max={isActiveCustomBrush ? 500 : 500}
+              max={isActiveCustomBrush ? 1000 : 500}
               step={isActiveCustomBrush ? 5 : 1}
               onChange={(value) => {
-                // For custom brushes, ensure we stay on 5% increments
-                const finalValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
+                // For custom brushes, ensure we stay on 5% increments and clamp to bounds
+                const rawValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
                 const min = isActiveCustomBrush ? 5 : 1;
-                const next = Math.max(min, finalValue);
+                const max = isActiveCustomBrush ? 1000 : 500;
+                const next = Math.min(max, Math.max(min, rawValue));
                 setGlobalBrushSize(next);
                 if (currentTool === 'eraser') {
                   setEraserSettings({ size: next });
@@ -1748,7 +1701,7 @@ const BrushControls = () => {
           </div>
 
           {isCustomColorCycleEnabled && (
-            <div className="mt-2 space-y-2">
+            <div className="mt-2">
               <GradientEditor
                 sampleTarget="brush"
                 stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
@@ -1756,36 +1709,6 @@ const BrushControls = () => {
                   scheduleGradientFlush(stops);
                 }}
               />
-
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                  Speed
-                </label>
-                <ProgressSlider
-                  value={activeSettings.colorCycleSpeed || 0.1}
-                  min={0.02}
-                  max={1.0}
-                  step={0.01}
-                  onChange={(value) => {
-                    const clamped = Math.max(0.02, Math.min(1.0, value));
-                    setActiveSettings({ colorCycleSpeed: clamped });
-
-                    const state = useAppStore.getState();
-                    const layer = state.layers.find(l => l.id === state.activeLayerId);
-
-                    if (layer?.layerType === 'color-cycle' && state.activeLayerId) {
-                      state.updateLayer(state.activeLayerId, {
-                        colorCycleData: {
-                          ...(layer.colorCycleData || {}),
-                          brushSpeed: clamped
-                        }
-                      });
-                    }
-                  }}
-                  aria-label="Color Cycle Speed"
-                  className="flex-1"
-                />
-              </div>
             </div>
           )}
         </div>
@@ -1800,13 +1723,14 @@ const BrushControls = () => {
           <ProgressSlider
             value={globalBrushSize}
             min={isActiveCustomBrush ? 5 : 1}
-            max={isActiveCustomBrush ? 500 : 500}
+            max={isActiveCustomBrush ? 1000 : 500}
             step={isActiveCustomBrush ? 5 : 1}
             onChange={(value) => {
-              // For custom brushes, ensure we stay on 5% increments
-              const finalValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
+              // For custom brushes, ensure we stay on 5% increments and clamp to bounds
+              const rawValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
               const min = isActiveCustomBrush ? 5 : 1;
-              const next = Math.max(min, finalValue);
+              const max = isActiveCustomBrush ? 1000 : 500;
+              const next = Math.min(max, Math.max(min, rawValue));
               setGlobalBrushSize(next);
               if (currentTool === 'eraser') {
                 setEraserSettings({ size: next });

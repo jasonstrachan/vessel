@@ -7,7 +7,7 @@ import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { selectEffectiveColorCyclePlaying, useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape, type Layer } from '../types';
-import { getRisographPattern } from '../utils/risographTexture';
+import { getRisographPattern, getRisographEffectSettings } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -1369,38 +1369,40 @@ export const useBrushEngineSimplified = () => {
       const pattern = getRisographPattern(ctx);
       
       if (pattern) {
-        // Save current state
-        ctx.save();
-        
-        // Add misregistration offset
-        const effectStrength = risographIntensity / 100;
-        const misregX = (Math.random() - 0.5) * effectStrength * 2;
-        const misregY = (Math.random() - 0.5) * effectStrength * 2;
-        ctx.translate(misregX, misregY);
-        
-        // Create clipping path for the rotated rectangle
-        ctx.beginPath();
-        ctx.moveTo(corners[0].x, corners[0].y);
-        corners.slice(1).forEach(corner => {
-          ctx.lineTo(corner.x, corner.y);
-        });
-        ctx.closePath();
-        ctx.clip();
-        
-        // Apply pattern with multiply blend mode
-        setMultiplyIfUnlocked(ctx);
-        ctx.fillStyle = pattern;
-        ctx.globalAlpha = risographIntensity / 100 * 0.35;
-        
-        // Fill the clipped area with the pattern
-        const minX = Math.floor(Math.min(...corners.map(c => c.x)));
-        const minY = Math.floor(Math.min(...corners.map(c => c.y)));
-        const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
-        const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
-        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
-        
-        // Restore state
-        ctx.restore();
+        const effect = getRisographEffectSettings(risographIntensity, { isPixelBrush });
+        if (effect.alpha > 0) {
+          // Save current state
+          ctx.save();
+          
+          // Add misregistration offset
+          const misregX = (Math.random() - 0.5) * effect.jitter;
+          const misregY = (Math.random() - 0.5) * effect.jitter;
+          ctx.translate(misregX, misregY);
+          
+          // Create clipping path for the rotated rectangle
+          ctx.beginPath();
+          ctx.moveTo(corners[0].x, corners[0].y);
+          corners.slice(1).forEach(corner => {
+            ctx.lineTo(corner.x, corner.y);
+          });
+          ctx.closePath();
+          ctx.clip();
+          
+          // Apply pattern with multiply blend mode
+          setMultiplyIfUnlocked(ctx);
+          ctx.fillStyle = pattern;
+          ctx.globalAlpha = effect.alpha;
+          
+          // Fill the clipped area with the pattern
+          const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+          const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+          const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+          const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+          ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+          
+          // Restore state
+          ctx.restore();
+        }
       }
     }
     
@@ -1422,9 +1424,13 @@ export const useBrushEngineSimplified = () => {
       ctx.save();
       
       // Add misregistration offset
-      const effectStrength = risographIntensity / 100;
-      const misregX = (Math.random() - 0.5) * effectStrength * 2;
-      const misregY = (Math.random() - 0.5) * effectStrength * 2;
+      const effect = getRisographEffectSettings(risographIntensity, { isPixelBrush });
+      if (effect.alpha <= 0) {
+        ctx.restore();
+        return;
+      }
+      const misregX = (Math.random() - 0.5) * effect.jitter;
+      const misregY = (Math.random() - 0.5) * effect.jitter;
       ctx.translate(misregX, misregY);
       
       // Create clipping path for the polygon
@@ -1439,7 +1445,7 @@ export const useBrushEngineSimplified = () => {
       // Apply texture with multiply blend mode
       setMultiplyIfUnlocked(ctx);
       ctx.fillStyle = pattern;
-      ctx.globalAlpha = risographIntensity / 100 * 0.35; // Slightly stronger effect
+      ctx.globalAlpha = effect.alpha; // Slightly stronger effect derived from helper
       
       // Fill the clipped area with the pattern
       const minX = Math.floor(Math.min(...vertices.map(v => v.x)));

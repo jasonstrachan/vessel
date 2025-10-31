@@ -20,6 +20,7 @@ import { enableCCPerfProbe } from '@/utils/perf/ccPerfProbe';
 import { DocumentModal } from '../components/modals/DocumentModal';
 import { ExportModal } from '../components/modals/ExportModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
+import LoadProjectModal from '../components/modals/LoadProjectModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
 import { preloadRisographTexture } from '../utils/risographTexture';
@@ -35,6 +36,7 @@ export default function Home() {
   const isDocumentModalOpen = useAppStore(state => state.ui.modals.document);
   const isSettingsModalOpen = useAppStore(state => state.ui.modals.settings);
   const isExportModalOpen = useAppStore(state => state.ui.modals.export);
+  const isLoadModalOpen = useAppStore(state => state.ui.modals.loadProject);
   const autosaveEnabled = useAppStore(state => state.autosave.isEnabled);
   const autosaveInterval = useAppStore(state => state.autosave.interval);
   // const currentTool = useAppStore(state => state.tools.currentTool);
@@ -219,6 +221,12 @@ export default function Home() {
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => toggleModal('export')}
+      />
+
+      {/* Load Project Modal */}
+      <LoadProjectModal
+        isOpen={isLoadModalOpen}
+        onClose={() => toggleModal('loadProject')}
       />
       
       {/* Brush Editor UI Modal */}

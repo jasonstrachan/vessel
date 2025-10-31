@@ -350,6 +350,7 @@ export interface UIState {
     settings: boolean;
     help: boolean;
     document: boolean;
+    loadProject: boolean;
   };
   theme: 'dark' | 'light';
   notifications: Notification[];
