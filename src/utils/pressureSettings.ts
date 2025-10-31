@@ -30,14 +30,9 @@ export interface ResolvedPressureRange {
 
 export const resolveBrushPressureRange = (settings: BrushSettings): ResolvedPressureRange => {
   const enabled = Boolean(settings.pressureEnabled);
-  const minPercent = clampPressurePercent(settings.minPressure ?? PRESSURE_MIN_PERCENT);
-  const defaultMax = getDefaultMaxPressurePercent(settings.brushShape);
-  const maxPercentInput = clampPressurePercent(settings.maxPressure ?? defaultMax);
-  const maxPercent = Math.max(minPercent, maxPercentInput);
-
   return {
     enabled,
-    minPercent,
-    maxPercent,
+    minPercent: settings.minPressure ?? PRESSURE_MIN_PERCENT,
+    maxPercent: settings.maxPressure ?? getDefaultMaxPressurePercent(settings.brushShape),
   };
 };

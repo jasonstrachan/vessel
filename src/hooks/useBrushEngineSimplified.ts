@@ -1923,16 +1923,10 @@ export const useBrushEngineSimplified = () => {
       // Set pressure enabled state and min/max values
       // quiet
       try {
-        // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
-        const isStrokeVariant =
-          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
-          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
-        const shouldEnablePressure = isStrokeVariant ? true : (tools.brushSettings.pressureEnabled || false);
-        colorCycleBrush.setPressureEnabled(shouldEnablePressure);
-        // quiet
-        // Always set pressure values, using sensible defaults if not specified
-        colorCycleBrush.setMinPressure(tools.brushSettings.minPressure || 50);
-        colorCycleBrush.setMaxPressure(tools.brushSettings.maxPressure || 200);
+        const { enabled, minPercent, maxPercent } = resolveBrushPressureRange(tools.brushSettings);
+        colorCycleBrush.setPressureEnabled(enabled);
+        colorCycleBrush.setMinPressure(enabled ? minPercent : 100);
+        colorCycleBrush.setMaxPressure(enabled ? maxPercent : 100);
       } catch (error) {
         console.error('[CC Init] Failed to set pressure settings:', error);
       }
@@ -2085,10 +2079,7 @@ export const useBrushEngineSimplified = () => {
     // Compute effective pressure settings shared with raster brushes
     const baseBrushSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
     const pressureRange = resolveBrushPressureRange(tools.brushSettings);
-    const isStrokeVariant =
-      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
-      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
-    const pressureActive = isStrokeVariant ? true : pressureRange.enabled;
+    const pressureActive = pressureRange.enabled;
     const minPercent = pressureActive ? pressureRange.minPercent : 100;
     const maxPercent = pressureActive ? pressureRange.maxPercent : 100;
 
@@ -2114,7 +2105,6 @@ export const useBrushEngineSimplified = () => {
       
       // Set pressure settings FIRST before painting
       try {
-        // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
         colorCycleBrush.setPressureEnabled(pressureActive);
         // Always set pressure values, using sensible defaults if not specified
         colorCycleBrush.setMinPressure(minPercent);
@@ -2534,15 +2524,11 @@ export const useBrushEngineSimplified = () => {
 
     const baseBrushSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
     const { enabled, minPercent: rangeMinPercent, maxPercent: rangeMaxPercent } = resolveBrushPressureRange(tools.brushSettings);
-    const isStrokeVariant =
-      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
-      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
-    const shouldEnablePressure = isStrokeVariant ? true : enabled;
-    const minPercent = shouldEnablePressure ? rangeMinPercent : 100;
-    const maxPercent = shouldEnablePressure ? rangeMaxPercent : 100;
+    const minPercent = enabled ? rangeMinPercent : 100;
+    const maxPercent = enabled ? rangeMaxPercent : 100;
 
     try {
-      colorCycleBrush.setPressureEnabled(shouldEnablePressure);
+      colorCycleBrush.setPressureEnabled(enabled);
       colorCycleBrush.setBrushSize(baseBrushSize);
       colorCycleBrush.setMinPressure(minPercent);
       colorCycleBrush.setMaxPressure(maxPercent);
@@ -2555,7 +2541,6 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.pressureEnabled,
     tools.brushSettings.minPressure,
     tools.brushSettings.maxPressure,
-    tools.brushSettings.brushShape,
     tools.brushSettings.size,
   ]);
 

@@ -2076,12 +2076,18 @@ export const createShapeToolHandler = (
   };
 
   const computePointerPressure = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    let pressure = event.pressure || 0.5;
-    if (event.pointerType === 'mouse' && tools.brushSettings.pressureEnabled) {
-      if (event.shiftKey) {
-        pressure = 0.1;
-      } else if (event.ctrlKey) {
-        pressure = 0.9;
+    let pressure = event.pressure ?? 0.5;
+    if (event.pointerType === 'mouse') {
+      if (tools.brushSettings.pressureEnabled) {
+        if (event.shiftKey) {
+          pressure = 0.1;
+        } else if (event.ctrlKey) {
+          pressure = 0.9;
+        } else {
+          pressure = 1;
+        }
+      } else {
+        pressure = 0.5;
       }
     }
     return pressure;

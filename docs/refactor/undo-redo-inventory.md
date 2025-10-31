@@ -8,8 +8,6 @@ This inventory enumerates the state managed by `src/stores/useAppStore.ts` and r
 | `webglExportSettings` | `WebGLExportSettings` | Optional | Restore export toggles if user expects undo to revert export prefs. | Consider excluding from document undo by default. |
 | `layersNeedRecomposition` | `boolean` | Derived | Recompute after apply. | Not persisted; set `true` when bitmap deltas applied. |
 | `globalBrushSize` | `number` | Optional | Restore slider position if tool setting undo expected. | Might live in view/tool history. |
-| `defaultBrushesSize`, `customBrushesSize` | `number` | Optional | Restore if undo should revert global brush adjustments. | Tie into tool-setting deltas. |
-| `defaultBrushSizes` | `Record<string, number>` | Optional | Restore per-brush overrides. | Rarely mutated. |
 | `brushSpecificSettings` | `Record<string, Partial<BrushSettings>>` | Optional | Restore saved presets for undo of preset edits. | Mutation occurs in brush editor flows. |
 | `history` | `HistoryState` | N/A | Owned by new HistoryManager. | Replace with manager façade. |
 | `canvas` | `CanvasState` | **Yes (view delta)** | Restore zoom, rotation, grid, offsets, selection metadata, cursor when view undo triggered. | Distinguish between document and view history. |

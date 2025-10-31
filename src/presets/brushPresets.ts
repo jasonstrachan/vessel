@@ -452,10 +452,9 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 12, // Number of distinct color bands in strokes
-    // Ensure pressure is enabled with sensible defaults for CC strokes
-    pressureEnabled: true,
-    minPressure: 50,
-    maxPressure: 200,
+    pressureEnabled: false,
+    minPressure: 100,
+    maxPressure: 100,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: false // Force shape mode OFF for stroke variant
   }
@@ -511,9 +510,9 @@ export const colorCycleTriangleBrushPreset: BrushPreset = {
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 12,
-    pressureEnabled: true,
-    minPressure: 50,
-    maxPressure: 200,
+    pressureEnabled: false,
+    minPressure: 100,
+    maxPressure: 100,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: false
   }
@@ -569,10 +568,9 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 26,
-    // Enable pressure by default for consistency when drawing shapes
-    pressureEnabled: true,
-    minPressure: 50,
-    maxPressure: 200,
+    pressureEnabled: false,
+    minPressure: 100,
+    maxPressure: 100,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: true // Force shape mode ON for shape variant
   }

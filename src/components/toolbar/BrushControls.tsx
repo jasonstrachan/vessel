@@ -822,7 +822,7 @@ const BrushControls = () => {
                 }}
               />
               {(activeSettings.pressureEnabled || false) && (
-                <>
+                <div className="flex items-center gap-2">
                   <Input
                     type="number"
                     variant="compact"
@@ -832,11 +832,8 @@ const BrushControls = () => {
                     onBlur={handleMinBlur}
                     min="1"
                     max="1000"
-                    className="w-12 bg-transparent"
+                    className="w-16 bg-transparent text-right"
                   />
-                  <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
-                    -
-                  </span>
                   <Input
                     type="number"
                     variant="compact"
@@ -846,9 +843,9 @@ const BrushControls = () => {
                     onBlur={handleMaxBlur}
                     min="1"
                     max="1000"
-                    className="w-12 bg-transparent"
+                    className="w-16 bg-transparent text-right"
                   />
-                </>
+                </div>
               )}
             </div>
           </div>
@@ -1037,31 +1034,31 @@ const BrushControls = () => {
             />
             {(activeSettings.pressureEnabled || false) && (
               <>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.min}
-                  onChange={(e) => handleMinChange(e.target.value)}
-                  onFocus={handleMinFocus}
-                  onBlur={handleMinBlur}
-                  min="1"
-                  max="1000"
-                    className="w-12 bg-transparent"
-                />
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={pressureDraft.min}
+                    onChange={(e) => handleMinChange(e.target.value)}
+                    onFocus={handleMinFocus}
+                    onBlur={handleMinBlur}
+                    min="1"
+                    max="1000"
+                    className="w-16 bg-transparent text-right"
+                  />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                   -
                 </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.max}
-                  onChange={(e) => handleMaxChange(e.target.value)}
-                  onFocus={handleMaxFocus}
-                  onBlur={handleMaxBlur}
-                  min="1"
-                  max="1000"
-                    className="w-12 bg-transparent"
-                />
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={pressureDraft.max}
+                    onChange={(e) => handleMaxChange(e.target.value)}
+                    onFocus={handleMaxFocus}
+                    onBlur={handleMaxBlur}
+                    min="1"
+                    max="1000"
+                    className="w-16 bg-transparent text-right"
+                  />
               </>
             )}
           </div>
@@ -1287,7 +1284,7 @@ const BrushControls = () => {
                   onBlur={handleMinBlur}
                   min="1"
                   max="1000"
-                  className="w-12 bg-transparent"
+                  className="w-16 bg-transparent text-right"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                   -
@@ -1301,7 +1298,7 @@ const BrushControls = () => {
                   onBlur={handleMaxBlur}
                   min="1"
                   max="1000"
-                  className="w-12 bg-transparent"
+                  className="w-16 bg-transparent text-right"
                 />
               </>
             )}
@@ -1363,7 +1360,7 @@ const BrushControls = () => {
                   }
                   min="1"
                   max="20"
-                  className="w-7 bg-transparent px-0"
+            className="w-12 bg-transparent text-right"
                   title="Length multiplier (×brush size)"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
@@ -1378,7 +1375,7 @@ const BrushControls = () => {
                   }
                   min="1"
                   max="20"
-                  className="w-7 bg-transparent px-0"
+            className="w-12 bg-transparent text-right"
                   title="Gap multiplier (×brush size)"
                 />
               </>
@@ -1936,35 +1933,32 @@ const BrushControls = () => {
               setActiveSettings({ pressureEnabled: checked });
             }}
           />
-          {(activeSettings.pressureEnabled || false) && (
-            <>
-              <Input
-                type="number"
-                variant="compact"
-                value={pressureDraft.min}
-                onChange={(e) => handleMinChange(e.target.value)}
-                onFocus={handleMinFocus}
-                onBlur={handleMinBlur}
-                min="1"
-                max="1000"
-                className="w-8 bg-transparent"
-              />
-              <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
-                -
-              </span>
-              <Input
-                type="number"
-                variant="compact"
-                value={pressureDraft.max}
-                onChange={(e) => handleMaxChange(e.target.value)}
-                onFocus={handleMaxFocus}
-                onBlur={handleMaxBlur}
-                min="1"
-                max="1000"
-                className="w-8 bg-transparent"
-              />
-            </>
-          )}
+            {(activeSettings.pressureEnabled || false) && (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={pressureDraft.min}
+                  onChange={(e) => handleMinChange(e.target.value)}
+                  onFocus={handleMinFocus}
+                  onBlur={handleMinBlur}
+                  min="1"
+                  max="1000"
+                  className="w-12 bg-transparent text-right"
+                />
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={pressureDraft.max}
+                  onChange={(e) => handleMaxChange(e.target.value)}
+                  onFocus={handleMaxFocus}
+                  onBlur={handleMaxBlur}
+                  min="1"
+                  max="1000"
+                  className="w-12 bg-transparent text-right"
+                />
+              </div>
+            )}
         </div>
       </div>
 
@@ -2023,7 +2017,7 @@ const BrushControls = () => {
                 }
                 min="1"
                 max="20"
-                className="w-7 bg-transparent px-0"
+                className="w-12 bg-transparent text-right"
                 title="Length multiplier (×brush size)"
               />
               <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
@@ -2038,7 +2032,7 @@ const BrushControls = () => {
                 }
                 min="1"
                 max="20"
-                className="w-7 bg-transparent px-0"
+                className="w-12 bg-transparent text-right"
                 title="Gap multiplier (×brush size)"
               />
             </>

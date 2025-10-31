@@ -88,6 +88,16 @@ interface ColorCycleBrushCanvasSerialized {
   stampShape?: StampShape;
 }
 
+interface StampMaskCacheEntry {
+  alpha: Uint8Array;
+  width: number;
+  height: number;
+  rotationBucket: number;
+}
+
+const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
+const STAMP_MASK_CACHE_LIMIT = 80;
+
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const createYieldController = () => {
@@ -185,6 +195,7 @@ export class ColorCycleBrushCanvas2D {
 
   private customStampSourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
   private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
+  private customStampMaskCache: Map<string, StampMaskCacheEntry> = new Map();
   private gradientSignatures: Map<string, string> = new Map();
   
   constructor(canvas: HTMLCanvasElement, options: {
@@ -478,6 +489,94 @@ export class ColorCycleBrushCanvas2D {
     return cached;
   }
 
+  private static quantizeRotation(rotation: number): number {
+    if (!Number.isFinite(rotation) || Math.abs(rotation) < STAMP_MASK_ROTATION_TOLERANCE * 0.5) {
+      return 0;
+    }
+    return Math.round(rotation / STAMP_MASK_ROTATION_TOLERANCE);
+  }
+
+  private getStampMaskCacheKey(
+    stamp: CustomStampInput,
+    width: number,
+    height: number,
+    rotation: number
+  ): string {
+    const baseKey = stamp.cacheKey || `anon:${stamp.imageData.width}x${stamp.imageData.height}`;
+    const rotationBucket = ColorCycleBrushCanvas2D.quantizeRotation(rotation);
+    return `${baseKey}:${width}x${height}:rot=${rotationBucket}`;
+  }
+
+  private getStampMask(
+    stamp: CustomStampInput,
+    scaledCanvas: HTMLCanvasElement,
+    scaledWidth: number,
+    scaledHeight: number,
+    targetWidth: number,
+    targetHeight: number,
+    rotation: number
+  ): StampMaskCacheEntry | null {
+    const cacheKey = this.getStampMaskCacheKey(stamp, targetWidth, targetHeight, rotation);
+    const cached = this.customStampMaskCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const tempCanvas = canvasPool.acquire(targetWidth, targetHeight);
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
+    if (!tempCtx) {
+      canvasPool.release(tempCanvas);
+      return null;
+    }
+
+    tempCtx.clearRect(0, 0, targetWidth, targetHeight);
+    tempCtx.imageSmoothingEnabled = false;
+    tempCtx.save();
+    tempCtx.translate(targetWidth / 2, targetHeight / 2);
+    if (rotation) {
+      tempCtx.rotate(rotation);
+    }
+    tempCtx.drawImage(
+      scaledCanvas,
+      -scaledWidth / 2,
+      -scaledHeight / 2,
+      scaledWidth,
+      scaledHeight
+    );
+    tempCtx.restore();
+
+    const maskData = tempCtx.getImageData(0, 0, targetWidth, targetHeight).data;
+    const alpha = new Uint8Array(targetWidth * targetHeight);
+    if (maskData.length !== targetWidth * targetHeight * 4) {
+      // In non-browser test environments mocked contexts may return placeholder
+      // buffers; fall back to an opaque mask so stamping still exercises logic.
+      alpha.fill(255);
+    } else {
+      for (let src = 3, dst = 0; dst < alpha.length; src += 4, dst++) {
+        alpha[dst] = maskData[src];
+      }
+    }
+
+    canvasPool.release(tempCanvas);
+
+    const entry: StampMaskCacheEntry = {
+      alpha,
+      width: targetWidth,
+      height: targetHeight,
+      rotationBucket: ColorCycleBrushCanvas2D.quantizeRotation(rotation)
+    };
+
+    this.customStampMaskCache.set(cacheKey, entry);
+    if (this.customStampMaskCache.size > STAMP_MASK_CACHE_LIMIT) {
+      const firstKey = this.customStampMaskCache.keys().next().value;
+      if (firstKey) {
+        this.customStampMaskCache.delete(firstKey);
+      }
+    }
+
+    return entry;
+  }
+
   paint(x: number, y: number, layerId?: string, pressure: number = 1.0, _rotation: number = 0) {
     if (typeof window !== 'undefined') {
       const globalWindow = window as typeof window & {
@@ -611,48 +710,35 @@ export class ColorCycleBrushCanvas2D {
     const targetWidth = Math.max(1, Math.ceil(rotatedWidth));
     const targetHeight = Math.max(1, Math.ceil(rotatedHeight));
 
-    const tempCanvas = canvasPool.acquire(targetWidth, targetHeight);
-    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
-    if (!tempCtx) {
-      canvasPool.release(tempCanvas);
+    const maskEntry = this.getStampMask(
+      stamp,
+      scaledCanvas,
+      scaledWidth,
+      scaledHeight,
+      targetWidth,
+      targetHeight,
+      rotation
+    );
+    if (!maskEntry) {
       return;
     }
 
-    tempCtx.clearRect(0, 0, targetWidth, targetHeight);
-    tempCtx.imageSmoothingEnabled = false;
-    tempCtx.save();
-    tempCtx.translate(targetWidth / 2, targetHeight / 2);
-    if (rotation) {
-      tempCtx.rotate(rotation);
-    }
-    tempCtx.drawImage(
-      scaledCanvas,
-      -scaledWidth / 2,
-      -scaledHeight / 2,
-      scaledWidth,
-      scaledHeight
-    );
-    tempCtx.restore();
+    const originX = Math.round(x - maskEntry.width / 2);
+    const originY = Math.round(y - maskEntry.height / 2);
+    const alpha = maskEntry.alpha;
 
-    const maskData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
-    const data = maskData.data;
-    const originX = Math.round(x - targetWidth / 2);
-    const originY = Math.round(y - targetHeight / 2);
-
-    for (let py = 0; py < targetHeight; py++) {
+    for (let py = 0; py < maskEntry.height; py++) {
       const targetY = originY + py;
       if (targetY < 0 || targetY >= this.height) continue;
-      for (let px = 0; px < targetWidth; px++) {
+      const rowOffset = py * maskEntry.width;
+      for (let px = 0; px < maskEntry.width; px++) {
         const targetX = originX + px;
         if (targetX < 0 || targetX >= this.width) continue;
-        const alpha = data[(py * targetWidth + px) * 4 + 3];
-        if (alpha < 16) continue;
+        if (alpha[rowOffset + px] < 16) continue;
         this.logSetIndexSample(id, targetX, targetY);
         animator.setIndex(targetX, targetY, colorIndex);
       }
     }
-
-    canvasPool.release(tempCanvas);
 
     strokeData.strokeLength++;
     strokeData.lastPoint = { x, y };

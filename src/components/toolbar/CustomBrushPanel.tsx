@@ -117,11 +117,12 @@ export const CustomBrushPanel = () => {
     brushCache.clear();
     scaledBrushCache.clear();
     
-    // Switch to using this temporary brush at 100% size
+    const targetSize = useAppStore.getState().globalBrushSize ?? 100;
+    // Switch to using this temporary brush with the current global size
     const brushSettings = {
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: tempBrush.id,
-      size: 100, // Always set to 100% for new custom brushes
+      size: targetSize,
       currentBrushTip: {
         imageData: tempBrush.imageData,
         brushId: tempBrush.id,
@@ -131,10 +132,6 @@ export const CustomBrushPanel = () => {
       }
     };
     setBrushSettings(brushSettings);
-    
-    // Also update the global brush size and custom brushes size to 100%
-    useAppStore.getState().setGlobalBrushSize(100);
-    useAppStore.setState({ customBrushesSize: 100 });
   }, [selectionStart, selectionEnd, project, currentOffscreenCanvas, setTemporaryCustomBrush, setBrushSettings]);
 
   // Create brush immediately when selection changes
@@ -170,10 +167,11 @@ export const CustomBrushPanel = () => {
     
     // Update brush settings to use the new permanent brush at 100% size
     try { console.log('[CUSTOM/BRUSH] saving brush', { id: permanentBrush.id, w: permanentBrush.width, h: permanentBrush.height }); } catch {}
+    const targetSize = useAppStore.getState().globalBrushSize ?? 100;
     setBrushSettings({
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: permanentBrush.id,
-      size: 100, // Always set to 100% for saved custom brushes
+      size: targetSize,
       currentBrushTip: {
         imageData: permanentBrush.imageData,
         brushId: permanentBrush.id,
@@ -182,10 +180,6 @@ export const CustomBrushPanel = () => {
         isColorizable: false
       }
     });
-    
-    // Ensure size stays at 100%
-    useAppStore.getState().setGlobalBrushSize(100);
-    useAppStore.setState({ customBrushesSize: 100 });
     
     
     // Clear temporary brush and selection after a small delay

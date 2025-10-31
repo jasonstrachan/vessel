@@ -1091,14 +1091,20 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       y: event.clientY - rect.top,
     } : { x: 0, y: 0 };
     
-    // Store pressure value (0-1, with 0.5 as default for mice)
+    // Store pressure value (0-1, with reasonable defaults for mice)
     // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
-    let pressure = event.pressure || 0.5;
-    if (event.pointerType === 'mouse' && tools.brushSettings.pressureEnabled) {
-      if (event.shiftKey) {
-        pressure = 0.1; // Simulate low pressure with Shift
-      } else if (event.ctrlKey) {
-        pressure = 0.9; // Simulate high pressure with Ctrl
+    let pressure = event.pressure ?? 0.5;
+    if (event.pointerType === 'mouse') {
+      if (tools.brushSettings.pressureEnabled) {
+        if (event.shiftKey) {
+          pressure = 0.1; // Simulate low pressure with Shift
+        } else if (event.ctrlKey) {
+          pressure = 0.9; // Simulate high pressure with Ctrl
+        } else {
+          pressure = 1; // Treat mouse as full pressure to avoid shrinking/enlarging brushes
+        }
+      } else {
+        pressure = 0.5;
       }
     }
     
@@ -2016,14 +2022,20 @@ function cssColorToHex(color: string): string {
       return;
     }
     
-    // Store pressure value (0-1, with 0.5 as default for mice)
+    // Store pressure value (0-1, with reasonable defaults for mice)
     // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
-    let pressure = event.pressure || 0.5;
-    if (event.pointerType === 'mouse' && tools.brushSettings.pressureEnabled) {
-      if (event.shiftKey) {
-        pressure = 0.1; // Simulate low pressure with Shift
-      } else if (event.ctrlKey) {
-        pressure = 0.9; // Simulate high pressure with Ctrl
+    let pressure = event.pressure ?? 0.5;
+    if (event.pointerType === 'mouse') {
+      if (tools.brushSettings.pressureEnabled) {
+        if (event.shiftKey) {
+          pressure = 0.1; // Simulate low pressure with Shift
+        } else if (event.ctrlKey) {
+          pressure = 0.9; // Simulate high pressure with Ctrl
+        } else {
+          pressure = 1;
+        }
+      } else {
+        pressure = 0.5;
       }
     }
 
