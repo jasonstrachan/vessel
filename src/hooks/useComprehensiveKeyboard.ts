@@ -148,44 +148,57 @@ export function useComprehensiveKeyboard({
   const handleKeyDown = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
 
-    // Respect keyboard scope: bail if current scope not allowed (Space handled below regardless)
-    let currentScope: KeyboardScope | null = null;
     const isBracketShortcut = event.key === '[' || event.key === ']';
+    let currentScope: KeyboardScope = 'canvas';
     try {
       currentScope = useAppStore.getState().ui.keyboardScope.active as KeyboardScope;
-      if (!allowedScopes.includes(currentScope)) {
-        // If not allowed, still allow Space and bracket size shortcuts
-        if (event.code !== 'Space' && !isBracketShortcut) return;
-      }
     } catch {}
 
-    // Ignore if typing in text-focused inputs or editable elements
     const target = event.target as HTMLElement | null;
-    if (isTextEntryTarget(target)) {
-      return;
-    }
 
-    // Handle Undo (Ctrl/Cmd + Z) before input-specific guards so non-text inputs don't swallow it
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
+    const isUndoShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey;
+    const isRedoShortcut = (event.ctrlKey || event.metaKey) && (
+      (event.key.toLowerCase() === 'z' && event.shiftKey) ||
+      (event.key.toLowerCase() === 'y' && !event.shiftKey)
+    );
+    const isSaveShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's';
+    const isOpenShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o';
+
+    if (isUndoShortcut) {
       event.preventDefault();
       void onUndoRef.current?.();
       return;
     }
 
-    // Handle Redo (Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y)
-    if ((event.ctrlKey || event.metaKey) && (
-      (event.key.toLowerCase() === 'z' && event.shiftKey) ||
-      (event.key.toLowerCase() === 'y' && !event.shiftKey)
-    )) {
+    if (isRedoShortcut) {
       event.preventDefault();
-      if (onRedoRef.current) {
-        onRedoRef.current();
-      }
+      void onRedoRef.current?.();
+      return;
+    }
+
+    if (isSaveShortcut) {
+      event.preventDefault();
+      void onSaveRef.current?.();
+      return;
+    }
+
+    if (isOpenShortcut) {
+      event.preventDefault();
+      void onOpenRef.current?.();
+      return;
+    }
+
+    const scopeAllowed = allowedScopes.includes(currentScope);
+    if (!scopeAllowed && event.code !== 'Space' && !isBracketShortcut) {
+      return;
+    }
+
+    // Ignore if typing in text-focused inputs or editable elements
+    if (isTextEntryTarget(target)) {
       return;
     }
 
     if (target instanceof HTMLInputElement) {
-      // Non-textual inputs (e.g., sliders) still allow Space and bracket shortcuts
       if (event.code !== 'Space' && !isBracketShortcut) {
         return;
       }
@@ -237,20 +250,6 @@ export function useComprehensiveKeyboard({
     }
     if (!allowRepeat) {
       pressedKeysRef.current.add(event.code);
-    }
-
-    // Handle Save (Ctrl/Cmd + S) - prevent default browser save
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-      event.preventDefault();
-      void onSaveRef.current?.();
-      return;
-    }
-
-    // Handle Open (Ctrl/Cmd + O) - prevent default browser open
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
-      event.preventDefault();
-      void onOpenRef.current?.();
-      return;
     }
 
     // Handle Select All (Ctrl/Cmd + A)
@@ -560,11 +559,10 @@ export function useComprehensiveKeyboard({
   const handleBlur = useCallback(() => {
     // Reset keyboard state when window loses focus
     if (!document.hasFocus()) {
-      // If space was pressed, release it
-      if (keyboardStateRef.current.isSpacePressed) {
-        keyboardStateRef.current.isSpacePressed = false;
-        void onSpaceReleasedRef.current?.();
-      }
+      // Always release space-driven interactions on blur
+      keyboardStateRef.current.isSpacePressed = false;
+      pressedKeysRef.current.delete('Space');
+      void onSpaceReleasedRef.current?.();
       
       // Reset all states
       keyboardStateRef.current = {
