@@ -1,5 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
+const INTERACTIVE_SELECTOR = 'button, [role="button"], input, textarea, select, a[href], [data-dropdown-interactive="true"]';
+
+const isInteractiveTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return Boolean(target.closest(INTERACTIVE_SELECTOR));
+};
+
 const DRAG_THRESHOLD = 4;
 
 type DragState = {
@@ -128,6 +137,10 @@ const Dropdown: React.FC<DropdownProps> = ({
       return;
     }
 
+    if (isInteractiveTarget(event.target)) {
+      return;
+    }
+
     if (!isOptionReorderable(option)) {
       return;
     }
@@ -209,6 +222,10 @@ const Dropdown: React.FC<DropdownProps> = ({
 
   const handlePointerUp = useCallback((option: DropdownOption, optionIndex: number) => (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
+      return;
+    }
+
+    if (isInteractiveTarget(event.target)) {
       return;
     }
 

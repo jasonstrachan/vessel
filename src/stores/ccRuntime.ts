@@ -6,6 +6,7 @@ type RuntimeSnapshot = {
   gradientKey?: string;
   brushSpeed?: number;
   isAnimating?: boolean;
+  flowMode?: 'forward' | 'reverse' | 'pingpong';
 };
 
 const lastRuntimeState = new Map<string, RuntimeSnapshot>();
@@ -32,6 +33,7 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
   }
 
   const manager = getColorCycleBrushManager();
+  const storeSnapshot = useAppStore.getState();
   let shouldRequestStart = false;
   let shouldNotifyFrameUpdate = false;
 
@@ -45,7 +47,7 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
-    const { gradient, brushSpeed, isAnimating } = layer.colorCycleData;
+    const { gradient, brushSpeed, isAnimating, flowMode } = layer.colorCycleData;
     const previous = lastRuntimeState.get(layer.id) ?? {};
     const nextSnapshot: RuntimeSnapshot = { ...previous };
 
@@ -86,6 +88,21 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
           nextSnapshot.isAnimating = isAnimating;
         } catch {}
       }
+    }
+
+    const desiredFlowMode =
+      flowMode ??
+      storeSnapshot.tools?.brushSettings?.colorCycleFlowMode ??
+      'forward';
+    if (previous.flowMode !== desiredFlowMode) {
+      try {
+        if (typeof brush.setFlowMode === 'function') {
+          brush.setFlowMode(desiredFlowMode);
+        } else if (typeof brush.setFlowDirection === 'function') {
+          brush.setFlowDirection(desiredFlowMode === 'reverse' ? 'backward' : 'forward');
+        }
+        nextSnapshot.flowMode = desiredFlowMode;
+      } catch {}
     }
 
     lastRuntimeState.set(layer.id, nextSnapshot);

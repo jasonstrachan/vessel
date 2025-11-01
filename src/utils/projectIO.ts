@@ -155,6 +155,7 @@ interface SerializedColorCycleLayerData {
   isAnimating?: boolean;
   mode?: 'brush' | 'recolor';
   brushSpeed?: number;
+  flowMode?: 'forward' | 'reverse' | 'pingpong';
   recolorSettings?: SerializedColorCycleRecolorSettings;
   brushState?: PersistedColorCycleBrushState;
   canvasImageData?: string;
@@ -384,7 +385,8 @@ function serializeLayer(layer: Layer): SerializedLayer {
       gradient: colorCycleData.gradient,
       isAnimating: Boolean(colorCycleData.isAnimating),
       mode: colorCycleData.mode,
-      brushSpeed: colorCycleData.brushSpeed
+      brushSpeed: colorCycleData.brushSpeed,
+      flowMode: colorCycleData.flowMode
     };
 
     if (colorCycleData.canvasImageData) {
@@ -593,6 +595,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       isAnimating: serializedLayer.colorCycleData.isAnimating,
       mode: serializedLayer.colorCycleData.mode,
       brushSpeed: serializedLayer.colorCycleData.brushSpeed,
+      flowMode: serializedLayer.colorCycleData.flowMode,
       canvas: colorCycleCanvas
       // Note: colorCycleBrush will be restored later when the layer is added to the project
     };

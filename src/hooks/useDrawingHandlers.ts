@@ -148,6 +148,86 @@ const SYNTHETIC_CC_STOP_REASONS = new Set<string>([
   'event'
 ]);
 
+type PolyPoint = { x: number; y: number };
+
+const AUTO_SAMPLE_DEDUPE_EPS = 0.25;
+const AUTO_SAMPLE_MAX_STOPS = 6;
+const MIN_AUTO_SAMPLE_PREVIEW_DISTANCE = 18;
+
+export const dedupePolylineForSampling = (pts: PolyPoint[], eps = AUTO_SAMPLE_DEDUPE_EPS): PolyPoint[] => {
+  if (pts.length === 0) {
+    return [];
+  }
+  const deduped: PolyPoint[] = [];
+  for (let i = 0; i < pts.length; i += 1) {
+    const p = pts[i];
+    const last = deduped[deduped.length - 1];
+    if (!last || Math.hypot(p.x - last.x, p.y - last.y) > eps) {
+      deduped.push(p);
+    }
+  }
+  return deduped;
+};
+
+export const computePolylineLength = (pts: PolyPoint[]): number => {
+  if (pts.length < 2) {
+    return 0;
+  }
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const dx = pts[i + 1].x - pts[i].x;
+    const dy = pts[i + 1].y - pts[i].y;
+    total += Math.hypot(dx, dy);
+  }
+  return total;
+};
+
+type AutoSampleComputeOptions = {
+  allowTiny?: boolean;
+  minDistance?: number;
+  maxStops?: number;
+};
+
+export const computeAutoSampleStopsFromPolyline = (
+  sourcePts: PolyPoint[],
+  sampleColor: (x: number, y: number) => string,
+  sampler: (pts: PolyPoint[], count: number) => PolyPoint[],
+  options: AutoSampleComputeOptions = {}
+): Array<{ position: number; color: string }> | null => {
+  const deduped = dedupePolylineForSampling(sourcePts);
+  if (deduped.length < 2) {
+    return null;
+  }
+
+  const totalLen = computePolylineLength(deduped);
+  const minDistance = options.minDistance ?? MIN_AUTO_SAMPLE_PREVIEW_DISTANCE;
+  if (!options.allowTiny && totalLen < minDistance) {
+    return null;
+  }
+
+  const maxStops = options.maxStops ?? AUTO_SAMPLE_MAX_STOPS;
+  const sampleCount = Math.min(maxStops, Math.max(2, Math.floor(totalLen / 64) + 2));
+  const sampledPoints = sampler(deduped, sampleCount);
+  if (sampledPoints.length < 2) {
+    if (options.allowTiny && deduped.length >= 2) {
+      const firstColor = sampleColor(deduped[0].x, deduped[0].y);
+      const lastColor = sampleColor(deduped[deduped.length - 1].x, deduped[deduped.length - 1].y);
+      return [
+        { position: 0, color: firstColor },
+        { position: 1, color: lastColor }
+      ];
+    }
+    return null;
+  }
+
+  return sampledPoints.map((point, index) => ({
+    position: sampledPoints.length === 1 ? 0 : index / (sampledPoints.length - 1),
+    color: sampleColor(point.x, point.y)
+  }));
+};
+
+const SAMPLE_PREVIEW_STROKE_STYLE = 'rgba(255, 214, 102, 0.95)';
+
 const getDesiredColorCyclePlaying = () =>
   selectColorCycleDesiredPlaying(useAppStore.getState());
 
@@ -934,6 +1014,7 @@ export function useDrawingHandlers({
   // Auto-sample gradient (for color cycle brushes)
   const autoSamplePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const autoSampleLastUpdateRef = useRef<number>(0);
+  const brushSamplingPreviewActiveRef = useRef<boolean>(false);
 
   const sampleHexAt = useCallback((x: number, y: number): string => {
     // Unify sampling for stroke and shape: always sample the composited canvas
@@ -981,19 +1062,9 @@ export function useDrawingHandlers({
   const equidistantPointsOnPolyline = useCallback((pts: Array<{ x: number; y: number }>, count: number) => {
     if (pts.length === 0) return [] as Array<{ x: number; y: number }>;
     if (pts.length === 1 || count === 1) return [pts[0]];
-    // Deduplicate nearly-identical consecutive points to avoid zero-length total
-    const deduped: Array<{ x: number; y: number }> = [];
-    const EPS = 0.25; // ~subpixel tolerance
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[i];
-      const last = deduped[deduped.length - 1];
-      if (!last || Math.hypot(p.x - last.x, p.y - last.y) > EPS) {
-        deduped.push(p);
-      }
-    }
+    const deduped = dedupePolylineForSampling(pts);
     if (deduped.length === 0) return [];
     if (deduped.length === 1) return [deduped[0]];
-    // Compute cumulative lengths
     const segLens: number[] = [];
     let total = 0;
     for (let i = 0; i < deduped.length - 1; i++) {
@@ -1025,36 +1096,73 @@ export function useDrawingHandlers({
       result.push({ x: segStart.x + (segEnd.x - segStart.x) * t, y: segStart.y + (segEnd.y - segStart.y) * t });
     }
     return result;
+  }, [dedupePolylineForSampling]);
+
+  const computeAutoSampleStops = useCallback(
+    (sourcePts: Array<{ x: number; y: number }>, options: { allowTiny?: boolean } = {}) =>
+      computeAutoSampleStopsFromPolyline(
+        sourcePts,
+        sampleHexAt,
+        equidistantPointsOnPolyline,
+        {
+          allowTiny: options.allowTiny,
+          minDistance: MIN_AUTO_SAMPLE_PREVIEW_DISTANCE
+        }
+      ),
+    [equidistantPointsOnPolyline, sampleHexAt]
+  );
+
+  const renderBrushSamplingPreview = useCallback((points: PolyPoint[]) => {
+    const canvas = drawingCanvasRef.current;
+    const ctx = drawingCtxRef.current;
+    if (!canvas || !ctx) {
+      return;
+    }
+
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (points.length >= 2) {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = SAMPLE_PREVIEW_STROKE_STYLE;
+      ctx.setLineDash([6, 6]);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.stroke();
+      drawingCanvasHasContent.current = true;
+    }
+
+    ctx.restore();
+  }, []);
+
+  const clearBrushSamplingPreview = useCallback(() => {
+    const canvas = drawingCanvasRef.current;
+    const ctx = drawingCtxRef.current;
+    if (!canvas || !ctx) {
+      return;
+    }
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    drawingCanvasHasContent.current = false;
   }, []);
 
   const updateAutoSampledGradient = useCallback((sourcePts: Array<{ x: number; y: number }>) => {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     if (now - autoSampleLastUpdateRef.current < 120) return; // throttle ~8fps
+
+    const stops = computeAutoSampleStops(sourcePts);
+    if (!stops) {
+      return;
+    }
     autoSampleLastUpdateRef.current = now;
 
-    // Dynamically choose sample count based on total path length so preview builds up quickly
-    // Compute polyline length with basic dedupe to avoid zero-length segments
-    const EPS = 0.25;
-    let last = null as { x: number; y: number } | null;
-    let totalLen = 0;
-    for (let i = 0; i < sourcePts.length; i++) {
-      const p = sourcePts[i];
-      if (!last) { last = p; continue; }
-      const dx = p.x - last.x; const dy = p.y - last.y;
-      const d = Math.hypot(dx, dy);
-      if (d > EPS) {
-        totalLen += d;
-        last = p;
-      }
-    }
-    const maxStops = 6;
-    const dynamicCount = Math.min(maxStops, Math.max(2, Math.floor(totalLen / 64) + 2));
-    const samplePts = equidistantPointsOnPolyline(sourcePts, dynamicCount);
-    if (samplePts.length === 0) return;
-
-    const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
-    // Build gradient stops spaced 0..1
-    const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
     const store = useAppStore.getState();
     // Avoid redundant updates
     const current = store.tools.brushSettings.colorCycleGradient || [];
@@ -1093,7 +1201,7 @@ export function useDrawingHandlers({
     try {
       brushEngine.updateColorCycleGradient?.(stops);
     } catch {}
-  }, [brushEngine, equidistantPointsOnPolyline, sampleHexAt]);
+  }, [brushEngine, computeAutoSampleStops]);
 
   // Track which CC layers were animating so we can resume them after interaction
   const pausedCCLayerIdsRef = useRef<string[]>([]);
@@ -1790,10 +1898,13 @@ export function useDrawingHandlers({
       if (isCCStroke && autoSample) {
         autoSamplePointsRef.current = [worldPos];
         autoSampleLastUpdateRef.current = 0;
-        // Apply an initial sample immediately (single point)
-        updateAutoSampledGradient(autoSamplePointsRef.current);
+        brushSamplingPreviewActiveRef.current = true;
+        renderBrushSamplingPreview(autoSamplePointsRef.current);
       }
     } catch {}
+    if (brushSamplingPreviewActiveRef.current) {
+      return;
+    }
     let colorCyclePlayingAtStrokeStart = false;
     colorCycleLastRotationRef.current = undefined;
 
@@ -2225,9 +2336,27 @@ export function useDrawingHandlers({
     // Process all points in the batch
     for (let i = 0; i < batch.length; i++) {
       const { pos: worldPos, pressure } = batch[i];
+      const shouldAutoSample =
+        ccProcessFlags.isAny && currentState.tools.brushSettings.autoSampleGradient;
+      if (shouldAutoSample) {
+        autoSamplePointsRef.current.push(worldPos);
+        if (autoSamplePointsRef.current.length > 5000) {
+          autoSamplePointsRef.current.splice(0, autoSamplePointsRef.current.length - 5000);
+        }
+        if (!brushSamplingPreviewActiveRef.current) {
+          updateAutoSampledGradient(autoSamplePointsRef.current);
+        } else {
+          renderBrushSamplingPreview(autoSamplePointsRef.current);
+        }
+      }
       const lastPoint = lastDrawPosRef.current;
       
       if (!lastPoint) {
+        lastDrawPosRef.current = worldPos;
+        continue;
+      }
+
+      if (brushSamplingPreviewActiveRef.current) {
         lastDrawPosRef.current = worldPos;
         continue;
       }
@@ -2558,19 +2687,7 @@ export function useDrawingHandlers({
       
       lastDrawPosRef.current = worldPos;
 
-      // Record points for auto-sampling and defer gradient update to finalize
-      try {
-        const state = useAppStore.getState();
-        const isCCStroke = getColorCycleBrushFlags(state.tools.brushSettings).isAny;
-        if (isCCStroke && state.tools.brushSettings.autoSampleGradient) {
-          autoSamplePointsRef.current.push(worldPos);
-          if (autoSamplePointsRef.current.length > 5000) {
-            autoSamplePointsRef.current.splice(0, autoSamplePointsRef.current.length - 5000);
-          }
-          // Live, throttled gradient update based on the whole stroke path so far
-          updateAutoSampledGradient(autoSamplePointsRef.current);
-        }
-      } catch {}
+      // Auto-sampling already recorded earlier in the loop
     }
     
     // Clear the batch
@@ -2600,7 +2717,7 @@ export function useDrawingHandlers({
     const brushSettings = currentState.tools.brushSettings;
     const worldPos = alignPointToPixel(rawWorldPos, shouldPixelAlignBrush(brushSettings));
 
-    if (currentState.tools.currentTool === 'brush') {
+    if (currentState.tools.currentTool === 'brush' && !brushSamplingPreviewActiveRef.current) {
       strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
       const activeCustomBrush = resolveActiveCustomBrushData(currentState) ?? resamplerBrushDataRef.current;
       const dynamicPadding = computeStrokeCapturePadding(brushSettings, activeCustomBrush ?? null);
@@ -2865,18 +2982,52 @@ export function useDrawingHandlers({
             if (activeFlags.isAny && drawingCtx) {
               // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
               try {
-                if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
-                  const finalPts = [...autoSamplePointsRef.current];
-                  const maxStops = 6;
-                  const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
-                  if (samplePts.length > 0) {
-                    const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
-                    const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
-                    try {
-                      setSharedColorCycleGradient(stops);
+            if (brushSamplingPreviewActiveRef.current && autoSamplePointsRef.current.length > 0) {
+              const stops = computeAutoSampleStops([...autoSamplePointsRef.current], { allowTiny: true });
+              if (stops && stops.length >= 2) {
+                try {
+                  setSharedColorCycleGradient(stops);
+                } catch {
+                  useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+                }
+                try {
+                  const st = useAppStore.getState();
+                  const gb = st.tools.brushSettings.gradientBands || 0;
+                  if (gb < stops.length) {
+                    st.setBrushSettings({ gradientBands: stops.length });
+                  }
+                } catch {}
+                try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+              }
+              try {
+                const st = useAppStore.getState();
+                if (st.tools.brushSettings.autoSampleGradient) {
+                  st.setBrushSettings({ autoSampleGradient: false });
+                }
+              } catch {}
+              clearBrushSamplingPreview();
+              brushSamplingPreviewActiveRef.current = false;
+              autoSamplePointsRef.current = [];
+              autoSampleLastUpdateRef.current = 0;
+              drawingCanvasHasContent.current = false;
+              return;
+            }
+            if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
+              const finalPts = [...autoSamplePointsRef.current];
+              const stops = computeAutoSampleStops(finalPts, { allowTiny: true });
+              if (stops && stops.length >= 2) {
+                try {
+                  setSharedColorCycleGradient(stops);
                     } catch {
                       useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
                     }
+                    try {
+                      const st = useAppStore.getState();
+                      const gb = st.tools.brushSettings.gradientBands || 0;
+                      if (gb < stops.length) {
+                        st.setBrushSettings({ gradientBands: stops.length });
+                      }
+                    } catch {}
                     // Push into live brush
                     try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
                     // One-shot: auto-disable sampling after applying
@@ -3198,6 +3349,7 @@ export function useDrawingHandlers({
       // Reset auto-sample state after stroke ends
       autoSamplePointsRef.current = [];
       autoSampleLastUpdateRef.current = 0;
+      brushSamplingPreviewActiveRef.current = false;
       // Safety net: ensure one-shot sampling is turned off at end of stroke
       try {
         const st = useAppStore.getState();
@@ -3669,16 +3821,20 @@ export function useDrawingHandlers({
             const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
             if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
               const finalPts = [...shapePointsRef.current];
-              const maxStops = 6;
-              const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
-              if (samplePts.length > 0) {
-                const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
-                const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
+              const stops = computeAutoSampleStops(finalPts, { allowTiny: true });
+              if (stops && stops.length >= 2) {
                 try {
                   setSharedColorCycleGradient(stops);
                 } catch {
                   useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
                 }
+                try {
+                  const liveState = useAppStore.getState();
+                  const gb = liveState.tools.brushSettings.gradientBands || 0;
+                  if (gb < stops.length) {
+                    liveState.setBrushSettings({ gradientBands: stops.length });
+                  }
+                } catch {}
                 try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
                 // One-shot: auto-disable sampling after applying for shapes
                 try {
@@ -4971,5 +5127,10 @@ function getColorCycleBrushFlags(settings: BrushSettings) {
 
 export const __TESTING__ = {
   computeStrokeCapturePadding,
-  resolveActiveCustomBrushData
+  resolveActiveCustomBrushData,
+  dedupePolylineForSampling,
+  computePolylineLength,
+  computeAutoSampleStopsFromPolyline,
+  MIN_AUTO_SAMPLE_PREVIEW_DISTANCE,
+  AUTO_SAMPLE_MAX_STOPS
 };

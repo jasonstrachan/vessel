@@ -279,7 +279,8 @@ const MinimalLayerList = () => {
         gradient: currentGradient,
         isAnimating: isGlobalPlaying,
         // Initialize per-layer brush speed from current brush setting
-        brushSpeed: stateSnapshot.tools?.brushSettings?.colorCycleSpeed || 0.1
+        brushSpeed: stateSnapshot.tools?.brushSettings?.colorCycleSpeed || 0.1,
+        flowMode: stateSnapshot.tools?.brushSettings?.colorCycleFlowMode ?? 'forward'
       }
     };
     // quiet

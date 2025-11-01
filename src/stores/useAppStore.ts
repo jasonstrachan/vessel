@@ -4171,6 +4171,9 @@ export const useAppStore = create<AppState>()(
         if (currentSettings.colorCycleSpeed !== undefined) {
           newBrushSettings.colorCycleSpeed = currentSettings.colorCycleSpeed;
         }
+        if (currentSettings.colorCycleFlowMode !== undefined) {
+          newBrushSettings.colorCycleFlowMode = currentSettings.colorCycleFlowMode;
+        }
         if (currentSettings.colorCycleFPS !== undefined) {
           newBrushSettings.colorCycleFPS = currentSettings.colorCycleFPS;
         }
@@ -4954,6 +4957,11 @@ export const useAppStore = create<AppState>()(
             customBrushColorCycle: true,
             ...(gradientForBrushSettings ? { colorCycleGradient: gradientForBrushSettings } : {})
           };
+          if (typeof layer.colorCycleData?.brushSpeed === 'number') {
+            nextBrushSettings.colorCycleSpeed = layer.colorCycleData.brushSpeed;
+          }
+          const resolvedFlowMode = layer.colorCycleData?.flowMode ?? state.tools.brushSettings.colorCycleFlowMode ?? 'forward';
+          nextBrushSettings.colorCycleFlowMode = resolvedFlowMode;
 
           const result = {
             activeLayerId: id,
@@ -5263,6 +5271,7 @@ export const useAppStore = create<AppState>()(
                   isAnimating: l.colorCycleData?.isAnimating ?? true,
                   // Ensure per-layer brush speed exists
                   brushSpeed: l.colorCycleData?.brushSpeed ?? (state.tools.brushSettings.colorCycleSpeed || 0.1),
+                  flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'forward'),
                   canvas
                 }
               };
@@ -5410,6 +5419,7 @@ export const useAppStore = create<AppState>()(
               isAnimating: true,
               // Initialize per-layer brush speed from current brush settings
               brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
+              flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'forward',
               canvas: layerCanvas ?? (colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined),
               eraseMask,
               eraseMaskVersion
@@ -6408,6 +6418,7 @@ export const useAppStore = create<AppState>()(
             gradient: initialColorCycleGradient,
             isAnimating: true,
             brushSpeed: initialColorCycleSpeed,
+            flowMode: currentState.tools?.brushSettings?.colorCycleFlowMode ?? 'forward',
             canvas: colorCycleCanvas
           }
         };

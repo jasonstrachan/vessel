@@ -747,7 +747,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               // Kick off recolor or brush sampling mode via line-drag
               try {
                 startRecolorSampling(12, sampleTarget);
-                addNotification?.({ type: 'info', title: 'Sampling', message: 'Click and drag on the canvas to sample a gradient and flow direction.', timestamp: new Date() });
+                addNotification?.({ type: 'info', title: 'Sampling', message: 'Click and drag a short stroke on the canvas to sample a gradient and flow direction.', timestamp: new Date() });
               } catch {}
             } else if (action === 'toggle-sampled') {
               // One-shot sampling for brush mode: always enable sampling and arm capture
@@ -755,7 +755,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                 setBrushSettings({ autoSampleGradient: true });
                 pendingSampleAddRef.current = true;
                 sampleStartSigRef.current = stopsSignature(stops);
-                addNotification?.({ type: 'info', title: 'Sampling', message: 'Sampling enabled for one use. Draw to sample; it will auto-disable after applying.', timestamp: new Date() });
+                addNotification?.({ type: 'info', title: 'Sampling', message: 'Sampling enabled for one use. Draw a short stroke to capture multiple colors; it will auto-disable after applying.', timestamp: new Date() });
               } catch {}
             }
         }}

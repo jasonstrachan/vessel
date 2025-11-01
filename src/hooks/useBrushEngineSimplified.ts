@@ -338,6 +338,10 @@ export const useBrushEngineSimplified = () => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
     return layer?.colorCycleData?.brushSpeed;
   });
+  const activeLayerFlowMode = useAppStore((state) => {
+    const layer = state.layers.find(l => l.id === state.activeLayerId);
+    return layer?.colorCycleData?.flowMode;
+  });
   const activeLayerTransparencyLock = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
     return layer?.transparencyLocked === true;
@@ -1947,7 +1951,8 @@ export const useBrushEngineSimplified = () => {
       }
       
       // Apply gradient - prioritize layer's stored gradient over brush settings
-      const activeLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
+      const storeSnapshot = useAppStore.getState();
+      const activeLayer = storeSnapshot.layers.find(l => l.id === activeLayerId);
       const layerGradient = activeLayer?.colorCycleData?.gradient;
       const brushGradient = tools.brushSettings.colorCycleGradient;
       const defaultGradient = [
@@ -1966,7 +1971,8 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.setGradient(gradientToUse, activeLayerId);
       }
       
-      const flowMode = tools.brushSettings.colorCycleFlowMode ?? 'forward';
+      const layerFlowMode = activeLayer?.colorCycleData?.flowMode;
+      const flowMode = layerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'forward';
       if (typeof colorCycleBrush.setFlowMode === 'function') {
         colorCycleBrush.setFlowMode(flowMode);
       } else {
@@ -1993,7 +1999,8 @@ export const useBrushEngineSimplified = () => {
     project?.height,
     activeLayerId,
     getActiveLayerColorCycleBrush,
-    tools.brushSettings.colorCycleFlowMode
+    tools.brushSettings.colorCycleFlowMode,
+    activeLayerFlowMode
   ]);
 
   const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
@@ -2006,14 +2013,13 @@ export const useBrushEngineSimplified = () => {
     if (!colorCycleBrush) {
       return;
     }
-
-    const flowMode = tools.brushSettings.colorCycleFlowMode ?? 'forward';
+    const flowMode = activeLayerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'forward';
     if (typeof colorCycleBrush.setFlowMode === 'function') {
       colorCycleBrush.setFlowMode(flowMode);
     } else {
       colorCycleBrush.setFlowDirection(flowMode === 'reverse' ? 'backward' : 'forward');
     }
-  }, [getActiveLayerColorCycleBrush, tools.brushSettings.colorCycleFlowMode, activeLayerId]);
+  }, [getActiveLayerColorCycleBrush, tools.brushSettings.colorCycleFlowMode, activeLayerId, activeLayerFlowMode]);
 
   /**
    * Render Color Cycle output onto the provided context.

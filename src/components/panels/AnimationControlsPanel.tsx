@@ -10,7 +10,7 @@ const AnimationControlsPanel: React.FC = () => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
   const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
-  const colorCycleFlowMode = useAppStore(state => state.tools.brushSettings.colorCycleFlowMode ?? 'forward');
+  const globalColorCycleFlowMode = useAppStore(state => state.tools.brushSettings.colorCycleFlowMode ?? 'forward');
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const updateLayer = useAppStore(state => state.updateLayer);
   const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
@@ -19,7 +19,6 @@ const AnimationControlsPanel: React.FC = () => {
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
   const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
-  const isSuspended = desiredPlaying && suspendDepth > 0;
 
   const activeLayer = React.useMemo(
     () => layers.find(layer => layer.id === activeLayerId) || null,
@@ -30,6 +29,9 @@ const AnimationControlsPanel: React.FC = () => {
   const colorCycleSpeedValue = isCCBrushLayer && typeof activeLayer?.colorCycleData?.brushSpeed === 'number'
     ? activeLayer.colorCycleData.brushSpeed
     : globalColorCycleSpeed;
+  const colorCycleFlowModeValue = isCCBrushLayer && activeLayer?.colorCycleData?.flowMode
+    ? activeLayer.colorCycleData.flowMode
+    : globalColorCycleFlowMode;
 
   const handleSpeedChange = React.useCallback((value: number) => {
     const clampedValue = Math.max(0.02, Math.min(1.0, value));
@@ -72,14 +74,32 @@ const AnimationControlsPanel: React.FC = () => {
 
     setBrushSettings({ colorCycleFlowMode: nextMode });
 
-    if (nextMode === 'reverse' || nextMode === 'pingpong' || nextMode === 'forward') {
-      if (colorCycleRuntimeHandlers.setFlowMode) {
-        colorCycleRuntimeHandlers.setFlowMode(nextMode);
-      } else if (colorCycleRuntimeHandlers.setFlowDirection) {
-        colorCycleRuntimeHandlers.setFlowDirection(nextMode === 'reverse' ? 'backward' : 'forward');
-      }
+    if (activeLayerId) {
+      const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
+        ? selectedLayerIds
+        : [activeLayerId];
+
+      targetLayerIds.forEach(layerId => {
+        const targetLayer = layers.find(layer => layer.id === layerId);
+        if (targetLayer?.layerType === 'color-cycle' && targetLayer.colorCycleData) {
+          if (targetLayer.colorCycleData.flowMode !== nextMode) {
+            updateLayer(layerId, {
+              colorCycleData: {
+                ...targetLayer.colorCycleData,
+                flowMode: nextMode
+              }
+            });
+          }
+        }
+      });
     }
-  }, [colorCycleRuntimeHandlers, setBrushSettings]);
+
+    if (colorCycleRuntimeHandlers.setFlowMode) {
+      colorCycleRuntimeHandlers.setFlowMode(nextMode);
+    } else if (colorCycleRuntimeHandlers.setFlowDirection) {
+      colorCycleRuntimeHandlers.setFlowDirection(nextMode === 'reverse' ? 'backward' : 'forward');
+    }
+  }, [activeLayerId, colorCycleRuntimeHandlers, layers, selectedLayerIds, setBrushSettings, updateLayer]);
 
   return (
     <div className="bg-[#1A1A1A] border-t border-[#404040]">
@@ -105,7 +125,7 @@ const AnimationControlsPanel: React.FC = () => {
               { label: '<--', value: 'reverse' },
               { label: '<-->', value: 'pingpong' }
             ]}
-            value={colorCycleFlowMode}
+            value={colorCycleFlowModeValue}
             onChange={handleFlowModeChange}
             className="flex-1 [&>button]:flex-1"
             size="sm"
@@ -119,11 +139,6 @@ const AnimationControlsPanel: React.FC = () => {
           <span className="text-[10px]" aria-hidden="true">{effectivePlaying ? '⏸' : '▶'}</span>
           <span className="ml-1 text-[10px]">{effectivePlaying ? 'Pause' : 'Play'}</span>
         </button>
-        {isSuspended && (
-          <p className="text-center text-[#C4C4C4] text-xs mt-1">
-            Suspended while busy
-          </p>
-        )}
       </div>
     </div>
   );

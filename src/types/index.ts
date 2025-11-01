@@ -141,6 +141,8 @@ export interface Layer {
     // Per-layer animation speed for brush-mode CC (cycles per second)
     // If undefined, UI should default to 0.1 or fall back to brush settings
     brushSpeed?: number;
+    // Per-layer animation flow mode for brush-mode CC
+    flowMode?: 'forward' | 'reverse' | 'pingpong';
     canvas?: HTMLCanvasElement;
     canvasImageData?: ImageData;
     canvasWidth?: number;

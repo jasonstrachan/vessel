@@ -154,6 +154,17 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       if (typeof perLayerSpeed === 'number') {
         brushWithOptionalControls.setSpeed?.(perLayerSpeed);
       }
+      const perLayerFlowMode =
+        layer?.colorCycleData?.flowMode ??
+        currentSettings.colorCycleFlowMode ??
+        'forward';
+      if (typeof brushWithOptionalControls.setFlowMode === 'function') {
+        brushWithOptionalControls.setFlowMode(perLayerFlowMode);
+      } else if (typeof brushWithOptionalControls.setFlowDirection === 'function') {
+        brushWithOptionalControls.setFlowDirection(
+          perLayerFlowMode === 'reverse' ? 'backward' : 'forward'
+        );
+      }
 
       // Store brush and metadata
       brushes.set(layerId, brush);

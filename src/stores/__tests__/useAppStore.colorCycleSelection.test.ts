@@ -41,7 +41,10 @@ describe('useAppStore color cycle layer selection', () => {
     { position: 1, color: '#445566' }
   ] as const;
 
-  const makeColorCycleLayer = (id: string): Layer => {
+  const makeColorCycleLayer = (
+    id: string,
+    overrides: Partial<NonNullable<Layer['colorCycleData']>> = {}
+  ): Layer => {
     const canvas = document.createElement('canvas');
     canvas.width = 10;
     canvas.height = 10;
@@ -60,7 +63,8 @@ describe('useAppStore color cycle layer selection', () => {
       layerType: 'color-cycle',
       colorCycleData: {
         gradient: cloneStops(layerGradient),
-        isAnimating: false
+        isAnimating: false,
+        ...overrides
       }
     };
   };
@@ -109,5 +113,53 @@ describe('useAppStore color cycle layer selection', () => {
     expect(gradient).toEqual(layerGradient);
     expect(gradient).not.toBe(layerGradient);
     expect(gradient?.[0]).not.toBe(layerGradient[0]);
+  });
+
+  it('adopts per-layer flow mode when activating a color cycle layer', () => {
+    const layer = makeColorCycleLayer('layer-flow', { flowMode: 'pingpong' });
+
+    useAppStore.setState(state => ({
+      layers: [layer],
+      project: state.project
+        ? {
+            ...state.project,
+            layers: [layer]
+          }
+        : state.project,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleFlowMode: 'forward'
+        }
+      }
+    }));
+
+    useAppStore.getState().setActiveLayer(layer.id);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('pingpong');
+  });
+
+  it('persists per-layer flow mode updates via updateLayer', () => {
+    const layer = makeColorCycleLayer('layer-update');
+
+    useAppStore.setState(state => ({
+      layers: [layer],
+      project: state.project
+        ? {
+            ...state.project,
+            layers: [layer]
+          }
+        : state.project
+    }));
+
+    useAppStore.getState().updateLayer(layer.id, {
+      colorCycleData: {
+        flowMode: 'reverse'
+      }
+    });
+
+    const updatedLayer = useAppStore.getState().layers.find(l => l.id === layer.id);
+    expect(updatedLayer?.colorCycleData?.flowMode).toBe('reverse');
   });
 });
