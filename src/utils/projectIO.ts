@@ -244,14 +244,19 @@ function imageDataHasVisiblePixels(imageData: ImageData | null | undefined): boo
 
 // Convert ImageData to base64 encoded raw pixel data (lossless)
 function imageDataToDataUrl(imageData: ImageData): string {
-  // Serialize ImageData as raw RGBA pixel data to preserve exact values
+  // Persist raw pixel bytes via base64 while keeping metadata human readable
   const rawData = {
     width: imageData.width,
     height: imageData.height,
-    data: Array.from(imageData.data) // Convert Uint8ClampedArray to regular array for JSON
+    dataBase64: bytesToBase64(
+      new Uint8Array(
+        imageData.data.buffer,
+        imageData.data.byteOffset,
+        imageData.data.byteLength
+      )
+    )
   };
-  
-  // Encode as base64 JSON to avoid PNG compression artifacts
+
   const jsonString = JSON.stringify(rawData);
   const base64 = btoa(jsonString);
   return `data:application/json;base64,${base64}`;
@@ -268,12 +273,34 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
         const rawData = JSON.parse(jsonString);
         
         // Recreate ImageData from raw pixel data
-        const imageData = new ImageData(
-          new Uint8ClampedArray(rawData.data),
-          rawData.width,
-          rawData.height
-        );
-        resolve(imageData);
+        if (Array.isArray(rawData.data)) {
+          // Legacy format: data array of numbers
+          const imageData = new ImageData(
+            new Uint8ClampedArray(rawData.data),
+            rawData.width,
+            rawData.height
+          );
+          resolve(imageData);
+          return;
+        }
+
+        if (typeof rawData.dataBase64 === 'string') {
+          const bytes = base64ToUint8Array(rawData.dataBase64);
+          if (!bytes) {
+            reject(new Error('Failed to decode image bytes'));
+            return;
+          }
+
+          const imageData = new ImageData(
+            new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+            rawData.width,
+            rawData.height
+          );
+          resolve(imageData);
+          return;
+        }
+
+        reject(new Error('Unsupported raw image payload'));
         return;
       }
       
