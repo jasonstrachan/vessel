@@ -23,6 +23,29 @@ const cloneImageData = (imageData: ImageData | null | undefined): ImageData | nu
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 };
 
+const normalizeImageDataSize = (imageData: ImageData, width: number, height: number): ImageData => {
+  if (imageData.width === width && imageData.height === height) {
+    return imageData;
+  }
+
+  const normalized = new ImageData(width, height);
+  const target = normalized.data;
+  const source = imageData.data;
+  const copyWidth = Math.min(width, imageData.width);
+  const copyHeight = Math.min(height, imageData.height);
+  const sourceStride = imageData.width * 4;
+  const targetStride = width * 4;
+
+  for (let row = 0; row < copyHeight; row += 1) {
+    const srcStart = row * sourceStride;
+    const destStart = row * targetStride;
+    const srcEnd = srcStart + copyWidth * 4;
+    target.set(source.subarray(srcStart, srcEnd), destStart);
+  }
+
+  return normalized;
+};
+
 const markUnsavedChanges = (): void => {
   useAppStore.setState((state) => ({
     autosave: {
@@ -143,9 +166,13 @@ export const commitLayerHistory = async ({
       const skipBitmap = skipBitmapDelta === true;
 
       if (afterImage && !skipBitmap && !isColorCycleLayer) {
+        const effectiveBeforeImage = beforeImage
+          ? normalizeImageDataSize(beforeImage, afterImage.width, afterImage.height)
+          : null;
+
         const bitmapDelta = await createBitmapTileDelta({
           layerId,
-          before: beforeImage,
+          before: effectiveBeforeImage,
           after: afterImage,
           roi: bitmapRoi ?? undefined,
         });

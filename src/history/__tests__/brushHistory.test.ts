@@ -23,8 +23,22 @@ const createImage = (pixels: number[]): ImageData => {
   return new ImageData(new Uint8ClampedArray(pixels), CANVAS_SIZE.width, CANVAS_SIZE.height);
 };
 
+const createImageOfSize = (width: number, height: number, pixels: number[]): ImageData => {
+  return new ImageData(new Uint8ClampedArray(pixels), width, height);
+};
+
 const cloneImage = (image: ImageData): ImageData =>
   new ImageData(new Uint8ClampedArray(image.data), image.width, image.height);
+
+const getPixel = (image: ImageData, x: number, y: number): [number, number, number, number] => {
+  const index = (y * image.width + x) * 4;
+  return [
+    image.data[index] ?? 0,
+    image.data[index + 1] ?? 0,
+    image.data[index + 2] ?? 0,
+    image.data[index + 3] ?? 0,
+  ];
+};
 
 const createLayer = (id: string, imageData: ImageData): Layer => {
   const framebuffer = document.createElement('canvas');
@@ -283,6 +297,61 @@ describe('brush history coalescing', () => {
     expect(((firstEntry.meta ?? {}) as Record<string, unknown>).coalescedCount as number).toBe(1);
     expect(((secondEntry.meta ?? {}) as Record<string, unknown>).coalescedCount as number).toBe(1);
     expect(firstEntry.id).not.toBe(secondEntry.id);
+  });
+
+  it('normalizes before-image dimensions when generating bitmap deltas', async () => {
+    const beforeSmall = createImageOfSize(
+      2,
+      2,
+      [
+        255, 0, 0, 255,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+      ],
+    );
+
+    const afterLarge = createImageOfSize(
+      4,
+      4,
+      [
+        0, 255, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255,
+      ],
+    );
+
+    const layer = createLayer('layer-normalize', cloneImage(afterLarge));
+    installLayer(layer);
+    updateLayerImage(layer.id, cloneImage(afterLarge));
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(beforeSmall),
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'Expanded stroke',
+      tool: 'brush',
+    });
+
+    expect(historyManager.entries()).toHaveLength(1);
+
+    const undoEntry = await historyManager.undo();
+    expect(undoEntry).not.toBeNull();
+
+    const restoredLayer = useAppStore.getState().layers.find((l) => l.id === layer.id);
+    expect(restoredLayer?.imageData?.width).toBe(4);
+    expect(restoredLayer?.imageData?.height).toBe(4);
+
+    const restoredImage = restoredLayer?.imageData;
+    expect(restoredImage).not.toBeNull();
+    if (!restoredImage) {
+      throw new Error('Expected restored image data');
+    }
+
+    expect(getPixel(restoredImage, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(getPixel(restoredImage, 3, 3)).toEqual([0, 0, 0, 0]);
   });
 });
 
