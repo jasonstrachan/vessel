@@ -356,10 +356,20 @@ export interface UIState {
   };
   theme: 'dark' | 'light';
   notifications: Notification[];
-  keyboardScope: KeyboardScope;
+  keyboardScope: KeyboardScopeState;
 }
 
 export type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
+
+export interface KeyboardScopeEntry {
+  id: string;
+  scope: KeyboardScope;
+}
+
+export interface KeyboardScopeState {
+  active: KeyboardScope;
+  stack: KeyboardScopeEntry[];
+}
 
 export interface BrushEditorState {
   status: 'IDLE' | 'EDITING';

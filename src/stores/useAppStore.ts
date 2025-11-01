@@ -328,6 +328,7 @@ if (typeof window !== 'undefined') {
 // Import ColorCycleBrush manager
 import { getColorCycleBrushManager, setLayerIdGetter, setColorCycleStoreStateGetter } from './colorCycleBrushManager';
 import { waitForFinalizeQueueIdle, waitForPendingColorCycleSaves } from './pendingColorCycleSaves';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { syncCCRuntimes } from './ccRuntime';
 import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
 import { ShapeFillOrchestrator, type ShapeFillFinalizePayload } from '@/shapeFill';
@@ -401,6 +402,7 @@ import type {
   PolygonGradientState,
   BrushEditorState,
   KeyboardScope,
+  KeyboardScopeEntry,
   ExportContainerLayout,
   WebGLExportSettings,
   CropState,
@@ -955,7 +957,8 @@ export interface AppState {
   setTheme: (theme: 'dark' | 'light') => void;
   addNotification: (notification: Omit<UIState['notifications'][0], 'id'>) => void;
   removeNotification: (id: string) => void;
-  setKeyboardScope: (scope: KeyboardScope) => void;
+  pushKeyboardScope: (id: string, scope: KeyboardScope) => void;
+  popKeyboardScope: (id: string) => void;
   
   // Layer Management
   layers: Layer[];
@@ -1484,6 +1487,24 @@ const defaultCropState: CropState = {
   commitInFlight: false
 };
 
+const DEFAULT_KEYBOARD_SCOPE: KeyboardScope = 'canvas';
+const KEYBOARD_SCOPE_PRIORITY: readonly KeyboardScope[] = ['modal', 'gradient', 'recolor', 'canvas', 'global'] as const;
+
+const resolveActiveKeyboardScope = (stack: KeyboardScopeEntry[]): KeyboardScope => {
+  if (stack.length === 0) {
+    return DEFAULT_KEYBOARD_SCOPE;
+  }
+
+  for (const scope of KEYBOARD_SCOPE_PRIORITY) {
+    if (stack.some((entry) => entry.scope === scope)) {
+      return scope;
+    }
+  }
+
+  const lastEntry = stack[stack.length - 1];
+  return lastEntry?.scope ?? DEFAULT_KEYBOARD_SCOPE;
+};
+
 const defaultUIState: UIState = {
   panels: {
     leftToolbar: true,
@@ -1501,7 +1522,10 @@ const defaultUIState: UIState = {
   },
   theme: 'dark',
   notifications: [],
-  keyboardScope: 'canvas'
+  keyboardScope: {
+    active: DEFAULT_KEYBOARD_SCOPE,
+    stack: [],
+  }
 };
 
 const defaultHistoryState: HistoryState = {
@@ -4436,12 +4460,52 @@ export const useAppStore = create<AppState>()(
           notifications: state.ui.notifications.filter(n => n.id !== id)
         }
       })),
-      setKeyboardScope: (scope) => set((state) => ({
-        ui: {
-          ...state.ui,
-          keyboardScope: scope
+      pushKeyboardScope: (id, scope) => set((state) => {
+        const existingStack = state.ui.keyboardScope.stack;
+        const filtered = existingStack.filter((entry) => entry.id !== id);
+        const nextStack = [...filtered, { id, scope }];
+        const nextActive = resolveActiveKeyboardScope(nextStack);
+
+        if (
+          existingStack.length === nextStack.length &&
+          state.ui.keyboardScope.active === nextActive &&
+          existingStack.every(
+            (entry, index) =>
+              entry.id === nextStack[index]?.id && entry.scope === nextStack[index]?.scope,
+          )
+        ) {
+          return state;
         }
-      })),
+
+        return {
+          ui: {
+            ...state.ui,
+            keyboardScope: {
+              stack: nextStack,
+              active: nextActive,
+            },
+          },
+        };
+      }),
+      popKeyboardScope: (id) => set((state) => {
+        const existingStack = state.ui.keyboardScope.stack;
+        const nextStack = existingStack.filter((entry) => entry.id !== id);
+        if (nextStack.length === existingStack.length) {
+          return state;
+        }
+
+        const nextActive = resolveActiveKeyboardScope(nextStack);
+
+        return {
+          ui: {
+            ...state.ui,
+            keyboardScope: {
+              stack: nextStack,
+              active: nextActive,
+            },
+          },
+        };
+      }),
       
       // Layer Management - Start empty for SSR compatibility
       layers: [],
@@ -6101,6 +6165,8 @@ export const useAppStore = create<AppState>()(
       
       undo: async () => {
         return get().withColorCycleSuspended('history-apply', async () => {
+          await flushPendingToolWork();
+
           const pendingEntry = historyManager.peekUndo();
           if (!pendingEntry) {
             return null;
@@ -6160,6 +6226,8 @@ export const useAppStore = create<AppState>()(
       
       redo: async () => {
         return get().withColorCycleSuspended('history-apply', async () => {
+          await flushPendingToolWork();
+
           const pendingEntry = historyManager.peekRedo();
           if (!pendingEntry) {
             return null;

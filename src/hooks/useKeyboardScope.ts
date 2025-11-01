@@ -1,24 +1,30 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import type { KeyboardScope } from '../types';
 
-// Lightweight helper to set a keyboard scope while enabled and
-// restore the previous scope automatically on cleanup.
+// Lightweight helper to register a scoped keyboard context while enabled and
+// automatically release it on cleanup.
 export function useKeyboardScope(scope: KeyboardScope, enabled: boolean = true) {
-  const setKeyboardScope = useAppStore((s) => s.setKeyboardScope);
-  const getScope = useAppStore.getState;
-  const prevRef = useRef<KeyboardScope | null>(null);
+  const pushKeyboardScope = useAppStore((s) => s.pushKeyboardScope);
+  const popKeyboardScope = useAppStore((s) => s.popKeyboardScope);
+  const reactId = useId();
+  const scopeIdRef = useRef<string | null>(null);
+
+  if (scopeIdRef.current === null) {
+    scopeIdRef.current = `keyboard-scope-${reactId}`;
+  }
 
   useEffect(() => {
-    if (!enabled) return;
-    // save previous and set new
-    prevRef.current = getScope().ui.keyboardScope;
-    setKeyboardScope(scope);
-    return () => {
-      if (prevRef.current) {
-        setKeyboardScope(prevRef.current);
-      }
-    };
-  }, [enabled, scope, setKeyboardScope, getScope]);
-}
+    const scopeId = scopeIdRef.current!;
 
+    if (!enabled) {
+      popKeyboardScope(scopeId);
+      return;
+    }
+
+    pushKeyboardScope(scopeId, scope);
+    return () => {
+      popKeyboardScope(scopeId);
+    };
+  }, [enabled, scope, pushKeyboardScope, popKeyboardScope]);
+}

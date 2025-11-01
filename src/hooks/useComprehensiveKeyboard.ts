@@ -152,7 +152,7 @@ export function useComprehensiveKeyboard({
     let currentScope: KeyboardScope | null = null;
     const isBracketShortcut = event.key === '[' || event.key === ']';
     try {
-      currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
+      currentScope = useAppStore.getState().ui.keyboardScope.active as KeyboardScope;
       if (!allowedScopes.includes(currentScope)) {
         // If not allowed, still allow Space and bracket size shortcuts
         if (event.code !== 'Space' && !isBracketShortcut) return;
@@ -164,6 +164,26 @@ export function useComprehensiveKeyboard({
     if (isTextEntryTarget(target)) {
       return;
     }
+
+    // Handle Undo (Ctrl/Cmd + Z) before input-specific guards so non-text inputs don't swallow it
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
+      event.preventDefault();
+      void onUndoRef.current?.();
+      return;
+    }
+
+    // Handle Redo (Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y)
+    if ((event.ctrlKey || event.metaKey) && (
+      (event.key.toLowerCase() === 'z' && event.shiftKey) ||
+      (event.key.toLowerCase() === 'y' && !event.shiftKey)
+    )) {
+      event.preventDefault();
+      if (onRedoRef.current) {
+        onRedoRef.current();
+      }
+      return;
+    }
+
     if (target instanceof HTMLInputElement) {
       // Non-textual inputs (e.g., sliders) still allow Space and bracket shortcuts
       if (event.code !== 'Space' && !isBracketShortcut) {
@@ -181,25 +201,6 @@ export function useComprehensiveKeyboard({
     keyboardStateRef.current.isCtrlPressed = event.ctrlKey;
     keyboardStateRef.current.isAltPressed = event.altKey;
     keyboardStateRef.current.isMetaPressed = event.metaKey;
-
-    // Handle Undo (Ctrl/Cmd + Z) - must come before general key tracking
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
-      event.preventDefault();
-      void onUndoRef.current?.();
-      return;
-    }
-
-    // Handle Redo (Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y)
-    if ((event.ctrlKey || event.metaKey) && (
-      (event.key.toLowerCase() === 'z' && event.shiftKey) || 
-      (event.key.toLowerCase() === 'y' && !event.shiftKey)
-    )) {
-      event.preventDefault();
-      if (onRedoRef.current) {
-        onRedoRef.current();
-      }
-      return;
-    }
 
     // Palette swap/copy shortcuts (X to swap, Shift+X to copy foreground to background)
     if (!event.repeat && event.code === 'KeyX' && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -474,7 +475,7 @@ export function useComprehensiveKeyboard({
 
     // Respect keyboard scope
     try {
-      const currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
+      const currentScope = useAppStore.getState().ui.keyboardScope.active as KeyboardScope;
       if (!allowedScopes.includes(currentScope) && event.code !== 'Space') return;
     } catch {}
 

@@ -1638,7 +1638,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       const target = e.target as HTMLElement | null;
 
       // Read current scope (only allow Space handling on canvas or brush editor modal)
-      const currentScope = useAppStore.getState().ui.keyboardScope;
+      const currentScope = useAppStore.getState().ui.keyboardScope.active;
       const brushEditorStatus = useAppStore.getState().brushEditor.status;
       const scopeAllowsSpace =
         currentScope === 'canvas' || (currentScope === 'modal' && brushEditorStatus === 'EDITING');
@@ -1675,7 +1675,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
     const handleKeyUp = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const currentScope = useAppStore.getState().ui.keyboardScope;
+      const currentScope = useAppStore.getState().ui.keyboardScope.active;
       const brushEditorStatus = useAppStore.getState().brushEditor.status;
       const scopeAllowsSpace =
         currentScope === 'canvas' || (currentScope === 'modal' && brushEditorStatus === 'EDITING');
