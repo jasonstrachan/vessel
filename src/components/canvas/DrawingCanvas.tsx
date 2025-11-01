@@ -318,7 +318,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const compositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const compositeCanvasDirtyRef = useRef(true); // Track if composite needs update
   const lastCompositeHashRef = useRef<string>(''); // Track last composite state
+  const lastActiveLayerIdRef = useRef<string | null>(null);
   const [needsRedraw, setNeedsRedraw] = useState(0);
+  const underCompositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overCompositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const underCompositeHasContentRef = useRef(false);
+  const overCompositeHasContentRef = useRef(false);
+  const layerTransferCacheRef = useRef<Map<string, HTMLCanvasElement | OffscreenCanvas>>(new Map());
 
   // Cached floating paste canvas (avoid creating per frame)
   const pasteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -517,6 +523,166 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     return colors;
   }, [sampleColorAtPosition]);
   
+  const renderSplitComposites = useCallback(() => {
+    if (!project || project.width <= 0 || project.height <= 0) {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    if (typeof document === 'undefined') {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    if (!underCompositeCanvasRef.current) {
+      underCompositeCanvasRef.current = document.createElement('canvas');
+    }
+    if (!overCompositeCanvasRef.current) {
+      overCompositeCanvasRef.current = document.createElement('canvas');
+    }
+
+    const underCanvas = underCompositeCanvasRef.current;
+    const overCanvas = overCompositeCanvasRef.current;
+
+    if (!underCanvas || !overCanvas) {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    if (underCanvas.width !== project.width || underCanvas.height !== project.height) {
+      underCanvas.width = project.width;
+      underCanvas.height = project.height;
+    }
+    if (overCanvas.width !== project.width || overCanvas.height !== project.height) {
+      overCanvas.width = project.width;
+      overCanvas.height = project.height;
+    }
+
+    const underCtx = underCanvas.getContext('2d', { willReadFrequently: true });
+    const overCtx = overCanvas.getContext('2d', { willReadFrequently: true });
+
+    if (!underCtx || !overCtx) {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    underCtx.clearRect(0, 0, project.width, project.height);
+    overCtx.clearRect(0, 0, project.width, project.height);
+
+    const isPixelBrush =
+      tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+      (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
+    underCtx.imageSmoothingEnabled = !isPixelBrush;
+    overCtx.imageSmoothingEnabled = !isPixelBrush;
+
+    const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
+    const activeLayer = activeLayerId ? sortedLayers.find((layer) => layer.id === activeLayerId) ?? null : null;
+    const activeOrder = activeLayer ? activeLayer.order : Number.POSITIVE_INFINITY;
+
+    let drewUnder = false;
+    let drewOver = false;
+
+    for (const layer of sortedLayers) {
+      if (!layer.visible) {
+        continue;
+      }
+
+      const targetCtx: CanvasRenderingContext2D = layer.order > activeOrder ? overCtx : underCtx;
+
+      targetCtx.save();
+      targetCtx.globalCompositeOperation = layer.blendMode;
+      targetCtx.globalAlpha = layer.opacity;
+
+      let drewLayer = false;
+
+      if (
+        layer.layerType === 'color-cycle' &&
+        layer.colorCycleData?.canvas &&
+        layer.colorCycleData.mode !== 'recolor'
+      ) {
+        try {
+          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          drewLayer = true;
+        } catch {
+          // ignore draw errors for transient states
+        }
+      } else if (
+        layer.layerType === 'color-cycle' &&
+        layer.colorCycleData?.mode === 'recolor' &&
+        layer.colorCycleData.canvas
+      ) {
+        try {
+          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          drewLayer = true;
+        } catch {
+          // ignore draw errors for transient states
+        }
+      } else if (layer.framebuffer) {
+        try {
+          targetCtx.drawImage(layer.framebuffer as CanvasImageSource, 0, 0);
+          drewLayer = true;
+        } catch {
+          // ignore draw errors for transient states
+        }
+      } else if (layer.imageData) {
+        let transferCanvas = layerTransferCacheRef.current.get(layer.id);
+        if (!transferCanvas) {
+          const canvas = document.createElement('canvas');
+          canvas.width = layer.imageData.width;
+          canvas.height = layer.imageData.height;
+          transferCanvas = canvas;
+          layerTransferCacheRef.current.set(layer.id, transferCanvas);
+        }
+        if (
+          transferCanvas.width !== layer.imageData.width ||
+          transferCanvas.height !== layer.imageData.height
+        ) {
+          transferCanvas.width = layer.imageData.width;
+          transferCanvas.height = layer.imageData.height;
+        }
+
+        const transferCtx = transferCanvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        ) as CanvasRenderingContext2D | null;
+
+        if (transferCtx) {
+          transferCtx.clearRect(0, 0, transferCanvas.width, transferCanvas.height);
+          transferCtx.putImageData(layer.imageData, 0, 0);
+          try {
+            targetCtx.drawImage(transferCanvas, 0, 0);
+            drewLayer = true;
+          } catch {
+            // ignore draw errors for transient states
+          }
+        }
+      }
+
+      targetCtx.restore();
+
+      if (drewLayer) {
+        if (targetCtx === underCtx) {
+          drewUnder = true;
+        } else {
+          drewOver = true;
+        }
+      }
+    }
+
+    underCompositeHasContentRef.current = drewUnder;
+    overCompositeHasContentRef.current = drewOver;
+  }, [
+    project,
+    layers,
+    activeLayerId,
+    tools.brushSettings.brushShape,
+    tools.brushSettings.antialiasing
+  ]);
+  
   // Drawing function - base implementation without hooks
   const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio = 1) => {
     const { scale, offsetX, offsetY } = transform;
@@ -614,43 +780,44 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       
       // Check if we're actively erasing
-      const isActivelyErasing = tools.currentTool === 'eraser' && isDrawing && drawingCanvasRef && drawingCanvasHasContent;
-      
-      // Draw composite bitmap/canvas ONLY if we're not actively erasing
-      if (!isActivelyErasing && visibleRect) {
+      const overlayCanvasElement = drawingCanvasRef ?? null;
+      const hasOverlayCanvas = overlayCanvasElement !== null;
+      const isActivelyErasing =
+        tools.currentTool === 'eraser' && isDrawing && hasOverlayCanvas && drawingCanvasHasContent;
+      const overlayActive =
+        !skipDrawingCanvas && hasOverlayCanvas && (isDrawing || drawingCanvasHasContent);
+      const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
+
+      if (overlayEligibleForSplit) {
+        const activeLayer =
+          activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
+        const anyAnimatingColorCycle = layers.some(
+          (layer) =>
+            layer.visible &&
+            layer.layerType === 'color-cycle' &&
+            Boolean(layer.colorCycleData?.isAnimating)
+        );
+        const requiresLiveRefresh =
+          !underCompositeCanvasRef.current ||
+          !underCompositeHasContentRef.current ||
+          compositeCanvasDirtyRef.current ||
+          activeLayer?.layerType === 'color-cycle' ||
+          anyAnimatingColorCycle;
+
+        if (requiresLiveRefresh) {
+          renderSplitComposites();
+          compositeCanvasDirtyRef.current = false;
+        }
+      }
+
+      const useSplitOverlay = overlayEligibleForSplit && Boolean(underCompositeCanvasRef.current);
+
+      if (visibleRect) {
         const { x, y, width, height } = visibleRect;
         if (width > 0 && height > 0) {
-          let compositeDrawn = false;
-          if (compositeBitmap) {
-            try {
-              ctx.drawImage(
-                compositeBitmap,
-                x,
-                y,
-                width,
-                height,
-                x,
-                y,
-                width,
-                height
-              );
-              compositeDrawn = true;
-            } catch (error) {
-              const isInvalidState =
-                error instanceof DOMException && error.name === 'InvalidStateError';
-              if (isInvalidState) {
-                const state = useAppStore.getState();
-                state.setCurrentCompositeBitmap(null);
-                state.setLayersNeedRecomposition(true);
-              } else {
-                throw error;
-              }
-            }
-          }
-
-          if (!compositeDrawn && compositeCanvasRef.current) {
+          if (useSplitOverlay && underCompositeCanvasRef.current) {
             ctx.drawImage(
-              compositeCanvasRef.current,
+              underCompositeCanvasRef.current,
               x,
               y,
               width,
@@ -660,12 +827,54 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               width,
               height
             );
+          } else if (!isActivelyErasing) {
+            let compositeDrawn = false;
+            if (compositeBitmap) {
+              try {
+                ctx.drawImage(
+                  compositeBitmap,
+                  x,
+                  y,
+                  width,
+                  height,
+                  x,
+                  y,
+                  width,
+                  height
+                );
+                compositeDrawn = true;
+              } catch (error) {
+                const isInvalidState =
+                  error instanceof DOMException && error.name === 'InvalidStateError';
+                if (isInvalidState) {
+                  const state = useAppStore.getState();
+                  state.setCurrentCompositeBitmap(null);
+                  state.setLayersNeedRecomposition(true);
+                } else {
+                  throw error;
+                }
+              }
+            }
+
+            if (!compositeDrawn && compositeCanvasRef.current) {
+              ctx.drawImage(
+                compositeCanvasRef.current,
+                x,
+                y,
+                width,
+                height,
+                x,
+                y,
+                width,
+                height
+              );
+            }
           }
         }
       }
       
       // Draw temporary drawing canvas
-      if (!skipDrawingCanvas && drawingCanvasRef && (isDrawing || drawingCanvasHasContent) && visibleRect) {
+      if (overlayActive && overlayCanvasElement && visibleRect) {
         // Strictly avoid overlaying CC animation frames above the stack.
         // Skip drawing the overlay when ANY brush-based Color Cycle layer is animating
         // or when the animation manager is playing.
@@ -686,7 +895,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const { x, y, width, height } = visibleRect;
           if (width > 0 && height > 0) {
             ctx.drawImage(
-              drawingCanvasRef,
+              overlayCanvasElement,
               x,
               y,
               width,
@@ -697,6 +906,28 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               height
             );
           }
+        }
+      }
+      
+      if (
+        useSplitOverlay &&
+        overCompositeHasContentRef.current &&
+        overCompositeCanvasRef.current &&
+        visibleRect
+      ) {
+        const { x, y, width, height } = visibleRect;
+        if (width > 0 && height > 0) {
+          ctx.drawImage(
+            overCompositeCanvasRef.current,
+            x,
+            y,
+            width,
+            height,
+            x,
+            y,
+            width,
+            height
+          );
         }
       }
       
@@ -842,7 +1073,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     selectionEnd,
     marchingAntsOffset,
     floatingPaste,
-    compositeBitmap
+    compositeBitmap,
+    activeLayerId,
+    renderSplitComposites
   ]);
   
   // Use custom hooks
@@ -2089,31 +2322,43 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Regenerate composite canvas when layers change
   useEffect(() => {
     if (!project || !compositeLayersToCanvas) return;
+
+    const activeLayerChanged = activeLayerId !== lastActiveLayerIdRef.current;
     
     // Check if we actually need to update the composite
-    if (layersHash === lastCompositeHashRef.current && !compositeCanvasDirtyRef.current && !layersNeedRecomposition) {
+    if (
+      layersHash === lastCompositeHashRef.current &&
+      !compositeCanvasDirtyRef.current &&
+      !layersNeedRecomposition &&
+      !activeLayerChanged
+    ) {
       return; // Skip if nothing changed
     }
     
-    if (!compositeCanvasRef.current) {
+    if (!compositeCanvasRef.current && typeof document !== 'undefined') {
       compositeCanvasRef.current = document.createElement('canvas');
     }
-    if (compositeCanvasRef.current.width !== project.width || 
-        compositeCanvasRef.current.height !== project.height) {
-      compositeCanvasRef.current.width = project.width;
-      compositeCanvasRef.current.height = project.height;
-    }
+    if (compositeCanvasRef.current) {
+      if (compositeCanvasRef.current.width !== project.width || 
+          compositeCanvasRef.current.height !== project.height) {
+        compositeCanvasRef.current.width = project.width;
+        compositeCanvasRef.current.height = project.height;
+      }
+      
+      const compCtx = compositeCanvasRef.current.getContext('2d', { willReadFrequently: true });
+      if (compCtx) {
+        compCtx.imageSmoothingEnabled = false;
+      }
     
-    const compCtx = compositeCanvasRef.current.getContext('2d', { willReadFrequently: true });
-    if (compCtx) {
-      compCtx.imageSmoothingEnabled = false;
+      compositeLayersToCanvas(compositeCanvasRef.current);
+      setCurrentOffscreenCanvas(compositeCanvasRef.current);
     }
-    
-    compositeLayersToCanvas(compositeCanvasRef.current);
-    setCurrentOffscreenCanvas(compositeCanvasRef.current);
+
+    renderSplitComposites();
 
     // Update tracking
     lastCompositeHashRef.current = layersHash;
+    lastActiveLayerIdRef.current = activeLayerId ?? null;
     compositeCanvasDirtyRef.current = false;
     // Reset last sampled pixel cache after recomposition
     lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null };
@@ -2133,7 +2378,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         drawRef.current(ctx, viewTransformRef.current);
       }
     }
-  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition]);
+  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition, activeLayerId, renderSplitComposites]);
   
   // Animate marching ants
   useEffect(() => {
