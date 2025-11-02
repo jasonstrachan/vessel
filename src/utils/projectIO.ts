@@ -10,17 +10,74 @@ import type {
   ExportContainerLayout,
   PaletteState
 } from '@/types';
+import JSZip from 'jszip';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import {
   LEGACY_PROJECT_FILE_EXTENSION,
+  LEGACY_PROJECT_FILE_MIME,
   PROJECT_FILE_ACCEPT,
   PROJECT_FILE_EXTENSION,
-  PROJECT_FILE_MIME
+  PROJECT_FILE_MIME,
+  PROJECT_FILE_MIME_ACCEPT
 } from '@/constants/projectFiles';
 
 // Vessel project file format version
 const PROJECT_VERSION = '1.0.0';
+
+export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
+
+const PROJECT_ARCHIVE_ENTRY = 'project.json';
+
+function isZipBytes(bytes: Uint8Array): boolean {
+  if (bytes.length < 4) {
+    return false;
+  }
+  return bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
+async function decodeProjectData(input: ProjectFileData): Promise<string> {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  let bytes: Uint8Array;
+
+  if (typeof ArrayBuffer !== 'undefined' && input instanceof ArrayBuffer) {
+    bytes = new Uint8Array(input);
+  } else if (typeof Uint8Array !== 'undefined' && input instanceof Uint8Array) {
+    bytes = input;
+  } else if (typeof Blob !== 'undefined' && input instanceof Blob) {
+    const buffer = await input.arrayBuffer();
+    bytes = new Uint8Array(buffer);
+  } else {
+    throw new Error('Unsupported project data input');
+  }
+
+  if (isZipBytes(bytes)) {
+    const zip = await JSZip.loadAsync(bytes);
+    const primaryEntry = zip.file(PROJECT_ARCHIVE_ENTRY);
+    let entry = Array.isArray(primaryEntry) ? primaryEntry[0] ?? null : primaryEntry;
+
+    if (!entry) {
+      const fallbackEntries = zip.file(/\.json$/);
+      if (Array.isArray(fallbackEntries)) {
+        entry = fallbackEntries.find(candidate => candidate.name === PROJECT_ARCHIVE_ENTRY) ?? fallbackEntries[0] ?? null;
+      } else {
+        entry = fallbackEntries;
+      }
+    }
+
+    if (!entry) {
+      throw new Error('Project archive is missing project.json');
+    }
+
+    return entry.async('string');
+  }
+
+  const decoder = new TextDecoder();
+  return decoder.decode(bytes);
+}
 
 function ensureProjectFilename(name: string): string {
   const normalized = name.trim();
@@ -344,7 +401,7 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
           }
 
           const imageData = new ImageData(
-            new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+            new Uint8ClampedArray(bytes),
             rawData.width,
             rawData.height
           );
@@ -415,6 +472,12 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 function typedArrayToBase64(view: ArrayBufferView): string {
   return bytesToBase64(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
 }
 
 function base64ToUint8Array(base64?: string): Uint8Array | undefined {
@@ -837,18 +900,37 @@ export function generateProjectThumbnail(project: Project, layers: Layer[], maxS
   
   const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
   for (const layer of sortedLayers) {
-    if (!layer.visible || !layer.imageData) continue;
-    
+    if (!layer.visible) continue;
+
     ctx.globalAlpha = layer.opacity;
     ctx.globalCompositeOperation = layer.blendMode;
-    
-    const layerCanvas = document.createElement('canvas');
-    layerCanvas.width = layer.imageData.width;
-    layerCanvas.height = layer.imageData.height;
-    const layerCtx = layerCanvas.getContext('2d', { colorSpace: 'srgb' });
-    if (layerCtx) {
-      layerCtx.putImageData(layer.imageData, 0, 0);
-      ctx.drawImage(layerCanvas, 0, 0);
+
+    const drawImageData = (imageData: ImageData) => {
+      const layerCanvas = document.createElement('canvas');
+      layerCanvas.width = imageData.width;
+      layerCanvas.height = imageData.height;
+      const layerCtx = layerCanvas.getContext('2d', { colorSpace: 'srgb' });
+      if (layerCtx) {
+        layerCtx.putImageData(imageData, 0, 0);
+        ctx.drawImage(layerCanvas, 0, 0);
+      }
+    };
+
+    if (layer.imageData) {
+      drawImageData(layer.imageData);
+      continue;
+    }
+
+    if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+      const { colorCycleData } = layer;
+      if (colorCycleData.canvasImageData) {
+        drawImageData(colorCycleData.canvasImageData);
+        continue;
+      }
+
+      if (colorCycleData.canvas) {
+        ctx.drawImage(colorCycleData.canvas, 0, 0);
+      }
     }
   }
   
@@ -856,7 +938,7 @@ export function generateProjectThumbnail(project: Project, layers: Layer[], maxS
 }
 
 // Serialize a project for saving
-export async function serializeProject(project: Project, layers?: Layer[]): Promise<string> {
+export async function serializeProject(project: Project, layers?: Layer[]): Promise<Uint8Array> {
   // Use the passed layers parameter, falling back to project.layers if not provided
   const layersToSerialize = layers || project.layers || [];
   const serializedLayers = await Promise.all(layersToSerialize.map((layer) => serializeLayer(layer)));
@@ -891,24 +973,85 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       palette: normalizePalette(project.palette)
     }
   };
-  
-  return JSON.stringify(vesselProject, null, 2);
+
+  const projectJson = JSON.stringify(vesselProject);
+  const zip = new JSZip();
+  zip.file(PROJECT_ARCHIVE_ENTRY, projectJson);
+
+  return zip.generateAsync({
+    type: 'uint8array',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 9 }
+  });
 }
 
-// Deserialize a project from saved data
-export async function deserializeProject(projectData: string): Promise<Project> {
+function parseVesselProjectJson(json: string): VesselProject {
+  let sanitized = json;
+  if (sanitized.length > 0 && sanitized.charCodeAt(0) === 0xfeff) {
+    sanitized = sanitized.slice(1);
+  }
+  sanitized = sanitized.trimStart();
+  const NULL_CHAR = '\0';
+  if (sanitized.includes(NULL_CHAR)) {
+    sanitized = sanitized.split(NULL_CHAR).join('');
+  }
+
   let vesselProject: VesselProject;
-  
+
   try {
-    vesselProject = JSON.parse(projectData);
-  } catch {
+    vesselProject = JSON.parse(sanitized) as VesselProject;
+  } catch (error) {
+    const preview = sanitized.slice(0, 80);
+    const charCodes = Array.from(preview).map((ch) => ch.charCodeAt(0));
+    console.error('[projectIO] Failed to parse project manifest', { error, preview, charCodes });
     throw new Error('Invalid project file format');
   }
-  
-  // Validate project format
+
   if (!vesselProject.version || !vesselProject.project) {
     throw new Error('Invalid Vessel project file');
   }
+
+  return vesselProject;
+}
+
+export async function readProjectManifest(projectData: ProjectFileData): Promise<VesselProject> {
+  let projectJson = await decodeProjectData(projectData);
+
+  try {
+    return parseVesselProjectJson(projectJson);
+  } catch (error) {
+    const trimmed = projectJson.trimStart();
+    const firstChar = trimmed.charCodeAt(0);
+
+    // Fallback: the caller might have provided a stringified binary (e.g. via File.text())
+    // or base64 payload. Attempt to recover once before surfacing the error.
+    if (firstChar === 0x50 && trimmed.charCodeAt(1) === 0x4b) {
+      // Starts with 'PK' – likely raw zip bytes interpreted as a string.
+      const encoder = new TextEncoder();
+      projectJson = await decodeProjectData(encoder.encode(projectJson));
+      return parseVesselProjectJson(projectJson);
+    }
+
+    if (trimmed.startsWith('UEs')) {
+      try {
+        const binary = base64ToArrayBuffer(trimmed.replace(/\s+/g, ''));
+        if (binary) {
+          projectJson = await decodeProjectData(binary);
+          return parseVesselProjectJson(projectJson);
+        }
+      } catch (base64Error) {
+        console.warn('[projectIO] Base64 project manifest decode failed', base64Error);
+      }
+    }
+
+    throw error;
+  }
+}
+
+// Deserialize a project from saved data
+export async function deserializeProject(projectData: ProjectFileData): Promise<Project> {
+  const projectJson = await decodeProjectData(projectData);
+  const vesselProject = parseVesselProjectJson(projectJson);
   
   // TODO: Add version migration logic here if needed
   
@@ -957,25 +1100,38 @@ export async function saveProjectToFile(
   layers?: Layer[],
   existingHandle?: FileSystemFileHandle | null
 ): Promise<{ fileName: string; fileHandle: FileSystemFileHandle | null }> {
-  const projectData = await serializeProject(project, layers);
   const fileName = ensureProjectFilename((filename ?? project.name) || '');
+  let projectData: Uint8Array | null = null;
 
-  // Reuse existing handle when available
+  const ensureProjectData = async (): Promise<Uint8Array> => {
+    if (!projectData) {
+      projectData = await serializeProject(project, layers);
+    }
+    return projectData;
+  };
+
+  const writeToHandle = async (handle: FileSystemFileHandle): Promise<void> => {
+    const writable = await handle.createWritable();
+    const data = await ensureProjectData();
+    const buffer = toArrayBuffer(data);
+    await writable.write(buffer);
+    await writable.close();
+  };
+
   if (existingHandle) {
     try {
-      const writable = await existingHandle.createWritable();
-      await writable.write(projectData);
-      await writable.close();
+      await writeToHandle(existingHandle);
       return { fileName: existingHandle.name ?? fileName, fileHandle: existingHandle };
     } catch {
-      // If reuse fails (permission revoked, etc.), fall back to picker
+      // Permission revoked or handle invalid; fall back to picker/download
     }
   }
-  
-  // Check if File System Access API is supported
+
+  let pickedHandle: FileSystemFileHandle | null = null;
+
   if ('showSaveFilePicker' in window) {
     try {
-      const fileHandle = await (window as Window & {
+      pickedHandle = await (window as Window & {
         showSaveFilePicker?: (options: {
           suggestedName?: string;
           types?: { description: string; accept: Record<string, string[]> }[];
@@ -987,18 +1143,21 @@ export async function saveProjectToFile(
           accept: { [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT }
         }]
       });
-      
-      const writable = await fileHandle.createWritable();
-      await writable.write(projectData);
-      await writable.close();
-      return { fileName: fileHandle.name ?? fileName, fileHandle };
-    } catch {
-      // User cancelled or API not supported, fall back to download
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error;
+      }
     }
   }
-  
-  // Fallback: create download link
-  const blob = new Blob([projectData], { type: PROJECT_FILE_MIME });
+
+  if (pickedHandle) {
+    await writeToHandle(pickedHandle);
+    return { fileName: pickedHandle.name ?? fileName, fileHandle: pickedHandle };
+  }
+
+  const finalData = await ensureProjectData();
+  const finalBuffer = toArrayBuffer(finalData);
+  const blob = new Blob([finalBuffer], { type: PROJECT_FILE_MIME });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1028,13 +1187,16 @@ export async function loadProjectFromFile(): Promise<{
       }).showOpenFilePicker!({
         types: [{
           description: 'Vessel Project Files',
-          accept: { [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT }
+          accept: {
+            [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT,
+            [LEGACY_PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT
+          }
         }],
         multiple: false
       });
       
       const file = await fileHandle.getFile();
-      const projectData = await file.text();
+      const projectData = await file.arrayBuffer();
       const project = await deserializeProject(projectData);
       return { project, fileName: file.name, fileHandle };
     } catch {
@@ -1046,8 +1208,8 @@ export async function loadProjectFromFile(): Promise<{
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = `${PROJECT_FILE_ACCEPT.join(',')},${PROJECT_FILE_MIME}`;
-    
+    input.accept = [...PROJECT_FILE_ACCEPT, ...PROJECT_FILE_MIME_ACCEPT].join(',');
+
     input.onchange = async (event) => {
       const file = (event.target as HTMLInputElement).files?.[0];
       if (!file) {
@@ -1056,7 +1218,7 @@ export async function loadProjectFromFile(): Promise<{
       }
       
       try {
-        const projectData = await file.text();
+        const projectData = await file.arrayBuffer();
         const project = await deserializeProject(projectData);
         resolve({ project, fileName: file.name, fileHandle: null });
       } catch (error) {
@@ -1304,30 +1466,33 @@ export async function exportProjectAsPNG(
 }
 
 // Validate project file format
-export function validateProjectFile(projectData: string): { valid: boolean; error?: string } {
+export async function validateProjectFile(projectData: ProjectFileData): Promise<{ valid: boolean; error?: string }> {
   try {
-    const project = JSON.parse(projectData);
-    
-    if (!project.version) {
+    const manifest = await readProjectManifest(projectData);
+
+    if (!manifest.version) {
       return { valid: false, error: 'Missing version information' };
     }
-    
-    if (!project.project) {
+
+    if (!manifest.project) {
       return { valid: false, error: 'Missing project data' };
     }
-    
-    const { project: projectInfo } = project;
-    
+
+    const { project: projectInfo } = manifest;
+
     if (!projectInfo.id || !projectInfo.name || !projectInfo.width || !projectInfo.height) {
       return { valid: false, error: 'Missing required project properties' };
     }
-    
+
     if (!Array.isArray(projectInfo.layers)) {
       return { valid: false, error: 'Invalid layers data' };
     }
-    
+
     return { valid: true };
-  } catch {
-    return { valid: false, error: 'Invalid JSON format' };
+  } catch (error) {
+    return {
+      valid: false,
+      error: error instanceof Error ? error.message : 'Invalid Vessel project file'
+    };
   }
 }

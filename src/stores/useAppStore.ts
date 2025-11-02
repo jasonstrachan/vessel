@@ -6336,6 +6336,9 @@ export const useAppStore = create<AppState>()(
             timestamp: new Date()
           });
         } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            return;
+          }
           state.addNotification({
             type: 'error',
             title: 'Save Failed',

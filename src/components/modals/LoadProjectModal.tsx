@@ -6,12 +6,14 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useKeyboardScope } from '@/hooks/useKeyboardScope';
 import {
   PROJECT_FILE_ACCEPT,
-  PROJECT_FILE_MIME
+  PROJECT_FILE_MIME,
+  PROJECT_FILE_MIME_ACCEPT,
+  LEGACY_PROJECT_FILE_MIME
 } from '@/constants/projectFiles';
 import {
   deserializeProject,
   generateProjectThumbnail,
-  type VesselProject
+  readProjectManifest
 } from '@/utils/projectIO';
 import type { Project } from '@/types';
 
@@ -170,6 +172,12 @@ const ACCEPTED_EXTENSIONS = new Set(
   PROJECT_FILE_ACCEPT.map(ext => ext.toLowerCase())
 );
 
+const ACCEPTED_MIME_TYPES = new Set(
+  PROJECT_FILE_MIME_ACCEPT.map(mime => mime.toLowerCase())
+);
+
+const FILE_INPUT_ACCEPT_ATTRIBUTE = [...PROJECT_FILE_ACCEPT, ...PROJECT_FILE_MIME_ACCEPT].join(',');
+
 const formatDimensions = (width: number, height: number) => `${width} × ${height}`;
 
 const formatFileSize = (bytes: number) => {
@@ -183,14 +191,6 @@ const formatFileSize = (bytes: number) => {
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const parseProjectJson = (projectData: string): VesselProject => {
-  const parsed = JSON.parse(projectData) as VesselProject;
-  if (!parsed?.project || typeof parsed.project !== 'object') {
-    throw new Error('Invalid Vessel project file');
-  }
-  return parsed;
 };
 
 const compareEntries = (a: DirectoryProjectEntry, b: DirectoryProjectEntry) => {
@@ -212,6 +212,17 @@ const hasSupportedExtension = (fileName: string) => {
   return false;
 };
 
+const isAcceptableFile = (file: File | null | undefined): file is File => {
+  if (!file) {
+    return false;
+  }
+  if (hasSupportedExtension(file.name)) {
+    return true;
+  }
+  const mime = file.type?.toLowerCase() ?? '';
+  return mime !== '' && ACCEPTED_MIME_TYPES.has(mime);
+};
+
 const extractFileFromItems = (items: DataTransferItemList | null | undefined): File | null => {
   if (!items || items.length === 0) {
     return null;
@@ -222,7 +233,7 @@ const extractFileFromItems = (items: DataTransferItemList | null | undefined): F
       continue;
     }
     const file = item.getAsFile();
-    if (file && (hasSupportedExtension(file.name) || file.type === PROJECT_FILE_MIME)) {
+    if (isAcceptableFile(file)) {
       return file;
     }
   }
@@ -234,7 +245,7 @@ const findAcceptableFile = (fileList: FileList | null | undefined): File | null 
     return null;
   }
   for (const file of Array.from(fileList)) {
-    if (hasSupportedExtension(file.name) || file.type === PROJECT_FILE_MIME) {
+    if (isAcceptableFile(file)) {
       return file;
     }
   }
@@ -255,7 +266,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [applyInFlight, setApplyInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [projectData, setProjectData] = useState<string | null>(null);
+  const [projectData, setProjectData] = useState<ArrayBuffer | null>(null);
   const [cachedProject, setCachedProject] = useState<Project | null>(null);
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(() => lastDirectoryHandle);
@@ -500,8 +511,8 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     }
 
     try {
-      const text = await file.text();
-      const vesselProject = parseProjectJson(text);
+      const buffer = await file.arrayBuffer();
+      const vesselProject = await readProjectManifest(buffer);
       const { project, metadata } = vesselProject;
 
       const previewDetails: ProjectPreview = {
@@ -516,7 +527,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         fileSize: file.size
       };
 
-      setProjectData(text);
+      setProjectData(buffer);
       setPreview(previewDetails);
       updateSelectionForEntry(file.name);
       setCachedProject(null);
@@ -524,7 +535,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
       let hydratedProject: Project | null = null;
       const ensureHydratedProject = async (): Promise<Project> => {
         if (!hydratedProject) {
-          hydratedProject = await deserializeProject(text);
+          hydratedProject = await deserializeProject(buffer);
         }
         return hydratedProject;
       };
@@ -672,7 +683,10 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         }).showOpenFilePicker!({
           types: [{
             description: 'Vessel Project Files',
-            accept: { [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT }
+            accept: {
+              [PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT,
+              [LEGACY_PROJECT_FILE_MIME]: PROJECT_FILE_ACCEPT
+            }
           }],
           multiple: false
         });
@@ -1312,7 +1326,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
       <input
         ref={fileInputRef}
         type="file"
-        accept={`${PROJECT_FILE_ACCEPT.join(',')},${PROJECT_FILE_MIME}`}
+        accept={FILE_INPUT_ACCEPT_ATTRIBUTE}
         className="hidden"
         onChange={handleFileInputChange}
       />
