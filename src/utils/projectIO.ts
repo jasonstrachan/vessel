@@ -242,9 +242,61 @@ function imageDataHasVisiblePixels(imageData: ImageData | null | undefined): boo
   return false;
 }
 
-// Convert ImageData to base64 encoded raw pixel data (lossless)
-function imageDataToDataUrl(imageData: ImageData): string {
-  // Persist raw pixel bytes via base64 while keeping metadata human readable
+// Convert ImageData to a base64 encoded PNG data URL. Falls back to the
+// previous raw-pixel format if no canvas APIs are available.
+async function imageDataToDataUrl(imageData: ImageData): Promise<string> {
+  const encodeWithOffscreenCanvas = async (): Promise<string> => {
+    if (typeof OffscreenCanvas === 'undefined') {
+      throw new Error('OffscreenCanvas unavailable');
+    }
+
+    const canvas = new OffscreenCanvas(imageData.width, imageData.height);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('Failed to acquire OffscreenCanvas context');
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    const buffer = await blob.arrayBuffer();
+    return `data:image/png;base64,${arrayBufferToBase64(buffer)}`;
+  };
+
+  const encodeWithDOMCanvas = (): string => {
+    if (typeof document === 'undefined') {
+      throw new Error('DOM unavailable');
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('Failed to acquire 2D context');
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.toDataURL('image/png');
+  };
+
+  try {
+    return await encodeWithOffscreenCanvas();
+  } catch (error) {
+    if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
+      console.warn('[projectIO] Falling back to DOM canvas encoding:', error);
+    }
+  }
+
+  try {
+    return encodeWithDOMCanvas();
+  } catch (error) {
+    console.warn('[projectIO] Falling back to raw image serialization:', error);
+  }
+
+  return encodeImageDataAsRawDataUrl(imageData);
+}
+
+function encodeImageDataAsRawDataUrl(imageData: ImageData): string {
   const rawData = {
     width: imageData.width,
     height: imageData.height,
@@ -374,16 +426,16 @@ function base64ToUint8Array(base64?: string): Uint8Array | undefined {
 
 
 // Serialize a layer for saving
-function serializeLayer(layer: Layer): SerializedLayer {
-  
+async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
   let imageDataUrl = '';
   if (layer.imageData) {
     try {
-      imageDataUrl = imageDataToDataUrl(layer.imageData);
-    } catch {
+      imageDataUrl = await imageDataToDataUrl(layer.imageData);
+    } catch (error) {
+      console.warn('[projectIO] Failed to encode layer imageData, falling back to empty payload:', error);
     }
   }
-  
+
   const serialized: SerializedLayer = {
     id: layer.id,
     name: layer.name,
@@ -418,7 +470,7 @@ function serializeLayer(layer: Layer): SerializedLayer {
 
     if (colorCycleData.canvasImageData) {
       try {
-        serializedColorCycle.canvasImageData = imageDataToDataUrl(colorCycleData.canvasImageData);
+        serializedColorCycle.canvasImageData = await imageDataToDataUrl(colorCycleData.canvasImageData);
         serializedColorCycle.canvasWidth = colorCycleData.canvasImageData.width;
         serializedColorCycle.canvasHeight = colorCycleData.canvasImageData.height;
       } catch (error) {
@@ -431,7 +483,7 @@ function serializeLayer(layer: Layer): SerializedLayer {
 
     if (colorCycleData.eraseMaskImageData) {
       try {
-        serializedColorCycle.eraseMaskImageData = imageDataToDataUrl(colorCycleData.eraseMaskImageData);
+        serializedColorCycle.eraseMaskImageData = await imageDataToDataUrl(colorCycleData.eraseMaskImageData);
       } catch (error) {
         console.warn('[projectIO] Failed to serialize color cycle erase mask:', error);
       }
@@ -473,7 +525,7 @@ function serializeLayer(layer: Layer): SerializedLayer {
       }
       if (recolor.originalImageData) {
         try {
-          serializedRecolor.originalImageData = imageDataToDataUrl(recolor.originalImageData);
+          serializedRecolor.originalImageData = await imageDataToDataUrl(recolor.originalImageData);
         } catch {
         }
       }
@@ -728,13 +780,13 @@ async function deserializeRecolorSettings(serialized: SerializedColorCycleRecolo
 }
 
 // Serialize a custom brush for saving
-function serializeCustomBrush(brush: CustomBrush): SerializedCustomBrush {
+async function serializeCustomBrush(brush: CustomBrush): Promise<SerializedCustomBrush> {
   return {
     id: brush.id,
     name: brush.name,
     width: brush.width,
     height: brush.height,
-    imageDataUrl: imageDataToDataUrl(brush.imageData),
+    imageDataUrl: await imageDataToDataUrl(brush.imageData),
     thumbnail: brush.thumbnail,
     createdAt: brush.createdAt
   };
@@ -807,8 +859,8 @@ export function generateProjectThumbnail(project: Project, layers: Layer[], maxS
 export async function serializeProject(project: Project, layers?: Layer[]): Promise<string> {
   // Use the passed layers parameter, falling back to project.layers if not provided
   const layersToSerialize = layers || project.layers || [];
-  const serializedLayers = layersToSerialize.map(serializeLayer);
-  const serializedCustomBrushes = project.customBrushes.map(serializeCustomBrush);
+  const serializedLayers = await Promise.all(layersToSerialize.map((layer) => serializeLayer(layer)));
+  const serializedCustomBrushes = await Promise.all(project.customBrushes.map((brush) => serializeCustomBrush(brush)));
   
   let thumbnail = '';
   if (layers) {
