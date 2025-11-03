@@ -4,6 +4,7 @@ import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { applyViewStateFromSnapshot } from '@/history/helpers/viewState';
 import type { CanvasSnapshot, Layer } from '@/types';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
+import { applyPaletteSnapshot } from '@/stores/helpers/paletteState';
 
 const isColorCycleLayer = (
   layer: Layer | undefined | null
@@ -215,6 +216,17 @@ export const applyLegacySnapshot = async (
         }
       };
     });
+
+    const stateAfterProject = useAppStore.getState();
+    const projectPalette = stateAfterProject.project?.palette;
+    if (projectPalette) {
+      applyPaletteSnapshot(
+        useAppStore.setState,
+        useAppStore.getState,
+        projectPalette,
+        { paletteDirty: stateAfterProject.paletteDirty }
+      );
+    }
 
     if (snapshot.colorCycleState) {
       const { layerId } = snapshot.colorCycleState;
