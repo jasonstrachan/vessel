@@ -365,7 +365,7 @@ const dropIndicator = useMemo(() => {
                       : 'text-[#D9D9D9] hover:bg-[#555]'
                 } ${isDraggingOption ? 'z-10 shadow-lg bg-[#3a3a3a]' : ''} ${dropBefore ? 'border-t border-[#5E96FF]' : ''} ${dropAfter ? 'border-b border-[#5E96FF]' : ''}`}
                 style={isDraggingOption ? { transform: `translateY(${dragOffset}px)` } : undefined}
-                role="menuitem"
+                role="option"
                 aria-selected={isSelected}
                 data-draggable={isReorderable ? 'true' : 'false'}
               >

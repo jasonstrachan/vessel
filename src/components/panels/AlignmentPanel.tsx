@@ -4,6 +4,12 @@ import React, { memo, useCallback, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  selectActiveLayerId,
+  selectLayers,
+  selectSelectedLayerIds,
+  selectLayerActions,
+} from '@/stores/selectors/layersSelectors';
 import type { LayerAlignmentSettings } from '@/types';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 
@@ -80,12 +86,13 @@ const resolveAnchorSelection = (alignment: LayerAlignmentSettings | null): Ancho
 };
 
 export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = true }) => {
-  const activeLayerId = useAppStore(state => state.activeLayerId);
-  const activeLayer = useAppStore(state => state.layers.find(layer => layer.id === activeLayerId) ?? null);
-  const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const layers = useAppStore(selectLayers);
+  const selectedLayerIds = useAppStore(selectSelectedLayerIds);
+  const activeLayer = useMemo(() => layers.find(layer => layer.id === activeLayerId) ?? null, [layers, activeLayerId]);
   const alignment = activeLayer?.alignment ?? null;
   const project = useAppStore(state => state.project);
-  const updateLayerAlignment = useAppStore(state => state.updateLayerAlignment);
+  const { updateLayerAlignment } = useAppStore(selectLayerActions);
 
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 

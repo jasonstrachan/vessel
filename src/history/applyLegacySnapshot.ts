@@ -195,10 +195,7 @@ export const applyLegacySnapshot = async (
       }
     };
 
-    for (const layer of restoredLayers) {
-      // eslint-disable-next-line no-await-in-loop
-      await rehydrateColorCycleLayer(layer);
-    }
+    await Promise.all(restoredLayers.map((layer) => rehydrateColorCycleLayer(layer)));
 
     useAppStore.setState((state) => {
       if (!state.project) {
@@ -256,9 +253,9 @@ export const applyLegacySnapshot = async (
     }
 
     useAppStore.setState({
-      layersNeedRecomposition: true,
       floatingPaste: null,
     });
+    useAppStore.getState().setLayersNeedRecomposition(true);
 
     const recolor = RecolorManager.getInstance();
     try {

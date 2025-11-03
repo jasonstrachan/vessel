@@ -245,7 +245,7 @@ export function rebuildCCLayerAfterCrop({
       }
     }
 
-    setState({ layersNeedRecomposition: true });
+    getState().setLayersNeedRecomposition(true);
   });
 }
 
@@ -310,9 +310,9 @@ export function rebuildRecolorLayersAfterCrop({
           });
           return {
             layers: nextLayers,
-            layersNeedRecomposition: true
           };
         });
+        getState().setLayersNeedRecomposition(true);
       } catch (recolorError) {
         logger('[crop] Failed to rebuild recolor layer after crop', recolorError);
       }

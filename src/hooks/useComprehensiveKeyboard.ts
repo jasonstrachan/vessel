@@ -1,7 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useAppStore } from '../stores/useAppStore';
-import { BrushShape, Tool } from '../types';
+import { useAppStore, type AppState } from '@/stores/useAppStore';
+import { BrushShape, Tool } from '@/types';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import { useStoreSelectorRef } from './useStoreSelectorRef';
 
 // Treat these input types as text entry fields so we don't hijack shortcuts while typing.
 const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
@@ -38,6 +39,16 @@ interface KeyboardState {
 }
 
 type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
+
+const selectKeyboardScope = (state: AppState) => state.ui.keyboardScope.active as KeyboardScope;
+const selectTools = (state: AppState) => state.tools;
+const selectPolygonGradientState = (state: AppState) => state.polygonGradientState;
+const selectSelectionRange = (state: AppState) => ({
+  start: state.selectionStart,
+  end: state.selectionEnd,
+});
+const selectFloatingPaste = (state: AppState) => state.floatingPaste;
+const selectPalette = (state: AppState) => state.palette;
 
 type VoidHandler = () => void | Promise<void>;
 
@@ -99,22 +110,22 @@ export function useComprehensiveKeyboard({
   const colorPickerPreviousToolRef = useRef<Tool | null>(null);
   const isColorPickerHeldRef = useRef(false);
 
-  const { 
-    setCurrentTool, 
-    tools, 
-    polygonGradientState,
-    setGlobalBrushSize,
-    setCustomBrushSizePercent,
-    setEraserSettings,
-    deleteSelectedPixels,
-    selectAllActiveLayerPixels,
-    selectionStart,
-    selectionEnd,
-    floatingPaste,
-    setFloatingPaste,
-    swapPaletteColors,
-    setPaletteColor
-  } = useAppStore();
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
+  const setCustomBrushSizePercent = useAppStore((state) => state.setCustomBrushSizePercent);
+  const setEraserSettings = useAppStore((state) => state.setEraserSettings);
+  const deleteSelectedPixels = useAppStore((state) => state.deleteSelectedPixels);
+  const selectAllActiveLayerPixels = useAppStore((state) => state.selectAllActiveLayerPixels);
+  const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
+  const swapPaletteColors = useAppStore((state) => state.swapPaletteColors);
+  const setPaletteColor = useAppStore((state) => state.setPaletteColor);
+
+  const keyboardScopeRef = useStoreSelectorRef(selectKeyboardScope);
+  const toolsRef = useStoreSelectorRef(selectTools);
+  const polygonGradientStateRef = useStoreSelectorRef(selectPolygonGradientState);
+  const selectionRangeRef = useStoreSelectorRef(selectSelectionRange);
+  const floatingPasteRef = useStoreSelectorRef(selectFloatingPaste);
+  const paletteRef = useStoreSelectorRef(selectPalette);
 
   // Use refs for stable callbacks to avoid re-registering event listeners
   const onSpacePressedRef = useRef(onSpacePressed);
@@ -149,10 +160,12 @@ export function useComprehensiveKeyboard({
     if (!enabled) return;
 
     const isBracketShortcut = event.key === '[' || event.key === ']';
-    let currentScope: KeyboardScope = 'canvas';
-    try {
-      currentScope = useAppStore.getState().ui.keyboardScope.active as KeyboardScope;
-    } catch {}
+    const currentScope: KeyboardScope = keyboardScopeRef.current ?? 'canvas';
+    const tools = toolsRef.current;
+    const polygonGradientState = polygonGradientStateRef.current;
+    const { start: selectionStart, end: selectionEnd } = selectionRangeRef.current;
+    const floatingPaste = floatingPasteRef.current;
+    const palette = paletteRef.current;
 
     const target = event.target as HTMLElement | null;
 
@@ -219,9 +232,7 @@ export function useComprehensiveKeyboard({
     if (!event.repeat && event.code === 'KeyX' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
       if (event.shiftKey) {
-        const state = useAppStore.getState();
-        const foreground = state.palette.foregroundColor;
-        setPaletteColor('background', foreground);
+        setPaletteColor('background', palette.foregroundColor);
       } else {
         swapPaletteColors();
       }
@@ -330,7 +341,7 @@ export function useComprehensiveKeyboard({
         event.preventDefault();
 
         if (!isColorPickerHeldRef.current) {
-          const currentTool = useAppStore.getState().tools.currentTool as Tool;
+          const currentTool = tools.currentTool as Tool;
           if (currentTool !== 'color-picker') {
             colorPickerPreviousToolRef.current = currentTool;
           }
@@ -355,7 +366,7 @@ export function useComprehensiveKeyboard({
           const newPercent = Math.max(5, currentPercent - 5);
           setCustomBrushSizePercent(newPercent);
           if (isEraserActive && eraserSettings?.linkSizeToBrush === false) {
-            const updatedSize = useAppStore.getState().tools.brushSettings.size ?? 1;
+            const updatedSize = toolsRef.current.brushSettings.size ?? 1;
             setEraserSettings({ size: updatedSize });
           }
         } else {
@@ -387,7 +398,7 @@ export function useComprehensiveKeyboard({
           const newPercent = Math.min(1000, currentPercent + 5);
           setCustomBrushSizePercent(newPercent);
           if (isEraserActive && eraserSettings?.linkSizeToBrush === false) {
-            const updatedSize = useAppStore.getState().tools.brushSettings.size ?? 1;
+            const updatedSize = toolsRef.current.brushSettings.size ?? 1;
             setEraserSettings({ size: updatedSize });
           }
         } else {
@@ -465,18 +476,21 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
-      tools, polygonGradientState, switchTool, setGlobalBrushSize, setEraserSettings,
-      deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd,
-      floatingPaste, setFloatingPaste, setPaletteColor, swapPaletteColors]);
+      switchTool, setGlobalBrushSize, setEraserSettings,
+      setCustomBrushSizePercent,
+      deleteSelectedPixels, selectAllActiveLayerPixels,
+      setFloatingPaste, setPaletteColor, swapPaletteColors,
+      keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
+      floatingPasteRef, paletteRef]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
 
     // Respect keyboard scope
-    try {
-      const currentScope = useAppStore.getState().ui.keyboardScope.active as KeyboardScope;
-      if (!allowedScopes.includes(currentScope) && event.code !== 'Space') return;
-    } catch {}
+    const currentScope: KeyboardScope = keyboardScopeRef.current ?? 'canvas';
+    if (!allowedScopes.includes(currentScope) && event.code !== 'Space') {
+      return;
+    }
 
     const target = event.target as HTMLElement | null;
     if (isTextEntryTarget(target)) {
@@ -553,7 +567,7 @@ export function useComprehensiveKeyboard({
         return;
       }
     }
-  }, [enabled, allowedScopes, switchTool]);
+  }, [enabled, allowedScopes, switchTool, keyboardScopeRef]);
 
   // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {

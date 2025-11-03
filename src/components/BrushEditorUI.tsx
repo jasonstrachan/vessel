@@ -452,6 +452,7 @@ const InlineBrushEditor: React.FC = () => {
       floodFillCanvas,
       getCanvasContext,
       getCanvasCoordinates,
+      getPixelColor,
       hexToRgba,
       scheduleAutoSave,
       spacePressed

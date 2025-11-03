@@ -3,6 +3,12 @@
 import React from 'react';
 import { Eye, EyeOff, Plus } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  selectLayers,
+  selectActiveLayerId,
+  selectLayerActions,
+  selectSelectedLayerIds,
+} from '@/stores/selectors/layersSelectors';
 import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
@@ -18,19 +24,22 @@ const LayersPanel: React.FC = () => {
   const opacityPopoverRef = React.useRef<HTMLDivElement | null>(null);
   const [dragOverBottom, setDragOverBottom] = React.useState(false);
 
-  const layers = useAppStore(state => state.layers);
-  const activeLayerId = useAppStore(state => state.activeLayerId);
+  const layers = useAppStore(selectLayers);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const selectedLayerIds = useAppStore(selectSelectedLayerIds);
 
-  const addLayer = useAppStore(state => state.addLayer);
-  const removeLayer = useAppStore(state => state.removeLayer);
-  const updateLayer = useAppStore(state => state.updateLayer);
-  const setActiveLayer = useAppStore(state => state.setActiveLayer);
-  const reorderLayers = useAppStore(state => state.reorderLayers);
-  const setSelectedLayerIds = useAppStore(state => state.setSelectedLayerIds);
-  const initColorCycleForLayer = useAppStore(state => state.initColorCycleForLayer);
+  const {
+    addLayer,
+    removeLayer,
+    updateLayer,
+    setActiveLayer,
+    reorderLayers,
+    setSelectedLayerIds,
+    initColorCycleForLayer,
+    setReferenceLayer,
+  } = useAppStore(selectLayerActions);
+  const referenceLayerId = useAppStore((state) => state.referenceLayerId);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
-  const referenceLayerId = useAppStore(state => state.referenceLayerId);
-  const setReferenceLayer = useAppStore(state => state.setReferenceLayer);
 
   const handleAddRegularLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');

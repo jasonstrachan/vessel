@@ -231,9 +231,10 @@ class BitmapTileDelta implements HistoryDelta {
 
       return {
         layers: updatedLayers as Layer[],
-        layersNeedRecomposition: true
       };
     });
+
+    useAppStore.getState().setLayersNeedRecomposition(true);
   }
 
   dispose(): void {

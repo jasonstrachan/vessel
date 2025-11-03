@@ -1,7 +1,11 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import Dropdown from './Dropdown';
 import ColorPicker from './ColorPicker';
 import { useAppStore } from '../../stores/useAppStore';
+import {
+  selectLayers,
+  selectActiveLayerId,
+} from '@/stores/selectors/layersSelectors';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import {
   DEFAULT_GRADIENT_ID,
@@ -86,6 +90,12 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   // Brush auto-sample state (used when sampleTarget === 'brush')
   const autoSampleEnabled = useAppStore(state => !!state.tools.brushSettings.autoSampleGradient);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const layers = useAppStore(selectLayers);
+  const activeLayer = useMemo(
+    () => layers.find((layer) => layer.id === activeLayerId) ?? null,
+    [layers, activeLayerId]
+  );
   // Track pending creation of a saved gradient from live sampling
   const pendingSampleAddRef = useRef<boolean>(false);
   const sampleStartSigRef = useRef<string>('');
@@ -550,8 +560,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     // Special case: restore "Original" palette-derived gradient for the active recolor layer
     if (gradientId === 'original') {
       try {
-        const store = useAppStore.getState();
-        const activeLayer = store.layers.find(l => l.id === store.activeLayerId);
         const palette = activeLayer?.colorCycleData?.recolorSettings?.palette;
         if (palette && palette.length >= 2) {
           // Build a reasonable number of stops from the palette (sample 16 evenly from indices 1..255)
@@ -721,7 +729,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         </button>
       </div>
     );
-  }, [savedGradients, handleRemoveGradient]);
+  }, [savedGradients, handleRemoveGradient, activeLayer, addNotification, scheduleGradientUpdate]);
 
   return (
     <div className={`gradient-editor relative ${className}`}>
@@ -767,8 +775,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
             // Live preview for "Original" using active layer palette
             if (option.value === 'original') {
               try {
-                const store = useAppStore.getState();
-                const activeLayer = store.layers.find(l => l.id === store.activeLayerId);
                 const palette = activeLayer?.colorCycleData?.recolorSettings?.palette;
                 if (palette && palette.length >= 2) {
                   // Build preview CSS by sampling more densely for a smooth bar

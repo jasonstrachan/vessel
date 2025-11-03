@@ -502,14 +502,19 @@ export const useBrushEngineSimplified = () => {
       return true;
     }
 
-    probeCtx.clearRect(0, 0, sampleW, sampleH);
+    if (typeof (probeCtx as CanvasRenderingContext2D).clearRect !== 'function') {
+      return true;
+    }
+
+    const probeCtx2D = probeCtx as CanvasRenderingContext2D;
+    probeCtx2D.clearRect(0, 0, sampleW, sampleH);
     try {
-      probeCtx.drawImage(mask as CanvasImageSource, 0, 0, width, height, 0, 0, sampleW, sampleH);
+      probeCtx2D.drawImage(mask as CanvasImageSource, 0, 0, width, height, 0, 0, sampleW, sampleH);
     } catch {
       return true;
     }
 
-    const data = probeCtx.getImageData(0, 0, sampleW, sampleH).data;
+    const data = probeCtx2D.getImageData(0, 0, sampleW, sampleH).data;
     let hasAlpha = false;
     for (let i = 3; i < data.length; i += 4) {
       if (data[i] > 0) {

@@ -1,5 +1,5 @@
 import type { StoreApi } from 'zustand';
-import type { Project, PaletteState, CustomBrush, Layer } from '@/types';
+import type { Project, CustomBrush, Layer } from '@/types';
 import {
   normalizeProject,
   createDefaultPalette,
@@ -60,62 +60,6 @@ const resolveDefaultCustomBrushId = (
     return candidate;
   }
   return null;
-};
-
-const normalizeCaptureROI = (
-  roi: CaptureROI | undefined,
-  maxWidth: number,
-  maxHeight: number
-): CaptureROI | undefined => {
-  if (!roi) {
-    return undefined;
-  }
-  if (
-    !Number.isFinite(roi.x) ||
-    !Number.isFinite(roi.y) ||
-    !Number.isFinite(roi.width) ||
-    !Number.isFinite(roi.height)
-  ) {
-    return undefined;
-  }
-  if (roi.width <= 0 || roi.height <= 0) {
-    return undefined;
-  }
-  const x = Math.max(0, Math.floor(roi.x));
-  const y = Math.max(0, Math.floor(roi.y));
-  const width = Math.max(1, Math.min(maxWidth - x, Math.ceil(roi.width)));
-  const height = Math.max(1, Math.min(maxHeight - y, Math.ceil(roi.height)));
-  if (width <= 0 || height <= 0) {
-    return undefined;
-  }
-  return { x, y, width, height };
-};
-
-const mergeImageDataRegion = (
-  base: ImageData | null,
-  region: ImageData,
-  offsetX: number,
-  offsetY: number,
-  fullWidth: number,
-  fullHeight: number
-): ImageData => {
-  const targetWidth = fullWidth;
-  const targetHeight = fullHeight;
-  const baseMatches =
-    base && base.width === targetWidth && base.height === targetHeight;
-  const mergedData = baseMatches
-    ? new Uint8ClampedArray(base!.data)
-    : new Uint8ClampedArray(targetWidth * targetHeight * 4);
-
-  const src = region.data;
-  const rowStride = region.width * 4;
-  for (let row = 0; row < region.height; row++) {
-    const srcStart = row * rowStride;
-    const destStart = ((offsetY + row) * targetWidth + offsetX) * 4;
-    mergedData.set(src.subarray(srcStart, srcStart + rowStride), destStart);
-  }
-
-  return new ImageData(mergedData, targetWidth, targetHeight);
 };
 
 export const createProjectLifecycle = ({
@@ -244,7 +188,6 @@ export const createProjectLifecycle = ({
       layers: syncedLayers,
       activeLayerId: loadedProject.layers[0]?.id ?? null,
       selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
-      layersNeedRecomposition: true,
       referenceLayerId: null,
       canvas: loadedProject.viewState
         ? {
@@ -256,6 +199,7 @@ export const createProjectLifecycle = ({
       globalBrushSize: loadedProject.globalBrushSize ?? 10,
       tools: toolsWithPalette,
     });
+    get().setLayersNeedRecomposition(true);
 
     get().setCanvasDimensions(loadedProject.width, loadedProject.height);
 
@@ -342,7 +286,7 @@ export const createProjectLifecycle = ({
     setTimeout(() => {
       const current = get();
       if (current.layersNeedRecomposition === false) {
-        set({ layersNeedRecomposition: true });
+        get().setLayersNeedRecomposition(true);
       }
     }, 100);
 
@@ -602,8 +546,8 @@ export const createProjectLifecycle = ({
         canvasWidth: width,
         canvasHeight: height,
       },
-      layersNeedRecomposition: true,
     });
+    get().setLayersNeedRecomposition(true);
 
     if (typeof window !== 'undefined') {
       setTimeout(() => {
@@ -620,398 +564,6 @@ export const createProjectLifecycle = ({
     persistCustomBrushes();
   };
 
-  const compositeLayersToCanvas = (targetCanvas: HTMLCanvasElement): void => {
-    const state = get();
-
-    const createLayerTransferCanvas = (width: number, height: number) => {
-      if (typeof OffscreenCanvas !== 'undefined') {
-        return new OffscreenCanvas(width, height);
-      }
-      const layerCanvas = document.createElement('canvas');
-      layerCanvas.width = width;
-      layerCanvas.height = height;
-      return layerCanvas;
-    };
-
-    try {
-      if (!state.project || !state.layers.length) {
-        get().setCurrentCompositeBitmap(null);
-        return;
-      }
-
-      const expectedWidth = state.project.width;
-      const expectedHeight = state.project.height;
-
-      if (targetCanvas.width !== expectedWidth || targetCanvas.height !== expectedHeight) {
-        targetCanvas.width = expectedWidth;
-        targetCanvas.height = expectedHeight;
-      }
-
-      const baseCtx = targetCanvas.getContext(
-        '2d',
-        { willReadFrequently: true } as CanvasRenderingContext2DSettings
-      ) as CanvasRenderingContext2D | null;
-      if (!baseCtx) {
-        get().setCurrentCompositeBitmap(null);
-        return;
-      }
-
-      const currentState = get();
-      const isPixelBrush =
-        currentState.tools.brushSettings.brushShape === 'pixel_round' ||
-        (currentState.tools.brushSettings.brushShape === 'square' &&
-          !currentState.tools.brushSettings.antialiasing);
-      baseCtx.imageSmoothingEnabled = !isPixelBrush;
-
-      const manager = colorCycleBrushManager ?? getColorCycleBrushManager();
-
-      const drawLayers = (
-        ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
-      ) => {
-        ctx.clearRect(0, 0, expectedWidth, expectedHeight);
-
-        if (state.project?.backgroundColor && state.project.backgroundColor !== 'transparent') {
-          ctx.fillStyle = state.project.backgroundColor;
-          ctx.fillRect(0, 0, expectedWidth, expectedHeight);
-        }
-
-        const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
-
-        for (const layer of sortedLayers) {
-          try {
-            if (!layer.visible) continue;
-
-            if (
-              layer.layerType === 'color-cycle' &&
-              layer.colorCycleData?.canvas &&
-              layer.colorCycleData?.mode !== 'recolor'
-            ) {
-              const brush = manager?.getBrush(layer.id);
-              const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
-
-              if (brush) {
-                try {
-                  const playing = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
-
-                  if (wantPlaying && !playing) {
-                    brush.startAnimation?.();
-                  } else if (!wantPlaying && playing) {
-                    brush.stopAnimation?.();
-                  }
-
-                  if (wantPlaying) {
-                    brush.updateAnimation?.();
-                  }
-                  brush.renderDirectToCanvas?.(layer.colorCycleData.canvas, layer.id);
-                } catch (error) {
-                  logError('[compose] CC advance/render failed', error);
-                }
-              }
-
-              ctx.globalCompositeOperation = layer.blendMode;
-              ctx.globalAlpha = layer.opacity;
-              ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
-              continue;
-            }
-
-            if (
-              layer.layerType === 'color-cycle' &&
-              layer.colorCycleData?.mode === 'recolor' &&
-              layer.colorCycleData.canvas
-            ) {
-              ctx.globalCompositeOperation = layer.blendMode;
-              ctx.globalAlpha = layer.opacity;
-              ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
-              continue;
-            }
-
-            if (!layer.imageData) {
-              continue;
-            }
-
-            const layerImageData = layer.imageData;
-            const layerCanvas = createLayerTransferCanvas(layerImageData.width, layerImageData.height);
-            const layerCtx = layerCanvas.getContext(
-              '2d',
-              { willReadFrequently: true } as CanvasRenderingContext2DSettings
-            ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-            if (!layerCtx) {
-              continue;
-            }
-            layerCtx.putImageData(layerImageData, 0, 0);
-            ctx.globalCompositeOperation = layer.blendMode;
-            ctx.globalAlpha = layer.opacity;
-            ctx.drawImage(layerCanvas as CanvasImageSource, 0, 0);
-          } catch (layerError) {
-            logError('[compose] Layer compose error', layerError);
-          }
-        }
-
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1.0;
-      };
-
-      const renderWithFallback = () => {
-        drawLayers(baseCtx);
-        get().setCurrentCompositeBitmap(null);
-      };
-
-      if (compositeBitmapManager.isSupported()) {
-        void compositeBitmapManager
-          .render(expectedWidth, expectedHeight, drawLayers, targetCanvas)
-          .then((bitmap) => {
-            const setBitmap = get().setCurrentCompositeBitmap;
-            setBitmap(bitmap ?? null);
-          })
-          .catch((error) => {
-            logError('[compose] compositeBitmapManager.render failed', error);
-            renderWithFallback();
-          });
-        return;
-      }
-
-      renderWithFallback();
-    } catch (error) {
-      logError('[compose] Failed to composite layers', error);
-      get().setCurrentCompositeBitmap(null);
-    }
-  };
-
-  const captureCanvasToActiveLayer = async (
-    sourceCanvas?: HTMLCanvasElement,
-    roi?: CaptureROI
-  ): Promise<void> => {
-    const state = get();
-
-    if (state.history.isCapturing) {
-      return;
-    }
-    if (!state.project || state.layers.length === 0) {
-      return;
-    }
-    if (!sourceCanvas) {
-      return;
-    }
-
-    const ctx = sourceCanvas.getContext(
-      '2d',
-      { willReadFrequently: true } as CanvasRenderingContext2DSettings
-    ) as CanvasRenderingContext2D | null;
-    if (!ctx) {
-      return;
-    }
-
-    try {
-      const projectWidth = state.project.width;
-      const projectHeight = state.project.height;
-      const captureWidth = Math.min(projectWidth, sourceCanvas.width);
-      const captureHeight = Math.min(projectHeight, sourceCanvas.height);
-
-      const normalizedRoi = normalizeCaptureROI(roi, captureWidth, captureHeight);
-      const captureX = normalizedRoi ? normalizedRoi.x : 0;
-      const captureY = normalizedRoi ? normalizedRoi.y : 0;
-      const regionWidth = normalizedRoi ? normalizedRoi.width : captureWidth;
-      const regionHeight = normalizedRoi ? normalizedRoi.height : captureHeight;
-
-      const capturedImageData = ctx.getImageData(captureX, captureY, regionWidth, regionHeight);
-
-      const activeLayerId = state.activeLayerId || state.layers[0]?.id;
-      if (!activeLayerId) {
-        return;
-      }
-
-      set((currentState) => {
-        const updatedLayers = currentState.layers.map((layer) => {
-          if (layer.id !== activeLayerId) {
-            return layer;
-          }
-
-          const fb = layer.framebuffer;
-          if (fb.width !== captureWidth || fb.height !== captureHeight) {
-            fb.width = captureWidth;
-            fb.height = captureHeight;
-          }
-
-          const framebufferCtx = fb.getContext(
-            '2d',
-            { willReadFrequently: true } as CanvasRenderingContext2DSettings
-          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          if (framebufferCtx) {
-            if (normalizedRoi) {
-              framebufferCtx.putImageData(capturedImageData, captureX, captureY);
-            } else {
-              framebufferCtx.clearRect(0, 0, fb.width, fb.height);
-              framebufferCtx.putImageData(capturedImageData, 0, 0);
-            }
-          }
-
-          const baseImageData =
-            layer.imageData &&
-            layer.imageData.width === captureWidth &&
-            layer.imageData.height === captureHeight
-              ? layer.imageData
-              : null;
-
-          const mergedImageData = normalizedRoi
-            ? mergeImageDataRegion(
-                baseImageData,
-                capturedImageData,
-                captureX,
-                captureY,
-                captureWidth,
-                captureHeight
-              )
-            : capturedImageData;
-
-          let nextAlignment = layer.alignment;
-          const project = currentState.project;
-          if (project && nextAlignment && nextAlignment.positioning === 'auto') {
-            try {
-              const layerForMetrics: Layer = {
-                ...layer,
-                imageData: mergedImageData,
-                alignment: {
-                  ...nextAlignment,
-                  offsetPercent: undefined,
-                  offsetPx: undefined,
-                },
-              };
-              const percentOffset = computeLayerPercentOffset(layerForMetrics, project);
-              const safeWidth = Math.max(1, project.width);
-              const safeHeight = Math.max(1, project.height);
-              nextAlignment = {
-                ...nextAlignment,
-                offsetPercent: percentOffset,
-                offsetPx: {
-                  x: Math.round((percentOffset.x / 100) * safeWidth),
-                  y: Math.round((percentOffset.y / 100) * safeHeight),
-                },
-              };
-            } catch (error) {
-              console.warn('[captureCanvasToActiveLayer] Failed to sync percent alignment', error);
-            }
-          }
-
-          const updatedLayer: Layer = {
-            ...layer,
-            imageData: mergedImageData,
-            alignment: nextAlignment,
-            version: (layer.version || 0) + 1,
-          };
-
-          if (updatedLayer.layerType !== layer.layerType) {
-            console.error('🚨 LAYER TYPE CORRUPTION IN CAPTURE!', {
-              layerId: layer.id?.substring(0, 20),
-              originalType: layer.layerType,
-              corruptedType: updatedLayer.layerType,
-            });
-            updatedLayer.layerType = layer.layerType;
-          }
-
-          return updatedLayer;
-        });
-
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
-        return {
-          layers: syncedLayers,
-          layersNeedRecomposition: true,
-        };
-      });
-
-      const nextState = get();
-      const activeLayer = nextState.layers.find((layer) => layer.id === activeLayerId);
-      if (activeLayer && activeLayer.layerType === 'color-cycle') {
-        try {
-          nextState.updateLayer(activeLayerId, {
-            colorCycleData: {
-              ...(activeLayer.colorCycleData ?? {}),
-            },
-          });
-        } catch (error) {
-          console.warn('[captureCanvasToActiveLayer] Failed to flag CC framebuffer update', error);
-        }
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'SecurityError') {
-        console.warn('[captureCanvasToActiveLayer] Canvas capture blocked by CORS/security policy');
-        return;
-      }
-      logError('[captureCanvasToActiveLayer] Failed', error);
-      throw error;
-    }
-  };
-
-  const captureCanvasToLayer = async (
-    sourceCanvas: HTMLCanvasElement,
-    targetLayerId: string | null
-  ): Promise<void> => {
-    const state = get();
-    if (state.history.isCapturing) {
-      return;
-    }
-    if (!state.project || state.layers.length === 0) {
-      return;
-    }
-    if (!targetLayerId) {
-      return;
-    }
-
-    const ctx = sourceCanvas.getContext(
-      '2d',
-      { willReadFrequently: true } as CanvasRenderingContext2DSettings
-    ) as CanvasRenderingContext2D | null;
-    if (!ctx) {
-      return;
-    }
-
-    try {
-      const captureWidth = Math.min(state.project.width, sourceCanvas.width);
-      const captureHeight = Math.min(state.project.height, sourceCanvas.height);
-      const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
-
-      const targetLayer = state.layers.find((layer) => layer.id === targetLayerId);
-      if (!targetLayer) {
-        return;
-      }
-
-      set((currentState) => {
-        const updatedLayers = currentState.layers.map((layer) => {
-          if (layer.id !== targetLayerId) {
-            return layer;
-          }
-
-          const fb = layer.framebuffer;
-          if (fb.width !== imageData.width || fb.height !== imageData.height) {
-            fb.width = imageData.width;
-            fb.height = imageData.height;
-          }
-
-          const ctx2 = fb.getContext(
-            '2d',
-            { willReadFrequently: true } as CanvasRenderingContext2DSettings
-          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          if (ctx2) {
-            ctx2.clearRect(0, 0, fb.width, fb.height);
-            ctx2.putImageData(imageData, 0, 0);
-          }
-
-          return {
-            ...layer,
-            imageData,
-          };
-        });
-
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
-        return {
-          layers: syncedLayers,
-          layersNeedRecomposition: true,
-        };
-      });
-    } catch (error) {
-      console.error('Capture to specific layer failed with error:', error);
-    }
-  };
-
   return {
     setProject,
     updateProject,
@@ -1021,8 +573,5 @@ export const createProjectLifecycle = ({
     importProject,
     exportProject,
     newProject,
-    compositeLayersToCanvas,
-    captureCanvasToActiveLayer,
-    captureCanvasToLayer,
   };
 };

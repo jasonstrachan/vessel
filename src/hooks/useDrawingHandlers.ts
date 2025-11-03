@@ -12,13 +12,13 @@ import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/cc
 import { FF } from '@/config/ccFeatureFlags';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 import { setSharedColorCycleGradient } from '../utils/colorCycleGradients';
-import type { CCReason } from '../stores/useAppStore';
+import type { AppState, CCReason } from '@/stores/useAppStore';
 import {
   selectColorCycleDesiredPlaying,
   selectColorCycleSuspendDepth,
   selectEffectiveColorCyclePlaying,
   useAppStore
-} from '../stores/useAppStore';
+} from '@/stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { FinalizeQueue } from '@/lib/canvas';
@@ -31,6 +31,7 @@ import { getMaskManager } from '@/layers/MaskManager';
 import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
 import { EraserTool } from '@/tools/EraserTool';
 import { unwrapAngle } from '@/utils/angles';
+import { useStoreSelectorRef } from './useStoreSelectorRef';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -228,12 +229,6 @@ export const computeAutoSampleStopsFromPolyline = (
 
 const SAMPLE_PREVIEW_STROKE_STYLE = 'rgba(255, 214, 102, 0.95)';
 
-const getDesiredColorCyclePlaying = () =>
-  selectColorCycleDesiredPlaying(useAppStore.getState());
-
-const getEffectiveColorCyclePlaying = () =>
-  selectEffectiveColorCyclePlaying(useAppStore.getState());
-
 const ensureCanvasPixelSize = (canvas: HTMLCanvasElement): void => {
   if (
     !canvas ||
@@ -388,8 +383,6 @@ const withTiming = async <T>(label: string, task: () => Promise<T>): Promise<T> 
     debugTimeEnd(label);
   }
 };
-
-const noopPromise = async () => {};
 
 const ROI_PADDING_PX = 2;
 
@@ -625,6 +618,16 @@ export function useDrawingHandlers({
   });
   const maskManager = useMemo(() => getMaskManager(), []);
   const eraserToolRef = useRef<EraserTool | null>(null);
+  const storeRef = useStoreSelectorRef((state: AppState) => state);
+
+  const getDesiredColorCyclePlaying = useCallback(
+    () => selectColorCycleDesiredPlaying(storeRef.current),
+    [storeRef]
+  );
+  const getEffectiveColorCyclePlaying = useCallback(
+    () => selectEffectiveColorCyclePlaying(storeRef.current),
+    [storeRef]
+  );
 
   const commitRasterOverlay = useCallback(async (options: CommitRasterOverlayOptions) => {
     if (!project) {
@@ -684,7 +687,7 @@ export function useDrawingHandlers({
   const createBrushStampSource = useCallback(
     () =>
       new BrushStampSource({
-        getState: useAppStore.getState,
+        getState: () => storeRef.current,
         brushEngine,
         userBrushEngine,
         resolveCustomBrush: resolveActiveCustomBrushData
@@ -692,7 +695,7 @@ export function useDrawingHandlers({
     [brushEngine, userBrushEngine]
   );
   const getBrushHalfSize = () => {
-    const state = useAppStore.getState();
+    const state = storeRef.current;
     const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize;
     const eraserSettings = state.tools.eraserSettings;
     const effectiveSize =
@@ -702,7 +705,7 @@ export function useDrawingHandlers({
     return Math.max(1, effectiveSize ?? 1) / 2;
   };
   const getColorCycleBrushEraserSettings = useCallback(() => {
-    const state = useAppStore.getState();
+    const state = storeRef.current;
     const settings = state.tools.brushSettings;
     const flags = getColorCycleBrushFlags(settings);
     let customStamp = resolveActiveCustomBrushData(state);
@@ -730,7 +733,7 @@ export function useDrawingHandlers({
   }, []);
 
   const getCCStampTargetCtx = useCallback((): CanvasRenderingContext2D | null => {
-    const st = useAppStore.getState();
+    const st = storeRef.current;
     const layer = st.layers.find(l => l.id === st.activeLayerId);
     let layerCanvas = layer?.colorCycleData?.canvas;
 
@@ -778,7 +781,7 @@ export function useDrawingHandlers({
   }, []);
 
   const resetPolygonState = useCallback(() => {
-    const setPolygonGradientState = useAppStore.getState().setPolygonGradientState;
+    const setPolygonGradientState = storeRef.current.setPolygonGradientState;
     setPolygonGradientState({
       drawingState: 'idle',
       points: [],
@@ -1022,7 +1025,7 @@ export function useDrawingHandlers({
     try {
       const toHex = (v: number) => v.toString(16).padStart(2, '0');
 
-      const comp = useAppStore.getState().currentOffscreenCanvas;
+      const comp = storeRef.current.currentOffscreenCanvas;
       if (comp) {
         const ctx = comp.getContext('2d', { willReadFrequently: true });
         if (ctx) {
@@ -1163,7 +1166,7 @@ export function useDrawingHandlers({
     }
     autoSampleLastUpdateRef.current = now;
 
-    const store = useAppStore.getState();
+    const store = storeRef.current;
     // Avoid redundant updates
     const current = store.tools.brushSettings.colorCycleGradient || [];
     const same = JSON.stringify(current) === JSON.stringify(stops);
@@ -1214,7 +1217,7 @@ export function useDrawingHandlers({
   const pauseAllBrushCCAnimationsNow = useCallback(() => {
     ccGroup('pauseAllBrushCCAnimationsNow()');
     dumpLayerFlags();
-    const state = useAppStore.getState();
+    const state = storeRef.current;
     const toResume: string[] = [];
     state.layers.forEach(layer => {
       if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor') {
@@ -1283,7 +1286,7 @@ export function useDrawingHandlers({
       return;
     }
 
-    const state = useAppStore.getState();
+    const state = storeRef.current;
     const shape = state.tools.brushSettings.brushShape;
     const isCCBrush =
       shape === BrushShape.COLOR_CYCLE ||
@@ -1304,7 +1307,7 @@ export function useDrawingHandlers({
     if (wasPlaying) {
       shouldResumeColorCycleAfterInteractionRef.current = true;
       ccLog('pauseColorCycleForNonCCInteraction: suspending playback', { reason });
-      useAppStore.getState().suspendColorCycle(reason);
+      storeRef.current.suspendColorCycle(reason);
     }
   }, [pauseAllBrushCCAnimationsNow]);
 
@@ -1321,7 +1324,7 @@ export function useDrawingHandlers({
 
     shouldResumeColorCycleAfterInteractionRef.current = false;
 
-    const st = useAppStore.getState();
+    const st = storeRef.current;
     const suspendDepth = selectColorCycleSuspendDepth(st);
     if (suspendDepth > 1) {
       st.forceResumeColorCycle('shape-preview');
@@ -1337,7 +1340,7 @@ export function useDrawingHandlers({
   // NOTE: Currently unused because global playback flow handles resume/restoration.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const resumePausedBrushCCAnimations = useCallback(() => {
-    const state = useAppStore.getState();
+    const state = storeRef.current;
     const mgr = getColorCycleBrushManager();
     const ids = pausedCCLayerIdsRef.current;
     let resumedAny = false;
@@ -1401,7 +1404,7 @@ export function useDrawingHandlers({
   const stopContinuousColorCycleAnimationCore = useCallback((reason = 'unknown') => {
     let isCCBrushActive = false;
     try {
-      const st = useAppStore.getState();
+      const st = storeRef.current;
       const brushShape = st.tools.brushSettings.brushShape;
       isCCBrushActive =
         brushShape === BrushShape.COLOR_CYCLE ||
@@ -1412,7 +1415,7 @@ export function useDrawingHandlers({
 
     if (SYNTHETIC_CC_STOP_REASONS.has(reason)) {
       try {
-        const st = useAppStore.getState();
+        const st = storeRef.current;
         const shape = st.tools.brushSettings.brushShape;
         const isCCShape = shape === BrushShape.COLOR_CYCLE_SHAPE;
         if (isCCShape && (reason === 'shape-tool-start' || reason === 'shape-tool-drag')) {
@@ -1454,7 +1457,7 @@ export function useDrawingHandlers({
 
       try {
         if (!shouldResumeColorCycleAfterInteractionRef.current) {
-          const st = useAppStore.getState();
+          const st = storeRef.current;
           const wasPlaying = selectEffectiveColorCyclePlaying(st);
           if (wasPlaying) {
             st.suspendColorCycle(reason as CCReason);
@@ -1536,7 +1539,7 @@ export function useDrawingHandlers({
 
     // Ensure store flags reflect paused state so overlay preview can render
     try {
-      const st = useAppStore.getState();
+      const st = storeRef.current;
       st.layers.forEach(layer => {
         const shouldPause =
           layer.layerType === 'color-cycle' &&
@@ -1583,7 +1586,7 @@ export function useDrawingHandlers({
 
     if (reason === 'store-sync' || reason === 'toolbar') {
       try {
-        const st = useAppStore.getState();
+        const st = storeRef.current;
         const depth = selectColorCycleSuspendDepth(st);
         if (depth > 0) {
           st.forceResumeColorCycle('toolbar');
@@ -1611,7 +1614,7 @@ export function useDrawingHandlers({
 
     if (!width || !height) {
       try {
-        const state = useAppStore.getState();
+        const state = storeRef.current;
         const ccLayer = state.layers.find(layer => (
           layer.layerType === 'color-cycle' &&
           layer.colorCycleData?.canvas
@@ -1625,7 +1628,7 @@ export function useDrawingHandlers({
 
     if (!width || !height) {
       try {
-        const state = useAppStore.getState();
+        const state = storeRef.current;
         const activeLayer = state.layers.find(layer => layer.id === state.activeLayerId);
         const framebuffer = activeLayer?.framebuffer as { width?: number; height?: number } | undefined;
         if (framebuffer?.width && framebuffer?.height) {
@@ -1674,7 +1677,7 @@ export function useDrawingHandlers({
     p1: { x: number; y: number },
     p2: { x: number; y: number }
   ) => {
-    const { tools } = useAppStore.getState();
+    const { tools } = storeRef.current;
     const eraserSize =
       tools.eraserSettings.size ??
       tools.brushSettings.size ??
@@ -1695,7 +1698,7 @@ export function useDrawingHandlers({
   
   const startDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // removed debug log
-    const currentState = useAppStore.getState();
+    const currentState = storeRef.current;
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     const brushSettings = currentState.tools.brushSettings;
@@ -1811,7 +1814,7 @@ export function useDrawingHandlers({
       }
 
       try {
-        const refreshedState = useAppStore.getState();
+        const refreshedState = storeRef.current;
         const refreshedLayer = refreshedState.layers.find(l => l.id === refreshedState.activeLayerId);
         const brushGradient = refreshedState.tools.brushSettings.colorCycleGradient;
         if (refreshedLayer?.layerType === 'color-cycle' && brushGradient) {
@@ -1856,7 +1859,7 @@ export function useDrawingHandlers({
         const rafAlive =
           typeof window !== 'undefined' &&
           ((window as typeof window & { __ccRafAlive?: boolean }).__ccRafAlive === true);
-        const postState = useAppStore.getState();
+        const postState = storeRef.current;
         const shouldBePlaying = selectEffectiveColorCyclePlaying(postState);
         if (shouldBePlaying && !rafAlive) {
           Promise.resolve().then(() => startPlaybackRef.current?.('stroke-start'));
@@ -2308,7 +2311,7 @@ export function useDrawingHandlers({
     const batch = strokeBatchRef.current;
     if (batch.length === 0) return;
     
-    const currentState = useAppStore.getState();
+    const currentState = storeRef.current;
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     const drawCtx = drawingCtxRef.current;
@@ -2705,7 +2708,7 @@ export function useDrawingHandlers({
 
   const continueDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // Check if layer is still visible before continuing drawing
-    const currentState = useAppStore.getState();
+    const currentState = storeRef.current;
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer && !activeLayer.visible) {
       endStrokeSession();
@@ -2789,7 +2792,7 @@ export function useDrawingHandlers({
 
     const hasCanvas = Boolean(drawingCanvasRef.current);
     const busy = isBusyRef?.current ?? false;
-    const snapshot = useAppStore.getState();
+    const snapshot = storeRef.current;
     const activeLayerSnapshot = snapshot.layers.find(l => l.id === snapshot.activeLayerId);
     const isCCLayerSnapshot = activeLayerSnapshot?.layerType === 'color-cycle';
     const isCCBrushSnapshot = getColorCycleBrushFlags(snapshot.tools.brushSettings).isAny;
@@ -2988,10 +2991,10 @@ export function useDrawingHandlers({
                 try {
                   setSharedColorCycleGradient(stops);
                 } catch {
-                  useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+                  storeRef.current.setBrushSettings({ colorCycleGradient: stops });
                 }
                 try {
-                  const st = useAppStore.getState();
+                  const st = storeRef.current;
                   const gb = st.tools.brushSettings.gradientBands || 0;
                   if (gb < stops.length) {
                     st.setBrushSettings({ gradientBands: stops.length });
@@ -3000,7 +3003,7 @@ export function useDrawingHandlers({
                 try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
               }
               try {
-                const st = useAppStore.getState();
+                const st = storeRef.current;
                 if (st.tools.brushSettings.autoSampleGradient) {
                   st.setBrushSettings({ autoSampleGradient: false });
                 }
@@ -3019,10 +3022,10 @@ export function useDrawingHandlers({
                 try {
                   setSharedColorCycleGradient(stops);
                     } catch {
-                      useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+                      storeRef.current.setBrushSettings({ colorCycleGradient: stops });
                     }
                     try {
-                      const st = useAppStore.getState();
+                      const st = storeRef.current;
                       const gb = st.tools.brushSettings.gradientBands || 0;
                       if (gb < stops.length) {
                         st.setBrushSettings({ gradientBands: stops.length });
@@ -3032,7 +3035,7 @@ export function useDrawingHandlers({
                     try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
                     // One-shot: auto-disable sampling after applying
                     try {
-                      const st = useAppStore.getState();
+                      const st = storeRef.current;
                       if (st.tools.brushSettings.autoSampleGradient) {
                         st.setBrushSettings({ autoSampleGradient: false });
                       }
@@ -3088,9 +3091,9 @@ export function useDrawingHandlers({
             // Ensure CC layer has a canvas before attempting to save
             if (isColorCycleLayer && !activeLayer?.colorCycleData?.canvas && currentState.project) {
               try {
-                useAppStore.getState().initColorCycleForLayer(activeLayer.id, currentState.project.width, currentState.project.height);
+                storeRef.current.initColorCycleForLayer(activeLayer.id, currentState.project.width, currentState.project.height);
                 // Refresh state references after init
-                currentState = useAppStore.getState();
+                currentState = storeRef.current;
                 activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
               } catch {
                 // Suppressed debug warn for finalize init
@@ -3165,7 +3168,7 @@ export function useDrawingHandlers({
 
                   // Mark layer metadata so downstream consumers know content exists
                   try {
-                    const st = useAppStore.getState();
+                    const st = storeRef.current;
                     const freshLayer = st.layers.find(l => l.id === targetLayerId);
                     if (freshLayer?.colorCycleData) {
                       st.updateLayer(targetLayerId, {
@@ -3352,7 +3355,7 @@ export function useDrawingHandlers({
       brushSamplingPreviewActiveRef.current = false;
       // Safety net: ensure one-shot sampling is turned off at end of stroke
       try {
-        const st = useAppStore.getState();
+        const st = storeRef.current;
         if (st.tools.brushSettings.autoSampleGradient) {
           st.setBrushSettings({ autoSampleGradient: false });
         }
@@ -3416,7 +3419,7 @@ export function useDrawingHandlers({
     }
 
     if (tools.shapeMode) {
-      const state = useAppStore.getState();
+      const state = storeRef.current;
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
       if (!isCCShape) {
@@ -3428,7 +3431,7 @@ export function useDrawingHandlers({
       // Color Cycle Shape previews. We render previews on the lightweight overlay
       // canvas and defer allocation until direction selection or finalization.
       try {
-        const st = useAppStore.getState();
+        const st = storeRef.current;
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         if (!isCCShape) {
           initDrawingCanvas();
@@ -3444,7 +3447,7 @@ export function useDrawingHandlers({
         isDrawingShapeRef.current = true;
         // Initialize auto-sampling for CC shape
         try {
-          const st = useAppStore.getState();
+          const st = storeRef.current;
           const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
           if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
             autoSamplePointsRef.current = [...shapePointsRef.current];
@@ -3461,7 +3464,7 @@ export function useDrawingHandlers({
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
     // Handle animations based on brush type
     if (tools.shapeMode && !ccShapePreviewPauseStartedRef.current) {
-      const state = useAppStore.getState();
+      const state = storeRef.current;
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
       if (isCCShape) {
@@ -3474,7 +3477,7 @@ export function useDrawingHandlers({
       ccShapePreviewPauseStartedRef.current = true;
     }
     // Check if layer is still visible before continuing shape drawing
-    const currentState = useAppStore.getState();
+    const currentState = storeRef.current;
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer && !activeLayer.visible) {
       return; // Exit silently if layer became hidden mid-stroke
@@ -3530,7 +3533,7 @@ export function useDrawingHandlers({
     }
     
     if (tools.shapeMode && isDrawingShapeRef.current) {
-      const store = useAppStore.getState();
+      const store = storeRef.current;
       const zoom = store.canvas?.zoom || 1;
       const brushSize = store.tools.brushSettings.size || 20;
       const added = appendSegmentWithDynamicResampling(shapePointsRef.current, worldPos, zoom, brushSize, 0.25, 0.6);
@@ -3551,7 +3554,7 @@ export function useDrawingHandlers({
   }, [tools.shapeMode, continueDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, initDrawingCanvas]);
   
   const finalizeShapeDrawing = useCallback(async () => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = storeRef.current.polygonGradientState;
     const polygonPointCount = Math.max(polygonState.points?.length ?? 0, polygonState.vertices?.length ?? 0);
     const polygonActive = polygonState.drawingState !== 'idle' && polygonPointCount >= 3;
     const hasShapeInProgress = tools.shapeMode || polygonActive || isSelectingDirectionRef.current || isDrawingShapeRef.current;
@@ -3581,7 +3584,7 @@ export function useDrawingHandlers({
 
         const drawCtx = drawingCtxRef.current;
         if (drawCtx && brushEngine && shapePointsRef.current.length >= 3) {
-          const beforeState = useAppStore.getState();
+          const beforeState = storeRef.current;
           const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
           shapeLayerId = beforeLayer?.id ?? null;
           if (!shapeLayerId || !beforeLayer?.colorCycleData?.canvas) {
@@ -3615,7 +3618,7 @@ export function useDrawingHandlers({
           drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
           drawingCanvasHasContent.current = false;
           
-          const currentState = useAppStore.getState();
+          const currentState = storeRef.current;
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           const activeLayerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
@@ -3777,7 +3780,7 @@ export function useDrawingHandlers({
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
 
-          const beforeState = useAppStore.getState();
+          const beforeState = storeRef.current;
           const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
           const shapeLayerId = beforeLayer?.id ?? null;
           const shapeLayerCanvas = beforeLayer?.colorCycleData?.canvas ?? null;
@@ -3817,7 +3820,7 @@ export function useDrawingHandlers({
           
           // If drawing a Color Cycle Shape and auto-sampling is enabled, finalize gradient now
           try {
-            const st = useAppStore.getState();
+            const st = storeRef.current;
             const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
             if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
               const finalPts = [...shapePointsRef.current];
@@ -3826,10 +3829,10 @@ export function useDrawingHandlers({
                 try {
                   setSharedColorCycleGradient(stops);
                 } catch {
-                  useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+                  storeRef.current.setBrushSettings({ colorCycleGradient: stops });
                 }
                 try {
-                  const liveState = useAppStore.getState();
+                  const liveState = storeRef.current;
                   const gb = liveState.tools.brushSettings.gradientBands || 0;
                   if (gb < stops.length) {
                     liveState.setBrushSettings({ gradientBands: stops.length });
@@ -3863,7 +3866,7 @@ export function useDrawingHandlers({
               isColorizable = brushTip.isColorizable || tools.brushSettings.useSwatchColor || !!tools.brushSettings.customBrushColorCycle;
             } else if (tools.brushSettings.selectedCustomBrush) {
               // Look for custom brush in project's custom brushes from the store
-              const currentState = useAppStore.getState();
+              const currentState = storeRef.current;
               
               // First check temporary brush
               if (currentState.temporaryCustomBrush?.id === tools.brushSettings.selectedCustomBrush) {
@@ -3973,7 +3976,7 @@ export function useDrawingHandlers({
           }
 
           // Check if we're on a color cycle layer - if so, skip regular shape drawing
-          const currentState = useAppStore.getState();
+          const currentState = storeRef.current;
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
@@ -4371,7 +4374,7 @@ export function useDrawingHandlers({
         
         // FIXED: For CC shapes on CC layers, handle finalization directly without calling finalizeDrawing
         // which would clear the drawing canvas and make the shape disappear
-        const currentState = useAppStore.getState();
+        const currentState = storeRef.current;
         const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
         const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
         
@@ -4391,7 +4394,7 @@ export function useDrawingHandlers({
           return;
         }
 
-        const currentLayer = useAppStore.getState().layers.find(l => l.id === useAppStore.getState().activeLayerId);
+        const currentLayer = storeRef.current.layers.find(l => l.id === storeRef.current.activeLayerId);
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
           const historyDescription = `Shape Fill: ${tools.brushSettings?.shapeFillMode ?? 'default'}`;
@@ -4473,7 +4476,7 @@ export function useDrawingHandlers({
   
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx?: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
-    const currentState = useAppStore.getState();
+    const currentState = storeRef.current;
     let hasRendered = false;
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -4553,7 +4556,7 @@ export function useDrawingHandlers({
 
     let ccLayers: Layer[] = [];
     try {
-      const st = useAppStore.getState();
+      const st = storeRef.current;
       ccLayers = st.layers.filter(
         (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor'
       );
@@ -4561,7 +4564,7 @@ export function useDrawingHandlers({
 
     const ensureLayersAnimating = () => {
       try {
-        const st = useAppStore.getState();
+        const st = storeRef.current;
         ccLayers.forEach((layer) => {
           if (!layer.colorCycleData) {
             return;
@@ -4611,7 +4614,7 @@ export function useDrawingHandlers({
     startingColorCycleAnimationRef.current = true;
 
     try {
-      const state = useAppStore.getState();
+      const state = storeRef.current;
       // Consider ALL brush-based color-cycle layers, regardless of active selection
       const ccLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor');
       ccGroup('startContinuousColorCycleAnimation()', { reason, ccLayers: ccLayers.length });
@@ -4667,7 +4670,7 @@ export function useDrawingHandlers({
 
       // Mark ALL brush-based CC layers as animating so render loop advances them
       try {
-        const st = useAppStore.getState();
+        const st = storeRef.current;
         ccLayers.forEach(layer => {
           const updatedData: Layer['colorCycleData'] = {
             ...(layer.colorCycleData ?? {}),
@@ -4743,7 +4746,7 @@ export function useDrawingHandlers({
             try {
               shouldAdvance = !!(brushEngine.isColorCycleAnimating && brushEngine.isColorCycleAnimating());
               if (!shouldAdvance) {
-                const st = useAppStore.getState();
+                const st = storeRef.current;
                 shouldAdvance = st.layers.some(
                   (layer) => layer.layerType === 'color-cycle' && !!layer.colorCycleData?.isAnimating
                 );
@@ -4763,7 +4766,7 @@ export function useDrawingHandlers({
 
           const logNow = typeof performance !== 'undefined' ? performance.now() : Date.now();
           if (logNow - lastRendererLogTS.current > 1000) {
-            const snapshot = useAppStore.getState();
+            const snapshot = storeRef.current;
             const animatingLayers = snapshot.layers.filter(
               (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.isAnimating
             ).length;
@@ -4873,7 +4876,7 @@ export function useDrawingHandlers({
         const rafAlive = typeof window !== 'undefined' && window.__ccRafAlive === true;
         let allAnimating = false;
         try {
-          const st = useAppStore.getState();
+          const st = storeRef.current;
           const ccLayers = st.layers.filter((layer) => layer.layerType === 'color-cycle');
           allAnimating =
             ccLayers.length > 0 &&
@@ -4881,7 +4884,7 @@ export function useDrawingHandlers({
         } catch {}
         if (!rafAlive && !continuousColorCycleAnimationActiveRef.current && !startingColorCycleAnimationRef.current) {
           try {
-            const st = useAppStore.getState();
+            const st = storeRef.current;
             const depth = selectColorCycleSuspendDepth(st);
             if (depth > 0) {
               st.forceResumeColorCycle('toolbar');
@@ -4908,7 +4911,7 @@ export function useDrawingHandlers({
         const rafAlive = typeof window !== 'undefined' && window.__ccRafAlive === true;
         let anyAnimating = false;
         try {
-          const st = useAppStore.getState();
+          const st = storeRef.current;
           anyAnimating = st.layers.some(
             (layer) => layer.layerType === 'color-cycle' && !!layer.colorCycleData?.isAnimating
           );
@@ -4977,8 +4980,6 @@ export function useDrawingHandlers({
   }, []);
 
   useEffect(() => {
-    type AppState = ReturnType<typeof useAppStore.getState>;
-
     type LayerSnapshot = {
       id: string;
       mode: string | null;
@@ -4996,7 +4997,7 @@ export function useDrawingHandlers({
       }, {})
     );
 
-    let previousSnapshots = buildSnapshot(useAppStore.getState().layers);
+    let previousSnapshots = buildSnapshot(storeRef.current.layers);
 
     const unsubscribe = useAppStore.subscribe((state: AppState) => {
       const nextSnapshots = buildSnapshot(state.layers);

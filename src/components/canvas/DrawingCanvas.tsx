@@ -1,5 +1,18 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo, useLayoutEffect } from 'react';
 import { selectEffectiveColorCyclePlaying, useAppStore } from '../../stores/useAppStore';
+import {
+  selectActiveLayerId,
+  selectLayers,
+  selectLayersNeedRecomposition,
+  selectReferenceLayerId,
+  selectSetLayersNeedRecomposition,
+} from '@/stores/selectors/layersSelectors';
+import {
+  selectFloatingPaste,
+  selectFloatingPasteActions,
+  selectSelectionRects,
+  selectSelectionActions,
+} from '@/stores/selectors/pasteSelectors';
 import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
@@ -146,13 +159,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
-  const layers = useAppStore((state) => state.layers);
-  const referenceLayerId = useAppStore((state) => state.referenceLayerId);
-  const activeLayerId = useAppStore((state) => state.activeLayerId);
-  const selectionStart = useAppStore((state) => state.selectionStart);
-  const selectionEnd = useAppStore((state) => state.selectionEnd);
-  const floatingPaste = useAppStore((state) => state.floatingPaste);
-  const layersNeedRecomposition = useAppStore((state) => state.layersNeedRecomposition);
+  const layers = useAppStore(selectLayers);
+  const referenceLayerId = useAppStore(selectReferenceLayerId);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
+  const floatingPaste = useAppStore(selectFloatingPaste);
+  const layersNeedRecomposition = useAppStore(selectLayersNeedRecomposition);
   const canvasZoom = useAppStore((state) => state.canvas.zoom);
   const canvasOffsetX = useAppStore((state) => state.canvas.offsetX);
   const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
@@ -178,9 +190,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const { crop, commitCrop, cancelCrop } = useCropState();
   
   // Get functions separately (they don't change)
+  const setLayersNeedRecomposition = useAppStore(selectSetLayersNeedRecomposition);
+
+  const { setSelectionBounds, clearSelection } = useAppStore(selectSelectionActions);
   const {
-    setSelectionBounds,
-    clearSelection,
+    setFloatingPaste,
+    updateFloatingPastePosition,
+    commitFloatingPaste,
+    cancelFloatingPaste,
+  } = useAppStore(selectFloatingPasteActions);
+  const {
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
     setCanvasDimensions,
@@ -189,15 +208,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     setCanvasViewport,
     undo,
     redo,
-    setFloatingPaste,
-    updateFloatingPastePosition,
-    commitFloatingPaste,
-    cancelFloatingPaste,
     updateLayer,
-    setLayersNeedRecomposition,
     applyColorAdjust,
     cancelColorAdjust,
-  } = useAppStore();
+  } = useAppStore((state) => ({
+    setCurrentOffscreenCanvas: state.setCurrentOffscreenCanvas,
+    compositeLayersToCanvas: state.compositeLayersToCanvas,
+    setCanvasDimensions: state.setCanvasDimensions,
+    setZoom: state.setZoom,
+    setCanvasOffset: state.setCanvasOffset,
+    setCanvasViewport: state.setCanvasViewport,
+    undo: state.undo,
+    redo: state.redo,
+    updateLayer: state.updateLayer,
+    applyColorAdjust: state.applyColorAdjust,
+    cancelColorAdjust: state.cancelColorAdjust,
+  }));
 
   const switchTool = useToolSwitcher();
 
@@ -2878,20 +2904,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             tools.eraserSettings.size ??
             1
         );
-        const brushTip = tools.brushSettings.currentBrushTip;
         return (
           <BrushCursor
             ref={brushCursorHandleRef}
             size={cursorSize}
             brushShape={brushShapeForCursor}
             zoom={canvasZoom || 1}
-            color={tools.brushSettings.color}
-            customBrush={brushTip ? {
-              imageData: brushTip.imageData,
-              width: brushTip.width || 32,
-              height: brushTip.height || 32
-            } : null}
-            visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressedRef.current && cursorStyle === 'none'}
+            visible={
+              showBrushCursor &&
+              !pan.panState.isPanning &&
+              !isSpacePressedRef.current &&
+              cursorStyle === 'none'
+            }
           />
         );
       })()}

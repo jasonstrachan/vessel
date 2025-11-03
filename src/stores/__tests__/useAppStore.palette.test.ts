@@ -10,6 +10,7 @@ const prepareStore = () => {
   store.setPaletteColor('background', '#FFFFFF');
   store.setBrushSettings({ color: '#000000' });
   store.setEraserSettings({ color: '#000000', linkSizeToBrush: store.tools.eraserSettings.linkSizeToBrush });
+  useAppStore.setState({ paletteDirty: false });
 };
 
 beforeEach(() => {
@@ -37,6 +38,7 @@ describe('useAppStore palette integration', () => {
     expect(nextState.palette.foregroundColor).toBe('#FFAA00');
     expect(nextState.tools.brushSettings.color).toBe('#FFAA00');
     expect(nextState.project?.palette?.foregroundColor).toBe('#FFAA00');
+    expect(nextState.paletteDirty).toBe(false);
   });
 
   it('swaps foreground/background colors without changing current brush color', () => {
@@ -50,7 +52,7 @@ describe('useAppStore palette integration', () => {
     const nextState = useAppStore.getState();
     expect(nextState.palette.foregroundColor).toBe('#ABCDEF');
     expect(nextState.palette.backgroundColor).toBe('#112233');
-    expect(nextState.tools.brushSettings.color).toBe('#112233');
+    expect(nextState.tools.brushSettings.color).toBe('#ABCDEF');
   });
 
   it('updates palette when eraser color changes while foreground slot is active', () => {
@@ -64,6 +66,7 @@ describe('useAppStore palette integration', () => {
     expect(nextState.palette.foregroundColor).toBe('#123456');
     expect(nextState.tools.brushSettings.color).toBe('#123456');
     expect(nextState.project?.palette?.foregroundColor).toBe('#123456');
+    expect(nextState.paletteDirty).toBe(false);
   });
 
   it('hydrates palette and tools from a loaded project', () => {
@@ -86,5 +89,34 @@ describe('useAppStore palette integration', () => {
     const nextState = useAppStore.getState();
     expect(nextState.palette).toEqual(paletteOverride);
     expect(nextState.tools.brushSettings.color).toBe(paletteOverride.foregroundColor);
+  });
+
+  it('marks palette dirty when palette slots change directly', () => {
+    const store = useAppStore.getState();
+    store.setPaletteColor('foreground', '#135724');
+
+    const nextState = useAppStore.getState();
+    expect(nextState.palette.foregroundColor).toBe('#135724');
+    expect(nextState.paletteDirty).toBe(true);
+    expect(nextState.project?.palette?.foregroundColor).toBe('#135724');
+  });
+
+  it('avoids marking palette dirty when swap does not change color values', () => {
+    const store = useAppStore.getState();
+    useAppStore.setState({
+      palette: {
+        ...store.palette,
+        foregroundColor: '#222222',
+        backgroundColor: '#222222',
+      },
+      paletteDirty: false,
+    });
+
+    useAppStore.getState().swapPaletteColors();
+
+    const nextState = useAppStore.getState();
+    expect(nextState.palette.foregroundColor).toBe('#222222');
+    expect(nextState.palette.backgroundColor).toBe('#222222');
+    expect(nextState.paletteDirty).toBe(false);
   });
 });

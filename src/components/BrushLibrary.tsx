@@ -1,12 +1,17 @@
 "use client";
 
 import React, { useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape, BrushPreset } from '../types';
 import PlusButton from './ui/PlusButton';
 import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { createCustomBrushPreset } from '@/utils/customBrushPreset';
+import {
+  selectCustomBrushes,
+  selectDefaultCustomBrushId,
+} from '@/stores/selectors/projectSelectors';
 
 const BRUSH_ICON_SIZE = 32;
 const BRUSH_TEXT_LINE_HEIGHT = 11;
@@ -15,8 +20,8 @@ const BrushLibrary = () => {
   // FIX: Use individual selectors to avoid creating new objects on every render
   const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
-  const project = useAppStore((state) => state.project);
-  const defaultCustomBrushId = project?.defaultCustomBrushId ?? null;
+  const customBrushes = useAppStore(selectCustomBrushes);
+  const defaultCustomBrushId = useAppStore(selectDefaultCustomBrushId);
   const tools = useAppStore((state) => state.tools);
   const brushEditor = useAppStore((state) => state.brushEditor);
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
@@ -24,22 +29,26 @@ const BrushLibrary = () => {
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const switchTool = useToolSwitcher();
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
-  const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
-  const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
+  const [saveCustomBrushAsPreset, removeCustomBrush, setDefaultCustomBrush] = useAppStore(
+    useShallow((state) => [
+      state.saveCustomBrushAsPreset,
+      state.removeCustomBrush,
+      state.setDefaultCustomBrush,
+    ])
+  );
   const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
-  const setDefaultCustomBrush = useAppStore((state) => state.setDefaultCustomBrush);
   
   // Create combined list of brushes: regular presets + custom brushes from project
   const customBrushPresets = React.useMemo(() => {
-    if (!project?.customBrushes) return [];
+    if (customBrushes.length === 0) return [];
 
-    return project.customBrushes.map((customBrush) =>
+    return customBrushes.map((customBrush) =>
       createCustomBrushPreset(customBrush, {
         isDefault: defaultCustomBrushId === customBrush.id,
         thumbnail: customBrush.thumbnail
       })
     );
-  }, [project?.customBrushes, defaultCustomBrushId]);
+  }, [customBrushes, defaultCustomBrushId]);
 
   // Generate thumbnails for regular brush presets (client-side only)
   const [brushThumbnails, setBrushThumbnails] = React.useState<Record<string, string>>({});
@@ -148,20 +157,15 @@ const BrushLibrary = () => {
   
   // Check if there's an active custom brush that can be saved
   const activeCustomBrush = React.useMemo(() => {
-    if (!tools.brushSettings.selectedCustomBrush) return null;
-    
-    // Check temporary custom brush first
-    if (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush) {
+    const selectedId = tools.brushSettings.selectedCustomBrush;
+    if (!selectedId) return null;
+
+    if (temporaryCustomBrush && temporaryCustomBrush.id === selectedId) {
       return temporaryCustomBrush;
     }
-    
-    // Then check project custom brushes
-    if (project) {
-      return project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush) || null;
-    }
-    
-    return null;
-  }, [tools.brushSettings.selectedCustomBrush, temporaryCustomBrush, project]);
+
+    return customBrushes.find((brush) => brush.id === selectedId) ?? null;
+  }, [customBrushes, temporaryCustomBrush, tools.brushSettings.selectedCustomBrush]);
   
   // Handle escape key to cancel editing
   useEffect(() => {

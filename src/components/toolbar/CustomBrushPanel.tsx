@@ -1,34 +1,36 @@
 'use client';
 
 import { useAppStore } from '@/stores/useAppStore';
+import { selectCustomBrushes, selectTemporaryCustomBrush } from '@/stores/selectors/projectSelectors';
+import {
+  selectSelectionRects,
+  selectSelectionActions,
+} from '@/stores/selectors/pasteSelectors';
 import { CustomBrush, BrushShape } from '@/types';
 import { useEffect, useCallback } from 'react';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 
 export const CustomBrushPanel = () => {
-  
-  const { 
-    project, 
-    addCustomBrush,
-    selectionStart,
-    selectionEnd,
-    clearSelection,
-    currentOffscreenCanvas,
-    temporaryCustomBrush,
-    setTemporaryCustomBrush,
-    setBrushSettings
-  } = useAppStore();
+  const addCustomBrush = useAppStore((state) => state.addCustomBrush);
+  const customBrushes = useAppStore(selectCustomBrushes);
+  const temporaryCustomBrush = useAppStore(selectTemporaryCustomBrush);
+  const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
+  const { clearSelection } = useAppStore(selectSelectionActions);
+  const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
+  const setTemporaryCustomBrush = useAppStore((state) => state.setTemporaryCustomBrush);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
 
   // Clear temporary brush when there's no selection (i.e., when custom tool is deactivated)
   useEffect(() => {
     if (!selectionStart && !selectionEnd) {
+      setTemporaryCustomBrush(null);
     }
-  }, [selectionStart, selectionEnd]);
+  }, [selectionStart, selectionEnd, setTemporaryCustomBrush]);
 
   // Debounced function to create the brush
   const createBrushFromSelection = useCallback(() => {
-    if (!selectionStart || !selectionEnd || !project || !currentOffscreenCanvas) return;
+    if (!selectionStart || !selectionEnd || !currentOffscreenCanvas) return;
     
     // Remove the isCreatingBrush check - it was causing issues with brush creation
     
@@ -132,15 +134,15 @@ export const CustomBrushPanel = () => {
       }
     };
     setBrushSettings(brushSettings);
-  }, [selectionStart, selectionEnd, project, currentOffscreenCanvas, setTemporaryCustomBrush, setBrushSettings]);
+  }, [selectionStart, selectionEnd, currentOffscreenCanvas, setTemporaryCustomBrush, setBrushSettings]);
 
   // Create brush immediately when selection changes
   useEffect(() => {
     // Create brush immediately if we have a valid selection
-    if (selectionStart && selectionEnd && project && currentOffscreenCanvas) {
+    if (selectionStart && selectionEnd && currentOffscreenCanvas) {
       createBrushFromSelection();
     }
-  }, [selectionStart, selectionEnd, project, currentOffscreenCanvas, createBrushFromSelection]);
+  }, [selectionStart, selectionEnd, currentOffscreenCanvas, createBrushFromSelection]);
 
   const handleSaveCustomBrush = () => {
     if (!temporaryCustomBrush) return;
@@ -156,7 +158,7 @@ export const CustomBrushPanel = () => {
     const permanentBrush: CustomBrush = {
       ...temporaryCustomBrush,
       id: `brush_${Date.now()}`,
-      name: `Custom ${(project?.customBrushes?.length || 0) + 1}`,
+      name: `Custom ${customBrushes.length + 1}`,
       imageData: clonedImageData
     };
     

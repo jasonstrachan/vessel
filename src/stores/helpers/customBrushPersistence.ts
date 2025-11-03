@@ -1,5 +1,5 @@
 import type { StoreApi } from 'zustand';
-import type { CustomBrush, Project } from '@/types';
+import type { CustomBrush } from '@/types';
 import { mergeCustomBrushCollections, resolveStoredDefaultBrushId } from './customBrushMerge';
 import {
   loadCustomBrushesFromStorage,

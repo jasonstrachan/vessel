@@ -2,13 +2,20 @@
 
 import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from 'react';
 import { Eye, EyeOff, X } from 'lucide-react';
-import { useAppStore } from '../stores/useAppStore';
+import { useAppStore, type AppState } from '../stores/useAppStore';
+import {
+  selectLayers,
+  selectActiveLayerId,
+  selectSelectedLayerIds,
+  selectLayerActions,
+} from '@/stores/selectors/layersSelectors';
 import { Layer, BrushShape } from '../types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
 import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { recordBreadcrumb } from '../utils/debug';
+import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 export const LAYER_TAG_CLASS = 'px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]';
@@ -192,26 +199,33 @@ LayerItem.displayName = 'LayerItem';
 const MinimalLayerList = () => {
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
   const [dragOverBottom, setDragOverBottom] = useState<boolean>(false);
-  const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
-  const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
-  const playColorCycle = useAppStore(state => state.playColorCycle);
-  const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const desiredPlaying = useAppStore((state) => state.colorCyclePlayback.desiredPlaying);
+  const suspendDepth = useAppStore((state) => state.colorCyclePlayback.suspendDepth);
+  const playColorCycle = useAppStore((state) => state.playColorCycle);
+  const pauseColorCycle = useAppStore((state) => state.pauseColorCycle);
   const effectivePlaying = desiredPlaying && suspendDepth === 0;
   const isSuspended = desiredPlaying && suspendDepth > 0;
   
   // Store subscriptions
-  const layers = useAppStore(state => state.layers);
-  const activeLayerId = useAppStore(state => state.activeLayerId);
-  const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
-  const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
-  const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const layers = useAppStore(selectLayers);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const selectedLayerIds = useAppStore(selectSelectedLayerIds);
+  const globalColorCycleSpeed = useAppStore((state) => state.tools.brushSettings.colorCycleSpeed || 0.1);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
+  const brushSettingsRef = useStoreSelectorRef((state: AppState) => state.tools.brushSettings);
+  const projectSizeRef = useStoreSelectorRef((state: AppState) =>
+    state.project ? { width: state.project.width, height: state.project.height } : null
+  );
   // Actions
-  const addLayer = useAppStore(state => state.addLayer);
-  const updateLayer = useAppStore(state => state.updateLayer);
-  const setActiveLayer = useAppStore(state => state.setActiveLayer);
-  const reorderLayers = useAppStore(state => state.reorderLayers);
-  const removeLayer = useAppStore(state => state.removeLayer);
-  const setSelectedLayerIds = useAppStore(state => state.setSelectedLayerIds);
+  const {
+    addLayer,
+    updateLayer,
+    setActiveLayer,
+    reorderLayers,
+    removeLayer,
+    setSelectedLayerIds,
+    initColorCycleForLayer,
+  } = useAppStore(selectLayerActions);
 
   const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
   const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
@@ -250,8 +264,7 @@ const MinimalLayerList = () => {
     };
     
     // Get current gradient from brush settings or use default rainbow
-    const stateSnapshot = useAppStore.getState();
-    const currentGradient = stateSnapshot.tools.brushSettings.colorCycleGradient || [
+    const currentGradient = brushSettingsRef.current.colorCycleGradient || [
       { position: 0.0, color: '#ff0000' },
       { position: 0.17, color: '#ff7f00' },
       { position: 0.33, color: '#ffff00' },
@@ -260,8 +273,7 @@ const MinimalLayerList = () => {
       { position: 0.83, color: '#4b0082' },
       { position: 1.0, color: '#9400d3' }
     ];
-    const playback = stateSnapshot.colorCyclePlayback;
-    const isGlobalPlaying = playback.desiredPlaying && playback.suspendDepth === 0;
+    const isGlobalPlaying = effectivePlaying;
 
     // Create a color-cycle layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
@@ -278,9 +290,8 @@ const MinimalLayerList = () => {
       colorCycleData: {
         gradient: currentGradient,
         isAnimating: isGlobalPlaying,
-        // Initialize per-layer brush speed from current brush setting
-        brushSpeed: stateSnapshot.tools?.brushSettings?.colorCycleSpeed || 0.1,
-        flowMode: stateSnapshot.tools?.brushSettings?.colorCycleFlowMode ?? 'forward'
+        brushSpeed: brushSettingsRef.current.colorCycleSpeed || 0.1,
+        flowMode: brushSettingsRef.current.colorCycleFlowMode ?? 'forward'
       }
     };
     // quiet
@@ -293,19 +304,13 @@ const MinimalLayerList = () => {
     if (newLayerId) {
       
       // Initialize the color cycle brush for this layer BEFORE setting active
-      const state = useAppStore.getState();
-      if (state.project) {
-        state.initColorCycleForLayer(newLayerId, state.project.width, state.project.height);
+      const projectSize = projectSizeRef.current;
+      if (projectSize) {
+        initColorCycleForLayer(newLayerId, projectSize.width, projectSize.height);
       }
 
-      // Set as active layer (this will also sync the gradient to brush settings)
       setActiveLayer(newLayerId);
-      // quiet
-      
-      // IMPORTANT: Switch to CC brush mode when creating a CC layer
-      // This ensures users can immediately draw on the new CC layer
-      const updatedState = useAppStore.getState();
-      updatedState.setBrushSettings({ brushShape: BrushShape.COLOR_CYCLE });
+      setBrushSettings({ brushShape: BrushShape.COLOR_CYCLE });
       // quiet
     }
     // quiet
@@ -346,30 +351,14 @@ const MinimalLayerList = () => {
 
     // Auto-select the new layer
     if (newLayerId) {
-      // Use fresh state to avoid stale closures during fast interactions
-      const freshState = useAppStore.getState();
-      // quiet
-      try {
-        freshState.setActiveLayer(newLayerId);
-        // quiet
-      } catch {
-        // quiet
-      }
-      
-      // IMPORTANT: If CC brush is selected, switch to a regular brush
-      // This ensures users can immediately draw on the new regular layer
-      try {
-        const finalState = useAppStore.getState();
-        if (
-          finalState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
-          finalState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
-        ) {
-          finalState.setBrushSettings({ brushShape: BrushShape.ROUND });
-          // quiet
-        }
-      } catch {
-        // As a last resort, force a safe brush shape
-        try { useAppStore.getState().setBrushSettings({ brushShape: BrushShape.ROUND }); } catch {}
+      setActiveLayer(newLayerId);
+
+      const activeBrushShape = brushSettingsRef.current.brushShape;
+      if (
+        activeBrushShape === BrushShape.COLOR_CYCLE ||
+        activeBrushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+      ) {
+        setBrushSettings({ brushShape: BrushShape.ROUND });
       }
     }
     // quiet

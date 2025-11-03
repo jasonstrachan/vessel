@@ -5,6 +5,11 @@
 
 import React from "react";
 import { useAppStore } from "../../stores/useAppStore";
+import {
+  selectActiveLayerId,
+  selectLayers,
+  selectLayerActions,
+} from '@/stores/selectors/layersSelectors';
 import { BrushShape, type BrushSettings } from "../../types";
 import Input from "../ui/Input";
 import ProgressSlider from "../ui/ProgressSlider";
@@ -23,14 +28,12 @@ import {
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
 import {
   PRESSURE_MIN_PERCENT,
-  PRESSURE_MAX_PERCENT,
   clampPressurePercent,
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
 import ShapeFillControls from "./ShapeFillControls";
 
 const PRESSURE_MIN_BOUND = PRESSURE_MIN_PERCENT;
-const PRESSURE_MAX_BOUND = PRESSURE_MAX_PERCENT;
 
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
@@ -50,27 +53,31 @@ const BrushControls = () => {
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore(state => state.brushPresets);
   // For per-layer CC brush speed
-  const activeLayerId = useAppStore(state => state.activeLayerId);
-  const layers = useAppStore(state => state.layers);
-  const updateLayer = useAppStore(state => state.updateLayer);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const layers = useAppStore(selectLayers);
+  const { updateLayer } = useAppStore(selectLayerActions);
+  const addNotification = useAppStore((state) => state.addNotification);
   const desiredColorCyclePlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
+  const activeLayer = React.useMemo(
+    () => layers.find((layer) => layer.id === activeLayerId) ?? null,
+    [layers, activeLayerId]
+  );
   
   const showColorCycleLayerHint = React.useCallback(() => {
-    const state = useAppStore.getState();
-    if (typeof state.addNotification !== 'function') {
+    if (typeof addNotification !== 'function') {
       return;
     }
 
-    state.addNotification({
+    addNotification({
       type: 'info',
       title: 'Select a color cycle layer',
       message: 'Custom brush color cycling only works on color cycle layers. Pick one in the Layers panel first.',
       timestamp: new Date()
     });
-  }, []);
+  }, [addNotification]);
 
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const activeSettings =
@@ -315,11 +322,9 @@ const BrushControls = () => {
         gradientDebounceTimerRef.current = null;
       }
 
-      const state = useAppStore.getState();
-      const activeLayerIdLive = state.activeLayerId;
-      if (activeLayerIdLive) {
+      if (activeLayerId) {
         pendingLayerUpdateRef.current = {
-          layerId: activeLayerIdLive,
+          layerId: activeLayerId,
           gradient: pendingGradientRef.current
         };
       } else {
@@ -336,7 +341,7 @@ const BrushControls = () => {
         scheduleFlushFrame();
       }, 80);
     },
-    [scheduleFlushFrame]
+    [scheduleFlushFrame, activeLayerId]
   );
 
   React.useEffect(() => {
@@ -359,9 +364,6 @@ const BrushControls = () => {
   }, [activeSettings.colorCycleGradient]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
-    const state = useAppStore.getState();
-    const activeLayer = state.layers.find(layer => layer.id === state.activeLayerId);
-
     if (checked && activeLayer?.layerType !== 'color-cycle') {
       showColorCycleLayerHint();
       setActiveSettings({ customBrushColorCycle: false });
@@ -382,7 +384,7 @@ const BrushControls = () => {
     }
 
     setActiveSettings(updates);
-  }, [activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, setActiveSettings, showColorCycleLayerHint]);
+  }, [activeLayer, activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, setActiveSettings, showColorCycleLayerHint]);
 
   // Ensure Color Cycle brushes start with a sensible spacing value even when no preset overrides exist
   React.useEffect(() => {

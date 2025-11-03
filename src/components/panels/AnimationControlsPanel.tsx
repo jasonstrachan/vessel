@@ -4,17 +4,22 @@ import React from 'react';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import ButtonGroup from '@/components/ui/ButtonGroup';
 import { useAppStore, selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
+import {
+  selectLayers,
+  selectActiveLayerId,
+  selectSelectedLayerIds,
+  selectLayerActions,
+} from '@/stores/selectors/layersSelectors';
 
 const AnimationControlsPanel: React.FC = () => {
-  const layers = useAppStore(state => state.layers);
-  const activeLayerId = useAppStore(state => state.activeLayerId);
-  const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
+  const layers = useAppStore(selectLayers);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
   const globalColorCycleFlowMode = useAppStore(state => state.tools.brushSettings.colorCycleFlowMode ?? 'forward');
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
-  const updateLayer = useAppStore(state => state.updateLayer);
+  const { updateLayer } = useAppStore(selectLayerActions);
   const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
-  const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);

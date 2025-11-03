@@ -17,63 +17,7 @@ export type CaptureROI = {
   height: number;
 };
 
-const normalizeCaptureROI = (
-  roi: CaptureROI | undefined,
-  maxWidth: number,
-  maxHeight: number
-): CaptureROI | undefined => {
-  if (!roi) {
-    return undefined;
-  }
-  if (
-    !Number.isFinite(roi.x) ||
-    !Number.isFinite(roi.y) ||
-    !Number.isFinite(roi.width) ||
-    !Number.isFinite(roi.height)
-  ) {
-    return undefined;
-  }
-  if (roi.width <= 0 || roi.height <= 0) {
-    return undefined;
-  }
-  const x = Math.max(0, Math.floor(roi.x));
-  const y = Math.max(0, Math.floor(roi.y));
-  const width = Math.max(1, Math.min(maxWidth - x, Math.ceil(roi.width)));
-  const height = Math.max(1, Math.min(maxHeight - y, Math.ceil(roi.height)));
-  if (width <= 0 || height <= 0) {
-    return undefined;
-  }
-  return { x, y, width, height };
-};
-
-const mergeImageDataRegion = (
-  base: ImageData | null,
-  region: ImageData,
-  offsetX: number,
-  offsetY: number,
-  fullWidth: number,
-  fullHeight: number
-): ImageData => {
-  const targetWidth = fullWidth;
-  const targetHeight = fullHeight;
-  const baseMatches =
-    base && base.width === targetWidth && base.height === targetHeight;
-  const mergedData = baseMatches
-    ? new Uint8ClampedArray(base!.data)
-    : new Uint8ClampedArray(targetWidth * targetHeight * 4);
-
-  const src = region.data;
-  const rowStride = region.width * 4;
-  for (let row = 0; row < region.height; row++) {
-    const srcStart = row * rowStride;
-    const destStart = ((offsetY + row) * targetWidth + offsetX) * 4;
-    mergedData.set(src.subarray(srcStart, srcStart + rowStride), destStart);
-  }
-
-  return new ImageData(mergedData, targetWidth, targetHeight);
-};
-
-interface VesselWindow extends Window {
+export interface VesselWindow extends Window {
   __checkLayerIntegrity?: () => string[];
   __TB_DEBUG?: {
     skipLayerAddSnapshot?: boolean;
@@ -204,87 +148,6 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
   return didChange ? syncedLayers : layers;
 };
 
-type ProjectSizeSnapshot = { width: number; height: number };
-
-interface CropHistoryArgs {
-  beforeProject: ProjectSizeSnapshot | null;
-  afterProject: ProjectSizeSnapshot | null;
-  beforeLayers: Map<string, { image: ImageData | null; colorState: ColorCycleSerializedState }>;
-  afterLayers: Layer[];
-  description: string;
-}
-
-const recordCropHistory = async ({
-  beforeProject,
-  afterProject,
-  beforeLayers,
-  afterLayers,
-  description,
-}: CropHistoryArgs): Promise<void> => {
-  let deltaCount = 0;
-  const txn = historyManager.begin(mapCanvasActionToHistoryId('crop'), {
-    description,
-  });
-
-  try {
-    for (const layer of afterLayers) {
-      const baseline = beforeLayers.get(layer.id) ?? {
-        image: null,
-        colorState: null,
-      };
-      const afterImage = cloneLayerImageData(layer.imageData);
-      const bitmapDelta = await createBitmapTileDelta({
-        layerId: layer.id,
-        before: baseline.image,
-        after: afterImage,
-      });
-      if (bitmapDelta) {
-        txn.push(bitmapDelta);
-        deltaCount += 1;
-      }
-
-      if (layer.layerType === 'color-cycle' || baseline.colorState) {
-        const afterColor = captureColorCycleBrushState(layer.id);
-        const colorDelta = createColorCycleStrokeDelta({
-          layerId: layer.id,
-          forwardState: afterColor,
-          backwardState: baseline.colorState ?? null,
-        });
-        if (colorDelta) {
-          txn.push(colorDelta);
-          deltaCount += 1;
-        }
-      }
-    }
-
-    if (
-      beforeProject &&
-      afterProject &&
-      (beforeProject.width !== afterProject.width ||
-        beforeProject.height !== afterProject.height)
-    ) {
-      txn.push(
-        createProjectDimensionsDelta({
-          before: beforeProject,
-          after: afterProject,
-        }),
-      );
-      deltaCount += 1;
-    }
-
-    if (deltaCount > 0) {
-      txn.commit(description);
-    } else {
-      txn.cancel();
-    }
-  } catch (error) {
-    txn.cancel();
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[history] Failed to record crop history', error);
-    }
-  }
-};
-
 // Global watcher to detect unexpected layer mutations
 if (typeof window !== 'undefined') {
   const tinyWindow = getVesselWindow();
@@ -341,7 +204,6 @@ if (typeof window !== 'undefined') {
 }
 
 // Helper to store brush instance separately (now delegates to manager)
-import { create } from 'zustand';
 import { brushCache } from '../utils/brushCache';
 import { scaledBrushCache } from '../utils/scaledBrushCache';
 import type {
@@ -376,41 +238,39 @@ import type {
 import { BrushShape } from '@/types';
 import { brushPresets, applyBrushPreset, defaultBrushSettings, pixelBrushPreset } from '../presets/brushPresets';
 import { createCustomBrushPersistence } from '@/stores/helpers/customBrushPersistence';
-import { createProjectLifecycle } from '@/stores/helpers/projectLifecycle';
 import {
-  createHistoryService,
-  createHistorySnapshotFromState,
   cloneImageDataForHistory,
 } from '@/stores/helpers/historyLifecycle';
-import { createCustomBrushPreset } from '@/utils/customBrushPreset';
+import { createHistorySlice } from '@/stores/slices/historySlice';
+import { createLayersSlice } from '@/stores/slices/layersSlice';
+import { createProjectSlice } from '@/stores/slices/projectSlice';
 import { createVesselStore } from '@/stores/createVesselStore';
 // import { memoryManager } from '../utils/memoryCleanup';
-import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '../constants/canvas';
+import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '../constants/canvas';
 import { adjustHueLightnessSaturation, applyColorAdjustments } from '../utils/imageProcessing';
-import { debugLog, logError, __DEV__, recordBreadcrumb } from '../utils/debug';
+import { debugLog, logError, __DEV__ } from '../utils/debug';
 import { applyCroppedLayers } from '@/utils/crop/apply';
 import { rebuildCCLayerAfterCrop, rebuildRecolorLayersAfterCrop } from '@/utils/crop/ccRebuild';
 import { normalizeCropRect } from '@/utils/crop/normalize';
-import {
-  cloneExportLayout,
-  cloneLayerAlignment,
-  createDefaultExportLayout,
-  createDefaultLayerAlignment,
-  createDefaultPalette,
-  normalizeLayers,
-  normalizeProject
-} from '@/utils/layoutDefaults';
+import { createDefaultPalette } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
 import historyManager, { setActiveHistoryDocument } from '@/history/historyService';
 import { createShapeSessionDelta } from '@/history/deltas/shapeSessionDelta';
-import { createLegacySnapshotDelta } from '@/history/legacyCanvasSnapshot';
-import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
 import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
-import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
-import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
-import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
-import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
+import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
+import {
+  captureCropHistoryBaseline,
+  recordCropHistory,
+  recordCropSelectionHistory,
+  selectionSnapshotFromCropState,
+} from '@/stores/helpers/cropHistory';
+import { applyPaletteSnapshot } from '@/stores/helpers/paletteState';
+import {
+  captureLayerStructureSnapshot,
+  commitLayerStructureHistory,
+} from '@/stores/helpers/layerStructureHistory';
+import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 
 const COLOR_CYCLE_PRESET_IDS = ['color-cycle-stroke', 'color-cycle-triangle', 'color-cycle-shape'] as const;
 
@@ -776,7 +636,8 @@ export interface AppState {
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setCanvasDimensions: (width: number, height: number) => void;
   setProjectDimensions: (width: number, height: number) => void;
-  resizeCanvas: (width: number, height: number) => void;
+  resizeProjectCanvas: (width: number, height: number) => Promise<void>;
+  resizeCanvas: (width: number, height: number) => Promise<void>;
   setSelection: (selection: CanvasState['selection']) => void;
   setCursor: (cursor: CanvasState['cursor']) => void;
   
@@ -1184,13 +1045,6 @@ const defaultUIState: UIState = {
   }
 };
 
-const defaultHistoryState: HistoryState = {
-  undoStack: [],
-  redoStack: [],
-  maxHistorySize: 50,
-  isCapturing: false
-};
-
 const defaultBrushEditorState: BrushEditorState = {
   status: 'IDLE',
   editingBrushId: null,
@@ -1478,26 +1332,12 @@ export const useAppStore = createVesselStore<AppState>(
         ensureCustomBrushHydrated: ensureCustomBrushHydratedFn,
         getLastSnapshot: getLastCustomBrushSnapshot
       } = createCustomBrushPersistence(store.setState, store.getState);
-      const {
-        setProject,
-        updateProject,
-        applyLoadedProject,
-        saveProject,
-        loadProject,
-        importProject,
-        exportProject,
-        newProject,
-        compositeLayersToCanvas,
-        captureCanvasToActiveLayer,
-        captureCanvasToLayer
-      } = createProjectLifecycle({
-        set,
-        get,
+      const projectSlice = createProjectSlice({
         colorCycleBrushManager,
         persistCustomBrushes,
         getLastCustomBrushSnapshot,
         syncPercentOffsetsFromPixels,
-      });
+      })(set, get, store);
 
       const scheduleCompositeBitmapRelease = (bitmap: ImageBitmap) => {
         const dispose = () => {
@@ -1626,72 +1466,33 @@ export const useAppStore = createVesselStore<AppState>(
         }
       };
 
-      const historyService = createHistoryService({
-        set,
-        get,
+      const historySlice = createHistorySlice({
         runWithColorCycleSuspended: withColorCycleSuspended,
+      })(set, get, store);
+
+      const layersSlice = createLayersSlice({
+        syncPercentOffsetsFromPixels,
+        trackLayerChanges,
+        colorCycleBrushManager,
+        captureLayerStructureSnapshot,
+        commitLayerStructureHistory,
+        getVesselWindow,
+      })(set, get, store);
+
+      const selectionPasteHelpers = createSelectionPasteHelpers({
+        get,
+        set,
+        captureCanvasToActiveLayer: (canvas, roi) => get().captureCanvasToActiveLayer(canvas, roi),
       });
 
       const initialPalette = createDefaultPalette();
 
       return {
+        ...historySlice,
+        ...projectSlice,
+        ...layersSlice,
         paletteDirty: false,
-        // Project State
-        project: {
-          id: 'default-project',
-          name: 'Untitled',
-          width: DEFAULT_CANVAS_WIDTH,
-          height: DEFAULT_CANVAS_HEIGHT,
-          layers: [],
-          backgroundColor: 'transparent',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          customBrushes: [],
-          defaultCustomBrushId: null,
-          brushSpecificSettings: {},
-          exportLayout: createDefaultExportLayout(),
-          palette: initialPalette
-        },
-        projectFilename: null,
-        projectFileHandle: null,
         palette: initialPalette,
-        webglExportSettings: {
-          includeHiddenLayers: true,
-          embedCanvasFallback: false,
-          minifyOutput: true,
-          bundleFormat: 'single-html',
-          enableGobletDiagnostics: process.env.NODE_ENV !== 'production',
-          htmlTitle: 'Goblet'
-        },
-        setProject,
-        updateProject,
-      
-        setExportLayout: (layout) => set((state) => {
-          if (!state.project) {
-            return state;
-          }
-
-          return {
-            project: {
-              ...state.project,
-              exportLayout: cloneExportLayout(layout),
-              updatedAt: new Date()
-            }
-          };
-        }),
-        updateWebglExportSettings: (settings) => set((state) => {
-          const { enableViewerDiagnostics, ...rest } = settings as Partial<WebGLExportSettings> & { enableViewerDiagnostics?: boolean };
-          return {
-            webglExportSettings: {
-              ...state.webglExportSettings,
-              ...rest,
-              ...(typeof enableViewerDiagnostics === 'boolean'
-                ? { enableGobletDiagnostics: enableViewerDiagnostics }
-                : {})
-            }
-          };
-        }),
-
       colorCyclePlayback: {
         desiredPlaying: false,
         suspendDepth: 0,
@@ -1790,62 +1591,41 @@ export const useAppStore = createVesselStore<AppState>(
         };
       }),
       
-      setPaletteColor: (slot, color) => set((state) => {
+      setPaletteColor: (slot, color) => {
+        const palette = get().palette;
         const currentColor =
-          slot === 'background'
-            ? state.palette.backgroundColor
-            : state.palette.foregroundColor;
+          slot === 'background' ? palette.backgroundColor : palette.foregroundColor;
+
         if (currentColor === color) {
-          return state;
+          return;
         }
 
         const nextPalette: PaletteState =
           slot === 'background'
-            ? { ...state.palette, backgroundColor: color }
-            : { ...state.palette, foregroundColor: color };
+            ? { ...palette, backgroundColor: color }
+            : { ...palette, foregroundColor: color };
 
-        const result: Partial<AppState> = {
-          palette: nextPalette,
-          paletteDirty: true,
-        };
-
-        if (state.project) {
-          result.project = { ...state.project, palette: nextPalette };
-        }
-
-        if (slot === 'foreground') {
-          result.tools = {
-            ...state.tools,
-            brushSettings: {
-              ...state.tools.brushSettings,
-              color,
-            },
-          };
-        }
-
-        return result;
-      }),
+        applyPaletteSnapshot(set, get, nextPalette, { paletteDirty: true });
+      },
       setActiveColor: (color) => {
         const slot = (get().palette.activeSlot ?? 'foreground');
         get().setPaletteColor(slot, color);
       },
-      swapPaletteColors: () => set((state) => {
+      swapPaletteColors: () => {
+        const palette = get().palette;
         const nextPalette: PaletteState = {
-          ...state.palette,
-          foregroundColor: state.palette.backgroundColor,
-          backgroundColor: state.palette.foregroundColor
+          ...palette,
+          foregroundColor: palette.backgroundColor,
+          backgroundColor: palette.foregroundColor
         };
         if (
-          state.palette.foregroundColor === nextPalette.foregroundColor &&
-          state.palette.backgroundColor === nextPalette.backgroundColor
+          palette.foregroundColor === nextPalette.foregroundColor &&
+          palette.backgroundColor === nextPalette.backgroundColor
         ) {
-          return state;
+          return;
         }
-        return {
-          palette: nextPalette,
-          paletteDirty: true
-        };
-      }),
+        applyPaletteSnapshot(set, get, nextPalette, { paletteDirty: true });
+      },
       setActivePaletteSlot: (slot) => set((state) => {
         if (state.palette.activeSlot === slot) {
           return state;
@@ -1858,32 +1638,23 @@ export const useAppStore = createVesselStore<AppState>(
           palette: nextPalette
         };
       }),
-      syncPaletteFromTool: (color, slot = 'foreground') => set((state) => {
+      syncPaletteFromTool: (color, slot = 'foreground') => {
+        const palette = get().palette;
         const nextPalette: PaletteState =
           slot === 'background'
-            ? { ...state.palette, backgroundColor: color }
-            : { ...state.palette, foregroundColor: color };
+            ? { ...palette, backgroundColor: color }
+            : { ...palette, foregroundColor: color };
         if (
-          state.palette.foregroundColor === nextPalette.foregroundColor &&
-          state.palette.backgroundColor === nextPalette.backgroundColor
+          palette.foregroundColor === nextPalette.foregroundColor &&
+          palette.backgroundColor === nextPalette.backgroundColor
         ) {
-          return state;
+          return;
         }
-        return {
-          palette: nextPalette,
-          paletteDirty: true
-        };
-      }),
+        applyPaletteSnapshot(set, get, nextPalette, { paletteDirty: true });
+      },
       
       // Brush-specific settings storage (in-memory, separate from project)
       brushSpecificSettings: {},
-      
-      // Layer composition trigger
-      layersNeedRecomposition: false,
-      setLayersNeedRecomposition: (needed) => {
-        // Layer recomposition flag updated
-        set({ layersNeedRecomposition: needed });
-      },
       
       // Canvas State
       canvas: defaultCanvasState,
@@ -1893,9 +1664,6 @@ export const useAppStore = createVesselStore<AppState>(
         width: 0,
         height: 0
       },
-
-      // History State
-      history: defaultHistoryState,
       setZoom: (zoom) => set((state) => ({
         canvas: { ...state.canvas, zoom: Math.max(MIN_CANVAS_ZOOM, Math.min(MAX_CANVAS_ZOOM, zoom)) }
       })),
@@ -1936,78 +1704,9 @@ export const useAppStore = createVesselStore<AppState>(
       setCanvasDimensions: (width, height) => set((state) => ({
         canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height }
       })),
-      setProjectDimensions: (width, height) => set((state) => ({
-        project: state.project ? { ...state.project, width, height } : null
-      })),
-      resizeCanvas: (width, height) => set((state) => {
-        if (!state.project) return state;
-        
-        const oldWidth = state.project.width;
-        const oldHeight = state.project.height;
-        
-        
-        // Calculate offset to center content
-        const offsetX = (width - oldWidth) / 2;
-        const offsetY = (height - oldHeight) / 2;
-        
-        // Update project dimensions
-        const updatedProject = { ...state.project, width, height };
-        
-        // Resize layers while preserving content position from center
-        const resizedLayers = state.layers.map(layer => {
-          // Create new offscreen canvas with new dimensions
-          const newFramebuffer = new OffscreenCanvas(width, height);
-          const newCtx = newFramebuffer.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
-          
-          if (newCtx) {
-            // First, ensure the old framebuffer has the latest imageData
-            if (layer.imageData && layer.framebuffer) {
-              const oldCtx = layer.framebuffer.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
-              if (oldCtx) {
-                // Sync imageData to framebuffer before copying
-                oldCtx.clearRect(0, 0, layer.framebuffer.width, layer.framebuffer.height);
-                oldCtx.putImageData(layer.imageData, 0, 0);
-              }
-            }
-            
-            // Now draw the synced framebuffer content centered in new canvas
-            if (layer.framebuffer) {
-              newCtx.drawImage(layer.framebuffer, offsetX, offsetY);
-            }
-            
-            // Get imageData from the new framebuffer for compatibility
-            const newImageData = newCtx.getImageData(0, 0, width, height);
-            
-            return {
-              ...layer,
-              imageData: newImageData,
-              framebuffer: newFramebuffer,
-              // CRITICAL: Preserve layerType and colorCycleData
-              layerType: layer.layerType,
-              colorCycleData: layer.colorCycleData
-            };
-          }
-          
-          return layer;
-        });
-        
-        // Reset zoom to default value
-        
-        const syncedLayers = syncPercentOffsetsFromPixels(resizedLayers, updatedProject);
-
-        return {
-          project: updatedProject,
-          layers: syncedLayers,
-          canvas: { 
-            ...state.canvas,
-            zoom: 1,         // Reset to default zoom
-            canvasWidth: width, 
-            canvasHeight: height,
-            needsDimensionUpdate: true 
-          },
-          layersNeedRecomposition: true
-        };
-      }),
+      resizeCanvas: async (width, height) => {
+        await get().resizeProjectCanvas(width, height);
+      },
       setSelection: (selection) => set((state) => ({
         canvas: { ...state.canvas, selection }
       })),
@@ -2091,7 +1790,7 @@ export const useAppStore = createVesselStore<AppState>(
         state.updateLayer(activeLayerId, { imageData: newImageData });
         
         // Trigger recomposition to update the canvas immediately
-        set({ layersNeedRecomposition: true });
+        state.setLayersNeedRecomposition(true);
 
         // Clear selection before committing history so the delta captures UI state changes
         state.clearSelection();
@@ -2220,7 +1919,7 @@ export const useAppStore = createVesselStore<AppState>(
         }
 
         state.updateLayer(layer.id, { imageData: finalImageData });
-        set({ layersNeedRecomposition: true });
+        state.setLayersNeedRecomposition(true);
       },
       applyColorAdjust: async () => {
         const state = get();
@@ -2300,7 +1999,7 @@ export const useAppStore = createVesselStore<AppState>(
           const restoredImage = cloneLayerImageData(colorAdjust.originalImageData);
           if (restoredImage) {
             state.updateLayer(layer.id, { imageData: restoredImage });
-            set({ layersNeedRecomposition: true });
+            state.setLayersNeedRecomposition(true);
           }
         }
 
@@ -2363,25 +2062,15 @@ export const useAppStore = createVesselStore<AppState>(
         }));
 
         try {
-          const beforeProject =
-            project != null
-              ? {
-                  width: project.width,
-                  height: project.height,
-                }
-              : null;
-          const beforeLayerSnapshots = new Map<
-            string,
-            { image: ImageData | null; colorState: ColorCycleSerializedState }
-          >();
-          state.layers.forEach((layer) => {
-            beforeLayerSnapshots.set(layer.id, {
-              image: cloneLayerImageData(layer.imageData),
-              colorState:
-                layer.layerType === 'color-cycle'
-                  ? captureColorCycleBrushState(layer.id)
-                  : null,
-            });
+          const {
+            projectSize: beforeProject,
+            layerSnapshots: beforeLayerSnapshots,
+            selectionSnapshot: selectionBefore,
+          } = captureCropHistoryBaseline({
+            project,
+            layers: state.layers,
+            selectionStart: state.selectionStart,
+            selectionEnd: state.selectionEnd,
           });
           const {
             updatedProject,
@@ -2425,7 +2114,6 @@ export const useAppStore = createVesselStore<AppState>(
             selectionStart: null,
             selectionEnd: null,
             floatingPaste: null,
-            layersNeedRecomposition: true,
             crop: {
               ...prev.crop,
               marquee: null,
@@ -2434,6 +2122,7 @@ export const useAppStore = createVesselStore<AppState>(
               commitInFlight: true
             }
           }));
+          get().setLayersNeedRecomposition(true);
 
           const postState = get();
           const { compositeLayersToCanvas } = postState;
@@ -2458,6 +2147,16 @@ export const useAppStore = createVesselStore<AppState>(
             beforeLayers: beforeLayerSnapshots,
             afterLayers: postState.layers,
             description: 'Crop to selection',
+          });
+
+          const selectionAfter = selectionSnapshotFromCropState(
+            postState.selectionStart,
+            postState.selectionEnd,
+          );
+          recordCropSelectionHistory({
+            before: selectionBefore,
+            after: selectionAfter,
+            description: 'Crop selection reset',
           });
 
           set({ crop: defaultCropState });
@@ -2524,132 +2223,8 @@ export const useAppStore = createVesselStore<AppState>(
           displayHeight: rect.height
         } : null
       })),
-      commitFloatingPaste: async () => {
-        const state = get();
-        const { floatingPaste, layers, activeLayerId, project } = state;
-
-        if (!floatingPaste || !floatingPaste.imageData || !project) return;
-
-        const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
-        if (!activeLayer) return;
-
-        const beforeImage =
-          activeLayer.imageData ? cloneImageDataForHistory(activeLayer.imageData) ?? null : null;
-        const beforeColorState =
-          activeLayer.layerType === 'color-cycle'
-            ? captureColorCycleBrushState(activeLayer.id)
-            : null;
-
-        // Create a temporary canvas to merge existing layer content + floating paste
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = project.width;
-        tempCanvas.height = project.height;
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-
-        if (tempCtx) {
-          // Draw existing layer content when available
-          if (activeLayer.imageData) {
-            // Fast path when ImageData is present
-            try {
-              tempCtx.putImageData(activeLayer.imageData, 0, 0);
-            } catch {}
-          } else if (activeLayer.framebuffer) {
-            // Fallback: draw from framebuffer if imageData is not yet populated
-            try {
-              tempCtx.drawImage(activeLayer.framebuffer, 0, 0);
-            } catch {}
-          }
-
-          // Draw floating paste at its position
-          const pasteCanvas = document.createElement('canvas');
-          pasteCanvas.width = floatingPaste.width;
-          pasteCanvas.height = floatingPaste.height;
-          const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
-          if (pasteCtx) {
-            pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
-            tempCtx.drawImage(
-              pasteCanvas,
-              floatingPaste.position.x,
-              floatingPaste.position.y,
-              Math.round(floatingPaste.displayWidth),
-              Math.round(floatingPaste.displayHeight)
-            );
-          }
-
-          // Capture composited result to the active layer
-          await state.captureCanvasToActiveLayer(tempCanvas);
-
-          await commitLayerHistory({
-            layerId: activeLayer.id,
-            beforeImage,
-            beforeColorState,
-            actionType: 'paste',
-            description: 'Committed paste',
-            tool: 'paste',
-          });
-        }
-
-        // Clear floating paste
-        set({ floatingPaste: null });
-      },
-      cancelFloatingPaste: () => {
-        const state = get();
-        const floatingPaste = state.floatingPaste;
-
-        if (floatingPaste && floatingPaste.imageData && floatingPaste.sourceLayerId) {
-          const targetLayer = state.layers.find(l => l.id === floatingPaste.sourceLayerId);
-          let layerImageData = targetLayer?.imageData || null;
-
-          if (!layerImageData && targetLayer?.framebuffer) {
-            try {
-              const tempCanvas = document.createElement('canvas');
-              tempCanvas.width = targetLayer.framebuffer.width;
-              tempCanvas.height = targetLayer.framebuffer.height;
-              const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-              if (tempCtx) {
-                tempCtx.drawImage(targetLayer.framebuffer, 0, 0);
-                layerImageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-              }
-            } catch {
-              layerImageData = null;
-            }
-          }
-
-          if (layerImageData) {
-            const restoredLayerData = new Uint8ClampedArray(layerImageData.data);
-            const pasteData = floatingPaste.imageData.data;
-            const pasteWidth = floatingPaste.imageData.width;
-            const pasteHeight = floatingPaste.imageData.height;
-            const baseX = Math.max(0, Math.min(layerImageData.width, Math.round(floatingPaste.originalPosition.x)));
-            const baseY = Math.max(0, Math.min(layerImageData.height, Math.round(floatingPaste.originalPosition.y)));
-
-            for (let y = 0; y < pasteHeight; y++) {
-              const targetY = baseY + y;
-              if (targetY < 0 || targetY >= layerImageData.height) continue;
-
-              for (let x = 0; x < pasteWidth; x++) {
-                const targetX = baseX + x;
-                if (targetX < 0 || targetX >= layerImageData.width) continue;
-
-                const destIndex = (targetY * layerImageData.width + targetX) * 4;
-                const srcIndex = (y * pasteWidth + x) * 4;
-
-                restoredLayerData[destIndex] = pasteData[srcIndex];
-                restoredLayerData[destIndex + 1] = pasteData[srcIndex + 1];
-                restoredLayerData[destIndex + 2] = pasteData[srcIndex + 2];
-                restoredLayerData[destIndex + 3] = pasteData[srcIndex + 3];
-              }
-            }
-
-            const restoredImage = new ImageData(restoredLayerData, layerImageData.width, layerImageData.height);
-            state.updateLayer(floatingPaste.sourceLayerId, { imageData: restoredImage });
-            set({ floatingPaste: null, layersNeedRecomposition: true });
-            return;
-          }
-        }
-
-        set({ floatingPaste: null });
-      },
+      commitFloatingPaste: () => selectionPasteHelpers.commitFloatingPaste(),
+      cancelFloatingPaste: () => selectionPasteHelpers.cancelFloatingPaste(),
       
       // Tool State
       tools: (() => {
@@ -2829,7 +2404,9 @@ export const useAppStore = createVesselStore<AppState>(
           }
         }
       },
-      setBrushSettings: (incomingSettings) => set((state) => {
+      setBrushSettings: (incomingSettings) => {
+        let pendingPalette: PaletteState | null = null;
+        set((state) => {
         // quiet
         try {
         const settings = {
@@ -3133,15 +2710,9 @@ export const useAppStore = createVesselStore<AppState>(
         }
         
         if (newSettings.color !== currentSettings.color) {
-          const nextPalette: PaletteState = {
+          pendingPalette = {
             ...state.palette,
-            foregroundColor: newSettings.color ?? state.palette.foregroundColor
-          };
-          const projectValue = updatedState.project;
-          updatedState = {
-            ...updatedState,
-            palette: nextPalette,
-            project: projectValue ? { ...projectValue, palette: nextPalette } : projectValue
+            foregroundColor: newSettings.color ?? state.palette.foregroundColor,
           };
         }
         
@@ -3161,9 +2732,16 @@ export const useAppStore = createVesselStore<AppState>(
           // Return state unchanged on failure to prevent app crash
           return state;
         }
-      }),
-      setEraserSettings: (incomingSettings) => set((state) => {
-        const settings = { ...incomingSettings } as Partial<BrushSettings>;
+      });
+
+        if (pendingPalette) {
+          applyPaletteSnapshot(set, get, pendingPalette);
+        }
+      },
+      setEraserSettings: (incomingSettings) => {
+        let pendingPalette: PaletteState | null = null;
+        set((state) => {
+          const settings = { ...incomingSettings } as Partial<BrushSettings>;
 
         const pressureUpdates: Partial<PressureSettings> = {};
         let hasPressureUpdate = false;
@@ -3241,12 +2819,15 @@ export const useAppStore = createVesselStore<AppState>(
         if (!paletteUpdate) {
           return baseReturn;
         }
-        return {
-          ...baseReturn,
-          palette: paletteUpdate,
-          project: state.project ? { ...state.project, palette: paletteUpdate } : null
-        };
-      }),
+
+        pendingPalette = paletteUpdate;
+        return baseReturn;
+      });
+
+        if (pendingPalette) {
+          applyPaletteSnapshot(set, get, pendingPalette);
+        }
+      },
       setFillSettings: (settings) => set((state) => ({
         tools: {
           ...state.tools,
@@ -3527,9 +3108,6 @@ export const useAppStore = createVesselStore<AppState>(
         const currentSettings = state.tools.brushSettings;
         let updatedBrushSpecificSettings = state.brushSpecificSettings;
 
-
-        // Determine if the new preset is custom or default
-        const isNewPresetCustom = presetDefaults.brushShape === BrushShape.CUSTOM;
 
         // Always start from the current global size; fall back to preset default only if undefined
         const presetSuggestedSize =
@@ -3874,1242 +3452,6 @@ export const useAppStore = createVesselStore<AppState>(
         };
       }),
       
-      // Layer Management - Start empty for SSR compatibility
-      layers: [],
-      activeLayerId: null,
-      selectedLayerIds: [],
-      referenceLayerId: null,
-      currentLayer: 0,
-      addLayer: (layer) => {
-        if (__DEV__) {
-          // quiet
-        }
-        recordBreadcrumb('layers', { event: 'store-addLayer-enter', incomingType: layer?.layerType });
-        const stateBeforeAdd = get();
-        const beforeSnapshot = createHistorySnapshotFromState(stateBeforeAdd, {
-          actionType: 'layer-add',
-          description: 'Add layer',
-        });
-
-        const newLayerId = `layer-${Date.now()}-${Math.random()}`;
-        // quiet
-
-        set((state) => {
-          // quiet
-          // CRITICAL CHECK: Verify existing layers are not mutated
-          const existingLayersSnapshot = state.layers.map(l => ({
-            id: l.id,
-            type: l.layerType,
-            hasCC: !!l.colorCycleData
-          }));
-          
-          const newLayer = {
-            ...layer,
-            id: newLayerId,
-            // Temporary order; will be normalized after insertion
-            order: 0,
-            alignment: cloneLayerAlignment(layer.alignment),
-            transparencyLocked: layer.transparencyLocked === true,
-            // CRITICAL: Preserve layerType EXACTLY - DO NOT convert CC layers to normal!
-            layerType: layer.layerType || (
-              (logError('CRITICAL: Layer missing layerType!', {
-                layerId: newLayerId?.substring(0, 20),
-                hasColorCycleData: !!layer.colorCycleData,
-                fallbackToNormal: true
-              }),
-              'normal')
-            )
-          };
-          
-          // Insert the new layer directly ABOVE the currently active layer
-          // Fallback: if no active layer, append to top of stack
-          const activeIdx = state.activeLayerId
-            ? state.layers.findIndex(l => l.id === state.activeLayerId)
-            : -1;
-          const insertedIndex = activeIdx >= 0 ? activeIdx + 1 : state.layers.length;
-          const newLayers = [...state.layers];
-          newLayers.splice(insertedIndex, 0, newLayer);
-
-          // Normalize order values to match visual/composite order (ascending = bottom -> top)
-          const updatedLayers = newLayers.map((l, idx) => ({ ...l, order: idx }));
-          recordBreadcrumb('layers', { event: 'store-addLayer-updated', total: updatedLayers.length, insertedIndex });
-          // quiet
-          
-          // Initialize ColorCycleBrush for color-cycle layers
-          if (newLayer.layerType === 'color-cycle' && state.project) {
-            const width = state.project.width || 1024;
-            const height = state.project.height || 1024;
-            // quiet
-
-            // Use enhanced manager method for initialization
-            // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
-            // Pass undefined to use default gradient
-            const success = colorCycleBrushManager.initColorCycleForLayer(
-              newLayerId, 
-              width, 
-              height, 
-              undefined
-            );
-            
-            if (!success) {
-              console.error('Failed to initialize ColorCycleBrush for new layer:', newLayerId);
-            } else {
-              // Pre-create the animator to avoid lag on first paint
-              const brush = colorCycleBrushManager.getBrush(newLayerId);
-              if (brush && 'setSpeed' in brush && typeof brush.setSpeed === 'function') {
-                // Call setSpeed to trigger animator creation internally
-                // This ensures the animator is ready before first paint
-                brush.setSpeed(1.0);
-                // quiet
-              }
-            }
-          }
-          
-          // VERIFY: Check if any existing layer lost its type
-          // IMPORTANT: Compare by stable id, not by array index, because we inserted a new
-          // layer and normalized order which shifts indices. Index-based comparison would
-          // falsely report a mutation at and after the insertion point.
-          existingLayersSnapshot.forEach((original) => {
-            const updated = updatedLayers.find(l => l.id === original.id);
-            if (!updated) {
-              // Should never happen; log once for diagnostics without throwing
-              console.error('🔴🔴🔴 LAYER MISSING AFTER ADD_LAYER (by id lookup):', {
-                layerId: original.id.substring(0, 20),
-                originalType: original.type
-              });
-              return;
-            }
-            if (original.type !== updated.layerType) {
-              console.error('🔴🔴🔴 LAYER TYPE MUTATION IN ADD_LAYER:', {
-                layerId: original.id.substring(0, 20),
-                originalType: original.type,
-                newType: updated.layerType,
-                wasCC: original.hasCC,
-                isCC: !!updated.colorCycleData
-              });
-            }
-          });
-          
-          /* console.log('🔵 ADD LAYER RESULT:', {
-            totalLayers: updatedLayers.length,
-            layers: updatedLayers.map(l => ({
-              id: l.id.substring(0, 20),
-              type: l.layerType,
-              hasCC: !!l.colorCycleData,
-              hasGradient: !!l.colorCycleData?.gradient
-            }))
-          }); */
-          
-          const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-
-          return {
-            layers: syncedLayers
-          };
-        });
-
-        // Ensure the newly created layer becomes the active selection.
-        try {
-          const storeState = get();
-          if (storeState.setActiveLayer) {
-            if (storeState.activeLayerId !== newLayerId) {
-              storeState.setActiveLayer(newLayerId);
-            } else if (!storeState.selectedLayerIds.includes(newLayerId) && storeState.setSelectedLayerIds) {
-              storeState.setSelectedLayerIds([newLayerId]);
-            }
-          }
-        } catch (error) {
-          logError('addLayer: failed to auto-select new layer', error);
-          set(() => ({
-            activeLayerId: newLayerId,
-            selectedLayerIds: [newLayerId]
-          }));
-        }
-
-        const stateAfterAdd = get();
-        const afterSnapshot = createHistorySnapshotFromState(stateAfterAdd, {
-          actionType: 'layer-add',
-          description: 'Add layer',
-          activeLayerId: newLayerId,
-        });
-
-        try {
-          const txn = historyManager.begin('layer-structure', {
-            layerId: newLayerId,
-            operation: 'add',
-          });
-          txn.push(
-            createLegacySnapshotDelta({
-              forward: afterSnapshot,
-              backward: beforeSnapshot,
-            })
-          );
-          txn.commit('Add layer');
-          set((state) => ({
-            autosave: {
-              ...state.autosave,
-              hasUnsavedChanges: true,
-              lastSaveTime: new Date(),
-            },
-          }));
-        } catch (historyError) {
-          logError('[history] Failed to record layer add', historyError);
-        }
-
-        return newLayerId;
-      },
-      removeLayer: (id) => {
-        const stateBeforeRemove = get();
-        const beforeSnapshot = createHistorySnapshotFromState(stateBeforeRemove, {
-          actionType: 'layer-remove',
-          description: 'Remove layer',
-        });
-
-        set((state) => {
-          // Use enhanced manager method for cleanup
-          colorCycleBrushManager.removeColorCycleBrush(id);
-          
-          const updatedLayers = state.layers.filter(l => l.id !== id);
-          const newActiveLayerId = state.activeLayerId === id ? 
-            updatedLayers.find(l => l.id !== id)?.id || null : 
-            state.activeLayerId;
-
-          const filteredSelection = state.selectedLayerIds.filter(selectedId => {
-            if (selectedId === id) {
-              return false;
-            }
-            return updatedLayers.some(layer => layer.id === selectedId);
-          });
-          const nextSelection = filteredSelection.length > 0
-            ? filteredSelection
-            : (newActiveLayerId ? [newActiveLayerId] : []);
-          
-          trackLayerChanges('removeLayer RETURN', updatedLayers);
-          const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-          return {
-            layers: syncedLayers,
-            activeLayerId: newActiveLayerId,
-            selectedLayerIds: nextSelection,
-            referenceLayerId: state.referenceLayerId === id ? null : state.referenceLayerId
-          // Remove the project update entirely - only update top-level layers
-        };
-        });
-
-        const stateAfterRemove = get();
-        const afterSnapshot = createHistorySnapshotFromState(stateAfterRemove, {
-          actionType: 'layer-remove',
-          description: 'Remove layer',
-        });
-
-        try {
-          const txn = historyManager.begin('layer-structure', {
-            layerId: id,
-            operation: 'remove',
-          });
-          txn.push(
-            createLegacySnapshotDelta({
-              forward: afterSnapshot,
-              backward: beforeSnapshot,
-            })
-          );
-          txn.commit('Remove layer');
-          set((state) => ({
-            autosave: {
-              ...state.autosave,
-              hasUnsavedChanges: true,
-              lastSaveTime: new Date(),
-            },
-          }));
-        } catch (historyError) {
-          logError('[history] Failed to record layer removal', historyError);
-        }
-      },
-      updateLayer: (id, updates) => set((state) => {
-        const originalLayer = state.layers.find(l => l.id === id);
-        
-        // CRITICAL: Detect when a color-cycle layer is being changed to normal
-        if (originalLayer?.layerType === 'color-cycle' && 
-            updates.layerType === 'normal') {
-          console.error('🔴🔴🔴 LAYER TYPE CORRUPTION DETECTED');
-          console.error('Stack trace:', new Error().stack);
-          console.error('Layer being corrupted:', id);
-          console.error('Update that caused it:', updates);
-          // Only break into debugger when explicitly opted-in
-          const debugWindow = getVesselWindow();
-          if (debugWindow?.__TB_DEBUG?.breakOnLayerErrors) {
-            debugger;
-          }
-        }
-        
-        // Also detect when colorCycleData is being cleared
-        if (originalLayer?.colorCycleData && 
-            'colorCycleData' in updates && 
-            !updates.colorCycleData) {
-          console.error('🔴🔴🔴 COLOR CYCLE DATA BEING CLEARED');
-          console.error('Stack trace:', new Error().stack);
-          console.error('Layer:', id);
-          // Only break into debugger when explicitly opted-in
-          const debugWindow = getVesselWindow();
-          if (debugWindow?.__TB_DEBUG?.breakOnLayerErrors) {
-            debugger;
-          }
-        }
-        
-        
-        // DEBUG: Log any layerType changes from color-cycle
-        if (originalLayer && originalLayer.layerType === 'color-cycle' && 
-            ('layerType' in updates && updates.layerType !== 'color-cycle')) {
-          console.error('🔴 CRITICAL WARNING: Changing color-cycle layer to:', updates.layerType, 'for layer:', id.substring(0, 20));
-          console.trace('Stack trace for layer type change');
-        }
-        
-        const updatedLayers = state.layers.map(layer => {
-          if (layer.id === id) {
-            // Start with a shallow copy
-            const updatedLayer = { ...layer };
-            
-            // Special handling for colorCycleData updates
-            if ('colorCycleData' in updates) {
-              if (updates.colorCycleData) {
-                // CRITICAL: Only allow colorCycleData updates on color-cycle layers
-                if (layer.layerType !== 'color-cycle') {
-                  console.error('🚨 BLOCKED: Attempted to add colorCycleData to normal layer!', {
-                    layerId: layer.id?.substring(0, 20),
-                    layerType: layer.layerType
-                  });
-                  // Skip this update - don't add colorCycleData to normal layers
-                } else {
-                  // Merging colorCycleData for color-cycle layer
-                  updatedLayer.colorCycleData = {
-                    ...layer.colorCycleData,
-                    ...updates.colorCycleData
-                  };
-                  // Layer is already color-cycle, keep it that way
-                  updatedLayer.layerType = 'color-cycle';
-                }
-              } else {
-                // FORBIDDEN: CC layers cannot be converted to normal layers!
-                console.error('🚨🚨🚨 BLOCKED: Attempted to convert CC layer to normal!', {
-                  layerId: layer.id?.substring(0, 20),
-                  originalType: layer.layerType,
-                  attemptedConversion: 'CC -> Normal - BLOCKED!'
-                });
-                // DO NOT delete colorCycleData or change layerType - preserve CC layer!
-                // Keep the layer as-is to prevent conversion
-              }
-            }
-            
-            // Apply all other updates except colorCycleData
-            const otherUpdates = { ...updates };
-            delete (otherUpdates as Partial<typeof layer>).colorCycleData;
-            Object.assign(updatedLayer, otherUpdates);
-            
-            // Protect against accidentally clearing layerType or colorCycleData
-            // If the layer was color-cycle and we're not explicitly changing it
-            if (layer.layerType === 'color-cycle' && 
-                !('layerType' in updates) && 
-                !('colorCycleData' in updates)) {
-              // Ensure we preserve the color-cycle nature
-              updatedLayer.layerType = 'color-cycle';
-              updatedLayer.colorCycleData = layer.colorCycleData;
-            }
-            
-            // FORBIDDEN: Never allow conversion from CC to normal!
-            if (updates.layerType === 'normal' && layer.layerType === 'color-cycle') {
-              console.error('🚨🚨🚨 BLOCKED: Direct conversion CC -> Normal!', {
-                layerId: layer.id?.substring(0, 20),
-                originalType: layer.layerType,
-                attemptedType: updates.layerType,
-                hasColorCycleData: !!layer.colorCycleData
-              });
-              // REVERT the layerType change - keep it as color-cycle
-              updatedLayer.layerType = 'color-cycle';
-              // DO NOT delete colorCycleData!
-            } else if (updates.layerType === 'normal' && layer.layerType === 'normal') {
-              // Safe: normal -> normal, can clear colorCycleData if any exists
-              delete updatedLayer.colorCycleData;
-            }
-            
-            return updatedLayer;
-          }
-          return layer;
-        });
-      
-        // Check if visual properties changed that require recomposition
-        const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates || 
-                                   'colorCycleData' in updates || 'layerType' in updates;
-        if (needsRecomposition) {
-          // Visual property changed - triggering recomposition
-        }
-        
-        // FINAL VERIFICATION: Check for unexpected CC -> Normal conversions
-        const updatedLayer = updatedLayers.find(l => l.id === id);
-        if (originalLayer?.layerType === 'color-cycle' && updatedLayer?.layerType === 'normal') {
-          logError('LAYER CONVERSION DETECTED DESPITE PROTECTIONS!', {
-            layerId: id.substring(0, 20),
-            originalType: originalLayer.layerType,
-            finalType: updatedLayer.layerType,
-            hadColorCycleData: !!originalLayer.colorCycleData,
-            hasColorCycleData: !!updatedLayer.colorCycleData,
-            stackTrace: new Error().stack
-          });
-        }
-
-        trackLayerChanges('updateLayer RETURN', updatedLayers);
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-
-        try {
-          const syncedLayer = syncedLayers.find(layer => layer.id === id);
-          if (syncedLayer?.layerType === 'color-cycle' && syncedLayer.colorCycleData) {
-            syncCCRuntimes([syncedLayer], 'updateLayer');
-          }
-        } catch (error) {
-          logError('[updateLayer] Failed to sync CC runtime', error);
-        }
-
-        return {
-          layers: syncedLayers,
-          layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition
-          // Remove the project update entirely - only update top-level layers
-        };
-      }),
-      setSelectedLayerIds: (layerIds) => set((state) => {
-        const validIds = layerIds.filter((layerId, index, list) => {
-          return list.indexOf(layerId) === index && state.layers.some(layer => layer.id === layerId);
-        });
-
-        return {
-          selectedLayerIds: validIds
-        };
-      }),
-      setActiveLayer: (id) => set((state) => {
-        const layer = state.layers.find(l => l.id === id);
-        if (!layer) {
-          logError('setActiveLayer: Invalid layer ID', id);
-          return state;
-        }
-        // quiet
-        
-        /* console.log('🟢 SET ACTIVE LAYER DEBUG:', {
-          newActiveId: id?.substring(0, 20),
-          oldActiveId: state.activeLayerId?.substring(0, 20),
-          targetLayerType: layer?.layerType,
-          targetHasCC: !!layer?.colorCycleData,
-          allLayersBefore: state.layers.map(l => ({
-            id: l.id.substring(0, 20),
-            type: l.layerType,
-            hasCC: !!l.colorCycleData,
-            hasGradient: !!l.colorCycleData?.gradient
-          }))
-        }); */
-        
-        // When switching away from a color-cycle layer, mark it as inactive
-        const currentActiveLayer = state.layers.find(l => l.id === state.activeLayerId);
-        if (currentActiveLayer?.layerType === 'color-cycle' && currentActiveLayer.id !== id) {
-          /* console.log('🟠 SWITCHING AWAY FROM CC LAYER:', {
-            fromLayerId: currentActiveLayer.id.substring(0, 20),
-            toLayerId: id?.substring(0, 20)
-          }); */
-          
-          try {
-            // Mark the old layer's brush as inactive
-            if (colorCycleBrushManager) {
-              if (state.activeLayerId) {
-                try { colorCycleBrushManager.setActiveState(state.activeLayerId, false); } catch (e) { logError('CC cleanup error (non-fatal): setActiveState', e); }
-                // End any active strokes
-                try {
-                  const oldBrush = colorCycleBrushManager.getLayerColorCycleBrush(state.activeLayerId);
-                  oldBrush?.endStroke(state.activeLayerId);
-                } catch (e) { logError('CC cleanup error (non-fatal): endStroke', e); }
-              }
-            }
-          } catch {
-            // quiet
-          }
-          // quiet
-        }
-        
-        // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
-        // Skip entirely when the Recolor tool is active so we don't override recolor mode.
-        if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
-          /* console.log('🟣 SWITCHING TO CC LAYER:', {
-            layerId: id.substring(0, 20),
-            hasGradient: !!layer.colorCycleData?.gradient,
-            gradientLength: layer.colorCycleData?.gradient?.length
-          }); */
-          
-          // Validate and reinitialize if needed
-          if (!colorCycleBrushManager.validateColorCycleBrush(id)) {
-            
-            const width = state.project?.width || 1024;
-            const height = state.project?.height || 1024;
-            // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
-            try {
-              colorCycleBrushManager.initColorCycleForLayer(
-              id, 
-              width, 
-              height, 
-              undefined
-            );
-            } catch (e) {
-              console.error('Error re-initializing CC brush on setActiveLayer:', e);
-            }
-            // quiet
-          }
-          
-          // Mark as active
-          try { colorCycleBrushManager.setActiveState(id, true); } catch (e) { console.error('CC setActiveState error:', e); }
-          
-          // Ensure brush tracks the active layer before runtime sync
-          try {
-            const colorCycleBrush = colorCycleBrushManager.getLayerColorCycleBrush(id);
-            if (colorCycleBrush && 'setActiveLayer' in colorCycleBrush && typeof colorCycleBrush.setActiveLayer === 'function') {
-              colorCycleBrush.setActiveLayer(id);
-            }
-          } catch {
-            // quiet
-          }
-          
-          // Remember the user's current brush context so we can restore it when leaving CC layers
-          let savedRegularTool = state.tools.lastRegularTool;
-          let savedBrushShape = state.tools.lastRegularBrushShape;
-          if (state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') {
-            savedRegularTool = state.tools.currentTool;
-            savedBrushShape = state.tools.brushSettings.brushShape;
-          }
-
-          const layerGradientStops = layer.colorCycleData?.gradient
-            ?? layer.colorCycleData?.recolorSettings?.gradient;
-          const gradientForBrushSettings = layerGradientStops
-            ? layerGradientStops.map(stop => ({ ...stop }))
-            : undefined;
-
-          const nextBrushSettings = {
-            ...state.tools.brushSettings,
-            customBrushColorCycle: true,
-            ...(gradientForBrushSettings ? { colorCycleGradient: gradientForBrushSettings } : {})
-          };
-          if (typeof layer.colorCycleData?.brushSpeed === 'number') {
-            nextBrushSettings.colorCycleSpeed = layer.colorCycleData.brushSpeed;
-          }
-          const resolvedFlowMode = layer.colorCycleData?.flowMode ?? state.tools.brushSettings.colorCycleFlowMode ?? 'forward';
-          nextBrushSettings.colorCycleFlowMode = resolvedFlowMode;
-
-          const result = {
-            activeLayerId: id,
-            selectedLayerIds: [id],
-            tools: {
-              ...state.tools,
-              lastRegularTool: savedRegularTool,
-              lastRegularBrushShape: savedBrushShape,
-              lastColorCycleShapeMode: state.tools.shapeMode,
-              brushSettings: nextBrushSettings
-            }
-          };
-
-          try {
-            syncCCRuntimes([layer], 'setActiveLayer');
-          } catch (error) {
-            logError('[setActiveLayer] Failed to sync CC runtime', error);
-          }
-          
-          /* console.log('🟢 SET ACTIVE LAYER RESULT (CC):', {
-            activeLayerId: result.activeLayerId.substring(0, 20),
-            gradientSet: !!result.tools.brushSettings.colorCycleGradient,
-            allLayersAfter: state.layers.map(l => ({
-              id: l.id.substring(0, 20),
-              type: l.layerType,
-              hasCC: !!l.colorCycleData
-            }))
-          }); */
-          
-          return result;
-        }
-        
-        // When switching to a regular layer from color cycle, restore last regular tool
-        const baseBrushSettings = {
-          ...state.tools.brushSettings,
-          customBrushColorCycle: false
-        };
-
-        let nextTools = {
-          ...state.tools,
-          brushSettings: baseBrushSettings
-        };
-        const wasOnColorCycle = currentActiveLayer?.layerType === 'color-cycle';
-        // Only restore last regular tool if we're NOT explicitly in recolor tool
-        if (wasOnColorCycle && layer && layer.layerType === 'normal' && state.tools.currentTool !== 'recolor') {
-          // Restore the last regular tool and brush shape
-          const lastTool = state.tools.lastRegularTool ?? 'brush';
-          const lastShape = state.tools.lastRegularBrushShape ?? state.tools.brushSettings.brushShape;
-
-          nextTools = {
-            ...nextTools,
-            currentTool: lastTool,
-            brushSettings: {
-              ...baseBrushSettings,
-              brushShape: lastShape
-            }
-          };
-        }
-
-        const result = {
-          activeLayerId: id,
-          selectedLayerIds: [id],
-          tools: nextTools
-          // DO NOT return layers unless we're actually changing them
-        };
-        
-        /* console.log('🟢 SET ACTIVE LAYER RESULT (NORMAL):', {
-          activeLayerId: id?.substring(0, 20),
-          allLayersAfter: state.layers.map(l => ({
-            id: l.id.substring(0, 20),
-            type: l.layerType,
-            hasCC: !!l.colorCycleData
-          })),
-          returnedLayers: 'layers' in result
-        }); */
-        
-        // Debug checks removed - the race condition has been fixed
-        
-        return result;
-      }),
-      setLayers: (layers) => {
-        const state = get();
-        
-        // Fix any corrupted layers before setting
-        const fixedLayers = layers.map(layer => {
-          // Ensure layer type matches the presence of colorCycleData
-          const shouldBeColorCycle = !!layer.colorCycleData;
-          const correctType: 'color-cycle' | 'normal' = shouldBeColorCycle ? 'color-cycle' : 'normal';
-          
-          if (layer.layerType !== correctType) {
-            console.warn(`Fixing layer type mismatch for layer ${layer.id}: was ${layer.layerType}, should be ${correctType}`);
-            return {
-              ...layer,
-              layerType: correctType
-            };
-          }
-          
-          return layer;
-        });
-        
-        // Check if any color-cycle layers are being removed
-        const oldCCLayers = state.layers.filter(l => l.layerType === 'color-cycle');
-        const newCCLayers = fixedLayers.filter(l => l.layerType === 'color-cycle');
-        
-        if (oldCCLayers.length > newCCLayers.length) {
-          console.info('Color-cycle layers being removed:', oldCCLayers.length - newCCLayers.length);
-        }
-        
-        trackLayerChanges('setLayers CALLED', fixedLayers);
-        const normalizedLayers = normalizeLayers(fixedLayers);
-        const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
-        const validSelection = state.selectedLayerIds.filter(id => syncedLayers.some(layer => layer.id === id));
-        const ensuredActiveId = state.activeLayerId && syncedLayers.some(layer => layer.id === state.activeLayerId)
-          ? state.activeLayerId
-          : syncedLayers[0]?.id ?? null;
-        const nextSelection = validSelection.length > 0
-          ? validSelection
-          : ensuredActiveId
-            ? [ensuredActiveId]
-            : [];
-
-        set({
-          layers: syncedLayers,
-          selectedLayerIds: nextSelection,
-          referenceLayerId: state.referenceLayerId && syncedLayers.some(layer => layer.id === state.referenceLayerId)
-            ? state.referenceLayerId
-            : null
-        });
-      },
-      setReferenceLayer: (id) => set((state) => {
-        if (id && !state.layers.some(layer => layer.id === id)) {
-          return { referenceLayerId: null };
-        }
-
-        return { referenceLayerId: id ?? null };
-      }),
-      updateLayerAlignment: (layerId, alignment) => set((state) => {
-        const targetLayer = state.layers.find(layer => layer.id === layerId);
-
-        if (!targetLayer) {
-          return { layers: state.layers };
-        }
-
-        let nextAlignment = cloneLayerAlignment(alignment);
-
-        const previousAlignment = targetLayer.alignment;
-        const becameAuto = nextAlignment.positioning === 'auto' && previousAlignment.positioning !== 'auto';
-        const previousPercent = previousAlignment.offsetPercent ?? { x: 0, y: 0 };
-        const nextPercent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
-        const offsetPercentChanged = previousPercent.x !== nextPercent.x || previousPercent.y !== nextPercent.y;
-
-        if (state.project) {
-          if (becameAuto && !offsetPercentChanged) {
-            try {
-              const percentOffset = computeLayerPercentOffset(targetLayer, state.project);
-              nextAlignment = {
-                ...nextAlignment,
-                offsetPercent: percentOffset
-              };
-            } catch (error) {
-              console.warn('[useAppStore] Failed to compute percent offset during alignment update', error);
-            }
-          }
-
-          if (nextAlignment.positioning === 'auto') {
-            const percent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
-            const width = Math.max(1, state.project.width);
-            const height = Math.max(1, state.project.height);
-            nextAlignment = {
-              ...nextAlignment,
-              offsetPercent: percent,
-              offsetPx: {
-                x: Math.round((percent.x / 100) * width),
-                y: Math.round((percent.y / 100) * height)
-              }
-            };
-          } else {
-            nextAlignment = {
-              ...nextAlignment,
-              offsetPercent: undefined
-            };
-          }
-        } else if (nextAlignment.positioning !== 'auto') {
-          nextAlignment = {
-            ...nextAlignment,
-            offsetPercent: undefined
-          };
-        }
-
-        const updatedLayers = state.layers.map(layer => (
-          layer.id === layerId
-            ? { ...layer, alignment: nextAlignment }
-            : layer
-        ));
-
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-
-        return {
-          layers: syncedLayers,
-          layersNeedRecomposition: true
-        };
-      }),
-      reorderLayers: (sourceIndex, destinationIndex) => {
-        const stateBeforeReorder = get();
-        const beforeSnapshot = createHistorySnapshotFromState(stateBeforeReorder, {
-          actionType: 'layer-reorder',
-          description: 'Reorder layers',
-        });
-
-        set((state) => {
-          const newLayers = [...state.layers];
-          const [removed] = newLayers.splice(sourceIndex, 1);
-          newLayers.splice(destinationIndex, 0, removed);
-          
-          // Update order values
-          const updatedLayers = newLayers.map((layer, index) => ({
-            ...layer,
-            order: index
-          }));
-          
-          // Layer order changed - triggering recomposition
-          
-          const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-
-          return {
-            layers: syncedLayers,
-            layersNeedRecomposition: true
-            // Remove the project update entirely - only update top-level layers
-          };
-        });
-
-        const stateAfterReorder = get();
-        const afterSnapshot = createHistorySnapshotFromState(stateAfterReorder, {
-          actionType: 'layer-reorder',
-          description: 'Reorder layers',
-        });
-
-        try {
-          const txn = historyManager.begin('layer-structure', {
-            operation: 'reorder',
-          });
-          txn.push(
-            createLegacySnapshotDelta({
-              forward: afterSnapshot,
-              backward: beforeSnapshot,
-            })
-          );
-          txn.commit('Reorder layers');
-          set((state) => ({
-            autosave: {
-              ...state.autosave,
-              hasUnsavedChanges: true,
-              lastSaveTime: new Date(),
-            },
-          }));
-        } catch (historyError) {
-          logError('[history] Failed to record layer reorder', historyError);
-        }
-      },
-      
-      // Color Cycle Layer Management
-      initColorCycleForLayer: (layerId, width, height) => set((state) => {
-        try {
-          const layer = state.layers.find(l => l.id === layerId);
-          if (!layer) {
-            console.error('[Store] Layer not found:', layerId);
-            return {};
-          }
-          
-          // CRITICAL: Only allow initialization for color-cycle layers
-          if (layer.layerType !== 'color-cycle') {
-            console.error('🚨 BLOCKED: Attempted to init color cycle for non-CC layer!', {
-              layerId: layerId.substring(0, 20),
-              layerType: layer.layerType
-            });
-            return {}; // Prevent color cycle initialization on regular layers
-          }
-          
-          // GUARD: Don't re-initialize if already initialized
-          const existingBrush = colorCycleBrushManager.getBrush(layerId);
-          if (existingBrush) {
-            // quiet
-            // Ensure the layer has a valid canvas and CC metadata even if we skip recreation.
-            const updatedLayers = state.layers.map(l => {
-              if (l.id !== layerId) return l;
-              const existingCanvas = l.colorCycleData?.canvas;
-              const brushWithControls = existingBrush as typeof existingBrush & {
-                setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
-              };
-              const layerCanvas =
-                typeof HTMLCanvasElement !== 'undefined' && existingCanvas instanceof HTMLCanvasElement
-                  ? existingCanvas
-                  : undefined;
-              if (layerCanvas && brushWithControls.setTargetCanvas) {
-                brushWithControls.setTargetCanvas(layerCanvas);
-              }
-              const canvas = existingBrush.getCanvas ? existingBrush.getCanvas() : layerCanvas ?? existingCanvas;
-              return {
-                ...l,
-                layerType: 'color-cycle' as const,
-                colorCycleData: {
-                  ...(l.colorCycleData || {}),
-                  // Preserve existing gradient if any
-                  gradient: l.colorCycleData?.gradient || state.tools.brushSettings.colorCycleGradient || l.colorCycleData?.gradient,
-                  colorCycleBrush: existingBrush,
-                  // Keep current animation state if present; default to true for responsiveness
-                  isAnimating: l.colorCycleData?.isAnimating ?? true,
-                  // Ensure per-layer brush speed exists
-                  brushSpeed: l.colorCycleData?.brushSpeed ?? (state.tools.brushSettings.colorCycleSpeed || 0.1),
-                  flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'forward'),
-                  canvas
-                }
-              };
-            });
-            trackLayerChanges('initColorCycleForLayer (hydrate existing)', updatedLayers);
-            const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-            return { layers: syncedLayers };
-          }
-          
-          // Validate dimensions
-          const safeWidth = Math.max(width || 1024, 1);
-          const safeHeight = Math.max(height || 1024, 1);
-          
-          // Create a canvas element for this layer's color cycle
-          // Use the current brush gradient if available
-          const currentBrushGradient = state.tools.brushSettings.colorCycleGradient;
-          const gradient = currentBrushGradient || layer?.colorCycleData?.gradient || [
-            { position: 0.0, color: '#ff0000' },
-            { position: 0.17, color: '#ff7f00' },
-            { position: 0.33, color: '#ffff00' },
-            { position: 0.5, color: '#00ff00' },
-            { position: 0.67, color: '#0000ff' },
-            { position: 0.83, color: '#4b0082' },
-            { position: 1.0, color: '#9400d3' }
-          ];
-          
-          // Convert gradient to Uint8Array for brush creation
-          const gradientArray = new Uint8Array(256 * 3);
-          // Simple gradient interpolation (can be improved)
-          for (let i = 0; i < 256; i++) {
-            const t = i / 255;
-            // Find gradient stops
-            const color = { r: 255, g: 0, b: 0 }; // Default red
-            for (let j = 0; j < gradient.length - 1; j++) {
-              if (t >= gradient[j].position && t <= gradient[j + 1].position) {
-                // Interpolate between colors
-                const t0 = gradient[j].position;
-                const t1 = gradient[j + 1].position;
-                const localT = (t - t0) / (t1 - t0);
-                
-                const c0 = parseInt(gradient[j].color.substring(1), 16);
-                const c1 = parseInt(gradient[j + 1].color.substring(1), 16);
-                
-                const r0 = (c0 >> 16) & 0xff;
-                const g0 = (c0 >> 8) & 0xff;
-                const b0 = c0 & 0xff;
-                
-                const r1 = (c1 >> 16) & 0xff;
-                const g1 = (c1 >> 8) & 0xff;
-                const b1 = c1 & 0xff;
-                
-                color.r = Math.round(r0 + (r1 - r0) * localT);
-                color.g = Math.round(g0 + (g1 - g0) * localT);
-                color.b = Math.round(b0 + (b1 - b0) * localT);
-                break;
-              }
-            }
-            gradientArray[i * 3] = color.r;
-            gradientArray[i * 3 + 1] = color.g;
-            gradientArray[i * 3 + 2] = color.b;
-          }
-          
-          // Create brush through manager
-          const colorCycleBrush = colorCycleBrushManager.createBrush(layerId, safeWidth, safeHeight, gradientArray);
-          
-          if (!colorCycleBrush) {
-            console.error('[Store] Failed to create color cycle brush');
-            return {};
-          }
-
-          let layerCanvas: HTMLCanvasElement | undefined;
-          if (typeof document !== 'undefined') {
-            const offscreen = document.createElement('canvas');
-            offscreen.width = safeWidth;
-            offscreen.height = safeHeight;
-            layerCanvas = offscreen;
-          } else if (colorCycleBrush.getCanvas) {
-            layerCanvas = colorCycleBrush.getCanvas();
-          }
-
-          const brushWithControls = colorCycleBrush as typeof colorCycleBrush & {
-            setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
-            renderDirectToCanvas?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
-          };
-          if (layerCanvas && brushWithControls.setTargetCanvas) {
-            brushWithControls.setTargetCanvas(layerCanvas);
-          }
-          if (layerCanvas && brushWithControls.renderDirectToCanvas) {
-            try {
-              brushWithControls.renderDirectToCanvas(layerCanvas, layerId);
-            } catch {
-              // best effort; canvas will be populated on next stroke
-            }
-          }
-
-        const updatedLayers = state.layers.map(l => {
-          if (l.id !== layerId) {
-            return l;
-          }
-
-          let eraseMask = l.colorCycleData?.eraseMask;
-          let eraseMaskVersion = l.colorCycleData?.eraseMaskVersion ?? 0;
-
-          if (typeof document !== 'undefined') {
-            if (eraseMask) {
-              if (eraseMask.width !== safeWidth || eraseMask.height !== safeHeight) {
-                const resized = document.createElement('canvas');
-                resized.width = safeWidth;
-                resized.height = safeHeight;
-                const ctx = resized.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(
-                    eraseMask,
-                    0,
-                    0,
-                    eraseMask.width,
-                    eraseMask.height,
-                    0,
-                    0,
-                    safeWidth,
-                    safeHeight
-                  );
-                }
-                eraseMask = resized;
-                eraseMaskVersion =
-                  typeof l.colorCycleData?.eraseMaskVersion === 'number'
-                    ? l.colorCycleData.eraseMaskVersion + 1
-                    : 1;
-              }
-            } else {
-              const maskCanvas = document.createElement('canvas');
-              maskCanvas.width = safeWidth;
-              maskCanvas.height = safeHeight;
-              eraseMask = maskCanvas;
-              eraseMaskVersion = 0;
-            }
-          }
-
-          return {
-            ...l,
-            layerType: 'color-cycle' as const,
-            colorCycleData: {
-              gradient: gradient || [],
-              colorCycleBrush,
-              isAnimating: true,
-              // Initialize per-layer brush speed from current brush settings
-              brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
-              flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'forward',
-              canvas: layerCanvas ?? (colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined),
-              eraseMask,
-              eraseMaskVersion
-            }
-          };
-        });
-        
-        trackLayerChanges('initColorCycleForLayer RETURN', updatedLayers);
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-        return {
-          layers: syncedLayers
-          // Remove the project update entirely - only update top-level layers
-        };
-        } catch (error) {
-          console.error('[Store] Error initializing color cycle:', error);
-          return {}; // Return empty partial state on error
-        }
-      }),
-      
-      cleanupColorCycleForLayer: (layerId) => set((state) => {
-        const layer = state.layers.find(l => l.id === layerId);
-        // CRITICAL: Only cleanup color-cycle layers, never touch normal layers
-        if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) return state;
-        
-        // Cleanup through manager
-        colorCycleBrushManager.deleteBrush(layerId);
-        
-        // CRITICAL FIX: Don't change the layer type when cleaning up!
-        // We're just disposing Canvas2D resources, not converting the layer
-        const updatedLayers = state.layers.map(l => 
-          l.id === layerId 
-            ? {
-                ...l,
-                // Keep the layer type as is - don't change it!
-                colorCycleData: {
-                  ...l.colorCycleData,
-                  colorCycleBrush: undefined // Just clear the brush instance
-                }
-              }
-            : l
-        );
-        
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-        return {
-          layers: syncedLayers
-        };
-      }),
-      
-      getLayerColorCycleBrush: (layerId) => {
-        // CRITICAL: Verify layer is actually a color-cycle layer
-        const state = get();
-        const layer = state.layers.find(l => l.id === layerId);
-        if (layer && layer.layerType !== 'color-cycle') {
-          // Silently return null for non-CC layers - this is expected behavior
-          return null; // Never return a CC brush for regular layers
-        }
-        
-        // Get from manager
-        return colorCycleBrushManager.getBrush(layerId) ?? null;
-      },
-      
-      // Custom Brush Management
-      addCustomBrush: (brush) => {
-        set((state) => {
-          console.log('[STORE] Adding custom brush:', {
-            id: brush.id,
-            name: brush.name,
-            hasImageData: !!brush.imageData,
-            width: brush.width,
-            height: brush.height,
-            dataLength: brush.imageData?.data?.length
-          });
-        
-        const newProject = state.project ? {
-          ...state.project,
-          customBrushes: [...state.project.customBrushes, brush]
-        } : null;
-        
-        console.log('[STORE] Updated project:', {
-          hasProject: !!newProject,
-          customBrushCount: newProject?.customBrushes?.length,
-          brushIds: newProject?.customBrushes?.map(b => b.id)
-        });
-
-        // IMPORTANT: Unconditionally set hueShift and saturationAdjust to neutral defaults
-        // when a new custom brush is added and automatically selected.
-        // This ensures the global sliders reflect the new brush's "baked" state.
-        const targetSize = typeof state.globalBrushSize === 'number'
-          ? state.globalBrushSize
-          : 100;
-        const newBrushSettings = {
-          ...state.tools.brushSettings,
-          brushShape: BrushShape.CUSTOM,
-          selectedCustomBrush: brush.id,
-          size: targetSize,
-          useSwatchColor: false, // Ensure it uses the brush's colors
-          hueShift: 0,           // <--- CRITICAL: Reset global hueShift here
-          lightnessAdjust: 0,    // Reset lightness when selecting new brush
-          saturationAdjust: 100,  // <--- CRITICAL: Reset global saturationAdjust here
-          pressureEnabled: false,
-          minPressure: 1,
-          maxPressure: undefined
-        };
-
-        return {
-          project: newProject,
-          globalBrushSize: targetSize,
-          tools: {
-            ...state.tools,
-            brushSettings: {
-              ...newBrushSettings,
-              size: targetSize
-            }
-          }
-        };
-        });
-        persistCustomBrushes();
-      },
-      updateCustomBrush: (brushId, updates) => {
-        set((state) => {
-          if (!state.project) return state;
-          
-          const updatedBrushes = state.project.customBrushes.map(brush => 
-            brush.id === brushId ? { ...brush, ...updates } : brush
-          );
-          
-          return {
-            project: {
-              ...state.project,
-              customBrushes: updatedBrushes
-            }
-          };
-        });
-        persistCustomBrushes();
-      },
-      removeCustomBrush: (brushId) => {
-        set((state) => {
-          if (!state.project) return state;
-
-          const remainingBrushes = state.project.customBrushes.filter(b => b.id !== brushId);
-          const defaultBrushCleared =
-            state.project.defaultCustomBrushId && state.project.defaultCustomBrushId === brushId;
-
-          return {
-            project: {
-              ...state.project,
-              customBrushes: remainingBrushes,
-              defaultCustomBrushId: defaultBrushCleared ? null : state.project.defaultCustomBrushId
-            }
-          };
-        });
-        persistCustomBrushes();
-      },
-      setDefaultCustomBrush: (brushId) => {
-        const state = get();
-        if (!state.project) return;
-
-        const targetBrush =
-          brushId !== null
-            ? state.project.customBrushes.find((brush) => brush.id === brushId) ?? null
-            : null;
-
-        const nextDefaultId = targetBrush ? targetBrush.id : null;
-
-        set((current) => ({
-          project: {
-            ...current.project!,
-            defaultCustomBrushId: nextDefaultId,
-            updatedAt: new Date()
-          },
-          autosave: {
-            ...current.autosave,
-            hasUnsavedChanges: true
-          }
-        }));
-
-        if (targetBrush) {
-          const preset = createCustomBrushPreset(targetBrush, { isDefault: true });
-          get().setBrushPreset(preset, true);
-        }
-
-        persistCustomBrushes();
-      },
-      saveCustomBrushAsPreset: (customBrushId) => {
-        set((state) => {
-        // This function should actually just save temporary brushes to the project
-        // Check if this is a temporary brush
-        if (!state.temporaryCustomBrush || state.temporaryCustomBrush.id !== customBrushId) {
-          return state; // Only save temporary brushes
-        }
-        
-        const customBrush = state.temporaryCustomBrush;
-        const currentBrushSettings = state.tools.brushSettings;
-        
-        if (!state.project) return state;
-        
-        // CRITICAL FIX: Apply current hue shift and saturation adjustments to the brush ImageData
-        // This "bakes" the visual transformations into the saved brush so it looks the same
-        let finalImageData = customBrush.imageData;
-        
-        // Apply hue shift and saturation adjustments if they're not at defaults
-        const hasHueShift = currentBrushSettings.hueShift !== 0;
-        const hasLightnessAdjust = currentBrushSettings.lightnessAdjust !== 0;
-        const hasSaturationAdjust = currentBrushSettings.saturationAdjust !== 100;
-        
-        if (hasHueShift || hasLightnessAdjust || hasSaturationAdjust) {
-          // Apply the hue/lightness/saturation adjustments to the brush ImageData
-          finalImageData = adjustHueLightnessSaturation(
-            customBrush.imageData,
-            currentBrushSettings.hueShift || 0,
-            currentBrushSettings.lightnessAdjust || 0,
-            currentBrushSettings.saturationAdjust || 100
-          );
-        }
-        
-        // Create the final brush with transformed ImageData
-        const transformedBrush = {
-          ...customBrush,
-          imageData: finalImageData
-        };
-        
-        // Add the transformed brush to project's custom brushes
-        const updatedProject = {
-          ...state.project,
-          customBrushes: [...state.project.customBrushes, transformedBrush]
-        };
-        
-        const targetSize = typeof state.globalBrushSize === 'number'
-          ? state.globalBrushSize
-          : 100;
-
-        return {
-          // Clear the temporary brush since it's now saved to the project
-          temporaryCustomBrush: null,
-          // Update the project with the new custom brush
-          project: updatedProject,
-          globalBrushSize: targetSize,
-          // Keep the same brush selected but reset transformations since they're now baked in
-          tools: {
-            ...state.tools,
-            brushSettings: {
-              ...state.tools.brushSettings,
-              brushShape: BrushShape.CUSTOM,
-              selectedCustomBrush: customBrush.id, // Keep using the original brush ID
-              currentBrushTip: undefined, // Clear currentBrushTip since the brush is now saved
-              useSwatchColor: false, // Default to false so custom brushes use their tip colors
-              hueShift: 0,           // Reset since transformations are now baked into the brush
-              lightnessAdjust: 0,
-              saturationAdjust: 100, // Reset since transformations are now baked into the brush
-              size: targetSize,
-              pressureEnabled: false,
-              minPressure: 1,
-              maxPressure: undefined
-            }
-          }
-        };
-        });
-        persistCustomBrushes();
-      },
       ensureCustomBrushHydrated: () => ensureCustomBrushHydratedFn(),
       
       removeBrushPreset: (presetId) => set((state) => {
@@ -5258,94 +3600,97 @@ export const useAppStore = createVesselStore<AppState>(
           globalBrushSize: targetSize
         };
       }),
-      saveBrushEdit: (canvas) => set((state) => {
-        if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.editingBounds || !state.brushEditor.editingBrushId) {
-          return state;
+      saveBrushEdit: (canvas) => {
+        const state = get();
+        if (
+          state.brushEditor.status !== 'EDITING' ||
+          !state.brushEditor.editingBounds ||
+          !state.brushEditor.editingBrushId
+        ) {
+          return;
         }
 
-        const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
-        if (!ctx || !state.project) return state;
+        const ctx = canvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        ) as CanvasRenderingContext2D | null;
+        if (!ctx || !state.project) {
+          return;
+        }
 
         const bounds = state.brushEditor.editingBounds;
         const brushId = state.brushEditor.editingBrushId;
-        
-        // Find the original brush data (unused variable removed)
-        
-        // Create a composite canvas to match the inline editor canvas size
-        const compositeCanvas = document.createElement('canvas');
-        compositeCanvas.width = canvas.width;
-        compositeCanvas.height = canvas.height;
-        const compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
 
-        if (!compositeCtx) return state;
-        
-        // Get the pixels directly from the inline editor canvas (starts at 0,0)
-        // Note: The canvas already has the hue/lightness/saturation adjustments applied
-        // by the BrushEditorUI component's effect, so we don't need to apply them again
         const editedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        
-        // Put the image data on the composite canvas
-        compositeCtx.putImageData(editedImageData, 0, 0);
 
-        // Create thumbnail (max 64x64)
         const thumbnailSize = 64;
-        const thumbnailCanvas = document.createElement('canvas');
-        thumbnailCanvas.width = thumbnailSize;
-        thumbnailCanvas.height = thumbnailSize;
-        const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
-        
         let thumbnail = '';
-        if (thumbnailCtx) {
-          // Scale to fit thumbnail while maintaining aspect ratio
-          const scale = Math.min(thumbnailSize / canvas.width, thumbnailSize / canvas.height);
-          const scaledWidth = canvas.width * scale;
-          const scaledHeight = canvas.height * scale;
-          const offsetX = (thumbnailSize - scaledWidth) / 2;
-          const offsetY = (thumbnailSize - scaledHeight) / 2;
-          
-          // Set background to transparent
-          thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
-          
-          // Create temporary canvas for the edited area
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = canvas.width;
-          tempCanvas.height = canvas.height;
-          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-          
-          if (tempCtx) {
-            tempCtx.putImageData(editedImageData, 0, 0);
-            // Draw scaled version to thumbnail
-            thumbnailCtx.drawImage(
-              tempCanvas,
-              0, 0, bounds.width, bounds.height,         // Source: full tempCanvas
-              offsetX, offsetY, scaledWidth, scaledHeight // Destination: scaled in thumbnail
-            );
+        if (typeof document !== 'undefined') {
+          const thumbnailCanvas = document.createElement('canvas');
+          thumbnailCanvas.width = thumbnailSize;
+          thumbnailCanvas.height = thumbnailSize;
+          const thumbnailCtx = thumbnailCanvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          ) as CanvasRenderingContext2D | null;
+
+          if (thumbnailCtx) {
+            const scale = Math.min(thumbnailSize / canvas.width, thumbnailSize / canvas.height);
+            const scaledWidth = canvas.width * scale;
+            const scaledHeight = canvas.height * scale;
+            const offsetX = (thumbnailSize - scaledWidth) / 2;
+            const offsetY = (thumbnailSize - scaledHeight) / 2;
+
+            thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d', {
+              willReadFrequently: true,
+            } as CanvasRenderingContext2DSettings);
+
+            if (tempCtx) {
+              tempCtx.putImageData(editedImageData, 0, 0);
+              thumbnailCtx.drawImage(
+                tempCanvas,
+                0,
+                0,
+                bounds.width,
+                bounds.height,
+                offsetX,
+                offsetY,
+                scaledWidth,
+                scaledHeight
+              );
+            }
+
+            thumbnail = thumbnailCanvas.toDataURL();
           }
-          
-          thumbnail = thumbnailCanvas.toDataURL();
         }
 
-        // Note: The canvas parameter here should be the inline canvas from BrushEditorUI,
-        // not the main canvas. We don't need to clear it since it's a separate UI element
-        // that will be hidden after saving. The main canvas will be properly recomposed
-        // via the layersNeedRecomposition flag below
-
-        // Check if this is an existing custom brush or a default brush being turned into custom
-        const existingCustomBrush = state.project.customBrushes?.find(b => b.id === brushId);
-        let updatedCustomBrushes: CustomBrush[];
+        const existingCustomBrush = state.project.customBrushes?.find((b) => b.id === brushId) ?? null;
         let targetCustomBrushId: string;
-        
+        let targetBrush: CustomBrush | null = null;
+
         if (existingCustomBrush) {
-          // Update existing custom brush
-          updatedCustomBrushes = state.project.customBrushes!.map(brush => 
-            brush.id === brushId 
-              ? { ...brush, imageData: editedImageData, thumbnail, width: canvas.width, height: canvas.height }
-              : brush
-          );
-          targetCustomBrushId = existingCustomBrush.id;
+          const updatedBrush: CustomBrush = {
+            ...existingCustomBrush,
+            imageData: editedImageData,
+            thumbnail,
+            width: canvas.width,
+            height: canvas.height,
+          };
+          state.updateCustomBrush(brushId, {
+            imageData: editedImageData,
+            thumbnail,
+            width: canvas.width,
+            height: canvas.height,
+          });
+          targetCustomBrushId = updatedBrush.id;
+          targetBrush = updatedBrush;
         } else {
-          // This was a default brush - create a new custom brush
-          const defaultBrush = brushPresets.find(b => b.id === brushId);
+          const defaultBrush = brushPresets.find((b) => b.id === brushId);
           const newCustomBrushId = `custom-${brushId}-${Date.now()}`;
           const newCustomBrush: CustomBrush = {
             id: newCustomBrushId,
@@ -5354,51 +3699,50 @@ export const useAppStore = createVesselStore<AppState>(
             thumbnail,
             width: canvas.width,
             height: canvas.height,
-            createdAt: Date.now()
+            createdAt: Date.now(),
           };
-          
-          updatedCustomBrushes = [...(state.project.customBrushes || []), newCustomBrush];
+          state.addCustomBrush(newCustomBrush);
           targetCustomBrushId = newCustomBrushId;
+          targetBrush = newCustomBrush;
         }
 
-        // Find the updated custom brush to set as current
-        const updatedBrush = updatedCustomBrushes.find(b => b.id === targetCustomBrushId);
-        
-        // Clear brush cache to ensure updated brush is used immediately
         brushCache.clear();
         scaledBrushCache.clear();
-        
-        const targetSize = typeof state.globalBrushSize === 'number'
-          ? state.globalBrushSize
-          : 100;
 
-        return {
-          project: {
-            ...state.project,
-            customBrushes: updatedCustomBrushes,
-            updatedAt: new Date()
-          },
-          brushEditor: defaultBrushEditorState,
-          tools: {
-            ...state.tools,
-            brushSettings: {
-              ...state.tools.brushSettings,
-              brushShape: BrushShape.CUSTOM,
-              selectedCustomBrush: targetCustomBrushId,
-              size: targetSize,
-              currentBrushTip: updatedBrush ? {
-                imageData: updatedBrush.imageData,
-                brushId: updatedBrush.id,
+        set((current) => {
+          const targetSize =
+            typeof current.globalBrushSize === 'number' ? current.globalBrushSize : 100;
+          const brushTipSource =
+            targetBrush ??
+            current.project?.customBrushes?.find((brush) => brush.id === targetCustomBrushId) ??
+            null;
+
+          const nextBrushTip = brushTipSource
+            ? {
+                imageData: brushTipSource.imageData,
+                brushId: brushTipSource.id,
                 isColorizable: false,
-                width: updatedBrush.width,
-                height: updatedBrush.height
-              } : undefined // Set the updated brush data immediately
-            }
-          },
-          globalBrushSize: targetSize
-          // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
-        };
-      }),
+                width: brushTipSource.width,
+                height: brushTipSource.height,
+              }
+            : undefined;
+
+          return {
+            brushEditor: defaultBrushEditorState,
+            tools: {
+              ...current.tools,
+              brushSettings: {
+                ...current.tools.brushSettings,
+                brushShape: BrushShape.CUSTOM,
+                selectedCustomBrush: targetCustomBrushId,
+                size: targetSize,
+                currentBrushTip: nextBrushTip,
+              },
+            },
+            globalBrushSize: targetSize,
+          };
+        });
+      },
       setBrushEditorHue: (hue: number) => set((state) => ({
         brushEditor: { ...state.brushEditor, hueShift: hue },
         tools: {
@@ -5526,26 +3870,6 @@ export const useAppStore = createVesselStore<AppState>(
           // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
         };
       }),
-      
-      // History Management
-
-      
-      undo: historyService.undo,
-      redo: historyService.redo,
-      canUndo: historyService.canUndo,
-      canRedo: historyService.canRedo,
-      clearHistory: historyService.clearHistory,
-      
-      // Project Save/Load Management
-      saveProject,
-      loadProject,
-      importProject,
-      exportProject,
-      newProject,
-      compositeLayersToCanvas,
-      captureCanvasToActiveLayer,
-      captureCanvasToLayer,
-
       // Autosave Methods
       setAutosaveEnabled: (enabled) => set((state) => ({
         autosave: { ...state.autosave, isEnabled: enabled }
@@ -5571,12 +3895,6 @@ export const useAppStore = createVesselStore<AppState>(
       setAutosaveInterval: (interval) => set((state) => ({
         autosave: { ...state.autosave, interval }
       })),
-      setHistorySize: (size) => {
-        historyManager.setMaxEntries(size);
-        set((state) => ({
-          history: { ...state.history, maxHistorySize: size }
-        }));
-      },
       
       // Brush-specific settings methods
       saveBrushSettings: (brushId, settings) => set((state) => {

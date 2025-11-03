@@ -15,12 +15,6 @@ interface BrushCursorProps {
   size: number;
   brushShape: BrushShape;
   zoom: number;
-  color: string;
-  customBrush?: {
-    imageData: ImageData;
-    width: number;
-    height: number;
-  } | null;
   visible: boolean;
 }
 
@@ -117,7 +111,6 @@ const BrushCursorComponent = ({
   brushShape,
   zoom,
   visible,
-  customBrush,
 }: BrushCursorProps, ref: React.Ref<BrushCursorHandle>) => {
   const cursorRef = useRef<HTMLDivElement>(null);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });

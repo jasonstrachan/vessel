@@ -11,6 +11,10 @@ import type { RecolorOptions } from '../../../lib/colorCycle/RecolorManager';
 import { RecolorPanel } from '../RecolorPanel';
 import { ColorCycleErrorBoundary } from '../error/ColorCycleErrorBoundary';
 import { AccessibilityProvider } from '../accessibility/AccessibilityProvider';
+import {
+  selectLayers,
+  selectActiveLayerId,
+} from '@/stores/selectors/layersSelectors';
 
 interface ColorCycleUIProps {
   isVisible?: boolean;
@@ -26,11 +30,14 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
   const [isBrowser, setIsBrowser] = useState(false);
 
   // App store selectors
-  const activeLayerId = useAppStore((state) => state.activeLayerId);
-  const layers = useAppStore((state) => state.layers);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const layers = useAppStore(selectLayers);
 
   // Find active layer
-  const activeLayer = layers.find(layer => layer.id === activeLayerId) || null;
+  const activeLayer = React.useMemo(
+    () => layers.find(layer => layer.id === activeLayerId) || null,
+    [layers, activeLayerId]
+  );
 
   // Check if we're in browser environment
   useEffect(() => {
@@ -163,9 +170,12 @@ export const ColorCycleToggle: React.FC<ColorCycleToggleProps> = ({
   onClick, 
   disabled = false 
 }) => {
-  const activeLayerId = useAppStore((state) => state.activeLayerId);
-  const layers = useAppStore((state) => state.layers);
-  const activeLayer = layers.find(layer => layer.id === activeLayerId);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const layers = useAppStore(selectLayers);
+  const activeLayer = React.useMemo(
+    () => layers.find(layer => layer.id === activeLayerId),
+    [layers, activeLayerId]
+  );
   
   const hasRecolorCapability = Boolean(activeLayer?.colorCycleData?.canvas);
 

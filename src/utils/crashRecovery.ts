@@ -56,7 +56,6 @@ export class CrashRecoveryService {
       useAppStore.setState({
         layers: recoveryData.layers,
         activeLayerId: recoveryData.layers[0]?.id || null,
-        layersNeedRecomposition: true,
         canvas: {
           ...store.canvas,
           canvasWidth: recoveryData.project.width,
@@ -65,6 +64,7 @@ export class CrashRecoveryService {
           zoom: recoveryData.project.viewState?.zoom || store.canvas.zoom
         }
       });
+      store.setLayersNeedRecomposition(true);
 
       // Clear the dirty state since we just recovered
       store.clearDirtyState();

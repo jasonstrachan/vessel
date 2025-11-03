@@ -22,6 +22,9 @@ import { ExportModal } from '../components/modals/ExportModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import LoadProjectModal from '../components/modals/LoadProjectModal';
 import { useAppStore } from '../stores/useAppStore';
+import { selectLayers } from '@/stores/selectors/layersSelectors';
+import { selectAutosaveSettings, selectCanvasPreferences, selectSettingsActions } from '@/stores/selectors/stateSelectors';
+import { selectModals } from '@/stores/selectors/modalSelectors';
 import { autosaveService } from '../utils/autosave';
 import { preloadRisographTexture } from '../utils/risographTexture';
 import { devLog } from '../utils/devLog';
@@ -32,15 +35,19 @@ const homeLog = devLog.scope('HOME');
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
   // Use individual selectors to avoid unstable object references
-  const toggleModal = useAppStore(state => state.toggleModal);
-  const isDocumentModalOpen = useAppStore(state => state.ui.modals.document);
-  const isSettingsModalOpen = useAppStore(state => state.ui.modals.settings);
-  const isExportModalOpen = useAppStore(state => state.ui.modals.export);
-  const isLoadModalOpen = useAppStore(state => state.ui.modals.loadProject);
-  const autosaveEnabled = useAppStore(state => state.autosave.isEnabled);
-  const autosaveInterval = useAppStore(state => state.autosave.interval);
-  // const currentTool = useAppStore(state => state.tools.currentTool);
-  const newProject = useAppStore(state => state.newProject);
+  const toggleModal = useAppStore((state) => state.toggleModal);
+  const modals = useAppStore(selectModals);
+  const isDocumentModalOpen = modals.document;
+  const isSettingsModalOpen = modals.settings;
+  const isExportModalOpen = modals.export;
+  const isLoadModalOpen = modals.loadProject;
+
+  const { isEnabled: autosaveEnabled, interval: autosaveInterval } = useAppStore(selectAutosaveSettings);
+  const { showRulers: canvasShowRulers } = useAppStore(selectCanvasPreferences);
+  const { setAutosaveEnabled, setAutosaveInterval, toggleRulers, setHistorySize } = useAppStore(selectSettingsActions);
+  const newProject = useAppStore((state) => state.newProject);
+  const ensureCustomBrushHydrated = useAppStore((state) => state.ensureCustomBrushHydrated);
+  const layers = useAppStore(selectLayers);
   
   // Feedback strip state
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -64,18 +71,15 @@ export default function Home() {
     let cancelled = false;
 
     const run = async () => {
-      const store = useAppStore.getState();
-      if (store.ensureCustomBrushHydrated) {
-        await store.ensureCustomBrushHydrated();
+      if (ensureCustomBrushHydrated) {
+        await ensureCustomBrushHydrated();
       }
 
       if (cancelled) {
         return;
       }
 
-      const latest = useAppStore.getState();
-      // Check top-level layers, not project.layers
-      if (latest.layers.length === 0) {
+      if (layers.length === 0) {
         newProject(2000, 2000, 'Untitled');
       }
 
@@ -88,7 +92,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [newProject]); // Include newProject dependency
+  }, [ensureCustomBrushHydrated, layers.length, newProject]);
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {
@@ -96,25 +100,24 @@ export default function Home() {
     if (savedSettings) {
       try {
         const settings = JSON.parse(savedSettings);
-        const store = useAppStore.getState();
-        
+
         // Load autosave settings
         if (settings.autosave) {
-          store.setAutosaveEnabled(settings.autosave.isEnabled);
-          store.setAutosaveInterval(settings.autosave.interval);
+          setAutosaveEnabled(settings.autosave.isEnabled);
+          setAutosaveInterval(settings.autosave.interval);
         }
-        
+
         // Load canvas settings
         if (settings.canvas) {
-          if (typeof settings.canvas.showRulers === 'boolean' && settings.canvas.showRulers !== store.canvas.showRulers) {
-            store.toggleRulers();
+          if (typeof settings.canvas.showRulers === 'boolean' && settings.canvas.showRulers !== canvasShowRulers) {
+            toggleRulers();
           }
         }
-        
+
         // Load history settings
         if (settings.history) {
           if (settings.history.maxHistorySize) {
-            store.setHistorySize(settings.history.maxHistorySize);
+            setHistorySize(settings.history.maxHistorySize);
           }
         }
       } catch (error) {
@@ -122,7 +125,7 @@ export default function Home() {
         localStorage.removeItem('vessel-settings');
       }
     }
-  }, []); // Only run once on mount
+  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, toggleRulers]);
 
   // Initialize/manage autosave service
   useEffect(() => {

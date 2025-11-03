@@ -9,6 +9,10 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  selectLayers,
+  selectLayerActions,
+} from '@/stores/selectors/layersSelectors';
 
 const isRecolorLayer = (layer: Layer) =>
   layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor';
@@ -83,6 +87,8 @@ export function useRecolorState(
   const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const layers = useAppStore(selectLayers);
+  const { updateLayer } = useAppStore(selectLayerActions);
   const effectivePlaying = desiredPlaying && suspendDepth === 0;
   const isAnimating = effectivePlaying;
 
@@ -148,6 +154,12 @@ export function useRecolorState(
   }), [onModeChange, onError]);
 
   // Layer processing
+  const layersById = useMemo(() => {
+    const map = new Map<string, Layer>();
+    layers.forEach((layer) => map.set(layer.id, layer));
+    return map;
+  }, [layers]);
+
   const processLayer = useCallback(async (layer: Layer, options?: RecolorOptions): Promise<boolean> => {
     actions.setProcessing(true);
     actions.clearError();
@@ -225,8 +237,7 @@ export function useRecolorState(
 
     void (async () => {
       try {
-        const store = useAppStore.getState();
-        const layer = store.layers.find(l => l.id === layerId);
+        const layer = layersById.get(layerId);
 
         if (!layer || !isRecolorLayer(layer) || !layer.colorCycleData?.recolorSettings?.animation) {
           actions.setError('Select a recolor layer before adjusting speed.');
@@ -242,7 +253,7 @@ export function useRecolorState(
         };
 
         try {
-          store.updateLayer(layerId, {
+          updateLayer(layerId, {
             colorCycleData: {
               ...layer.colorCycleData,
               recolorSettings: nextRecolorSettings
@@ -255,7 +266,7 @@ export function useRecolorState(
         let applied = recolorManager.setLayerSpeed(layerId, clampedSpeed);
 
         if (!applied) {
-          const latestLayer = useAppStore.getState().layers.find(l => l.id === layerId);
+          const latestLayer = layersById.get(layerId);
           if (latestLayer) {
             await recolorManager.registerExistingLayer(latestLayer);
             applied = recolorManager.setLayerSpeed(layerId, clampedSpeed);
@@ -270,7 +281,7 @@ export function useRecolorState(
         actions.setError(errorMessage);
       }
     })();
-  }, [recolorManager, actions]);
+  }, [recolorManager, actions, layersById, updateLayer]);
 
   const updateLayerCycleColors = useCallback((layerId: string, cycleColors: number) => {
     try {
@@ -321,8 +332,7 @@ export function useRecolorState(
     let cancelled = false;
 
     const syncPlayback = async () => {
-      const state = useAppStore.getState();
-      const recolorLayers = state.layers.filter(isRecolorLayer);
+      const recolorLayers = layers.filter(isRecolorLayer);
 
       if (effectivePlaying) {
         try {
@@ -353,7 +363,7 @@ export function useRecolorState(
     return () => {
       cancelled = true;
     };
-  }, [actions, effectivePlaying, recolorManager]);
+  }, [actions, effectivePlaying, recolorManager, layers]);
 
   // Update performance stats periodically during animation
   useEffect(() => {

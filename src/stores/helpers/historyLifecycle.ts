@@ -6,7 +6,6 @@ import {
   captureColorCycleBrushState,
   type ColorCycleSerializedState,
 } from '@/history/helpers/colorCycle';
-import { cloneLayerImageData } from '@/history/helpers/layerHistory';
 import type { CanvasSnapshot, Layer, Project } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
@@ -86,7 +85,7 @@ const cloneLayerForHistory = (
     ? cloneImageDataForHistory(layer.imageData)
     : layer.imageData;
 
-  const { colorCycleData: _colorCycleData, ...layerWithoutCC } = layer;
+  const { colorCycleData: existingColorCycleData, ...layerWithoutCC } = layer;
   const layerCopy: LayerHistorySnapshot = {
     ...layerWithoutCC,
     layerType: layer.layerType,
@@ -94,7 +93,7 @@ const cloneLayerForHistory = (
     alignment: cloneLayerAlignment(layer.alignment),
   };
 
-  if (layer.colorCycleData) {
+  if (existingColorCycleData) {
     let captured: ImageData | undefined;
     const isStructural =
       actionType === 'layer' ||
@@ -106,15 +105,15 @@ const cloneLayerForHistory = (
       actionType === 'fill' ||
       (description && (description.includes('CC') || description.includes('Color Cycle')));
 
-    if (!isCCActionForLayer && layer.colorCycleData.canvas) {
+    if (!isCCActionForLayer && existingColorCycleData.canvas) {
       try {
-        const ccCtx = layer.colorCycleData.canvas.getContext('2d', contextOptions);
+        const ccCtx = existingColorCycleData.canvas.getContext('2d', contextOptions);
         if (ccCtx) {
           captured = ccCtx.getImageData(
             0,
             0,
-            layer.colorCycleData.canvas.width,
-            layer.colorCycleData.canvas.height
+            existingColorCycleData.canvas.width,
+            existingColorCycleData.canvas.height
           );
         }
       } catch {
@@ -122,7 +121,7 @@ const cloneLayerForHistory = (
       }
     }
 
-    let hasCCPixels = Boolean(layer.colorCycleData.hasContent);
+    let hasCCPixels = Boolean(existingColorCycleData.hasContent);
     if (captured?.data) {
       const data = captured.data;
       const step = Math.max(4, Math.floor(data.length / 4096));
@@ -135,31 +134,32 @@ const cloneLayerForHistory = (
     }
 
     const shouldCaptureBrushState =
+      existingColorCycleData &&
       layer.layerType === 'color-cycle' &&
       (isColorCycleTarget || isCCActionForLayer || layer.id === activeLayerId);
-    const existingBrushState = (layer.colorCycleData.brushState ?? null) as ColorCycleSerializedState | null;
+    const existingBrushState = (existingColorCycleData?.brushState ?? null) as ColorCycleSerializedState | null;
     const brushState = shouldCaptureBrushState
       ? captureColorCycleBrushState(layer.id)
       : existingBrushState;
 
-    const canvasImageData = captured ?? layer.colorCycleData.canvasImageData;
+    const canvasImageData = captured ?? existingColorCycleData.canvasImageData;
     const canvasWidth =
-      layer.colorCycleData.canvas?.width ??
+      existingColorCycleData.canvas?.width ??
       captured?.width ??
-      layer.colorCycleData.canvasWidth;
+      existingColorCycleData.canvasWidth;
     const canvasHeight =
-      layer.colorCycleData.canvas?.height ??
+      existingColorCycleData.canvas?.height ??
       captured?.height ??
-      layer.colorCycleData.canvasHeight;
+      existingColorCycleData.canvasHeight;
     const eraseMaskImageData =
-      captureCanvasImageData(layer.colorCycleData.eraseMask ?? null) ??
-      layer.colorCycleData.eraseMaskImageData;
+      captureCanvasImageData(existingColorCycleData.eraseMask ?? null) ??
+      existingColorCycleData.eraseMaskImageData;
 
     layerCopy.layerType = 'color-cycle';
     layerCopy.colorCycleData = {
-      ...layer.colorCycleData,
+      ...existingColorCycleData,
       hasContent: hasCCPixels,
-      gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
+      gradient: existingColorCycleData.gradient ? [...existingColorCycleData.gradient] : undefined,
       canvasImageData,
       canvasWidth,
       canvasHeight,
@@ -407,9 +407,12 @@ export const createHistoryService = ({
 
         return {
           history: nextHistory,
-          layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
         };
       });
+
+      if (requiresComposite) {
+        get().setLayersNeedRecomposition(true);
+      }
 
       return previousSnapshot;
     });
@@ -463,9 +466,12 @@ export const createHistoryService = ({
 
         return {
           history: nextHistory,
-          layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
         };
       });
+
+      if (requiresComposite) {
+        get().setLayersNeedRecomposition(true);
+      }
 
       return stateToRestore;
     });

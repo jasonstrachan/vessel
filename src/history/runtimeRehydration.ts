@@ -98,7 +98,7 @@ const rehydrateColorCycleRuntime = async (
   }
 
   if (flaggedForRecomposition) {
-    useAppStore.setState({ layersNeedRecomposition: true });
+    useAppStore.getState().setLayersNeedRecomposition(true);
   }
 };
 
@@ -151,7 +151,7 @@ export const rehydrateEntryResources = async (
 
   if (targets.layerIds.size > 0) {
     // Mark bitmap updates so downstream renderers refresh composite buffers.
-    useAppStore.setState({ layersNeedRecomposition: true });
+    useAppStore.getState().setLayersNeedRecomposition(true);
   }
 
   // Canvas/view transforms are handled directly by their deltas; no extra work required here.

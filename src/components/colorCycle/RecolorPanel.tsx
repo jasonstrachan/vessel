@@ -17,6 +17,7 @@ import { useRecolorShortcuts } from './hooks/useRecolorShortcuts';
 // Modular sub-components
 import { GradientEditor } from '../ui/GradientEditor';
 import { useAppStore } from '../../stores/useAppStore';
+import { selectLayers } from '@/stores/selectors/layersSelectors';
 import { AnimationControls } from './controls/AnimationControls';
 import Button from '../ui/Button';
 import {
@@ -32,11 +33,6 @@ type GradientStop = { position: number; color: string };
 
 const cloneStops = (stops?: Array<{ position: number; color: string }> | null): GradientStop[] =>
   (stops ?? DEFAULT_GRADIENT_STOPS).map((stop) => ({ position: stop.position, color: stop.color }));
-
-const applyBrushGradient = (stops: GradientStop[]) => {
-  const store = useAppStore.getState();
-  store.setBrushSettings({ colorCycleGradient: stops.map((stop) => ({ position: stop.position, color: stop.color })) });
-};
 
 export interface RecolorPanelProps {
   activeLayer: Layer | null;
@@ -74,6 +70,9 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   // Current layer's recolor settings
   const recolorSettings = activeLayer?.colorCycleData?.recolorSettings;
   const isRecolorEnabled = activeLayer?.colorCycleData?.mode === 'recolor' && recolorSettings;
+  const layers = useAppStore(selectLayers);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
+  const currentTool = useAppStore((state) => state.tools.currentTool);
   // While the recolor panel is visible and in recolor mode, suspend global/canvas shortcuts
   useKeyboardScope('recolor', isVisible && state.mode === 'recolor');
   
@@ -100,10 +99,24 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   const activeLayerId = activeLayer?.id ?? null;
   const activeLayerMode = activeLayer?.colorCycleData?.mode ?? null;
 
+  const applyBrushGradient = useCallback(
+    (stops: GradientStop[]) => {
+      setBrushSettings({
+        colorCycleGradient: stops.map((stop) => ({ position: stop.position, color: stop.color })),
+      });
+    },
+    [setBrushSettings],
+  );
+
+  const layersById = useMemo(() => {
+    const map = new Map<string, Layer>();
+    layers.forEach((layer) => map.set(layer.id, layer));
+    return map;
+  }, [layers]);
+
   const commitGradientForLayer = useCallback(
     (layerId: string, stops: GradientStop[]) => {
-      const stateSnapshot = useAppStore.getState();
-      const targetLayer = stateSnapshot.layers.find((layer) => layer.id === layerId);
+      const targetLayer = layersById.get(layerId);
       if (!targetLayer) {
         return;
       }
@@ -114,7 +127,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
       applyBrushGradient(stops);
     },
-    [updateGradient]
+    [layersById, updateGradient, applyBrushGradient],
   );
 
   useEffect(() => {
@@ -139,8 +152,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       originalModeRef.current !== activeLayerMode;
 
     if (shouldReset) {
-      const stateSnapshot = useAppStore.getState();
-      const layer = stateSnapshot.layers.find((l) => l.id === activeLayerId);
+      const layer = layersById.get(activeLayerId);
       const baseStops =
         (layer?.colorCycleData?.mode === 'recolor'
           ? layer.colorCycleData?.recolorSettings?.gradient
@@ -459,9 +471,8 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
                   toggleAnimation();
                 }
               }
-              const store = useAppStore.getState();
-              if (store.tools.currentTool !== 'recolor') {
-                store.setBrushSettings({ colorCycleGradient: clonedStops });
+              if (currentTool !== 'recolor') {
+                setBrushSettings({ colorCycleGradient: clonedStops });
               }
             }}
           />

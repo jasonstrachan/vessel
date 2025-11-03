@@ -38,7 +38,7 @@ const applyState = (state: ProjectViewState): void => {
     store.setCanvasViewport(state.viewport);
   }
 
-  useAppStore.setState({ layersNeedRecomposition: true });
+  store.setLayersNeedRecomposition(true);
 };
 
 export class ProjectTransformDelta implements HistoryDelta {

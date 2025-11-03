@@ -2,6 +2,10 @@
 
 import React, { useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  selectFloatingPaste,
+  selectFloatingPasteActions,
+} from '@/stores/selectors/pasteSelectors';
 import type { CropHandle, Rectangle } from '@/types';
 import {
   HANDLE_SIZE,
@@ -35,19 +39,22 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
   offsetX,
   offsetY,
 }) => {
-  const floatingPaste = useAppStore((state) => state.floatingPaste);
-  const updateFloatingPasteRect = useAppStore((state) => state.updateFloatingPasteRect);
+  const floatingPaste = useAppStore(selectFloatingPaste);
+  const { updateFloatingPasteRect } = useAppStore(selectFloatingPasteActions);
   const overlayRef = useRef<HTMLDivElement>(null);
   const interactionRef = useRef<InteractionState>({ type: 'idle' });
 
-  const rect = floatingPaste
-    ? {
-        x: floatingPaste.position.x,
-        y: floatingPaste.position.y,
-        width: floatingPaste.displayWidth,
-        height: floatingPaste.displayHeight,
-      }
-    : null;
+  const rect = useMemo(() => {
+    if (!floatingPaste) {
+      return null;
+    }
+    return {
+      x: floatingPaste.position.x,
+      y: floatingPaste.position.y,
+      width: floatingPaste.displayWidth,
+      height: floatingPaste.displayHeight,
+    };
+  }, [floatingPaste]);
 
   const getWorldPoint = useCallback(
     (event: PointerEvent | React.PointerEvent<HTMLDivElement>): Point | null => {
