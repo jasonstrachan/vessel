@@ -7,12 +7,7 @@ import {
   selectReferenceLayerId,
   selectSetLayersNeedRecomposition,
 } from '@/stores/selectors/layersSelectors';
-import {
-  selectFloatingPaste,
-  selectFloatingPasteActions,
-  selectSelectionRects,
-  selectSelectionActions,
-} from '@/stores/selectors/pasteSelectors';
+import { selectFloatingPaste } from '@/stores/selectors/pasteSelectors';
 import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
@@ -162,7 +157,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const layers = useAppStore(selectLayers);
   const referenceLayerId = useAppStore(selectReferenceLayerId);
   const activeLayerId = useAppStore(selectActiveLayerId);
-  const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
+  const selectionStart = useAppStore((state) => state.selectionStart);
+  const selectionEnd = useAppStore((state) => state.selectionEnd);
   const floatingPaste = useAppStore(selectFloatingPaste);
   const layersNeedRecomposition = useAppStore(selectLayersNeedRecomposition);
   const canvasZoom = useAppStore((state) => state.canvas.zoom);
@@ -201,38 +197,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Get functions separately (they don't change)
   const setLayersNeedRecomposition = useAppStore(selectSetLayersNeedRecomposition);
 
-  const { setSelectionBounds, clearSelection } = useAppStore(selectSelectionActions);
-  const {
-    setFloatingPaste,
-    updateFloatingPastePosition,
-    commitFloatingPaste,
-    cancelFloatingPaste,
-  } = useAppStore(selectFloatingPasteActions);
-  const {
-    setCurrentOffscreenCanvas,
-    compositeLayersToCanvas,
-    setCanvasDimensions,
-    setZoom,
-    setCanvasOffset,
-    setCanvasViewport,
-    undo,
-    redo,
-    updateLayer,
-    applyColorAdjust,
-    cancelColorAdjust,
-  } = useAppStore((state) => ({
-    setCurrentOffscreenCanvas: state.setCurrentOffscreenCanvas,
-    compositeLayersToCanvas: state.compositeLayersToCanvas,
-    setCanvasDimensions: state.setCanvasDimensions,
-    setZoom: state.setZoom,
-    setCanvasOffset: state.setCanvasOffset,
-    setCanvasViewport: state.setCanvasViewport,
-    undo: state.undo,
-    redo: state.redo,
-    updateLayer: state.updateLayer,
-    applyColorAdjust: state.applyColorAdjust,
-    cancelColorAdjust: state.cancelColorAdjust,
-  }));
+  const setSelectionBounds = useAppStore((state) => state.setSelectionBounds);
+  const clearSelection = useAppStore((state) => state.clearSelection);
+  const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
+  const updateFloatingPastePosition = useAppStore((state) => state.updateFloatingPastePosition);
+  const commitFloatingPaste = useAppStore((state) => state.commitFloatingPaste);
+  const cancelFloatingPaste = useAppStore((state) => state.cancelFloatingPaste);
+  const setCurrentOffscreenCanvas = useAppStore((state) => state.setCurrentOffscreenCanvas);
+  const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
+  const setCanvasDimensions = useAppStore((state) => state.setCanvasDimensions);
+  const setZoom = useAppStore((state) => state.setZoom);
+  const setCanvasOffset = useAppStore((state) => state.setCanvasOffset);
+  const setCanvasViewport = useAppStore((state) => state.setCanvasViewport);
+  const undo = useAppStore((state) => state.undo);
+  const redo = useAppStore((state) => state.redo);
+  const updateLayer = useAppStore((state) => state.updateLayer);
+  const applyColorAdjust = useAppStore((state) => state.applyColorAdjust);
+  const cancelColorAdjust = useAppStore((state) => state.cancelColorAdjust);
 
   const switchTool = useToolSwitcher();
 

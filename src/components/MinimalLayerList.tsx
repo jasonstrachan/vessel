@@ -7,7 +7,6 @@ import {
   selectLayers,
   selectActiveLayerId,
   selectSelectedLayerIds,
-  selectLayerActions,
 } from '@/stores/selectors/layersSelectors';
 import { Layer, BrushShape } from '../types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -217,15 +216,13 @@ const MinimalLayerList = () => {
     state.project ? { width: state.project.width, height: state.project.height } : null
   );
   // Actions
-  const {
-    addLayer,
-    updateLayer,
-    setActiveLayer,
-    reorderLayers,
-    removeLayer,
-    setSelectedLayerIds,
-    initColorCycleForLayer,
-  } = useAppStore(selectLayerActions);
+  const addLayer = useAppStore((state) => state.addLayer);
+  const updateLayer = useAppStore((state) => state.updateLayer);
+  const setActiveLayer = useAppStore((state) => state.setActiveLayer);
+  const reorderLayers = useAppStore((state) => state.reorderLayers);
+  const removeLayer = useAppStore((state) => state.removeLayer);
+  const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
+  const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
 
   const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
   const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';

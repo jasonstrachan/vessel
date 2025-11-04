@@ -6,7 +6,6 @@ import { useAppStore } from '@/stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
-  selectLayerActions,
   selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
 import { BrushShape, Layer } from '@/types';
@@ -28,16 +27,14 @@ const LayersPanel: React.FC = () => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
 
-  const {
-    addLayer,
-    removeLayer,
-    updateLayer,
-    setActiveLayer,
-    reorderLayers,
-    setSelectedLayerIds,
-    initColorCycleForLayer,
-    setReferenceLayer,
-  } = useAppStore(selectLayerActions);
+  const addLayer = useAppStore((state) => state.addLayer);
+  const removeLayer = useAppStore((state) => state.removeLayer);
+  const updateLayer = useAppStore((state) => state.updateLayer);
+  const setActiveLayer = useAppStore((state) => state.setActiveLayer);
+  const reorderLayers = useAppStore((state) => state.reorderLayers);
+  const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
+  const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
+  const setReferenceLayer = useAppStore((state) => state.setReferenceLayer);
   const referenceLayerId = useAppStore((state) => state.referenceLayerId);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
 

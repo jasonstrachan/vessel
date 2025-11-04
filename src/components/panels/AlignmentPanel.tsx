@@ -8,7 +8,6 @@ import {
   selectActiveLayerId,
   selectLayers,
   selectSelectedLayerIds,
-  selectLayerActions,
 } from '@/stores/selectors/layersSelectors';
 import type { LayerAlignmentSettings } from '@/types';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
@@ -92,7 +91,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const activeLayer = useMemo(() => layers.find(layer => layer.id === activeLayerId) ?? null, [layers, activeLayerId]);
   const alignment = activeLayer?.alignment ?? null;
   const project = useAppStore(state => state.project);
-  const { updateLayerAlignment } = useAppStore(selectLayerActions);
+  const updateLayerAlignment = useAppStore((state) => state.updateLayerAlignment);
 
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 

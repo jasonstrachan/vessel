@@ -9,10 +9,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
 import { useAppStore } from '@/stores/useAppStore';
-import {
-  selectLayers,
-  selectLayerActions,
-} from '@/stores/selectors/layersSelectors';
+import { selectLayers } from '@/stores/selectors/layersSelectors';
 
 const isRecolorLayer = (layer: Layer) =>
   layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor';
@@ -88,7 +85,7 @@ export function useRecolorState(
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const layers = useAppStore(selectLayers);
-  const { updateLayer } = useAppStore(selectLayerActions);
+  const updateLayer = useAppStore((state) => state.updateLayer);
   const effectivePlaying = desiredPlaying && suspendDepth === 0;
   const isAnimating = effectivePlaying;
 

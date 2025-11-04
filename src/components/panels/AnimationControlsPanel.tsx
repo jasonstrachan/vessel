@@ -8,7 +8,6 @@ import {
   selectLayers,
   selectActiveLayerId,
   selectSelectedLayerIds,
-  selectLayerActions,
 } from '@/stores/selectors/layersSelectors';
 
 const AnimationControlsPanel: React.FC = () => {
@@ -18,7 +17,7 @@ const AnimationControlsPanel: React.FC = () => {
   const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
   const globalColorCycleFlowMode = useAppStore(state => state.tools.brushSettings.colorCycleFlowMode ?? 'forward');
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
-  const { updateLayer } = useAppStore(selectLayerActions);
+  const updateLayer = useAppStore((state) => state.updateLayer);
   const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);

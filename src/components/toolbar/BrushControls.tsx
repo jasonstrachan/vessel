@@ -8,7 +8,6 @@ import { useAppStore } from "../../stores/useAppStore";
 import {
   selectActiveLayerId,
   selectLayers,
-  selectLayerActions,
 } from '@/stores/selectors/layersSelectors';
 import { BrushShape, type BrushSettings } from "../../types";
 import Input from "../ui/Input";
@@ -55,7 +54,7 @@ const BrushControls = () => {
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
-  const { updateLayer } = useAppStore(selectLayerActions);
+  const updateLayer = useAppStore((state) => state.updateLayer);
   const addNotification = useAppStore((state) => state.addNotification);
   const desiredColorCyclePlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
   const playColorCycle = useAppStore(state => state.playColorCycle);
