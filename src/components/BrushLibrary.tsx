@@ -9,22 +9,34 @@ import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { createCustomBrushPreset } from '@/utils/customBrushPreset';
 import {
-  selectCustomBrushes,
   selectDefaultCustomBrushId,
 } from '@/stores/selectors/projectSelectors';
+import {
+  selectBrushEditor,
+  selectBrushSettings,
+  selectCurrentTool,
+  selectTemporaryCustomBrush,
+} from '@/stores/selectors/toolsSelectors';
 
 const BRUSH_ICON_SIZE = 32;
 const BRUSH_TEXT_LINE_HEIGHT = 11;
 
 const BrushLibrary = () => {
-  // FIX: Use individual selectors to avoid creating new objects on every render
-  const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
-  const customBrushes = useAppStore(selectCustomBrushes);
+  const brushPresets = useAppStore((state) => state.brushPresets);
+  const projectCustomBrushes = useAppStore((state) => state.project?.customBrushes ?? []);
+  const customBrushes = React.useMemo(() => {
+    if (projectCustomBrushes.length === 0) {
+      return projectCustomBrushes;
+    }
+    return useAppStore.getState().listCustomBrushes();
+  }, [projectCustomBrushes]);
   const defaultCustomBrushId = useAppStore(selectDefaultCustomBrushId);
-  const tools = useAppStore((state) => state.tools);
-  const brushEditor = useAppStore((state) => state.brushEditor);
-  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
+  const brushSettings = useAppStore(selectBrushSettings);
+  const currentTool = useAppStore(selectCurrentTool);
+  const brushEditor = useAppStore(selectBrushEditor);
+  const temporaryCustomBrush = useAppStore(selectTemporaryCustomBrush);
+  const getCustomBrushById = useAppStore((state) => state.getCustomBrushById);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const switchTool = useToolSwitcher();
@@ -106,7 +118,6 @@ const BrushLibrary = () => {
     });
   }, [brushPresets, customBrushPresets]);
 
-  const { currentTool, brushSettings } = tools;
   const { brushShape, selectedCustomBrush } = brushSettings;
 
   const activeBrushId = React.useMemo(() => {
@@ -157,15 +168,15 @@ const BrushLibrary = () => {
   
   // Check if there's an active custom brush that can be saved
   const activeCustomBrush = React.useMemo(() => {
-    const selectedId = tools.brushSettings.selectedCustomBrush;
+    const selectedId = brushSettings.selectedCustomBrush;
     if (!selectedId) return null;
 
     if (temporaryCustomBrush && temporaryCustomBrush.id === selectedId) {
       return temporaryCustomBrush;
     }
 
-    return customBrushes.find((brush) => brush.id === selectedId) ?? null;
-  }, [customBrushes, temporaryCustomBrush, tools.brushSettings.selectedCustomBrush]);
+    return getCustomBrushById?.(selectedId) ?? null;
+  }, [temporaryCustomBrush, brushSettings.selectedCustomBrush, getCustomBrushById]);
   
   // Handle escape key to cancel editing
   useEffect(() => {
@@ -437,7 +448,7 @@ const BrushLibrary = () => {
                   void switchTool('recolor');
                 }}
                 className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${
-                  tools.currentTool === 'recolor' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]'
+                  currentTool === 'recolor' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]'
                 }`}
                 title="Open Color cycle + recolor panel"
               >
@@ -455,7 +466,7 @@ const BrushLibrary = () => {
                         height: `${BRUSH_ICON_SIZE}px`,
                         display: 'block',
                         flexShrink: 0,
-                        filter: tools.currentTool === 'recolor' ? 'invert(1)' : 'none'
+                        filter: currentTool === 'recolor' ? 'invert(1)' : 'none'
                       }}
                     />
                   ) : (
@@ -465,8 +476,8 @@ const BrushLibrary = () => {
                         flexShrink: 0,
                         width: `${BRUSH_ICON_SIZE}px`,
                         height: `${BRUSH_ICON_SIZE}px`,
-                        color: tools.currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9',
-                        border: tools.currentTool === 'recolor' ? '2px solid #1A1A1A' : '2px solid #D9D9D9'
+                        color: currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9',
+                        border: currentTool === 'recolor' ? '2px solid #1A1A1A' : '2px solid #D9D9D9'
                       }}
                       className="flex items-center justify-center"
                     >
@@ -477,9 +488,9 @@ const BrushLibrary = () => {
                     style={{
                       fontSize: '12px',
                       lineHeight: `${BRUSH_TEXT_LINE_HEIGHT}px`,
-                      color: tools.currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9'
+                      color: currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9'
                     }}
-                    className={tools.currentTool === 'recolor' ? '' : 'transition-colors group-hover:text-[#F3F3F7]'}
+                    className={currentTool === 'recolor' ? '' : 'transition-colors group-hover:text-[#F3F3F7]'}
                   >
                     Color cycle + recolor
                   </span>

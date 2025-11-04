@@ -333,6 +333,8 @@ class MockCanvasRenderingContext2D {
   setLineWidth(width) { this._lineWidth = width; }
 }
 
+const WEBGL_CONTEXT_TYPES = new Set(['webgl', 'experimental-webgl', 'webgl2']);
+
 function ensureCanvasPrototype() {
   const proto = global.HTMLCanvasElement && global.HTMLCanvasElement.prototype;
   if (!proto || proto.__vesselMockApplied) {
@@ -341,7 +343,7 @@ function ensureCanvasPrototype() {
 
   const originalGetContext = proto.getContext;
 
-  proto.getContext = function getContext(type) {
+  proto.getContext = function getContext(type, ...args) {
     if (type === '2d' || !type) {
       if (!this.__mockContext) {
         this.__mockContext = new MockCanvasRenderingContext2D(this);
@@ -349,7 +351,10 @@ function ensureCanvasPrototype() {
       this.__mockContext._setBuffer();
       return this.__mockContext;
     }
-    return originalGetContext ? originalGetContext.call(this, type) : null;
+    if (WEBGL_CONTEXT_TYPES.has(type)) {
+      return null;
+    }
+    return originalGetContext ? originalGetContext.call(this, type, ...args) : null;
   };
 
   proto.toDataURL = function toDataURL() {

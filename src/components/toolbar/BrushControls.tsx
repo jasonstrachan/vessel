@@ -9,6 +9,13 @@ import {
   selectActiveLayerId,
   selectLayers,
 } from '@/stores/selectors/layersSelectors';
+import {
+  selectBrushSettings,
+  selectCurrentTool,
+  selectEraserSettings,
+  selectGlobalBrushSize,
+  selectShapeMode,
+} from '@/stores/selectors/toolsSelectors';
 import { BrushShape, type BrushSettings } from "../../types";
 import Input from "../ui/Input";
 import ProgressSlider from "../ui/ProgressSlider";
@@ -40,17 +47,15 @@ const BrushControls = () => {
   const setEraserSettings = useAppStore(state => state.setEraserSettings);
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
-  const brushSettings = useAppStore(state => state.tools.brushSettings);
-  const eraserSettings = useAppStore(state => state.tools.eraserSettings);
-  const currentTool = useAppStore(state => state.tools.currentTool);
-  const globalBrushSize = useAppStore(state => state.globalBrushSize);
-  const customBrushPercent = useAppStore(
-    state => state.tools.brushSettings.customBrushSizePercent ?? 100
-  );
-  const shapeMode = useAppStore(state => state.tools.shapeMode);
+  const brushSettings = useAppStore(selectBrushSettings);
+  const eraserSettings = useAppStore(selectEraserSettings);
+  const currentTool = useAppStore(selectCurrentTool);
+  const globalBrushSize = useAppStore(selectGlobalBrushSize);
+  const customBrushPercent = brushSettings.customBrushSizePercent ?? 100;
+  const shapeMode = useAppStore(selectShapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
-  const brushPresets = useAppStore(state => state.brushPresets);
+  const brushPresets = useAppStore((state) => state.brushPresets);
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);

@@ -16,14 +16,11 @@ import {
 } from '@/utils/projectIO';
 import { mergeCustomBrushCollections } from './customBrushMerge';
 import {
-  getColorCycleBrushManager,
   type ColorCycleBrushManager,
   type ColorCycleBrushImplementation,
 } from '../colorCycleBrushManager';
 import { setActiveHistoryDocument } from '@/history/historyService';
 import { logError } from '@/utils/debug';
-import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
-import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { updateToolsWithPalette } from './paletteState';
 
 type AppState = import('../useAppStore').AppState;

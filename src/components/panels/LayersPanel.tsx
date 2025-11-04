@@ -6,7 +6,6 @@ import { useAppStore } from '@/stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
-  selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
 import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -25,8 +24,6 @@ const LayersPanel: React.FC = () => {
 
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
-  const selectedLayerIds = useAppStore(selectSelectedLayerIds);
-
   const addLayer = useAppStore((state) => state.addLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
   const updateLayer = useAppStore((state) => state.updateLayer);

@@ -2,10 +2,7 @@
 
 import React, { useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import {
-  selectFloatingPaste,
-  selectFloatingPasteActions,
-} from '@/stores/selectors/pasteSelectors';
+import { selectFloatingPaste } from '@/stores/selectors/pasteSelectors';
 import type { CropHandle, Rectangle } from '@/types';
 import {
   HANDLE_SIZE,
@@ -40,7 +37,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
   offsetY,
 }) => {
   const floatingPaste = useAppStore(selectFloatingPaste);
-  const { updateFloatingPasteRect } = useAppStore(selectFloatingPasteActions);
+  const updateFloatingPasteRect = useAppStore((state) => state.updateFloatingPasteRect);
   const overlayRef = useRef<HTMLDivElement>(null);
   const interactionRef = useRef<InteractionState>({ type: 'idle' });
 

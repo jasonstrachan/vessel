@@ -18,6 +18,7 @@ import { useRecolorShortcuts } from './hooks/useRecolorShortcuts';
 import { GradientEditor } from '../ui/GradientEditor';
 import { useAppStore } from '../../stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
+import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
 import { AnimationControls } from './controls/AnimationControls';
 import Button from '../ui/Button';
 import {
@@ -72,7 +73,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   const isRecolorEnabled = activeLayer?.colorCycleData?.mode === 'recolor' && recolorSettings;
   const layers = useAppStore(selectLayers);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
-  const currentTool = useAppStore((state) => state.tools.currentTool);
+  const currentTool = useAppStore(selectCurrentTool);
   // While the recolor panel is visible and in recolor mode, suspend global/canvas shortcuts
   useKeyboardScope('recolor', isVisible && state.mode === 'recolor');
   
@@ -172,7 +173,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     }
 
     wasVisibleRef.current = true;
-  }, [isVisible, activeLayerId, activeLayerMode, isRecolorEnabled]);
+  }, [isVisible, activeLayerId, activeLayerMode, isRecolorEnabled, layersById]);
 
   // Keep planned settings synced with active recolor layer when available
   useEffect(() => {

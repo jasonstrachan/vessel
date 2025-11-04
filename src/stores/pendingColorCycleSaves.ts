@@ -40,11 +40,10 @@ export const trackPendingColorCycleSave = (layerId: string, promise: Promise<voi
 export const waitForPendingColorCycleSaves = async (layerId: string): Promise<void> => {
   // Loop to account for new promises being registered while we await existing ones.
   // We also surface the first rejection to the caller so undo can bubble errors.
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
+  while ((pendingPromises.get(layerId)?.size ?? 0) > 0) {
     const entries = pendingPromises.get(layerId);
     if (!entries || entries.size === 0) {
-      return;
+      break;
     }
 
     const pendingArray = Array.from(entries);

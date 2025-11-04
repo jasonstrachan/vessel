@@ -3,7 +3,7 @@ import type { IndexBuffer } from '@/lib/IndexBuffer';
 
 describe('ColorCycleRenderer', () => {
   it('advances indices when painting without explicit color', () => {
-    const renderer: any = new ColorCycleRenderer({ width: 16, height: 16 });
+    const renderer = new ColorCycleRenderer({ width: 16, height: 16 });
 
     renderer.paint(8, 8, 4);
     const indexBuffer = renderer.indexBuffer as IndexBuffer;
@@ -17,7 +17,7 @@ describe('ColorCycleRenderer', () => {
   });
 
   it('reuses numeric indices for repeated explicit colors', () => {
-    const renderer: any = new ColorCycleRenderer({ width: 16, height: 16 });
+    const renderer = new ColorCycleRenderer({ width: 16, height: 16 });
 
     renderer.paint(4, 4, 3, '#ff0000');
     const buffer = renderer.indexBuffer as IndexBuffer;

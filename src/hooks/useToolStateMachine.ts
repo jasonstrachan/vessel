@@ -2,6 +2,8 @@ import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape } from '../types';
 import { parseCssColor } from '@/utils/color/parseCssColor';
+import { selectPolygonGradientState, selectToolsState } from '@/stores/selectors/toolsSelectors';
+import { useStoreSelectorRef } from './useStoreSelectorRef';
 
 interface ToolStateMachineProps {
   sampleColorAtPosition: (x: number, y: number) => string;
@@ -15,17 +17,18 @@ const toOpaqueColorString = (color: string): string => {
 export function useToolStateMachine({ 
   sampleColorAtPosition
 }: ToolStateMachineProps) {
-  const {
-    tools,
-    rectangleBrushState,
-    setRectangleBrushState,
-    polygonGradientState,
-    setPolygonGradientState,
-  } = useAppStore();
+  const tools = useAppStore(selectToolsState);
+  const rectangleBrushState = useAppStore((state) => state.rectangleBrushState);
+  const setRectangleBrushState = useAppStore((state) => state.setRectangleBrushState);
+  const polygonGradientState = useAppStore(selectPolygonGradientState);
+  const setPolygonGradientState = useAppStore((state) => state.setPolygonGradientState);
+  const rectangleBrushStateRef = useStoreSelectorRef((state) => state.rectangleBrushState);
+  const polygonGradientStateRef = useStoreSelectorRef(selectPolygonGradientState);
+  const toolsRef = useStoreSelectorRef(selectToolsState);
   
   // Rectangle gradient state machine
   const handleRectangleGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
-    const currentState = useAppStore.getState().rectangleBrushState;
+    const currentState = rectangleBrushStateRef.current;
     
     // If defining width, this click finalizes the width
     if (currentState.drawingState === 'definingWidth') {
@@ -42,13 +45,13 @@ export function useToolStateMachine({
     });
     
     return true; // Proceed with drawing state
-  }, [sampleColorAtPosition, setRectangleBrushState]);
+  }, [sampleColorAtPosition, setRectangleBrushState, rectangleBrushStateRef]);
   
   // Ref to store the end position without triggering re-renders
   const tempEndPosRef = useRef({ x: 0, y: 0 });
   
   const handleRectangleGradientMouseMove = useCallback((worldPos: { x: number; y: number }) => {
-    const currentState = useAppStore.getState().rectangleBrushState;
+    const currentState = rectangleBrushStateRef.current;
     
     if (currentState.drawingState === 'definingLength') {
       // Store in ref to avoid re-renders - we'll update state on mouse up
@@ -69,10 +72,10 @@ export function useToolStateMachine({
     }
     
     return null;
-  }, [setRectangleBrushState]);
+  }, [setRectangleBrushState, rectangleBrushStateRef]);
 
   const handleRectangleGradientMouseUp = useCallback(() => {
-    const currentState = useAppStore.getState().rectangleBrushState;
+    const currentState = rectangleBrushStateRef.current;
     
     if (currentState.drawingState === 'definingLength') {
       // Use the final position from the ref
@@ -90,7 +93,7 @@ export function useToolStateMachine({
     }
     
     return false;
-  }, [setRectangleBrushState]);
+  }, [setRectangleBrushState, rectangleBrushStateRef]);
   
   const resetRectangleGradient = useCallback(() => {
     setRectangleBrushState({
@@ -101,14 +104,13 @@ export function useToolStateMachine({
   }, [setRectangleBrushState]);
 
   const resolvePolygonPointColor = useCallback((worldPos: { x: number; y: number }) => {
-    const state = useAppStore.getState();
-    const brushSettings = state.tools.brushSettings;
+    const brushSettings = toolsRef.current.brushSettings;
     if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
       const sampled = sampleColorAtPosition(worldPos.x, worldPos.y);
       return toOpaqueColorString(sampled);
     }
     return brushSettings.color;
-  }, [sampleColorAtPosition]);
+  }, [sampleColorAtPosition, toolsRef]);
 
   // Polygon gradient state machine
   const handlePolygonGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
@@ -135,7 +137,7 @@ export function useToolStateMachine({
   }, [resolvePolygonPointColor, setPolygonGradientState]);
   
   const handlePolygonGradientMouseMove = useCallback((worldPos: { x: number; y: number }) => {
-    const currentState = useAppStore.getState().polygonGradientState;
+    const currentState = polygonGradientStateRef.current;
     
     if (currentState.drawingState === 'drawing') {
       const lastPoint = currentState.points[currentState.points.length - 1];
@@ -161,12 +163,12 @@ export function useToolStateMachine({
     }
   
     return false;
-  }, [resolvePolygonPointColor, setPolygonGradientState]);
+  }, [resolvePolygonPointColor, setPolygonGradientState, polygonGradientStateRef]);
   
   const handlePolygonGradientMouseUp = useCallback(() => {
-    const currentState = useAppStore.getState().polygonGradientState;
+    const currentState = polygonGradientStateRef.current;
     return currentState.points.length >= 3; // Can finalize if we have at least 3 points
-  }, []);
+  }, [polygonGradientStateRef]);
   
   const resetPolygonGradient = useCallback(() => {
     setPolygonGradientState({
@@ -187,12 +189,12 @@ export function useToolStateMachine({
   }, [setPolygonGradientState]);
   
   const completePolygonGradient = useCallback(() => {
-    const currentState = useAppStore.getState().polygonGradientState;
+    const currentState = polygonGradientStateRef.current;
     if (currentState.points.length >= 3) {
       return true; // Ready to draw
     }
     return false;
-  }, []);
+  }, [polygonGradientStateRef]);
   
   // Check which tool is active
   const isRectangleGradient = tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT;

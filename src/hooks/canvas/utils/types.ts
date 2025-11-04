@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
-import type { BrushPreset, BrushSettings, PaletteState, PolygonGradientState, Project, Layer } from '../../../types';
+import type { BrushSettings, PaletteState, PolygonGradientState, Project, Layer } from '../../../types';
 import type { InteractionAction, InteractionState } from '../../useCanvasInteraction';
 import type { CanvasStateMachine } from '@/hooks/useCanvasStateMachine';
 import type { DrawingHandlers } from '@/hooks/useDrawingHandlers';

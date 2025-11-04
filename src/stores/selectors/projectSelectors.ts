@@ -15,7 +15,7 @@ export const selectProjectActions = (state: AppState) => ({
   newProject: state.newProject,
 });
 
-export const selectCustomBrushes = (state: AppState) => state.project?.customBrushes ?? [];
+export const selectCustomBrushes = (state: AppState) => state.listCustomBrushes();
 
 export const selectDefaultCustomBrushId = (state: AppState) =>
   state.project?.defaultCustomBrushId ?? null;
@@ -47,4 +47,7 @@ export const selectCustomBrushActions = (state: AppState) => ({
   ensureCustomBrushHydrated: state.ensureCustomBrushHydrated,
 });
 
-export const selectTemporaryCustomBrush = (state: AppState) => state.temporaryCustomBrush;
+export const selectCustomBrushHelpers = (state: AppState) => ({
+  getCustomBrushById: state.getCustomBrushById,
+  listCustomBrushes: state.listCustomBrushes,
+});

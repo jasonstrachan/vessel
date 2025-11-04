@@ -6,11 +6,12 @@ import { useAppStore } from '@/stores/useAppStore';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import { brushCache } from '@/utils/brushCache';
 import { BrushShape } from '@/types';
+import { selectBrushEditor, selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 
 const ColorAdjustmentsPanel: React.FC = () => {
-  const brushSettings = useAppStore(state => state.tools.brushSettings);
+  const brushSettings = useAppStore(selectBrushSettings);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
-  const brushEditorStatus = useAppStore(state => state.brushEditor.status);
+  const brushEditorStatus = useAppStore(selectBrushEditor).status;
 
   const hueShift = brushSettings.hueShift ?? 0;
   const lightness = brushSettings.lightnessAdjust ?? 0;

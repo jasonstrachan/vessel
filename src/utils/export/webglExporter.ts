@@ -19,6 +19,12 @@ import type {
 import { packArrayToB64Z } from '@/utils/export/b64z';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
+import {
+  clampRectToDocument as clampBoundsToDocument,
+  scaleMaskBoundsToDocument,
+  deriveCoverageFromIndexBuffer,
+  type Size2D as CoverageSize
+} from '@/utils/export/colorCycleBounds';
 
 const gobletDiagnosticsDefault = process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true';
 
@@ -34,6 +40,46 @@ const gobletDebugWarn = (...args: Array<unknown>) => {
   if (gobletDiagnosticsActive) {
     console.warn(...args);
   }
+};
+
+const resolveDimensionFromCandidates = (candidates: Array<unknown>, fallback: number): number => {
+  for (const candidate of candidates) {
+    const numeric = toNum(candidate, NaN);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return Math.max(1, numeric);
+    }
+  }
+  return Math.max(1, fallback);
+};
+
+const resolveRecolorSurfaceSize = (layer: Layer, project: Project): CoverageSize => {
+  const colorCycle = layer.colorCycleData;
+  const recolorImage = colorCycle?.recolorSettings?.originalImageData ?? layer.imageData ?? null;
+
+  const width = resolveDimensionFromCandidates(
+    [
+      recolorImage?.width,
+      colorCycle?.canvas?.width,
+      colorCycle?.canvasWidth,
+      project.width
+    ],
+    project.width
+  );
+
+  const height = resolveDimensionFromCandidates(
+    [
+      recolorImage?.height,
+      colorCycle?.canvas?.height,
+      colorCycle?.canvasHeight,
+      project.height
+    ],
+    project.height
+  );
+
+  return {
+    width,
+    height
+  };
 };
 
 type JSZipConstructor = typeof import('jszip');
@@ -243,6 +289,7 @@ interface WebGLSerializedColorCycle {
   recolorSettings?: Record<string, unknown>;
   brushState?: WebGLSerializedBrushState;
   alphaMask?: WebGLSerializedAlphaMask;
+  coverageBoundsPx?: WebGLLayerBounds;
 }
 
 interface WebGLSerializedAlphaMask {
@@ -254,6 +301,7 @@ interface WebGLSerializedAlphaMask {
 interface SerializedAlphaMaskResult {
   payload: WebGLSerializedAlphaMask;
   values: Uint8Array;
+  coverageBounds?: WebGLLayerBounds;
 }
 
 export interface WebGLLayerSource {
@@ -1636,10 +1684,29 @@ const serializeColorCycleAlphaMask = async (
   const alphaValues = resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight);
 
   let hasCoverage = false;
-  for (let i = 0; i < alphaValues.length; i += 1) {
-    if (alphaValues[i] > 0) {
-      hasCoverage = true;
-      break;
+  let minX = normalizedWidth;
+  let minY = normalizedHeight;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < normalizedHeight; y += 1) {
+    for (let x = 0; x < normalizedWidth; x += 1) {
+      const idx = y * normalizedWidth + x;
+      if (alphaValues[idx] > 0) {
+        hasCoverage = true;
+        if (x < minX) {
+          minX = x;
+        }
+        if (y < minY) {
+          minY = y;
+        }
+        if (x > maxX) {
+          maxX = x;
+        }
+        if (y > maxY) {
+          maxY = y;
+        }
+      }
     }
   }
 
@@ -1652,13 +1719,23 @@ const serializeColorCycleAlphaMask = async (
     return undefined;
   }
 
+  const coverageBounds: WebGLLayerBounds | undefined = maxX >= minX && maxY >= minY
+    ? {
+        x: minX,
+        y: minY,
+        width: maxX - minX + 1,
+        height: maxY - minY + 1
+      }
+    : undefined;
+
   return {
     payload: {
       width: normalizedWidth,
       height: normalizedHeight,
       data: encoded
     },
-    values: alphaValues
+    values: alphaValues,
+    coverageBounds
   };
 };
 
@@ -1757,7 +1834,7 @@ const shouldExportLayerAsAnimating = (layer: Layer): boolean => {
   return false;
 };
 
-const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedColorCycle | undefined> => {
+const serializeColorCycleData = async (layer: Layer, project: Project): Promise<WebGLSerializedColorCycle | undefined> => {
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
@@ -1839,6 +1916,35 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
     serialized.alphaMask = alphaMaskResult.payload;
     if (brushState && Array.isArray(brushState.indexBuffer)) {
       applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
+    }
+    if (alphaMaskResult.coverageBounds) {
+      serialized.coverageBoundsPx = scaleMaskBoundsToDocument(
+        alphaMaskResult.coverageBounds,
+        maskDimensions,
+        {
+          width: Math.max(1, project.width),
+          height: Math.max(1, project.height)
+        }
+      );
+    }
+  }
+
+  if (!serialized.coverageBoundsPx && data.recolorSettings?.indexBuffer) {
+    const recolorSurface = resolveRecolorSurfaceSize(layer, project);
+    const recolorCoverage = deriveCoverageFromIndexBuffer(
+      data.recolorSettings.indexBuffer,
+      recolorSurface.width,
+      recolorSurface.height
+    );
+    if (recolorCoverage) {
+      serialized.coverageBoundsPx = scaleMaskBoundsToDocument(
+        recolorCoverage,
+        recolorSurface,
+        {
+          width: Math.max(1, project.width),
+          height: Math.max(1, project.height)
+        }
+      );
     }
   }
 
@@ -2769,7 +2875,15 @@ export const exportProjectAsWebGL = async (
 
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
     const sourceSize = metrics.surfaceSize;
-    const documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
+    let documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
+
+    const texture = await captureLayerTexture(layer);
+    const colorCycle = await serializeColorCycleData(layer, options.project);
+
+    if (colorCycle?.coverageBoundsPx) {
+      documentBoundsPx = clampBoundsToDocument(colorCycle.coverageBoundsPx, documentSize);
+    }
+
     const documentBoundsPercent = derivePercentBounds(documentBoundsPx, documentSize);
 
     const autoOffsetPercent = deriveAutoPercentOffset(documentBoundsPx, documentSize);
@@ -2822,9 +2936,6 @@ export const exportProjectAsWebGL = async (
       alignment: layoutAlignment,
       hidden: !options.includeHiddenLayers && !layer.visible
     });
-
-    const texture = await captureLayerTexture(layer);
-    const colorCycle = await serializeColorCycleData(layer);
 
     const brushPayload = colorCycle?.brushState?.indexBuffer as ArrayLike<number> | string | undefined;
     const brushEnc = Array.isArray(brushPayload) ? 'array' : (typeof brushPayload === 'string' ? 'b64z' : 'none');

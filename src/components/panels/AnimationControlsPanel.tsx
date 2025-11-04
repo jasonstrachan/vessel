@@ -9,13 +9,15 @@ import {
   selectActiveLayerId,
   selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
+import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 
 const AnimationControlsPanel: React.FC = () => {
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
-  const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
-  const globalColorCycleFlowMode = useAppStore(state => state.tools.brushSettings.colorCycleFlowMode ?? 'forward');
+  const brushSettings = useAppStore(selectBrushSettings);
+  const globalColorCycleSpeed = brushSettings.colorCycleSpeed || 0.1;
+  const globalColorCycleFlowMode = brushSettings.colorCycleFlowMode ?? 'forward';
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);

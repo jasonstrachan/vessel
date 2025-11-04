@@ -1,11 +1,9 @@
 'use client';
 
 import { useAppStore } from '@/stores/useAppStore';
-import { selectCustomBrushes, selectTemporaryCustomBrush } from '@/stores/selectors/projectSelectors';
-import {
-  selectSelectionRects,
-  selectSelectionActions,
-} from '@/stores/selectors/pasteSelectors';
+import { selectCustomBrushes } from '@/stores/selectors/projectSelectors';
+import { selectTemporaryCustomBrush } from '@/stores/selectors/toolsSelectors';
+import { selectSelectionRects } from '@/stores/selectors/pasteSelectors';
 import { CustomBrush, BrushShape } from '@/types';
 import { useEffect, useCallback } from 'react';
 import { brushCache } from '@/utils/brushCache';
@@ -16,7 +14,7 @@ export const CustomBrushPanel = () => {
   const customBrushes = useAppStore(selectCustomBrushes);
   const temporaryCustomBrush = useAppStore(selectTemporaryCustomBrush);
   const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
-  const { clearSelection } = useAppStore(selectSelectionActions);
+  const clearSelection = useAppStore((state) => state.clearSelection);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setTemporaryCustomBrush = useAppStore((state) => state.setTemporaryCustomBrush);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);

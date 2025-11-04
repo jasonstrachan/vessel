@@ -12,11 +12,16 @@ import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import { BrushShape } from '@/types';
+import {
+  selectBrushEditor,
+  selectBrushSettings,
+  selectCurrentTool,
+} from '@/stores/selectors/toolsSelectors';
 
 const BrushSettingsPanel: React.FC = () => {
-  const currentTool = useAppStore(state => state.tools.currentTool);
-  const brushEditorStatus = useAppStore(state => state.brushEditor.status);
-  const brushSettings = useAppStore(state => state.tools.brushSettings);
+  const currentTool = useAppStore(selectCurrentTool);
+  const brushEditorStatus = useAppStore(selectBrushEditor).status;
+  const brushSettings = useAppStore(selectBrushSettings);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
 
   const hueShift = brushSettings.hueShift ?? 0;

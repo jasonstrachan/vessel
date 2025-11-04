@@ -50,7 +50,6 @@ describe('IndexBuffer painting performance', () => {
     });
 
     // Report for humans while keeping test deterministic
-    // eslint-disable-next-line no-console
     console.log('[IndexBuffer bench] string path:', stringTime.toFixed(2), 'ms', 'numeric path:', numericTime.toFixed(2), 'ms');
 
     expect(numericTime).toBeLessThan(stringTime * 0.8);

@@ -6,6 +6,7 @@ import {
   selectLayers,
   selectActiveLayerId,
 } from '@/stores/selectors/layersSelectors';
+import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import {
   DEFAULT_GRADIENT_ID,
@@ -86,9 +87,11 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   className = '',
   sampleTarget = 'recolor'
 }) => {
-  const { startRecolorSampling, addNotification } = useAppStore();
+  const startRecolorSampling = useAppStore((state) => state.startRecolorSampling);
+  const addNotification = useAppStore((state) => state.addNotification);
+  const brushSettings = useAppStore(selectBrushSettings);
   // Brush auto-sample state (used when sampleTarget === 'brush')
-  const autoSampleEnabled = useAppStore(state => !!state.tools.brushSettings.autoSampleGradient);
+  const autoSampleEnabled = Boolean(brushSettings.autoSampleGradient);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -556,11 +559,13 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   // Deleting stops via UI removed; keep logic minimal in component
 
+  const activeRecolorPalette = activeLayer?.colorCycleData?.recolorSettings?.palette ?? null;
+
   const handleGradientSelect = useCallback((gradientId: string) => {
     // Special case: restore "Original" palette-derived gradient for the active recolor layer
     if (gradientId === 'original') {
       try {
-        const palette = activeLayer?.colorCycleData?.recolorSettings?.palette;
+        const palette = activeRecolorPalette;
         if (palette && palette.length >= 2) {
           // Build a reasonable number of stops from the palette (sample 16 evenly from indices 1..255)
           const sampleCount = 16;
@@ -616,7 +621,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       setSelectedGradientId(gradientId);
       setSelectedStop(null);
     }
-  }, [savedGradients, addNotification, scheduleGradientUpdate]);
+  }, [savedGradients, addNotification, scheduleGradientUpdate, activeRecolorPalette]);
 
   const handleAddGradient = useCallback(() => {
     const existingCustom = savedGradients.filter(g => g.name.startsWith('Custom '));
@@ -729,7 +734,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         </button>
       </div>
     );
-  }, [savedGradients, handleRemoveGradient, activeLayer, addNotification, scheduleGradientUpdate]);
+  }, [savedGradients, handleRemoveGradient]);
 
   return (
     <div className={`gradient-editor relative ${className}`}>

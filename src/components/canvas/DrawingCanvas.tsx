@@ -8,6 +8,17 @@ import {
   selectSetLayersNeedRecomposition,
 } from '@/stores/selectors/layersSelectors';
 import { selectFloatingPaste } from '@/stores/selectors/pasteSelectors';
+import {
+  selectBrushSettings,
+  selectCurrentTool,
+  selectEraserSettings,
+  selectFillSettings,
+  selectGlobalBrushSize,
+  selectPolygonGradientState,
+  selectPreviousTool,
+  selectRecolorSampling,
+  selectShapeMode,
+} from '@/stores/selectors/toolsSelectors';
 import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
@@ -165,17 +176,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const canvasOffsetX = useAppStore((state) => state.canvas.offsetX);
   const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
   const compositeBitmap = useAppStore((state) => state.currentCompositeBitmap);
-  const currentTool = useAppStore((state) => state.tools.currentTool);
-  const brushSettings = useAppStore((state) => state.tools.brushSettings);
-  const fillSettings = useAppStore((state) => state.tools.fillSettings);
-  const eraserSettings = useAppStore((state) => state.tools.eraserSettings);
-  const shapeMode = useAppStore((state) => state.tools.shapeMode);
-  const previousTool = useAppStore((state) => state.tools.previousTool);
+  const currentTool = useAppStore(selectCurrentTool);
+  const brushSettings = useAppStore(selectBrushSettings);
+  const fillSettings = useAppStore(selectFillSettings);
+  const eraserSettings = useAppStore(selectEraserSettings);
+  const shapeMode = useAppStore(selectShapeMode);
+  const previousTool = useAppStore(selectPreviousTool);
   const colorAdjustActive = useAppStore((state) => state.colorAdjust.active);
-  const globalBrushSize = useAppStore((state) => state.globalBrushSize);
+  const globalBrushSize = useAppStore(selectGlobalBrushSize);
   const palette = useAppStore((state) => state.palette);
-  const polygonGradientState = useAppStore((state) => state.polygonGradientState);
-  const recolorSampling = useAppStore((state) => state.recolorSampling);
+  const polygonGradientState = useAppStore(selectPolygonGradientState);
+  const recolorSampling = useAppStore(selectRecolorSampling);
   const currentBrushPresetId = useAppStore((state) => state.currentBrushPreset?.id ?? null);
   const setActiveColor = useAppStore((state) => state.setActiveColor);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);

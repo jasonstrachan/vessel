@@ -3,6 +3,10 @@ import { useAppStore, type AppState } from '@/stores/useAppStore';
 import { BrushShape, Tool } from '@/types';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
+import {
+  selectPolygonGradientState,
+  selectToolsState,
+} from '@/stores/selectors/toolsSelectors';
 
 // Treat these input types as text entry fields so we don't hijack shortcuts while typing.
 const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
@@ -41,8 +45,6 @@ interface KeyboardState {
 type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
 
 const selectKeyboardScope = (state: AppState) => state.ui.keyboardScope.active as KeyboardScope;
-const selectTools = (state: AppState) => state.tools;
-const selectPolygonGradientState = (state: AppState) => state.polygonGradientState;
 const selectSelectionRange = (state: AppState) => ({
   start: state.selectionStart,
   end: state.selectionEnd,
@@ -121,7 +123,7 @@ export function useComprehensiveKeyboard({
   const setPaletteColor = useAppStore((state) => state.setPaletteColor);
 
   const keyboardScopeRef = useStoreSelectorRef(selectKeyboardScope);
-  const toolsRef = useStoreSelectorRef(selectTools);
+  const toolsRef = useStoreSelectorRef(selectToolsState);
   const polygonGradientStateRef = useStoreSelectorRef(selectPolygonGradientState);
   const selectionRangeRef = useStoreSelectorRef(selectSelectionRange);
   const floatingPasteRef = useStoreSelectorRef(selectFloatingPaste);

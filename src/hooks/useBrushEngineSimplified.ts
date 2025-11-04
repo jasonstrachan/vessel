@@ -1466,7 +1466,7 @@ export const useBrushEngineSimplified = () => {
       // Restore state
       ctx.restore();
     }
-  }, [setMultiplyIfUnlocked]);
+  }, [setMultiplyIfUnlocked, isPixelBrush]);
 
   /**
    * Draw polygon with gradient - DEBUG VERSION
@@ -1990,22 +1990,11 @@ export const useBrushEngineSimplified = () => {
       return null;
     }
   }, [
-    tools.brushSettings.size,
-    tools.brushSettings.colorCycleFPS,
-    tools.brushSettings.colorCycleSpeed,
-    tools.brushSettings.colorCycleGradient,
-    tools.brushSettings.gradientBands,
-    tools.brushSettings.spacing,
-    tools.brushSettings.pressureEnabled,
-    tools.brushSettings.minPressure,
-    tools.brushSettings.maxPressure,
-    tools.brushSettings.brushShape,
+    tools.brushSettings,
     project?.width,
     project?.height,
     activeLayerId,
-    getActiveLayerColorCycleBrush,
-    tools.brushSettings.colorCycleFlowMode,
-    activeLayerFlowMode
+    getActiveLayerColorCycleBrush
   ]);
 
   const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
@@ -2248,11 +2237,7 @@ export const useBrushEngineSimplified = () => {
     // Don't composite here - let renderColorCycle handle all rendering
     // This prevents visible brush stamps and ensures only animated strokes show
   }, [
-    tools.brushSettings.size,
-    tools.brushSettings.pressureEnabled,
-    tools.brushSettings.minPressure,
-    tools.brushSettings.maxPressure,
-    tools.brushSettings.brushShape,
+    tools.brushSettings,
     activeLayerId,
     getActiveLayerColorCycleBrush,
     getActiveLayerBitmapCanvas,
@@ -2554,10 +2539,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     activeLayerId,
     getActiveLayerColorCycleBrush,
-    tools.brushSettings.pressureEnabled,
-    tools.brushSettings.minPressure,
-    tools.brushSettings.maxPressure,
-    tools.brushSettings.size,
+    tools.brushSettings,
   ]);
 
   useEffect(() => {

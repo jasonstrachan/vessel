@@ -47,6 +47,8 @@ export interface ProjectSlice {
   removeCustomBrush: (brushId: string) => void;
   setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
+  getCustomBrushById: (brushId: string) => CustomBrush | null;
+  listCustomBrushes: () => CustomBrush[];
   setProjectDimensions: (width: number, height: number) => void;
   resizeProjectCanvas: (width: number, height: number) => Promise<void>;
 }
@@ -377,6 +379,43 @@ export const createProjectSlice =
       persistCustomBrushes();
     };
 
+    const cloneBrush = (brush: CustomBrush): CustomBrush => {
+      const { imageData } = brush;
+      const clonedImageData = imageData
+        ? new ImageData(
+            new Uint8ClampedArray(imageData.data),
+            imageData.width,
+            imageData.height
+          )
+        : imageData;
+
+      return {
+        ...brush,
+        imageData: clonedImageData,
+      };
+    };
+
+    const getCustomBrushById = (brushId: string): CustomBrush | null => {
+      if (!brushId) {
+        return null;
+      }
+      const state = get();
+      if (!state.project) {
+        return null;
+      }
+
+      const found = state.project.customBrushes.find((brush) => brush.id === brushId);
+      return found ? cloneBrush(found) : null;
+    };
+
+    const listCustomBrushes = (): CustomBrush[] => {
+      const state = get();
+      if (!state.project) {
+        return [];
+      }
+      return state.project.customBrushes.map((brush) => cloneBrush(brush));
+    };
+
     return {
       project: {
         id: 'default-project',
@@ -443,6 +482,8 @@ export const createProjectSlice =
       removeCustomBrush,
       setDefaultCustomBrush,
       saveCustomBrushAsPreset,
+      getCustomBrushById,
+      listCustomBrushes,
       setProjectDimensions,
       resizeProjectCanvas,
     };

@@ -5,6 +5,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import type { ColorAdjustParams, Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
+import { selectPreviousTool } from '@/stores/selectors/toolsSelectors';
 
 type ParamKey = keyof ColorAdjustParams;
 
@@ -29,7 +30,7 @@ const ColorAdjustToolPanel: React.FC = () => {
   const cancelColorAdjust = useAppStore((state) => state.cancelColorAdjust);
   const resetColorAdjustParams = useAppStore((state) => state.resetColorAdjustParams);
   const startColorAdjustSession = useAppStore((state) => state.startColorAdjustSession);
-  const previousTool = useAppStore((state) => state.tools.previousTool);
+  const previousTool = useAppStore(selectPreviousTool);
   const hasValidLayer = useAppStore((state) => {
     if (!state.activeLayerId) {
       return false;

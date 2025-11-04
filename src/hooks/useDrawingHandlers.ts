@@ -19,6 +19,11 @@ import {
   selectEffectiveColorCyclePlaying,
   useAppStore
 } from '@/stores/useAppStore';
+import { selectActiveLayerId } from '@/stores/selectors/layersSelectors';
+import {
+  selectShapeMode,
+  selectToolsState,
+} from '@/stores/selectors/toolsSelectors';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { FinalizeQueue } from '@/lib/canvas';
@@ -281,9 +286,9 @@ const bindBrushToCanvas = (
 
 const refreshLayerCCSurface = (
   brush: ColorCycleBrushImplementation,
-  layerId: string
+  layerId: string,
+  state: AppState
 ): HTMLCanvasElement | null => {
-  const state = useAppStore.getState();
   const layer = state.layers.find((candidate) => candidate.id === layerId);
   if (!layer) {
     return null;
@@ -309,8 +314,8 @@ const refreshLayerCCSurface = (
   return storedCanvas ?? liveCanvas ?? null;
 };
 
-const getShapeFillHistoryDescription = (): string => {
-  const { shapeFill } = useAppStore.getState();
+const getShapeFillHistoryDescription = (state: AppState): string => {
+  const { shapeFill } = state;
   const lastFinalize = shapeFill.lastFinalize;
   const label = lastFinalize?.strategy?.label?.trim();
   if (label) {
@@ -578,7 +583,10 @@ export function useDrawingHandlers({
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngineSimplified();
   const userBrushEngine = useUserBrushEngine();
-  const { captureCanvasToActiveLayer, tools, activeLayerId } = useAppStore();
+  const captureCanvasToActiveLayer = useAppStore((state) => state.captureCanvasToActiveLayer);
+  const activeLayerId = useAppStore(selectActiveLayerId);
+  const shapeMode = useAppStore(selectShapeMode);
+  const toolsRef = useStoreSelectorRef(selectToolsState);
   
   // Feedback message state
   const feedbackMessageRef = useRef<((message: string) => void) | null>(null);
@@ -692,9 +700,9 @@ export function useDrawingHandlers({
         userBrushEngine,
         resolveCustomBrush: resolveActiveCustomBrushData
       }),
-    [brushEngine, userBrushEngine]
+    [brushEngine, userBrushEngine, storeRef]
   );
-  const getBrushHalfSize = () => {
+  const getBrushHalfSize = useCallback(() => {
     const state = storeRef.current;
     const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize;
     const eraserSettings = state.tools.eraserSettings;
@@ -703,7 +711,7 @@ export function useDrawingHandlers({
         ? eraserSettings.size ?? brushSize
         : brushSize;
     return Math.max(1, effectiveSize ?? 1) / 2;
-  };
+  }, [storeRef]);
   const getColorCycleBrushEraserSettings = useCallback(() => {
     const state = storeRef.current;
     const settings = state.tools.brushSettings;
@@ -730,7 +738,7 @@ export function useDrawingHandlers({
     }
 
     return baseSettings;
-  }, []);
+  }, [storeRef]);
 
   const getCCStampTargetCtx = useCallback((): CanvasRenderingContext2D | null => {
     const st = storeRef.current;
@@ -752,7 +760,7 @@ export function useDrawingHandlers({
     }
 
     return drawingCtxRef.current;
-  }, []);
+  }, [storeRef, drawingCtxRef]);
 
   const beginStrokeSession = useCallback((options: BeginStrokeSessionOptions) => {
     const now = Date.now();
@@ -805,7 +813,7 @@ export function useDrawingHandlers({
       flowRandomSeed: undefined,
       gpuJobId: undefined,
     });
-  }, []);
+  }, [storeRef]);
   
   // Store resampler brush data for the entire stroke
   const resamplerBrushDataRef = useRef<CustomBrushStrokeData | undefined>(undefined);
@@ -1060,7 +1068,7 @@ export function useDrawingHandlers({
       }
     } catch {}
     return '#ffffff';
-  }, []);
+  }, [storeRef, drawingCanvasRef]);
 
   const equidistantPointsOnPolyline = useCallback((pts: Array<{ x: number; y: number }>, count: number) => {
     if (pts.length === 0) return [] as Array<{ x: number; y: number }>;
@@ -1099,7 +1107,7 @@ export function useDrawingHandlers({
       result.push({ x: segStart.x + (segEnd.x - segStart.x) * t, y: segStart.y + (segEnd.y - segStart.y) * t });
     }
     return result;
-  }, [dedupePolylineForSampling]);
+  }, []);
 
   const computeAutoSampleStops = useCallback(
     (sourcePts: Array<{ x: number; y: number }>, options: { allowTiny?: boolean } = {}) =>
@@ -1204,7 +1212,7 @@ export function useDrawingHandlers({
     try {
       brushEngine.updateColorCycleGradient?.(stops);
     } catch {}
-  }, [brushEngine, computeAutoSampleStops]);
+  }, [brushEngine, computeAutoSampleStops, storeRef]);
 
   // Track which CC layers were animating so we can resume them after interaction
   const pausedCCLayerIdsRef = useRef<string[]>([]);
@@ -1278,7 +1286,7 @@ export function useDrawingHandlers({
     });
     ccGroupEnd();
     return result;
-  }, []);
+  }, [getEffectiveColorCyclePlaying, storeRef]);
 
   const pauseColorCycleForNonCCInteraction = useCallback((reason: CCReason = 'shape-preview') => {
     if (shouldResumeColorCycleAfterInteractionRef.current) {
@@ -1309,7 +1317,7 @@ export function useDrawingHandlers({
       ccLog('pauseColorCycleForNonCCInteraction: suspending playback', { reason });
       storeRef.current.suspendColorCycle(reason);
     }
-  }, [pauseAllBrushCCAnimationsNow]);
+  }, [pauseAllBrushCCAnimationsNow, getEffectiveColorCyclePlaying, storeRef]);
 
   const resumeColorCycleAfterInteraction = useCallback(async () => {
     ccGroup('resumeColorCycleAfterInteraction()');
@@ -1334,7 +1342,7 @@ export function useDrawingHandlers({
       ccLog('resumeColorCycle', { suspendDepth });
     }
     ccGroupEnd();
-  }, []);
+  }, [getEffectiveColorCyclePlaying, storeRef]);
 
   // Helper: resume previously paused brush-based CC layers
   // NOTE: Currently unused because global playback flow handles resume/restoration.
@@ -1398,7 +1406,7 @@ export function useDrawingHandlers({
     if (resumedAny || globalIsPlaying) {
       // Store-driven playback will notify subscribers.
     }
-  }, []);
+  }, [getEffectiveColorCyclePlaying, storeRef]);
 
   // Stop continuous color cycle animation AND pause it (applies to all brush-based CC layers)
   const stopContinuousColorCycleAnimationCore = useCallback((reason = 'unknown') => {
@@ -1594,7 +1602,7 @@ export function useDrawingHandlers({
         st.pauseColorCycle?.('toolbar');
       } catch {}
     }
-  }, [pauseAllBrushCCAnimationsNow]);
+  }, [pauseAllBrushCCAnimationsNow, storeRef]);
 
   // DEBUG ONLY
   const stopContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
@@ -1657,7 +1665,7 @@ export function useDrawingHandlers({
       alpha: true,
       desynchronized: true
     });
-  }, [project]);
+  }, [project, storeRef]);
 
   const ensureOverlayInitialized = useCallback(() => {
     if (!drawingCtxRef.current || !drawingCanvasRef.current) {
@@ -1694,7 +1702,7 @@ export function useDrawingHandlers({
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
     ctx.stroke();
-  }, []);
+  }, [storeRef]);
   
   const startDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // removed debug log
@@ -2297,13 +2305,16 @@ export function useDrawingHandlers({
     project,
     drawEraserSegment,
     pauseColorCycleForNonCCInteraction,
-    updateAutoSampledGradient,
     beginStrokeSession,
     getCCStampTargetCtx,
     scheduleRecompose,
     createBrushStampSource,
     getColorCycleBrushEraserSettings,
-    maskManager
+    maskManager,
+    renderBrushSamplingPreview,
+    getEffectiveColorCyclePlaying,
+    getBrushHalfSize,
+    storeRef
   ]);
 
   // Process batched stroke points
@@ -2703,7 +2714,9 @@ export function useDrawingHandlers({
     drawEraserSegment,
     updateAutoSampledGradient,
     getCCStampTargetCtx,
-    scheduleRecompose
+    scheduleRecompose,
+    renderBrushSamplingPreview,
+    storeRef
   ]);
 
   const continueDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
@@ -2746,7 +2759,7 @@ export function useDrawingHandlers({
         });
       }
     }
-  }, [processBatchedStrokes, endStrokeSession]);
+  }, [processBatchedStrokes, endStrokeSession, storeRef]);
   
   // Drawing/brush finalize matrix (non-shape-fill entry point):
   //  - Raster brushes & eraser on raster layers: merge overlay `drawingCanvas` into a temp canvas,
@@ -3115,7 +3128,7 @@ export function useDrawingHandlers({
                 if (isColorCycleLayer && isColorCycleBrush) {
                   return 'Color Cycle Fill';
                 }
-                return getShapeFillHistoryDescription();
+                return getShapeFillHistoryDescription(storeRef.current);
               }
               if (isColorCycleLayer && isColorCycleBrush) {
                 return 'Color Cycle Stroke';
@@ -3381,14 +3394,17 @@ export function useDrawingHandlers({
     userBrushEngine,
     brushEngine,
     processBatchedStrokes,
-    equidistantPointsOnPolyline,
-    sampleHexAt,
     resumeColorCycleAfterInteraction,
     endStrokeSession,
     clearStrokeSession,
     scheduleDeferredColorCycleSave,
     stopContinuousColorCycleAnimation,
-    runIdleAsync
+    runIdleAsync,
+    clearBrushSamplingPreview,
+    commitRasterOverlay,
+    computeAutoSampleStops,
+    getDesiredColorCyclePlaying,
+    storeRef
   ]);
 
   const finalizeStroke = useCallback(() => {
@@ -3418,7 +3434,7 @@ export function useDrawingHandlers({
       return;
     }
 
-    if (tools.shapeMode) {
+    if (shapeMode) {
       const state = storeRef.current;
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
@@ -3459,11 +3475,11 @@ export function useDrawingHandlers({
     } else {
       startDrawing(worldPos, pressure);
     }
-  }, [tools.shapeMode, initDrawingCanvas, startDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient]);
+  }, [shapeMode, initDrawingCanvas, startDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, storeRef]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
     // Handle animations based on brush type
-    if (tools.shapeMode && !ccShapePreviewPauseStartedRef.current) {
+    if (shapeMode && !ccShapePreviewPauseStartedRef.current) {
       const state = storeRef.current;
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
@@ -3532,7 +3548,7 @@ export function useDrawingHandlers({
       return;
     }
     
-    if (tools.shapeMode && isDrawingShapeRef.current) {
+    if (shapeMode && isDrawingShapeRef.current) {
       const store = storeRef.current;
       const zoom = store.canvas?.zoom || 1;
       const brushSize = store.tools.brushSettings.size || 20;
@@ -3548,16 +3564,18 @@ export function useDrawingHandlers({
           }
         } catch {}
       }
-    } else if (!tools.shapeMode) {
+    } else if (!shapeMode) {
       continueDrawing(worldPos);
     }
-  }, [tools.shapeMode, continueDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, initDrawingCanvas]);
+  }, [shapeMode, continueDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, initDrawingCanvas, storeRef]);
   
   const finalizeShapeDrawing = useCallback(async () => {
     const polygonState = storeRef.current.polygonGradientState;
+    const toolsSnapshot = toolsRef.current;
+    const liveBrushSettings = toolsSnapshot.brushSettings;
     const polygonPointCount = Math.max(polygonState.points?.length ?? 0, polygonState.vertices?.length ?? 0);
     const polygonActive = polygonState.drawingState !== 'idle' && polygonPointCount >= 3;
-    const hasShapeInProgress = tools.shapeMode || polygonActive || isSelectingDirectionRef.current || isDrawingShapeRef.current;
+    const hasShapeInProgress = shapeMode || polygonActive || isSelectingDirectionRef.current || isDrawingShapeRef.current;
 
     if (!hasShapeInProgress) {
       return finalizeDrawing();
@@ -3716,7 +3734,7 @@ export function useDrawingHandlers({
                       afterColorState,
                       actionType: 'fill',
                       description: 'CC Shape Linear',
-                      tool: tools.currentTool,
+                      tool: toolsSnapshot.currentTool,
                       coalesce: undefined,
                       beforeImage: null,
                       skipBitmapDelta: true,
@@ -3806,8 +3824,8 @@ export function useDrawingHandlers({
             : null;
           
           // Check if we're using a pixel brush - need crisp edges
-          const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
-            (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
+          const isPixelBrush = liveBrushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+            (liveBrushSettings.brushShape === BrushShape.SQUARE && !liveBrushSettings.antialiasing);
           
           // Set ALL smoothing properties to ensure pixel-perfect shapes
           if (isPixelBrush) {
@@ -3850,7 +3868,7 @@ export function useDrawingHandlers({
           } catch {}
 
           // Check if we're using a custom brush
-          const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
+          const isCustomBrush = liveBrushSettings.brushShape === BrushShape.CUSTOM;
           let customBrushImageData: ImageData | null = null;
           let customBrushWidth = 0;
           let customBrushHeight = 0;
@@ -3858,31 +3876,31 @@ export function useDrawingHandlers({
           
           if (isCustomBrush) {
             // Try to get custom brush from currentBrushTip first
-            if (tools.brushSettings.currentBrushTip) {
-              const brushTip = tools.brushSettings.currentBrushTip;
+            if (liveBrushSettings.currentBrushTip) {
+              const brushTip = liveBrushSettings.currentBrushTip;
               customBrushImageData = brushTip.imageData;
               customBrushWidth = brushTip.width || brushTip.imageData.width;
               customBrushHeight = brushTip.height || brushTip.imageData.height;
-              isColorizable = brushTip.isColorizable || tools.brushSettings.useSwatchColor || !!tools.brushSettings.customBrushColorCycle;
-            } else if (tools.brushSettings.selectedCustomBrush) {
+              isColorizable = brushTip.isColorizable || liveBrushSettings.useSwatchColor || !!liveBrushSettings.customBrushColorCycle;
+            } else if (liveBrushSettings.selectedCustomBrush) {
               // Look for custom brush in project's custom brushes from the store
               const currentState = storeRef.current;
               
               // First check temporary brush
-              if (currentState.temporaryCustomBrush?.id === tools.brushSettings.selectedCustomBrush) {
+              if (currentState.temporaryCustomBrush?.id === liveBrushSettings.selectedCustomBrush) {
                 const tempBrush = currentState.temporaryCustomBrush;
                 customBrushImageData = tempBrush.imageData;
                 customBrushWidth = tempBrush.width;
                 customBrushHeight = tempBrush.height;
-                isColorizable = tools.brushSettings.useSwatchColor || !!tools.brushSettings.customBrushColorCycle;
+                isColorizable = liveBrushSettings.useSwatchColor || !!liveBrushSettings.customBrushColorCycle;
               } else {
                 // Then check saved custom brushes
-                const customBrush = currentState.project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush);
+                const customBrush = currentState.getCustomBrushById?.(liveBrushSettings.selectedCustomBrush ?? '') ?? null;
                 if (customBrush) {
                   customBrushImageData = customBrush.imageData;
                   customBrushWidth = customBrush.width;
                   customBrushHeight = customBrush.height;
-                  isColorizable = tools.brushSettings.useSwatchColor || !!tools.brushSettings.customBrushColorCycle;
+                  isColorizable = liveBrushSettings.useSwatchColor || !!liveBrushSettings.customBrushColorCycle;
                 }
               }
             }
@@ -3894,7 +3912,7 @@ export function useDrawingHandlers({
             } catch {}
             // Calculate scaled size based on brush settings, maintaining aspect ratio
             const maxDimension = Math.max(customBrushWidth, customBrushHeight) || 1;
-            const scale = (tools.brushSettings.size ?? maxDimension) / maxDimension;
+            const scale = (liveBrushSettings.size ?? maxDimension) / maxDimension;
             // Ensure at least 1px to avoid zero-size tiles causing artifacts
             const scaledWidth = Math.max(1, Math.round(customBrushWidth * scale));
             const scaledHeight = Math.max(1, Math.round(customBrushHeight * scale));
@@ -3918,7 +3936,7 @@ export function useDrawingHandlers({
                 // Apply color if the brush is colorizable
                 if (isColorizable) {
                   tipCtx.globalCompositeOperation = 'source-atop';
-                  tipCtx.fillStyle = tools.brushSettings.color;
+                  tipCtx.fillStyle = liveBrushSettings.color;
                   tipCtx.fillRect(0, 0, tipCanvas.width, tipCanvas.height);
                 }
                 
@@ -3952,7 +3970,7 @@ export function useDrawingHandlers({
                   drawCtx.fillStyle = pattern;
                   // quiet
                 } else {
-                  drawCtx.fillStyle = tools.brushSettings.color;
+                  drawCtx.fillStyle = liveBrushSettings.color;
                   // quiet
                 }
                 
@@ -3961,18 +3979,18 @@ export function useDrawingHandlers({
                 tipCanvas.height = 1;
                 tipCtx.clearRect(0, 0, 1, 1);
               } else {
-                drawCtx.fillStyle = tools.brushSettings.color;
+                drawCtx.fillStyle = liveBrushSettings.color;
               }
               
               // Note: Do not mutate patternCanvas here; keep it intact until after fill
             } else {
-              drawCtx.fillStyle = tools.brushSettings.color;
+              drawCtx.fillStyle = liveBrushSettings.color;
               
               // Leave patternCanvas intact; rely on GC after draw
             }
           } else {
             // Use solid color for non-custom brushes or if custom brush not found
-            drawCtx.fillStyle = tools.brushSettings.color;
+            drawCtx.fillStyle = liveBrushSettings.color;
           }
 
           // Check if we're on a color cycle layer - if so, skip regular shape drawing
@@ -4000,7 +4018,7 @@ export function useDrawingHandlers({
           drawCtx.fill();
           
           // Apply risograph effect if enabled (matching monolithic implementation)
-          const risographIntensity = tools.brushSettings.risographIntensity || 0;
+          const risographIntensity = liveBrushSettings.risographIntensity || 0;
           if (risographIntensity > 0) {
             // Use GPU-accelerated risograph effect with cached pattern
             const pattern = getRisographPattern(drawCtx);
@@ -4024,7 +4042,7 @@ export function useDrawingHandlers({
                   // For pixel brushes, use pixel-aligned coordinates
                   drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
                   for (let i = 1; i < shapePointsRef.current.length; i++) {
-                    if (tools.brushSettings.risographOutline) {
+                    if (liveBrushSettings.risographOutline) {
                       // Add slight roughness to edges only if outline is enabled
                       const roughX = Math.round(
                         shapePointsRef.current[i].x + (Math.random() - 0.5) * effect.outlineJitter
@@ -4042,7 +4060,7 @@ export function useDrawingHandlers({
                   // For smooth brushes, use original coordinates
                   drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
                   for (let i = 1; i < shapePointsRef.current.length; i++) {
-                    if (tools.brushSettings.risographOutline) {
+                    if (liveBrushSettings.risographOutline) {
                       // Add slight roughness to edges only if outline is enabled
                       const roughX = shapePointsRef.current[i].x + (Math.random() - 0.5) * effect.outlineJitter;
                       const roughY = shapePointsRef.current[i].y + (Math.random() - 0.5) * effect.outlineJitter;
@@ -4085,10 +4103,10 @@ export function useDrawingHandlers({
             
             // Check fill mode and fill accordingly
             if (shapePointsRef.current.length >= 3) {
-              const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
+              const fillMode = liveBrushSettings.colorCycleFillMode || 'concentric';
               // quiet
               
-              const activeSettings = tools.brushSettings;
+              const activeSettings = liveBrushSettings;
 
               if (fillMode === 'linear') {
                 const points = shapePointsRef.current.filter((pt): pt is { x: number; y: number } => Boolean(pt));
@@ -4211,7 +4229,7 @@ export function useDrawingHandlers({
                             afterColorState,
                             actionType: 'fill',
                             description: 'CC Shape Linear',
-                            tool: tools.currentTool,
+                            tool: toolsSnapshot.currentTool,
                             coalesce: undefined,
                             beforeImage: null,
                             skipBitmapDelta: true,
@@ -4243,8 +4261,8 @@ export function useDrawingHandlers({
                 const activeLayerCanvasConcentric = activeLayer?.colorCycleData?.canvas ?? null;
                 const overlayCtx = drawCtx;
                 const overlayCanvas = drawingCanvasRef.current;
-                const fallbackBlendMode = tools.brushSettings?.blendMode || 'source-over';
-                const fallbackOpacity = tools.brushSettings?.opacity ?? 1;
+                const fallbackBlendMode = liveBrushSettings?.blendMode || 'source-over';
+                const fallbackOpacity = liveBrushSettings?.opacity ?? 1;
 
                 let shapeCaptureRoi: CaptureRegion | undefined;
                 if (FF.CC_CAPTURE_ROI) {
@@ -4324,7 +4342,7 @@ export function useDrawingHandlers({
                             afterColorState,
                             actionType: 'fill',
                             description: 'CC Shape',
-                            tool: tools.currentTool,
+                            tool: toolsSnapshot.currentTool,
                             coalesce: undefined,
                             beforeImage: null,
                             skipBitmapDelta: true,
@@ -4397,7 +4415,7 @@ export function useDrawingHandlers({
         const currentLayer = storeRef.current.layers.find(l => l.id === storeRef.current.activeLayerId);
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
-          const historyDescription = `Shape Fill: ${tools.brushSettings?.shapeFillMode ?? 'default'}`;
+          const historyDescription = `Shape Fill: ${liveBrushSettings?.shapeFillMode ?? 'default'}`;
           await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
           await withTiming('cc:commit', () =>
             commitLayerHistory({
@@ -4406,7 +4424,7 @@ export function useDrawingHandlers({
               beforeColorState: shapeBeforeColorState,
               actionType: 'fill',
               description: historyDescription,
-              tool: tools.currentTool,
+              tool: toolsSnapshot.currentTool,
               bitmapRoi:
                 project
                   ? boundingBoxToCaptureRegion(
@@ -4456,22 +4474,21 @@ export function useDrawingHandlers({
     }); // End of FinalizeQueue.enqueue
     return;
   }, [
-    tools.shapeMode,
-    tools.brushSettings,
-    tools.currentTool,
+    shapeMode,
     brushEngine,
     finalizeDrawing,
     isBusyRef,
     activeLayerId,
     initDrawingCanvas,
-    equidistantPointsOnPolyline,
-    sampleHexAt,
     resumeColorCycleAfterInteraction,
     resetPolygonState,
     captureCanvasToActiveLayer,
     project,
     scheduleDeferredColorCycleSave,
-    runIdle
+    runIdle,
+    computeAutoSampleStops,
+    storeRef,
+    toolsRef
   ]);
   
   // Helper function to render all visible color cycle layers
@@ -4506,7 +4523,7 @@ export function useDrawingHandlers({
         const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
         if (!colorCycleBrush) return;
 
-        const liveCanvas = refreshLayerCCSurface(colorCycleBrush, layer.id);
+        const liveCanvas = refreshLayerCCSurface(colorCycleBrush, layer.id, currentState);
         if (!liveCanvas) {
           return;
         }
@@ -4542,7 +4559,7 @@ export function useDrawingHandlers({
     });
     
     return hasRendered;
-  }, [maskManager]);
+  }, [maskManager, storeRef]);
 
   // Start continuous color cycle animation (for when play button is pressed)
   const startContinuousColorCycleAnimationCore = useCallback((reason = 'unknown') => {
@@ -4792,7 +4809,7 @@ export function useDrawingHandlers({
     } finally {
       startingColorCycleAnimationRef.current = false;
     }
-  }, [brushEngine, ensureOverlayInitialized, renderAllColorCycleLayers]);
+  }, [brushEngine, ensureOverlayInitialized, renderAllColorCycleLayers, storeRef, getEffectiveColorCyclePlaying]);
 
   // DEBUG ONLY - throttle noisy trace logs to avoid console spam while retaining stack samples
   const startContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
@@ -4866,7 +4883,7 @@ export function useDrawingHandlers({
         startContinuousColorCycleAnimation('store-sync');
       });
     }
-  }, [project, ensureOverlayInitialized, startContinuousColorCycleAnimation]);
+  }, [project, ensureOverlayInitialized, startContinuousColorCycleAnimation, getEffectiveColorCyclePlaying]);
   
   useEffect(() => {
     let previous = getEffectiveColorCyclePlaying();
@@ -4957,7 +4974,7 @@ export function useDrawingHandlers({
     return () => {
       unsubscribe();
     };
-  }, [startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation]);
+  }, [startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation, getEffectiveColorCyclePlaying, storeRef]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -5023,7 +5040,7 @@ export function useDrawingHandlers({
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [storeRef]);
   
   // Setter for feedback message callback
   const setFeedbackCallback = useCallback((callback: (message: string) => void) => {
@@ -5067,6 +5084,7 @@ type CustomBrushStoreState = {
   project?: {
     customBrushes?: CustomBrush[];
   } | null;
+  getCustomBrushById?: (brushId: string) => CustomBrush | null;
 };
 
 function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrushStrokeData | undefined {
@@ -5096,9 +5114,7 @@ function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrush
       };
     }
 
-    const saved = state.project?.customBrushes?.find(
-      brush => brush.id === settings.selectedCustomBrush
-    );
+    const saved = state.getCustomBrushById?.(settings.selectedCustomBrush ?? '') ?? null;
     if (saved) {
       return {
         imageData: saved.imageData,

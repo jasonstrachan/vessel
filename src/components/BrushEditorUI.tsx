@@ -16,6 +16,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape } from '@/types';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
+import { selectBrushEditor, selectBrushSettings, selectCurrentTool } from '@/stores/selectors/toolsSelectors';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 10;
@@ -27,17 +28,27 @@ const SATURATION_SLIDER_MAX = 200;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const InlineBrushEditor: React.FC = () => {
-  const brushEditor = useAppStore((state) => state.brushEditor);
-  const customBrushes = useAppStore((state) => state.project?.customBrushes || []);
-  const brushColor = useAppStore((state) => state.tools.brushSettings.color);
-  const brushSize = useAppStore((state) => state.tools.brushSettings.size);
-  const currentTool = useAppStore((state) => state.tools.currentTool);
-  const brushShape = useAppStore((state) => state.tools.brushSettings.brushShape);
-  const selectedCustomBrush = useAppStore((state) => state.tools.brushSettings.selectedCustomBrush);
-  const currentBrushTip = useAppStore((state) => state.tools.brushSettings.currentBrushTip);
-  const brushHueShift = useAppStore((state) => state.tools.brushSettings.hueShift ?? 0);
-  const brushLightnessAdjust = useAppStore((state) => state.tools.brushSettings.lightnessAdjust ?? 0);
-  const brushSaturationAdjust = useAppStore((state) => state.tools.brushSettings.saturationAdjust ?? 100);
+  const brushEditor = useAppStore(selectBrushEditor);
+  const brushSettings = useAppStore(selectBrushSettings);
+  const projectCustomBrushes = useAppStore((state) => state.project?.customBrushes ?? []);
+  const customBrushes = React.useMemo(() => {
+    if (projectCustomBrushes.length === 0) {
+      return projectCustomBrushes;
+    }
+    return useAppStore.getState().listCustomBrushes();
+  }, [projectCustomBrushes]);
+  const getCustomBrushById = useAppStore((state) => state.getCustomBrushById);
+  const currentTool = useAppStore(selectCurrentTool);
+  const {
+    color: brushColor,
+    size: brushSize,
+    brushShape,
+    selectedCustomBrush,
+    currentBrushTip,
+    hueShift: brushHueShift = 0,
+    lightnessAdjust: brushLightnessAdjust = 0,
+    saturationAdjust: brushSaturationAdjust = 100,
+  } = brushSettings;
   const setBrushEditorHue = useAppStore((state) => state.setBrushEditorHue);
   const setBrushEditorLightness = useAppStore((state) => state.setBrushEditorLightness);
   const setBrushEditorSaturation = useAppStore((state) => state.setBrushEditorSaturation);
@@ -670,7 +681,7 @@ const InlineBrushEditor: React.FC = () => {
     ctx.clearRect(0, 0, bounds.width, bounds.height);
 
     if (brushEditor.editingBrushId && customBrushes.length > 0) {
-      const existingBrush = customBrushes.find((b) => b.id === brushEditor.editingBrushId);
+      const existingBrush = getCustomBrushById?.(brushEditor.editingBrushId ?? '') ?? null;
       if (existingBrush && existingBrush.imageData) {
         setBasePixels(existingBrush.imageData);
         ctx.putImageData(existingBrush.imageData, 0, 0);
@@ -682,7 +693,7 @@ const InlineBrushEditor: React.FC = () => {
       const emptyData = ctx.getImageData(0, 0, bounds.width, bounds.height);
       setBasePixels(emptyData);
     }
-  }, [brushEditor.status, brushEditor.editingBounds, brushEditor.editingBrushId, customBrushes]);
+  }, [brushEditor.status, brushEditor.editingBounds, brushEditor.editingBrushId, customBrushes, getCustomBrushById]);
 
   useEffect(() => {
     if (!basePixels || !canvasRef.current || isDrawing) {

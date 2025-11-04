@@ -44,8 +44,6 @@ const stats: { hits: number; misses: number; lastEvent?: PaletteCacheEvent } = {
   hits: 0,
   misses: 0,
 };
-const LOG_SAMPLE_INTERVAL = 50;
-
 function now(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
     return performance.now();

@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from 'react';
 import { Eye, EyeOff, X } from 'lucide-react';
-import { useAppStore, type AppState } from '../stores/useAppStore';
+import { useAppStore } from '../stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
@@ -15,6 +15,8 @@ import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { recordBreadcrumb } from '../utils/debug';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
+import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
+import { selectProjectDimensions } from '@/stores/selectors/projectSelectors';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 export const LAYER_TAG_CLASS = 'px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]';
@@ -209,12 +211,11 @@ const MinimalLayerList = () => {
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
-  const globalColorCycleSpeed = useAppStore((state) => state.tools.brushSettings.colorCycleSpeed || 0.1);
+  const brushSettings = useAppStore(selectBrushSettings);
+  const globalColorCycleSpeed = brushSettings.colorCycleSpeed ?? 0.1;
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
-  const brushSettingsRef = useStoreSelectorRef((state: AppState) => state.tools.brushSettings);
-  const projectSizeRef = useStoreSelectorRef((state: AppState) =>
-    state.project ? { width: state.project.width, height: state.project.height } : null
-  );
+  const brushSettingsRef = useStoreSelectorRef(selectBrushSettings);
+  const projectSizeRef = useStoreSelectorRef(selectProjectDimensions);
   // Actions
   const addLayer = useAppStore((state) => state.addLayer);
   const updateLayer = useAppStore((state) => state.updateLayer);
@@ -302,7 +303,7 @@ const MinimalLayerList = () => {
       
       // Initialize the color cycle brush for this layer BEFORE setting active
       const projectSize = projectSizeRef.current;
-      if (projectSize) {
+      if (projectSize.width > 0 && projectSize.height > 0) {
         initColorCycleForLayer(newLayerId, projectSize.width, projectSize.height);
       }
 
