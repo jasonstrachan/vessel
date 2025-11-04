@@ -122,7 +122,6 @@ const cl = {
   },
 };
 // -----------------------------------------------------------
-import { selectActivePaletteColor, useAppStore } from '../../../stores/useAppStore';
 import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type {
@@ -665,7 +664,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
     const safeScale = Math.max(deps.viewTransformRef.current.scale, 0.001);
 
-    const currentTools = useAppStore.getState().tools;
+    const { tools: currentTools } = getDynamicDeps();
     const sampledStrokeColor = currentTools.brushSettings.color;
     overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
     overlayCtx.strokeStyle = sampledStrokeColor;
@@ -874,12 +873,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
 
     // Ensure context matches brush settings (opacity/composite) like other final paths
-    const store = useAppStore.getState();
+    const { tools } = getDynamicDeps();
 
     // propagate alpha/composite for parity with normal strokes
     drawCtx.save();
     try {
-      drawCtx.globalAlpha = store.tools.brushSettings.opacity ?? 1;
+      drawCtx.globalAlpha = tools.brushSettings.opacity ?? 1;
       drawCtx.globalCompositeOperation = 'source-over';
       drawCtx.imageSmoothingEnabled = false;
 
@@ -998,21 +997,21 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
   const applyColorPickerSample = (worldPos: Point) => {
     const sampledHex = cssColorToHex(sampleColorAtPosition(worldPos.x, worldPos.y));
-    const store = useAppStore.getState();
-    const activeSlot = store.palette.activeSlot ?? 'foreground';
+    const { palette } = getDynamicDeps();
+    const activeSlot = palette.activeSlot ?? 'foreground';
     const currentColor = activeSlot === 'background'
-      ? store.palette.backgroundColor
-      : store.palette.foregroundColor;
+      ? palette.backgroundColor
+      : palette.foregroundColor;
 
     if (currentColor && currentColor.toLowerCase() === sampledHex.toLowerCase()) {
       return;
     }
 
-    store.setActiveColor(sampledHex);
+    deps.setActiveColor(sampledHex);
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonGradientStateGuard = useAppStore.getState().polygonGradientState;
+    const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
       polygonGradientStateGuard != null &&
       (polygonGradientStateGuard.drawingState === 'adjustingSpacing' ||
@@ -1205,7 +1204,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
 
     // Recolor/Brush sampling finalize (on second click as a fallback)
-    const rsUp = useAppStore.getState().recolorSampling;
+    const rsUp = getDynamicDeps().recolorSampling;
     if (rsUp.active && rsUp.start) {
       const start = rsUp.start;
       const end = { x: worldPos.x, y: worldPos.y };
@@ -1247,7 +1246,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       } else {
         // target === 'brush' -> update brush gradient settings directly
         try {
-          useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+          deps.setBrushSettings({ colorCycleGradient: stops });
         } catch {}
       }
 
@@ -1256,14 +1255,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         const overlayCtx = overlayCanvas.getContext('2d');
         overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
       }
-      useAppStore.getState().stopRecolorSampling();
+      deps.stopRecolorSampling();
       return;
     }
 
     // Recolor sampling: start point
-    const rs1 = useAppStore.getState().recolorSampling;
+    const rs1 = getDynamicDeps().recolorSampling;
     if (rs1.active) {
-      useAppStore.getState().updateRecolorSampling({ start: { x: worldPos.x, y: worldPos.y }, end: null });
+      deps.updateRecolorSampling({ start: { x: worldPos.x, y: worldPos.y }, end: null });
       // Clear overlay
       const overlayCanvas = overlayCanvasRef.current;
       if (overlayCanvas) {
@@ -1389,7 +1388,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     if (tools.currentTool === 'brush' || tools.currentTool === 'custom') {
       const rewriteHandled = shapeHandler.handlePointerDown(event);
       if (rewriteHandled) {
-        const polygonState = useAppStore.getState().polygonGradientState;
+        const polygonState = getDynamicDeps().polygonGradientState;
         if (polygonState.drawingState === 'idle') {
           isMouseDownRef.current = false;
           if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
@@ -1485,13 +1484,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
       // quiet
 
-      const brushPresetId = (() => {
-        try {
-          return useAppStore.getState().currentBrushPreset?.id ?? null;
-        } catch {
-          return null;
-        }
-      })();
+      const brushPresetId = getDynamicDeps().currentBrushPresetId;
       drawingHandlers.beginStrokeSession({
         pointerId: event.pointerId,
         layerId: activeLayerId ?? null,
@@ -1569,8 +1562,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         const fillColor = shouldErase
           ? { r: 0, g: 0, b: 0, a: 0 }
           : (() => {
-              const activeFillColor = selectActivePaletteColor(useAppStore.getState());
-              const { r, g, b } = hexToRgb(cssColorToHex(activeFillColor));
+              const palette = getDynamicDeps().palette;
+              const activeFillColor =
+                palette.activeSlot === 'background'
+                  ? palette.backgroundColor
+                  : palette.foregroundColor;
+              const { r, g, b } = hexToRgb(cssColorToHex(activeFillColor ?? '#000000'));
               return { r, g, b, a: 255 };
             })();
 
@@ -1810,13 +1807,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         if (tools.shapeMode && tools.currentTool === 'brush') {
           drawingHandlers.startShapeDrawing(worldPos, pressure);
         } else {
-          const brushPresetId = (() => {
-            try {
-              return useAppStore.getState().currentBrushPreset?.id ?? null;
-            } catch {
-              return null;
-            }
-          })();
+          const brushPresetId = getDynamicDeps().currentBrushPresetId;
           drawingHandlers.beginStrokeSession({
             pointerId: event.pointerId,
             layerId: activeLayerId ?? null,
@@ -2002,7 +1993,7 @@ function cssColorToHex(color: string): string {
     // Unified coalesced handling below covers both brush and shape drawing (with snapping)
 
     // Recolor sampling preview line
-    const rsMove = useAppStore.getState().recolorSampling;
+    const rsMove = getDynamicDeps().recolorSampling;
     if (rsMove.active && isMouseDownRef.current && rsMove.start) {
       const overlayCanvas = overlayCanvasRef.current;
       const overlayCtx = overlayCanvas?.getContext('2d');
@@ -2217,7 +2208,7 @@ function cssColorToHex(color: string): string {
               const previewWidth = perpDist * 2;
 
               try {
-                useAppStore.getState().setRectangleBrushState({
+                deps.setRectangleBrushState({
                   width: previewWidth,
                   currentPos: { x: worldPos.x, y: worldPos.y },
                 });
@@ -2703,7 +2694,7 @@ function cssColorToHex(color: string): string {
       lastMoveEvent = null;
     }
 
-    const polygonGradientStateGuard = useAppStore.getState().polygonGradientState;
+    const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
       polygonGradientStateGuard != null &&
       (polygonGradientStateGuard.drawingState === 'adjustingSpacing' ||
@@ -2756,7 +2747,7 @@ function cssColorToHex(color: string): string {
     }
 
     // Recolor/Brush sampling finalize on drag-release
-    const rsFinalize = useAppStore.getState().recolorSampling;
+    const rsFinalize = getDynamicDeps().recolorSampling;
     if (rsFinalize.active && rsFinalize.start) {
       const scaleFinalize = canvas?.zoom || 1;
       const worldPosFinalize = pan.screenToWorld(mousePos.x, mousePos.y, scaleFinalize);
@@ -2805,11 +2796,11 @@ function cssColorToHex(color: string): string {
         }
       } else {
         try {
-          useAppStore.getState().setBrushSettings({ colorCycleGradient: stopsFinalize });
+          deps.setBrushSettings({ colorCycleGradient: stopsFinalize });
         } catch {}
       }
 
-      useAppStore.getState().stopRecolorSampling();
+      deps.stopRecolorSampling();
       return;
     }
 
@@ -3019,7 +3010,7 @@ function cssColorToHex(color: string): string {
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonGradientStateGuard = useAppStore.getState().polygonGradientState;
+    const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
       polygonGradientStateGuard != null &&
       (polygonGradientStateGuard.drawingState === 'adjustingSpacing' ||

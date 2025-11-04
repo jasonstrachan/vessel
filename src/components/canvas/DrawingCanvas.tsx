@@ -177,6 +177,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const previousTool = useAppStore((state) => state.tools.previousTool);
   const colorAdjustActive = useAppStore((state) => state.colorAdjust.active);
   const globalBrushSize = useAppStore((state) => state.globalBrushSize);
+  const palette = useAppStore((state) => state.palette);
+  const polygonGradientState = useAppStore((state) => state.polygonGradientState);
+  const recolorSampling = useAppStore((state) => state.recolorSampling);
+  const currentBrushPresetId = useAppStore((state) => state.currentBrushPreset?.id ?? null);
+  const setActiveColor = useAppStore((state) => state.setActiveColor);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
+  const updateRecolorSampling = useAppStore((state) => state.updateRecolorSampling);
+  const stopRecolorSampling = useAppStore((state) => state.stopRecolorSampling);
+  const setRectangleBrushState = useAppStore((state) => state.setRectangleBrushState);
   const tools = useMemo(
     () => ({
       currentTool,
@@ -2267,6 +2276,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
     updateLayer,
+    palette,
+    polygonGradientState,
+    recolorSampling,
+    currentBrushPresetId,
+    setActiveColor,
+    setBrushSettings,
+    updateRecolorSampling,
+    stopRecolorSampling,
+    setRectangleBrushState,
 
     // Floating paste
     setFloatingPaste: setFloatingPasteFromHandlers,

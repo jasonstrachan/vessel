@@ -56,6 +56,7 @@ export interface ProjectSliceOptions {
   persistCustomBrushes: () => void;
   getLastCustomBrushSnapshot: () => CustomBrushSnapshot;
   syncPercentOffsetsFromPixels: (layers: Layer[], project: Project | null) => Layer[];
+  captureCanvasToActiveLayer: AppState['captureCanvasToActiveLayer'];
 }
 
 export const createProjectSlice =
@@ -64,6 +65,7 @@ export const createProjectSlice =
     persistCustomBrushes,
     getLastCustomBrushSnapshot,
     syncPercentOffsetsFromPixels,
+    captureCanvasToActiveLayer,
   }: ProjectSliceOptions): StateCreator<AppState, [], [], ProjectSlice> =>
   (set, get) => {
     const {
@@ -81,6 +83,7 @@ export const createProjectSlice =
       persistCustomBrushes,
       getLastCustomBrushSnapshot,
       syncPercentOffsetsFromPixels,
+      captureCanvasToActiveLayer,
     });
 
     const initialPalette = createDefaultPalette();

@@ -23,7 +23,6 @@ import { SettingsModal } from '../components/modals/SettingsModal';
 import LoadProjectModal from '../components/modals/LoadProjectModal';
 import { useAppStore } from '../stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
-import { selectAutosaveSettings, selectCanvasPreferences, selectSettingsActions } from '@/stores/selectors/stateSelectors';
 import { selectModals } from '@/stores/selectors/modalSelectors';
 import { autosaveService } from '../utils/autosave';
 import { preloadRisographTexture } from '../utils/risographTexture';
@@ -42,9 +41,13 @@ export default function Home() {
   const isExportModalOpen = modals.export;
   const isLoadModalOpen = modals.loadProject;
 
-  const { isEnabled: autosaveEnabled, interval: autosaveInterval } = useAppStore(selectAutosaveSettings);
-  const { showRulers: canvasShowRulers } = useAppStore(selectCanvasPreferences);
-  const { setAutosaveEnabled, setAutosaveInterval, toggleRulers, setHistorySize } = useAppStore(selectSettingsActions);
+  const autosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
+  const autosaveInterval = useAppStore((state) => state.autosave.interval);
+  const canvasShowRulers = useAppStore((state) => state.canvas.showRulers);
+  const setAutosaveEnabled = useAppStore((state) => state.setAutosaveEnabled);
+  const setAutosaveInterval = useAppStore((state) => state.setAutosaveInterval);
+  const toggleRulers = useAppStore((state) => state.toggleRulers);
+  const setHistorySize = useAppStore((state) => state.setHistorySize);
   const newProject = useAppStore((state) => state.newProject);
   const ensureCustomBrushHydrated = useAppStore((state) => state.ensureCustomBrushHydrated);
   const layers = useAppStore(selectLayers);

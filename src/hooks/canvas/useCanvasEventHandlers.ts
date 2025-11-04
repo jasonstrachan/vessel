@@ -39,6 +39,10 @@ type EventHandlerDependenciesInput = Omit<
   selectionEnd: EventHandlerDynamicDeps['selectionEnd'];
   floatingPaste: EventHandlerDynamicDeps['floatingPaste'];
   isDraggingFloatingPaste: EventHandlerDynamicDeps['isDraggingFloatingPaste'];
+  palette: EventHandlerDynamicDeps['palette'];
+  polygonGradientState: EventHandlerDynamicDeps['polygonGradientState'];
+  recolorSampling: EventHandlerDynamicDeps['recolorSampling'];
+  currentBrushPresetId: EventHandlerDynamicDeps['currentBrushPresetId'];
 };
 
 export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): EventHandlers => {
@@ -52,6 +56,10 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     selectionEnd,
     floatingPaste,
     isDraggingFloatingPaste,
+    palette,
+    polygonGradientState,
+    recolorSampling,
+    currentBrushPresetId,
     ...staticDeps
   } = deps;
   // Persistent refs for angle snapping across re-renders
@@ -85,6 +93,10 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     selectionEnd,
     floatingPaste,
     isDraggingFloatingPaste,
+    palette,
+    polygonGradientState,
+    recolorSampling,
+    currentBrushPresetId,
   });
 
   dynamicDepsRef.current = {
@@ -97,6 +109,10 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     selectionEnd,
     floatingPaste,
     isDraggingFloatingPaste,
+    palette,
+    polygonGradientState,
+    recolorSampling,
+    currentBrushPresetId,
   };
 
   const augmentedDeps = {
@@ -140,6 +156,18 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     },
     isDraggingFloatingPaste: {
       get: () => dynamicDepsRef.current.isDraggingFloatingPaste,
+    },
+    palette: {
+      get: () => dynamicDepsRef.current.palette,
+    },
+    polygonGradientState: {
+      get: () => dynamicDepsRef.current.polygonGradientState,
+    },
+    recolorSampling: {
+      get: () => dynamicDepsRef.current.recolorSampling,
+    },
+    currentBrushPresetId: {
+      get: () => dynamicDepsRef.current.currentBrushPresetId,
     },
   });
   // Create pointer event handlers

@@ -1,5 +1,6 @@
 import type React from 'react';
-import type { BrushSettings, Project, Layer } from '../../../types';
+import type { AppState } from '@/stores/useAppStore';
+import type { BrushPreset, BrushSettings, PaletteState, PolygonGradientState, Project, Layer } from '../../../types';
 import type { InteractionAction, InteractionState } from '../../useCanvasInteraction';
 import type { CanvasStateMachine } from '@/hooks/useCanvasStateMachine';
 import type { DrawingHandlers } from '@/hooks/useDrawingHandlers';
@@ -30,6 +31,9 @@ export interface CanvasState {
   scale: number;
   zoom: number;
 }
+
+export type RecolorSamplingState = AppState['recolorSampling'];
+export type RectangleBrushState = AppState['rectangleBrushState'];
 
 export interface ToolsState {
   currentTool: string;
@@ -88,6 +92,10 @@ export interface EventHandlerDynamicDeps {
   selectionEnd: { x: number; y: number } | null;
   floatingPaste: FloatingPaste | null;
   isDraggingFloatingPaste: boolean;
+  palette: PaletteState;
+  polygonGradientState: PolygonGradientState;
+  recolorSampling: RecolorSamplingState;
+  currentBrushPresetId: string | null;
 }
 
 export interface EventHandlerDependencies {
@@ -115,14 +123,23 @@ export interface EventHandlerDependencies {
   selectionEnd: { x: number; y: number } | null;
   floatingPaste: FloatingPaste | null;
   isDraggingFloatingPaste: boolean;
+  palette: PaletteState;
+  polygonGradientState: PolygonGradientState;
+  recolorSampling: RecolorSamplingState;
+  currentBrushPresetId: string | null;
 
   // Store actions
   setSelectionBounds: (start: { x: number; y: number }, end: { x: number; y: number }) => void;
   clearSelection: () => void;
   setCurrentTool: (tool: string) => void;
+  setActiveColor: (color: string) => void;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
   compositeLayersToCanvas: (canvas: HTMLCanvasElement) => void;
   updateLayer: (layerId: string, updates: Partial<Layer>) => void;
+  setBrushSettings: (settings: Partial<BrushSettings>) => void;
+  updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
+  stopRecolorSampling: () => void;
+  setRectangleBrushState: (partial: Partial<RectangleBrushState>) => void;
   
   // Floating paste actions
   setFloatingPaste: (paste: FloatingPaste | null) => void;

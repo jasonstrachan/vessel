@@ -226,7 +226,6 @@ import type {
   PolygonGradientState,
   BrushEditorState,
   KeyboardScope,
-  KeyboardScopeEntry,
   ExportContainerLayout,
   WebGLExportSettings,
   CropState,
@@ -244,9 +243,9 @@ import {
 import { createHistorySlice } from '@/stores/slices/historySlice';
 import { createLayersSlice } from '@/stores/slices/layersSlice';
 import { createProjectSlice } from '@/stores/slices/projectSlice';
+import { createUiSlice } from '@/stores/slices/uiSlice';
 import { createVesselStore } from '@/stores/createVesselStore';
 // import { memoryManager } from '../utils/memoryCleanup';
-import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '../constants/canvas';
 import { adjustHueLightnessSaturation, applyColorAdjustments } from '../utils/imageProcessing';
 import { debugLog, logError, __DEV__ } from '../utils/debug';
 import { applyCroppedLayers } from '@/utils/crop/apply';
@@ -270,7 +269,9 @@ import {
   captureLayerStructureSnapshot,
   commitLayerStructureHistory,
 } from '@/stores/helpers/layerStructureHistory';
-import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
+import { clampSelectionBounds, copyRegionIntoTarget } from '@/stores/helpers/selectionRoi';
+import { createSelectionSlice } from '@/stores/slices/selectionSlice';
+import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 
 const COLOR_CYCLE_PRESET_IDS = ['color-cycle-stroke', 'color-cycle-triangle', 'color-cycle-shape'] as const;
 
@@ -425,64 +426,6 @@ const scheduleColorAdjustPreview = (getState: () => AppState): void => {
     colorAdjustPreviewHandle = null;
     getState().previewColorAdjust();
   });
-};
-
-const clampSelectionBounds = (
-  bounds: Rectangle | null,
-  imageWidth: number,
-  imageHeight: number
-): Rectangle | null => {
-  if (!bounds) {
-    return null;
-  }
-
-  const width = Math.ceil(bounds.width);
-  const height = Math.ceil(bounds.height);
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-
-  const x = Math.max(0, Math.min(imageWidth - 1, Math.floor(bounds.x)));
-  const y = Math.max(0, Math.min(imageHeight - 1, Math.floor(bounds.y)));
-  const clampedWidth = Math.min(width, imageWidth - x);
-  const clampedHeight = Math.min(height, imageHeight - y);
-
-  if (clampedWidth <= 0 || clampedHeight <= 0) {
-    return null;
-  }
-
-  return {
-    x,
-    y,
-    width: clampedWidth,
-    height: clampedHeight
-  };
-};
-
-const copyRegionIntoTarget = (source: ImageData, target: ImageData, bounds: Rectangle): void => {
-  const srcData = source.data;
-  const tgtData = target.data;
-  const sourceWidth = source.width;
-  const sourceHeight = source.height;
-  const targetWidth = target.width;
-  const targetHeight = target.height;
-
-  const startX = Math.max(0, Math.min(sourceWidth, Math.floor(bounds.x)));
-  const startY = Math.max(0, Math.min(sourceHeight, Math.floor(bounds.y)));
-  const endX = Math.min(sourceWidth, Math.ceil(bounds.x + bounds.width));
-  const endY = Math.min(sourceHeight, Math.ceil(bounds.y + bounds.height));
-
-  for (let y = startY; y < endY && y < targetHeight; y += 1) {
-    for (let x = startX; x < endX && x < targetWidth; x += 1) {
-      const index = (y * sourceWidth + x) * 4;
-      const targetIndex = (y * targetWidth + x) * 4;
-
-      tgtData[targetIndex] = srcData[index];
-      tgtData[targetIndex + 1] = srcData[index + 1];
-      tgtData[targetIndex + 2] = srcData[index + 2];
-      tgtData[targetIndex + 3] = srcData[index + 3];
-    }
-  }
 };
 
 const defaultColorAdjustParams: ColorAdjustParams = {
@@ -953,28 +896,6 @@ const defaultPressureSettings: PressureSettings = {
   ),
 };
 
-const defaultCanvasState: CanvasState = {
-  zoom: 1,
-  rotation: 0,
-  gridSize: 16,
-  showRulers: false,
-  displayMode: 'pixelated',
-  canvasWidth: 2000,
-  canvasHeight: 2000,
-  offsetX: 0,
-  offsetY: 0,
-  selection: {
-    active: false,
-    bounds: { x: 0, y: 0, width: 0, height: 0 },
-    pixels: typeof ImageData !== 'undefined' ? new ImageData(1, 1) : {} as ImageData
-  },
-  cursor: {
-    x: 0,
-    y: 0,
-    pressure: 0
-  }
-};
-
 const defaultToolState: ToolState = {
   currentTool: 'brush',
   previousTool: 'brush',
@@ -1002,47 +923,6 @@ const defaultCropState: CropState = {
   marquee: null,
   activeHandle: null,
   commitInFlight: false
-};
-
-const DEFAULT_KEYBOARD_SCOPE: KeyboardScope = 'canvas';
-const KEYBOARD_SCOPE_PRIORITY: readonly KeyboardScope[] = ['modal', 'gradient', 'recolor', 'canvas', 'global'] as const;
-
-const resolveActiveKeyboardScope = (stack: KeyboardScopeEntry[]): KeyboardScope => {
-  if (stack.length === 0) {
-    return DEFAULT_KEYBOARD_SCOPE;
-  }
-
-  for (const scope of KEYBOARD_SCOPE_PRIORITY) {
-    if (stack.some((entry) => entry.scope === scope)) {
-      return scope;
-    }
-  }
-
-  const lastEntry = stack[stack.length - 1];
-  return lastEntry?.scope ?? DEFAULT_KEYBOARD_SCOPE;
-};
-
-const defaultUIState: UIState = {
-  panels: {
-    leftToolbar: true,
-    rightToolbar: true,
-    timeline: true,
-    layerPanel: true,
-    brushPanel: true
-  },
-  modals: {
-    export: false,
-    settings: false,
-    help: false,
-    document: false,
-    loadProject: false
-  },
-  theme: 'dark',
-  notifications: [],
-  keyboardScope: {
-    active: DEFAULT_KEYBOARD_SCOPE,
-    stack: [],
-  }
 };
 
 const defaultBrushEditorState: BrushEditorState = {
@@ -1337,6 +1217,8 @@ export const useAppStore = createVesselStore<AppState>(
         persistCustomBrushes,
         getLastCustomBrushSnapshot,
         syncPercentOffsetsFromPixels,
+        captureCanvasToActiveLayer: (canvas, roi) =>
+          get().captureCanvasToActiveLayer(canvas, roi),
       })(set, get, store);
 
       const scheduleCompositeBitmapRelease = (bitmap: ImageBitmap) => {
@@ -1479,11 +1361,10 @@ export const useAppStore = createVesselStore<AppState>(
         getVesselWindow,
       })(set, get, store);
 
-      const selectionPasteHelpers = createSelectionPasteHelpers({
-        get,
-        set,
-        captureCanvasToActiveLayer: (canvas, roi) => get().captureCanvasToActiveLayer(canvas, roi),
-      });
+      const uiSlice = createUiSlice()(set, get, store);
+
+      const canvasSlice = createCanvasSlice(set, get, store);
+      const selectionSlice = createSelectionSlice(set, get, store);
 
       const initialPalette = createDefaultPalette();
 
@@ -1491,6 +1372,9 @@ export const useAppStore = createVesselStore<AppState>(
         ...historySlice,
         ...projectSlice,
         ...layersSlice,
+        ...uiSlice,
+        ...canvasSlice,
+        ...selectionSlice,
         paletteDirty: false,
         palette: initialPalette,
       colorCyclePlayback: {
@@ -1656,160 +1540,6 @@ export const useAppStore = createVesselStore<AppState>(
       // Brush-specific settings storage (in-memory, separate from project)
       brushSpecificSettings: {},
       
-      // Canvas State
-      canvas: defaultCanvasState,
-      canvasViewport: {
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0
-      },
-      setZoom: (zoom) => set((state) => ({
-        canvas: { ...state.canvas, zoom: Math.max(MIN_CANVAS_ZOOM, Math.min(MAX_CANVAS_ZOOM, zoom)) }
-      })),
-      setRotation: (rotation) => set((state) => ({
-        canvas: { ...state.canvas, rotation }
-      })),
-      setGridSize: (gridSize) => set((state) => ({
-        canvas: { ...state.canvas, gridSize }
-      })),
-      setCanvasOffset: (offsetX, offsetY) => set((state) => {
-        if (state.canvas.offsetX === offsetX && state.canvas.offsetY === offsetY) {
-          return state;
-        }
-        return {
-          canvas: { ...state.canvas, offsetX, offsetY }
-        };
-      }),
-      setCanvasViewport: (viewport) => set((state) => {
-        const { left, top, width, height } = state.canvasViewport;
-        if (
-          left === viewport.left &&
-          top === viewport.top &&
-          width === viewport.width &&
-          height === viewport.height
-        ) {
-          return state;
-        }
-        return {
-          canvasViewport: viewport
-        };
-      }),
-      toggleRulers: () => set((state) => ({
-        canvas: { ...state.canvas, showRulers: !state.canvas.showRulers }
-      })),
-      setDisplayMode: (mode) => set((state) => ({
-        canvas: { ...state.canvas, displayMode: mode }
-      })),
-      setCanvasDimensions: (width, height) => set((state) => ({
-        canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height }
-      })),
-      resizeCanvas: async (width, height) => {
-        await get().resizeProjectCanvas(width, height);
-      },
-      setSelection: (selection) => set((state) => ({
-        canvas: { ...state.canvas, selection }
-      })),
-      setCursor: (cursor) => set((state) => ({
-        canvas: { ...state.canvas, cursor }
-      })),
-      
-      // Selection State
-      selectionStart: null,
-      selectionEnd: null,
-      setSelectionBounds: (start, end) => set({ selectionStart: start, selectionEnd: end }),
-      clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
-      selectAllActiveLayerPixels: () => {
-        const state = get();
-        const { project, layers, activeLayerId } = state;
-
-        const activeLayer = activeLayerId
-          ? layers.find(layer => layer.id === activeLayerId) ?? null
-          : null;
-
-        const width = activeLayer?.imageData?.width
-          ?? activeLayer?.framebuffer?.width
-          ?? project?.width;
-        const height = activeLayer?.imageData?.height
-          ?? activeLayer?.framebuffer?.height
-          ?? project?.height;
-
-        if (!width || !height) {
-          return;
-        }
-
-        set({
-          selectionStart: { x: 0, y: 0 },
-          selectionEnd: { x: width, y: height }
-        });
-      },
-      deleteSelectedPixels: () => {
-        const state = get();
-        const { selectionStart, selectionEnd, layers, activeLayerId, project } = state;
-        
-        if (!selectionStart || !selectionEnd || !project) return;
-        
-        const activeLayer = layers.find(l => l.id === activeLayerId);
-        if (!activeLayer || !activeLayer.imageData || !activeLayerId) return;
-        
-        // Calculate selection bounds
-        const x = Math.min(selectionStart.x, selectionEnd.x);
-        const y = Math.min(selectionStart.y, selectionEnd.y);
-        const width = Math.abs(selectionEnd.x - selectionStart.x);
-        const height = Math.abs(selectionEnd.y - selectionStart.y);
-        
-        if (width <= 0 || height <= 0) return;
-
-        const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
-        
-        const beforeImage = cloneLayerImageData(activeLayer.imageData);
-        const beforeColorState =
-          activeLayer.layerType === 'color-cycle'
-            ? captureColorCycleBrushState(activeLayer.id)
-            : null;
-
-        // Create a copy of the image data
-        const newImageData = new ImageData(
-          new Uint8ClampedArray(activeLayer.imageData.data),
-          activeLayer.imageData.width,
-          activeLayer.imageData.height
-        );
-        
-        // Clear pixels within selection bounds
-        for (let py = Math.max(0, Math.floor(y)); py < Math.min(newImageData.height, Math.ceil(y + height)); py++) {
-          for (let px = Math.max(0, Math.floor(x)); px < Math.min(newImageData.width, Math.ceil(x + width)); px++) {
-            const index = (py * newImageData.width + px) * 4;
-            newImageData.data[index] = 0;     // R
-            newImageData.data[index + 1] = 0; // G
-            newImageData.data[index + 2] = 0; // B
-            newImageData.data[index + 3] = 0; // A
-          }
-        }
-        
-        // Update the layer - this will trigger a state change
-        state.updateLayer(activeLayerId, { imageData: newImageData });
-        
-        // Trigger recomposition to update the canvas immediately
-        state.setLayersNeedRecomposition(true);
-
-        // Clear selection before committing history so the delta captures UI state changes
-        state.clearSelection();
-
-        void commitLayerHistory({
-          layerId: activeLayerId,
-          beforeImage,
-          beforeColorState,
-          actionType: 'delete',
-          description: 'Delete selected pixels',
-          tool: 'selection',
-          selectionBefore,
-        }).catch((error) => {
-          if (process.env.NODE_ENV !== 'production') {
-            console.warn('[history] Failed to record selection delete', error);
-          }
-        });
-      },
-
       // Color Adjust Tool
       colorAdjust: createDefaultColorAdjustState(),
       startColorAdjustSession: () => {
@@ -2194,38 +1924,6 @@ export const useAppStore = createVesselStore<AppState>(
           }));
         }
       },
-      // Floating Paste State
-      floatingPaste: null,
-      setFloatingPaste: (paste) => set({ 
-        floatingPaste: paste ? {
-          active: true,
-          imageData: paste.imageData,
-          position: paste.position,
-          originalPosition: paste.originalPosition ?? paste.position,
-          width: paste.width,
-          height: paste.height,
-          displayWidth: paste.displayWidth ?? paste.width,
-          displayHeight: paste.displayHeight ?? paste.height,
-          sourceLayerId: paste.sourceLayerId ?? null
-        } : null 
-      }),
-      updateFloatingPastePosition: (position) => set((state) => ({
-        floatingPaste: state.floatingPaste ? {
-          ...state.floatingPaste,
-          position
-        } : null
-      })),
-      updateFloatingPasteRect: (rect) => set((state) => ({
-        floatingPaste: state.floatingPaste ? {
-          ...state.floatingPaste,
-          position: { x: rect.x, y: rect.y },
-          displayWidth: rect.width,
-          displayHeight: rect.height
-        } : null
-      })),
-      commitFloatingPaste: () => selectionPasteHelpers.commitFloatingPaste(),
-      cancelFloatingPaste: () => selectionPasteHelpers.cancelFloatingPaste(),
-      
       // Tool State
       tools: (() => {
         return defaultToolState;
@@ -3346,9 +3044,6 @@ export const useAppStore = createVesselStore<AppState>(
       getBrushPresetById: (id) => brushPresets.find(preset => preset.id === id),
       
       
-      // UI State
-      ui: defaultUIState,
-      
       // Autosave State
       autosave: {
         isEnabled: false,
@@ -3365,92 +3060,6 @@ export const useAppStore = createVesselStore<AppState>(
           lastBackupTime: null,
         },
       },
-      
-      togglePanel: (panel) => set((state) => ({
-        ui: {
-          ...state.ui,
-          panels: {
-            ...state.ui.panels,
-            [panel]: !state.ui.panels[panel]
-          }
-        }
-      })),
-      toggleModal: (modal) => set((state) => ({
-        ui: {
-          ...state.ui,
-          modals: {
-            ...state.ui.modals,
-            [modal]: !state.ui.modals[modal]
-          }
-        }
-      })),
-      setTheme: (theme) => set((state) => ({
-        ui: { ...state.ui, theme }
-      })),
-      addNotification: (notification) => set((state) => ({
-        ui: {
-          ...state.ui,
-          notifications: [
-            ...state.ui.notifications,
-            {
-              ...notification,
-              id: `notification-${Date.now()}-${Math.random()}`
-            }
-          ]
-        }
-      })),
-      removeNotification: (id) => set((state) => ({
-        ui: {
-          ...state.ui,
-          notifications: state.ui.notifications.filter(n => n.id !== id)
-        }
-      })),
-      pushKeyboardScope: (id, scope) => set((state) => {
-        const existingStack = state.ui.keyboardScope.stack;
-        const filtered = existingStack.filter((entry) => entry.id !== id);
-        const nextStack = [...filtered, { id, scope }];
-        const nextActive = resolveActiveKeyboardScope(nextStack);
-
-        if (
-          existingStack.length === nextStack.length &&
-          state.ui.keyboardScope.active === nextActive &&
-          existingStack.every(
-            (entry, index) =>
-              entry.id === nextStack[index]?.id && entry.scope === nextStack[index]?.scope,
-          )
-        ) {
-          return state;
-        }
-
-        return {
-          ui: {
-            ...state.ui,
-            keyboardScope: {
-              stack: nextStack,
-              active: nextActive,
-            },
-          },
-        };
-      }),
-      popKeyboardScope: (id) => set((state) => {
-        const existingStack = state.ui.keyboardScope.stack;
-        const nextStack = existingStack.filter((entry) => entry.id !== id);
-        if (nextStack.length === existingStack.length) {
-          return state;
-        }
-
-        const nextActive = resolveActiveKeyboardScope(nextStack);
-
-        return {
-          ui: {
-            ...state.ui,
-            keyboardScope: {
-              stack: nextStack,
-              active: nextActive,
-            },
-          },
-        };
-      }),
       
       ensureCustomBrushHydrated: () => ensureCustomBrushHydratedFn(),
       

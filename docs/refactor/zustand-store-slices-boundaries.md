@@ -3,38 +3,35 @@ This document tracks the planned decomposition of `useAppStore`. Every slice ent
 ## Status Snapshot (Nov 3, 2025)
 - [x] **Autosave & File Backup** — fully extracted (`src/stores/slices/autosaveSlice.ts`), wired through `createVesselStore`, and covered by regression tests in `useAppStore.autosave.test.ts`.
 - [x] **Palette** — implemented in `src/stores/slices/paletteSlice.ts`; all palette mutations now flow through `applyPaletteSnapshot` helpers.
-- [~] **Project** — slice + lifecycle helpers (`projectSlice`, `projectLifecycle`) own persistence and capture routines, but history glue + a few legacy setters remain in `useAppStore`.
+- [x] **Project** — slice + lifecycle helpers (`projectSlice`, `projectLifecycle`) now own persistence, capture, and import/export flows end to end (see new regression tests in `src/stores/__tests__/projectLifecycle.integration.test.ts`).
 - [x] **Layers & Composition** — CRUD operations, composition, and capture flows now live entirely in `layersSlice`; selectors/tests cover alignment and ROI capture paths.
-- [ ] **Canvas Viewport** — pending extraction.
-- [ ] **Selection & Paste** — pending extraction; selectors now drive UI/keyboard hooks, but core state still resides in `useAppStore`.
+- [x] **Canvas Viewport** — state/actions now live in `src/stores/slices/canvasSlice.ts`; zoom/pan/display toggles are isolated from tool updates.
+- [x] **Selection & Paste** — slice extracted to `src/stores/slices/selectionSlice.ts`; floating paste + marquee helpers covered by new ROI tests.
 - [ ] **Tools & Brush** — pending extraction; still bundled with legacy brush editor logic.
 - [ ] **Shape Fill** — pending extraction.
 - [ ] **Color Adjust & Crop** — pending extraction.
 - [x] **History** — `historySlice` owns undo/redo stacks and integrates with the new helper services.
-- [~] **UI & Keyboard** — selector-based readers are in place (`useStoreSelectorRef`), but slice still sits inside the monolith.
+- [x] **UI & Keyboard** — `createUiSlice` now owns keyboard scope, panel/modal visibility, notifications, and theme state; selectors feed `useComprehensiveKeyboard`/DrawingCanvas without touching the monolith.
 
 ### Immediate Focus (ordered)
-1. **Project slice finish** — move the remaining capture/save setters, annotate dependencies, and extend import/export regression tests so downstream slices depend on a stable project API.
-2. **Selection & Paste groundwork** — with `selectionPasteHelpers` in place, finish migrating drawing/pointer handlers to selector refs, then extract the slice with ROI batching + regression tests.
-3. **Canvas viewport slice** — isolate zoom/pan/ruler state so canvas hooks aren’t blocked on unrelated tool updates.
-4. **Keyboard & drawing handler cleanup** — continue replacing `useAppStore.getState()` in gesture/key handlers to prevent regressions once slices hide their internal state.
-5. **UI-centric slices** — once Selection & Paste lands, proceed with Tools & Brush, Shape Fill, Color Adjust/Crop, then complete the UI slice.
+1. **Tools & Brush slice scaffolding** — migrate brush/eraser state + pressure helpers out of `useAppStore`, then gate presets via selectors.
+2. **Shape Fill + Color Adjust follow-up** — align remaining tool slices with the new canvas/selection boundaries, including ROI reuse in color-adjust previews.
+3. **Gesture/keyboard cleanup** — continue purging direct `useAppStore.getState()` calls (focus next on `useDrawingHandlers` and tool state machines) so future slices can encapsulate state safely.
+4. **UI-centric slices** — once Tools & Brush land, proceed with Shape Fill, Color Adjust/Crop, then finish the UI slice refinements.
 
 ---
 
-## 1. Project Slice  [~]
-- **Current Status**: `src/stores/slices/projectSlice.ts` composes into `useAppStore` through `createVesselStore`. Lifecycle helpers (`projectLifecycle`, `layerStructureHistory`, `cropHistory`) now own persistence, capture, and brush hydration logic. `setProjectDimensions`, `resizeProjectCanvas`, and custom brush persistence all flow through the slice.
+## 1. Project Slice  [✅]
+- **Current Status**: `src/stores/slices/projectSlice.ts` composes into `useAppStore` through `createVesselStore`. Lifecycle helpers (`projectLifecycle`, `layerStructureHistory`, `cropHistory`) now own persistence, capture, and brush hydration logic. `captureCanvasToActiveLayer` is injected into the lifecycle so save/export flows no longer reach into `useAppStore`, and the new regression suite (`src/stores/__tests__/projectLifecycle.integration.test.ts`) locks down save, import, and export behaviors.
 - **State (target)**: `project`, `projectFilename`, `projectFileHandle`, `webglExportSettings`, `globalBrushSize` (until Tools slice absorbs it), `brushSpecificSettings`, and project-level async flags (`isSaving`, `isExporting`).
 - **Actions (target)**: `setProject`, `updateProject`, `setProjectDimensions`, `saveProject`, `loadProject`, `importProject`, `exportProject`, `newProject`, `captureCanvasToActiveLayer`, `captureCanvasToLayer`, `compositeLayersToCanvas`, plus helper-facing setters for capture ROI + export metadata.
 - **Dependencies**: `createCustomBrushPersistence`, `projectLifecycle`, `historyLifecycle` (for undo snapshots), `colorCycleBrushManager` (orphan cleanup), palette slice (foreground/background sync), file IO helpers in `utils/projectIO.ts`.
 - **Remaining Gaps**:
-  - History glue (`applyLoadedProject`, undo bridge) still calls into `useAppStore` directly.
-  - Capture helpers for history snapshots live in `useAppStore` and need to move into `projectLifecycle`.
-  - Selectors exist in `src/stores/selectors/projectSelectors.ts`, but not all consumers have migrated.
+  - `loadProject` still shells out to the file picker; when we add a mockable IO service, add coverage for that path plus color-cycle hydration edge cases.
+  - A few legacy consumers still grab project data directly; continue migrating them to `projectSelectors` to minimize rerenders.
 - **Next Steps**:
-  1. Migrate `captureCanvasToActiveLayer`/`captureCanvasToLayer` to the helper module so the slice is the single writer.
-  2. Update `useAppStore` to delegate remaining `project.*` setters to slice actions only.
-  3. Expand Jest coverage (`projectSelectors.test.ts`) to include import/export happy path + regression for custom-brush hydration.
+  1. Backfill focused tests around `loadProject` once the IO helpers are injectable.
+  2. Finish migrating remaining project consumers (legacy keyboard/drawing handlers) to selectors so future slices can hide their internals cleanly.
 
 ## 2. Palette Slice  [✅]
 - **State**: `palette`, `paletteDirty`, `activeSlot` (foreground/background), plus derived helpers for brush sync.
@@ -52,24 +49,6 @@ This document tracks the planned decomposition of `useAppStore`. Every slice ent
   1. Expose the new capture helpers to the Selection/Paste slice so floating paste commits reuse the ROI path.
   2. Add perf probes if recomposition latency spikes during future refactors.
 
-## 4. Canvas Viewport Slice  [ ]
-- **State (target)**: `canvasTransform` (scale, offset), `viewTransformRef`, `showRulers`, `gridSnap`, `zoomHistory`, `panVelocity`, `devicePixelRatioOverride`.
-- **Actions (target)**: `setCanvasTransform`, `setZoom`, `setPan`, `resetView`, `toggleRulers`, `setGridSnap`, `setDevicePixelRatioOverride`, plus helpers consumed by `useSimplePan` and `DrawingCanvas`.
-- **Dependencies**: `zoomUtils`, `useSimplePan`, `canvasPool`, `autosaveService` (for boundary checks), `gridSnap` utilities.
-- **Status / Next Steps**:
-  1. Inventory components/hooks reading `canvas` state (`DrawingCanvas.tsx`, `useSimplePan.ts`, `useCanvasInteraction.ts`).
-  2. Define selectors for derived transforms so `DrawingCanvas` can stop memoizing entire store slices.
-  3. Extract slice and update hooks to consume selectors + actions, then add viewport regression tests (zoom reset, ruler toggles).
-
-## 5. Selection & Paste Slice  [ ]
-- **State (target)**: `selectionStart`, `selectionEnd`, `selectionMode`, `selectionMask`, `floatingPaste`, `floatingPasteTransform`, `selectionClipboard`, `selectionNeedsRepaint`, `isDraggingFloatingPaste`.
-- **Actions (target)**: `setSelectionRange`, `clearSelection`, `deleteSelectedPixels`, `setFloatingPaste`, `updateFloatingPasteRect`, `commitFloatingPaste`, `cancelFloatingPaste`, `setSelectionMode`, `syncSelectionMask`, clipboard helpers for history integration, drag-state setters.
-- **Dependencies**: `pasteSelectors`, `DrawingCanvas`, `FloatingPasteOverlay`, `useDrawingHandlers`, pointer handlers, history slice (for undo), layer slice (for ROI operations), `pendingColorCycleSaves` (when selection touches CC layers).
-- **Current Status**: UI components (FloatingPasteOverlay, BrushControls, GradientEditor, DrawingCanvas) now pull selection/paste data via selectors. Both high-frequency hooks—`useComprehensiveKeyboard` and `useDrawingHandlers`—use `useStoreSelectorRef`, and floating paste commit/cancel flows run through `selectionPasteHelpers`, which call the layer slice’s ROI-aware capture helpers.
-- **Next Steps**:
-  1. Introduce narrower selection/paste selectors (range, drag state, clipboard metadata) so `useDrawingHandlers` and Canvas utilities only subscribe to the fields they mutate.
-  2. Extract the slice and wire `setFloatingPaste`, `setSelectionRange`, delete/confirm actions, and ROI batching to the helper module (including a shared buffer pool when Selection/Paste batching lands).
-  3. Add regression tests covering marquee delete, paste confirm/cancel, keyboard shortcuts (Delete, Enter, Escape), and monitor ROI capture timings for large selections (perf probe hook).
 
 ## 6. Tools & Brush Slice  [ ]
 - **State (target)**: `tools` (current tool, brush settings, eraser settings), `globalBrushSize`, `pressureSettings`, `polygonGradientState`, `shapeToolState`, custom brush editor state.
@@ -104,15 +83,14 @@ This document tracks the planned decomposition of `useAppStore`. Every slice ent
 - **Actions**: `setAutosaveEnabled`, `setAutosaveInterval`, `setFileBackupEnabled`, `setFileBackupMode`, `setFileBackupFile`, `setFileBackupDirectory`, `updateFileBackupTime`, `clearDirtyState`.
 - **Next Steps**: None short-term beyond keeping `stateSelectors` updated when UI moves to selectors; add integration tests once selection/paste slice touches autosave flags.
 
-## 11. UI & Keyboard Slice  [~]
-- **Current Status**: Keyboard scope + palette swaps now use selector-based helpers. `useComprehensiveKeyboard` relies on `useStoreSelectorRef` to access scope, tools, palette, and selection without `useAppStore.getState()` calls. However, UI panels/modals remain in the monolith.
-- **State (target)**: `ui.keyboardScope` (active + stack), `ui.modals`, `ui.panels`, `notifications`, `floatingPasteUI`, `transient tool overlays`.
-- **Actions (target)**: `pushKeyboardScope`, `popKeyboardScope`, `setKeyboardScope`, `togglePanel`, `toggleModal`, `addNotification`, `removeNotification`, `setFloatingPaste`, `setUiTheme`.
-- **Dependencies**: Selection slice (for floating paste), Tools slice (for brush editor dialogs), `KeyboardScope` helpers, `ModalPortal` components.
+## 11. UI & Keyboard Slice  [✅]
+- **Current Status**: `createUiSlice` (`src/stores/slices/uiSlice.ts`) now owns UI state/actions: keyboard scope stack, panel/modal visibility, notifications, and theme. `useComprehensiveKeyboard`, DrawingCanvas, and other consumers rely on selectors/selector refs, so no component reaches into the monolith for UI state.
+- **State**: `ui.keyboardScope` (active + stack), `ui.modals`, `ui.panels`, `ui.theme`, `ui.notifications`.
+- **Actions**: `pushKeyboardScope`, `popKeyboardScope`, `togglePanel`, `toggleModal`, `setTheme`, `addNotification`, `removeNotification` (with unique IDs).
+- **Dependencies**: Selection slice (for floating paste UI), Tools slice (brush editor dialogs), `KeyboardScope` helpers, `ModalPortal` components.
 - **Next Steps**:
-  1. Finish migrating keyboard + drawing handlers to selector refs (in-flight).
-  2. Extract keyboard scope management + modal toggles into the slice and update UI components to consume selectors.
-  3. Add lint-friendly hooks to prevent future `useAppStore.getState()` regressions in event listeners.
+  1. Layer on lint-friendly hooks (or unit tests) around keyboard scope usage so future handlers stay selector-based.
+  2. When new UI elements appear, add selectors instead of ad-hoc store access to keep the slice narrow.
 
 ##  12. Cross-Slice Coordination & Tooling
 - **Selectors**: Canonical selectors now live under `src/stores/selectors/` (project, layers, modal, paste, state). Continue adding slice-specific selectors as domains move so components avoid ad-hoc `useAppStore` picks.
@@ -121,3 +99,19 @@ This document tracks the planned decomposition of `useAppStore`. Every slice ent
 - **Testing**: Each slice extraction should add focused Jest coverage (e.g., `projectSelectors.test.ts`, `layersSlice.integration.test.ts`). When selectors move, update nearby tests/fixtures to use the new entry points.
 - **Dev ergonomics**: `createVesselStore` composes `subscribeWithSelector` + devtools gating. Keep new slices pure and serializable, inject services at slice construction time, and document any non-serializable fields directly in the slice file.
 - **ROI perf watch**: Floating paste now calls the layer slice’s ROI-aware capture helpers. When Selection/Paste batching lands, sample capture durations for large regions (via dev logging or perf hooks) and consider pooled ImageData buffers if recomposition spikes.
+
+## 4. Canvas Viewport Slice  [✅]
+- **Current Status**: `src/stores/slices/canvasSlice.ts` now owns the `canvas` state and viewport metadata. Zoom/pan, ruler visibility, display mode, cursor updates, and resize helpers are isolated from the rest of the store, so tool updates no longer force canvas subscribers to rerender.
+- **State**: `canvas`, `canvasViewport`.
+- **Actions**: `setZoom`, `setRotation`, `setGridSize`, `setCanvasOffset`, `setCanvasViewport`, `toggleRulers`, `setDisplayMode`, `setCanvasDimensions`, `resizeCanvas`, `setSelection`, `setCursor`.
+- **Next Steps**:
+  1. Thread canvas selectors through `useDrawingHandlers`/overlay components so viewport refs stay lean.
+  2. Consider memoized selectors for `viewTransformRef` consumers once tools/brush slice lands.
+
+## 5. Selection & Paste Slice  [✅]
+- **Current Status**: `src/stores/slices/selectionSlice.ts` encapsulates selection bounds, marquee helpers, deletion flows, and floating paste state. ROI utilities moved to `src/stores/helpers/selectionRoi.ts` with coverage in `src/stores/helpers/__tests__/selectionRoi.test.ts`, and floating paste helpers stay wired through the slice so they reuse the layer slice’s ROI capture.
+- **State**: `selectionStart`, `selectionEnd`, floating paste payload.
+- **Actions**: `setSelectionBounds`, `clearSelection`, `selectAllActiveLayerPixels`, `deleteSelectedPixels`, `setFloatingPaste`, `updateFloatingPastePosition`, `updateFloatingPasteRect`, `commitFloatingPaste`, `cancelFloatingPaste`.
+- **Next Steps**:
+  1. Add integration tests for marquee delete plus paste commit/cancel using the slice API.
+  2. Finish migrating crop/history helpers to the slice-level actions so we no longer poke selection state directly inside `useAppStore`.

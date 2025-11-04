@@ -46,6 +46,10 @@ export interface ProjectLifecycleOptions {
   persistCustomBrushes: () => void;
   getLastCustomBrushSnapshot: () => CustomBrushSnapshot;
   syncPercentOffsetsFromPixels: SyncPercentOffsetsFn;
+  captureCanvasToActiveLayer: (
+    sourceCanvas?: HTMLCanvasElement,
+    roi?: CaptureROI
+  ) => Promise<void>;
 }
 
 const resolveDefaultCustomBrushId = (
@@ -69,6 +73,7 @@ export const createProjectLifecycle = ({
   persistCustomBrushes,
   getLastCustomBrushSnapshot,
   syncPercentOffsetsFromPixels,
+  captureCanvasToActiveLayer,
 }: ProjectLifecycleOptions) => {
   const setProject = (project: Project): void => {
     const normalized = normalizeProject(project);
@@ -305,7 +310,7 @@ export const createProjectLifecycle = ({
     }
 
     try {
-      await state.captureCanvasToActiveLayer();
+      await captureCanvasToActiveLayer();
 
       const freshState = get();
       const projectWithViewState = {
