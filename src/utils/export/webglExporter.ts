@@ -7,6 +7,7 @@ import { resolveContainerLayout as resolveContainerLayoutModel } from '@/utils/l
 import type { LayoutLayerInput, LayerTransform, ResolvedLayerLayout } from '@/utils/layerAlignment';
 import { deriveAutoPercentOffset, derivePercentBounds } from '@/utils/alignment/alignFitResolver';
 import { normalizeAlign, type RawAlignInput } from '@/utils/alignment/normalizeAlign';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import { posInt, round3, toNum } from '@/utils/num';
 import type {
   ContentBounds,
@@ -80,6 +81,10 @@ const resolveRecolorSurfaceSize = (layer: Layer, project: Project): CoverageSize
     width,
     height
   };
+};
+
+const clampBoundsToSurface = (bounds: WebGLLayerBounds, surface: CoverageSize): WebGLLayerBounds => {
+  return clampBoundsToDocument(bounds, surface);
 };
 
 type JSZipConstructor = typeof import('jszip');
@@ -241,7 +246,8 @@ const PROPERTY_MINIFY_MAP = {
   fps: 'fps',
   totalFrames: 'tfm',
   durationSeconds: 'ds',
-  phaseMap: 'pm'
+  phaseMap: 'pm',
+  coverageBoundsSourcePx: 'cbsp'
 } as const;
 
 type PropertyMinifyKey = keyof typeof PROPERTY_MINIFY_MAP;
@@ -290,6 +296,23 @@ interface WebGLSerializedColorCycle {
   brushState?: WebGLSerializedBrushState;
   alphaMask?: WebGLSerializedAlphaMask;
   coverageBoundsPx?: WebGLLayerBounds;
+  coverageBoundsSourcePx?: WebGLLayerBounds;
+}
+
+interface BrushStateRuntimePayload {
+  width: number;
+  height: number;
+  indices: number[];
+  palette?: Array<string | number>;
+}
+
+interface ColorCycleRuntimeMetadata {
+  brushState?: BrushStateRuntimePayload;
+}
+
+interface ColorCycleSerializationResult {
+  colorCycle?: WebGLSerializedColorCycle;
+  runtime?: ColorCycleRuntimeMetadata;
 }
 
 interface WebGLSerializedAlphaMask {
@@ -302,6 +325,18 @@ interface SerializedAlphaMaskResult {
   payload: WebGLSerializedAlphaMask;
   values: Uint8Array;
   coverageBounds?: WebGLLayerBounds;
+}
+
+interface ColorCycleMaskDataset {
+  width: number;
+  height: number;
+  values: Uint8Array;
+  coverage?: WebGLLayerBounds;
+}
+
+interface ColorCycleCoverageResult {
+  source: WebGLLayerBounds;
+  document: WebGLLayerBounds;
 }
 
 export interface WebGLLayerSource {
@@ -1669,11 +1704,11 @@ const resampleAlphaChannel = (imageData: ImageData, width: number, height: numbe
   return result;
 };
 
-const serializeColorCycleAlphaMask = async (
+const captureColorCycleMaskDataset = (
   layer: Layer,
   width: number,
   height: number
-): Promise<SerializedAlphaMaskResult | undefined> => {
+): ColorCycleMaskDataset | undefined => {
   const maskSource = resolveColorCycleMaskImage(layer);
   if (!maskSource) {
     return undefined;
@@ -1681,7 +1716,7 @@ const serializeColorCycleAlphaMask = async (
 
   const normalizedWidth = Math.max(1, Math.floor(width));
   const normalizedHeight = Math.max(1, Math.floor(height));
-  const alphaValues = resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight);
+  const values = resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight);
 
   let hasCoverage = false;
   let minX = normalizedWidth;
@@ -1692,7 +1727,7 @@ const serializeColorCycleAlphaMask = async (
   for (let y = 0; y < normalizedHeight; y += 1) {
     for (let x = 0; x < normalizedWidth; x += 1) {
       const idx = y * normalizedWidth + x;
-      if (alphaValues[idx] > 0) {
+      if (values[idx] > 0) {
         hasCoverage = true;
         if (x < minX) {
           minX = x;
@@ -1710,16 +1745,7 @@ const serializeColorCycleAlphaMask = async (
     }
   }
 
-  if (!hasCoverage) {
-    return undefined;
-  }
-
-  const encoded = await packNumericArrayForExport(alphaValues);
-  if (!encoded) {
-    return undefined;
-  }
-
-  const coverageBounds: WebGLLayerBounds | undefined = maxX >= minX && maxY >= minY
+  const coverage = hasCoverage
     ? {
         x: minX,
         y: minY,
@@ -1729,13 +1755,161 @@ const serializeColorCycleAlphaMask = async (
     : undefined;
 
   return {
+    width: normalizedWidth,
+    height: normalizedHeight,
+    values,
+    coverage
+  };
+};
+
+const deriveCoverageFromIndexBufferWithMask = (
+  buffer: ArrayLike<number>,
+  width: number,
+  height: number,
+  maskDataset?: ColorCycleMaskDataset
+): WebGLLayerBounds | undefined => {
+  const normalizedWidth = Math.max(1, Math.floor(width));
+  const normalizedHeight = Math.max(1, Math.floor(height));
+  const total = normalizedWidth * normalizedHeight;
+  const length = typeof buffer.length === 'number' ? buffer.length : total;
+  const limit = Math.min(length, total);
+
+  const maskValues = maskDataset
+    && maskDataset.width === normalizedWidth
+    && maskDataset.height === normalizedHeight
+      ? maskDataset.values
+      : undefined;
+
+  let minX = normalizedWidth;
+  let minY = normalizedHeight;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let index = 0; index < limit; index += 1) {
+    const value = Number(buffer[index]);
+    if (!Number.isFinite(value) || value === 0) {
+      continue;
+    }
+    if (maskValues && maskValues[index] > 0) {
+      continue;
+    }
+    const y = Math.floor(index / normalizedWidth);
+    const x = index - y * normalizedWidth;
+    if (x < minX) {
+      minX = x;
+    }
+    if (y < minY) {
+      minY = y;
+    }
+    if (x > maxX) {
+      maxX = x;
+    }
+    if (y > maxY) {
+      maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    return undefined;
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1
+  };
+};
+
+interface ColorCycleCoverageContext {
+  layer: Layer;
+  project: Project;
+  brushState?: WebGLSerializedBrushState;
+  recolorIndexBuffer?: ArrayLike<number> | null;
+  recolorSurface?: CoverageSize | null;
+  maskDataset?: ColorCycleMaskDataset;
+}
+
+const computeColorCycleCoverage = (
+  context: ColorCycleCoverageContext
+): ColorCycleCoverageResult | undefined => {
+  const documentSize = {
+    width: Math.max(1, context.project.width),
+    height: Math.max(1, context.project.height)
+  };
+
+  const brushState = context.brushState;
+  if (
+    brushState &&
+    Array.isArray(brushState.indexBuffer) &&
+    Number.isFinite(brushState.width) &&
+    Number.isFinite(brushState.height)
+  ) {
+    const coverage = deriveCoverageFromIndexBufferWithMask(
+      brushState.indexBuffer,
+      brushState.width,
+      brushState.height
+    );
+    if (coverage) {
+      return {
+        source: clampBoundsToSurface(coverage, {
+          width: brushState.width,
+          height: brushState.height
+        }),
+        document: scaleMaskBoundsToDocument(coverage, {
+          width: brushState.width,
+          height: brushState.height
+        }, documentSize)
+      };
+    }
+  }
+
+  if (context.recolorIndexBuffer && context.recolorSurface) {
+    const coverage = deriveCoverageFromIndexBufferWithMask(
+      context.recolorIndexBuffer,
+      context.recolorSurface.width,
+      context.recolorSurface.height,
+      context.maskDataset
+    );
+    if (coverage) {
+      return {
+        source: clampBoundsToSurface(coverage, context.recolorSurface),
+        document: scaleMaskBoundsToDocument(
+          coverage,
+          context.recolorSurface,
+          documentSize
+        )
+      };
+    }
+  }
+
+  return undefined;
+};
+
+const serializeColorCycleAlphaMask = async (
+  layer: Layer,
+  width: number,
+  height: number,
+  dataset?: ColorCycleMaskDataset
+): Promise<SerializedAlphaMaskResult | undefined> => {
+  const maskDataset = dataset ?? captureColorCycleMaskDataset(layer, width, height);
+  if (!maskDataset) {
+    return undefined;
+  }
+
+  const encoded = await packNumericArrayForExport(maskDataset.values);
+  if (!encoded) {
+    return undefined;
+  }
+
+  return {
     payload: {
-      width: normalizedWidth,
-      height: normalizedHeight,
+      width: maskDataset.width,
+      height: maskDataset.height,
       data: encoded
     },
-    values: alphaValues,
-    coverageBounds
+    values: maskDataset.values,
+    coverageBounds: maskDataset.coverage
   };
 };
 
@@ -1834,7 +2008,7 @@ const shouldExportLayerAsAnimating = (layer: Layer): boolean => {
   return false;
 };
 
-const serializeColorCycleData = async (layer: Layer, project: Project): Promise<WebGLSerializedColorCycle | undefined> => {
+const serializeColorCycleData = async (layer: Layer, project: Project): Promise<ColorCycleSerializationResult | undefined> => {
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
@@ -1856,6 +2030,8 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
     brushSpeed: data.brushSpeed ?? null,
     isAnimating: shouldAnimate
   };
+
+  let runtimeBrushState: BrushStateRuntimePayload | undefined;
 
   if (gobletDiagnosticsActive) {
     gobletDebugLog('[webglExporter] Animation inference for layer', layer.id, {
@@ -1908,44 +2084,59 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
     }
   }
 
+  const recolorSurface = data.recolorSettings ? resolveRecolorSurfaceSize(layer, project) : undefined;
+
   const maskDimensions = brushState
     ? { width: brushState.width, height: brushState.height }
-    : getLayerSurfaceSize(layer);
-  const alphaMaskResult = await serializeColorCycleAlphaMask(layer, maskDimensions.width, maskDimensions.height);
+    : recolorSurface ?? getLayerSurfaceSize(layer);
+  const alphaMaskDataset = captureColorCycleMaskDataset(layer, maskDimensions.width, maskDimensions.height);
+  const alphaMaskResult = await serializeColorCycleAlphaMask(
+    layer,
+    maskDimensions.width,
+    maskDimensions.height,
+    alphaMaskDataset
+  );
   if (alphaMaskResult) {
     serialized.alphaMask = alphaMaskResult.payload;
     if (brushState && Array.isArray(brushState.indexBuffer)) {
       applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
     }
-    if (alphaMaskResult.coverageBounds) {
-      serialized.coverageBoundsPx = scaleMaskBoundsToDocument(
-        alphaMaskResult.coverageBounds,
-        maskDimensions,
-        {
-          width: Math.max(1, project.width),
-          height: Math.max(1, project.height)
-        }
-      );
+  }
+
+  if (brushState && Array.isArray(brushState.indexBuffer)) {
+    runtimeBrushState = {
+      width: brushState.width,
+      height: brushState.height,
+      indices: [...brushState.indexBuffer],
+      palette: brushState.palette ? [...brushState.palette] : undefined
+    };
+  }
+
+  let coverageMaskDataset: ColorCycleMaskDataset | undefined;
+  if (recolorSurface) {
+    if (
+      alphaMaskDataset &&
+      alphaMaskDataset.width === recolorSurface.width &&
+      alphaMaskDataset.height === recolorSurface.height
+    ) {
+      coverageMaskDataset = alphaMaskDataset;
+    } else {
+      coverageMaskDataset = captureColorCycleMaskDataset(layer, recolorSurface.width, recolorSurface.height);
     }
   }
 
-  if (!serialized.coverageBoundsPx && data.recolorSettings?.indexBuffer) {
-    const recolorSurface = resolveRecolorSurfaceSize(layer, project);
-    const recolorCoverage = deriveCoverageFromIndexBuffer(
-      data.recolorSettings.indexBuffer,
-      recolorSurface.width,
-      recolorSurface.height
-    );
-    if (recolorCoverage) {
-      serialized.coverageBoundsPx = scaleMaskBoundsToDocument(
-        recolorCoverage,
-        recolorSurface,
-        {
-          width: Math.max(1, project.width),
-          height: Math.max(1, project.height)
-        }
-      );
-    }
+  const coverage = computeColorCycleCoverage({
+    layer,
+    project,
+    brushState,
+    recolorIndexBuffer: data.recolorSettings?.indexBuffer ?? null,
+    recolorSurface,
+    maskDataset: coverageMaskDataset
+  });
+
+  if (coverage) {
+    serialized.coverageBoundsSourcePx = coverage.source;
+    serialized.coverageBoundsPx = coverage.document;
   }
 
   if (brushState) {
@@ -2002,7 +2193,10 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
     });
   }
 
-  return serialized;
+  return {
+    colorCycle: serialized,
+    runtime: runtimeBrushState ? { brushState: runtimeBrushState } : undefined
+  };
 };
 
 const KNOWN_LAYER_CANVAS_KEYS = [
@@ -2168,6 +2362,106 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
     return undefined;
   } catch (error) {
     console.warn('[webglExporter] Failed to capture texture for layer', layer.id, error);
+    return undefined;
+  }
+};
+
+type RGBAColor = { r: number; g: number; b: number; a: number };
+
+const DEFAULT_BRUSH_COLOR: RGBAColor = { r: 255, g: 255, b: 255, a: 255 };
+
+const numericPaletteEntryToRGBA = (entry: number): RGBAColor => {
+  const value = Number(entry) >>> 0;
+  return {
+    r: value & 0xff,
+    g: (value >>> 8) & 0xff,
+    b: (value >>> 16) & 0xff,
+    a: (value >>> 24) & 0xff
+  };
+};
+
+const paletteEntryToRGBA = (entry: string | number): RGBAColor => {
+  if (typeof entry === 'number' && Number.isFinite(entry)) {
+    return numericPaletteEntryToRGBA(entry);
+  }
+  if (typeof entry === 'string') {
+    return parseCssColor(entry, DEFAULT_BRUSH_COLOR);
+  }
+  return { ...DEFAULT_BRUSH_COLOR };
+};
+
+const buildBrushPaletteLUT = (palette?: Array<string | number>): RGBAColor[] => {
+  if (!Array.isArray(palette) || palette.length === 0) {
+    return [];
+  }
+  return palette.map((entry) => paletteEntryToRGBA(entry));
+};
+
+const hashIndexToColor = (value: number): RGBAColor => {
+  const colorSeed = (value * 47) & 0xff;
+  return {
+    r: (colorSeed + 64) & 0xff,
+    g: (colorSeed * 3) & 0xff,
+    b: (colorSeed * 7) & 0xff,
+    a: 255
+  };
+};
+
+const synthesizeBrushTextureFromIndices = async (
+  source: BrushStateRuntimePayload
+): Promise<string | undefined> => {
+  if (typeof document === 'undefined') {
+    return undefined;
+  }
+
+  const width = Math.max(1, Math.round(source.width));
+  const height = Math.max(1, Math.round(source.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  if (source.indices.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+    if (!isCanvas2DContext(ctx)) {
+      return undefined;
+    }
+
+    const imageData = ctx.createImageData(width, height);
+    const { data } = imageData;
+    const limit = Math.min(source.indices.length, width * height);
+    const paletteLut = buildBrushPaletteLUT(source.palette);
+    for (let index = 0; index < limit; index += 1) {
+      const value = Number(source.indices[index]) || 0;
+      if (value <= 0) {
+        continue;
+      }
+      const base = index * 4;
+      let rgba: RGBAColor | undefined;
+      if (paletteLut.length > 0) {
+        const paletteIndex = value < paletteLut.length ? value : (value % paletteLut.length);
+        rgba = paletteLut[paletteIndex] ?? paletteLut[paletteIndex % paletteLut.length];
+      }
+      if (!rgba) {
+        rgba = hashIndexToColor(value);
+      }
+      const alpha = rgba.a > 0 ? rgba.a : 255;
+      data[base] = rgba.r;
+      data[base + 1] = rgba.g;
+      data[base + 2] = rgba.b;
+      data[base + 3] = alpha;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    const { dataUrl } = await canvasToDataURL(canvas);
+    return normalizeImageDataUrl(dataUrl);
+  } catch (error) {
+    console.warn('[webglExporter] Failed to synthesize brush texture from indices', error);
     return undefined;
   }
 };
@@ -2874,11 +3168,38 @@ export const exportProjectAsWebGL = async (
     }
 
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
-    const sourceSize = metrics.surfaceSize;
+    const originalSurfaceSize = {
+      width: Math.max(1, metrics.surfaceSize.width),
+      height: Math.max(1, metrics.surfaceSize.height)
+    };
+    let surfaceSize = { ...originalSurfaceSize };
     let documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
 
-    const texture = await captureLayerTexture(layer);
-    const colorCycle = await serializeColorCycleData(layer, options.project);
+    let texture = await captureLayerTexture(layer);
+    const colorCycleResult = await serializeColorCycleData(layer, options.project);
+    const colorCycle = colorCycleResult?.colorCycle;
+    const colorCycleRuntime = colorCycleResult?.runtime;
+    const brushRuntime = colorCycleRuntime?.brushState;
+
+    if (brushRuntime) {
+      surfaceSize.width = Math.max(surfaceSize.width, Math.max(1, brushRuntime.width));
+      surfaceSize.height = Math.max(surfaceSize.height, Math.max(1, brushRuntime.height));
+    }
+
+    const needsSyntheticTexture = Boolean(
+      brushRuntime && (!texture || originalSurfaceSize.width <= 1 || originalSurfaceSize.height <= 1)
+    );
+
+    let syntheticTextureApplied = false;
+    if (needsSyntheticTexture && brushRuntime) {
+      const syntheticTexture = await synthesizeBrushTextureFromIndices(brushRuntime);
+      if (syntheticTexture) {
+        texture = syntheticTexture;
+        syntheticTextureApplied = true;
+        surfaceSize.width = Math.max(surfaceSize.width, Math.max(1, brushRuntime.width));
+        surfaceSize.height = Math.max(surfaceSize.height, Math.max(1, brushRuntime.height));
+      }
+    }
 
     if (colorCycle?.coverageBoundsPx) {
       documentBoundsPx = clampBoundsToDocument(colorCycle.coverageBoundsPx, documentSize);
@@ -2922,8 +3243,8 @@ export const exportProjectAsWebGL = async (
     layoutInputs.push({
       layerId: layer.id,
       surface: {
-        width: Math.max(1, metrics.surfaceSize.width),
-        height: Math.max(1, metrics.surfaceSize.height)
+        width: Math.max(1, surfaceSize.width),
+        height: Math.max(1, surfaceSize.height)
       },
       document: {
         width: Math.max(1, options.project.width),
@@ -2954,11 +3275,20 @@ export const exportProjectAsWebGL = async (
       ccWarn('NO CC PAYLOAD FOR LAYER', layer.id);
     }
 
+    const surfaceBounds = colorCycle?.coverageBoundsSourcePx
+      ? clampBoundsToSurface(colorCycle.coverageBoundsSourcePx, surfaceSize)
+      : metrics.contentBounds;
+
+    if (syntheticTextureApplied) {
+      surfaceSize.width = Math.max(1, round3(surfaceBounds.width));
+      surfaceSize.height = Math.max(1, round3(surfaceBounds.height));
+    }
+
     const contentBoundsPayload = {
-      x: round3(metrics.contentBounds.x),
-      y: round3(metrics.contentBounds.y),
-      width: round3(Math.max(1, metrics.contentBounds.width)),
-      height: round3(Math.max(1, metrics.contentBounds.height))
+      x: round3(surfaceBounds.x),
+      y: round3(surfaceBounds.y),
+      width: round3(Math.max(1, surfaceBounds.width)),
+      height: round3(Math.max(1, surfaceBounds.height))
     };
 
     const baseLayerMetadata: WebGLLayerMetadata = {
@@ -2969,8 +3299,8 @@ export const exportProjectAsWebGL = async (
       opacity: layer.opacity,
       blendMode: layer.blendMode,
       source: {
-        width: Math.max(1, Math.round(sourceSize.width)),
-        height: Math.max(1, Math.round(sourceSize.height))
+        width: Math.max(1, Math.round(surfaceSize.width)),
+        height: Math.max(1, Math.round(surfaceSize.height))
       },
       pixelBoundsPx: contentBoundsPayload,
       documentBoundsPx: {

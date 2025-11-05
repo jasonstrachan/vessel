@@ -776,6 +776,53 @@ const fitComputeLayoutTransform = (alignment, viewport, paintedBounds) => {
   };
 };
 
+const clampRectToSource = (rect, sourceWidth, sourceHeight) => {
+  const maxWidth = Math.max(1, sourceWidth | 0);
+  const maxHeight = Math.max(1, sourceHeight | 0);
+  const x = clamp(Math.round(rect.x ?? 0), 0, Math.max(0, maxWidth - 1));
+  const y = clamp(Math.round(rect.y ?? 0), 0, Math.max(0, maxHeight - 1));
+  const width = Math.max(1, Math.round(rect.width ?? 0));
+  const height = Math.max(1, Math.round(rect.height ?? 0));
+  const clampedWidth = clamp(width, 1, Math.max(1, maxWidth - x));
+  const clampedHeight = clamp(height, 1, Math.max(1, maxHeight - y));
+  return {
+    x,
+    y,
+    width: clampedWidth,
+    height: clampedHeight
+  };
+};
+
+const documentBoundsToSourceRect = (documentBounds, documentSize, sourceSize) => {
+  if (!documentBounds || !documentSize || !sourceSize) {
+    return null;
+  }
+
+  const docWidth = Math.max(1, toNum(documentSize.width, sourceSize.width));
+  const docHeight = Math.max(1, toNum(documentSize.height, sourceSize.height));
+  const sourceWidth = Math.max(1, sourceSize.width);
+  const sourceHeight = Math.max(1, sourceSize.height);
+
+  const docX = clamp(toNum(documentBounds.x, 0), 0, docWidth);
+  const docY = clamp(toNum(documentBounds.y, 0), 0, docHeight);
+  const maxDocWidth = Math.max(1, docWidth - docX);
+  const maxDocHeight = Math.max(1, docHeight - docY);
+  const docW = clamp(toNum(documentBounds.width, docWidth), 1, maxDocWidth);
+  const docH = clamp(toNum(documentBounds.height, docHeight), 1, maxDocHeight);
+
+  const scaleX = sourceWidth / docWidth;
+  const scaleY = sourceHeight / docHeight;
+
+  const rect = {
+    x: docX * scaleX,
+    y: docY * scaleY,
+    width: docW * scaleX,
+    height: docH * scaleY
+  };
+
+  return clampRectToSource(rect, sourceWidth, sourceHeight);
+};
+
 const drawLayerWithPlacement = (ctx, source, placement, { isFixed, dpr, paintedRect, fit }) => {
   const toPos = (value) => (isFixed ? Math.round(value * dpr) : Math.round(value));
   const toSize = (value) => Math.max(1, isFixed ? Math.round(value * dpr) : Math.round(value));
@@ -2788,26 +2835,49 @@ class VesselGoblet {
         ? source.naturalHeight || source.height
         : source.height;
 
-      const paintedRect = contentBounds
-        ? {
-            x: Math.max(0, contentBounds.x | 0),
-            y: Math.max(0, contentBounds.y | 0),
-            width: Math.max(1, contentBounds.width | 0),
-            height: Math.max(1, contentBounds.height | 0)
-          }
-        : pixelBounds
-          ? {
-              x: Math.max(0, pixelBounds.x | 0),
-              y: Math.max(0, pixelBounds.y | 0),
-              width: Math.max(1, pixelBounds.width | 0),
-              height: Math.max(1, pixelBounds.height | 0)
-            }
-          : {
-              x: 0,
-              y: 0,
-              width: sourceWidth,
-              height: sourceHeight
-            };
+      const normalizedContentBounds = contentBounds
+        ? clampRectToSource(contentBounds, sourceWidth, sourceHeight)
+        : null;
+
+      const normalizedPixelBounds = pixelBounds
+        ? clampRectToSource(pixelBounds, sourceWidth, sourceHeight)
+        : null;
+
+      const isColorCycleLayer = Boolean(entry.layer.colorCycle)
+        || entry.layer.type === 'color-cycle'
+        || entry.layer.layerType === 'color-cycle';
+
+      const paintedRectFromDocument = documentBoundsToSourceRect(
+        entry.layer.documentBoundsPx,
+        documentSize,
+        { width: sourceWidth, height: sourceHeight }
+      );
+
+      const isFullSurfaceRect = (rect) => {
+        if (!rect) {
+          return false;
+        }
+        const tolerance = 0.5;
+        return rect.x <= tolerance
+          && rect.y <= tolerance
+          && rect.width >= sourceWidth - tolerance
+          && rect.height >= sourceHeight - tolerance;
+      };
+
+      const shouldPreferDocumentRect = isColorCycleLayer
+        && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds))
+        && Boolean(paintedRectFromDocument);
+
+      const paintedRect = shouldPreferDocumentRect
+        ? paintedRectFromDocument
+        : normalizedContentBounds
+          ?? normalizedPixelBounds
+          ?? {
+            x: 0,
+            y: 0,
+            width: sourceWidth,
+            height: sourceHeight
+          };
 
       if (paintedRect.x >= sourceWidth) {
         paintedRect.x = Math.max(0, sourceWidth - 1);
@@ -2822,23 +2892,12 @@ class VesselGoblet {
         paintedRect.height = Math.max(1, sourceHeight - paintedRect.y);
       }
 
-      const paintedForLayout = {
-        width: paintedRect.width,
-        height: paintedRect.height
-      };
-
       console.log('[SOURCE]', entry.layer.id, {
         sourceW: source.width,
         sourceH: source.height,
         imageNW: source instanceof HTMLImageElement ? source.naturalWidth : undefined,
         imageNH: source instanceof HTMLImageElement ? source.naturalHeight : undefined
       });
-
-      if (paintedForLayout.width > sourceWidth || paintedForLayout.height > sourceHeight) {
-        console.warn('[align] painted > surface; clamping', { paintedForLayout, sourceWidth, sourceHeight });
-        paintedForLayout.width = Math.min(paintedForLayout.width, sourceWidth);
-        paintedForLayout.height = Math.min(paintedForLayout.height, sourceHeight);
-      }
 
       const viewportFrame = {
         x: 0,
@@ -2855,7 +2914,10 @@ class VesselGoblet {
 
       const basis = {
         surface: { width: sourceWidth, height: sourceHeight },
-        painted: paintedForLayout,
+        painted: {
+          width: paintedRect.width,
+          height: paintedRect.height
+        },
         frame: viewportFrame,
         design: designSize,
         doc: documentSize,

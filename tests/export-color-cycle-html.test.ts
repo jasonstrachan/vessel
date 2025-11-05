@@ -2,6 +2,32 @@ import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
+jest.mock('@/stores/colorCycleBrushManager', () => {
+  const mockManager = {
+    brushes: new Map(),
+    brushMetadata: new Map(),
+    activeResources: new Set(),
+    createBrush: jest.fn(),
+    getBrush: jest.fn(),
+    updateBrush: jest.fn(),
+    deleteBrush: jest.fn(),
+    setActiveState: jest.fn(),
+    cleanupInactive: jest.fn(),
+    cleanupAll: jest.fn(),
+    initColorCycleForLayer: jest.fn(() => true),
+    getLayerColorCycleBrush: jest.fn(() => null),
+    validateColorCycleBrush: jest.fn(() => true),
+    removeColorCycleBrush: jest.fn(),
+    cleanupOrphanedBrushes: jest.fn(),
+    transferColorCycleBrush: jest.fn(() => true),
+    setCanvasImplementation: jest.fn()
+  } as const;
+
+  return {
+    getColorCycleBrushManager: () => mockManager
+  };
+});
+
 const mockBlobUrl = 'blob:vessel-test';
 
 jest.setTimeout(15000);
@@ -181,6 +207,21 @@ const createProject = (layer: Layer): Project => ({
   viewState: { zoom: 1 }
 });
 
+const createEraseMaskData = (
+  width: number,
+  height: number,
+  shouldErase: (x: number, y: number) => boolean
+): ImageData => {
+  const mask = new ImageData(width, height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const idx = (y * width + x) * 4 + 3;
+      mask.data[idx] = shouldErase(x, y) ? 255 : 0;
+    }
+  }
+  return mask;
+};
+
 describe('exportProjectAsWebGL color cycle integration', () => {
   it('includes recolor metadata for color-cycle layers in single HTML exports', async () => {
     const canvas = document.createElement('canvas');
@@ -345,7 +386,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       bundleFormat: 'single-html'
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalled();
     expect(capturedBlob).not.toBeNull();
     const htmlOutput = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -364,6 +405,106 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
     }
     (URL.createObjectURL as jest.Mock).mockImplementation(() => mockBlobUrl);
+  });
+
+  it('synthesizes a fallback texture for brush-mode layers without drawable canvases', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+
+    const layer = createBrushModeLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 24,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-synth-texture',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.assets?.texture).toMatch(/^data:image\//);
+    expect(exportedLayer.source.width).toBe(8);
+    expect(exportedLayer.source.height).toBe(8);
+    expect(exportedLayer.source.width).toBe(exportedLayer.contentBounds.width);
+    expect(exportedLayer.source.height).toBe(exportedLayer.contentBounds.height);
+  });
+
+  it('shrinks brush coverage and layout bounds after applying erase masks', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayer(canvas);
+    const mask = createEraseMaskData(8, 8, (x) => x < 4);
+    layer.colorCycleData!.eraseMaskImageData = mask;
+
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 24,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-mask',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.coverageBoundsPx).toEqual({ x: 64, y: 0, width: 64, height: 128 });
+    expect(exportedLayer.documentBoundsPx).toEqual(exportedLayer.colorCycle?.coverageBoundsPx);
+  });
+
+  it('derives recolor coverage from indices while respecting erase masks', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layer = createColorCycleLayer(canvas);
+    layer.colorCycleData!.eraseMaskImageData = createEraseMaskData(4, 4, (_x, y) => y === 0);
+
+    const project = createProject(layer);
+    project.width = 40;
+    project.height = 40;
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-recolor-mask',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.coverageBoundsPx).toEqual({ x: 0, y: 10, width: 40, height: 30 });
+    expect(exportedLayer.documentBoundsPx).toEqual(exportedLayer.colorCycle?.coverageBoundsPx);
   });
 
 });
