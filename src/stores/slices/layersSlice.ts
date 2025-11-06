@@ -72,6 +72,30 @@ const mergeImageDataRegion = (
   return new ImageData(mergedData, targetWidth, targetHeight);
 };
 
+const snapshotFramebufferRegion = (
+  framebuffer: HTMLCanvasElement | OffscreenCanvas | null | undefined,
+  width: number,
+  height: number
+): ImageData | null => {
+  if (!framebuffer) {
+    return null;
+  }
+  try {
+    const fbCtx = framebuffer.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!fbCtx) {
+      return null;
+    }
+    const targetWidth = Math.min(width, framebuffer.width);
+    const targetHeight = Math.min(height, framebuffer.height);
+    return fbCtx.getImageData(0, 0, targetWidth, targetHeight);
+  } catch {
+    return null;
+  }
+};
+
 export interface LayersSlice {
   layers: Layer[];
   layersNeedRecomposition: boolean;
@@ -1305,12 +1329,14 @@ export const createLayersSlice = (
             }
           }
 
-          const baseImageData =
+          const matchedImageData =
             layer.imageData &&
             layer.imageData.width === captureWidth &&
             layer.imageData.height === captureHeight
               ? layer.imageData
               : null;
+          const baseImageData =
+            matchedImageData ?? snapshotFramebufferRegion(layer.framebuffer, captureWidth, captureHeight);
 
           const mergedImageData = normalizedRoi
             ? mergeImageDataRegion(

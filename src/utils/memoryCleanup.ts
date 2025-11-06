@@ -125,6 +125,9 @@ class MemoryManager {
    * Start periodic cleanup
    */
   private startPeriodicCleanup(): void {
+    if (this.cleanupInterval || typeof setInterval === 'undefined') {
+      return;
+    }
     this.cleanupInterval = setInterval(() => {
       this.runCleanup();
     }, this.CLEANUP_INTERVAL);
@@ -165,8 +168,17 @@ class MemoryManager {
   }
 }
 
-// Singleton instance
-export const memoryManager = new MemoryManager();
+type MemoryManagerGlobal = typeof globalThis & {
+  __vesselMemoryManager?: MemoryManager;
+};
+
+const memoryManagerGlobal = globalThis as MemoryManagerGlobal;
+
+if (!memoryManagerGlobal.__vesselMemoryManager) {
+  memoryManagerGlobal.__vesselMemoryManager = new MemoryManager();
+}
+
+export const memoryManager = memoryManagerGlobal.__vesselMemoryManager;
 
 /**
  * Convenience function to help with ImageData cleanup

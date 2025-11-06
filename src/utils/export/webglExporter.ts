@@ -3172,7 +3172,7 @@ export const exportProjectAsWebGL = async (
       width: Math.max(1, metrics.surfaceSize.width),
       height: Math.max(1, metrics.surfaceSize.height)
     };
-    let surfaceSize = { ...originalSurfaceSize };
+    const surfaceSize = { ...originalSurfaceSize };
     let documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
 
     let texture = await captureLayerTexture(layer);

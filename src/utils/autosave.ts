@@ -15,30 +15,31 @@ class AutosaveService {
   private inProgress = false;
 
   start(): void {
-    if (this.intervalId) {
-      this.stop();
+    if (this.intervalId || typeof setInterval === 'undefined') {
+      return;
     }
 
     this.intervalId = setInterval(() => {
-      this.performAutosave();
+      void this.performAutosave();
     }, this.intervalMs);
 
-    // Update store to indicate autosave is running
     useAppStore.setState((state) => ({
       autosave: { ...state.autosave, isRunning: true }
     }));
   }
 
   stop(): void {
+    const wasRunning = Boolean(this.intervalId);
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
 
-    // Update store to indicate autosave is stopped
-    useAppStore.setState((state) => ({
-      autosave: { ...state.autosave, isRunning: false }
-    }));
+    if (wasRunning) {
+      useAppStore.setState((state) => ({
+        autosave: { ...state.autosave, isRunning: false }
+      }));
+    }
   }
 
   setInterval(minutes: number): void {
@@ -163,7 +164,12 @@ class AutosaveService {
 }
 
 // Export singleton instance
-export const autosaveService = new AutosaveService();
+type AutosaveGlobal = typeof globalThis & { __vesselAutosaveService?: AutosaveService };
+const autosaveGlobal = globalThis as AutosaveGlobal;
+if (!autosaveGlobal.__vesselAutosaveService) {
+  autosaveGlobal.__vesselAutosaveService = new AutosaveService();
+}
+export const autosaveService = autosaveGlobal.__vesselAutosaveService;
 
 // Hook for React components to use autosave
 export function useAutosave() {

@@ -197,9 +197,32 @@ const LayerItem = memo<{
 
 LayerItem.displayName = 'LayerItem';
 
+const DRAG_DEADZONE_PX = 4;
+
+type PointerSession = {
+  pointerId: number;
+  target: HTMLDivElement;
+  layerId: string;
+  startClientY: number;
+  startClientX: number;
+  isDragging: boolean;
+};
+
+type LayerDragState = {
+  layerId: string;
+  originIndex: number;
+  originDisplayIndex: number;
+  pointerId: number;
+  rowHeight: number;
+};
+
 const MinimalLayerList = () => {
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
   const [dragOverBottom, setDragOverBottom] = useState<boolean>(false);
+  const [dragState, setDragState] = useState<LayerDragState | null>(null);
+  const displayTargetIndexRef = useRef<number | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const pointerSessionRef = useRef<PointerSession | null>(null);
   const desiredPlaying = useAppStore((state) => state.colorCyclePlayback.desiredPlaying);
   const suspendDepth = useAppStore((state) => state.colorCyclePlayback.suspendDepth);
   const playColorCycle = useAppStore((state) => state.playColorCycle);
@@ -209,6 +232,7 @@ const MinimalLayerList = () => {
   
   // Store subscriptions
   const layers = useAppStore(selectLayers);
+  const displayedLayers = useMemo(() => layers.slice().reverse(), [layers]);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const brushSettings = useAppStore(selectBrushSettings);
@@ -246,6 +270,91 @@ const MinimalLayerList = () => {
     const css = `linear-gradient(90deg, ${stops})`;
     return css;
   }, []);
+
+  const resetDragIndicators = useCallback(() => {
+    setDragOverLayerId(null);
+    setDragOverBottom(false);
+    setDragState(null);
+    displayTargetIndexRef.current = null;
+  }, []);
+
+  const toStoreIndex = useCallback((displayIndex: number) => {
+    return Math.max(0, layers.length - 1 - displayIndex);
+  }, [layers.length]);
+
+  const applyAxisLockedReorder = useCallback(() => {
+    if (!dragState) {
+      return false;
+    }
+
+    const destinationIndex = dragOverBottom
+      ? 0
+      : toStoreIndex(displayTargetIndexRef.current ?? dragState.originDisplayIndex);
+
+    if (destinationIndex !== dragState.originIndex) {
+      reorderLayers(dragState.originIndex, destinationIndex);
+    }
+
+    return true;
+  }, [dragState, dragOverBottom, reorderLayers, toStoreIndex]);
+
+  const updateDisplayTargetFromPointer = useCallback((clientY: number, overrideState?: LayerDragState) => {
+    const state = overrideState ?? dragState;
+    if (!state || !listRef.current || displayedLayers.length === 0) {
+      return;
+    }
+
+    const list = listRef.current;
+    const rect = list.getBoundingClientRect();
+    const scrollTop = list.scrollTop;
+    const offsetY = clientY - rect.top + scrollTop;
+    const totalHeight = displayedLayers.length * state.rowHeight;
+
+    if (offsetY >= totalHeight + state.rowHeight / 2) {
+      displayTargetIndexRef.current = displayedLayers.length - 1;
+      setDragOverLayerId(null);
+      setDragOverBottom(true);
+      return;
+    }
+
+    const clampedOffset = Math.max(offsetY, 0);
+    const displayIndex = Math.min(
+      Math.floor(clampedOffset / state.rowHeight),
+      displayedLayers.length - 1
+    );
+
+    displayTargetIndexRef.current = displayIndex;
+    setDragOverLayerId(displayedLayers[displayIndex]?.id ?? null);
+    setDragOverBottom(false);
+  }, [displayedLayers, dragState]);
+
+  const beginPointerDrag = useCallback((session: PointerSession) => {
+    const originIndex = layers.findIndex((layer) => layer.id === session.layerId);
+    if (originIndex === -1) {
+      return false;
+    }
+
+    const originDisplayIndex = displayedLayers.findIndex((layer) => layer.id === session.layerId);
+    if (originDisplayIndex === -1) {
+      return false;
+    }
+
+    const rowHeight = Math.max(1, session.target.getBoundingClientRect().height);
+    const nextState: LayerDragState = {
+      layerId: session.layerId,
+      originIndex,
+      originDisplayIndex,
+      pointerId: session.pointerId,
+      rowHeight,
+    };
+
+    setDragState(nextState);
+    displayTargetIndexRef.current = originDisplayIndex;
+    setDragOverLayerId(displayedLayers[originDisplayIndex]?.id ?? null);
+    setDragOverBottom(false);
+    updateDisplayTargetFromPointer(session.startClientY, nextState);
+    return true;
+  }, [displayedLayers, layers, updateDisplayTargetFromPointer]);
   
   const handleAddCCLayer = () => {
     // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
@@ -381,78 +490,73 @@ const MinimalLayerList = () => {
     });
   };
   
-  // Handle drag start
-  const handleDragStart = (e: React.DragEvent, layerId: string) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', layerId);
-    
-    // Make the drag image semi-transparent
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '0.5';
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>, layerId: string) => {
+    if (event.button !== 0 && event.pointerType !== 'touch') {
+      return;
     }
-  };
-  
-  const handleDragEnd = (e: React.DragEvent) => {
-    // Reset opacity
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '1';
+    if (pointerSessionRef.current) {
+      return;
     }
-    setDragOverLayerId(null);
-  };
-  
-  const handleDragOver = (e: React.DragEvent, layerId: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOverLayerId(layerId);
-    if (dragOverBottom) setDragOverBottom(false);
-  };
-  
-  const handleDragLeave = () => {
-    setDragOverLayerId(null);
-    setDragOverBottom(false);
-  };
-  
-  const handleDrop = (e: React.DragEvent, targetLayerId: string) => {
-    e.preventDefault();
-    const draggedId = e.dataTransfer.getData('text/plain');
-    
-    if (draggedId && draggedId !== targetLayerId) {
-      const reversedLayers = layers.slice().reverse();
-      const draggedIndex = reversedLayers.findIndex(l => l.id === draggedId);
-      const targetIndex = reversedLayers.findIndex(l => l.id === targetLayerId);
-      
-      if (draggedIndex !== -1 && targetIndex !== -1) {
-        const originalDraggedIndex = layers.length - 1 - draggedIndex;
-        const originalTargetIndex = layers.length - 1 - targetIndex;
-        reorderLayers(originalDraggedIndex, originalTargetIndex);
-      }
-    }
-    
-    setDragOverLayerId(null);
-    setDragOverBottom(false);
-  };
 
-  // Bottom drop zone handlers (drop at very bottom of stack)
-  const handleDragOverBottom = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOverBottom(true);
-    if (dragOverLayerId) setDragOverLayerId(null);
-  };
+    const target = event.currentTarget;
+    target.setPointerCapture?.(event.pointerId);
+    pointerSessionRef.current = {
+      pointerId: event.pointerId,
+      target,
+      layerId,
+      startClientY: event.clientY,
+      startClientX: event.clientX,
+      isDragging: false,
+    };
+  }, []);
 
-  const handleDropBottom = (e: React.DragEvent) => {
-    e.preventDefault();
-    const draggedId = e.dataTransfer.getData('text/plain');
-    if (draggedId) {
-      const originalDraggedIndex = layers.findIndex(l => l.id === draggedId);
-      if (originalDraggedIndex !== -1) {
-        // Destination index 0 = absolute bottom of stack
-        reorderLayers(originalDraggedIndex, 0);
-      }
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const session = pointerSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) {
+      return;
     }
-    setDragOverBottom(false);
-    setDragOverLayerId(null);
-  };
+
+    if (!session.isDragging) {
+      const deltaY = Math.abs(event.clientY - session.startClientY);
+      const deltaX = Math.abs(event.clientX - session.startClientX);
+      if (deltaY >= DRAG_DEADZONE_PX && deltaY >= deltaX) {
+        const started = beginPointerDrag(session);
+        if (started) {
+          session.isDragging = true;
+          event.preventDefault();
+        }
+      }
+      return;
+    }
+
+    event.preventDefault();
+    updateDisplayTargetFromPointer(event.clientY);
+  }, [beginPointerDrag, updateDisplayTargetFromPointer]);
+
+  const finalizePointerSession = useCallback((event: React.PointerEvent<HTMLDivElement>, shouldCommit: boolean) => {
+    const session = pointerSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) {
+      return;
+    }
+
+    session.target.releasePointerCapture?.(event.pointerId);
+
+    if (shouldCommit && session.isDragging) {
+      event.preventDefault();
+      applyAxisLockedReorder();
+    }
+
+    pointerSessionRef.current = null;
+    resetDragIndicators();
+  }, [applyAxisLockedReorder, resetDragIndicators]);
+
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    finalizePointerSession(event, true);
+  }, [finalizePointerSession]);
+
+  const handlePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    finalizePointerSession(event, false);
+  }, [finalizePointerSession]);
   
   const handleLayerClick = (event: React.MouseEvent, layerId: string) => {
     if (event.shiftKey && activeLayerId) {
@@ -525,9 +629,13 @@ const MinimalLayerList = () => {
         </button>
       </div>
       
-      <div className="flex-1 overflow-y-auto" key={`${layers.length}-${layers.map(l => `${l.id}-${l.layerType}-${!!l.colorCycleData}`).join(',')}`}>
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto"
+        key={`${displayedLayers.length}-${displayedLayers.map(l => `${l.id}-${l.layerType}-${!!l.colorCycleData}`).join(',')}`}
+      >
         <div className="py-1">
-          {layers.slice().reverse().map((layer) => {
+          {displayedLayers.map((layer) => {
             const isSelected = selectedLayerIds.includes(layer.id);
             const isActive = activeLayerId === layer.id;
             return (
@@ -539,13 +647,11 @@ const MinimalLayerList = () => {
                   ${dragOverLayerId === layer.id ? 'border-t-2 border-blue-400' : ''}
                   transition-all duration-150
                 `}
-                draggable
                 onClick={(event) => handleLayerClick(event, layer.id)}
-                onDragStart={(e) => handleDragStart(e, layer.id)}
-                onDragEnd={handleDragEnd}
-                onDragOver={(e) => handleDragOver(e, layer.id)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, layer.id)}
+                onPointerDown={(event) => handlePointerDown(event, layer.id)}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerCancel}
               >
                 <div className="relative flex items-center h-7 pl-2 pr-8">
                   {/* Visibility Toggle */}
@@ -644,12 +750,7 @@ const MinimalLayerList = () => {
             );
           })}
           {/* Bottom drop sentinel: allows dropping below the last item */}
-          <div
-            className={`h-3 ${dragOverBottom ? 'border-t-2 border-blue-400' : ''}`}
-            onDragOver={handleDragOverBottom}
-            onDragLeave={() => setDragOverBottom(false)}
-            onDrop={handleDropBottom}
-          />
+          <div className={`h-3 ${dragOverBottom ? 'border-t-2 border-blue-400' : ''}`} />
         </div>
       </div>
       

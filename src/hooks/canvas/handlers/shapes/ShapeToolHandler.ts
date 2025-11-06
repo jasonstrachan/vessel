@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useAppStore } from '../../../../stores/useAppStore';
 import type { EventHandlerDependencies } from '../../utils/types';
-import { BrushShape, type BrushSettings } from '@/types';
+import { BrushShape, type BrushSettings, type Layer } from '@/types';
 import { snapPointToAngle } from '@/utils/angleSnap';
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
@@ -164,11 +164,27 @@ type ShapeFillBoundingBox = {
 
 const SHAPE_FILL_ROI_PADDING = 2;
 
-const cloneImageData = (image: ImageData | null | undefined): ImageData | null => {
-  if (!image) {
+const snapshotLayerImageData = (layer: Layer | null | undefined): ImageData | null => {
+  if (!layer) return null;
+  if (layer.imageData) {
+    return new ImageData(new Uint8ClampedArray(layer.imageData.data), layer.imageData.width, layer.imageData.height);
+  }
+  const framebuffer = layer.framebuffer;
+  if (!framebuffer) {
     return null;
   }
-  return new ImageData(new Uint8ClampedArray(image.data), image.width, image.height);
+  try {
+    const fbCtx = framebuffer.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!fbCtx) {
+      return null;
+    }
+    return fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
+  } catch {
+    return null;
+  }
 };
 
 const computeBoundingBox = (points: Array<{ x: number; y: number }>): ShapeFillBoundingBox | null => {
@@ -623,10 +639,11 @@ export const createShapeToolHandler = (
       shapeFillHistoryContext.bbox = effectiveBoundingBox;
     }
 
+    const liveLayerSnapshot = snapshotLayerImageData(activeLayer);
     const beforeImage =
       shapeFillHistoryContext.layerId === activeLayer.id
-        ? shapeFillHistoryContext.beforeImage ?? cloneImageData(activeLayer.imageData)
-        : cloneImageData(activeLayer.imageData);
+        ? shapeFillHistoryContext.beforeImage ?? liveLayerSnapshot
+        : liveLayerSnapshot;
 
     const canvasWidth =
       projectSnapshot?.width ??
@@ -2450,7 +2467,7 @@ export const createShapeToolHandler = (
         const activeLayer = store.layers.find(layer => layer.id === store.activeLayerId);
         if (activeLayer && activeLayer.layerType !== 'color-cycle') {
           shapeFillHistoryContext.layerId = activeLayer.id;
-          shapeFillHistoryContext.beforeImage = cloneImageData(activeLayer.imageData);
+          shapeFillHistoryContext.beforeImage = snapshotLayerImageData(activeLayer);
           shapeFillHistoryContext.coalesceKey = `shape-fill:${activeLayer.id}:${store.shapeFill.activeFillId ?? 'unknown'}:${Date.now().toString(36)}`;
           shapeFillHistoryContext.bbox = computeBoundingBox(points);
         } else {

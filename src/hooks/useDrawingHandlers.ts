@@ -65,6 +65,7 @@ type FinalizeDrawingOptions = {
   skipSave?: boolean;
   historyActionType?: CanvasSnapshot['actionType'];
   historyDescription?: string;
+  captureRegionOverride?: CaptureRegion | null;
 };
 
 type LayerHistoryPayload = Parameters<typeof commitLayerHistory>[0];
@@ -356,6 +357,64 @@ const cloneImageData = (imageData: ImageData | null | undefined): ImageData | nu
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 };
 
+const snapshotLayerImageData = (layer: Layer | null | undefined): ImageData | null => {
+  if (!layer) {
+    return null;
+  }
+  if (layer.imageData) {
+    return cloneImageData(layer.imageData);
+  }
+  const framebuffer = layer.framebuffer;
+  if (!framebuffer) {
+    return null;
+  }
+  try {
+    const fbCtx = framebuffer.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!fbCtx) {
+      return null;
+    }
+    return fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
+  } catch {
+    return null;
+  }
+};
+
+const waitForNextFrame = (): Promise<void> => {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 16);
+  });
+};
+
+const ensureLayerSnapshotWithRetry = async (
+  layer: Layer | null | undefined,
+  existing: ImageData | null,
+  maxAttempts: number = 3
+): Promise<ImageData | null> => {
+  if (existing) {
+    return existing;
+  }
+  if (!layer) {
+    return null;
+  }
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const snapshot = snapshotLayerImageData(layer);
+    if (snapshot) {
+      return snapshot;
+    }
+    if (attempt < maxAttempts - 1) {
+      await waitForNextFrame();
+    }
+  }
+  return null;
+};
+
 const debugTime = (label: string) => {
   if (CC_DEBUG.on) {
     console.time(label);
@@ -613,6 +672,7 @@ export function useDrawingHandlers({
   const activeStrokeSessionRef = useRef<BrushStrokeSession | null>(null);
   const strokeBeforeColorStateRef = useRef<ColorCycleSerializedState | null>(null);
   const strokeBeforeImageRef = useRef<ImageData | null>(null);
+  const shapeBeforeImageRef = useRef<ImageData | null>(null);
   const renderAllCCLogTSRef = useRef(0);
   const lastRendererLogTS = useRef(0);
   const firstPaintRef = useRef(true);
@@ -702,6 +762,87 @@ export function useDrawingHandlers({
       }),
     [brushEngine, userBrushEngine, storeRef]
   );
+  type MaskHealState = {
+    ctx: CanvasRenderingContext2D;
+    layerId: string;
+    stampSource: BrushStampSource;
+    dirty: boolean;
+  };
+  const maskHealStateRef = useRef<MaskHealState | null>(null);
+  const endMaskHealingStroke = useCallback(() => {
+    const healState = maskHealStateRef.current;
+    if (!healState) {
+      return;
+    }
+    try {
+      healState.stampSource.end();
+    } catch {}
+    try {
+      healState.ctx.restore();
+    } catch {}
+    if (healState.dirty && FF.ERASER_V2) {
+      try {
+        maskManager.bumpVersion(healState.layerId);
+      } catch {}
+    }
+    maskHealStateRef.current = null;
+  }, [maskManager]);
+  const beginMaskHealingStroke = useCallback(
+    (layerId: string, startPoint: { x: number; y: number }, pressure: number) => {
+      if (!FF.ERASER_V2) {
+        return;
+      }
+      endMaskHealingStroke();
+      try {
+        const maskCanvas = maskManager.getMask(layerId);
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+        if (!maskCtx) {
+          return;
+        }
+        const stampSource = createBrushStampSource();
+        maskCtx.save();
+        try {
+          maskCtx.globalCompositeOperation = 'destination-out';
+          maskCtx.globalAlpha = 1;
+          maskCtx.imageSmoothingEnabled = false;
+        } catch {}
+        stampSource.begin(maskCtx, startPoint, pressure);
+        maskHealStateRef.current = {
+          ctx: maskCtx,
+          layerId,
+          stampSource,
+          dirty: true
+        };
+      } catch (error) {
+        debugWarn('[mask-heal] Failed to begin mask heal stroke', error);
+        maskHealStateRef.current = null;
+      }
+    },
+    [createBrushStampSource, endMaskHealingStroke, maskManager]
+  );
+  const extendMaskHealingStroke = useCallback(
+    (from: { x: number; y: number }, to: { x: number; y: number }, pressure: number) => {
+      if (!FF.ERASER_V2) {
+        return;
+      }
+      const healState = maskHealStateRef.current;
+      if (!healState) {
+        return;
+      }
+      try {
+        healState.stampSource.draw(healState.ctx, from, to, { pressure });
+        healState.dirty = true;
+      } catch (error) {
+        debugWarn('[mask-heal] Failed to extend mask heal stroke', error);
+      }
+    },
+    []
+  );
+  useEffect(() => {
+    return () => {
+      endMaskHealingStroke();
+    };
+  }, [endMaskHealingStroke]);
   const getBrushHalfSize = useCallback(() => {
     const state = storeRef.current;
     const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize;
@@ -1704,6 +1845,25 @@ export function useDrawingHandlers({
     ctx.stroke();
   }, [storeRef]);
   
+  const seedManualStrokeBoundingBox = useCallback((
+    points: Array<{ x: number; y: number }> | null,
+    padding: number = 0
+  ) => {
+    if (!points || points.length === 0) {
+      strokeBoundingBoxRef.current = null;
+      strokeCapturePaddingRef.current = Math.max(0, padding);
+      return;
+    }
+    let bbox = createBoundingBox(points[0]);
+    for (let i = 1; i < points.length; i += 1) {
+      const point = points[i];
+      if (!point) continue;
+      bbox = expandBoundingBox(bbox, point);
+    }
+    strokeBoundingBoxRef.current = bbox;
+    strokeCapturePaddingRef.current = Math.max(0, padding);
+  }, []);
+  
   const startDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // removed debug log
     const currentState = storeRef.current;
@@ -1713,10 +1873,7 @@ export function useDrawingHandlers({
     const alignPixelStrokes = shouldPixelAlignBrush(brushSettings);
     const ccFlags = getColorCycleBrushFlags(brushSettings);
     const worldPos = alignPointToPixel(rawWorldPos, alignPixelStrokes);
-
-
-    // Early return if no project
-    if (!project) return;
+    let runtimeProject = project ?? currentState.project ?? null;
 
     if (currentTool === 'brush') {
       strokeBoundingBoxRef.current = createBoundingBox(worldPos);
@@ -1729,6 +1886,12 @@ export function useDrawingHandlers({
 
     // Layer type handling and validation
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+    if (!runtimeProject && activeLayer?.imageData) {
+      runtimeProject = {
+        width: activeLayer.imageData.width,
+        height: activeLayer.imageData.height
+      };
+    }
     if (activeLayer) {
       // Prevent drawing on hidden layers - show cursor but don't draw
       if (!activeLayer.visible) {
@@ -1762,9 +1925,13 @@ export function useDrawingHandlers({
         
         // Check gradient compatibility for CC layers
         if (isAnyColorCycleBrush && isColorCycleLayer) {
+          if (!runtimeProject) {
+            logError('Cannot initialize color cycle layer without project dimensions.');
+            return;
+          }
           const colorCycleBrushManager = getColorCycleBrushManager();
           if (!colorCycleBrushManager.getBrush(activeLayer.id)) {
-            currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
+            currentState.initColorCycleForLayer(activeLayer.id, runtimeProject.width, runtimeProject.height);
           }
 
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
@@ -1810,15 +1977,25 @@ export function useDrawingHandlers({
       FF.CC_HISTORY_NO_BITMAP &&
       activeLayerForCapture?.layerType === 'color-cycle' &&
       ccFlags.isAny;
-    strokeBeforeImageRef.current = shouldSkipStrokeBitmapClone
-      ? null
-      : cloneImageData(activeLayerForCapture?.imageData ?? null);
+    if (shouldSkipStrokeBitmapClone) {
+      strokeBeforeImageRef.current = null;
+    } else {
+      strokeBeforeImageRef.current = snapshotLayerImageData(activeLayerForCapture);
+    }
 
     // Ensure CC brush exists before capturing state
     if (activeLayerForCapture?.layerType === 'color-cycle') {
       const colorCycleBrushManager = getColorCycleBrushManager();
       if (!colorCycleBrushManager.getBrush(activeLayerForCapture.id)) {
-        currentState.initColorCycleForLayer(activeLayerForCapture.id, project.width, project.height);
+        if (!runtimeProject) {
+          logError('Cannot init color cycle layer without project dimensions.');
+          return;
+        }
+        currentState.initColorCycleForLayer(
+          activeLayerForCapture.id,
+          runtimeProject.width,
+          runtimeProject.height
+        );
       }
 
       try {
@@ -1962,7 +2139,7 @@ export function useDrawingHandlers({
     // Reset stamp counter for continuous sampling
     stampCounterRef.current = 0;
     const drawCtx = drawingCtxRef.current;
-    if (!drawCtx || !drawingCanvasRef.current || !project) return;
+    if (!drawCtx || !drawingCanvasRef.current) return;
       
     drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
     drawingCanvasHasContent.current = !(ccFlags.isAny && colorCyclePlayingAtStrokeStart);
@@ -2058,6 +2235,10 @@ export function useDrawingHandlers({
 
           if (!isColorCycleLayer) {
             return;
+          }
+
+          if (activeLayer && FF.ERASER_V2) {
+            beginMaskHealingStroke(activeLayer.id, worldPos, pressure);
           }
 
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
@@ -2314,7 +2495,8 @@ export function useDrawingHandlers({
     renderBrushSamplingPreview,
     getEffectiveColorCyclePlaying,
     getBrushHalfSize,
-    storeRef
+    storeRef,
+    beginMaskHealingStroke
   ]);
 
   // Process batched stroke points
@@ -2449,6 +2631,9 @@ export function useDrawingHandlers({
               if (!targetCtx || targetCtx.canvas !== layerCanvas) {
                 colorCycleLastPosRef.current = clippedEnd;
                 continue;
+              }
+              if (activeLayer && FF.ERASER_V2) {
+                extendMaskHealingStroke(drawFrom, drawTo, pressure);
               }
               targetCtx.globalCompositeOperation = 'source-over';
               targetCtx.globalAlpha = 1;
@@ -2716,7 +2901,8 @@ export function useDrawingHandlers({
     getCCStampTargetCtx,
     scheduleRecompose,
     renderBrushSamplingPreview,
-    storeRef
+    storeRef,
+    extendMaskHealingStroke
   ]);
 
   const continueDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
@@ -2813,6 +2999,7 @@ export function useDrawingHandlers({
     const overlayOptional = isCCLayerSnapshot && isCCBrushSnapshot;
     const allowEmptyOverlay = FF.ERASER_V2 && snapshot.tools.currentTool === 'eraser';
     if (busy || !hasCanvas || (!overlayHasContent && !overlayOptional && !allowEmptyOverlay) || !project) {
+      endMaskHealingStroke();
       return;
     }
 
@@ -2899,7 +3086,7 @@ export function useDrawingHandlers({
           const activeLayerIdString = activeLayer.id;
           const drawingCanvas = drawingCanvasRef.current;
           // Use "before" state captured at stroke start, not at finalization
-          const layerBeforeImage = strokeBeforeImageRef.current;
+          let layerBeforeImage = strokeBeforeImageRef.current;
           const layerBeforeColorState = strokeBeforeColorStateRef.current;
           const strokeSession = activeStrokeSessionRef.current;
           if (strokeSession && strokeSession.endedAt == null) {
@@ -2931,6 +3118,23 @@ export function useDrawingHandlers({
                   project
                 )
               : undefined;
+          const captureRegionOverride = options.captureRegionOverride ?? null;
+          let captureRoi = captureRegionOverride ?? boundingBoxRoi ?? undefined;
+          if (!captureRoi && drawingCanvas && overlayHasContent) {
+            captureRoi = {
+              x: 0,
+              y: 0,
+              width: drawingCanvas.width,
+              height: drawingCanvas.height,
+            };
+          }
+
+          if (!skipSave && activeLayer.layerType !== 'color-cycle' && !layerBeforeImage) {
+            layerBeforeImage = await ensureLayerSnapshotWithRetry(activeLayer, null, 3);
+            if (!layerBeforeImage) {
+              logError('[finalize] brush beforeImage missing after retry; undo history skipped.');
+            }
+          }
 
           if (currentTool === 'eraser') {
             const historyAction = historyActionOverride ?? 'eraser';
@@ -2962,13 +3166,16 @@ export function useDrawingHandlers({
             } else if (drawingCanvas) {
               if (skipSave) {
                 await withTiming('cc:capture', () =>
-                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? boundingBoxRoi) ?? undefined)
+                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? captureRoi) ?? undefined)
                 );
               } else {
                 await withTiming('cc:capture', () =>
-                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? boundingBoxRoi) ?? undefined)
+                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? captureRoi) ?? undefined)
                 );
-                await withTiming('cc:commit', () =>
+                if (!layerBeforeImage) {
+                  logError('[finalize] eraser beforeImage missing; skipping history to avoid destructive undo.');
+                } else {
+                  await withTiming('cc:commit', () =>
                   commitLayerHistory({
                     layerId: activeLayerIdString,
                     beforeImage: layerBeforeImage,
@@ -2977,17 +3184,18 @@ export function useDrawingHandlers({
                     description: historyDescription,
                     tool: 'eraser',
                     coalesce: coalescePayload,
-                    bitmapRoi: (roiForEraser ?? boundingBoxRoi) ?? undefined,
+                    bitmapRoi: (roiForEraser ?? captureRoi) ?? undefined,
                     // Raster eraser strokes must record bitmap deltas so undo restores erased pixels.
                     skipBitmapDelta: false,
                   })
                 );
-                historyHandled = true;
+                  historyHandled = true;
+                }
               }
             }
 
             eraserRoiRef.current = null;
-          } else { // Brush tool
+            } else { // Brush tool
             const activeSettings = currentState.tools.brushSettings;
             const activeFlags = getColorCycleBrushFlags(activeSettings);
             const drawingCtx = drawingCtxRef.current;
@@ -3221,19 +3429,24 @@ export function useDrawingHandlers({
               // history entry and break CC undo granularity. Skip saving in this edge case.
               // Reduce noise: suppressed finalize debug
             } else {
-              await commitRasterOverlay({
-                layer: activeLayer,
-                overlayCanvas: drawingCanvasRef.current ?? null,
-                beforeImage: layerBeforeImage,
+              if (!skipSave && !layerBeforeImage) {
+                logError('[finalize] brush beforeImage missing; skipping history to avoid destructive undo.');
+                historyHandled = true;
+              } else {
+                await commitRasterOverlay({
+                  layer: activeLayer,
+                  overlayCanvas: drawingCanvasRef.current ?? null,
+                  beforeImage: layerBeforeImage,
                 beforeColorState: layerBeforeColorState,
                 historyAction: resolvedHistoryAction,
                 historyDescription: resolvedHistoryDescription,
                 tool: currentTool,
                 coalesce: skipSave ? undefined : coalescePayload,
-                bitmapRoi: boundingBoxRoi ?? undefined,
+                bitmapRoi: captureRoi ?? undefined,
                 skipHistory: skipSave,
               });
               historyHandled = historyHandled || !skipSave;
+              }
             }
 
           // Clear transient drawing canvas content before scheduling history work
@@ -3264,7 +3477,7 @@ export function useDrawingHandlers({
               brushForCleanup.flush(activeLayerIdString);
             }
 
-            const historyBitmapRoi = strokeCaptureRoi ?? boundingBoxRoi;
+            const historyBitmapRoi = strokeCaptureRoi ?? captureRoi;
 
               const shouldDeferColorCycleSave =
                 isColorCycleLayer &&
@@ -3362,6 +3575,7 @@ export function useDrawingHandlers({
     } catch (error) {
       logError('Error during finalization:', error);
     } finally {
+      endMaskHealingStroke();
       // Reset auto-sample state after stroke ends
       autoSamplePointsRef.current = [];
       autoSampleLastUpdateRef.current = 0;
@@ -3404,7 +3618,8 @@ export function useDrawingHandlers({
     commitRasterOverlay,
     computeAutoSampleStops,
     getDesiredColorCyclePlaying,
-    storeRef
+    storeRef,
+    endMaskHealingStroke
   ]);
 
   const finalizeStroke = useCallback(() => {
@@ -3422,11 +3637,10 @@ export function useDrawingHandlers({
       eraserToolRef.current = null;
       eraserRoiRef.current = null;
     }
-  }, []);
+    endMaskHealingStroke();
+  }, [endMaskHealingStroke]);
   
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
-    strokeBoundingBoxRef.current = null;
-    strokeCapturePaddingRef.current = 0;
     // If we're selecting direction for linear gradient, record the direction
     if (isSelectingDirectionRef.current) {
       directionPreviewRef.current = worldPos;
@@ -3435,8 +3649,26 @@ export function useDrawingHandlers({
     }
 
     if (shapeMode) {
+      const shouldResetBounding = !isDrawingShapeRef.current || shapePointsRef.current.length === 0;
+      if (shouldResetBounding) {
+        strokeBoundingBoxRef.current = createBoundingBox(worldPos);
+        strokeCapturePaddingRef.current = ROI_PADDING_PX;
+      } else {
+        strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
+        strokeCapturePaddingRef.current = Math.max(strokeCapturePaddingRef.current, ROI_PADDING_PX);
+      }
       const state = storeRef.current;
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+
+      if (!isDrawingShapeRef.current) {
+        const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
+        if (activeLayer && activeLayer.layerType !== 'color-cycle') {
+          const beforeSnapshot = snapshotLayerImageData(activeLayer);
+          shapeBeforeImageRef.current = beforeSnapshot ?? null;
+        } else {
+          shapeBeforeImageRef.current = null;
+        }
+      }
 
       if (!isCCShape) {
         // Only pause for non-CC shape brushes
@@ -3458,8 +3690,10 @@ export function useDrawingHandlers({
       // Support click-to-add vertices: if already drawing a shape, append point instead of resetting
       if (isDrawingShapeRef.current && shapePointsRef.current.length > 0) {
         shapePointsRef.current.push(worldPos);
+        seedManualStrokeBoundingBox(shapePointsRef.current, 2);
       } else {
         shapePointsRef.current = [worldPos];
+        seedManualStrokeBoundingBox(shapePointsRef.current, 2);
         isDrawingShapeRef.current = true;
         // Initialize auto-sampling for CC shape
         try {
@@ -3475,7 +3709,15 @@ export function useDrawingHandlers({
     } else {
       startDrawing(worldPos, pressure);
     }
-  }, [shapeMode, initDrawingCanvas, startDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, storeRef]);
+  }, [
+    shapeMode,
+    initDrawingCanvas,
+    startDrawing,
+    pauseColorCycleForNonCCInteraction,
+    updateAutoSampledGradient,
+    storeRef,
+    seedManualStrokeBoundingBox
+  ]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
     // Handle animations based on brush type
@@ -3554,6 +3796,7 @@ export function useDrawingHandlers({
       const brushSize = store.tools.brushSettings.size || 20;
       const added = appendSegmentWithDynamicResampling(shapePointsRef.current, worldPos, zoom, brushSize, 0.25, 0.6);
       if (added > 0) {
+        seedManualStrokeBoundingBox(shapePointsRef.current, 2);
         // Live auto-sampling for CC Shape while adding vertices/segments
         try {
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -3567,7 +3810,15 @@ export function useDrawingHandlers({
     } else if (!shapeMode) {
       continueDrawing(worldPos);
     }
-  }, [shapeMode, continueDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, initDrawingCanvas, storeRef]);
+  }, [
+    shapeMode,
+    continueDrawing,
+    pauseColorCycleForNonCCInteraction,
+    updateAutoSampledGradient,
+    initDrawingCanvas,
+    storeRef,
+    seedManualStrokeBoundingBox
+  ]);
   
   const finalizeShapeDrawing = useCallback(async () => {
     const polygonState = storeRef.current.polygonGradientState;
@@ -3592,7 +3843,6 @@ export function useDrawingHandlers({
       let handledColorCycleShape = false;
 
       let shapeLayerId: string | null = null;
-      let shapeBeforeImage: ImageData | null = null;
       let shapeBeforeColorState: ColorCycleSerializedState = null;
     
     // Check if we're in direction selection mode for linear gradient
@@ -3801,9 +4051,8 @@ export function useDrawingHandlers({
           const beforeState = storeRef.current;
           const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
           const shapeLayerId = beforeLayer?.id ?? null;
-          const shapeLayerCanvas = beforeLayer?.colorCycleData?.canvas ?? null;
-          if (!shapeLayerId || !shapeLayerCanvas) {
-            drawingCanvasHasContent.current = true;
+          if (!shapeLayerId) {
+            drawingCanvasHasContent.current = false;
             isSelectingDirectionRef.current = false;
             directionPreviewRef.current = null;
             await resumeColorCycleAfterInteraction();
@@ -3811,14 +4060,6 @@ export function useDrawingHandlers({
             return;
           }
           const shapeLayerIdString: string = shapeLayerId;
-          const shapeFlags = getColorCycleBrushFlags(beforeState.tools.brushSettings);
-          const shouldSkipShapeBitmapClone =
-            FF.CC_HISTORY_NO_BITMAP &&
-            beforeLayer?.layerType === 'color-cycle' &&
-            shapeFlags.isAny;
-          shapeBeforeImage = shouldSkipShapeBitmapClone
-            ? null
-            : cloneImageData(beforeLayer?.imageData ?? null);
           const shapeBeforeColorState = beforeLayer && isColorCycleLayerWithData(beforeLayer)
             ? captureColorCycleBrushState(beforeLayer.id)
             : null;
@@ -4379,6 +4620,8 @@ export function useDrawingHandlers({
           drawingCanvasHasContent.current = false;
         }
         
+        const shapePointsSnapshotForRaster = [...shapePointsRef.current];
+
         // Only clear shape points if we're NOT in direction selection mode
         // Linear mode needs to keep the points for when direction is selected
         // quiet
@@ -4415,26 +4658,73 @@ export function useDrawingHandlers({
         const currentLayer = storeRef.current.layers.find(l => l.id === storeRef.current.activeLayerId);
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
+          const fallbackProjectDimensions =
+            project ??
+            storeRef.current.project ??
+            (currentLayer.imageData
+              ? { width: currentLayer.imageData.width, height: currentLayer.imageData.height }
+              : drawingCanvas
+                ? { width: drawingCanvas.width, height: drawingCanvas.height }
+                : null);
+          let captureRegion =
+            fallbackProjectDimensions
+              ? captureRegionFromPoints(
+                  shapePointsSnapshotForRaster,
+                  ROI_PADDING_PX + strokeCapturePaddingRef.current,
+                  fallbackProjectDimensions
+                )
+              : undefined;
+          if (!captureRegion && fallbackProjectDimensions) {
+            captureRegion = boundingBoxToCaptureRegion(
+              strokeBoundingBoxRef.current,
+              ROI_PADDING_PX + strokeCapturePaddingRef.current,
+              fallbackProjectDimensions
+            );
+          }
+          if (!captureRegion && drawingCanvas) {
+            captureRegion = {
+              x: 0,
+              y: 0,
+              width: drawingCanvas.width,
+              height: drawingCanvas.height,
+            };
+          }
+          const beforeBitmap = await ensureLayerSnapshotWithRetry(
+            currentLayer,
+            shapeBeforeImageRef.current,
+            3
+          );
           const historyDescription = `Shape Fill: ${liveBrushSettings?.shapeFillMode ?? 'default'}`;
-          await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+          if (!beforeBitmap) {
+            logError('[shape-finalize] beforeImage missing; skipping history to avoid destructive undo.');
+            shapeBeforeImageRef.current = null;
+            drawingCanvasHasContent.current = false;
+            if (drawingCtxRef.current) {
+              drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+            }
+            resetPolygonState();
+            finalizeTriggered = true;
+            ccShapePreviewPauseStartedRef.current = false;
+            await resumeColorCycleAfterInteraction();
+            if (isBusyRef) isBusyRef.current = false;
+            return;
+          }
+          await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas, captureRegion));
+          if (!captureRegion) {
+            console.warn('[shape-finalize] captureRegion missing; committing full-layer delta.');
+          }
           await withTiming('cc:commit', () =>
             commitLayerHistory({
               layerId: currentLayer.id,
-              beforeImage: shapeBeforeImage,
+              beforeImage: beforeBitmap,
               beforeColorState: shapeBeforeColorState,
               actionType: 'fill',
               description: historyDescription,
               tool: toolsSnapshot.currentTool,
-              bitmapRoi:
-                project
-                  ? boundingBoxToCaptureRegion(
-                      strokeBoundingBoxRef.current,
-                      ROI_PADDING_PX + strokeCapturePaddingRef.current,
-                      project
-                    )
-                  : undefined,
+              bitmapRoi: captureRegion,
             })
           );
+          shapeBeforeImageRef.current = null;
           drawingCanvasHasContent.current = false;
           if (drawingCtxRef.current) {
             drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
@@ -4470,6 +4760,7 @@ export function useDrawingHandlers({
       logError('Error during shape finalization:', error);
     } finally {
       if (isBusyRef) isBusyRef.current = false;
+      shapeBeforeImageRef.current = null;
     }
     }); // End of FinalizeQueue.enqueue
     return;
@@ -5070,7 +5361,8 @@ export function useDrawingHandlers({
     stopContinuousColorCycleAnimation,
     resumeColorCycleAfterInteraction,
     setFeedbackCallback,
-    commitRasterOverlay
+    commitRasterOverlay,
+    seedManualStrokeBoundingBox
   };
 }
 

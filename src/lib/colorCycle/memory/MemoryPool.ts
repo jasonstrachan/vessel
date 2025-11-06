@@ -1,5 +1,9 @@
 import { FastGradientLUT } from '../rendering/FastGradientLUT';
 
+type MemoryPoolGlobal = typeof globalThis & {
+  __vesselMemoryPool?: MemoryPool;
+};
+
 /**
  * MemoryPool - Advanced memory management for color cycle rendering
  * 
@@ -181,6 +185,7 @@ export class MemoryPool {
   private totalAllocatedMemory = 0;
   private gcObserver: PerformanceObserver | null = null;
   private gcCount = 0;
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
   private lastCleanup = Date.now();
   
   // Configuration
@@ -229,8 +234,14 @@ export class MemoryPool {
    * Get singleton instance
    */
   static getInstance(): MemoryPool {
+    const scope = globalThis as MemoryPoolGlobal;
+    if (scope.__vesselMemoryPool) {
+      this.instance = scope.__vesselMemoryPool;
+      return this.instance;
+    }
     if (!this.instance) {
       this.instance = new MemoryPool();
+      scope.__vesselMemoryPool = this.instance;
     }
     return this.instance;
   }
@@ -382,9 +393,23 @@ export class MemoryPool {
    * Start periodic cleanup
    */
   private startPeriodicCleanup(): void {
-    setInterval(() => {
+    if (this.cleanupIntervalId || typeof setInterval === 'undefined') {
+      return;
+    }
+    this.cleanupIntervalId = setInterval(() => {
       this.cleanup();
     }, this.CLEANUP_INTERVAL);
+  }
+
+  private stopPeriodicCleanup(): void {
+    if (this.cleanupIntervalId) {
+      clearInterval(this.cleanupIntervalId);
+      this.cleanupIntervalId = null;
+    }
+  }
+
+  dispose(): void {
+    this.stopPeriodicCleanup();
   }
   
   /**

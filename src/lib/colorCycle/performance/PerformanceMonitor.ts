@@ -167,6 +167,7 @@ export class PerformanceMonitor {
   // Callbacks
   private issueCallbacks: Set<(issue: PerformanceReport['issues'][0]) => void> = new Set();
   private reportCallbacks: Set<(report: PerformanceReport) => void> = new Set();
+  private intervalId: ReturnType<typeof setInterval> | null = null;
   
   private constructor(config: Partial<MonitorConfig> = {}) {
     this.config = {
@@ -434,7 +435,11 @@ export class PerformanceMonitor {
    * Start periodic metric collection
    */
   private startPeriodicCollection(): void {
-    setInterval(() => {
+    if (this.intervalId || typeof setInterval === 'undefined') {
+      return;
+    }
+
+    this.intervalId = setInterval(() => {
       if (this.isCollecting) return;
       
       this.isCollecting = true;
@@ -455,6 +460,13 @@ export class PerformanceMonitor {
         this.isCollecting = false;
       }
     }, this.config.sampleInterval);
+  }
+
+  private stopPeriodicCollection(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
   }
   
   /**
@@ -686,10 +698,12 @@ export class PerformanceMonitor {
    */
   enable(): void {
     this.isEnabled = true;
+    this.startPeriodicCollection();
   }
-  
+
   disable(): void {
     this.isEnabled = false;
+    this.stopPeriodicCollection();
   }
   
   reset(): void {
@@ -702,6 +716,8 @@ export class PerformanceMonitor {
    * Cleanup
    */
   destroy(): void {
+    this.stopPeriodicCollection();
+    this.reset();
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;

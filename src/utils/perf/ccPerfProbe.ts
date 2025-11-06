@@ -10,6 +10,12 @@ export const CC_PERF = {
     commits: 0,
     serializeMs: 0,
     commitMs: 0,
+    ccFillGpuMs: 0,
+    ccFillGpuCount: 0,
+    ccFillCpuMs: 0,
+    ccFillCpuCount: 0,
+    ccFillWorkerMs: 0,
+    ccFillWorkerCount: 0,
   },
 };
 
@@ -62,6 +68,37 @@ function perfWarn(...args: Parameters<typeof console.warn>) {
   if (shouldLog()) {
     console.warn(...args);
   }
+}
+
+type FillPath = 'gpu' | 'cpu' | 'worker';
+type FillMode = 'concentric' | 'linear';
+
+export function recordColorCycleFillPerf(meta: {
+  path: FillPath;
+  mode: FillMode;
+  durationMs: number;
+  area?: number;
+  vertices?: number;
+}) {
+  if (!CC_PERF.on) {
+    return;
+  }
+  const counterKey = meta.path === 'gpu'
+    ? ('ccFillGpu' as const)
+    : meta.path === 'worker'
+      ? ('ccFillWorker' as const)
+      : ('ccFillCpu' as const);
+  const msKey = `${counterKey}Ms` as 'ccFillGpuMs' | 'ccFillCpuMs' | 'ccFillWorkerMs';
+  const countKey = `${counterKey}Count` as 'ccFillGpuCount' | 'ccFillCpuCount' | 'ccFillWorkerCount';
+  (CC_PERF.counters as Record<typeof msKey, number>)[msKey] += meta.durationMs;
+  (CC_PERF.counters as Record<typeof countKey, number>)[countKey] += 1;
+  perfLog('[perf] cc-fill', {
+    path: meta.path,
+    mode: meta.mode,
+    dur: `${meta.durationMs.toFixed(2)}ms`,
+    area: meta.area,
+    verts: meta.vertices,
+  });
 }
 
 export function perfMark(name: string) {
@@ -281,6 +318,9 @@ export function printPerfSummary() {
     serializeMs_total: c.serializeMs.toFixed(1),
     commits: c.commits,
     commitMs_total: c.commitMs.toFixed(1),
+    ccFillGpu: `${c.ccFillGpuCount} / ${c.ccFillGpuMs.toFixed(1)}ms`,
+    ccFillCpu: `${c.ccFillCpuCount} / ${c.ccFillCpuMs.toFixed(1)}ms`,
+    ccFillWorker: `${c.ccFillWorkerCount} / ${c.ccFillWorkerMs.toFixed(1)}ms`,
   });
 }
 

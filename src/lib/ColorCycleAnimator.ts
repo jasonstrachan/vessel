@@ -13,6 +13,23 @@ import { canvasPool } from '../utils/canvasPool';
 
 import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
 
+type GPUFillMode = 'concentric' | 'linear';
+
+interface GPUFillOptions {
+  mode: GPUFillMode;
+  bands: number;
+  baseOffset: number;
+  colorStep: number;
+  bbox: { minX: number; minY: number; width: number; height: number };
+  maxDist?: number;
+  direction?: { x: number; y: number };
+  directionOrigin?: { x: number; y: number };
+  directionRange?: { min: number; range: number };
+  ditherStrength?: number;
+  ditherPixelSize?: number;
+  noiseSeed?: number;
+}
+
 export interface ColorCycleAnimatorConfig {
   width: number;
   height: number;
@@ -295,13 +312,9 @@ export class ColorCycleAnimator {
    * reads back indices for the bbox, and writes into our index buffer.
    * Falls back to no-op if GPU is not available.
    */
-  gpuFillShapeConcentric(
+  gpuFillShape(
     vertices: Array<{ x: number; y: number }>,
-    bands: number,
-    baseOffset: number,
-    colorStep: number,
-    maxDist: number,
-    bbox: { minX: number; minY: number; width: number; height: number }
+    options: GPUFillOptions
   ): boolean {
     if (this.forceCanvas2D || !this.glRenderer || vertices.length < 3) {
       return false;
@@ -314,21 +327,29 @@ export class ColorCycleAnimator {
         flat[i * 2 + 1] = vertices[i].y;
       }
 
+      const modeValue = options.mode === 'linear' ? 1 : 0;
       const result = this.glRenderer.fillPolygonConcentric({
         vertices: flat,
-        bands,
-        baseOffset,
-        colorStep,
-        maxDist,
-        bbox,
+        bands: options.bands,
+        baseOffset: options.baseOffset,
+        colorStep: options.colorStep,
+        maxDist: Math.max(1, options.maxDist ?? 1),
+        bbox: options.bbox,
         canvasHeight: this.canvas.height,
+        mode: modeValue,
+        direction: options.direction,
+        directionOrigin: options.directionOrigin,
+        directionRange: options.directionRange,
+        ditherStrength: options.ditherStrength,
+        ditherPixelSize: options.ditherPixelSize,
+        noiseSeed: options.noiseSeed,
       });
 
       if (!result) return false;
 
       const data = this.indexBuffer.getDirectData();
       const width = this.canvas.width;
-      const { minX, minY, width: bw, height: bh } = bbox;
+      const { minX, minY, width: bw, height: bh } = options.bbox;
 
       // Blit rows into the index buffer
       // WebGL readPixels returns rows bottom-to-top; flip vertically to top-left origin

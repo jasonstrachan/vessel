@@ -29,6 +29,25 @@ type LoseContextExtension = {
   loseContext?: () => void;
 };
 
+type FillMode = 0 | 1; // 0 = concentric, 1 = linear
+
+interface FillRequest {
+  vertices: Float32Array;
+  bands: number;
+  baseOffset: number;
+  colorStep: number;
+  maxDist: number;
+  bbox: { minX: number; minY: number; width: number; height: number };
+  canvasHeight: number;
+  mode?: FillMode;
+  direction?: { x: number; y: number };
+  directionOrigin?: { x: number; y: number };
+  directionRange?: { min: number; range: number };
+  ditherStrength?: number;
+  ditherPixelSize?: number;
+  noiseSeed?: number;
+}
+
 export class WebGLColorCycleRenderer {
   private static readonly MAX_CONTEXTS = 8;
   private static activeContexts = 0;
@@ -432,6 +451,25 @@ export class WebGLColorCycleRenderer {
       uniform float u_baseOffset;
       uniform float u_colorStep;
       uniform float u_maxDist;
+      uniform float u_mode; // 0 = concentric, 1 = linear
+      uniform vec2 u_dirVector;
+      uniform vec2 u_dirOrigin;
+      uniform float u_dirMinProj;
+      uniform float u_dirRange;
+      uniform float u_ditherStrength;
+      uniform float u_ditherPixelSize;
+      uniform float u_noiseSeed;
+
+      float hash(vec2 p, float seed) {
+        float h = dot(p, vec2(12.9898, 78.233)) + seed * 43758.5453123;
+        return fract(sin(h) * 43758.5453123);
+      }
+
+      float sampleNoise(vec2 coord) {
+        float cell = max(u_ditherPixelSize, 1.0);
+        vec2 cellCoord = floor(coord / cell);
+        return hash(cellCoord, u_noiseSeed);
+      }
 
       // Compute min distance to polygon edges and inside/outside via crossing parity
       void main() {
@@ -453,10 +491,11 @@ export class WebGLColorCycleRenderer {
           bool cond = ((a.y > y) != (b.y > y)) && (x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x);
           if (cond) inside = !inside;
 
-          // Distance to segment squared
+          // Distance to segment squared (for concentric mode)
           vec2 pa = vec2(x, y) - a;
           vec2 ba = b - a;
-          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+          float denomSeg = max(dot(ba, ba), 1e-6);
+          float h = clamp(dot(pa, ba) / denomSeg, 0.0, 1.0);
           vec2 proj = a + h * ba;
           vec2 d = vec2(x, y) - proj;
           float dsq = dot(d, d);
@@ -468,14 +507,30 @@ export class WebGLColorCycleRenderer {
           return;
         }
 
-        float maxDist = max(u_maxDist, 1.0);
-        float dist = sqrt(minDistSq);
-        float n = clamp(dist / maxDist, 0.0, 1.0);
         float padding = clamp(1.0 / max(u_bands * 4.0, 8.0), 0.001, 0.02);
-        n = clamp(n, padding, 1.0 - padding);
+        float normalized = 0.0;
+        if (u_mode < 0.5) {
+          float maxDist = max(u_maxDist, 1.0);
+          float dist = sqrt(minDistSq);
+          normalized = clamp(dist / maxDist, padding, 1.0 - padding);
+        } else {
+          vec2 rel = vec2(x, y) - u_dirOrigin;
+          float safeRange = max(abs(u_dirRange), 1e-6);
+          vec2 dir = normalize(u_dirVector);
+          float proj = dot(rel, dir);
+          normalized = clamp((proj - u_dirMinProj) / safeRange, 0.0, 1.0);
+          normalized = clamp(normalized, padding, 1.0 - padding);
+        }
+
         float denom = max(1.0, u_bands - 1.0);
-        float bandF = floor(n * denom + 0.5);
-        bandF = min(denom, bandF);
+        float bandCoord = normalized * denom;
+
+        if (u_ditherStrength > 0.0) {
+          float noise = sampleNoise(vec2(x, y));
+          bandCoord += (noise - 0.5) * u_ditherStrength;
+        }
+
+        float bandF = clamp(floor(bandCoord + 0.5), 0.0, denom);
         float colorIndex = mod(u_baseOffset + bandF * u_colorStep, 255.0) + 1.0;
         // Output index in red channel (normalized)
         gl_FragColor = vec4(colorIndex / 255.0, 0.0, 0.0, 1.0);
@@ -553,15 +608,7 @@ export class WebGLColorCycleRenderer {
   /**
    * GPU concentric polygon fill. Returns an 8-bit index buffer for bbox (R channel).
    */
-  fillPolygonConcentric(params: {
-    vertices: Float32Array;
-    bands: number;
-    baseOffset: number;
-    colorStep: number;
-    maxDist: number;
-    bbox: { minX: number; minY: number; width: number; height: number };
-    canvasHeight: number;
-  }): Uint8Array | null {
+  fillPolygonConcentric(params: FillRequest): Uint8Array | null {
     const gl = this.gl;
     const maxVerts = this.fillMaxVerts;
     const count = Math.min((params.vertices.length / 2) | 0, maxVerts);
@@ -601,6 +648,14 @@ export class WebGLColorCycleRenderer {
     const loc_baseOffset = gl.getUniformLocation(this.fillProgram!, 'u_baseOffset');
     const loc_colorStep = gl.getUniformLocation(this.fillProgram!, 'u_colorStep');
     const loc_maxDist = gl.getUniformLocation(this.fillProgram!, 'u_maxDist');
+    const loc_mode = gl.getUniformLocation(this.fillProgram!, 'u_mode');
+    const loc_dirVector = gl.getUniformLocation(this.fillProgram!, 'u_dirVector');
+    const loc_dirOrigin = gl.getUniformLocation(this.fillProgram!, 'u_dirOrigin');
+    const loc_dirMinProj = gl.getUniformLocation(this.fillProgram!, 'u_dirMinProj');
+    const loc_dirRange = gl.getUniformLocation(this.fillProgram!, 'u_dirRange');
+    const loc_ditherStrength = gl.getUniformLocation(this.fillProgram!, 'u_ditherStrength');
+    const loc_ditherPixel = gl.getUniformLocation(this.fillProgram!, 'u_ditherPixelSize');
+    const loc_noiseSeed = gl.getUniformLocation(this.fillProgram!, 'u_noiseSeed');
 
     if (loc_minX) gl.uniform1f(loc_minX, params.bbox.minX);
     if (loc_minY) gl.uniform1f(loc_minY, params.bbox.minY);
@@ -614,6 +669,17 @@ export class WebGLColorCycleRenderer {
     if (loc_baseOffset) gl.uniform1f(loc_baseOffset, params.baseOffset);
     if (loc_colorStep) gl.uniform1f(loc_colorStep, params.colorStep);
     if (loc_maxDist) gl.uniform1f(loc_maxDist, params.maxDist);
+    if (loc_mode) gl.uniform1f(loc_mode, params.mode ?? 0);
+    const dirVec = params.direction ?? { x: 1, y: 0 };
+    if (loc_dirVector) gl.uniform2f(loc_dirVector, dirVec.x, dirVec.y);
+    const dirOrigin = params.directionOrigin ?? { x: params.bbox.minX + bw * 0.5, y: params.bbox.minY + bh * 0.5 };
+    if (loc_dirOrigin) gl.uniform2f(loc_dirOrigin, dirOrigin.x, dirOrigin.y);
+    const dirRange = params.directionRange ?? { min: 0, range: 1 };
+    if (loc_dirMinProj) gl.uniform1f(loc_dirMinProj, dirRange.min);
+    if (loc_dirRange) gl.uniform1f(loc_dirRange, dirRange.range);
+    if (loc_ditherStrength) gl.uniform1f(loc_ditherStrength, params.ditherStrength ?? 0);
+    if (loc_ditherPixel) gl.uniform1f(loc_ditherPixel, Math.max(1, params.ditherPixelSize ?? 1));
+    if (loc_noiseSeed) gl.uniform1f(loc_noiseSeed, params.noiseSeed ?? 0);
 
     // Clear to 0 index
     gl.clearColor(0, 0, 0, 1);

@@ -252,6 +252,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   } = deps;
 
   type Point = { x: number; y: number };
+  type CaptureRegion = { x: number; y: number; width: number; height: number };
+
+  const CAPTURE_PADDING_PX = 2;
 
   const ensurePointRef = (
     ref: React.MutableRefObject<Point | null> | undefined
@@ -259,6 +262,42 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     if (ref) return ref;
     const fallback: React.MutableRefObject<Point | null> = { current: null };
     return fallback;
+  };
+
+  const computeCaptureRegionFromPoints = (
+    points: Array<Point> | null | undefined,
+    padding: number,
+    project: { width: number; height: number } | null
+  ): CaptureRegion | undefined => {
+    if (!project || !points || points.length === 0) {
+      return undefined;
+    }
+    let minX = points[0].x;
+    let maxX = points[0].x;
+    let minY = points[0].y;
+    let maxY = points[0].y;
+    for (let i = 1; i < points.length; i += 1) {
+      const pt = points[i];
+      if (!pt) continue;
+      if (pt.x < minX) minX = pt.x;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.y > maxY) maxY = pt.y;
+    }
+    const pad = Math.max(0, padding);
+    const x = Math.max(0, Math.floor(minX) - pad);
+    const y = Math.max(0, Math.floor(minY) - pad);
+    const right = Math.min(project.width, Math.ceil(maxX) + pad);
+    const bottom = Math.min(project.height, Math.ceil(maxY) + pad);
+    if (right <= x || bottom <= y) {
+      return undefined;
+    }
+    return {
+      x,
+      y,
+      width: Math.max(1, right - x),
+      height: Math.max(1, bottom - y),
+    };
   };
 
   const strokeStartWorldPosRef = ensurePointRef(deps.snapStrokeStartRef);
@@ -898,8 +937,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       drawingHandlers.drawingCanvasHasContent.current = true;
       compositeCanvasDirtyRef.current = true;
 
+      drawingHandlers.seedManualStrokeBoundingBox(shapePoints, 0);
+    const contourCaptureRoi = computeCaptureRegionFromPoints(shapePoints, CAPTURE_PADDING_PX, project);
+    const finalizeArgument = contourCaptureRoi
+      ? { captureRegionOverride: contourCaptureRoi }
+      : false;
+
       // IMPORTANT: perform all resets AFTER finalize resolves
-      return drawingHandlers.finalizeDrawing(false).then(() => {
+      return drawingHandlers.finalizeDrawing(finalizeArgument).then(() => {
         stateMachine.finalizationComplete();
         logDynamicSnapshot('contour-finalize-complete', {
           spacing: clampedSpacing,
@@ -1754,6 +1799,16 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
               
               // Mark composite as dirty BEFORE finalization
               compositeCanvasDirtyRef.current = true;
+
+              const perpX = -dy / length * (width / 2);
+              const perpY = dx / length * (width / 2);
+              const rectCorners = [
+                { x: currentRectState.startPos.x + perpX, y: currentRectState.startPos.y + perpY },
+                { x: currentRectState.startPos.x - perpX, y: currentRectState.startPos.y - perpY },
+                { x: currentRectState.endPos.x - perpX, y: currentRectState.endPos.y - perpY },
+                { x: currentRectState.endPos.x + perpX, y: currentRectState.endPos.y + perpY },
+              ];
+              drawingHandlers.seedManualStrokeBoundingBox(rectCorners, 2);
               
               // Finalize the drawing (rectangles are not CC shapes, so don't skip save)
               drawingHandlers.finalizeDrawing(false).then(() => {

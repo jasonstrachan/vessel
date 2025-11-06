@@ -28,6 +28,7 @@ const PROJECT_VERSION = '1.0.0';
 export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
 
 const PROJECT_ARCHIVE_ENTRY = 'project.json';
+const DEFAULT_PROJECT_THUMBNAIL_SIZE = 512;
 
 function isZipBytes(bytes: Uint8Array): boolean {
   if (bytes.length < 4) {
@@ -873,7 +874,11 @@ async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): P
 }
 
 // Generate thumbnail from project layers
-export function generateProjectThumbnail(project: Project, layers: Layer[], maxSize: number = 256): string {
+export function generateProjectThumbnail(
+  project: Project,
+  layers: Layer[],
+  maxSize: number = DEFAULT_PROJECT_THUMBNAIL_SIZE
+): string {
   const canvas = document.createElement('canvas');
   const aspectRatio = project.width / project.height;
   

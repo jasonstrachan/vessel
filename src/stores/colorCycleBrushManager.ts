@@ -27,6 +27,32 @@ type StoreSlice = Pick<AppState, 'tools' | 'layers'>;
 
 let storeStateGetter: (() => StoreSlice) | null = null;
 
+type BrushManagerRuntime = {
+  cleanupInactiveTimer: ReturnType<typeof setInterval> | null;
+  cleanupOrphanedTimer: ReturnType<typeof setInterval> | null;
+  featureFlagHandler: EventListener | null;
+  beforeUnloadHandler: EventListener | null;
+};
+
+type VesselGlobal = typeof globalThis & {
+  __vesselColorCycleRuntime?: BrushManagerRuntime;
+};
+
+const getRuntime = (): BrushManagerRuntime => {
+  const scope = globalThis as VesselGlobal;
+  if (!scope.__vesselColorCycleRuntime) {
+    scope.__vesselColorCycleRuntime = {
+      cleanupInactiveTimer: null,
+      cleanupOrphanedTimer: null,
+      featureFlagHandler: null,
+      beforeUnloadHandler: null,
+    };
+  }
+  return scope.__vesselColorCycleRuntime;
+};
+
+const runtime = getRuntime();
+
 export function setColorCycleStoreStateGetter(getter: () => StoreSlice): void {
   storeStateGetter = getter;
 }
@@ -544,6 +570,84 @@ let globalManager: ColorCycleBrushManager | null = null;
 // Store reference to the layer getter function
 let getValidLayerIds: (() => Set<string>) | null = null;
 
+const stopPeriodicMaintenance = (): void => {
+  if (runtime.cleanupInactiveTimer) {
+    clearInterval(runtime.cleanupInactiveTimer);
+    runtime.cleanupInactiveTimer = null;
+  }
+  if (runtime.cleanupOrphanedTimer) {
+    clearInterval(runtime.cleanupOrphanedTimer);
+    runtime.cleanupOrphanedTimer = null;
+  }
+};
+
+const startPeriodicMaintenance = (): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  stopPeriodicMaintenance();
+  runtime.cleanupInactiveTimer = window.setInterval(() => {
+    globalManager?.cleanupInactive(60000);
+  }, 30000);
+
+  runtime.cleanupOrphanedTimer = window.setInterval(() => {
+    if (globalManager && getValidLayerIds) {
+      const validIds = getValidLayerIds();
+      globalManager.cleanupOrphanedBrushes(validIds);
+    }
+  }, 60000);
+};
+
+const registerFeatureFlagListener = (): void => {
+  if (typeof window === 'undefined' || runtime.featureFlagHandler) {
+    return;
+  }
+
+  const handler: EventListener = (event: Event) => {
+    const detail = (event as CustomEvent<{ key?: string; value?: boolean }>).detail;
+    if (detail?.key === 'useCanvas2DColorCycle' && typeof detail.value === 'boolean') {
+      globalManager?.setCanvasImplementation(detail.value);
+    }
+  };
+
+  window.addEventListener('vessel:featureFlagChange', handler);
+  runtime.featureFlagHandler = handler;
+};
+
+const unregisterFeatureFlagListener = (): void => {
+  if (typeof window === 'undefined' || !runtime.featureFlagHandler) {
+    return;
+  }
+  window.removeEventListener('vessel:featureFlagChange', runtime.featureFlagHandler);
+  runtime.featureFlagHandler = null;
+};
+
+const registerBeforeUnloadHandler = (): void => {
+  if (typeof window === 'undefined' || runtime.beforeUnloadHandler) {
+    return;
+  }
+
+  const handler: EventListener = () => {
+    disposeColorCycleBrushManager();
+  };
+
+  window.addEventListener('beforeunload', handler);
+  runtime.beforeUnloadHandler = handler;
+};
+
+const unregisterBeforeUnloadHandler = (): void => {
+  if (typeof window === 'undefined' || !runtime.beforeUnloadHandler) {
+    return;
+  }
+  window.removeEventListener('beforeunload', runtime.beforeUnloadHandler);
+  runtime.beforeUnloadHandler = null;
+};
+
+// Ensure any lingering timers or handlers from previous module instances are cleared.
+stopPeriodicMaintenance();
+unregisterFeatureFlagListener();
+unregisterBeforeUnloadHandler();
+
 export function setLayerIdGetter(getter: () => Set<string>): void {
   getValidLayerIds = getter;
 }
@@ -551,33 +655,21 @@ export function setLayerIdGetter(getter: () => Set<string>): void {
 export function getColorCycleBrushManager(): ColorCycleBrushManager {
   if (!globalManager) {
     globalManager = createColorCycleBrushManager();
-    
-    // Setup periodic cleanup
     if (typeof window !== 'undefined') {
-      // Cleanup inactive brushes
-      setInterval(() => {
-        globalManager?.cleanupInactive(60000); // Clean up brushes inactive for 1 minute
-      }, 30000); // Run every 30 seconds
-      
-      // Cleanup orphaned brushes
-      setInterval(() => {
-        if (globalManager && getValidLayerIds) {
-          const validIds = getValidLayerIds();
-          globalManager.cleanupOrphanedBrushes(validIds);
-        }
-      }, 60000); // Run every minute
+      startPeriodicMaintenance();
+      registerFeatureFlagListener();
+      registerBeforeUnloadHandler();
     }
   }
   return globalManager;
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('vessel:featureFlagChange', (event) => {
-    const detail = (event as CustomEvent<{ key?: string; value?: boolean }>).detail;
-    if (detail?.key === 'useCanvas2DColorCycle' && typeof detail.value === 'boolean') {
-      globalManager?.setCanvasImplementation(detail.value);
-    }
-  });
+export function disposeColorCycleBrushManager(): void {
+  stopPeriodicMaintenance();
+  unregisterFeatureFlagListener();
+  unregisterBeforeUnloadHandler();
+  globalManager?.cleanupAll();
+  globalManager = null;
 }
 
 // Export types

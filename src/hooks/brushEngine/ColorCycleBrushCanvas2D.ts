@@ -14,6 +14,7 @@ import { canvasPool } from '@/utils/canvasPool';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { getMaskManager } from '@/layers/MaskManager';
+import { recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
 
 interface CustomStampInput {
   imageData: ImageData;
@@ -1167,6 +1168,81 @@ export class ColorCycleBrushCanvas2D {
     };
     const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
+    const bbox = {
+      minX: Math.floor(minX),
+      minY: Math.floor(minY),
+      width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1),
+      height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1)
+    };
+    const dirNorm = { x: dirX, y: dirY };
+
+    // GPU path (linear fill) when available
+    try {
+      const hasGL = animator.hasWebGL();
+      if (hasGL) {
+        const runtimeMax = animator.getGLFillMaxVerts() || 256;
+        const GPU_MAX_VERTS = Math.max(8, Math.min(256, runtimeMax));
+        let gpuVertices = vertices;
+        if (vertices.length > GPU_MAX_VERTS) {
+          const simplified = simplifyToVertexLimit(vertices, GPU_MAX_VERTS, { initialTolerance: 0.4, maxTolerance: 10, stepFactor: 1.6 });
+          gpuVertices = simplified;
+        }
+
+        if (gpuVertices.length >= 3 && gpuVertices.length <= GPU_MAX_VERTS) {
+          const ditherStrength = this.ditherEnabled ? this.ditherStrength : 0;
+          const ditherPixelSize = this.ditherEnabled ? Math.max(1, this.ditherPixelSize) : 1;
+          const noiseSeed = (this.stampCounter & 0xffff) / 65535;
+          const colorStep = numBands > 1 ? 254 / (numBands - 1) : 254;
+          const gpuStart = nowMs();
+          const ok = animator.gpuFillShape(gpuVertices, {
+            mode: 'linear',
+            bands: numBands,
+            baseOffset,
+            colorStep,
+            maxDist: 1,
+            bbox,
+            direction: dirNorm,
+            directionOrigin: { x: centerX, y: centerY },
+            directionRange: { min: minProjection, range: safeProjectionRange },
+            ditherStrength,
+            ditherPixelSize,
+            noiseSeed,
+          });
+          if (ok) {
+            this.stampCounter += numBands;
+            if (strokeData) strokeData.stampCounter = this.stampCounter;
+            this.dirtyLayers.add(id);
+            animator.forceRender();
+            this.render(false);
+            recordColorCycleFillPerf({
+              path: 'gpu',
+              mode: 'linear',
+              durationMs: nowMs() - gpuStart,
+              area: bbox.width * bbox.height,
+              vertices: gpuVertices.length,
+            });
+            return;
+          }
+        }
+      }
+    } catch {}
+
+    let logCpuLinear: () => void;
+    const linearPerf = { start: nowMs(), logged: false };
+    logCpuLinear = () => {
+      if (linearPerf.logged) {
+        return;
+      }
+      linearPerf.logged = true;
+      recordColorCycleFillPerf({
+        path: 'cpu',
+        mode: 'linear',
+        durationMs: nowMs() - linearPerf.start,
+        area: bbox.width * bbox.height,
+        vertices: vertices.length,
+      });
+    };
+
     // If using perceptual dithering, render gradient into an ImageData, dither in color space,
     // then map back to gradient indices and write to the index buffer.
     if (this.ditherEnabled && this.perceptualDither) {
@@ -1262,6 +1338,7 @@ export class ColorCycleBrushCanvas2D {
         this.dirtyLayers.add(id);
         animator.forceRender();
         this.render(false);
+        logCpuLinear();
         return;
       } catch {
         // Fallback to existing path on any failure
@@ -1509,6 +1586,7 @@ export class ColorCycleBrushCanvas2D {
     // Force immediate render
     animator.forceRender();
     this.render(false);
+    logCpuConcentric();
   }
 
   
@@ -1641,6 +1719,20 @@ export class ColorCycleBrushCanvas2D {
       thresholdsSq[b] = (t * t) * maxDistSq;
     }
 
+    let logCpuConcentric: () => void;
+    const concentricPerf = { start: nowMs(), logged: false };
+    logCpuConcentric = () => {
+      if (concentricPerf.logged) return;
+      concentricPerf.logged = true;
+      recordColorCycleFillPerf({
+        path: 'cpu',
+        mode: 'concentric',
+        durationMs: nowMs() - concentricPerf.start,
+        area: bbox.width * bbox.height,
+        vertices: vertices.length,
+      });
+    };
+
     // Perceptual dithering path for concentric fill
     if (this.ditherEnabled && this.perceptualDither) {
       try {
@@ -1731,22 +1823,26 @@ export class ColorCycleBrushCanvas2D {
         }
 
         this.stampCounter += quantLevels2; if (strokeData) strokeData.stampCounter = this.stampCounter;
-        this.dirtyLayers.add(id2); animator2.forceRender(); this.render(false); return;
+        this.dirtyLayers.add(id2); animator2.forceRender(); this.render(false); logCpuConcentric(); return;
       } catch { /* fall back to index-space path */ }
     }
 
-    // Attempt GPU path (simple rule: use when available and within uniform limits)
+    const bbox = {
+      minX: Math.floor(minX),
+      minY: Math.floor(minY),
+      width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1),
+      height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1)
+    };
+
+    // Attempt GPU path (use whenever WebGL is available)
     try {
       const hasGL = animator.hasWebGL();
-      const tryGPU = hasGL && !this.ditherEnabled; // skip GPU when dithering is enabled
-      const bbox = {
-        minX: Math.floor(minX),
-        minY: Math.floor(minY),
-        width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1),
-        height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1)
-      };
+      const tryGPU = hasGL;
       const bandsForGPU = bands;
       const baseOffset = this.stampCounter % 255;
+      const ditherStrength = this.ditherEnabled ? this.ditherStrength : 0;
+      const ditherPixelSize = this.ditherEnabled ? Math.max(1, this.ditherPixelSize) : 1;
+      const noiseSeed = (this.stampCounter & 0xffff) / 65535;
       // Guard GPU path for complex polygons: fallback to CPU when vertex count exceeds shader uniform limit
       // Determine runtime GPU vertex limit from animator if available
       const runtimeMax = animator.getGLFillMaxVerts() || 256;
@@ -1763,7 +1859,18 @@ export class ColorCycleBrushCanvas2D {
       if (tryGPU && withinVertLimit) {
         // quiet
         // GPU concentric fill
-        const ok = animator.gpuFillShapeConcentric(gpuVertices, bandsForGPU, baseOffset, stepPerBand, maxDist, bbox);
+        const gpuStart = nowMs();
+        const ok = animator.gpuFillShape(gpuVertices, {
+          mode: 'concentric',
+          bands: bandsForGPU,
+          baseOffset,
+          colorStep: stepPerBand,
+          maxDist,
+          bbox,
+          ditherStrength,
+          ditherPixelSize,
+          noiseSeed,
+        });
         if (ok) {
           // Continue stamp progression and render
           this.stampCounter += Math.max(2, this.gradientBands);
@@ -1771,6 +1878,13 @@ export class ColorCycleBrushCanvas2D {
           this.dirtyLayers.add(id);
           animator.forceRender();
           this.render(false);
+          recordColorCycleFillPerf({
+            path: 'gpu',
+            mode: 'concentric',
+            durationMs: nowMs() - gpuStart,
+            area: bbox.width * bbox.height,
+            vertices: gpuVertices.length,
+          });
           return;
         } else {
           // quiet
@@ -1780,7 +1894,7 @@ export class ColorCycleBrushCanvas2D {
     } catch {}
 
     // CPU fallback path
-    const bboxInfo = { minX: Math.floor(minX), minY: Math.floor(minY), width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1), height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1) };
+    const bboxInfo = bbox;
     // Prepare error diffusion accumulators for Sierra Lite dithering across the bbox width
     const bboxW = bboxInfo.width;
     let errCurr = new Float32Array(bboxW);
@@ -1933,6 +2047,7 @@ export class ColorCycleBrushCanvas2D {
       this.dirtyLayers.add(id);
       animator.forceRender();
       this.render(false);
+      logCpuConcentric();
       return;
     }
     // quiet
@@ -2144,6 +2259,7 @@ export class ColorCycleBrushCanvas2D {
     // Force immediate render to show the filled shape
     animator.forceRender();
     this.render(false);
+    logCpuConcentric();
   }
   
   /**

@@ -4,6 +4,10 @@
 import type { Project, Layer } from '../types';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 
+type BackgroundStorageGlobal = typeof globalThis & {
+  __vesselBackgroundStorage?: BackgroundStorageService;
+};
+
 const sanitizeColorCycleData = (
   colorCycleData: Layer['colorCycleData']
 ): Layer['colorCycleData'] | undefined => {
@@ -84,50 +88,62 @@ class BackgroundStorageService {
   private readonly PROJECTS_STORE = 'projects';
   private readonly SESSION_STORE = 'session';
   private db: IDBDatabase | null = null;
+  private initializingPromise: Promise<IDBDatabase | null> | null = null;
 
-  async initialize(): Promise<void> {
+  private async ensureDb(): Promise<IDBDatabase | null> {
+    if (this.db) {
+      return this.db;
+    }
     if (typeof window === 'undefined' || !window.indexedDB) {
-      // IndexedDB not available
-      return;
+      return null;
+    }
+    if (this.initializingPromise) {
+      return this.initializingPromise;
     }
 
-    return new Promise((resolve, reject) => {
+    this.initializingPromise = new Promise((resolve) => {
       const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
       request.onerror = () => {
-        // Failed to open database
-        reject(request.error);
+        console.error('[BackgroundStorage] Failed to open database:', request.error);
+        this.initializingPromise = null;
+        resolve(null);
       };
 
       request.onsuccess = () => {
         this.db = request.result;
-        // Database initialized
-        resolve();
+        this.db.onclose = () => {
+          this.db = null;
+        };
+        this.initializingPromise = null;
+        resolve(this.db);
       };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
 
-        // Create projects store for autosaved projects
         if (!db.objectStoreNames.contains(this.PROJECTS_STORE)) {
           const projectStore = db.createObjectStore(this.PROJECTS_STORE, { keyPath: 'projectId' });
           projectStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
 
-        // Create session store for recovery tracking
         if (!db.objectStoreNames.contains(this.SESSION_STORE)) {
           db.createObjectStore(this.SESSION_STORE, { keyPath: 'id' });
         }
       };
     });
+
+    return this.initializingPromise;
+  }
+
+  async initialize(): Promise<void> {
+    await this.ensureDb();
   }
 
   async saveProjectInBackground(project: Project, layers: Layer[]): Promise<void> {
-    if (!this.db) {
-      await this.initialize();
-      if (!this.db) {
-        throw new Error('IndexedDB not available');
-      }
+    const db = await this.ensureDb();
+    if (!db) {
+      throw new Error('IndexedDB not available');
     }
 
     // Create serializable layers by excluding OffscreenCanvas framebuffer
@@ -153,7 +169,7 @@ class BackgroundStorageService {
     };
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.PROJECTS_STORE], 'readwrite');
+      const transaction = db.transaction([this.PROJECTS_STORE], 'readwrite');
       const store = transaction.objectStore(this.PROJECTS_STORE);
       const request = store.put(autosaveRecord);
 
@@ -171,13 +187,11 @@ class BackgroundStorageService {
   }
 
   async getAutosavedProject(projectId: string): Promise<{ project: Project; layers: Layer[] } | null> {
-    if (!this.db) {
-      await this.initialize();
-      if (!this.db) return null;
-    }
+    const db = await this.ensureDb();
+    if (!db) return null;
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.PROJECTS_STORE], 'readonly');
+      const transaction = db.transaction([this.PROJECTS_STORE], 'readonly');
       const store = transaction.objectStore(this.PROJECTS_STORE);
       const request = store.get(projectId);
 
@@ -237,13 +251,11 @@ class BackgroundStorageService {
   }
 
   async hasUnsavedWork(): Promise<boolean> {
-    if (!this.db) {
-      await this.initialize();
-      if (!this.db) return false;
-    }
+    const db = await this.ensureDb();
+    if (!db) return false;
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.SESSION_STORE], 'readonly');
+      const transaction = db.transaction([this.SESSION_STORE], 'readonly');
       const store = transaction.objectStore(this.SESSION_STORE);
       const request = store.get('current-session');
 
@@ -260,13 +272,11 @@ class BackgroundStorageService {
   }
 
   async getLastAutosavedProjectId(): Promise<string | null> {
-    if (!this.db) {
-      await this.initialize();
-      if (!this.db) return null;
-    }
+    const db = await this.ensureDb();
+    if (!db) return null;
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.SESSION_STORE], 'readonly');
+      const transaction = db.transaction([this.SESSION_STORE], 'readonly');
       const store = transaction.objectStore(this.SESSION_STORE);
       const request = store.get('current-session');
 
@@ -283,10 +293,11 @@ class BackgroundStorageService {
   }
 
   async clearAutosave(projectId: string): Promise<void> {
-    if (!this.db) return;
+    const db = await this.ensureDb();
+    if (!db) return;
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.PROJECTS_STORE], 'readwrite');
+      const transaction = db.transaction([this.PROJECTS_STORE], 'readwrite');
       const store = transaction.objectStore(this.PROJECTS_STORE);
       const request = store.delete(projectId);
 
@@ -304,7 +315,8 @@ class BackgroundStorageService {
   }
 
   private async updateSession(projectId: string, hasUnsavedChanges: boolean): Promise<void> {
-    if (!this.db) return;
+    const db = await this.ensureDb();
+    if (!db) return;
 
     const sessionRecord: SessionRecord & { id: string } = {
       id: 'current-session',
@@ -314,7 +326,7 @@ class BackgroundStorageService {
     };
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.SESSION_STORE], 'readwrite');
+      const transaction = db.transaction([this.SESSION_STORE], 'readwrite');
       const store = transaction.objectStore(this.SESSION_STORE);
       const request = store.put(sessionRecord);
 
@@ -330,13 +342,11 @@ class BackgroundStorageService {
   }
 
   async getAllAutosaves(): Promise<AutosaveRecord[]> {
-    if (!this.db) {
-      await this.initialize();
-      if (!this.db) return [];
-    }
+    const db = await this.ensureDb();
+    if (!db) return [];
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.PROJECTS_STORE], 'readonly');
+      const transaction = db.transaction([this.PROJECTS_STORE], 'readonly');
       const store = transaction.objectStore(this.PROJECTS_STORE);
       const request = store.getAll();
 
@@ -352,12 +362,13 @@ class BackgroundStorageService {
   }
 
   async cleanupOldAutosaves(maxAge: number = 7 * 24 * 60 * 60 * 1000): Promise<void> {
-    if (!this.db) return;
+    const db = await this.ensureDb();
+    if (!db) return;
 
     const cutoffTime = Date.now() - maxAge;
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([this.PROJECTS_STORE], 'readwrite');
+      const transaction = db.transaction([this.PROJECTS_STORE], 'readwrite');
       const store = transaction.objectStore(this.PROJECTS_STORE);
       const index = store.index('timestamp');
       const request = index.openCursor(IDBKeyRange.upperBound(cutoffTime));
@@ -381,10 +392,15 @@ class BackgroundStorageService {
   }
 }
 
-// Export singleton instance
-export const backgroundStorageService = new BackgroundStorageService();
+const backgroundStorageGlobal = globalThis as BackgroundStorageGlobal;
+if (!backgroundStorageGlobal.__vesselBackgroundStorage) {
+  backgroundStorageGlobal.__vesselBackgroundStorage = new BackgroundStorageService();
+}
 
-// Initialize on import (browser only)
+// Export singleton instance
+export const backgroundStorageService = backgroundStorageGlobal.__vesselBackgroundStorage;
+
+// Initialize lazily on first browser import
 if (typeof window !== 'undefined') {
   backgroundStorageService.initialize().catch(console.error);
 }
