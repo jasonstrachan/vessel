@@ -53,7 +53,8 @@ const getCanvasDimensions = (
 };
 
 const computeCanvasContentBounds = (
-  canvas: HTMLCanvasElement | OffscreenCanvas | null
+  canvas: HTMLCanvasElement | OffscreenCanvas | null,
+  options: CanvasRenderingContext2DSettings = {}
 ): ContentBounds | null => {
   if (!canvas) {
     return null;
@@ -65,7 +66,10 @@ const computeCanvasContentBounds = (
   }
 
   try {
-    const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: true } as CanvasRenderingContext2DSettings);
+    const ctx = canvas.getContext('2d', {
+      willReadFrequently: options.willReadFrequently ?? false,
+      alpha: options.alpha ?? true,
+    } as CanvasRenderingContext2DSettings);
     if (!ctx || !('getImageData' in ctx)) {
       return null;
     }

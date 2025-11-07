@@ -223,13 +223,28 @@ describe('layers slice integration', () => {
 
   it('duplicates color-cycle layers and reinitializes brush resources', () => {
     const store = useAppStore.getState();
-    const originalId = store.addLayer(createColorCycleLayerInput('CC Layer 1'));
+    const ccLayerInput = createColorCycleLayerInput('CC Layer 1');
+    ccLayerInput.colorCycleData = {
+      ...ccLayerInput.colorCycleData,
+      canvas: makeCanvas(),
+    };
+    const originalId = store.addLayer(ccLayerInput);
 
     mockManager.initColorCycleForLayer.mockClear();
+    mockManager.createBrush.mockClear();
+    mockBrush.setTargetCanvas.mockClear();
+
     const duplicatedId = useAppStore.getState().duplicateLayer(originalId);
     expect(duplicatedId).toBeTruthy();
 
-    expect(mockManager.initColorCycleForLayer).toHaveBeenCalledWith(duplicatedId, 256, 256, undefined);
+    expect(mockManager.createBrush).toHaveBeenCalledWith(
+      duplicatedId,
+      32,
+      32,
+      expect.any(Uint8Array)
+    );
+    expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
+    expect(mockBrush.setTargetCanvas).toHaveBeenCalled();
 
     const nextState = useAppStore.getState();
     const duplicateLayer = nextState.layers.find((layer) => layer.id === duplicatedId);
@@ -240,7 +255,7 @@ describe('layers slice integration', () => {
     expect(duplicateLayer?.framebuffer).not.toBe(sourceLayer?.framebuffer);
   });
 
-  it('treats layers with colorCycleData as color-cycle even if layerType is stale', () => {
+  it('preserves bitmap data when legacy layers have stale colorCycleData without canvases', () => {
     const store = useAppStore.getState();
     const legacyLayer: Layer = {
       ...createColorCycleLayerInput('Legacy CC'),
@@ -253,9 +268,40 @@ describe('layers slice integration', () => {
 
     const nextState = useAppStore.getState();
     const duplicateLayer = nextState.layers.find((layer) => layer.id === duplicatedId);
-    expect(duplicateLayer?.layerType).toBe('color-cycle');
-    expect(duplicateLayer?.imageData).toBeNull();
-    expect(duplicateLayer?.colorCycleData?.hasContent).toBe(false);
+    expect(duplicateLayer?.layerType).toBe('normal');
+    expect(duplicateLayer?.imageData).not.toBeNull();
+    expect(duplicateLayer?.colorCycleData).toBeUndefined();
+  });
+
+  it('falls back to CC init when duplicated layer has no canvas to adopt', () => {
+    const store = useAppStore.getState();
+    const ccLayerInput = createColorCycleLayerInput('Canvasless CC');
+    ccLayerInput.colorCycleData = {
+      ...ccLayerInput.colorCycleData,
+      canvas: undefined,
+    };
+    const originalId = store.addLayer(ccLayerInput);
+    useAppStore.setState((state) => ({
+      layers: state.layers.map((layer) =>
+        layer.id === originalId && layer.colorCycleData
+          ? {
+              ...layer,
+              colorCycleData: {
+                ...layer.colorCycleData,
+                canvas: undefined,
+              },
+            }
+          : layer
+      ),
+    }));
+
+    mockManager.initColorCycleForLayer.mockClear();
+    mockManager.createBrush.mockClear();
+
+    useAppStore.getState().duplicateLayer(originalId);
+
+    expect(mockManager.initColorCycleForLayer).toHaveBeenCalled();
+    expect(mockManager.createBrush).not.toHaveBeenCalled();
   });
 
   it('captures canvas updates into the active layer and marks recomposition', async () => {

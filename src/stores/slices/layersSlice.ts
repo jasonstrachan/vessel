@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { CanvasSnapshot, Layer, LayerAlignmentSettings, Project } from '@/types';
 import { cloneLayerAlignment, normalizeLayers } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
+import { clamp } from '@/utils/num';
 import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
 import {
@@ -129,6 +130,9 @@ const cloneCanvasLike = <T extends HTMLCanvasElement | OffscreenCanvas | undefin
 ): HTMLCanvasElement | OffscreenCanvas | T => {
   const width = source?.width ?? fallbackImageData?.width ?? 1;
   const height = source?.height ?? fallbackImageData?.height ?? 1;
+  if (!source && !fallbackImageData) {
+    return null as T;
+  }
   const canvas = createCanvas(width, height, options ?? {});
   if (!canvas) {
     return source ?? (null as T);
@@ -157,6 +161,67 @@ const cloneGradientStops = (
     return undefined;
   }
   return stops.map((stop) => ({ ...stop }));
+};
+
+type GradientStop = { position: number; color: string };
+
+const DEFAULT_CC_GRADIENT: GradientStop[] = [
+  { position: 0.0, color: '#ff0000' },
+  { position: 0.17, color: '#ff7f00' },
+  { position: 0.33, color: '#ffff00' },
+  { position: 0.5, color: '#00ff00' },
+  { position: 0.67, color: '#0000ff' },
+  { position: 0.83, color: '#4b0082' },
+  { position: 1.0, color: '#9400d3' }
+];
+
+const parseHexColor = (hex: string): { r: number; g: number; b: number } => {
+  if (!hex || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) {
+    return { r: 255, g: 0, b: 0 };
+  }
+  if (hex.length === 4) {
+    const r = parseInt(hex[1] + hex[1], 16);
+    const g = parseInt(hex[2] + hex[2], 16);
+    const b = parseInt(hex[3] + hex[3], 16);
+    return { r, g, b };
+  }
+  const value = parseInt(hex.substring(1), 16);
+  return {
+    r: (value >> 16) & 0xff,
+    g: (value >> 8) & 0xff,
+    b: value & 0xff
+  };
+};
+
+const gradientStopsToUint8Array = (gradient?: GradientStop[]): Uint8Array => {
+  const stops = gradient && gradient.length > 0 ? gradient : DEFAULT_CC_GRADIENT;
+  const sortedStops = [...stops].sort((a, b) => a.position - b.position);
+  const result = new Uint8Array(256 * 3);
+
+  for (let i = 0; i < 256; i += 1) {
+    const t = i / 255;
+    let start = sortedStops[0];
+    let end = sortedStops[sortedStops.length - 1];
+    for (let j = 0; j < sortedStops.length - 1; j += 1) {
+      if (t >= sortedStops[j].position && t <= sortedStops[j + 1].position) {
+        start = sortedStops[j];
+        end = sortedStops[j + 1];
+        break;
+      }
+    }
+    const range = Math.max(1e-6, end.position - start.position);
+    const localT = clamp((t - start.position) / range, 0, 1);
+    const startColor = parseHexColor(start.color);
+    const endColor = parseHexColor(end.color);
+    const r = Math.round(startColor.r + (endColor.r - startColor.r) * localT);
+    const g = Math.round(startColor.g + (endColor.g - startColor.g) * localT);
+    const b = Math.round(startColor.b + (endColor.b - startColor.b) * localT);
+    result[i * 3] = r;
+    result[i * 3 + 1] = g;
+    result[i * 3 + 2] = b;
+  }
+
+  return result;
 };
 
 const cloneColorCycleData = (
@@ -193,14 +258,14 @@ const cloneColorCycleData = (
     brushState: undefined,
     canvas: stripSurfaces
       ? undefined
-      : (cloneCanvasLike(data.canvas ?? null, null, { forceDom: true }) as HTMLCanvasElement | undefined),
+      : (cloneCanvasLike(data.canvas ?? null, null, { forceDom: true }) as HTMLCanvasElement | null) || undefined,
     canvasImageData: stripSurfaces
       ? undefined
       : cloneImageData(data.canvasImageData ?? null) ?? undefined,
     eraseMask: stripSurfaces
       ? undefined
       : data.eraseMask
-        ? (cloneCanvasLike(data.eraseMask, null, { forceDom: true }) as HTMLCanvasElement)
+        ? (cloneCanvasLike(data.eraseMask, null, { forceDom: true }) as HTMLCanvasElement | null) || undefined
         : undefined,
     eraseMaskImageData: stripSurfaces
       ? undefined
@@ -491,18 +556,22 @@ export const createLayersSlice = (
 
     const newLayerId = `layer-${Date.now()}-${Math.random()}`;
     const hasColorCycleData = Boolean(targetLayer.colorCycleData);
-    const isColorCycleLayer = targetLayer.layerType === 'color-cycle' || hasColorCycleData;
+    const inheritsColorCycleType = targetLayer.layerType === 'color-cycle';
+    const hasCanvasBackedCC = inheritsColorCycleType && Boolean(targetLayer.colorCycleData?.canvas);
+    const treatAsColorCycle = inheritsColorCycleType || Boolean(targetLayer.colorCycleData?.canvas);
     const duplicateName = generateDuplicateLayerName(targetLayer.name, stateBeforeDuplicate.layers);
-    const shouldClonePixels = !isColorCycleLayer;
+    const shouldClonePixels = !hasCanvasBackedCC;
     const clonedImageData = shouldClonePixels ? cloneImageData(targetLayer.imageData) : null;
     const clonedFramebuffer = shouldClonePixels
       ? cloneCanvasLike(targetLayer.framebuffer, clonedImageData)
       : (targetLayer.framebuffer
           ? createCanvas(targetLayer.framebuffer.width, targetLayer.framebuffer.height, { forceDom: true })
           : createCanvas(1, 1, { forceDom: true })) || targetLayer.framebuffer;
-    const duplicateColorCycleData = isColorCycleLayer
-      ? cloneColorCycleData(targetLayer.colorCycleData, { stripSurfaces: true })
+    const duplicateColorCycleData = treatAsColorCycle
+      ? cloneColorCycleData(targetLayer.colorCycleData, { stripSurfaces: false })
       : undefined;
+
+    // Debug logging removed after verification
 
     set((state) => {
       const insertionIndex = state.layers.findIndex((layer) => layer.id === layerId);
@@ -516,7 +585,7 @@ export const createLayersSlice = (
         framebuffer: clonedFramebuffer || targetLayer.framebuffer,
         alignment: cloneLayerAlignment(targetLayer.alignment),
         colorCycleData: duplicateColorCycleData,
-        layerType: isColorCycleLayer ? 'color-cycle' : targetLayer.layerType,
+        layerType: treatAsColorCycle ? 'color-cycle' : targetLayer.layerType,
         order: 0,
         transparencyLocked: targetLayer.transparencyLocked === true,
         version: targetLayer.version,
@@ -536,16 +605,44 @@ export const createLayersSlice = (
     });
 
     const project = stateBeforeDuplicate.project;
-    if (project && targetLayer.layerType === 'color-cycle') {
-      try {
-        colorCycleBrushManager.initColorCycleForLayer(
-          newLayerId,
-          project.width || 1024,
-          project.height || 1024,
-          undefined
-        );
-      } catch (error) {
-        logError('duplicateLayer: failed to init color cycle layer', error);
+    const stateAfterInsert = get();
+    const duplicatedLayer = stateAfterInsert.layers.find((layer) => layer.id === newLayerId);
+
+    if (targetLayer.layerType === 'color-cycle') {
+      const adoptedCanvas = duplicatedLayer?.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
+      if (adoptedCanvas) {
+        try {
+          const width = adoptedCanvas.width || project?.width || 1024;
+          const height = adoptedCanvas.height || project?.height || 1024;
+          const gradientStops =
+            duplicatedLayer?.colorCycleData?.gradient ||
+            duplicatedLayer?.colorCycleData?.recolorSettings?.gradient ||
+            DEFAULT_CC_GRADIENT;
+          const gradientArray = gradientStopsToUint8Array(gradientStops);
+          const brush = colorCycleBrushManager.createBrush(newLayerId, width, height, gradientArray) as ColorCycleBrushImplementation & {
+            setTargetCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
+          };
+          brush.setTargetCanvas?.(adoptedCanvas);
+        } catch (error) {
+          logError('duplicateLayer: failed to adopt CC canvas, falling back to init', error);
+          colorCycleBrushManager.initColorCycleForLayer(
+            newLayerId,
+            project?.width || adoptedCanvas.width || 1024,
+            project?.height || adoptedCanvas.height || 1024,
+            undefined
+          );
+        }
+      } else {
+        try {
+          colorCycleBrushManager.initColorCycleForLayer(
+            newLayerId,
+            project?.width || 1024,
+            project?.height || 1024,
+            undefined
+          );
+        } catch (error) {
+          logError('duplicateLayer: failed to init color cycle layer', error);
+        }
       }
     }
 
@@ -1150,51 +1247,8 @@ export const createLayersSlice = (
       // Create a canvas element for this layer's color cycle
       // Use the current brush gradient if available
       const currentBrushGradient = state.tools.brushSettings.colorCycleGradient;
-      const gradient = currentBrushGradient || layer?.colorCycleData?.gradient || [
-        { position: 0.0, color: '#ff0000' },
-        { position: 0.17, color: '#ff7f00' },
-        { position: 0.33, color: '#ffff00' },
-        { position: 0.5, color: '#00ff00' },
-        { position: 0.67, color: '#0000ff' },
-        { position: 0.83, color: '#4b0082' },
-        { position: 1.0, color: '#9400d3' }
-      ];
-      
-      // Convert gradient to Uint8Array for brush creation
-      const gradientArray = new Uint8Array(256 * 3);
-      // Simple gradient interpolation (can be improved)
-      for (let i = 0; i < 256; i++) {
-        const t = i / 255;
-        // Find gradient stops
-        const color = { r: 255, g: 0, b: 0 }; // Default red
-        for (let j = 0; j < gradient.length - 1; j++) {
-          if (t >= gradient[j].position && t <= gradient[j + 1].position) {
-            // Interpolate between colors
-            const t0 = gradient[j].position;
-            const t1 = gradient[j + 1].position;
-            const localT = (t - t0) / (t1 - t0);
-            
-            const c0 = parseInt(gradient[j].color.substring(1), 16);
-            const c1 = parseInt(gradient[j + 1].color.substring(1), 16);
-            
-            const r0 = (c0 >> 16) & 0xff;
-            const g0 = (c0 >> 8) & 0xff;
-            const b0 = c0 & 0xff;
-            
-            const r1 = (c1 >> 16) & 0xff;
-            const g1 = (c1 >> 8) & 0xff;
-            const b1 = c1 & 0xff;
-            
-            color.r = Math.round(r0 + (r1 - r0) * localT);
-            color.g = Math.round(g0 + (g1 - g0) * localT);
-            color.b = Math.round(b0 + (b1 - b0) * localT);
-            break;
-          }
-        }
-        gradientArray[i * 3] = color.r;
-        gradientArray[i * 3 + 1] = color.g;
-        gradientArray[i * 3 + 2] = color.b;
-      }
+      const gradient = currentBrushGradient || layer?.colorCycleData?.gradient || DEFAULT_CC_GRADIENT;
+      const gradientArray = gradientStopsToUint8Array(gradient);
       
       // Create brush through manager
       const colorCycleBrush = colorCycleBrushManager.createBrush(layerId, safeWidth, safeHeight, gradientArray);
