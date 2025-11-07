@@ -6,6 +6,10 @@
 
 import { RecolorEngine } from './RecolorEngine';
 import type { Layer } from '../../types';
+import {
+  MAX_RECOLOR_COLOR_CYCLE_SPEED,
+  MIN_RECOLOR_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 export interface AnimatedLayer {
   layer: Layer;
@@ -334,7 +338,10 @@ export class RecolorAnimationController {
     }
     
     // Defensive clamp to allow slower animations while avoiding zero/negative
-    const clamped = Math.max(0.02, Math.min(2.0, Number.isFinite(speed) ? speed : 0.1));
+    const clamped = Math.max(
+      MIN_RECOLOR_COLOR_CYCLE_SPEED,
+      Math.min(MAX_RECOLOR_COLOR_CYCLE_SPEED, Number.isFinite(speed) ? speed : 0.1)
+    );
     animatedLayer.layer.colorCycleData.recolorSettings.animation.speed = clamped;
     this.updateTicksPerFrame(animatedLayer.layer);
     return true;

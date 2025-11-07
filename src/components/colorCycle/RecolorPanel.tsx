@@ -29,6 +29,7 @@ import {
 // Extract colors feature removed from UI
 import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
 // Performance indicator removed from UI
+import { MIN_RECOLOR_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 
 type GradientStop = { position: number; color: string };
 
@@ -352,7 +353,10 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     },
     slowDown: () => {
       if (activeLayer && recolorSettings) {
-        const newSpeed = Math.max(0.02, recolorSettings.animation.speed - 0.1);
+        const newSpeed = Math.max(
+          MIN_RECOLOR_COLOR_CYCLE_SPEED,
+          recolorSettings.animation.speed - 0.1
+        );
         updateLayerSpeed(activeLayer.id, newSpeed);
       }
     },

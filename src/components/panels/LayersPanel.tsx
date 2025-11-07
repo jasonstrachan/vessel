@@ -25,6 +25,7 @@ const LayersPanel: React.FC = () => {
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const addLayer = useAppStore((state) => state.addLayer);
+  const duplicateLayer = useAppStore((state) => state.duplicateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const setActiveLayer = useAppStore((state) => state.setActiveLayer);
@@ -462,6 +463,19 @@ const LayersPanel: React.FC = () => {
                         aria-pressed={isReferenceLayer}
                       >
                         <span>{isReferenceLayer ? 'Unmark reference layer' : 'Mark as reference layer'}</span>
+                      </button>
+                      <button
+                        onClick={event => {
+                          event.stopPropagation();
+                          const duplicatedId = duplicateLayer(layer.id);
+                          if (duplicatedId) {
+                            setLayerMenuState(null);
+                          }
+                        }}
+                        className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A] transition-colors"
+                        title="Duplicate this layer"
+                      >
+                        <span>Duplicate layer</span>
                       </button>
                       <button
                         onClick={event => {

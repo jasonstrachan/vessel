@@ -1,12 +1,15 @@
 'use client';
 
-import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, memo, useEffect, useRef } from 'react';
+import { shallow } from 'zustand/shallow';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { useAppStore } from '../stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
   selectSelectedLayerIds,
+  selectLayerIdsDescending,
+  selectActiveLayer,
 } from '@/stores/selectors/layersSelectors';
 import { Layer, BrushShape } from '../types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -17,6 +20,11 @@ import { recordBreadcrumb } from '../utils/debug';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
 import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 import { selectProjectDimensions } from '@/stores/selectors/projectSelectors';
+import {
+  COLOR_CYCLE_SPEED_STEP,
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 export const LAYER_TAG_CLASS = 'px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]';
@@ -84,118 +92,167 @@ export const LayerColorSwatches = memo<{
 
 LayerColorSwatches.displayName = 'LayerColorSwatches';
 
-// Memoized layer item component to prevent unnecessary re-renders
-const LayerItem = memo<{
-  layer: Layer;
+type LayerRowState = {
+  layer: Layer | null;
   isActive: boolean;
-  isDragOver: boolean;
-  onToggleVisibility: (e: React.MouseEvent, layerId: string) => void;
-  onClick: (layerId: string) => void;
-  onDragStart: (e: React.DragEvent, layerId: string) => void;
-  onDragEnd: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent, layerId: string) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent, layerId: string) => void;
+  isSelected: boolean;
+};
+
+type LayerRowProps = {
+  layerId: string;
+  canDeleteLayer: boolean;
+  onLayerClick: (event: React.MouseEvent, layerId: string) => void;
+  onToggleVisibility: (event: React.MouseEvent, layerId: string) => void;
+  onDragStart: (event: React.DragEvent, layerId: string) => void;
+  onDragEnd: (event: React.DragEvent) => void;
+  onRemoveLayer: (layerId: string) => void;
   generateGradientCSS: (gradient: Array<{ position: number; color: string }> | undefined) => string;
-}>(({
-  layer,
-  isActive,
-  isDragOver,
-  onToggleVisibility,
-  onClick,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  generateGradientCSS
-}) => {
-  return (
-    <div
-      className={`
-        relative group cursor-move select-none
-        ${isActive ? 'bg-[#4A4A4A]' : 'hover:bg-[#353535]'}
-        ${isDragOver ? 'border-t-2 border-blue-400' : ''}
-        transition-all duration-150
-      `}
-      draggable
-      onClick={() => onClick(layer.id)}
-      onDragStart={(e) => onDragStart(e, layer.id)}
-      onDragEnd={onDragEnd}
-      onDragOver={(e) => onDragOver(e, layer.id)}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => onDrop(e, layer.id)}
-    >
-      <div className="flex items-center h-7 px-2">
-        {/* Visibility Toggle */}
-        <button
-          onClick={(e) => onToggleVisibility(e, layer.id)}
-          className={`
-            w-4 h-4 mr-2 flex items-center justify-center
-            ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}
-            hover:text-white
-          `}
-        >
-          {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-        </button>
-        
-        {/* Display gradient for CC layers or color swatches for normal layers */}
-        {(() => {
-          if (layer.layerType === 'color-cycle' && layer.colorCycleData?.gradient) {
-            return (
-              <div 
-                className="flex-1 h-4 rounded mr-1"
-                style={{
-                  background: generateGradientCSS(layer.colorCycleData.gradient),
-                  minWidth: '30px',
-                  opacity: layer.visible ? 1 : 0.5
-                }}
-                title={layer.name}
-              />
-            );
-          } else if (layer.layerType === 'normal') {
-            return <LayerColorSwatches layer={layer} visible={layer.visible} />;
-          }
+};
+
+const useLayerRowState = (layerId: string): LayerRowState =>
+  useAppStore(
+    useCallback(
+      (state) => ({
+        layer: state.layers.find((l) => l.id === layerId) ?? null,
+        isActive: state.activeLayerId === layerId,
+        isSelected: state.selectedLayerIds.includes(layerId),
+      }),
+      [layerId]
+    ),
+    shallow
+  );
+
+const LayerRow = memo<LayerRowProps>(
+  ({
+    layerId,
+    canDeleteLayer,
+    onLayerClick,
+    onToggleVisibility,
+    onDragStart,
+    onDragEnd,
+    onRemoveLayer,
+    generateGradientCSS,
+  }) => {
+    const { layer, isActive, isSelected } = useLayerRowState(layerId);
+
+    if (!layer) {
+      return null;
+    }
+
+    const rowClassName = `
+      relative group cursor-move select-none
+      ${isActive ? 'bg-[#4A4A4A]' : isSelected ? 'bg-[#3F3F3F]' : 'hover:bg-[#353535]'}
+      transition-all duration-150
+    `;
+
+    const renderColorPreview = () => {
+      if (layer.layerType === 'color-cycle') {
+        const ccGradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
+        if (ccGradient && ccGradient.length > 0) {
           return (
-            <span className="text-[#D9D9D9] text-xs flex-1 truncate">
-              {layer.name}
-            </span>
+            <div
+              className="flex-1 h-4 rounded mr-1"
+              style={{
+                background: generateGradientCSS(ccGradient),
+                minWidth: '30px',
+                opacity: layer.visible ? 1 : 0.5,
+              }}
+              title={`${layer.name} - ${ccGradient.length} stops`}
+            />
           );
-        })()}
+        }
 
-        {layer.layerType === 'color-cycle' ? (
-          <div className="ml-1 flex items-center gap-1">
-            <span className={LAYER_TAG_CLASS}>CC</span>
-            <span className={LAYER_TAG_CLASS}>
-              {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
-            </span>
-          </div>
-        ) : (
-          <div className="ml-1 flex items-center gap-1">
-            <span className={LAYER_TAG_CLASS}>Layer</span>
-          </div>
-        )}
+        return (
+          <div
+            className="flex-1 h-4 rounded mr-1"
+            style={{
+              background: '#555',
+              minWidth: '30px',
+              opacity: layer.visible ? 1 : 0.5,
+            }}
+            title={layer.name}
+          />
+        );
+      }
+
+      if (layer.layerType === 'normal') {
+        return <LayerColorSwatches layer={layer} visible={layer.visible} />;
+      }
+
+      return (
+        <span className="text-[#D9D9D9] text-xs flex-1 truncate">
+          {layer.name}
+        </span>
+      );
+    };
+
+    return (
+      <div
+        className={rowClassName}
+        draggable
+        onClick={(event) => onLayerClick(event, layer.id)}
+        onDragStart={(event) => onDragStart(event, layer.id)}
+        onDragEnd={onDragEnd}
+      >
+        <div className="relative flex items-center h-7 pl-2 pr-8">
+          <button
+            onClick={(event) => onToggleVisibility(event, layer.id)}
+            className={`
+              w-4 h-4 mr-2 flex items-center justify-center
+              ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}
+              hover:text-white
+            `}
+          >
+            {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+          </button>
+
+          {renderColorPreview()}
+
+          {layer.layerType === 'color-cycle' ? (
+            <div className="ml-1 flex items-center gap-1">
+              <span className={LAYER_TAG_CLASS}>CC</span>
+              <span className={LAYER_TAG_CLASS}>
+                {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
+              </span>
+            </div>
+          ) : (
+            <div className="ml-1 flex items-center gap-1">
+              <span className={LAYER_TAG_CLASS}>Layer</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className={`
+              pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto absolute right-1 top-1/2 -translate-y-1/2
+              flex items-center justify-center rounded p-1 text-[#8F8FA3]
+              transition-opacity duration-150 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
+              hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#8F8FA3] z-10
+              ${canDeleteLayer ? '' : 'cursor-not-allowed opacity-0'}
+            `}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (!canDeleteLayer) {
+                return;
+              }
+              onRemoveLayer(layer.id);
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onDragStart={(event) => event.preventDefault()}
+            draggable={false}
+            disabled={!canDeleteLayer}
+            aria-label={`Remove ${layer.name}`}
+          >
+            <X size={12} />
+          </button>
+        </div>
       </div>
-    </div>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison function - only re-render if relevant props change
-  const shouldSkipRender = (
-    prevProps.layer.id === nextProps.layer.id &&
-    prevProps.layer.name === nextProps.layer.name &&
-    prevProps.layer.visible === nextProps.layer.visible &&
-    prevProps.layer.layerType === nextProps.layer.layerType &&
-    prevProps.isActive === nextProps.isActive &&
-    prevProps.isDragOver === nextProps.isDragOver &&
-    // Deep check for color cycle data
-    JSON.stringify(prevProps.layer.colorCycleData?.gradient) === JSON.stringify(nextProps.layer.colorCycleData?.gradient)
-  );
-  
-  
-  return shouldSkipRender;
-});
+    );
+  }
+);
 
-LayerItem.displayName = 'LayerItem';
+LayerRow.displayName = 'LayerRow';
 
 const DropSlot: React.FC<{
   index: number;
@@ -244,10 +301,12 @@ const MinimalLayerList = () => {
   const isSuspended = desiredPlaying && suspendDepth > 0;
   
   // Store subscriptions
-  const layers = useAppStore(selectLayers);
-  const displayedLayers = useMemo(() => layers.slice().reverse(), [layers]);
+  const displayedLayerIds = useAppStore(selectLayerIdsDescending, shallow);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
+  const layersRef = useStoreSelectorRef(selectLayers);
+  const selectedLayerIdsRef = useStoreSelectorRef(selectSelectedLayerIds);
+  const activeLayerIdRef = useStoreSelectorRef(selectActiveLayerId);
   const brushSettings = useAppStore(selectBrushSettings);
   const globalColorCycleSpeed = brushSettings.colorCycleSpeed ?? 0.1;
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
@@ -261,17 +320,12 @@ const MinimalLayerList = () => {
   const removeLayer = useAppStore((state) => state.removeLayer);
   const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
-  const draggedLayer = useMemo(
-    () => displayedLayers.find((layer) => layer.id === draggedLayerId) ?? null,
-    [displayedLayers, draggedLayerId]
-  );
-
-  const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
+  const activeLayer = useAppStore(selectActiveLayer);
   const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
   const colorCycleSpeedValue = isCCBrushLayer && typeof activeLayer?.colorCycleData?.brushSpeed === 'number'
     ? activeLayer.colorCycleData.brushSpeed
     : globalColorCycleSpeed;
-  const canDeleteLayer = layers.length > 1;
+  const canDeleteLayer = displayedLayerIds.length > 1;
   
   // Remove local overrides; animation state comes from store + unified event
   
@@ -298,22 +352,24 @@ const MinimalLayerList = () => {
       return null;
     }
 
-    if (displayIndex >= displayedLayers.length) {
+    if (displayIndex >= displayedLayerIds.length) {
       return 0;
     }
 
-    const targetLayerId = displayedLayers[displayIndex]?.id;
+    const targetLayerId = displayedLayerIds[displayIndex];
     if (!targetLayerId) {
       return null;
     }
 
+    const layers = layersRef.current;
     return layers.findIndex((layer) => layer.id === targetLayerId);
-  }, [displayedLayers, layers]);
+  }, [displayedLayerIds, layersRef]);
 
   const handleAddCCLayer = () => {
+    const layersSnapshot = layersRef.current;
     // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
     // quiet
-    recordBreadcrumb('layers', { event: 'ui-add-cc-click', count: layers.length, activeLayerId });
+    recordBreadcrumb('layers', { event: 'ui-add-cc-click', count: layersSnapshot.length, activeLayerId });
     // quiet
     // Helper to create a framebuffer that works across browsers
     const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
@@ -338,7 +394,7 @@ const MinimalLayerList = () => {
 
     // Create a color-cycle layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `CC Layer ${layers.filter(l => l.layerType === 'color-cycle').length + 1}`,
+      name: `CC Layer ${layersSnapshot.filter(l => l.layerType === 'color-cycle').length + 1}`,
       visible: true,
       opacity: 1,
       blendMode: 'source-over',
@@ -378,9 +434,10 @@ const MinimalLayerList = () => {
   };
   
   const handleAddRegularLayer = () => {
+    const layersSnapshot = layersRef.current;
     // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
     // quiet
-    recordBreadcrumb('layers', { event: 'ui-add-regular-click', count: layers.length, activeLayerId });
+    recordBreadcrumb('layers', { event: 'ui-add-regular-click', count: layersSnapshot.length, activeLayerId });
     // quiet
     const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
       // Allocate tiny placeholder; resize lazily on first capture
@@ -392,7 +449,7 @@ const MinimalLayerList = () => {
     
     // Create a regular layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `Layer ${layers.length + 1}`,
+      name: `Layer ${layersSnapshot.length + 1}`,
       visible: true,
       opacity: 1,
       blendMode: 'source-over',
@@ -425,15 +482,17 @@ const MinimalLayerList = () => {
     // quiet
   };
   
-  const handleToggleVisibility = (e: React.MouseEvent, layerId: string) => {
-    e.stopPropagation();
+  const handleToggleVisibility = useCallback((event: React.MouseEvent, layerId: string) => {
+    event.stopPropagation();
+    const layers = layersRef.current;
     const targetLayer = layers.find(l => l.id === layerId);
     if (!targetLayer) {
       return;
     }
 
-    const shouldApplyToSelection = selectedLayerIds.includes(layerId) && selectedLayerIds.length > 1;
-    const layerIdsToUpdate = shouldApplyToSelection ? selectedLayerIds : [layerId];
+    const selection = selectedLayerIdsRef.current;
+    const shouldApplyToSelection = selection.includes(layerId) && selection.length > 1;
+    const layerIdsToUpdate = shouldApplyToSelection ? selection : [layerId];
     const nextVisible = !targetLayer.visible;
 
     layerIdsToUpdate.forEach((id) => {
@@ -442,10 +501,11 @@ const MinimalLayerList = () => {
         updateLayer(id, { visible: nextVisible });
       }
     });
-  };
+  }, [layersRef, selectedLayerIdsRef, updateLayer]);
   
   // Handle drag start
   const commitDrop = useCallback((draggedId: string, indicatorOverride?: number | null) => {
+    const layers = layersRef.current;
     const draggedIndex = layers.findIndex(l => l.id === draggedId);
     if (draggedIndex === -1) {
       return false;
@@ -464,7 +524,7 @@ const MinimalLayerList = () => {
     }
 
     return true;
-  }, [convertDisplayIndexToStoreIndex, dropIndicatorIndex, layers, reorderLayers]);
+  }, [convertDisplayIndexToStoreIndex, dropIndicatorIndex, layersRef, reorderLayers]);
 
   const onDragOverIndex = useCallback((index: number) => {
     if (!draggedLayerId) {
@@ -484,7 +544,7 @@ const MinimalLayerList = () => {
   }, [commitDrop, draggedLayerId, resetDragState]);
 
   // Handle drag start
-  const handleDragStart = (e: React.DragEvent, layerId: string) => {
+  const handleDragStart = useCallback((e: React.DragEvent, layerId: string) => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', layerId);
     setDraggedLayerId(layerId);
@@ -494,23 +554,27 @@ const MinimalLayerList = () => {
       e.currentTarget.style.opacity = '0.5';
     }
 
-    const displayIndex = displayedLayers.findIndex((layer) => layer.id === layerId);
+    const displayIndex = displayedLayerIds.indexOf(layerId);
     if (displayIndex !== -1) {
       setDropIndicatorIndex(displayIndex + 1);
     }
-  };
+  }, [displayedLayerIds]);
   
-  const handleDragEnd = (e: React.DragEvent) => {
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
     // Reset opacity
     if (e.currentTarget instanceof HTMLElement) {
       e.currentTarget.style.opacity = '1';
     }
     resetDragState();
-  };
+  }, [resetDragState]);
   
-  const handleLayerClick = (event: React.MouseEvent, layerId: string) => {
-    if (event.shiftKey && activeLayerId) {
-      const anchorIndex = layers.findIndex(l => l.id === activeLayerId);
+  const handleLayerClick = useCallback((event: React.MouseEvent, layerId: string) => {
+    const layers = layersRef.current;
+    const selection = selectedLayerIdsRef.current;
+    const anchorId = activeLayerIdRef.current;
+
+    if (event.shiftKey && anchorId) {
+      const anchorIndex = layers.findIndex(l => l.id === anchorId);
       const targetIndex = layers.findIndex(l => l.id === layerId);
 
       if (anchorIndex !== -1 && targetIndex !== -1) {
@@ -525,10 +589,10 @@ const MinimalLayerList = () => {
     }
 
     if (event.metaKey || event.ctrlKey) {
-      const isSelected = selectedLayerIds.includes(layerId);
+      const isSelected = selection.includes(layerId);
 
       if (isSelected) {
-        const nextSelection = selectedLayerIds.filter(id => id !== layerId);
+        const nextSelection = selection.filter(id => id !== layerId);
 
         if (nextSelection.length === 0) {
           setActiveLayer(layerId);
@@ -536,7 +600,7 @@ const MinimalLayerList = () => {
           return;
         }
 
-        if (layerId === activeLayerId) {
+        if (layerId === anchorId) {
           const nextActiveLayerId = nextSelection[nextSelection.length - 1] ?? nextSelection[0];
           setActiveLayer(nextActiveLayerId);
         }
@@ -546,19 +610,24 @@ const MinimalLayerList = () => {
       }
 
       setActiveLayer(layerId);
-      setSelectedLayerIds([...selectedLayerIds, layerId]);
+      setSelectedLayerIds([...selection, layerId]);
       return;
     }
 
     setActiveLayer(layerId);
     setSelectedLayerIds([layerId]);
-  };
+  }, [activeLayerIdRef, layersRef, selectedLayerIdsRef, setActiveLayer, setSelectedLayerIds]);
 
-  const handleRemoveLayer = (layerId: string) => {
+  const handleRemoveLayer = useCallback((layerId: string) => {
     removeLayer(layerId);
-  };
+  }, [removeLayer]);
   
   const renderDropPreview = (index: number) => {
+    const layers = layersRef.current;
+    const draggedLayer = draggedLayerId
+      ? layers.find((layer) => layer.id === draggedLayerId) ?? null
+      : null;
+
     if (!draggedLayer) {
       return (
         <div className="relative h-2">
@@ -567,7 +636,10 @@ const MinimalLayerList = () => {
       );
     }
 
-    const targetLayer = index < displayedLayers.length ? displayedLayers[index] : null;
+    const targetLayerId = index < displayedLayerIds.length ? displayedLayerIds[index] : null;
+    const targetLayer = targetLayerId
+      ? layers.find((layer) => layer.id === targetLayerId) ?? null
+      : null;
     const targetLabel = targetLayer ? `Before "${targetLayer.name}"` : 'Place at the bottom';
     const previewFillStyle: React.CSSProperties = (() => {
       if (draggedLayer.layerType === 'color-cycle') {
@@ -623,137 +695,35 @@ const MinimalLayerList = () => {
         </button>
       </div>
       
-      <div
-        className="flex-1 overflow-y-auto"
-        key={`${displayedLayers.length}-${displayedLayers.map(l => `${l.id}-${l.layerType}-${!!l.colorCycleData}`).join(',')}`}
-      >
+      <div className="flex-1 overflow-y-auto">
         <div className="py-1">
-          {displayedLayers.map((layer, index) => {
-            const isSelected = selectedLayerIds.includes(layer.id);
-            const isActive = activeLayerId === layer.id;
-            return (
-              <React.Fragment key={layer.id}>
-                <DropSlot
-                  index={index}
-                  onDragOverIndex={onDragOverIndex}
-                  onDropAtIndex={onDropAtIndex}
-                  renderPreview={renderDropPreview}
-                  isActive={dropIndicatorIndex === index}
-                />
-                <div
-                  className={`
-                    relative group cursor-move select-none
-                    ${isActive ? 'bg-[#4A4A4A]' : isSelected ? 'bg-[#3F3F3F]' : 'hover:bg-[#353535]'}
-                    transition-all duration-150
-                  `}
-                  draggable
-                  onClick={(event) => handleLayerClick(event, layer.id)}
-                  onDragStart={(e) => handleDragStart(e, layer.id)}
-                  onDragEnd={handleDragEnd}
-                >
-                <div className="relative flex items-center h-7 pl-2 pr-8">
-                  {/* Visibility Toggle */}
-                  <button
-                    onClick={(e) => handleToggleVisibility(e, layer.id)}
-                    className={`
-                      w-4 h-4 mr-2 flex items-center justify-center
-                      ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}
-                      hover:text-white
-                    `}
-                  >
-                    {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-                  </button>
-                  
-                  {/* Display gradient for CC layers (brush or recolor) or color swatches for normal layers */}
-                  {(() => {
-                    if (layer.layerType === 'color-cycle') {
-                      const ccGradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
-                      if (ccGradient && ccGradient.length > 0) {
-                        return (
-                          <div 
-                            className="flex-1 h-4 rounded mr-1" 
-                            style={{
-                              background: generateGradientCSS(ccGradient),
-                              minWidth: '30px',
-                              opacity: layer.visible ? 1 : 0.5
-                            }}
-                            title={`${layer.name} - ${ccGradient.length} stops`}
-                          />
-                        );
-                      }
-                      // No gradient available yet; show a neutral bar
-                      return (
-                        <div 
-                          className="flex-1 h-4 rounded mr-1"
-                          style={{
-                            background: '#555',
-                            minWidth: '30px',
-                            opacity: layer.visible ? 1 : 0.5
-                          }}
-                          title={layer.name}
-                        />
-                      );
-                    } else if (layer.layerType === 'normal') {
-                      return <LayerColorSwatches layer={layer} visible={layer.visible} />;
-                    } else {
-                      return (
-                        <span className="text-[#D9D9D9] text-xs flex-1 truncate">
-                          {layer.name}
-                        </span>
-                      );
-                    }
-                  })()}
-
-                  {/* CC badges */}
-                  {layer.layerType === 'color-cycle' ? (
-                    <div className="ml-1 flex items-center gap-1">
-                      <span className={LAYER_TAG_CLASS}>CC</span>
-                      <span className={LAYER_TAG_CLASS}>
-                        {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="ml-1 flex items-center gap-1">
-                      <span className={LAYER_TAG_CLASS}>Layer</span>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    className={`
-                      pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto absolute right-1 top-1/2 -translate-y-1/2
-                      flex items-center justify-center rounded p-1 text-[#8F8FA3]
-                      transition-opacity duration-150 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
-                      hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#8F8FA3] z-10
-                      ${canDeleteLayer ? '' : 'cursor-not-allowed opacity-0'}
-                    `}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!canDeleteLayer) {
-                        return;
-                      }
-                      handleRemoveLayer(layer.id);
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onDragStart={(e) => e.preventDefault()}
-                    draggable={false}
-                    disabled={!canDeleteLayer}
-                    aria-label={`Remove ${layer.name}`}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              </div>
-              </React.Fragment>
-            );
-          })}
+          {displayedLayerIds.map((layerId, index) => (
+            <React.Fragment key={layerId}>
+              <DropSlot
+                index={index}
+                onDragOverIndex={onDragOverIndex}
+                onDropAtIndex={onDropAtIndex}
+                renderPreview={renderDropPreview}
+                isActive={dropIndicatorIndex === index}
+              />
+              <LayerRow
+                layerId={layerId}
+                canDeleteLayer={canDeleteLayer}
+                onLayerClick={handleLayerClick}
+                onToggleVisibility={handleToggleVisibility}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onRemoveLayer={handleRemoveLayer}
+                generateGradientCSS={generateGradientCSS}
+              />
+            </React.Fragment>
+          ))}
           <DropSlot
-            index={displayedLayers.length}
+            index={displayedLayerIds.length}
             onDragOverIndex={onDragOverIndex}
             onDropAtIndex={onDropAtIndex}
             renderPreview={renderDropPreview}
-            isActive={dropIndicatorIndex === displayedLayers.length}
+            isActive={dropIndicatorIndex === displayedLayerIds.length}
           />
         </div>
       </div>
@@ -769,11 +739,14 @@ const MinimalLayerList = () => {
             </span>
             <ProgressSlider
               value={colorCycleSpeedValue}
-              min={0.02}
-              max={1.0}
-              step={0.01}
+              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+              step={COLOR_CYCLE_SPEED_STEP}
               onChange={(value) => {
-                const clampedValue = Math.max(0.02, Math.min(1.0, value));
+                const clampedValue = Math.max(
+                  MIN_BRUSH_COLOR_CYCLE_SPEED,
+                  Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, value)
+                );
                 setBrushSettings({ colorCycleSpeed: clampedValue });
 
                 if (isCCBrushLayer && activeLayerId && activeLayer?.colorCycleData) {
@@ -781,6 +754,7 @@ const MinimalLayerList = () => {
                     ? selectedLayerIds
                     : [activeLayerId];
 
+                  const layers = layersRef.current;
                   targetLayerIds.forEach((layerId) => {
                     const targetLayer = layers.find(l => l.id === layerId);
                     if (targetLayer?.layerType === 'color-cycle' && targetLayer.colorCycleData) {

@@ -526,6 +526,7 @@ export interface AppState {
   referenceLayerId: string | null;
   currentLayer: number;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
+  duplicateLayer: (id: string) => string | null;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>) => void;
   setActiveLayer: (id: string) => void;

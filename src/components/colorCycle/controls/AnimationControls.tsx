@@ -5,6 +5,11 @@
 import React, { useCallback } from 'react';
 import LabeledSlider from '../../ui/LabeledSlider';
 import ButtonGroup from '../../ui/ButtonGroup';
+import {
+  COLOR_CYCLE_SPEED_STEP,
+  MAX_RECOLOR_COLOR_CYCLE_SPEED,
+  MIN_RECOLOR_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 const MAPPING_MODES = ['banded', 'continuous'] as const;
 const FLOW_MAPPINGS = ['palette', 'directional', 'luminance'] as const;
@@ -73,9 +78,9 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
       <LabeledSlider
         label="Speed"
         value={speed}
-        min={0.02}
-        max={2.0}
-        step={0.02}
+        min={MIN_RECOLOR_COLOR_CYCLE_SPEED}
+        max={MAX_RECOLOR_COLOR_CYCLE_SPEED}
+        step={COLOR_CYCLE_SPEED_STEP}
         onChange={onSpeedChange}
         ariaLabel="Animation speed"
         className="mb-2"

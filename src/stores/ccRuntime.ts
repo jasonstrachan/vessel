@@ -1,6 +1,10 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import {
+  MAX_RECOLOR_COLOR_CYCLE_SPEED,
+  MIN_RECOLOR_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 type RuntimeSnapshot = {
   gradientKey?: string;
@@ -63,7 +67,10 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
     }
 
     if (typeof brushSpeed === 'number') {
-      const clampedSpeed = Math.max(0.02, Math.min(2, brushSpeed));
+      const clampedSpeed = Math.max(
+        MIN_RECOLOR_COLOR_CYCLE_SPEED,
+        Math.min(MAX_RECOLOR_COLOR_CYCLE_SPEED, brushSpeed)
+      );
       if (!speedsAreEqual(previous.brushSpeed, clampedSpeed)) {
         try {
           brush.setSpeed?.(clampedSpeed);

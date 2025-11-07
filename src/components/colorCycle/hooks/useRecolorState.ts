@@ -10,6 +10,10 @@ import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
+import {
+  MAX_RECOLOR_COLOR_CYCLE_SPEED,
+  MIN_RECOLOR_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 const isRecolorLayer = (layer: Layer) =>
   layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor';
@@ -230,7 +234,10 @@ export function useRecolorState(
 
   // Settings management
   const updateLayerSpeed = useCallback((layerId: string, speed: number) => {
-    const clampedSpeed = Math.max(0.02, Math.min(2.0, Number.isFinite(speed) ? speed : 0.1));
+    const clampedSpeed = Math.max(
+      MIN_RECOLOR_COLOR_CYCLE_SPEED,
+      Math.min(MAX_RECOLOR_COLOR_CYCLE_SPEED, Number.isFinite(speed) ? speed : 0.1)
+    );
 
     void (async () => {
       try {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { UseBoundStore, StateCreator, StoreApi } from 'zustand';
+import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
+import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 import {
   devtools,
   subscribeWithSelector,
@@ -16,7 +17,7 @@ type AnyStateCreator<T> = StateCreator<T, [], []>;
 export const createVesselStore = <TState>(
   initializer: AnyStateCreator<TState>,
   options?: CreateOptions
-): UseBoundStore<StoreApi<TState>> => {
+): UseBoundStoreWithEqualityFn<StoreApi<TState>> => {
   const shouldEnableDevtools =
     (options?.devtoolsEnabled ?? process.env.NODE_ENV !== 'production') !== false;
 
@@ -32,7 +33,7 @@ export const createVesselStore = <TState>(
     >
   ) as AnyStateCreator<TState>;
 
-  return create<TState>()(withSubscribe);
+  return create<TState>()(withSubscribe) as UseBoundStoreWithEqualityFn<StoreApi<TState>>;
 };
 
 export const createSelectors = <TState>(

@@ -538,7 +538,7 @@ export interface BrushSettings {
   customBrushColorCycle?: boolean; // true = cycle gradient colors per stamp for custom brushes
 
   // Color cycle brush settings
-  colorCycleSpeed?: number; // 0.02-1.0 (brush animation speed)
+  colorCycleSpeed?: number; // 0.01-1.0 (brush animation speed)
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
@@ -593,7 +593,7 @@ export interface CanvasSnapshot {
   // Expanded to include structural layer operations captured in history
   actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'paste' | 'delete' | 'color-adjust'
             | 'layer' | 'layers' | 'structure'
-            | 'layer-add' | 'layer-remove' | 'layer-reorder';
+            | 'layer-add' | 'layer-remove' | 'layer-reorder' | 'layer-duplicate';
   description: string;
   colorCycleState?: ColorCycleSnapshot; // Optional color cycle state
   projectSize?: {

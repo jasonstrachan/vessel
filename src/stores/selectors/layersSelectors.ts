@@ -6,6 +6,17 @@ export const selectActiveLayerId = (state: AppState) => state.activeLayerId;
 
 export const selectSelectedLayerIds = (state: AppState) => state.selectedLayerIds;
 
+export const selectLayerIdsDescending = (state: AppState) => {
+  const ids: string[] = [];
+  for (let index = state.layers.length - 1; index >= 0; index -= 1) {
+    const layer = state.layers[index];
+    if (layer) {
+      ids.push(layer.id);
+    }
+  }
+  return ids;
+};
+
 export const selectReferenceLayerId = (state: AppState) => state.referenceLayerId;
 
 export const selectLayersNeedRecomposition = (state: AppState) => state.layersNeedRecomposition;

@@ -10,6 +10,11 @@ import {
   selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
 import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
+import {
+  COLOR_CYCLE_SPEED_STEP,
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 const AnimationControlsPanel: React.FC = () => {
   const layers = useAppStore(selectLayers);
@@ -40,7 +45,10 @@ const AnimationControlsPanel: React.FC = () => {
     : globalColorCycleFlowMode;
 
   const handleSpeedChange = React.useCallback((value: number) => {
-    const clampedValue = Math.max(0.02, Math.min(1.0, value));
+    const clampedValue = Math.max(
+      MIN_BRUSH_COLOR_CYCLE_SPEED,
+      Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, value)
+    );
     setBrushSettings({ colorCycleSpeed: clampedValue });
 
     if (!activeLayerId) {
@@ -114,9 +122,9 @@ const AnimationControlsPanel: React.FC = () => {
           <span className="text-[#D9D9D9] w-12" style={{ fontSize: '14px' }}>Speed</span>
           <ProgressSlider
             value={colorCycleSpeedValue}
-            min={0.02}
-            max={1.0}
-            step={0.01}
+            min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+            max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+            step={COLOR_CYCLE_SPEED_STEP}
             onChange={handleSpeedChange}
             aria-label="Color Cycle Speed"
             className="flex-1"

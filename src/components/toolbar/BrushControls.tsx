@@ -38,6 +38,11 @@ import {
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
 import ShapeFillControls from "./ShapeFillControls";
+import {
+  COLOR_CYCLE_SPEED_STEP,
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 const PRESSURE_MIN_BOUND = PRESSURE_MIN_PERCENT;
 
@@ -528,15 +533,18 @@ const BrushControls = () => {
                 }
                 return activeSettings.colorCycleSpeed || 0.1;
               })()}
-              min={0.02}
-              max={1.0}
-              step={0.01}
+              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+              step={COLOR_CYCLE_SPEED_STEP}
               onChange={(value) => {
                 // Update per-layer speed when on a CC brush layer, else update global brush setting
                 const layer = layers.find(l => l.id === activeLayerId);
                 const isCCBrushLayer = layer?.layerType === 'color-cycle' && layer?.colorCycleData?.mode !== 'recolor';
+                const clampedValue = Math.max(
+                  MIN_BRUSH_COLOR_CYCLE_SPEED,
+                  Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, value)
+                );
                 if (isCCBrushLayer && activeLayerId && layer?.colorCycleData) {
-                  const clampedValue = Math.max(0.02, Math.min(1.0, value));
                   updateLayer(activeLayerId, {
                     colorCycleData: {
                       ...layer.colorCycleData,
@@ -544,7 +552,7 @@ const BrushControls = () => {
                     }
                   });
                 } else {
-                  setActiveSettings({ colorCycleSpeed: value });
+                  setActiveSettings({ colorCycleSpeed: clampedValue });
                 }
               }}
               aria-label="Animation Speed"

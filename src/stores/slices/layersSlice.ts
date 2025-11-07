@@ -96,6 +96,137 @@ const snapshotFramebufferRegion = (
   }
 };
 
+const cloneImageData = (imageData: ImageData | null | undefined): ImageData | null => {
+  if (!imageData) {
+    return null;
+  }
+  return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+};
+
+const createCanvas = (
+  width: number,
+  height: number,
+  { forceDom }: { forceDom?: boolean } = {}
+): HTMLCanvasElement | OffscreenCanvas | null => {
+  if (typeof document !== 'undefined') {
+    if (forceDom || typeof OffscreenCanvas === 'undefined') {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      return canvas;
+    }
+  }
+  if (!forceDom && typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+  return null;
+};
+
+const cloneCanvasLike = <T extends HTMLCanvasElement | OffscreenCanvas | undefined | null>(
+  source: T,
+  fallbackImageData: ImageData | null,
+  options?: { forceDom?: boolean }
+): HTMLCanvasElement | OffscreenCanvas | T => {
+  const width = source?.width ?? fallbackImageData?.width ?? 1;
+  const height = source?.height ?? fallbackImageData?.height ?? 1;
+  const canvas = createCanvas(width, height, options ?? {});
+  if (!canvas) {
+    return source ?? (null as T);
+  }
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    if (source) {
+      try {
+        ctx.drawImage(source as CanvasImageSource, 0, 0);
+      } catch {
+        if (fallbackImageData) {
+          ctx.putImageData(fallbackImageData, 0, 0);
+        }
+      }
+    } else if (fallbackImageData) {
+      ctx.putImageData(fallbackImageData, 0, 0);
+    }
+  }
+  return canvas;
+};
+
+const cloneGradientStops = (
+  stops?: Array<{ position: number; color: string }> | null
+): Array<{ position: number; color: string }> | undefined => {
+  if (!stops) {
+    return undefined;
+  }
+  return stops.map((stop) => ({ ...stop }));
+};
+
+const cloneColorCycleData = (
+  data: Layer['colorCycleData'] | undefined,
+  options?: { stripSurfaces?: boolean }
+): Layer['colorCycleData'] | undefined => {
+  if (!data) {
+    return undefined;
+  }
+
+  const stripSurfaces = options?.stripSurfaces === true;
+
+  const clonedRecolorSettings = data.recolorSettings
+    ? {
+        ...data.recolorSettings,
+        gradient: cloneGradientStops(data.recolorSettings.gradient) ?? data.recolorSettings.gradient,
+        colorMap: data.recolorSettings.colorMap
+          ? new Map(data.recolorSettings.colorMap)
+          : undefined,
+        indexBuffer: data.recolorSettings.indexBuffer
+          ? new Uint8Array(data.recolorSettings.indexBuffer)
+          : undefined,
+        palette: data.recolorSettings.palette
+          ? new Uint32Array(data.recolorSettings.palette)
+          : undefined,
+        animation: { ...data.recolorSettings.animation },
+      }
+    : undefined;
+
+  return {
+    ...data,
+    gradient: cloneGradientStops(data.gradient) ?? data.gradient,
+    colorCycleBrush: undefined,
+    brushState: undefined,
+    canvas: stripSurfaces
+      ? undefined
+      : (cloneCanvasLike(data.canvas ?? null, null, { forceDom: true }) as HTMLCanvasElement | undefined),
+    canvasImageData: stripSurfaces
+      ? undefined
+      : cloneImageData(data.canvasImageData ?? null) ?? undefined,
+    eraseMask: stripSurfaces
+      ? undefined
+      : data.eraseMask
+        ? (cloneCanvasLike(data.eraseMask, null, { forceDom: true }) as HTMLCanvasElement)
+        : undefined,
+    eraseMaskImageData: stripSurfaces
+      ? undefined
+      : cloneImageData(data.eraseMaskImageData ?? null) ?? undefined,
+    hasContent: stripSurfaces ? false : data.hasContent,
+    recolorSettings: clonedRecolorSettings,
+  };
+};
+
+const generateDuplicateLayerName = (name: string, layers: Layer[]): string => {
+  const trimmed = name?.trim() ?? '';
+  const base = trimmed.length > 0 ? `${trimmed} Copy` : 'Layer Copy';
+  if (!layers.some((layer) => layer.name === base)) {
+    return base;
+  }
+  let suffix = 2;
+  while (suffix < 1000) {
+    const candidate = `${base} ${suffix}`;
+    if (!layers.some((layer) => layer.name === candidate)) {
+      return candidate;
+    }
+    suffix += 1;
+  }
+  return `${base} ${Date.now()}`;
+};
+
 export interface LayersSlice {
   layers: Layer[];
   layersNeedRecomposition: boolean;
@@ -106,6 +237,7 @@ export interface LayersSlice {
   setLayersNeedRecomposition: (needed: boolean) => void;
   setLayers: (layers: Layer[]) => void;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
+  duplicateLayer: (layerId: string) => string | null;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
@@ -339,6 +471,97 @@ export const createLayersSlice = (
       afterSnapshot,
       label: 'Add layer',
       metadata: { layerId: newLayerId, operation: 'add' },
+    });
+
+    return newLayerId;
+  },
+  duplicateLayer: (layerId) => {
+    const stateBeforeDuplicate = get();
+    const targetLayer = stateBeforeDuplicate.layers.find((layer) => layer.id === layerId);
+    if (!targetLayer) {
+      return null;
+    }
+
+    recordBreadcrumb('layers', { event: 'store-duplicateLayer-enter', sourceLayerId: layerId });
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeDuplicate, {
+      actionType: 'layer-duplicate',
+      description: 'Duplicate layer',
+    });
+
+    const newLayerId = `layer-${Date.now()}-${Math.random()}`;
+    const hasColorCycleData = Boolean(targetLayer.colorCycleData);
+    const isColorCycleLayer = targetLayer.layerType === 'color-cycle' || hasColorCycleData;
+    const duplicateName = generateDuplicateLayerName(targetLayer.name, stateBeforeDuplicate.layers);
+    const shouldClonePixels = !isColorCycleLayer;
+    const clonedImageData = shouldClonePixels ? cloneImageData(targetLayer.imageData) : null;
+    const clonedFramebuffer = shouldClonePixels
+      ? cloneCanvasLike(targetLayer.framebuffer, clonedImageData)
+      : (targetLayer.framebuffer
+          ? createCanvas(targetLayer.framebuffer.width, targetLayer.framebuffer.height, { forceDom: true })
+          : createCanvas(1, 1, { forceDom: true })) || targetLayer.framebuffer;
+    const duplicateColorCycleData = isColorCycleLayer
+      ? cloneColorCycleData(targetLayer.colorCycleData, { stripSurfaces: true })
+      : undefined;
+
+    set((state) => {
+      const insertionIndex = state.layers.findIndex((layer) => layer.id === layerId);
+      const targetIndex = insertionIndex >= 0 ? insertionIndex + 1 : state.layers.length;
+
+      const newLayer: Layer = {
+        ...targetLayer,
+        id: newLayerId,
+        name: duplicateName,
+        imageData: clonedImageData,
+        framebuffer: clonedFramebuffer || targetLayer.framebuffer,
+        alignment: cloneLayerAlignment(targetLayer.alignment),
+        colorCycleData: duplicateColorCycleData,
+        layerType: isColorCycleLayer ? 'color-cycle' : targetLayer.layerType,
+        order: 0,
+        transparencyLocked: targetLayer.transparencyLocked === true,
+        version: targetLayer.version,
+      };
+
+      const updatedLayers = [...state.layers];
+      updatedLayers.splice(targetIndex, 0, newLayer);
+      const normalizedLayers = updatedLayers.map((layer, index) => ({ ...layer, order: index }));
+      trackLayerChanges('duplicateLayer RETURN', normalizedLayers);
+      const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
+
+      return {
+        layers: syncedLayers,
+        activeLayerId: newLayerId,
+        selectedLayerIds: [newLayerId],
+      };
+    });
+
+    const project = stateBeforeDuplicate.project;
+    if (project && targetLayer.layerType === 'color-cycle') {
+      try {
+        colorCycleBrushManager.initColorCycleForLayer(
+          newLayerId,
+          project.width || 1024,
+          project.height || 1024,
+          undefined
+        );
+      } catch (error) {
+        logError('duplicateLayer: failed to init color cycle layer', error);
+      }
+    }
+
+    const stateAfterDuplicate = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterDuplicate, {
+      actionType: 'layer-duplicate',
+      description: 'Duplicate layer',
+      activeLayerId: newLayerId,
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Duplicate layer',
+      metadata: { sourceLayerId: layerId, duplicatedLayerId: newLayerId, operation: 'duplicate' },
     });
 
     return newLayerId;

@@ -199,6 +199,65 @@ describe('layers slice integration', () => {
     expect(layer?.alignment.offsetPx).toEqual({ x: 64, y: 128 });
   });
 
+  it('duplicates a regular layer and focuses the copy', () => {
+    const store = useAppStore.getState();
+    const originalId = store.addLayer(createNormalLayerInput('Layer 1'));
+
+    const duplicatedId = useAppStore.getState().duplicateLayer(originalId);
+    expect(duplicatedId).toBeTruthy();
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers).toHaveLength(2);
+    const originalIndex = nextState.layers.findIndex((layer) => layer.id === originalId);
+    const duplicateIndex = nextState.layers.findIndex((layer) => layer.id === duplicatedId);
+    expect(duplicateIndex).toBe(originalIndex + 1);
+
+    const originalLayer = nextState.layers.find((layer) => layer.id === originalId)!;
+    const duplicatedLayer = nextState.layers.find((layer) => layer.id === duplicatedId)!;
+    expect(duplicatedLayer.name).toBe('Layer 1 Copy');
+    expect(duplicatedLayer.imageData).not.toBe(originalLayer.imageData);
+    expect(duplicatedLayer.framebuffer).not.toBe(originalLayer.framebuffer);
+    expect(nextState.activeLayerId).toBe(duplicatedId);
+    expect(nextState.selectedLayerIds).toEqual([duplicatedId]);
+  });
+
+  it('duplicates color-cycle layers and reinitializes brush resources', () => {
+    const store = useAppStore.getState();
+    const originalId = store.addLayer(createColorCycleLayerInput('CC Layer 1'));
+
+    mockManager.initColorCycleForLayer.mockClear();
+    const duplicatedId = useAppStore.getState().duplicateLayer(originalId);
+    expect(duplicatedId).toBeTruthy();
+
+    expect(mockManager.initColorCycleForLayer).toHaveBeenCalledWith(duplicatedId, 256, 256, undefined);
+
+    const nextState = useAppStore.getState();
+    const duplicateLayer = nextState.layers.find((layer) => layer.id === duplicatedId);
+    const sourceLayer = nextState.layers.find((layer) => layer.id === originalId);
+    expect(duplicateLayer?.colorCycleData?.gradient).toEqual(sourceLayer?.colorCycleData?.gradient);
+    expect(duplicateLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(duplicateLayer?.imageData).toBeNull();
+    expect(duplicateLayer?.framebuffer).not.toBe(sourceLayer?.framebuffer);
+  });
+
+  it('treats layers with colorCycleData as color-cycle even if layerType is stale', () => {
+    const store = useAppStore.getState();
+    const legacyLayer: Layer = {
+      ...createColorCycleLayerInput('Legacy CC'),
+      layerType: 'normal',
+    } as Layer;
+    const legacyId = store.addLayer(legacyLayer as unknown as Omit<Layer, 'id' | 'order'>);
+
+    const duplicatedId = useAppStore.getState().duplicateLayer(legacyId);
+    expect(duplicatedId).toBeTruthy();
+
+    const nextState = useAppStore.getState();
+    const duplicateLayer = nextState.layers.find((layer) => layer.id === duplicatedId);
+    expect(duplicateLayer?.layerType).toBe('color-cycle');
+    expect(duplicateLayer?.imageData).toBeNull();
+    expect(duplicateLayer?.colorCycleData?.hasContent).toBe(false);
+  });
+
   it('captures canvas updates into the active layer and marks recomposition', async () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer(createNormalLayerInput('Capture Layer'));
