@@ -669,21 +669,33 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Gradient Bands - always shown; when Dither is ON we dither between bands */}
+        {/* Gradient Bands / Band Gap */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (activeSettings.ditherEnabled || false) ? 'Colors' : 'Bands'}
+            <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+              {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+                ? 'Band Gap'
+                : (activeSettings.ditherEnabled ? 'Colors' : 'Bands')}
             </label>
-              <ProgressSlider
-                value={activeSettings.gradientBands || 12}
-                min={2}
-                max={128}
-                step={1}
-                onChange={(value) => setActiveSettings({ gradientBands: Math.round(value) })}
-                aria-label="Gradient Bands (number of color steps)"
-                className="flex-1"
-              />
+            <ProgressSlider
+              value={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+                ? (activeSettings.colorCycleBandSpacingPx ?? 12)
+                : (activeSettings.gradientBands || 12)}
+              min={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE ? 4 : 2}
+              max={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE ? 96 : 128}
+              step={1}
+              onChange={(value) => {
+                if (activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+                  setActiveSettings({ colorCycleBandSpacingPx: Math.max(4, Math.round(value)) });
+                } else {
+                  setActiveSettings({ gradientBands: Math.round(value) });
+                }
+              }}
+              aria-label={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+                ? 'Band gap distance (px)'
+                : 'Gradient Bands (number of color steps)'}
+              className="flex-1"
+            />
           </div>
         </div>
 

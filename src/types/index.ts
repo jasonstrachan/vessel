@@ -543,6 +543,7 @@ export interface BrushSettings {
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular'; // Fill mode for Color Cycle Shape
+  colorCycleBandSpacingPx?: number; // Pixel distance between color-cycle bands for shapes
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas
   

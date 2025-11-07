@@ -147,6 +147,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorCycleFPS: settings.colorCycleFPS,
   colorCycleFlowMode: settings.colorCycleFlowMode,
   gradientBands: settings.gradientBands,
+  colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
 });
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';

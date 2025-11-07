@@ -152,9 +152,8 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       if (typeof currentSettings.gradientBands === 'number') {
         brush.setGradientBands(currentSettings.gradientBands);
       }
-      if (typeof currentSettings.spacing === 'number') {
-        brush.setBandSpacing(currentSettings.spacing);
-      }
+      const bandSpacing = currentSettings.colorCycleBandSpacingPx ?? currentSettings.spacing ?? 12;
+      brush.setBandSpacing(bandSpacing);
       const baseSize = Math.max(1, Math.round(currentSettings.size ?? defaultBrushSettings.size ?? 1));
       const pressureRange = resolveBrushPressureRange(currentSettings);
       const pressureActive = pressureRange.enabled;
@@ -331,9 +330,8 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
             if (typeof currentSettings.gradientBands === 'number') {
               existingBrush.setGradientBands(currentSettings.gradientBands);
             }
-            if (typeof currentSettings.spacing === 'number') {
-              existingBrush.setBandSpacing(currentSettings.spacing);
-            }
+            const bandSpacing = currentSettings.colorCycleBandSpacingPx ?? currentSettings.spacing ?? 12;
+            existingBrush.setBandSpacing(bandSpacing);
             const baseSize = Math.max(1, Math.round(currentSettings.size ?? defaultBrushSettings.size ?? 1));
             const pressureRange = resolveBrushPressureRange(currentSettings);
             const pressureActive = pressureRange.enabled;

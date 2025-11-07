@@ -42,6 +42,7 @@ export const pixelBrushSettings: BrushSettings = {
   customBrushColorCycle: false,
   colorCycleFlowMode: 'forward',
   colorCycleFillMode: 'concentric',
+  colorCycleBandSpacingPx: 12,
   triangleFillSize: 36,
   triangleFillJitter: 35,
   triangleFillRotation: 0,
@@ -117,6 +118,7 @@ export const defaultBrushSettings: BrushSettings = {
   contourLines2Alternate: false, // Default to uniform direction
   colorCycleFlowMode: 'forward',
   colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
+  colorCycleBandSpacingPx: 12,
   shapeGradientMode: 'contour', // Default to contour mode for shape gradient brushes
   triangleFillSize: 36,
   triangleFillJitter: 35,
@@ -450,7 +452,7 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
   preferredSettings: {
     size: 20,
     opacity: 1,
-    spacing: 2,
+    spacing: 8,
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 12, // Number of distinct color bands in strokes
@@ -508,7 +510,7 @@ export const colorCycleTriangleBrushPreset: BrushPreset = {
   preferredSettings: {
     size: 20,
     opacity: 1,
-    spacing: 2,
+    spacing: 8,
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 12,

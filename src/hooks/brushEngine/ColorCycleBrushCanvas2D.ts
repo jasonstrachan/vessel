@@ -1080,7 +1080,8 @@ export class ColorCycleBrushCanvas2D {
   async fillShapeLinear(
     vertices: Array<{ x: number; y: number }>,
     direction: { x: number; y: number },
-    layerId: string
+    layerId: string,
+    spacing?: number
   ) {
     if (!layerId) {
       throw new Error('fillShapeLinear requires a layerId');
@@ -1178,7 +1179,9 @@ export class ColorCycleBrushCanvas2D {
     
     const projectionRange = maxProjection - minProjection;
     const safeProjectionRange = Math.abs(projectionRange) < 1e-6 ? 1 : projectionRange;
-    const numBands = Math.max(2, this.gradientBands || 12);
+    const spacingValue = this.normalizeBandSpacingValue(spacing);
+    const projectionSpan = Math.max(1, Math.abs(safeProjectionRange));
+    const numBands = this.deriveBandCountFromDistance(projectionSpan, spacingValue);
     const baseOffset = this.stampCounter % 255;
     const indexFromNormalized = (pos: number): number => {
       const raw = Math.round(pos * 254);
@@ -1347,7 +1350,7 @@ export class ColorCycleBrushCanvas2D {
           }
         }
 
-        const quantLevels = Math.max(2, this.gradientBands || 12);
+        const quantLevels = numBands;
         const { css: paletteCss, mapRgbToIndex } = this.buildQuantizedGradientPalette(quantLevels);
         const paletteEntries = paletteEntriesFromMap(mapRgbToIndex);
         const workerEligible = paletteEntries.length > 0 && shouldUseFillWorker(width, height);
@@ -1430,7 +1433,7 @@ export class ColorCycleBrushCanvas2D {
 
     // Scanline fill with linear gradient + optional Sierra Lite dithering
     // Hoist invariants out of inner loops
-    const bands = Math.max(2, this.gradientBands || 12);
+    const bands = numBands;
 
     // BBox metrics and error buffers
     const bboxW = Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1);
@@ -1643,7 +1646,7 @@ export class ColorCycleBrushCanvas2D {
         } else {
           // No dithering: banded quantization anchored to gradient ends
           // Respect gradientBands so the UI "Bands" slider affects linear fills.
-          const quantLevels = Math.max(2, this.gradientBands || 12);
+          const quantLevels = bands;
           for (let x = startX; x <= endX; x++) {
             const r = sampleNormalized(x + 0.5);
             const scaled = r * quantLevels;
@@ -1755,9 +1758,6 @@ export class ColorCycleBrushCanvas2D {
     // Use scanline fill with inline gradient calculation - simpler and more reliable
     // gradientBands represents number of color divisions
     // bandSpacing (or passed spacing) represents pixel distance between bands
-    const numBands = Math.max(2, this.gradientBands);
-    // Keep gradient progression continuous across shapes by offsetting the
-    // band index using the current global stamp counter (modulo the gradient length).
     const baseOffset = this.stampCounter % 255;
     const noiseSeed = (this.stampCounter & 0xffff) / 65535;
     const indexFromNormalized = (pos: number): number => {
@@ -1781,9 +1781,11 @@ export class ColorCycleBrushCanvas2D {
     const shapeWidth = maxX - minX;
     const shapeHeight = maxY - minY;
     const shapeSize = Math.max(shapeWidth, shapeHeight);
-    const spacingValue = spacing ?? this.bandSpacing;
-    const spacingScalar = spacingValue > 0 ? spacingValue / Math.max(1, this.bandSpacing) : 1;
+    const spacingValue = this.normalizeBandSpacingValue(spacing);
+    const baseSpacing = this.normalizeBandSpacingValue(this.bandSpacing);
+    const spacingScalar = spacingValue / Math.max(1, baseSpacing);
     const maxDist = Math.max(50, (shapeSize / 2) * spacingScalar);
+    const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
 
     // Attempt GPU path first so most shapes stay off the CPU.
@@ -1994,7 +1996,7 @@ export class ColorCycleBrushCanvas2D {
             }
           }
 
-          const quantLevels2 = Math.max(2, this.gradientBands || 12);
+          const quantLevels2 = numBands;
           const { css: paletteCss2, mapRgbToIndex: mapRgbToIndex2 } = this.buildQuantizedGradientPalette(quantLevels2);
           const applyDitherFR = applyDitheringWithFillResolution;
           const dithered2: ImageData = applyDitherFR(
@@ -2607,11 +2609,28 @@ export class ColorCycleBrushCanvas2D {
    * Set band spacing (pixel distance between bands)
    */
   setBandSpacing(spacing: number) {
-    if (!Number.isFinite(spacing) || spacing < 1 || spacing > 100) {
+    if (!Number.isFinite(spacing) || spacing <= 0) {
       console.warn(`Invalid band spacing: ${spacing}, using default`);
       return;
     }
-    this.bandSpacing = Math.floor(spacing);
+    const clamped = Math.max(1, Math.min(512, Math.round(spacing)));
+    this.bandSpacing = clamped;
+  }
+
+  private normalizeBandSpacingValue(spacing?: number): number {
+    if (typeof spacing !== 'number' || !Number.isFinite(spacing) || spacing <= 0) {
+      return Math.max(1, this.bandSpacing || 12);
+    }
+    return Math.max(1, Math.min(512, Math.round(spacing)));
+  }
+
+  private deriveBandCountFromDistance(distance: number, spacing?: number): number {
+    if (!Number.isFinite(distance) || distance <= 0) {
+      return Math.max(2, this.gradientBands || 12);
+    }
+    const spacingPx = this.normalizeBandSpacingValue(spacing);
+    const raw = Math.max(2, distance / spacingPx);
+    return Math.max(2, Math.min(254, Math.round(raw)));
   }
 
   /**

@@ -66,6 +66,13 @@ const AL = (step: string, obj: Record<string, unknown>) => {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const MAX_ALPHA_PROBE_SIZE = 256;
+const DEFAULT_CC_BAND_SPACING = 12;
+const clampColorCycleBandSpacing = (value?: number) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_CC_BAND_SPACING;
+  }
+  return Math.max(2, Math.min(256, Math.round(value)));
+};
 
 type Rect = {
   x: number;
@@ -1932,9 +1939,13 @@ export const useBrushEngineSimplified = () => {
       if (tools.brushSettings.gradientBands) {
         colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
       }
-      if (tools.brushSettings.spacing) {
-        colorCycleBrush.setBandSpacing(tools.brushSettings.spacing);
-      }
+      const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      const resolvedBandSpacing = clampColorCycleBandSpacing(
+        useShapeSpacing
+          ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+          : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+      );
+      colorCycleBrush.setBandSpacing(resolvedBandSpacing);
       // Set pressure enabled state and min/max values
       // quiet
       try {
@@ -2364,10 +2375,17 @@ export const useBrushEngineSimplified = () => {
       // Ensure bands are set before filling
       const bands = tools.brushSettings.gradientBands || 12;
       brush.setGradientBands(bands);
+      const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      const bandSpacingPx = clampColorCycleBandSpacing(
+        useShapeSpacing
+          ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+          : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+      );
+      brush.setBandSpacing(bandSpacingPx);
       
       // quiet
       // Fill the shape with linear gradient
-      await Promise.resolve(brush.fillShapeLinear?.(vertices, direction, layerId));
+      await Promise.resolve(brush.fillShapeLinear?.(vertices, direction, layerId, bandSpacingPx));
 
       // quiet
       // End the stroke to ensure texture is updated
@@ -2421,7 +2439,10 @@ export const useBrushEngineSimplified = () => {
       
       // quiet
       // Fill the shape with layer ID and spacing
-      await Promise.resolve(brush.fillShape?.(vertices, layerId, tools.brushSettings.spacing));
+      const bandSpacingPx = clampColorCycleBandSpacing(
+        tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+      );
+      await Promise.resolve(brush.fillShape?.(vertices, layerId, bandSpacingPx));
 
       // quiet
       // End the stroke to ensure texture is updated
@@ -2482,12 +2503,43 @@ export const useBrushEngineSimplified = () => {
       }
     }
   }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush, activeLayerId, initializeColorCycleBrush]);
+
+  useEffect(() => {
+    const state = useAppStore.getState();
+    const activeLayer = state.layers.find(l => l.id === activeLayerId);
+
+    if (activeLayer?.layerType === 'color-cycle') {
+      let colorCycleBrush = getActiveLayerColorCycleBrush();
+
+      if (!colorCycleBrush) {
+        colorCycleBrush = initializeColorCycleBrush();
+      }
+
+      if (colorCycleBrush) {
+        const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        const spacingValue = clampColorCycleBandSpacing(
+          useShapeSpacing
+            ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+            : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+        );
+        colorCycleBrush.setBandSpacing(spacingValue);
+        renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
+        window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+      }
+    }
+  }, [tools.brushSettings.colorCycleBandSpacingPx, getActiveLayerColorCycleBrush, activeLayerId, initializeColorCycleBrush]);
   
   // Update band spacing when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush && tools.brushSettings.spacing) {
-      colorCycleBrush.setBandSpacing(tools.brushSettings.spacing);
+      const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      const resolvedBandSpacing = clampColorCycleBandSpacing(
+        useShapeSpacing
+          ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+          : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+      );
+      colorCycleBrush.setBandSpacing(resolvedBandSpacing);
     }
   }, [tools.brushSettings.spacing, activeLayerId, getActiveLayerColorCycleBrush]);
 
