@@ -1,11 +1,16 @@
 /// <reference lib="webworker" />
 
 import { applyDitheringWithFillResolution } from '@/hooks/brushEngine/dithering';
-import type { ColorCycleFillWorkerResponse, PaletteMapEntry } from './colorCycleFillTypes';
+import { fillConcentricToBuffer } from '@/utils/colorCycle/concentricFillCore';
+import type {
+  ColorCycleFillWorkerResponse,
+  ConcentricFillJob,
+  PaletteMapEntry,
+} from './colorCycleFillTypes';
 
 type WorkerMessage = {
   id: number;
-  job: import('./colorCycleFillTypes').PerceptualDitherJob;
+  job: import('./colorCycleFillTypes').ColorCycleFillJob;
 };
 
 const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
@@ -18,7 +23,7 @@ const buildPaletteMap = (entries: PaletteMapEntry[]) => {
   return map;
 };
 
-const handlePerceptualDither = (job: WorkerMessage['job']) => {
+const handlePerceptualDither = (job: import('./colorCycleFillTypes').PerceptualDitherJob) => {
   const pixels = new Uint8ClampedArray(job.pixels);
   const img = new ImageData(pixels, job.width, job.height);
   const dithered = applyDitheringWithFillResolution(
@@ -44,15 +49,48 @@ const handlePerceptualDither = (job: WorkerMessage['job']) => {
   return { width: job.width, height: job.height, indices: indices.buffer };
 };
 
+const unpackVertices = (flat: Float32Array) => {
+  const out: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < flat.length; i += 2) {
+    out.push({ x: flat[i], y: flat[i + 1] });
+  }
+  return out;
+};
+
+const handleConcentricFill = async (job: ConcentricFillJob) => {
+  const buffer = await fillConcentricToBuffer({
+    vertices: unpackVertices(job.vertices),
+    bbox: job.bbox,
+    bands: job.bands,
+    baseOffset: job.baseOffset,
+    maxDist: job.maxDist,
+    ditherEnabled: job.ditherEnabled,
+    ditherStrength: job.ditherStrength,
+    ditherPixelSize: job.ditherPixelSize,
+    noiseSeed: job.noiseSeed,
+  });
+  return { width: job.bbox.width, height: job.bbox.height, indices: buffer.buffer };
+};
+
 ctx.onmessage = (event: MessageEvent<WorkerMessage>) => {
   const { id, job } = event.data;
-  const response: ColorCycleFillWorkerResponse = { id, ok: false };
+  const response: ColorCycleFillWorkerResponse = { id, ok: false, type: job.type };
   try {
     switch (job.type) {
       case 'perceptual-dither':
         response.result = handlePerceptualDither(job);
         response.ok = true;
         ctx.postMessage(response, response.result ? [response.result.indices] : undefined);
+        return;
+      case 'concentric-fill':
+        handleConcentricFill(job).then((result) => {
+          response.result = result;
+          response.ok = true;
+          ctx.postMessage(response, [result.indices]);
+        }).catch((error) => {
+          response.error = error instanceof Error ? error.message : String(error);
+          ctx.postMessage(response);
+        });
         return;
       default:
         throw new Error(`Unknown colorCycle fill job: ${job.type}`);

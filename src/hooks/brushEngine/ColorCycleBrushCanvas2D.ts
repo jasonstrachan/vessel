@@ -11,11 +11,13 @@ import { applyPressureCurve } from '../../utils/pressureCurve';
 import { applyDitheringWithFillResolution } from './dithering';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
+import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
+import { fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
+import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { getMaskManager } from '@/layers/MaskManager';
 import { recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
-import { runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
+import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 
 interface CustomStampInput {
@@ -123,14 +125,6 @@ type RestoreOpts = {
   preservePaintBuffer?: boolean;
 };
 
-const EDGE_PADDING_EPSILON = 1e-3;
-const applyEdgePadding = (value: number): number => {
-  const clamped = Math.max(0, Math.min(1, value));
-  if (clamped <= EDGE_PADDING_EPSILON) return EDGE_PADDING_EPSILON;
-  if (clamped >= 1 - EDGE_PADDING_EPSILON) return 1 - EDGE_PADDING_EPSILON;
-  return clamped;
-};
-
 const shouldUseFillWorker = (width: number, height: number) => {
   if (typeof window === 'undefined') {
     return false;
@@ -161,6 +155,7 @@ export class ColorCycleBrushCanvas2D {
   private compositeCanvas: HTMLCanvasElement;
   private compositeCtx: CanvasRenderingContext2D;
   private forceCanvas2D: boolean = false;
+  private concentricWorkerJobId: number = 0;
   
   // Core settings (match original API)
   private brushSize: number;
@@ -1208,8 +1203,16 @@ export class ColorCycleBrushCanvas2D {
         const GPU_MAX_VERTS = Math.max(8, Math.min(256, runtimeMax));
         let gpuVertices = vertices;
         if (vertices.length > GPU_MAX_VERTS) {
-          const simplified = simplifyToVertexLimit(vertices, GPU_MAX_VERTS, { initialTolerance: 0.4, maxTolerance: 10, stepFactor: 1.6 });
-          gpuVertices = simplified;
+          const simplified = simplifyToVertexLimit(vertices, GPU_MAX_VERTS, { initialTolerance: 0.25, maxTolerance: 10, stepFactor: 1.45 });
+          if (simplified.length <= GPU_MAX_VERTS) {
+            gpuVertices = simplified;
+          } else {
+            ccWarn('[ColorCycleBrush] Linear GPU fallback (vertex budget)', {
+              original: vertices.length,
+              simplified: simplified.length,
+              limit: GPU_MAX_VERTS,
+            });
+          }
         }
 
         if (gpuVertices.length >= 3 && gpuVertices.length <= GPU_MAX_VERTS) {
@@ -1247,6 +1250,11 @@ export class ColorCycleBrushCanvas2D {
             });
             return;
           }
+          ccWarn('[ColorCycleBrush] Linear GPU fill returned empty result', {
+            vertices: gpuVertices.length,
+            bands: numBands,
+            ditherStrength,
+          });
         }
       }
     } catch {}
@@ -1751,6 +1759,7 @@ export class ColorCycleBrushCanvas2D {
     // Keep gradient progression continuous across shapes by offsetting the
     // band index using the current global stamp counter (modulo the gradient length).
     const baseOffset = this.stampCounter % 255;
+    const noiseSeed = (this.stampCounter & 0xffff) / 65535;
     const indexFromNormalized = (pos: number): number => {
       const raw = Math.round(pos * 254);
       const shifted = (raw + baseOffset) % 255;
@@ -1762,26 +1771,12 @@ export class ColorCycleBrushCanvas2D {
     // complexity from O(pixels * edges) to roughly O(pixels).
     const bboxWidth = Math.max(0, Math.ceil(maxX) - Math.floor(minX) + 1);
     const bboxHeight = Math.max(0, Math.ceil(maxY) - Math.floor(minY) + 1);
-    const bboxArea = bboxWidth * bboxHeight;
     const bbox = {
       minX: Math.floor(minX),
       minY: Math.floor(minY),
       width: Math.max(1, bboxWidth),
       height: Math.max(1, bboxHeight),
     };
-    // Preserve visual quality by default; fast approx disabled unless explicitly enabled
-    const FAST_AREA_THRESHOLD = Number.POSITIVE_INFINITY;
-    const useFastScanline = false && ((bboxArea >= FAST_AREA_THRESHOLD) || (vertices.length > 32));
-    // Precompute edge vectors to avoid repeated math inside inner loop (no visual change)
-    const edges = new Array(vertices.length);
-    for (let j = 0; j < vertices.length; j++) {
-      const v1 = vertices[j];
-      const v2 = vertices[(j + 1) % vertices.length];
-      const dx = v2.x - v1.x;
-      const dy = v2.y - v1.y;
-      const len2 = dx * dx + dy * dy;
-      edges[j] = { v1x: v1.x, v1y: v1.y, dx, dy, len2 };
-    }
     // Hoist invariants
     const shapeWidth = maxX - minX;
     const shapeHeight = maxY - minY;
@@ -1789,26 +1784,78 @@ export class ColorCycleBrushCanvas2D {
     const spacingValue = spacing ?? this.bandSpacing;
     const spacingScalar = spacingValue > 0 ? spacingValue / Math.max(1, this.bandSpacing) : 1;
     const maxDist = Math.max(50, (shapeSize / 2) * spacingScalar);
-    const maxDistSq = maxDist * maxDist;
-    const bands = this.gradientBands || 12;
-    const effectiveBands = Math.max(2, bands);
-    const bandStepLinear = 1 / effectiveBands;
-    const stepPerBandLinear = 254 / effectiveBands;
-    const bandStep = bands > 1 ? 1.0 / (bands - 1) : 1.0;
-    const stepPerBand = bands > 1 ? 254 / (bands - 1) : 254;
-    // Precompute squared thresholds to avoid per-pixel sqrt
-    const thresholdsSq = new Float32Array(bands);
-    for (let b = 0; b < bands; b++) {
-      const t = b * bandStep; // normalized distance in [0,1)
-      thresholdsSq[b] = (t * t) * maxDistSq;
+    const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
+
+    // Attempt GPU path first so most shapes stay off the CPU.
+    if (!this.perceptualDither) {
+      try {
+        const hasGL = animator.hasWebGL();
+        const tryGPU = hasGL;
+        const ditherStrengthGpu = this.ditherEnabled ? this.ditherStrength : 0;
+        const ditherPixelSizeGpu = this.ditherEnabled ? Math.max(1, this.ditherPixelSize) : 1;
+        const runtimeMax = animator.getGLFillMaxVerts() || 256;
+        const GPU_MAX_VERTS = Math.max(8, Math.min(256, runtimeMax));
+        let gpuVertices = vertices;
+        if (tryGPU && vertices.length > GPU_MAX_VERTS) {
+          const simplified = simplifyToVertexLimit(vertices, GPU_MAX_VERTS, {
+            initialTolerance: 0.25,
+            maxTolerance: 10,
+            stepFactor: 1.45,
+          });
+          if (simplified.length <= GPU_MAX_VERTS) {
+            gpuVertices = simplified;
+          } else {
+            ccWarn('[ColorCycleBrush] Concentric GPU fallback (vertex budget)', {
+              original: vertices.length,
+              simplified: simplified.length,
+              limit: GPU_MAX_VERTS,
+            });
+          }
+        }
+        if (tryGPU && gpuVertices.length <= GPU_MAX_VERTS) {
+          try {
+            const gpuStart = nowMs();
+            const ok = animator.gpuFillShape(gpuVertices, {
+              mode: 'concentric',
+              bands: numBands,
+              baseOffset,
+          colorStep: stepPerBand,
+          maxDist,
+          bbox,
+          ditherStrength: ditherStrengthGpu,
+          ditherPixelSize: ditherPixelSizeGpu,
+          noiseSeed,
+        });
+        if (ok) {
+          this.stampCounter += numBands;
+          if (strokeData) strokeData.stampCounter = this.stampCounter;
+          this.dirtyLayers.add(id);
+          animator.forceRender();
+          this.render(false);
+          recordColorCycleFillPerf({
+            path: 'gpu',
+            mode: 'concentric',
+            durationMs: nowMs() - gpuStart,
+            area: bbox.width * bbox.height,
+            vertices: gpuVertices.length,
+          });
+          return;
+        }
+          } catch (error) {
+            ccWarn('[ColorCycleBrush] Concentric GPU path threw; falling back to CPU', error);
+          }
+        }
+      } catch (error) {
+        ccWarn('[ColorCycleBrush] Concentric GPU setup failed; falling back to CPU', error);
+      }
     }
 
     const concentricPerf = { start: nowMs(), logged: false };
-    const logCpuConcentric = () => {
+    const logConcentricFill = (path: 'cpu' | 'worker') => {
       if (concentricPerf.logged) return;
       concentricPerf.logged = true;
       recordColorCycleFillPerf({
-        path: 'cpu',
+        path,
         mode: 'concentric',
         durationMs: nowMs() - concentricPerf.start,
         area: bbox.width * bbox.height,
@@ -1827,536 +1874,217 @@ export class ColorCycleBrushCanvas2D {
       const clamped = Math.max(0, Math.min(255, colorIndex | 0));
       concentricBuffer[y * concentricWidth + x] = clamped;
     };
-
-    try {
-
-    // Perceptual dithering path for concentric fill
-    if (this.ditherEnabled && this.perceptualDither) {
-      try {
-        const id2 = layerId || this.activeLayerId || 'default';
-        const animator2 = this.getAnimator(id2);
-        const bbox2 = { minX: Math.floor(minX), minY: Math.floor(minY), width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1), height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1) };
-        const width2 = bbox2.width; const height2 = bbox2.height;
-        const img2 = new ImageData(width2, height2);
-        const data2 = img2.data; const x02 = bbox2.minX; const y02 = bbox2.minY;
-
-        // Precompute edges once
-        const edges2 = new Array(vertices.length);
-        for (let j = 0; j < vertices.length; j++) {
-          const v1 = vertices[j]; const v2 = vertices[(j + 1) % vertices.length];
-          const dx = v2.x - v1.x; const dy = v2.y - v1.y; const len2 = dx * dx + dy * dy;
-          edges2[j] = { v1x: v1.x, v1y: v1.y, dx, dy, len2 };
-        }
-
-        // Build row spans (scanline polygon fill)
-        const spans2: Array<Array<[number, number]>> = [];
-        for (let y = y02; y <= Math.ceil(maxY); y++) {
-          await yieldIfNeeded(y - y02);
-          const ints: number[] = [];
-          for (let i = 0; i < vertices.length; i++) {
-            const v1 = vertices[i]; const v2 = vertices[(i + 1) % vertices.length];
-            if (Math.abs(v2.y - v1.y) < 1e-4) continue;
-            if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-              const t = (y - v1.y) / (v2.y - v1.y);
-              const x = v1.x + t * (v2.x - v1.x);
-              ints.push(x);
-            }
-          }
-          ints.sort((a, b) => a - b);
-          const row: [number, number][] = [];
-          for (let i = 0; i < ints.length - 1; i += 2) row.push([Math.floor(ints[i]), Math.ceil(ints[i + 1])]);
-          spans2.push(row);
-        }
-
-        // Precompute distance parameters (edge to center bands)
-        const shapeWidth2 = maxX - minX;
-        const shapeHeight2 = maxY - minY;
-        const shapeSize2 = Math.max(shapeWidth2, shapeHeight2);
-        const maxDist2 = Math.max(50, shapeSize2 / 2);
-
-        // Fill gradient colors into buffer using concentric distance
-        for (let yy = 0; yy < height2; yy++) {
-          await yieldIfNeeded(yy);
-          const y = y02 + yy; const rowSpans = spans2[yy] || [];
-          for (const [sx, ex] of rowSpans) {
-            for (let x = sx; x <= ex; x++) {
-              const xx = x - x02; if (xx < 0 || xx >= width2) continue;
-              let minDistSq = Infinity;
-              const left = x - sx; const right = ex - x; const dLR = Math.min(left * left, right * right);
-              minDistSq = Math.min(minDistSq, dLR);
-              for (let j = 0; j < edges2.length; j++) {
-                const e = edges2[j]; if (e.len2 <= 0) continue;
-                const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy; const t = Math.max(0, Math.min(1, tNum / e.len2));
-                const px = e.v1x + t * e.dx; const py = e.v1y + t * e.dy;
-                const dx = x - px; const dy = y - py; const d2 = dx * dx + dy * dy;
-                if (d2 < minDistSq) { minDistSq = d2; if (minDistSq <= 1) break; }
-              }
-              const r = Math.min(1, Math.sqrt(minDistSq) / maxDist2);
-              const { r: R, g: G, b: B } = this.colorAtPosition(r);
-              const p = (yy * width2 + xx) * 4; data2[p] = R; data2[p + 1] = G; data2[p + 2] = B; data2[p + 3] = 255;
-            }
-          }
-        }
-
-        const quantLevels2 = Math.max(2, this.gradientBands || 12);
-        const { css: paletteCss2, mapRgbToIndex: mapRgbToIndex2 } = this.buildQuantizedGradientPalette(quantLevels2);
-        const applyDitherFR = applyDitheringWithFillResolution;
-        const dithered2: ImageData = applyDitherFR(img2, quantLevels2, Math.max(1, this.ditherPixelSize), 'sierra-lite', undefined, paletteCss2);
-        const out2 = dithered2.data;
-        for (let yy = 0; yy < height2; yy++) {
-          await yieldIfNeeded(yy);
-          const y = y02 + yy; const rowSpans = spans2[yy] || [];
-          for (const [sx, ex] of rowSpans) {
-            for (let x = sx; x <= ex; x++) {
-              const xx = x - x02; if (xx < 0 || xx >= width2) continue;
-              const p = (yy * width2 + xx) * 4; const key = `${out2[p]},${out2[p + 1]},${out2[p + 2]}`;
-              const gi = mapRgbToIndex2.get(key);
-              if (gi !== undefined) {
-                const shifted = (gi - 1 + baseOffset) % 255;
-                writeConcentricIndex(x, y, shifted + 1);
-              }
-            }
-          }
-        }
-
-        this.stampCounter += quantLevels2; if (strokeData) strokeData.stampCounter = this.stampCounter;
-        this.dirtyLayers.add(id2); animator2.forceRender(); this.render(false); logCpuConcentric(); return;
-      } catch { /* fall back to index-space path */ }
-    }
-
-    const bbox = {
-      minX: Math.floor(minX),
-      minY: Math.floor(minY),
-      width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1),
-      height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1)
+    const blitLocalBuffer = (local: Uint8Array) => {
+      const bw = bbox.width;
+      const bh = bbox.height;
+      for (let row = 0; row < bh; row++) {
+        const destY = bbox.minY + row;
+        if (destY < 0 || destY >= concentricHeight) continue;
+        const destStart = destY * concentricWidth + bbox.minX;
+        const srcStart = row * bw;
+        const slice = local.subarray(srcStart, srcStart + bw);
+        concentricBuffer.set(slice, destStart);
+      }
     };
-
-    // Attempt GPU path (use whenever WebGL is available)
-    try {
-      const hasGL = animator.hasWebGL();
-      const tryGPU = hasGL;
-      const bandsForGPU = bands;
-      const baseOffset = this.stampCounter % 255;
-      const ditherStrength = this.ditherEnabled ? this.ditherStrength : 0;
-      const ditherPixelSize = this.ditherEnabled ? Math.max(1, this.ditherPixelSize) : 1;
-      const noiseSeed = (this.stampCounter & 0xffff) / 65535;
-      // Guard GPU path for complex polygons: fallback to CPU when vertex count exceeds shader uniform limit
-      // Determine runtime GPU vertex limit from animator if available
-      const runtimeMax = animator.getGLFillMaxVerts() || 256;
-      const GPU_MAX_VERTS = Math.max(8, Math.min(256, runtimeMax));
-      // If over the limit, try to simplify polygon to meet the limit
-      let gpuVertices = vertices;
-      if (tryGPU && vertices.length > GPU_MAX_VERTS) {
-        const simplified = simplifyToVertexLimit(vertices, GPU_MAX_VERTS, { initialTolerance: 0.5, maxTolerance: 12, stepFactor: 1.8 });
-        // quiet
-        gpuVertices = simplified;
-      }
-      const withinVertLimit = gpuVertices.length <= GPU_MAX_VERTS;
-      // Clean rule: if GPU is available and within uniform limit, always use GPU (any size)
-      if (tryGPU && withinVertLimit) {
-        // quiet
-        // GPU concentric fill
-        const gpuStart = nowMs();
-        const ok = animator.gpuFillShape(gpuVertices, {
-          mode: 'concentric',
-          bands: bandsForGPU,
-          baseOffset,
-          colorStep: stepPerBand,
-          maxDist,
-          bbox,
-          ditherStrength,
-          ditherPixelSize,
-          noiseSeed,
-        });
-        if (ok) {
-          // Continue stamp progression and render
-          this.stampCounter += Math.max(2, this.gradientBands);
-          if (strokeData) strokeData.stampCounter = this.stampCounter;
-          this.dirtyLayers.add(id);
-          animator.forceRender();
-          this.render(false);
-          recordColorCycleFillPerf({
-            path: 'gpu',
-            mode: 'concentric',
-            durationMs: nowMs() - gpuStart,
-            area: bbox.width * bbox.height,
-            vertices: gpuVertices.length,
-          });
-          return;
-        } else {
-          // quiet
-        }
-      }
-      // GPU not used - quiet
-    } catch {}
-
-    // CPU fallback path
-    const bboxInfo = bbox;
-    // Prepare error diffusion accumulators for Sierra Lite dithering across the bbox width
-    const bboxW = bboxInfo.width;
-    let errCurr = new Float32Array(bboxW);
-    let errNext = new Float32Array(bboxW);
-    const ixBase = bboxInfo.minX;
-    // Lightweight, deterministic pixel noise for threshold jitter (reduces visible patterns)
-    const noiseAt = (x: number, y: number): number => {
-      // 2D hash -> [0,1)
-      let n = (x | 0) * 374761393 + (y | 0) * 668265263; // large primes
-      n = (n ^ (n >>> 13)) * 1274126177;
-      n = (n ^ (n >>> 16)) >>> 0;
-      return (n & 0xffff) / 65536; // 16-bit fraction
-    };
-    const thresholdJitter = 0.2; // +/-10% around 0.5
-    // Dither pixel size: when >1 and dithering enabled, we optionally switch to
-    // block-based dithering so the pattern is visually "zoomed" into larger cells.
-    // This matches the desired UX of a pixel-resolution slider.
-    const cellSize = Math.max(1, this.ditherEnabled ? this.ditherPixelSize : 1);
-    if (this.ditherEnabled && cellSize > 1) {
-      const y0 = Math.floor(minY);
-      const yMax = Math.ceil(maxY);
-      const cellsAcross = Math.max(1, Math.ceil(bboxW / cellSize));
-      let cErrCurr = new Float32Array(cellsAcross);
-      let cErrNext = new Float32Array(cellsAcross);
-
-      for (let yb = y0, rowIdx = 0; yb <= yMax; yb += cellSize, rowIdx++) {
-        await yieldIfNeeded(rowIdx);
-        const tmp = cErrCurr; cErrCurr = cErrNext; cErrNext = tmp; cErrNext.fill(0);
-        const serpentine = (rowIdx & 1) === 1;
-        const yCenter = Math.min(yMax, yb + Math.floor(cellSize / 2));
-        const intersections: number[] = [];
-        for (let i = 0; i < vertices.length; i++) {
-          const v1 = vertices[i];
-          const v2 = vertices[(i + 1) % vertices.length];
-          if (Math.abs(v2.y - v1.y) < 0.0001) continue;
-          if ((v1.y <= yCenter && v2.y > yCenter) || (v2.y <= yCenter && v1.y > yCenter)) {
-            const t = (yCenter - v1.y) / (v2.y - v1.y);
-            const x = v1.x + t * (v2.x - v1.x);
-            intersections.push(x);
-          }
-        }
-        intersections.sort((a, b) => a - b);
-
-        for (let i = 0; i < intersections.length - 1; i += 2) {
-          const startX = Math.floor(intersections[i]);
-          const endX = Math.ceil(intersections[i + 1]);
-          const xStartCell = Math.floor((startX - ixBase) / cellSize);
-          const xEndCell = Math.floor((endX - ixBase) / cellSize);
-
-          // Precompute per-row horizontal spans for crisp edge clipping within this block
-          const rowClips: Array<{ start: number; end: number } | null> = [];
-          const yTo = Math.min(yMax, yb + cellSize - 1);
-          for (let yy = yb; yy <= yTo; yy++) {
-            const intsRow: number[] = [];
-            for (let k = 0; k < vertices.length; k++) {
-              const a = vertices[k];
-              const b = vertices[(k + 1) % vertices.length];
-              if (Math.abs(b.y - a.y) < 0.0001) continue;
-              if ((a.y <= yy && b.y > yy) || (b.y <= yy && a.y > yy)) {
-                const t = (yy - a.y) / (b.y - a.y);
-                const x = a.x + t * (b.x - a.x);
-                intsRow.push(x);
-              }
-            }
-            intsRow.sort((a, b) => a - b);
-            if (intsRow.length >= i + 2) {
-              rowClips.push({ start: Math.floor(intsRow[i]), end: Math.ceil(intsRow[i + 1]) });
-            } else {
-              // Fallback to center-row span
-              rowClips.push({ start: startX, end: endX });
-            }
-          }
-
-          const processCell = (cx: number) => {
-            const xBlock = ixBase + cx * cellSize;
-            const xCenter = Math.min(endX, xBlock + Math.floor(cellSize / 2));
-            // Distance at cell center
-            let minDistSq = Infinity;
-            const distLeft = xCenter - startX;
-            const distRight = endX - xCenter;
-            minDistSq = Math.min(distLeft * distLeft, distRight * distRight);
-            for (let j = 0; j < edges.length; j++) {
-              const e = edges[j];
-              if (e.len2 > 0) {
-                const tNum = (xCenter - e.v1x) * e.dx + (yCenter - e.v1y) * e.dy;
-                const t = Math.max(0, Math.min(1, tNum / e.len2));
-                const projX = e.v1x + t * e.dx;
-                const projY = e.v1y + t * e.dy;
-                const dxp = xCenter - projX;
-                const dyp = yCenter - projY;
-                const d2 = dxp * dxp + dyp * dyp;
-                if (d2 < minDistSq) { minDistSq = d2; if (minDistSq <= 1) break; }
-              }
-            }
-            let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-            // Small position jitter proportional to quantization step to reduce residual banding
-            if (this.ditherEnabled) {
-              const jitterScale = 0.35; // 0..1 of a step
-              const quantLevels = Math.max(2, bands);
-              const j = (noiseAt(xCenter, yCenter) - 0.5) * (jitterScale / quantLevels);
-              r = Math.max(0, Math.min(1, r + j));
-            }
-            // Quantize to the user-selected number of bands; dithering
-            // toggles between adjacent band levels (Sierra Lite).
-            const quantLevels = Math.max(2, bands);
-            const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
-            const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-            const lowerPos = Math.min(1, kLower * qStep);
-            const upperPos = Math.min(1, (kLower + 1) * qStep);
-            const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-            const adj = frac + (cErrCurr[cx] || 0);
-            const thr = 0.5 + (noiseAt(xCenter, yCenter) - 0.5) * thresholdJitter;
-            const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
-            const q = chooseUpper ? 1 : 0;
-            const err = (frac - q) * this.ditherStrength;
-            if (!serpentine) {
-              if (cx + 1 < cellsAcross) cErrCurr[cx + 1] += err * 0.5;
-              if (cx - 1 >= 0) cErrNext[cx - 1] += err * 0.25;
-            } else {
-              if (cx - 1 >= 0) cErrCurr[cx - 1] += err * 0.5;
-              if (cx + 1 < cellsAcross) cErrNext[cx + 1] += err * 0.25;
-            }
-            cErrNext[cx] += err * 0.25;
-            const outIdx = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
-            const xTo = Math.min(endX, xBlock + cellSize - 1);
-            for (let yy = yb; yy <= yTo; yy++) {
-              const clip = rowClips[yy - yb];
-              if (!clip) continue;
-              const fillStart = Math.max(clip.start, xBlock);
-              const fillEnd = Math.min(clip.end, xTo);
-              if (fillStart <= fillEnd) {
-                for (let xx = fillStart; xx <= fillEnd; xx++) {
-                  this.logSetIndexSample(id, xx, yy);
-                  writeConcentricIndex(xx, yy, outIdx);
-                }
-              }
-            }
-          };
-
-          if (!serpentine) {
-            for (let cx = xStartCell; cx <= xEndCell; cx++) processCell(cx);
-          } else {
-            for (let cx = xEndCell; cx >= xStartCell; cx--) processCell(cx);
-          }
-        }
-      }
-
+    const finalizeFill = (path: 'cpu' | 'worker') => {
       this.stampCounter += numBands;
       if (strokeData) strokeData.stampCounter = this.stampCounter;
       this.dirtyLayers.add(id);
       animator.forceRender();
       this.render(false);
-      logCpuConcentric();
-      return;
-    }
-    // quiet
+      logConcentricFill(path);
+    };
 
-    const yBase = Math.floor(minY);
-    for (let y = yBase; y <= Math.ceil(maxY); y++) {
-      await yieldIfNeeded(y - yBase);
-      // Swap current/next error rows and clear next
-      const swap = errCurr; errCurr = errNext; errNext = swap; errNext.fill(0);
-      const intersections: number[] = [];
-      
-      // Find all edge intersections with this scanline
-      for (let i = 0; i < vertices.length; i++) {
-        const v1 = vertices[i];
-        const v2 = vertices[(i + 1) % vertices.length];
-        
-        // Skip horizontal edges
-        if (Math.abs(v2.y - v1.y) < 0.0001) continue;
-        
-        // Check if edge crosses this scanline
-        if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-          const t = (y - v1.y) / (v2.y - v1.y);
-          const x = v1.x + t * (v2.x - v1.x);
-          intersections.push(x);
-        }
-      }
-      
-      // Sort intersections left to right
-      intersections.sort((a, b) => a - b);
-      
-      // Fill between EVERY pair of intersections
-      for (let i = 0; i < intersections.length - 1; i += 2) {
-        const startX = Math.floor(intersections[i]);
-        const endX = Math.ceil(intersections[i + 1]);
-        const rowIndex = y - Math.floor(minY);
-        const serpentine = (rowIndex & 1) === 1; // alternate direction per row
+    try {
+      // Perceptual dithering path for concentric fill
+      if (this.ditherEnabled && this.perceptualDither) {
+        try {
+          const id2 = layerId || this.activeLayerId || 'default';
+          const animator2 = this.getAnimator(id2);
+          const bbox2 = { minX: Math.floor(minX), minY: Math.floor(minY), width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1), height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1) };
+          const width2 = bbox2.width;
+          const height2 = bbox2.height;
+          const img2 = new ImageData(width2, height2);
+          const data2 = img2.data;
+          const x02 = bbox2.minX;
+          const y02 = bbox2.minY;
 
-        if (useFastScanline) {
-          // Fast approximation: distance from span edges only (no per-edge projections)
-          const half = Math.max(1, (endX - startX) / 2);
-          for (let x = startX; x <= endX; x++) {
-            const d = Math.min(x - startX, endX - x);
-            const normalized = applyEdgePadding(d / half);
-            const bandIndex = Math.min(bands - 1, Math.floor(normalized / bandStepLinear));
-            const quantized = Math.round(bandIndex * stepPerBandLinear);
-            const colorIndex = Math.max(1, Math.min(255, quantized + 1));
-            this.logSetIndexSample(id, x, y);
-            writeConcentricIndex(x, y, colorIndex);
+          // Precompute edges once
+          const edges2 = new Array(vertices.length);
+          for (let j = 0; j < vertices.length; j++) {
+            const v1 = vertices[j];
+            const v2 = vertices[(j + 1) % vertices.length];
+            const dx = v2.x - v1.x;
+            const dy = v2.y - v1.y;
+            const len2 = dx * dx + dy * dy;
+            edges2[j] = { v1x: v1.x, v1y: v1.y, dx, dy, len2 };
           }
-        } else {
-          if (!serpentine) {
-            for (let x = startX; x <= endX; x++) {
-              // Calculate squared distance to nearest edge for gradient (sqrt once per pixel)
-              // Sample at tile center to keep dither "pixel" size while preserving mask
-              const tileXCenter = ixBase + Math.floor((x - ixBase) / cellSize) * cellSize + Math.floor(cellSize / 2);
-              const tileYCenter = yBase + Math.floor((y - yBase) / cellSize) * cellSize + Math.floor(cellSize / 2);
-              let minDistSq = Infinity;
-              // Distance to left and right boundaries of this span (squared), sample at tile center
-              const distLeft = tileXCenter - startX;
-              const distRight = endX - tileXCenter;
-              const distLeftSq = distLeft * distLeft;
-              const distRightSq = distRight * distRight;
-              minDistSq = distLeftSq < distRightSq ? distLeftSq : distRightSq;
 
-              // Precise distance to polygon edges (squared)
-              for (let j = 0; j < edges.length; j++) {
-                const e = edges[j];
-                if (e.len2 > 0) {
-                  const tNum = (tileXCenter - e.v1x) * e.dx + (tileYCenter - e.v1y) * e.dy;
-                  const t = Math.max(0, Math.min(1, tNum / e.len2));
-                  const projX = e.v1x + t * e.dx;
-                  const projY = e.v1y + t * e.dy;
-                  const dxp = tileXCenter - projX;
-                  const dyp = tileYCenter - projY;
-                  const distSq = dxp * dxp + dyp * dyp;
-                  if (distSq < minDistSq) {
-                    minDistSq = distSq;
-                    if (minDistSq <= 1) break; // early out if essentially on edge
-                  }
-                }
+          // Build row spans (scanline polygon fill)
+          const spans2: Array<Array<[number, number]>> = [];
+          for (let y = y02; y <= Math.ceil(maxY); y++) {
+            await yieldIfNeeded(y - y02);
+            const ints: number[] = [];
+            for (let i = 0; i < vertices.length; i++) {
+              const v1 = vertices[i];
+              const v2 = vertices[(i + 1) % vertices.length];
+              if (Math.abs(v2.y - v1.y) < 1e-4) continue;
+              if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
+                const t = (y - v1.y) / (v2.y - v1.y);
+                const x = v1.x + t * (v2.x - v1.x);
+                ints.push(x);
               }
-
-          // Continuous normalized distance [0,1]
-          let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-          if (this.ditherEnabled) {
-            const jitterScale = 0.35;
-            const quantLevels = Math.max(2, bands);
-            const j = (noiseAt(tileXCenter, tileYCenter) - 0.5) * (jitterScale / quantLevels);
-            r = Math.max(0, Math.min(1, r + j));
-          }
-          // Quantize to the user-selected number of bands; dithering
-          // toggles between adjacent band levels (Sierra Lite).
-          const quantLevels = Math.max(2, bands);
-          const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
-          const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-          const lowerPos = Math.min(1, kLower * qStep);
-          const upperPos = Math.min(1, (kLower + 1) * qStep);
-          const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-
-          if (this.ditherEnabled) {
-              // Sierra Lite between adjacent quantization levels
-              const ix = x - ixBase;
-              const adj = frac + (errCurr[ix] || 0);
-              const thr = 0.5 + (noiseAt(tileXCenter, tileYCenter) - 0.5) * thresholdJitter; // jittered threshold per tile
-              const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
-              const q = chooseUpper ? 1 : 0;
-              const err = (frac - q) * this.ditherStrength;
-
-              // Distribute error L->R: right(2/4), bottom-left(1/4), bottom(1/4)
-              if (ix + 1 < bboxW) errCurr[ix + 1] += err * 0.5;
-              if (ix - 1 >= 0) errNext[ix - 1] += err * 0.25;
-              errNext[ix] += err * 0.25;
-
-              const lowerIdx = indexFromNormalized(lowerPos);
-              const upperIdx = indexFromNormalized(upperPos);
-              this.logSetIndexSample(id, x, y);
-              writeConcentricIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
-          } else {
-              // No dithering: choose the quantized lower position
-              const colorIndex = indexFromNormalized(lowerPos);
-              this.logSetIndexSample(id, x, y);
-              writeConcentricIndex(x, y, colorIndex);
-          }
             }
-          } else {
-            // Serpentine: process right-to-left on odd rows
-            for (let x = endX; x >= startX; x--) {
-              // Calculate squared distance to nearest edge for gradient (sqrt once per pixel)
-              const tileXCenter = ixBase + Math.floor((x - ixBase) / cellSize) * cellSize + Math.floor(cellSize / 2);
-              const tileYCenter = yBase + Math.floor((y - yBase) / cellSize) * cellSize + Math.floor(cellSize / 2);
-              let minDistSq = Infinity;
-              const distLeft = tileXCenter - startX;
-              const distRight = endX - tileXCenter;
-              const distLeftSq = distLeft * distLeft;
-              const distRightSq = distRight * distRight;
-              minDistSq = distLeftSq < distRightSq ? distLeftSq : distRightSq;
+            ints.sort((a, b) => a - b);
+            const row: [number, number][] = [];
+            for (let i = 0; i < ints.length - 1; i += 2) {
+              row.push([Math.floor(ints[i]), Math.ceil(ints[i + 1])]);
+            }
+            spans2.push(row);
+          }
 
-              for (let j = 0; j < edges.length; j++) {
-                const e = edges[j];
-                if (e.len2 > 0) {
-                  const tNum = (tileXCenter - e.v1x) * e.dx + (tileYCenter - e.v1y) * e.dy;
-                  const t = Math.max(0, Math.min(1, tNum / e.len2));
-                  const projX = e.v1x + t * e.dx;
-                  const projY = e.v1y + t * e.dy;
-                  const dxp = tileXCenter - projX;
-                  const dyp = tileYCenter - projY;
-                  const distSq = dxp * dxp + dyp * dyp;
-                  if (distSq < minDistSq) {
-                    minDistSq = distSq;
+          // Precompute distance parameters (edge to center bands)
+          const shapeWidth2 = maxX - minX;
+          const shapeHeight2 = maxY - minY;
+          const shapeSize2 = Math.max(shapeWidth2, shapeHeight2);
+          const maxDist2 = Math.max(50, shapeSize2 / 2);
+
+          // Fill gradient colors into buffer using concentric distance
+          for (let yy = 0; yy < height2; yy++) {
+            await yieldIfNeeded(yy);
+            const y = y02 + yy;
+            const rowSpans = spans2[yy] || [];
+            for (const [sx, ex] of rowSpans) {
+              for (let x = sx; x <= ex; x++) {
+                const xx = x - x02;
+                if (xx < 0 || xx >= width2) continue;
+                let minDistSq = Infinity;
+                const left = x - sx;
+                const right = ex - x;
+                const dLR = Math.min(left * left, right * right);
+                minDistSq = Math.min(minDistSq, dLR);
+                for (let k = 0; k < edges2.length; k++) {
+                  const e = edges2[k];
+                  if (e.len2 <= 0) continue;
+                  const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy;
+                  const tVal = Math.max(0, Math.min(1, tNum / e.len2));
+                  const px = e.v1x + tVal * e.dx;
+                  const py = e.v1y + tVal * e.dy;
+                  const ddx = x - px;
+                  const ddy = y - py;
+                  const d2 = ddx * ddx + ddy * ddy;
+                  if (d2 < minDistSq) {
+                    minDistSq = d2;
                     if (minDistSq <= 1) break;
                   }
                 }
-              }
-
-          // Continuous normalized distance [0,1]
-          let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-          if (this.ditherEnabled) {
-            const jitterScale = 0.35;
-            const quantLevels = Math.max(2, bands);
-            const j = (noiseAt(tileXCenter, tileYCenter) - 0.5) * (jitterScale / quantLevels);
-            r = Math.max(0, Math.min(1, r + j));
-          }
-          // Quantize to the user-selected number of bands; dithering
-          // toggles between adjacent band levels (Sierra Lite).
-          const quantLevels = Math.max(2, bands);
-          const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
-          const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-          const lowerPos = Math.min(1, kLower * qStep);
-          const upperPos = Math.min(1, (kLower + 1) * qStep);
-          const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-
-              if (this.ditherEnabled) {
-                const ix = x - ixBase;
-                const adj = frac + (errCurr[ix] || 0);
-                const thr = 0.5 + (noiseAt(tileXCenter, tileYCenter) - 0.5) * thresholdJitter;
-                const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
-                const q = chooseUpper ? 1 : 0;
-                const err = (frac - q) * this.ditherStrength;
-
-                // Distribute error R->L: left(2/4), bottom-right(1/4), bottom(1/4)
-                if (ix - 1 >= 0) errCurr[ix - 1] += err * 0.5;
-                if (ix + 1 < bboxW) errNext[ix + 1] += err * 0.25;
-                errNext[ix] += err * 0.25;
-
-                const lowerIdx = indexFromNormalized(lowerPos);
-                const upperIdx = indexFromNormalized(upperPos);
-                this.logSetIndexSample(id, x, y);
-                writeConcentricIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
-              } else {
-                const colorIndex = indexFromNormalized(lowerPos);
-                this.logSetIndexSample(id, x, y);
-                writeConcentricIndex(x, y, colorIndex);
+                const r = Math.min(1, Math.sqrt(minDistSq) / maxDist2);
+                const { r: R, g: G, b: B } = this.colorAtPosition(r);
+                const p = (yy * width2 + xx) * 4;
+                data2[p] = R;
+                data2[p + 1] = G;
+                data2[p + 2] = B;
+                data2[p + 3] = 255;
               }
             }
           }
+
+          const quantLevels2 = Math.max(2, this.gradientBands || 12);
+          const { css: paletteCss2, mapRgbToIndex: mapRgbToIndex2 } = this.buildQuantizedGradientPalette(quantLevels2);
+          const applyDitherFR = applyDitheringWithFillResolution;
+          const dithered2: ImageData = applyDitherFR(
+            img2,
+            quantLevels2,
+            Math.max(1, this.ditherPixelSize),
+            'sierra-lite',
+            undefined,
+            paletteCss2
+          );
+          const out2 = dithered2.data;
+          for (let yy = 0; yy < height2; yy++) {
+            await yieldIfNeeded(yy);
+            const y = y02 + yy;
+            const rowSpans = spans2[yy] || [];
+            for (const [sx, ex] of rowSpans) {
+              for (let x = sx; x <= ex; x++) {
+                const xx = x - x02;
+                if (xx < 0 || xx >= width2) continue;
+                const p = (yy * width2 + xx) * 4;
+                const key = `${out2[p]},${out2[p + 1]},${out2[p + 2]}`;
+                const gi = mapRgbToIndex2.get(key);
+                if (gi !== undefined) {
+                  const shifted = (gi - 1 + baseOffset) % 255;
+                  writeConcentricIndex(x, y, shifted + 1);
+                }
+              }
+            }
+          }
+
+          this.stampCounter += quantLevels2;
+          if (strokeData) strokeData.stampCounter = this.stampCounter;
+          this.dirtyLayers.add(id2);
+          animator2.forceRender();
+          this.render(false);
+          logConcentricFill('cpu');
+          return;
+        } catch {
+          // fall back to index-space path
         }
       }
-    }
-    
-    // Increment stamp counter for next shape to continue gradient sequence
-    this.stampCounter += numBands;
-    if (strokeData) {
-      strokeData.stampCounter = this.stampCounter;
-    }
-    
-    // Mark layer as dirty for rendering
-    this.dirtyLayers.add(id);
-    
-    // Force immediate render to show the filled shape
-    animator.forceRender();
-    this.render(false);
-    logCpuConcentric();
+
+      const preferWorker = !this.perceptualDither && shouldUseFillWorker(bbox.width, bbox.height);
+      if (preferWorker) {
+        const workerVertices = new Float32Array(vertices.length * 2);
+        for (let i = 0; i < vertices.length; i++) {
+          workerVertices[i * 2] = vertices[i].x;
+          workerVertices[i * 2 + 1] = vertices[i].y;
+        }
+        const workerJobId = ++this.concentricWorkerJobId;
+        try {
+          const workerResult = await runConcentricFillJob({
+            type: 'concentric-fill',
+            vertices: workerVertices,
+            bbox,
+            bands: numBands,
+            baseOffset,
+            maxDist,
+            ditherEnabled: this.ditherEnabled,
+            ditherStrength: this.ditherStrength,
+            ditherPixelSize: this.ditherPixelSize,
+            noiseSeed,
+          });
+          if (workerJobId === this.concentricWorkerJobId && workerResult) {
+            const buffer = new Uint8Array(workerResult.indices);
+            blitLocalBuffer(buffer);
+            finalizeFill('worker');
+            return;
+          }
+        } catch (error) {
+          ccWarn('[ColorCycleBrush] Concentric worker fill failed; retrying on CPU', error);
+        }
+      }
+
+      await fillConcentricIndices(
+        {
+          vertices,
+          bbox,
+          bands: numBands,
+          baseOffset,
+          maxDist,
+          ditherEnabled: this.ditherEnabled,
+          ditherStrength: this.ditherStrength,
+          ditherPixelSize: this.ditherPixelSize,
+          noiseSeed,
+        },
+        {
+          writeSample: (x, y, colorIndex) => {
+            this.logSetIndexSample(id, x, y);
+            writeConcentricIndex(x, y, colorIndex);
+          },
+          yieldIfNeeded,
+        }
+      );
+      finalizeFill('cpu');
     } finally {
       animator.endDirectFill();
     }

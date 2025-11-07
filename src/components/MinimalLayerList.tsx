@@ -197,11 +197,45 @@ const LayerItem = memo<{
 
 LayerItem.displayName = 'LayerItem';
 
+const DropSlot: React.FC<{
+  index: number;
+  onDragOverIndex: (i: number) => void;
+  onDropAtIndex: (i: number) => void;
+  renderPreview: (i: number) => React.ReactNode;
+  isActive: boolean;
+}> = ({ index, onDragOverIndex, onDropAtIndex, renderPreview, isActive }) => {
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    onDragOverIndex(index);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onDropAtIndex(index);
+  };
+
+  return (
+    <div
+      className="relative min-h-[16px] overflow-visible"
+      onDragEnter={handleDragOver}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {isActive && (
+        <>
+          <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-[2px] rounded-full bg-[#5EC7FF] shadow-[0_0_8px_rgba(94,199,255,0.9)] pointer-events-none" />
+          <div className="mt-3">{renderPreview(index)}</div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const MinimalLayerList = () => {
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
   const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const desiredPlaying = useAppStore((state) => state.colorCyclePlayback.desiredPlaying);
   const suspendDepth = useAppStore((state) => state.colorCyclePlayback.suspendDepth);
   const playColorCycle = useAppStore((state) => state.playColorCycle);
@@ -254,54 +288,10 @@ const MinimalLayerList = () => {
     return css;
   }, []);
 
-  const setRowRef = useCallback((layerId: string, node: HTMLDivElement | null) => {
-    if (!node) {
-      rowRefs.current.delete(layerId);
-      return;
-    }
-    rowRefs.current.set(layerId, node);
-  }, []);
-
   const resetDragState = useCallback(() => {
     setDropIndicatorIndex(null);
     setDraggedLayerId(null);
   }, []);
-
-  const updateDropIndicatorFromPointer = useCallback((clientY: number) => {
-    if (displayedLayers.length === 0) {
-      if (dropIndicatorIndex !== null) {
-        setDropIndicatorIndex(null);
-      }
-      return;
-    }
-
-    let nextIndex = displayedLayers.length;
-    for (let i = 0; i < displayedLayers.length; i += 1) {
-      const node = rowRefs.current.get(displayedLayers[i].id);
-      if (!node) {
-        continue;
-      }
-      const rect = node.getBoundingClientRect();
-      const midpoint = rect.top + rect.height / 2;
-      if (clientY < midpoint) {
-        nextIndex = i;
-        break;
-      }
-    }
-
-    if (nextIndex !== dropIndicatorIndex) {
-      setDropIndicatorIndex(nextIndex);
-    }
-  }, [displayedLayers, dropIndicatorIndex]);
-
-  const handleListDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (!draggedLayerId) {
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-    updateDropIndicatorFromPointer(event.clientY);
-  }, [draggedLayerId, updateDropIndicatorFromPointer]);
 
   const convertDisplayIndexToStoreIndex = useCallback((displayIndex: number | null) => {
     if (displayIndex == null) {
@@ -320,22 +310,6 @@ const MinimalLayerList = () => {
     return layers.findIndex((layer) => layer.id === targetLayerId);
   }, [displayedLayers, layers]);
 
-  const updateDropIndicatorForLayer = useCallback((event: React.DragEvent, layerId: string) => {
-    const row = event.currentTarget as HTMLElement;
-    const rect = row.getBoundingClientRect();
-    const insertBefore = (event.clientY - rect.top) < rect.height / 2;
-    const displayIndex = displayedLayers.findIndex((layer) => layer.id === layerId);
-
-    if (displayIndex === -1) {
-      return;
-    }
-
-    const nextIndicatorIndex = insertBefore ? displayIndex : displayIndex + 1;
-    if (dropIndicatorIndex !== nextIndicatorIndex) {
-      setDropIndicatorIndex(nextIndicatorIndex);
-    }
-  }, [displayedLayers, dropIndicatorIndex]);
-  
   const handleAddCCLayer = () => {
     // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
     // quiet
@@ -491,7 +465,24 @@ const MinimalLayerList = () => {
 
     return true;
   }, [convertDisplayIndexToStoreIndex, dropIndicatorIndex, layers, reorderLayers]);
-  
+
+  const onDragOverIndex = useCallback((index: number) => {
+    if (!draggedLayerId) {
+      return;
+    }
+    if (dropIndicatorIndex !== index) {
+      setDropIndicatorIndex(index);
+    }
+  }, [draggedLayerId, dropIndicatorIndex]);
+
+  const onDropAtIndex = useCallback((index: number) => {
+    if (!draggedLayerId) {
+      return;
+    }
+    commitDrop(draggedLayerId, index);
+    resetDragState();
+  }, [commitDrop, draggedLayerId, resetDragState]);
+
   // Handle drag start
   const handleDragStart = (e: React.DragEvent, layerId: string) => {
     e.dataTransfer.effectAllowed = 'move';
@@ -516,60 +507,6 @@ const MinimalLayerList = () => {
     }
     resetDragState();
   };
-  
-  const handleDragOver = (e: React.DragEvent, layerId: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    updateDropIndicatorForLayer(e, layerId);
-  };
-  
-  const handleDrop = (e: React.DragEvent, targetLayerId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const draggedId = e.dataTransfer.getData('text/plain');
-    if (draggedId) {
-      if (!commitDrop(draggedId)) {
-        // Fallback: drop directly on the hovered row
-        const displayIndex = displayedLayers.findIndex(l => l.id === targetLayerId);
-        if (displayIndex !== -1) {
-          setDropIndicatorIndex(displayIndex);
-          commitDrop(draggedId);
-        }
-      }
-    }
-    resetDragState();
-  };
-
-  // Bottom drop zone handlers (drop at very bottom of stack)
-  const handleDragOverBottom = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDropIndicatorIndex(displayedLayers.length);
-  };
-
-  const handleDropBottom = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const draggedId = e.dataTransfer.getData('text/plain');
-    if (draggedId) {
-      commitDrop(draggedId, displayedLayers.length);
-    }
-    resetDragState();
-  };
-  
-  const handleListDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (!draggedLayerId) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const draggedId = event.dataTransfer.getData('text/plain') || draggedLayerId;
-    if (draggedId) {
-      const indicatorOverride = dropIndicatorIndex ?? displayedLayers.length;
-      commitDrop(draggedId, indicatorOverride);
-    }
-    resetDragState();
-  }, [commitDrop, displayedLayers.length, draggedLayerId, dropIndicatorIndex, resetDragState]);
   
   const handleLayerClick = (event: React.MouseEvent, layerId: string) => {
     if (event.shiftKey && activeLayerId) {
@@ -687,11 +624,8 @@ const MinimalLayerList = () => {
       </div>
       
       <div
-        ref={listRef}
         className="flex-1 overflow-y-auto"
         key={`${displayedLayers.length}-${displayedLayers.map(l => `${l.id}-${l.layerType}-${!!l.colorCycleData}`).join(',')}`}
-        onDragOver={handleListDragOver}
-        onDrop={handleListDrop}
       >
         <div className="py-1">
           {displayedLayers.map((layer, index) => {
@@ -699,9 +633,14 @@ const MinimalLayerList = () => {
             const isActive = activeLayerId === layer.id;
             return (
               <React.Fragment key={layer.id}>
-                {dropIndicatorIndex === index && renderDropPreview(index)}
+                <DropSlot
+                  index={index}
+                  onDragOverIndex={onDragOverIndex}
+                  onDropAtIndex={onDropAtIndex}
+                  renderPreview={renderDropPreview}
+                  isActive={dropIndicatorIndex === index}
+                />
                 <div
-                  ref={(node) => setRowRef(layer.id, node)}
                   className={`
                     relative group cursor-move select-none
                     ${isActive ? 'bg-[#4A4A4A]' : isSelected ? 'bg-[#3F3F3F]' : 'hover:bg-[#353535]'}
@@ -711,8 +650,6 @@ const MinimalLayerList = () => {
                   onClick={(event) => handleLayerClick(event, layer.id)}
                   onDragStart={(e) => handleDragStart(e, layer.id)}
                   onDragEnd={handleDragEnd}
-                  onDragOver={(e) => handleDragOver(e, layer.id)}
-                  onDrop={(e) => handleDrop(e, layer.id)}
                 >
                 <div className="relative flex items-center h-7 pl-2 pr-8">
                   {/* Visibility Toggle */}
@@ -811,12 +748,12 @@ const MinimalLayerList = () => {
               </React.Fragment>
             );
           })}
-          {/* Bottom drop sentinel: allows dropping below the last item */}
-          {dropIndicatorIndex === displayedLayers.length && renderDropPreview(displayedLayers.length)}
-          <div
-            className="relative h-3"
-            onDragOver={handleDragOverBottom}
-            onDrop={handleDropBottom}
+          <DropSlot
+            index={displayedLayers.length}
+            onDragOverIndex={onDragOverIndex}
+            onDropAtIndex={onDropAtIndex}
+            renderPreview={renderDropPreview}
+            isActive={dropIndicatorIndex === displayedLayers.length}
           />
         </div>
       </div>

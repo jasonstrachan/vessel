@@ -22,14 +22,36 @@ export interface PerceptualDitherResult {
   indices: ArrayBuffer;
 }
 
+export interface ConcentricFillJob {
+  type: 'concentric-fill';
+  vertices: Float32Array;
+  bbox: { minX: number; minY: number; width: number; height: number };
+  bands: number;
+  baseOffset: number;
+  maxDist: number;
+  ditherEnabled: boolean;
+  ditherStrength: number;
+  ditherPixelSize: number;
+  noiseSeed?: number;
+}
+
+export interface ConcentricFillResult {
+  width: number;
+  height: number;
+  indices: ArrayBuffer;
+}
+export type ColorCycleFillJob = PerceptualDitherJob | ConcentricFillJob;
+export type ColorCycleFillResult = PerceptualDitherResult | ConcentricFillResult;
+
 export type ColorCycleFillWorkerMessage = {
   id: number;
-  job: PerceptualDitherJob;
+  job: ColorCycleFillJob;
 };
 
 export type ColorCycleFillWorkerResponse = {
   id: number;
   ok: boolean;
-  result?: PerceptualDitherResult;
+  type: ColorCycleFillJob['type'];
+  result?: ColorCycleFillResult;
   error?: string;
 };

@@ -523,12 +523,16 @@ export class WebGLColorCycleRenderer {
         }
 
         float denom = max(1.0, u_bands - 1.0);
-        float bandCoord = normalized * denom;
+        float quantStep = max(u_bandStep, 1.0 / denom);
+        float jittered = normalized;
 
         if (u_ditherStrength > 0.0) {
           float noise = sampleNoise(vec2(x, y));
-          bandCoord += (noise - 0.5) * u_ditherStrength;
+          float jitter = (noise - 0.5) * u_ditherStrength * quantStep;
+          jittered = clamp(normalized + jitter, padding, 1.0 - padding);
         }
+
+        float bandCoord = jittered * denom;
 
         float bandF = clamp(floor(bandCoord + 0.5), 0.0, denom);
         float colorIndex = mod(u_baseOffset + bandF * u_colorStep, 255.0) + 1.0;
@@ -665,7 +669,8 @@ export class WebGLColorCycleRenderer {
     if (loc_count) gl.uniform1i(loc_count, count);
     if (loc_verts) gl.uniform2fv(loc_verts, params.vertices.subarray(0, count * 2));
     if (loc_bands) gl.uniform1f(loc_bands, params.bands);
-    if (loc_bandStep) gl.uniform1f(loc_bandStep, 1.0 / Math.max(2, params.bands));
+    const quantStep = params.bands > 1 ? 1 / (params.bands - 1) : 1;
+    if (loc_bandStep) gl.uniform1f(loc_bandStep, quantStep);
     if (loc_baseOffset) gl.uniform1f(loc_baseOffset, params.baseOffset);
     if (loc_colorStep) gl.uniform1f(loc_colorStep, params.colorStep);
     if (loc_maxDist) gl.uniform1f(loc_maxDist, params.maxDist);
