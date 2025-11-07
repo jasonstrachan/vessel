@@ -74,6 +74,11 @@ src/components/
 - **Inheritance structure**: Efficient brush type specialization
 - **Distance-based rendering**: Optimized stroke point generation
 
+- **Polygon windows**: The per-row span builder now emits a tight coverage window + binary mask, so EDT work only touches the painted sub-rectangle instead of the whole bbox.
+- **Linear-time EDT**: Felzenszwalb two-pass distance transform runs over the cropped mask (`maskWidth × maskHeight`), maintaining ~O(pixels_in_shape) behavior and reducing memory churn.
+- **Distance sampling**: Block and scanline dithering paths reuse a `sampleDistance(x, y)` helper that offsets into the cropped distance field while still writing samples in global coordinates.
+- **Worker integration**: All math remains inside the existing worker; using `scripts/perf/measure-concentric-fill.ts` shows the concave scanline case dropping from 141 ms (`2025-11-07T02-20-43-919Z-concave-profile.json`) to 73 ms (`2025-11-07T02-36-57-700Z-concave-window.json`) on a 3.15 Mpx bbox (~1.9× faster).
+
 ## Design Patterns Implemented
 
 ### 1. Strategy Pattern

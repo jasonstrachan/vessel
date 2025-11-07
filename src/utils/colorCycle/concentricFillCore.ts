@@ -4,6 +4,21 @@ type Point = { x: number; y: number };
 
 type BBox = { minX: number; minY: number; width: number; height: number };
 
+type RowSpan = { start: number; end: number };
+
+const sortAscending = (a: number, b: number) => a - b;
+
+const INF = 1e12;
+
+interface CoverageWindow {
+  minRow: number;
+  maxRow: number;
+  minCol: number;
+  maxCol: number;
+  width: number;
+  height: number;
+}
+
 export interface ConcentricFillParams {
   vertices: Point[];
   bbox: BBox;
@@ -20,16 +35,6 @@ export interface ConcentricFillHooks {
   writeSample: (x: number, y: number, colorIndex: number) => void;
   yieldIfNeeded?: (iteration: number) => Promise<void> | void;
 }
-
-const buildEdges = (vertices: Point[]) => {
-  return vertices.map((v, i) => {
-    const next = vertices[(i + 1) % vertices.length];
-    const dx = next.x - v.x;
-    const dy = next.y - v.y;
-    const len2 = dx * dx + dy * dy;
-    return { v1x: v.x, v1y: v.y, dx, dy, len2 };
-  });
-};
 
 const makeNoiseSampler = (seed: number) => {
   const seedInt = Math.floor(seed * 1_000_000) | 0;
@@ -52,6 +57,173 @@ const withinBounds = (x: number, y: number, bbox: BBox): boolean => {
   );
 };
 
+const buildMaskAndRowSpans = (vertices: Point[], bbox: BBox, width: number, height: number) => {
+  const rowSpans: RowSpan[][] = Array.from({ length: height }, () => []);
+  if (!vertices.length) {
+    return { rowSpans, mask: new Uint8Array(0), maskWidth: 0, maskHeight: 0, coverage: null as CoverageWindow | null };
+  }
+  let minRow = height;
+  let maxRow = -1;
+  let minCol = Number.POSITIVE_INFINITY;
+  let maxCol = Number.NEGATIVE_INFINITY;
+  for (let row = 0; row < height; row++) {
+    const y = bbox.minY + row;
+    const intersections: number[] = [];
+    for (let i = 0; i < vertices.length; i++) {
+      const a = vertices[i];
+      const b = vertices[(i + 1) % vertices.length];
+      if (Math.abs(b.y - a.y) < 0.0001) continue;
+      if ((a.y <= y && b.y > y) || (b.y <= y && a.y > y)) {
+        const t = (y - a.y) / (b.y - a.y);
+        const x = a.x + t * (b.x - a.x);
+        intersections.push(x);
+      }
+    }
+    if (!intersections.length) {
+      continue;
+    }
+    intersections.sort(sortAscending);
+    const spansForRow: RowSpan[] = rowSpans[row];
+    for (let i = 0; i < intersections.length - 1; i += 2) {
+      let startX = Math.floor(intersections[i]);
+      let endX = Math.ceil(intersections[i + 1]);
+      if (endX < bbox.minX || startX > bbox.minX + width - 1) continue;
+      startX = Math.max(startX, bbox.minX);
+      endX = Math.min(endX, bbox.minX + width - 1);
+      if (startX > endX) continue;
+      spansForRow.push({ start: startX, end: endX });
+      if (row < minRow) minRow = row;
+      if (row > maxRow) maxRow = row;
+      if (startX < minCol) minCol = startX;
+      if (endX > maxCol) maxCol = endX;
+    }
+  }
+  if (minRow > maxRow || !Number.isFinite(minCol) || !Number.isFinite(maxCol)) {
+    return { rowSpans, mask: new Uint8Array(0), maskWidth: 0, maskHeight: 0, coverage: null as CoverageWindow | null };
+  }
+  const maskWidth = Math.max(1, Math.floor(maxCol - minCol + 1));
+  const maskHeight = Math.max(1, Math.floor(maxRow - minRow + 1));
+  const mask = new Uint8Array(maskWidth * maskHeight);
+  for (let row = minRow; row <= maxRow; row++) {
+    const spans = rowSpans[row];
+    if (!spans || spans.length === 0) continue;
+    const localY = row - minRow;
+    const rowOffset = localY * maskWidth;
+    for (const span of spans) {
+      const startX = Math.max(span.start, minCol);
+      const endX = Math.min(span.end, maxCol);
+      for (let x = startX; x <= endX; x++) {
+        const localX = x - minCol;
+        if (localX < 0 || localX >= maskWidth) continue;
+        mask[rowOffset + localX] = 1;
+      }
+    }
+  }
+  const coverage: CoverageWindow = {
+    minRow,
+    maxRow,
+    minCol,
+    maxCol,
+    width: maskWidth,
+    height: maskHeight,
+  };
+  return { rowSpans, mask, maskWidth, maskHeight, coverage };
+};
+
+const edt1d = (
+  f: Float32Array,
+  n: number,
+  d: Float32Array,
+  v: Int32Array,
+  z: Float32Array
+) => {
+  let k = 0;
+  v[0] = 0;
+  z[0] = -INF;
+  z[1] = INF;
+  for (let q = 1; q < n; q++) {
+    let s = 0;
+    while (k >= 0) {
+      const vk = v[k];
+      s = ((f[q] + q * q) - (f[vk] + vk * vk)) / (2 * q - 2 * vk);
+      if (s <= z[k]) {
+        k--;
+      } else {
+        break;
+      }
+    }
+    k++;
+    v[k] = q;
+    z[k] = s;
+    z[k + 1] = INF;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++) {
+    while (z[k + 1] < q) {
+      k++;
+    }
+    const dx = q - v[k];
+    d[q] = dx * dx + f[v[k]];
+  }
+};
+
+const computeDistanceField = (mask: Uint8Array, width: number, height: number) => {
+  const total = width * height;
+  const source = new Float32Array(total);
+  const distances = new Float32Array(total);
+  const v = new Int32Array(Math.max(width, height));
+  const z = new Float32Array(Math.max(width, height) + 1);
+  const rowBuffer = new Float32Array(Math.max(width, height));
+  const rowOut = new Float32Array(Math.max(width, height));
+
+  const isBoundary = (idx: number, x: number, y: number) => {
+    if (!mask[idx]) return true;
+    if (x === 0 || y === 0 || x === width - 1 || y === height - 1) return true;
+    const left = idx - 1;
+    const right = idx + 1;
+    const up = idx - width;
+    const down = idx + width;
+    return mask[left] === 0 || mask[right] === 0 || mask[up] === 0 || mask[down] === 0;
+  };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      source[idx] = isBoundary(idx, x, y) ? 0 : INF;
+    }
+  }
+
+  // Horizontal pass
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      rowBuffer[x] = source[rowOffset + x];
+    }
+    edt1d(rowBuffer, width, rowOut, v, z);
+    for (let x = 0; x < width; x++) {
+      distances[rowOffset + x] = rowOut[x];
+    }
+  }
+
+  // Vertical pass
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      rowBuffer[y] = distances[y * width + x];
+    }
+    edt1d(rowBuffer, height, rowOut, v, z);
+    for (let y = 0; y < height; y++) {
+      distances[y * width + x] = rowOut[y];
+    }
+  }
+
+  for (let i = 0; i < total; i++) {
+    const value = distances[i];
+    distances[i] = value >= INF ? 0 : Math.sqrt(value);
+  }
+
+  return distances;
+};
+
 export async function fillConcentricIndices(
   params: ConcentricFillParams,
   hooks: ConcentricFillHooks
@@ -65,6 +237,19 @@ export async function fillConcentricIndices(
     return;
   }
 
+  const { rowSpans, mask, maskWidth, maskHeight, coverage } = buildMaskAndRowSpans(
+    params.vertices,
+    params.bbox,
+    width,
+    height
+  );
+  const hasCoverage = rowSpans.some((row) => row.length > 0);
+  if (!hasCoverage || !coverage || maskWidth <= 0 || maskHeight <= 0) {
+    return;
+  }
+
+  const distanceField = computeDistanceField(mask, maskWidth, maskHeight);
+
   const bands = Math.max(2, params.bands);
   const indexFromNormalized = (pos: number): number => {
     const raw = Math.round(pos * 254);
@@ -72,7 +257,6 @@ export async function fillConcentricIndices(
     return clampIndex(shifted + 1);
   };
 
-  const edges = buildEdges(params.vertices);
   const noiseAt = makeNoiseSampler(params.noiseSeed ?? 0);
   const cellSize = Math.max(1, params.ditherEnabled ? Math.round(params.ditherPixelSize) : 1);
   const jitterScale = 0.35;
@@ -94,12 +278,28 @@ export async function fillConcentricIndices(
     return applyEdgePadding(value);
   };
 
+  const coverageMinRowWorld = iyBase + coverage.minRow;
+  const coverageMaxRowWorld = iyBase + coverage.maxRow;
+  const coverageMinX = coverage.minCol;
+  const coverageMaxX = coverage.maxCol;
+
+  const sampleDistance = (worldX: number, worldY: number) => {
+    const lx = worldX - coverageMinX;
+    const ly = worldY - coverageMinRowWorld;
+    if (lx < 0 || ly < 0 || lx >= maskWidth || ly >= maskHeight) {
+      return 0;
+    }
+    return distanceField[ly * maskWidth + lx];
+  };
+
   const processBlockDither = async () => {
-    const y0 = iyBase;
-    const yMax = iyBase + height - 1;
+    const y0 = coverageMinRowWorld;
+    const yMax = coverageMaxRowWorld;
     const cellsAcross = Math.max(1, Math.ceil(width / cellSize));
     let cErrCurr = new Float32Array(cellsAcross);
     let cErrNext = new Float32Array(cellsAcross);
+    const cellSeen = new Uint8Array(cellsAcross);
+    const activeCells: number[] = [];
 
     for (let yb = y0, rowIdx = 0; yb <= yMax; yb += cellSize, rowIdx++) {
       await requestYield(rowIdx);
@@ -108,116 +308,102 @@ export async function fillConcentricIndices(
       cErrNext = tmp;
       cErrNext.fill(0);
 
+      cellSeen.fill(0);
+      activeCells.length = 0;
+
       const serpentine = (rowIdx & 1) === 1;
       const yCenter = Math.min(yMax, yb + Math.floor(cellSize / 2));
-      const intersections: number[] = [];
-      for (let i = 0; i < params.vertices.length; i++) {
-        const a = params.vertices[i];
-        const b = params.vertices[(i + 1) % params.vertices.length];
-        if (Math.abs(b.y - a.y) < 0.0001) continue;
-        if ((a.y <= yCenter && b.y > yCenter) || (b.y <= yCenter && a.y > yCenter)) {
-          const t = (yCenter - a.y) / (b.y - a.y);
-          const x = a.x + t * (b.x - a.x);
-          intersections.push(x);
+      const rowStartIdx = Math.max(coverage.minRow, Math.floor(yb - iyBase));
+      const rowEndIdx = Math.min(coverage.maxRow, Math.floor(Math.min(yMax, yb + cellSize - 1) - iyBase));
+      if (rowStartIdx > rowEndIdx) {
+        continue;
+      }
+
+      for (let row = rowStartIdx; row <= rowEndIdx; row++) {
+        const spans = rowSpans[row];
+        if (spans && spans.length > 0) {
+          for (let s = 0; s < spans.length; s++) {
+            const span = spans[s];
+            const localStart = span.start - ixBase;
+            const localEnd = span.end - ixBase;
+            const startCell = Math.max(0, Math.floor(localStart / cellSize));
+            const endCell = Math.min(cellsAcross - 1, Math.floor(localEnd / cellSize));
+            for (let cellIdx = startCell; cellIdx <= endCell; cellIdx++) {
+              if (!cellSeen[cellIdx]) {
+                cellSeen[cellIdx] = 1;
+                activeCells.push(cellIdx);
+              }
+            }
+          }
         }
       }
-      intersections.sort((a, b) => a - b);
 
-      for (let i = 0; i < intersections.length - 1; i += 2) {
-        const startX = Math.floor(intersections[i]);
-        const endX = Math.ceil(intersections[i + 1]);
-        if (endX < ixBase || startX > ixBase + width) continue;
-        const xStartCell = Math.floor((startX - ixBase) / cellSize);
-        const xEndCell = Math.floor((endX - ixBase) / cellSize);
+      if (!activeCells.length) {
+        continue;
+      }
+      activeCells.sort(sortAscending);
 
-        const rowClips: Array<{ start: number; end: number } | null> = [];
-        const yTo = Math.min(yMax, yb + cellSize - 1);
-        for (let yy = yb; yy <= yTo; yy++) {
-          const intsRow: number[] = [];
-          for (let k = 0; k < params.vertices.length; k++) {
-            const a = params.vertices[k];
-            const b = params.vertices[(k + 1) % params.vertices.length];
-            if (Math.abs(b.y - a.y) < 0.0001) continue;
-            if ((a.y <= yy && b.y > yy) || (b.y <= yy && a.y > yy)) {
-              const t = (yy - a.y) / (b.y - a.y);
-              const x = a.x + t * (b.x - a.x);
-              intsRow.push(x);
+      const quantLevels = bands;
+      const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
+
+      const processCell = (cx: number) => {
+        const xBlock = ixBase + cx * cellSize;
+        const xBlockEnd = Math.min(ixBase + width - 1, xBlock + cellSize - 1);
+        const xCenter = Math.min(xBlockEnd, xBlock + Math.floor(cellSize / 2));
+        const dist = sampleDistance(xCenter, yCenter);
+        let r = Math.min(1, dist / maxDist);
+        if (params.ditherEnabled && ditherStrength > 0) {
+          const j = (noiseAt(xCenter, yCenter) - 0.5) * (jitterScale / quantLevels);
+          r = clampNormalized(r + j);
+        }
+        const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
+        const lowerPos = Math.min(1, kLower * qStep);
+        const upperPos = Math.min(1, (kLower + 1) * qStep);
+        const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+        const adj = frac + (cErrCurr[cx] || 0);
+        const thr = 0.5 + (noiseAt(xCenter, yCenter) - 0.5) * thresholdJitter;
+        const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
+        const q = chooseUpper ? 1 : 0;
+        const err = (frac - q) * ditherStrength;
+        if (!serpentine) {
+          if (cx + 1 < cellsAcross) cErrCurr[cx + 1] += err * 0.5;
+          if (cx - 1 >= 0) cErrNext[cx - 1] += err * 0.25;
+        } else {
+          if (cx - 1 >= 0) cErrCurr[cx - 1] += err * 0.5;
+          if (cx + 1 < cellsAcross) cErrNext[cx + 1] += err * 0.25;
+        }
+        cErrNext[cx] += err * 0.25;
+        const lowerIdx = indexFromNormalized(lowerPos);
+        const upperIdx = indexFromNormalized(upperPos);
+        const outIdx = chooseUpper ? upperIdx : lowerIdx;
+
+        for (let row = rowStartIdx; row <= rowEndIdx; row++) {
+          const worldY = iyBase + row;
+          const spans = rowSpans[row];
+          if (spans && spans.length > 0) {
+            for (let s = 0; s < spans.length; s++) {
+              const span = spans[s];
+              if (span.end >= xBlock && span.start <= xBlockEnd) {
+                const fillStart = Math.max(span.start, xBlock, coverageMinX);
+                const fillEnd = Math.min(span.end, xBlockEnd, coverageMaxX);
+                for (let xx = fillStart; xx <= fillEnd; xx++) {
+                  if (withinBounds(xx, worldY, params.bbox)) {
+                    writeSample(xx, worldY, outIdx);
+                  }
+                }
+              }
             }
-          }
-          intsRow.sort((a, b) => a - b);
-          if (intsRow.length >= i + 2) {
-            rowClips.push({ start: Math.floor(intsRow[i]), end: Math.ceil(intsRow[i + 1]) });
-          } else {
-            rowClips.push({ start: startX, end: endX });
           }
         }
+      };
 
-        const processCell = (cx: number) => {
-          const xBlock = ixBase + cx * cellSize;
-          const xCenter = Math.min(endX, xBlock + Math.floor(cellSize / 2));
-          let minDistSq = Infinity;
-          const distLeft = xCenter - startX;
-          const distRight = endX - xCenter;
-          minDistSq = Math.min(distLeft * distLeft, distRight * distRight);
-          for (let j = 0; j < edges.length; j++) {
-            const e = edges[j];
-            if (e.len2 <= 0) continue;
-            const tNum = (xCenter - e.v1x) * e.dx + (yCenter - e.v1y) * e.dy;
-            const t = Math.max(0, Math.min(1, tNum / e.len2));
-            const projX = e.v1x + t * e.dx;
-            const projY = e.v1y + t * e.dy;
-            const dxp = xCenter - projX;
-            const dyp = yCenter - projY;
-            const d2 = dxp * dxp + dyp * dyp;
-            if (d2 < minDistSq) {
-              minDistSq = d2;
-              if (minDistSq <= 1) break;
-            }
-          }
-          let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-          if (params.ditherEnabled && ditherStrength > 0) {
-            const quantLevels = bands;
-            const j = (noiseAt(xCenter, yCenter) - 0.5) * (jitterScale / quantLevels);
-            r = clampNormalized(r + j);
-          }
-          const quantLevels = bands;
-          const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
-          const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-          const lowerPos = Math.min(1, kLower * qStep);
-          const upperPos = Math.min(1, (kLower + 1) * qStep);
-          const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-          const adj = frac + (cErrCurr[cx] || 0);
-          const thr = 0.5 + (noiseAt(xCenter, yCenter) - 0.5) * thresholdJitter;
-          const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
-          const q = chooseUpper ? 1 : 0;
-          const err = (frac - q) * ditherStrength;
-          if (!serpentine) {
-            if (cx + 1 < cellsAcross) cErrCurr[cx + 1] += err * 0.5;
-            if (cx - 1 >= 0) cErrNext[cx - 1] += err * 0.25;
-          } else {
-            if (cx - 1 >= 0) cErrCurr[cx - 1] += err * 0.5;
-            if (cx + 1 < cellsAcross) cErrNext[cx + 1] += err * 0.25;
-          }
-          cErrNext[cx] += err * 0.25;
-          const outIdx = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
-          const xTo = Math.min(endX, xBlock + cellSize - 1);
-          for (let yy = yb; yy <= yTo; yy++) {
-            const clip = rowClips[yy - yb];
-            if (!clip) continue;
-            const fillStart = Math.max(clip.start, xBlock);
-            const fillEnd = Math.min(clip.end, xTo);
-            if (fillStart > fillEnd) continue;
-            for (let xx = fillStart; xx <= fillEnd; xx++) {
-              if (!withinBounds(xx, yy, params.bbox)) continue;
-              writeSample(xx, yy, outIdx);
-            }
-          }
-        };
-
-        if (!serpentine) {
-          for (let cx = xStartCell; cx <= xEndCell; cx++) processCell(cx);
-        } else {
-          for (let cx = xEndCell; cx >= xStartCell; cx--) processCell(cx);
+      if (!serpentine) {
+        for (let idx = 0; idx < activeCells.length; idx++) {
+          processCell(activeCells[idx]);
+        }
+      } else {
+        for (let idx = activeCells.length - 1; idx >= 0; idx--) {
+          processCell(activeCells[idx]);
         }
       }
     }
@@ -229,9 +415,8 @@ export async function fillConcentricIndices(
     let errNext = params.ditherEnabled && ditherStrength > 0 ? new Float32Array(bboxW) : null;
     const thresholdJitterLocal = 0.2;
 
-    const noiseAtTile = (x: number, y: number) => noiseAt(x, y);
-
-    for (let y = iyBase, row = 0; y < iyBase + height; y++, row++) {
+    for (let row = coverage.minRow; row <= coverage.maxRow; row++) {
+      const y = iyBase + row;
       await requestYield(row);
       if (errCurr && errNext) {
         const tmp = errCurr;
@@ -240,139 +425,70 @@ export async function fillConcentricIndices(
         errNext!.fill(0);
       }
 
-      const intersections: number[] = [];
-      for (let i = 0; i < params.vertices.length; i++) {
-        const v1 = params.vertices[i];
-        const v2 = params.vertices[(i + 1) % params.vertices.length];
-        if (Math.abs(v2.y - v1.y) < 0.0001) continue;
-        if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-          const t = (y - v1.y) / (v2.y - v1.y);
-          const x = v1.x + t * (v2.x - v1.x);
-          intersections.push(x);
-        }
+      const spans = rowSpans[row];
+      if (!spans || spans.length === 0) {
+        continue;
       }
-      intersections.sort((a, b) => a - b);
+      const serpentine = (row & 1) === 1;
+      const quantLevels = bands;
+      const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
 
-      for (let i = 0; i < intersections.length - 1; i += 2) {
-        const startX = Math.floor(intersections[i]);
-        const endX = Math.ceil(intersections[i + 1]);
-        const serpentine = (row & 1) === 1;
-        const xRangeStart = Math.max(startX, ixBase);
-        const xRangeEnd = Math.min(endX, ixBase + width - 1);
-        if (xRangeStart > xRangeEnd) continue;
-        if (!serpentine) {
-          for (let x = xRangeStart; x <= xRangeEnd; x++) {
-            const tileXCenter = x;
-            const tileYCenter = y;
-            let minDistSq = Infinity;
-            const distLeft = tileXCenter - startX;
-            const distRight = endX - tileXCenter;
-            minDistSq = Math.min(distLeft * distLeft, distRight * distRight);
-            for (let j = 0; j < edges.length; j++) {
-              const e = edges[j];
-              if (e.len2 <= 0) continue;
-              const tNum = (tileXCenter - e.v1x) * e.dx + (tileYCenter - e.v1y) * e.dy;
-              const t = Math.max(0, Math.min(1, tNum / e.len2));
-              const projX = e.v1x + t * e.dx;
-              const projY = e.v1y + t * e.dy;
-              const dxp = tileXCenter - projX;
-              const dyp = tileYCenter - projY;
-              const distSq = dxp * dxp + dyp * dyp;
-              if (distSq < minDistSq) {
-                minDistSq = distSq;
-                if (minDistSq <= 1) break;
-              }
-            }
-            let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-            if (params.ditherEnabled && ditherStrength > 0) {
-              const quantLevels = bands;
-              const j = (noiseAtTile(tileXCenter, tileYCenter) - 0.5) * (jitterScale / quantLevels);
-              r = clampNormalized(r + j);
-            }
-            const quantLevels = bands;
-            const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
-            const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-            const lowerPos = Math.min(1, kLower * qStep);
-            const upperPos = Math.min(1, (kLower + 1) * qStep);
-            const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-            if (params.ditherEnabled && ditherStrength > 0 && errCurr && errNext) {
-              const ix = x - ixBase;
-              const adj = frac + (errCurr[ix] || 0);
-              const thr = 0.5 + (noiseAtTile(tileXCenter, tileYCenter) - 0.5) * thresholdJitterLocal;
-              const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
-              const q = chooseUpper ? 1 : 0;
-              const err = (frac - q) * ditherStrength;
-              if (ix + 1 < bboxW) errCurr[ix + 1] += err * 0.5;
-              if (ix - 1 >= 0) errNext[ix - 1] += err * 0.25;
-              errNext[ix] += err * 0.25;
-              const lowerIdx = indexFromNormalized(lowerPos);
-              const upperIdx = indexFromNormalized(upperPos);
-              if (withinBounds(x, y, params.bbox)) {
-                writeSample(x, y, chooseUpper ? upperIdx : lowerIdx);
-              }
-            } else {
-              const colorIndex = indexFromNormalized(lowerPos);
-              if (withinBounds(x, y, params.bbox)) {
-                writeSample(x, y, colorIndex);
-              }
-            }
+      const processPixel = (x: number) => {
+        const localX = x - ixBase;
+        if (localX < 0 || localX >= width) {
+          return;
+        }
+        if (x < coverageMinX || x > coverageMaxX) {
+          return;
+        }
+        const dist = sampleDistance(x, y);
+        let r = Math.min(1, dist / maxDist);
+        if (params.ditherEnabled && ditherStrength > 0) {
+          const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
+          r = clampNormalized(r + j);
+        }
+        const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
+        const lowerPos = Math.min(1, kLower * qStep);
+        const upperPos = Math.min(1, (kLower + 1) * qStep);
+        const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+        if (params.ditherEnabled && ditherStrength > 0 && errCurr && errNext) {
+          const adj = frac + (errCurr[localX] || 0);
+          const thr = 0.5 + (noiseAt(x, y) - 0.5) * thresholdJitterLocal;
+          const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
+          const q = chooseUpper ? 1 : 0;
+          const err = (frac - q) * ditherStrength;
+          if (localX + 1 < bboxW) errCurr[localX + 1] += err * 0.5;
+          if (localX - 1 >= 0) errNext[localX - 1] += err * 0.25;
+          errNext[localX] += err * 0.25;
+          const lowerIdx = indexFromNormalized(lowerPos);
+          const upperIdx = indexFromNormalized(upperPos);
+          if (withinBounds(x, y, params.bbox)) {
+            writeSample(x, y, chooseUpper ? upperIdx : lowerIdx);
           }
         } else {
-          for (let x = xRangeEnd; x >= xRangeStart; x--) {
-            const tileXCenter = x;
-            const tileYCenter = y;
-            let minDistSq = Infinity;
-            const distLeft = tileXCenter - startX;
-            const distRight = endX - tileXCenter;
-            minDistSq = Math.min(distLeft * distLeft, distRight * distRight);
-            for (let j = 0; j < edges.length; j++) {
-              const e = edges[j];
-              if (e.len2 <= 0) continue;
-              const tNum = (tileXCenter - e.v1x) * e.dx + (tileYCenter - e.v1y) * e.dy;
-              const t = Math.max(0, Math.min(1, tNum / e.len2));
-              const projX = e.v1x + t * e.dx;
-              const projY = e.v1y + t * e.dy;
-              const dxp = tileXCenter - projX;
-              const dyp = tileYCenter - projY;
-              const distSq = dxp * dxp + dyp * dyp;
-              if (distSq < minDistSq) {
-                minDistSq = distSq;
-                if (minDistSq <= 1) break;
-              }
-            }
-            let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-            if (params.ditherEnabled && ditherStrength > 0) {
-              const quantLevels = bands;
-              const j = (noiseAtTile(tileXCenter, tileYCenter) - 0.5) * (jitterScale / quantLevels);
-              r = clampNormalized(r + j);
-            }
-            const quantLevels = bands;
-            const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
-            const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-            const lowerPos = Math.min(1, kLower * qStep);
-            const upperPos = Math.min(1, (kLower + 1) * qStep);
-            const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-            if (params.ditherEnabled && ditherStrength > 0 && errCurr && errNext) {
-              const ix = x - ixBase;
-              const adj = frac + (errCurr[ix] || 0);
-              const thr = 0.5 + (noiseAtTile(tileXCenter, tileYCenter) - 0.5) * thresholdJitterLocal;
-              const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
-              const q = chooseUpper ? 1 : 0;
-              const err = (frac - q) * ditherStrength;
-              if (ix - 1 >= 0) errCurr[ix - 1] += err * 0.5;
-              if (ix + 1 < bboxW) errNext[ix + 1] += err * 0.25;
-              errNext[ix] += err * 0.25;
-              const lowerIdx = indexFromNormalized(lowerPos);
-              const upperIdx = indexFromNormalized(upperPos);
-              if (withinBounds(x, y, params.bbox)) {
-                writeSample(x, y, chooseUpper ? upperIdx : lowerIdx);
-              }
-            } else {
-              const colorIndex = indexFromNormalized(lowerPos);
-              if (withinBounds(x, y, params.bbox)) {
-                writeSample(x, y, colorIndex);
-              }
-            }
+          const colorIndex = indexFromNormalized(lowerPos);
+          if (withinBounds(x, y, params.bbox)) {
+            writeSample(x, y, colorIndex);
+          }
+        }
+      };
+
+      if (!serpentine) {
+        for (let s = 0; s < spans.length; s++) {
+          const span = spans[s];
+          const startX = Math.max(span.start, ixBase, coverageMinX);
+          const endX = Math.min(span.end, ixBase + width - 1, coverageMaxX);
+          for (let x = startX; x <= endX; x++) {
+            processPixel(x);
+          }
+        }
+      } else {
+        for (let s = spans.length - 1; s >= 0; s--) {
+          const span = spans[s];
+          const startX = Math.max(span.start, ixBase, coverageMinX);
+          const endX = Math.min(span.end, ixBase + width - 1, coverageMaxX);
+          for (let x = endX; x >= startX; x--) {
+            processPixel(x);
           }
         }
       }

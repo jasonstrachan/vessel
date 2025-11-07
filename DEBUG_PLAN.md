@@ -1,3 +1,33 @@
+# TODO – Concentric Fill EDT Refactor
+
+1. **Baseline & Instrumentation**
+   - Capture current CPU/worker timings with `recordColorCycleFillPerf` under a heavy concentric fill (≥ 600k px) to lock a before snapshot.
+   - 2025-11-07: Used `npx tsc scripts/perf/measure-concentric-fill.ts --outDir scripts/perf/dist && node scripts/perf/dist/scripts/perf/measure-concentric-fill.js` (3.15 M px bbox) to diff HEAD vs EDT. Legacy scanline/block ranged 98–134 ms; EDT path landed 100–152 ms (spiky scanline dropped to 101 ms from 113 ms ≈ 1.12× faster, others within ±10%). Raw JSON dumps stored in `/tmp/cc-fill-perf-before.json` and `/tmp/cc-fill-perf-after.json` for reference, summarized below:
+
+     ```text
+     label              | before ms | after ms | ratio
+     decagon-scanline   |   134.05  |  138.99  | 1.04×
+     decagon-block      |   128.86  |  129.68  | 1.01×
+     star-scanline      |   109.96  |  114.93  | 1.05×
+     star-block         |   115.70  |  117.66  | 1.02×
+     concave-scanline   |   111.28  |  151.88  | 1.36×
+     concave-block      |   112.02  |  107.48  | 0.96×
+     spiky-scanline     |   113.45  |  101.02  | 0.89×
+     spiky-block        |    98.18  |  100.00  | 1.02×
+   - 2025-11-07 (post coverage-window refactor): `CC_BBOX_W=2048 CC_BBOX_H=1536 node scripts/perf/dist/scripts/perf/measure-concentric-fill.js --fixtures=concave --modes=scanline --label=concave-window` now logs JSON artifacts in `scripts/perf/results/`. Before/after concave timings:
+     - `scripts/perf/results/2025-11-07T02-20-43-919Z-concave-profile.json` → 141.34 ms
+     - `scripts/perf/results/2025-11-07T02-36-57-700Z-concave-window.json` → 73.24 ms (≈ 1.93× faster due to cropped EDT mask)
+     ```
+2. **Polygon Mask Rasterization**
+   - Extract scanline span builder from `fillConcentricCore` into a reusable helper that emits a dense binary mask (Uint8Array) inside the worker.
+3. **Euclidean Distance Transform**
+   - Implement a two-pass EDT (Felzenszwalb) over the mask, returning a Float32 distance map plus metadata (max distance reached).
+4. **Band/Dither Mapping Pipeline**
+   - Replace the per-pixel edge loop with `distance -> normalized -> band/dither` logic that reuses existing jitter/noise hooks so visual output stays identical.
+5. **Integration & Tests**
+   - Wire the worker/client to use the EDT path, add regression tests under `src/utils/colorCycle/__tests__/` that compare legacy vs. EDT results on fixtures, and document perf deltas in `REFACTORING_SUMMARY.md`.
+   - Added concave + self-touching polygon cases in `src/utils/colorCycle/__tests__/concentricFillCore.test.ts` to assert parity with an even-odd mask (<=3–4% pixel mismatch tolerance for boundary ambiguities).
+
 # Color Cycle Shape Undo Debug Plan
 
 ## The Problem

@@ -1880,10 +1880,15 @@ export class ColorCycleBrushCanvas2D {
       for (let row = 0; row < bh; row++) {
         const destY = bbox.minY + row;
         if (destY < 0 || destY >= concentricHeight) continue;
-        const destStart = destY * concentricWidth + bbox.minX;
-        const srcStart = row * bw;
-        const slice = local.subarray(srcStart, srcStart + bw);
-        concentricBuffer.set(slice, destStart);
+        const srcRowOffset = row * bw;
+        const destRowOffset = destY * concentricWidth;
+        for (let col = 0; col < bw; col++) {
+          const value = local[srcRowOffset + col];
+          if (value === 0) continue;
+          const destX = bbox.minX + col;
+          if (destX < 0 || destX >= concentricWidth) continue;
+          concentricBuffer[destRowOffset + destX] = value;
+        }
       }
     };
     const finalizeFill = (path: 'cpu' | 'worker') => {
