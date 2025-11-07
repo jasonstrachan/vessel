@@ -23,7 +23,6 @@ import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import {
   clampRectToDocument as clampBoundsToDocument,
   scaleMaskBoundsToDocument,
-  deriveCoverageFromIndexBuffer,
   type Size2D as CoverageSize
 } from '@/utils/export/colorCycleBounds';
 

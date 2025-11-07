@@ -30,6 +30,12 @@ interface GPUFillOptions {
   noiseSeed?: number;
 }
 
+type DirectFillHandle = {
+  data: Uint8Array;
+  width: number;
+  height: number;
+};
+
 export interface ColorCycleAnimatorConfig {
   width: number;
   height: number;
@@ -76,6 +82,7 @@ export class ColorCycleAnimator {
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
   
   private paletteHandle: PaletteHandle | null = null;
+  private directFillDepth: number = 0;
   
   constructor(config: ColorCycleAnimatorConfig) {
     this.forceCanvas2D = Boolean(config.forceCanvas2D);
@@ -371,6 +378,26 @@ export class ColorCycleAnimator {
     } catch {
       // quiet
       return false;
+    }
+  }
+
+  beginDirectFill(): DirectFillHandle {
+    this.directFillDepth += 1;
+    return {
+      data: this.indexBuffer.getDirectData(),
+      width: this.canvas.width,
+      height: this.canvas.height,
+    };
+  }
+
+  endDirectFill(options?: { markDirty?: boolean }) {
+    if (this.directFillDepth > 0) {
+      this.directFillDepth -= 1;
+    }
+    const shouldDirty = options?.markDirty !== false;
+    if (shouldDirty) {
+      this.indexBuffer.markDirty();
+      this._glIndexDirty = true;
     }
   }
 

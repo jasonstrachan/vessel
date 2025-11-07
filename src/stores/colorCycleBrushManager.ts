@@ -11,6 +11,8 @@ import type { BrushSettings, Layer } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 
+type IntervalHandle = ReturnType<typeof setInterval> | number;
+
 type BrushWithOptionalControls = ColorCycleBrushImplementation & {
   usesWebGL?: boolean;
   cleanup?: () => void;
@@ -28,8 +30,8 @@ type StoreSlice = Pick<AppState, 'tools' | 'layers'>;
 let storeStateGetter: (() => StoreSlice) | null = null;
 
 type BrushManagerRuntime = {
-  cleanupInactiveTimer: ReturnType<typeof setInterval> | null;
-  cleanupOrphanedTimer: ReturnType<typeof setInterval> | null;
+  cleanupInactiveTimer: IntervalHandle | null;
+  cleanupOrphanedTimer: IntervalHandle | null;
   featureFlagHandler: EventListener | null;
   beforeUnloadHandler: EventListener | null;
 };

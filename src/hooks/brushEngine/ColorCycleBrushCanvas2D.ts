@@ -15,6 +15,8 @@ import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { getMaskManager } from '@/layers/MaskManager';
 import { recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
+import { runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
+import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 
 interface CustomStampInput {
   imageData: ImageData;
@@ -98,6 +100,7 @@ interface StampMaskCacheEntry {
 
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
+const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -126,6 +129,27 @@ const applyEdgePadding = (value: number): number => {
   if (clamped <= EDGE_PADDING_EPSILON) return EDGE_PADDING_EPSILON;
   if (clamped >= 1 - EDGE_PADDING_EPSILON) return 1 - EDGE_PADDING_EPSILON;
   return clamped;
+};
+
+const shouldUseFillWorker = (width: number, height: number) => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const area = width * height;
+  if (area < COLOR_CYCLE_FILL_WORKER_AREA) {
+    return false;
+  }
+  const cores = (navigator as Navigator & { hardwareConcurrency?: number }).hardwareConcurrency ?? 4;
+  // Favor worker on lower or moderate core counts, but still allow on large canvases
+  return cores <= 12 || area >= COLOR_CYCLE_FILL_WORKER_AREA * 2;
+};
+
+const paletteEntriesFromMap = (map: Map<string, number>): PaletteMapEntry[] => {
+  return Array.from(map.entries()).map(([key, index]) => {
+    const parts = key.split(',').map((value) => Number(value));
+    const [r, g, b] = parts as [number, number, number];
+    return { rgb: [r, g, b], index };
+  });
 };
 
 export class ColorCycleBrushCanvas2D {
@@ -1227,24 +1251,35 @@ export class ColorCycleBrushCanvas2D {
       }
     } catch {}
 
-    let logCpuLinear: () => void;
-    const linearPerf = { start: nowMs(), logged: false };
-    logCpuLinear = () => {
-      if (linearPerf.logged) {
+    const directLinearHandle = animator.beginDirectFill();
+    const linearBuffer = directLinearHandle.data;
+    const linearBufferWidth = directLinearHandle.width;
+    const linearBufferHeight = directLinearHandle.height;
+    const writeLinearIndex = (x: number, y: number, colorIndex: number) => {
+      if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
         return;
       }
-      linearPerf.logged = true;
-      recordColorCycleFillPerf({
-        path: 'cpu',
-        mode: 'linear',
-        durationMs: nowMs() - linearPerf.start,
-        area: bbox.width * bbox.height,
-        vertices: vertices.length,
-      });
+      const clamped = Math.max(0, Math.min(255, colorIndex | 0));
+      linearBuffer[y * linearBufferWidth + x] = clamped;
     };
 
-    // If using perceptual dithering, render gradient into an ImageData, dither in color space,
-    // then map back to gradient indices and write to the index buffer.
+    try {
+      const linearPerf = { start: nowMs(), logged: false };
+      const logCpuLinear = () => {
+        if (linearPerf.logged) {
+          return;
+        }
+        linearPerf.logged = true;
+        recordColorCycleFillPerf({
+          path: 'cpu',
+          mode: 'linear',
+          durationMs: nowMs() - linearPerf.start,
+          area: bbox.width * bbox.height,
+          vertices: vertices.length,
+        });
+      };
+
+    // If using perceptual dithering, optionally offload dithering/mapping to worker
     if (this.ditherEnabled && this.perceptualDither) {
       try {
         const width = Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1);
@@ -1254,7 +1289,6 @@ export class ColorCycleBrushCanvas2D {
         const x0 = Math.floor(minX);
         const y0 = Math.floor(minY);
 
-        // Precompute per-row spans
         const spans: Array<Array<[number, number]>> = [];
         for (let y = y0; y <= Math.ceil(maxY); y++) {
           await yieldIfNeeded(y - y0);
@@ -1277,7 +1311,6 @@ export class ColorCycleBrushCanvas2D {
           spans.push(row);
         }
 
-        // Fill gradient colors into buffer
         const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y) || 1;
         const dirX = direction.x / dirLength;
         const dirY = direction.y / dirLength;
@@ -1306,14 +1339,56 @@ export class ColorCycleBrushCanvas2D {
           }
         }
 
-        // Build palette of N colors from gradient
         const quantLevels = Math.max(2, this.gradientBands || 12);
         const { css: paletteCss, mapRgbToIndex } = this.buildQuantizedGradientPalette(quantLevels);
+        const paletteEntries = paletteEntriesFromMap(mapRgbToIndex);
+        const workerEligible = paletteEntries.length > 0 && shouldUseFillWorker(width, height);
+        if (workerEligible) {
+          const pixelBuffer = new Uint8ClampedArray(img.data);
+          try {
+            const workerResult = await runPerceptualDitherJob({
+              type: 'perceptual-dither',
+              mode: 'linear',
+              width,
+              height,
+              baseOffset,
+              quantLevels,
+              ditherPixelSize: Math.max(1, this.ditherPixelSize),
+              paletteCss,
+              paletteMapEntries: paletteEntries,
+              pixels: pixelBuffer.buffer,
+            });
+            const indicesArray = new Uint8Array(workerResult.indices);
+            for (let yy = 0; yy < height; yy++) {
+              await yieldIfNeeded(yy);
+              const y = y0 + yy;
+              const rowSpans = spans[yy] || [];
+              const rowBase = yy * width;
+              for (const [sx, ex] of rowSpans) {
+                for (let x = sx; x <= ex; x++) {
+                  const xx = x - x0;
+                  if (xx < 0 || xx >= width) continue;
+                  const colorIndex = indicesArray[rowBase + xx];
+                  if (colorIndex > 0) {
+                    this.logSetIndexSample(id, x, y);
+                    writeLinearIndex(x, y, colorIndex);
+                  }
+                }
+              }
+            }
+            this.stampCounter += quantLevels;
+            if (strokeData) strokeData.stampCounter = this.stampCounter;
+            this.dirtyLayers.add(id);
+            animator.forceRender();
+            this.render(false);
+            logCpuLinear();
+            return;
+          } catch (error) {
+            console.warn('[ColorCycleBrushCanvas2D] Worker perceptual fill failed; falling back to main thread.', error);
+          }
+        }
 
-        // Run color-space dithering at requested pixel size
         const dithered: ImageData = applyDitheringWithFillResolution(img, quantLevels, Math.max(1, this.ditherPixelSize), 'sierra-lite', undefined, paletteCss);
-
-        // Map dithered pixels back to gradient indices and write to index buffer
         const out = dithered.data;
         for (let yy = 0; yy < height; yy++) {
           await yieldIfNeeded(yy);
@@ -1327,7 +1402,7 @@ export class ColorCycleBrushCanvas2D {
               const gi = mapRgbToIndex.get(key);
               if (gi !== undefined) {
                 this.logSetIndexSample(id, x, y);
-                animator.setIndex(x, y, gi);
+                writeLinearIndex(x, y, gi);
               }
             }
           }
@@ -1487,7 +1562,7 @@ export class ColorCycleBrushCanvas2D {
             if (fillStart <= xTo) {
               for (let xx = fillStart; xx <= xTo; xx++) {
                 this.logSetIndexSample(id, xx, y);
-                animator.setIndex(xx, y, cached);
+                writeLinearIndex(xx, y, cached);
               }
             }
           };
@@ -1527,7 +1602,7 @@ export class ColorCycleBrushCanvas2D {
               errNext[ix] += err * 0.25;
               const outIdx = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
               this.logSetIndexSample(id, x, y);
-              animator.setIndex(x, y, outIdx);
+              writeLinearIndex(x, y, outIdx);
             }
           } else {
             for (let x = endX; x >= startX; x--) {
@@ -1554,7 +1629,7 @@ export class ColorCycleBrushCanvas2D {
               errNext[ix] += err * 0.25;
               const outIdx = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
               this.logSetIndexSample(id, x, y);
-              animator.setIndex(x, y, outIdx);
+              writeLinearIndex(x, y, outIdx);
             }
           }
         } else {
@@ -1568,7 +1643,7 @@ export class ColorCycleBrushCanvas2D {
             const pos = k / quantLevels; // 0..1 range without duplicating endpoints
             const outIdx = indexFromNormalized(pos);
             this.logSetIndexSample(id, x, y);
-            animator.setIndex(x, y, outIdx);
+            writeLinearIndex(x, y, outIdx);
           }
         }
       }
@@ -1586,7 +1661,10 @@ export class ColorCycleBrushCanvas2D {
     // Force immediate render
     animator.forceRender();
     this.render(false);
-    logCpuConcentric();
+    logCpuLinear();
+    } finally {
+      animator.endDirectFill();
+    }
   }
 
   
@@ -1685,6 +1763,12 @@ export class ColorCycleBrushCanvas2D {
     const bboxWidth = Math.max(0, Math.ceil(maxX) - Math.floor(minX) + 1);
     const bboxHeight = Math.max(0, Math.ceil(maxY) - Math.floor(minY) + 1);
     const bboxArea = bboxWidth * bboxHeight;
+    const bbox = {
+      minX: Math.floor(minX),
+      minY: Math.floor(minY),
+      width: Math.max(1, bboxWidth),
+      height: Math.max(1, bboxHeight),
+    };
     // Preserve visual quality by default; fast approx disabled unless explicitly enabled
     const FAST_AREA_THRESHOLD = Number.POSITIVE_INFINITY;
     const useFastScanline = false && ((bboxArea >= FAST_AREA_THRESHOLD) || (vertices.length > 32));
@@ -1719,9 +1803,8 @@ export class ColorCycleBrushCanvas2D {
       thresholdsSq[b] = (t * t) * maxDistSq;
     }
 
-    let logCpuConcentric: () => void;
     const concentricPerf = { start: nowMs(), logged: false };
-    logCpuConcentric = () => {
+    const logCpuConcentric = () => {
       if (concentricPerf.logged) return;
       concentricPerf.logged = true;
       recordColorCycleFillPerf({
@@ -1732,6 +1815,20 @@ export class ColorCycleBrushCanvas2D {
         vertices: vertices.length,
       });
     };
+
+    const directConcentricHandle = animator.beginDirectFill();
+    const concentricBuffer = directConcentricHandle.data;
+    const concentricWidth = directConcentricHandle.width;
+    const concentricHeight = directConcentricHandle.height;
+    const writeConcentricIndex = (x: number, y: number, colorIndex: number) => {
+      if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
+        return;
+      }
+      const clamped = Math.max(0, Math.min(255, colorIndex | 0));
+      concentricBuffer[y * concentricWidth + x] = clamped;
+    };
+
+    try {
 
     // Perceptual dithering path for concentric fill
     if (this.ditherEnabled && this.perceptualDither) {
@@ -1816,7 +1913,7 @@ export class ColorCycleBrushCanvas2D {
               const gi = mapRgbToIndex2.get(key);
               if (gi !== undefined) {
                 const shifted = (gi - 1 + baseOffset) % 255;
-                animator2.setIndex(x, y, shifted + 1);
+                writeConcentricIndex(x, y, shifted + 1);
               }
             }
           }
@@ -2028,7 +2125,7 @@ export class ColorCycleBrushCanvas2D {
               if (fillStart <= fillEnd) {
                 for (let xx = fillStart; xx <= fillEnd; xx++) {
                   this.logSetIndexSample(id, xx, yy);
-                  animator.setIndex(xx, yy, outIdx);
+                  writeConcentricIndex(xx, yy, outIdx);
                 }
               }
             }
@@ -2095,7 +2192,7 @@ export class ColorCycleBrushCanvas2D {
             const quantized = Math.round(bandIndex * stepPerBandLinear);
             const colorIndex = Math.max(1, Math.min(255, quantized + 1));
             this.logSetIndexSample(id, x, y);
-            animator.setIndex(x, y, colorIndex);
+            writeConcentricIndex(x, y, colorIndex);
           }
         } else {
           if (!serpentine) {
@@ -2164,12 +2261,12 @@ export class ColorCycleBrushCanvas2D {
               const lowerIdx = indexFromNormalized(lowerPos);
               const upperIdx = indexFromNormalized(upperPos);
               this.logSetIndexSample(id, x, y);
-              animator.setIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
+              writeConcentricIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
           } else {
               // No dithering: choose the quantized lower position
               const colorIndex = indexFromNormalized(lowerPos);
               this.logSetIndexSample(id, x, y);
-              animator.setIndex(x, y, colorIndex);
+              writeConcentricIndex(x, y, colorIndex);
           }
             }
           } else {
@@ -2235,11 +2332,11 @@ export class ColorCycleBrushCanvas2D {
                 const lowerIdx = indexFromNormalized(lowerPos);
                 const upperIdx = indexFromNormalized(upperPos);
                 this.logSetIndexSample(id, x, y);
-                animator.setIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
+                writeConcentricIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
               } else {
                 const colorIndex = indexFromNormalized(lowerPos);
                 this.logSetIndexSample(id, x, y);
-                animator.setIndex(x, y, colorIndex);
+                writeConcentricIndex(x, y, colorIndex);
               }
             }
           }
@@ -2260,6 +2357,9 @@ export class ColorCycleBrushCanvas2D {
     animator.forceRender();
     this.render(false);
     logCpuConcentric();
+    } finally {
+      animator.endDirectFill();
+    }
   }
   
   /**

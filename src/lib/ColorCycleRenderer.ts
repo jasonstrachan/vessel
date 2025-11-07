@@ -152,6 +152,13 @@ export class ColorCycleRenderer {
     this.colorToIndex.clear();
     this.paletteHandle = null;
   }
+
+  /**
+   * Expose the resolved gradient index for tests/diagnostics without leaking the buffer implementation.
+   */
+  getIndexValue(x: number, y: number): number {
+    return this.indexBuffer.getPixel(x, y);
+  }
   
   /**
    * Update gradient

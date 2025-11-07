@@ -433,6 +433,10 @@ export class IndexBuffer {
     const imageData = this.getImageData(ctx);
     ctx.putImageData(imageData, x, y);
   }
+
+  markDirty() {
+    this.isDirty = true;
+  }
   
   private lastImageData?: ImageData;
   
