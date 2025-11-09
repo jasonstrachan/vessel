@@ -147,6 +147,42 @@ describe('tools slice', () => {
       expect(secondList).toHaveLength(1);
       expect(secondList[0].imageData.data[0]).toBe(0);
     });
+
+    it('saves a temporary custom brush via currentBrushTip fallback when cache is cleared', () => {
+      const store = useAppStore.getState();
+      const brushId = 'temp_brush_fallback';
+      const imageData = new ImageData(4, 4);
+
+      useAppStore.setState((state) => ({
+        ...state,
+        temporaryCustomBrush: null,
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            brushShape: BrushShape.CUSTOM,
+            selectedCustomBrush: brushId,
+            currentBrushTip: {
+              imageData,
+              brushId,
+              isColorizable: false,
+              width: 4,
+              height: 4,
+            },
+          },
+        },
+      }));
+
+      store.saveCustomBrushAsPreset(brushId);
+
+      const nextState = useAppStore.getState();
+      expect(nextState.project?.customBrushes).toHaveLength(1);
+      const savedBrush = nextState.project?.customBrushes[0];
+      expect(savedBrush?.id).toBe(brushId);
+      expect(savedBrush?.imageData.width).toBe(4);
+      expect(savedBrush?.thumbnail).toMatch(/^data:image\/png;base64,/);
+      expect(nextState.tools.brushSettings.selectedCustomBrush).toBe(brushId);
+    });
   });
 
   describe('brush editor lifecycle', () => {

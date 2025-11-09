@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushShape, BrushPreset } from '../types';
+import { BrushShape, BrushPreset, CustomBrush } from '../types';
 import PlusButton from './ui/PlusButton';
 import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
 import { useToolSwitcher } from '@/utils/toolSwitch';
@@ -167,7 +167,7 @@ const BrushLibrary = () => {
   ]);
   
   // Check if there's an active custom brush that can be saved
-  const activeCustomBrush = React.useMemo(() => {
+  const activeCustomBrush = React.useMemo<CustomBrush | null>(() => {
     const selectedId = brushSettings.selectedCustomBrush;
     if (!selectedId) return null;
 
@@ -175,8 +175,36 @@ const BrushLibrary = () => {
       return temporaryCustomBrush;
     }
 
-    return getCustomBrushById?.(selectedId) ?? null;
-  }, [temporaryCustomBrush, brushSettings.selectedCustomBrush, getCustomBrushById]);
+    const savedBrush = getCustomBrushById?.(selectedId) ?? null;
+    if (savedBrush) {
+      return savedBrush;
+    }
+
+    const brushTip = brushSettings.currentBrushTip;
+    if (
+      brushSettings.brushShape === BrushShape.CUSTOM &&
+      brushTip &&
+      brushTip.brushId === selectedId
+    ) {
+      return {
+        id: selectedId,
+        name: 'Temp Brush',
+        imageData: brushTip.imageData,
+        width: brushTip.width ?? brushTip.imageData.width,
+        height: brushTip.height ?? brushTip.imageData.height,
+        thumbnail: '',
+        createdAt: Date.now(),
+      };
+    }
+
+    return null;
+  }, [
+    brushSettings.brushShape,
+    brushSettings.currentBrushTip,
+    brushSettings.selectedCustomBrush,
+    getCustomBrushById,
+    temporaryCustomBrush,
+  ]);
   
   // Handle escape key to cancel editing
   useEffect(() => {

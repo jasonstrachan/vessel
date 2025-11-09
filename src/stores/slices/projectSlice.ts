@@ -25,6 +25,96 @@ type CustomBrushSnapshot = {
   defaultCustomBrushId: string | null;
 } | null;
 
+const cloneImageData = (source: ImageData): ImageData => {
+  return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
+};
+
+const generateThumbnailFromImageData = (imageData: ImageData): string => {
+  if (typeof document === 'undefined') {
+    return '';
+  }
+
+  const size = 64;
+  const thumbnailCanvas = document.createElement('canvas');
+  thumbnailCanvas.width = size;
+  thumbnailCanvas.height = size;
+  const thumbnailCtx = thumbnailCanvas.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+  ) as CanvasRenderingContext2D | null;
+
+  if (!thumbnailCtx) {
+    return '';
+  }
+
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = imageData.width;
+  tempCanvas.height = imageData.height;
+  const tempCtx = tempCanvas.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+  ) as CanvasRenderingContext2D | null;
+
+  if (!tempCtx) {
+    return '';
+  }
+
+  tempCtx.putImageData(imageData, 0, 0);
+  const scale = Math.min(size / imageData.width, size / imageData.height);
+  const scaledWidth = imageData.width * scale;
+  const scaledHeight = imageData.height * scale;
+  const offsetX = (size - scaledWidth) / 2;
+  const offsetY = (size - scaledHeight) / 2;
+
+  thumbnailCtx.clearRect(0, 0, size, size);
+  thumbnailCtx.drawImage(
+    tempCanvas,
+    0,
+    0,
+    imageData.width,
+    imageData.height,
+    offsetX,
+    offsetY,
+    scaledWidth,
+    scaledHeight
+  );
+
+  return thumbnailCanvas.toDataURL();
+};
+
+const resolveBrushForSaving = (state: AppState, customBrushId: string): CustomBrush | null => {
+  if (
+    state.temporaryCustomBrush &&
+    state.temporaryCustomBrush.id === customBrushId
+  ) {
+    return state.temporaryCustomBrush;
+  }
+
+  const brushTip = state.tools.brushSettings.currentBrushTip;
+  if (
+    brushTip &&
+    state.tools.brushSettings.brushShape === BrushShape.CUSTOM &&
+    state.tools.brushSettings.selectedCustomBrush === customBrushId &&
+    brushTip.brushId === customBrushId
+  ) {
+    const clonedImageData = cloneImageData(brushTip.imageData);
+    const width = brushTip.width ?? brushTip.imageData.width;
+    const height = brushTip.height ?? brushTip.imageData.height;
+
+    return {
+      id: customBrushId,
+      name: 'Temp Brush',
+      imageData: clonedImageData,
+      thumbnail: generateThumbnailFromImageData(clonedImageData),
+      width,
+      height,
+      createdAt: Date.now(),
+    };
+  }
+
+  return null;
+};
+
 export interface ProjectSlice {
   project: Project | null;
   projectFilename: string | null;
@@ -313,15 +403,15 @@ export const createProjectSlice =
 
     const saveCustomBrushAsPreset = (customBrushId: string) => {
       set((state) => {
-        if (
-          !state.temporaryCustomBrush ||
-          state.temporaryCustomBrush.id !== customBrushId ||
-          !state.project
-        ) {
+        if (!state.project) {
           return state;
         }
 
-        const tempBrush = state.temporaryCustomBrush;
+        const tempBrush = resolveBrushForSaving(state, customBrushId);
+        if (!tempBrush) {
+          return state;
+        }
+
         const brushSettings = state.tools.brushSettings;
         const hasAdjustments =
           (brushSettings.hueShift ?? 0) !== 0 ||
@@ -337,6 +427,11 @@ export const createProjectSlice =
             )
           : tempBrush.imageData;
 
+        const finalThumbnail =
+          tempBrush.thumbnail && tempBrush.thumbnail.length > 0
+            ? tempBrush.thumbnail
+            : generateThumbnailFromImageData(finalImageData);
+
         const updatedProject: Project = {
           ...state.project,
           customBrushes: [
@@ -344,6 +439,7 @@ export const createProjectSlice =
             {
               ...tempBrush,
               imageData: finalImageData,
+              thumbnail: finalThumbnail,
             },
           ],
           updatedAt: new Date(),

@@ -1,4 +1,8 @@
 import type { AppState } from '@/stores/useAppStore';
+import type { CustomBrush } from '@/types';
+
+const EMPTY_CUSTOM_BRUSHES: CustomBrush[] = [];
+Object.freeze(EMPTY_CUSTOM_BRUSHES);
 
 export const selectProject = (state: AppState) => state.project;
 
@@ -15,7 +19,8 @@ export const selectProjectActions = (state: AppState) => ({
   newProject: state.newProject,
 });
 
-export const selectCustomBrushes = (state: AppState) => state.listCustomBrushes();
+export const selectCustomBrushes = (state: AppState) =>
+  state.project?.customBrushes ?? EMPTY_CUSTOM_BRUSHES;
 
 export const selectDefaultCustomBrushId = (state: AppState) =>
   state.project?.defaultCustomBrushId ?? null;

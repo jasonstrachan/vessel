@@ -204,6 +204,14 @@ export const createDefaultContourLinesState = (): ContourLinesState => ({
   randomSeed: null,
 });
 
+const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
+  brushShape === BrushShape.CONTOUR_POLYGON ||
+  brushShape === BrushShape.CONTOUR_LINES2 ||
+  brushShape === BrushShape.RECTANGLE_GRADIENT ||
+  brushShape === BrushShape.POLYGON_GRADIENT ||
+  brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
+  brushShape === BrushShape.SHAPE_FILL;
+
 export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHandlers => {
   // Cap overlay previews to 30 FPS to reduce main-thread load during drag
   const OVERLAY_PREVIEW_FRAME_MS = 1000 / 30;
@@ -316,6 +324,73 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   }
 
   const getDynamicDeps = () => dynamicDepsRef.current;
+
+  const drawSimpleShapePreviewOnOverlay = () => {
+    const overlay = overlayCanvasRef.current;
+    if (!overlay) {
+      return;
+    }
+    const ctx = overlay.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    const points = drawingHandlers.shapePointsRef?.current ?? [];
+    if (!points || points.length < 2) {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      return;
+    }
+
+    const { tools } = getDynamicDeps();
+    const brushSettings = tools.brushSettings;
+    const isPixelBrush =
+      brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+      (brushSettings.brushShape === BrushShape.SQUARE && brushSettings.antialiasing === false);
+
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    ctx.save();
+    ctx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+    ctx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.imageSmoothingEnabled = !isPixelBrush;
+
+    const strokeColor = brushSettings.color || '#ffffff';
+    const strokeWidth = Math.max(1, brushSettings.size ?? 1);
+
+    ctx.beginPath();
+    const moveToPoint = (point: Point) => {
+      if (isPixelBrush) {
+        ctx.moveTo(Math.round(point.x), Math.round(point.y));
+      } else {
+        ctx.moveTo(point.x, point.y);
+      }
+    };
+    const lineToPoint = (point: Point) => {
+      if (isPixelBrush) {
+        ctx.lineTo(Math.round(point.x), Math.round(point.y));
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    };
+    moveToPoint(points[0]);
+    for (let i = 1; i < points.length; i += 1) {
+      lineToPoint(points[i]);
+    }
+    ctx.closePath();
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = strokeColor;
+    ctx.globalAlpha = 0.18;
+    ctx.fill();
+    ctx.restore();
+  };
+
+  drawingHandlers.setSimpleShapePreviewRenderer?.(drawSimpleShapePreviewOnOverlay);
 
   const logDynamicSnapshot = (label: string, extra: Record<string, unknown> = {}) => {
     if (!shouldEnableContourDebug()) return;
@@ -1064,6 +1139,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         polygonGradientStateGuard.drawingState === 'adjustingSize');
 
     if (adjustSessionActive) {
+      const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
       isMouseDownRef.current = true;
       pointerInsideCanvas = true;
       const { canvas, tools } = getDynamicDeps();
@@ -1082,7 +1158,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       updateAlignedMousePosition(worldPosAligned, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
       event.preventDefault();
       (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
-      if (shapeHandler.handlePointerDown(event)) {
+      if (adjustShouldRoute && shapeHandler.handlePointerDown(event)) {
         return;
       }
       return;
@@ -1430,7 +1506,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     // Only allow shape handlers when using brush/eraser/custom tools
     // This prevents shape mode from intercepting other tools like fill, eyedropper, etc.
-    if (tools.currentTool === 'brush' || tools.currentTool === 'custom') {
+    const shouldRouteToShapeHandler =
+      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
+      isAdvancedShapeBrush(tools.brushSettings.brushShape);
+
+    if (shouldRouteToShapeHandler) {
       const rewriteHandled = shapeHandler.handlePointerDown(event);
       if (rewriteHandled) {
         const polygonState = getDynamicDeps().polygonGradientState;
@@ -1451,15 +1531,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return; // Don't start any action if click is out of bounds
       }
     }
-
-    // Dispatch to state machine with SCREEN position for normal interactions
-    stateMachine.dispatch({ 
-      type: 'MOUSE_DOWN', 
-      button: event.button,
-      position: pointerPos,  // Use screen coordinates, not world
-      tool: tools.currentTool,
-      pressure
-    });
 
     // Shape mode should take precedence for normal brushes
     // Start shape drawing immediately to avoid interference from other branches
@@ -1503,6 +1574,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       drawingHandlers.startShapeDrawing(worldPos, pressure);
       return;
     }
+    
+    // Dispatch to state machine with SCREEN position for normal interactions
+    stateMachine.dispatch({ 
+      type: 'MOUSE_DOWN', 
+      button: event.button,
+      position: pointerPos,  // Use screen coordinates, not world
+      tool: tools.currentTool,
+      pressure
+    });
     
     // For simple drawing mode, use the existing drawing handlers
     // Use the currentMode captured BEFORE dispatch!
@@ -2013,8 +2093,12 @@ function cssColorToHex(color: string): string {
       return; // Important: skip shape/brush updates on the same frame
     }
 
+    const shouldRouteToShapeHandler =
+      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
+      isAdvancedShapeBrush(tools.brushSettings.brushShape);
+
     // Check if we're in hatch adjustment mode
-    if (shapeHandler.handlePointerMove(event)) {
+    if (shouldRouteToShapeHandler && shapeHandler.handlePointerMove(event)) {
       return;
     }
 
@@ -2757,7 +2841,8 @@ function cssColorToHex(color: string): string {
         polygonGradientStateGuard.drawingState === 'adjustingSize');
 
     if (adjustSessionActive) {
-      if (shapeHandler.handlePointerUp(event)) {
+      const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
+      if (adjustShouldRoute && shapeHandler.handlePointerUp(event)) {
         return;
       }
       return;
@@ -2797,7 +2882,11 @@ function cssColorToHex(color: string): string {
 
     const mousePos = getMousePos(event);
 
-    if (shapeHandler.handlePointerUp(event)) {
+    const shouldRouteToShapeHandler =
+      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
+      isAdvancedShapeBrush(tools.brushSettings.brushShape);
+
+    if (shouldRouteToShapeHandler && shapeHandler.handlePointerUp(event)) {
       return;
     }
 
@@ -2961,10 +3050,14 @@ function cssColorToHex(color: string): string {
       
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         // Guard: require at least 3 points to finalize a polygon
-        const shapePointCount = drawingHandlers.shapePointsRef.current.length;
+        let shapePointCount = drawingHandlers.shapePointsRef.current.length;
         if (shapePointCount < 3) {
-          // Keep collecting vertices with subsequent clicks
-          return;
+          const coerced = drawingHandlers.coerceDragShapeToPolygon?.() ?? false;
+          shapePointCount = drawingHandlers.shapePointsRef.current.length;
+          if (!coerced || shapePointCount < 3) {
+            // Keep collecting vertices with subsequent clicks
+            return;
+          }
         }
         // Check if we need to enter direction selection mode for linear gradient
         const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -3073,6 +3166,7 @@ function cssColorToHex(color: string): string {
         polygonGradientStateGuard.drawingState === 'adjustingSize');
 
     if (adjustSessionActive) {
+      const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
       pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
       const { canvas, tools } = getDynamicDeps();
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -3088,7 +3182,7 @@ function cssColorToHex(color: string): string {
         shouldPixelAlignCursor(tools.brushSettings)
       );
       updateAlignedMousePosition(worldPos, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
-      if (shapeHandler.handlePointerMove(event)) {
+      if (adjustShouldRoute && shapeHandler.handlePointerMove(event)) {
         return;
       }
       return;

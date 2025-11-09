@@ -213,16 +213,8 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    if (target instanceof HTMLInputElement) {
-      if (event.code !== 'Space' && !isBracketShortcut) {
-        return;
-      }
-    } else if (target instanceof HTMLSelectElement) {
-      if (event.code !== 'Space' && !isBracketShortcut) {
-        return;
-      }
-    }
-
+    // Allow shortcuts to run even if non-text form controls (sliders, checkboxes, selects) are focused.
+    // Text inputs are already filtered above via isTextEntryTarget().
 
     // Update modifier states
     keyboardStateRef.current.isShiftPressed = event.shiftKey;
@@ -498,10 +490,7 @@ export function useComprehensiveKeyboard({
     if (isTextEntryTarget(target)) {
       return;
     }
-    if (target instanceof HTMLSelectElement && event.code !== 'Space') {
-      return;
-    }
-
+    // Allow non-text form controls to release keys normally so pressedKeys bookkeeping stays in sync.
 
     // Update modifier states
     keyboardStateRef.current.isShiftPressed = event.shiftKey;

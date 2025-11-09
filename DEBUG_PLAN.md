@@ -107,3 +107,23 @@ After running the test:
 2. Check if saves are happening correctly
 3. Verify undo restoration process
 4. Fix the root cause based on findings
+
+# Shape Mode Polygon + ROI Notes
+
+## Goal
+Keep basic brush/eraser shape mode in sync with the dedicated Shape Fill tool so users can drag out a polygon (instead of click-to-add vertices) without blowing away neighboring pixels when we commit the overlay back into the active layer.
+
+## Drag-to-Polygon Helper
+- Added `ensurePolygonFromDrag` in `src/utils/shapeMaker.ts`. It resamples sparse pointer data using the existing `appendSegmentWithDynamicResampling` helper and, if we still have <3 points, expands the start/end line into a skinny quad using the active brush size.
+- `useDrawingHandlers.coerceDragShapeToPolygon` now calls the helper so pixel/soft brushes get a filled polygon even when the device only emitted a mousedown + mouseup.
+- Shape Tool handler reads from the same `shapePointsRef`, so Shape Fill automatically benefits.
+- Tests live in `src/utils/__tests__/shapeMaker.test.ts` to cover both the helper and the resampling utility.
+
+## ROI-Safe Finalization
+- When shape mode finishes on a raster layer we previously cleared the overlay canvas before copying it into the layer framebuffer. With small ROIs this produced transparent fringes at the padding boundary.
+- We now snapshot the layer before drawing (`shapeBeforeImageRef`) and, right before calling `captureCanvasToActiveLayer`, repaint the ROI slice underneath the overlay via `applyBackdropFromSnapshot` (new helper in `useDrawingHandlers`). The overlay is composited with `destination-over`, so existing pixels survive unless the new draw replaces them.
+- ROI/capture path: `captureRegionFromPoints` → `captureCanvasToActiveLayer` → `layersSlice.mergeImageDataRegion`. Because we seed the overlay with the original pixels, the merged region only differs where the user actually painted.
+
+## Open Questions / Follow-ups
+- Verify Shape Fill’s preview overlay also uses the new helper (currently only the commit path does; we may want to reuse the helper in `ShapeToolHandler` previews if we see drift).
+- Consider reducing `ROI_PADDING_PX` for pixel brushes now that we no longer wipe surrounding pixels, but keep it at `2` until QA confirms no halo clipping.

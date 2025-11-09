@@ -18,6 +18,8 @@ export const CustomBrushPanel = () => {
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setTemporaryCustomBrush = useAppStore((state) => state.setTemporaryCustomBrush);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
+  const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
+  const setCustomBrushSizePercent = useAppStore((state) => state.setCustomBrushSizePercent);
 
   // Clear temporary brush when there's no selection (i.e., when custom tool is deactivated)
   useEffect(() => {
@@ -117,12 +119,15 @@ export const CustomBrushPanel = () => {
     brushCache.clear();
     scaledBrushCache.clear();
     
-    const targetSize = useAppStore.getState().globalBrushSize ?? 100;
+    const maxDimension = Math.max(tempBrush.width, tempBrush.height);
+    const normalizedSize = Math.max(1, Math.round(maxDimension));
+    setGlobalBrushSize(normalizedSize);
     // Switch to using this temporary brush with the current global size
     const brushSettings = {
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: tempBrush.id,
-      size: targetSize,
+      size: normalizedSize,
+      customBrushSizePercent: 100,
       currentBrushTip: {
         imageData: tempBrush.imageData,
         brushId: tempBrush.id,
@@ -132,7 +137,16 @@ export const CustomBrushPanel = () => {
       }
     };
     setBrushSettings(brushSettings);
-  }, [selectionStart, selectionEnd, currentOffscreenCanvas, setTemporaryCustomBrush, setBrushSettings]);
+    setCustomBrushSizePercent(100);
+  }, [
+    selectionStart,
+    selectionEnd,
+    currentOffscreenCanvas,
+    setTemporaryCustomBrush,
+    setBrushSettings,
+    setGlobalBrushSize,
+    setCustomBrushSizePercent
+  ]);
 
   // Create brush immediately when selection changes
   useEffect(() => {
@@ -167,11 +181,14 @@ export const CustomBrushPanel = () => {
     
     // Update brush settings to use the new permanent brush at 100% size
     try { console.log('[CUSTOM/BRUSH] saving brush', { id: permanentBrush.id, w: permanentBrush.width, h: permanentBrush.height }); } catch {}
-    const targetSize = useAppStore.getState().globalBrushSize ?? 100;
+    const maxDimension = Math.max(permanentBrush.width, permanentBrush.height);
+    const normalizedSize = Math.max(1, Math.round(maxDimension));
+    setGlobalBrushSize(normalizedSize);
     setBrushSettings({
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: permanentBrush.id,
-      size: targetSize,
+      size: normalizedSize,
+      customBrushSizePercent: 100,
       currentBrushTip: {
         imageData: permanentBrush.imageData,
         brushId: permanentBrush.id,
@@ -180,6 +197,7 @@ export const CustomBrushPanel = () => {
         isColorizable: false
       }
     });
+    setCustomBrushSizePercent(100);
     
     
     // Clear temporary brush and selection after a small delay

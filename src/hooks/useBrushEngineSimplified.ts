@@ -81,6 +81,8 @@ type Rect = {
   height: number;
 };
 
+export type StrokeBounds = Rect;
+
 const mergeRectBounds = (current: Rect | null, next: Rect): Rect => {
   if (!current) {
     return next;
@@ -1159,12 +1161,13 @@ export const useBrushEngineSimplified = () => {
   /**
    * Finalize the current stroke (draw any waiting pixels)
    */
-  const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D) => {
-    const strokeBounds = strokeBoundsRef.current ?? undefined;
+  const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D): Rect | null => {
+    const strokeBounds = strokeBoundsRef.current ?? null;
     withAlphaLock(ctx, (targetCtx) => {
       brushEngine.finalizeStroke(targetCtx);
-    }, strokeBounds);
+    }, strokeBounds ?? undefined);
     strokeBoundsRef.current = null;
+    return strokeBounds ? { ...strokeBounds } : null;
   }, [brushEngine, withAlphaLock]);
 
   /**

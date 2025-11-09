@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useBrushEngineSimplified } from './useBrushEngineSimplified';
+import { useBrushEngineSimplified, type StrokeBounds } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape, type BrushSettings, type CustomBrush, type Layer, type CanvasSnapshot, type Tool } from '../types';
 import { getRisographPattern, getRisographEffectSettings } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
-import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
+import { appendSegmentWithDynamicResampling, ensurePolygonFromDrag } from '../utils/shapeMaker';
 import { logError, debugWarn } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { FF } from '@/config/ccFeatureFlags';
@@ -547,6 +547,127 @@ const boundingBoxToCaptureRegion = (
   };
 };
 
+const rectToCaptureRegion = (
+  rect: { x: number; y: number; width: number; height: number } | null | undefined,
+  padding: number,
+  project: { width: number; height: number } | null
+): CaptureRegion | undefined => {
+  if (!rect || !project) {
+    return undefined;
+  }
+  if (
+    !Number.isFinite(rect.x) ||
+    !Number.isFinite(rect.y) ||
+    !Number.isFinite(rect.width) ||
+    !Number.isFinite(rect.height) ||
+    rect.width <= 0 ||
+    rect.height <= 0
+  ) {
+    return undefined;
+  }
+  const paddedX = rect.x - padding;
+  const paddedY = rect.y - padding;
+  const paddedRight = rect.x + rect.width + padding;
+  const paddedBottom = rect.y + rect.height + padding;
+  const x = Math.max(0, Math.floor(paddedX));
+  const y = Math.max(0, Math.floor(paddedY));
+  const right = Math.min(project.width, Math.ceil(paddedRight));
+  const bottom = Math.min(project.height, Math.ceil(paddedBottom));
+  if (right <= x || bottom <= y) {
+    return undefined;
+  }
+  return {
+    x,
+    y,
+    width: Math.max(1, right - x),
+    height: Math.max(1, bottom - y)
+  };
+};
+
+type CanvasLike = HTMLCanvasElement | OffscreenCanvas;
+
+const createTempCanvas = (width: number, height: number): CanvasLike | null => {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+  return null;
+};
+
+const applyBackdropFromSnapshot = (
+  targetCtx: CanvasRenderingContext2D | null,
+  snapshot: ImageData | null,
+  region?: CaptureRegion
+) => {
+  if (!targetCtx || !snapshot) {
+    return;
+  }
+
+  const roi = region ?? { x: 0, y: 0, width: snapshot.width, height: snapshot.height };
+  if (roi.width <= 0 || roi.height <= 0) {
+    return;
+  }
+
+  const tempCanvas = createTempCanvas(roi.width, roi.height);
+  if (!tempCanvas) {
+    return;
+  }
+  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+  if (!tempCtx) {
+    return;
+  }
+
+  // Offset so only the ROI portion lands inside the temporary canvas
+  tempCtx.putImageData(snapshot, -roi.x, -roi.y);
+
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = 'destination-over';
+  targetCtx.drawImage(
+    tempCanvas as CanvasImageSource,
+    0,
+    0,
+    roi.width,
+    roi.height,
+    roi.x,
+    roi.y,
+    roi.width,
+    roi.height
+  );
+  targetCtx.restore();
+};
+
+const unionCaptureRegions = (
+  first?: CaptureRegion | null,
+  second?: CaptureRegion | null
+): CaptureRegion | undefined => {
+  const a = first ?? null;
+  const b = second ?? null;
+  if (!a && !b) {
+    return undefined;
+  }
+  if (!a) {
+    return b ?? undefined;
+  }
+  if (!b) {
+    return a;
+  }
+  const minX = Math.min(a.x, b.x);
+  const minY = Math.min(a.y, b.y);
+  const maxX = Math.max(a.x + a.width, b.x + b.width);
+  const maxY = Math.max(a.y + a.height, b.y + b.height);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY)
+  };
+};
+
 const captureRegionFromPoints = (
   points: Array<{ x: number; y: number }> | undefined,
   padding: number,
@@ -669,6 +790,10 @@ export function useDrawingHandlers({
   const isDrawingShapeRef = useRef(false);
   const isSelectingDirectionRef = useRef(false);
   const directionPreviewRef = useRef<{ x: number; y: number } | null>(null);
+  const shapeDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const shapeDragLastRef = useRef<{ x: number; y: number } | null>(null);
+  const shapeDragMovedRef = useRef(false);
+  const simpleShapePreviewRendererRef = useRef<(() => void) | null>(null);
   const activeStrokeSessionRef = useRef<BrushStrokeSession | null>(null);
   const strokeBeforeColorStateRef = useRef<ColorCycleSerializedState | null>(null);
   const strokeBeforeImageRef = useRef<ImageData | null>(null);
@@ -687,6 +812,19 @@ export function useDrawingHandlers({
   const maskManager = useMemo(() => getMaskManager(), []);
   const eraserToolRef = useRef<EraserTool | null>(null);
   const storeRef = useStoreSelectorRef((state: AppState) => state);
+  const resetShapeDragRefs = () => {
+    shapeDragStartRef.current = null;
+    shapeDragLastRef.current = null;
+    shapeDragMovedRef.current = false;
+  };
+
+  const triggerSimpleShapePreview = useCallback(() => {
+    simpleShapePreviewRendererRef.current?.();
+  }, []);
+
+  const setSimpleShapePreviewRenderer = useCallback((renderer: (() => void) | null) => {
+    simpleShapePreviewRendererRef.current = renderer;
+  }, []);
 
   const getDesiredColorCyclePlaying = useCallback(
     () => selectColorCycleDesiredPlaying(storeRef.current),
@@ -3066,10 +3204,12 @@ export function useDrawingHandlers({
         resamplerBrushDataRef.current = undefined;
         stampCounterRef.current = 0;
 
+        let engineStrokeBounds: StrokeBounds | null = null;
+
         // Finalize the stroke (draw any waiting pixels) for modular engine
         const shouldSkipEngineFinalize = FF.ERASER_V2 && finalizeTool === 'eraser';
         if (!shouldSkipEngineFinalize && brushEngine.finalizeStroke && drawingCtxRef.current) {
-          brushEngine.finalizeStroke(drawingCtxRef.current);
+          engineStrokeBounds = brushEngine.finalizeStroke(drawingCtxRef.current);
         }
 
         let currentState = snapshot;
@@ -3110,7 +3250,7 @@ export function useDrawingHandlers({
             : undefined;
 
           let historyHandled = false;
-          const boundingBoxRoi =
+          const pointerRoi =
             project
               ? boundingBoxToCaptureRegion(
                   strokeBoundingBoxRef.current,
@@ -3118,8 +3258,17 @@ export function useDrawingHandlers({
                   project
                 )
               : undefined;
+          const engineRoi =
+            project && engineStrokeBounds
+              ? rectToCaptureRegion(engineStrokeBounds, ROI_PADDING_PX, project)
+              : undefined;
           const captureRegionOverride = options.captureRegionOverride ?? null;
-          let captureRoi = captureRegionOverride ?? boundingBoxRoi ?? undefined;
+          let captureRoi: CaptureRegion | undefined;
+          if (captureRegionOverride) {
+            captureRoi = captureRegionOverride;
+          } else {
+            captureRoi = unionCaptureRegions(pointerRoi, engineRoi) ?? pointerRoi ?? engineRoi;
+          }
           if (!captureRoi && drawingCanvas && overlayHasContent) {
             captureRoi = {
               x: 0,
@@ -3638,7 +3787,35 @@ export function useDrawingHandlers({
       eraserRoiRef.current = null;
     }
     endMaskHealingStroke();
+    resetShapeDragRefs();
   }, [endMaskHealingStroke]);
+
+  const coerceDragShapeToPolygon = useCallback((): boolean => {
+    if (!shapeDragMovedRef.current || !shapeDragStartRef.current || !shapeDragLastRef.current) {
+      return false;
+    }
+
+    const store = storeRef.current;
+    const zoom = store.canvas?.zoom || 1;
+    const brushSize = store.tools.brushSettings.size ?? store.globalBrushSize ?? 12;
+
+    const next = ensurePolygonFromDrag({
+      existingPoints: shapePointsRef.current,
+      start: shapeDragStartRef.current,
+      end: shapeDragLastRef.current,
+      zoom,
+      brushSize,
+    });
+
+    if (!next) {
+      return false;
+    }
+
+    shapePointsRef.current = next;
+    seedManualStrokeBoundingBox(shapePointsRef.current, 2);
+    triggerSimpleShapePreview();
+    return true;
+  }, [seedManualStrokeBoundingBox, storeRef, triggerSimpleShapePreview]);
   
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // If we're selecting direction for linear gradient, record the direction
@@ -3688,24 +3865,38 @@ export function useDrawingHandlers({
         initDrawingCanvas();
       }
       // Support click-to-add vertices: if already drawing a shape, append point instead of resetting
-      if (isDrawingShapeRef.current && shapePointsRef.current.length > 0) {
-        shapePointsRef.current.push(worldPos);
-        seedManualStrokeBoundingBox(shapePointsRef.current, 2);
-      } else {
-        shapePointsRef.current = [worldPos];
-        seedManualStrokeBoundingBox(shapePointsRef.current, 2);
-        isDrawingShapeRef.current = true;
-        // Initialize auto-sampling for CC shape
-        try {
-          const st = storeRef.current;
-          const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-          if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
-            autoSamplePointsRef.current = [...shapePointsRef.current];
-            autoSampleLastUpdateRef.current = 0;
-            updateAutoSampledGradient(autoSamplePointsRef.current);
-          }
-        } catch {}
-      }
+        const shapeStoreSnapshot = storeRef.current;
+        const activeShape = shapeStoreSnapshot.tools.brushSettings.brushShape;
+        const isAdvancedShape =
+          activeShape === BrushShape.CONTOUR_POLYGON ||
+          activeShape === BrushShape.CONTOUR_LINES2 ||
+          activeShape === BrushShape.RECTANGLE_GRADIENT ||
+          activeShape === BrushShape.POLYGON_GRADIENT ||
+          activeShape === BrushShape.COLOR_CYCLE_SHAPE ||
+          activeShape === BrushShape.SHAPE_FILL;
+
+        if (isAdvancedShape && isDrawingShapeRef.current && shapePointsRef.current.length > 0) {
+          shapePointsRef.current.push(worldPos);
+          seedManualStrokeBoundingBox(shapePointsRef.current, 2);
+          triggerSimpleShapePreview();
+        } else {
+          shapePointsRef.current = [worldPos];
+          seedManualStrokeBoundingBox(shapePointsRef.current, 2);
+          isDrawingShapeRef.current = true;
+          shapeDragStartRef.current = worldPos;
+          shapeDragLastRef.current = worldPos;
+          shapeDragMovedRef.current = false;
+          triggerSimpleShapePreview();
+          try {
+            const st = storeRef.current;
+            const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+            if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
+              autoSamplePointsRef.current = [...shapePointsRef.current];
+              autoSampleLastUpdateRef.current = 0;
+              updateAutoSampledGradient(autoSamplePointsRef.current);
+            }
+          } catch {}
+        }
     } else {
       startDrawing(worldPos, pressure);
     }
@@ -3716,7 +3907,8 @@ export function useDrawingHandlers({
     pauseColorCycleForNonCCInteraction,
     updateAutoSampledGradient,
     storeRef,
-    seedManualStrokeBoundingBox
+    seedManualStrokeBoundingBox,
+    triggerSimpleShapePreview
   ]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
@@ -3794,18 +3986,36 @@ export function useDrawingHandlers({
       const store = storeRef.current;
       const zoom = store.canvas?.zoom || 1;
       const brushSize = store.tools.brushSettings.size || 20;
-      const added = appendSegmentWithDynamicResampling(shapePointsRef.current, worldPos, zoom, brushSize, 0.25, 0.6);
-      if (added > 0) {
+      shapeDragLastRef.current = worldPos;
+      if (shapeDragStartRef.current) {
+        const distFromStart = Math.hypot(
+          worldPos.x - shapeDragStartRef.current.x,
+          worldPos.y - shapeDragStartRef.current.y
+        );
+        if (distFromStart > 1) {
+          shapeDragMovedRef.current = true;
+        }
+      }
+      const added = appendSegmentWithDynamicResampling(
+        shapePointsRef.current,
+        worldPos,
+        zoom,
+        brushSize,
+        0.25,
+        0.6
+      );
+      if (added > 0 || shapeDragMovedRef.current) {
         seedManualStrokeBoundingBox(shapePointsRef.current, 2);
-        // Live auto-sampling for CC Shape while adding vertices/segments
-        try {
-          const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-          if (isCCShape && store.tools.brushSettings.autoSampleGradient) {
-            // Use the current polyline of the shape for sampling
-            autoSamplePointsRef.current = [...shapePointsRef.current];
-            updateAutoSampledGradient(autoSamplePointsRef.current);
-          }
-        } catch {}
+        triggerSimpleShapePreview();
+        if (added > 0) {
+          try {
+            const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+            if (isCCShape && store.tools.brushSettings.autoSampleGradient) {
+              autoSamplePointsRef.current = [...shapePointsRef.current];
+              updateAutoSampledGradient(autoSamplePointsRef.current);
+            }
+          } catch {}
+        }
       }
     } else if (!shapeMode) {
       continueDrawing(worldPos);
@@ -3817,7 +4027,8 @@ export function useDrawingHandlers({
     updateAutoSampledGradient,
     initDrawingCanvas,
     storeRef,
-    seedManualStrokeBoundingBox
+    seedManualStrokeBoundingBox,
+    triggerSimpleShapePreview
   ]);
   
   const finalizeShapeDrawing = useCallback(async () => {
@@ -4018,8 +4229,10 @@ export function useDrawingHandlers({
         isSelectingDirectionRef.current = false;
         directionPreviewRef.current = null;
         shapePointsRef.current = [];
+        triggerSimpleShapePreview();
         isDrawingShapeRef.current = false;
-        
+        resetShapeDragRefs();
+
         ccShapePreviewPauseStartedRef.current = false;
         handledColorCycleShape = true;
 
@@ -4628,7 +4841,9 @@ export function useDrawingHandlers({
         if (!isSelectingDirectionRef.current) {
           // quiet
           shapePointsRef.current = [];
+          triggerSimpleShapePreview();
           isDrawingShapeRef.current = false;
+          resetShapeDragRefs();
         } else {
           // quiet
         }
@@ -4709,6 +4924,11 @@ export function useDrawingHandlers({
             if (isBusyRef) isBusyRef.current = false;
             return;
           }
+
+          if (drawingCtxRef.current) {
+            applyBackdropFromSnapshot(drawingCtxRef.current, beforeBitmap, captureRegion);
+          }
+
           await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas, captureRegion));
           if (!captureRegion) {
             console.warn('[shape-finalize] captureRegion missing; committing full-layer delta.');
@@ -4745,7 +4965,9 @@ export function useDrawingHandlers({
         return;
       } else if (isDrawingShapeRef.current) {
         shapePointsRef.current = [];
+        triggerSimpleShapePreview();
         isDrawingShapeRef.current = false;
+        resetShapeDragRefs();
       }
 
       if (!finalizeTriggered) {
@@ -4779,7 +5001,8 @@ export function useDrawingHandlers({
     runIdle,
     computeAutoSampleStops,
     storeRef,
-    toolsRef
+    toolsRef,
+    triggerSimpleShapePreview
   ]);
   
   // Helper function to render all visible color cycle layers
@@ -5351,6 +5574,7 @@ export function useDrawingHandlers({
     startShapeDrawing,
     continueShapeDrawing,
     finalizeShapeDrawing,
+    setSimpleShapePreviewRenderer,
     shapePointsRef,
     isDrawingShapeRef,
     isSelectingDirectionRef,  // Export this so DrawingCanvas knows we're in direction selection mode
@@ -5362,7 +5586,8 @@ export function useDrawingHandlers({
     resumeColorCycleAfterInteraction,
     setFeedbackCallback,
     commitRasterOverlay,
-    seedManualStrokeBoundingBox
+    seedManualStrokeBoundingBox,
+    coerceDragShapeToPolygon
   };
 }
 

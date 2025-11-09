@@ -34,6 +34,7 @@ import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/uti
 import BrushCursor, { type BrushCursorHandle } from './BrushCursor';
 import CropOverlay from './CropOverlay';
 import FloatingPasteOverlay from './FloatingPasteOverlay';
+import SelectionMarqueeHandles from './SelectionMarqueeHandles';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
@@ -2882,6 +2883,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         <FloatingPasteOverlay
           projectWidth={project.width}
           projectHeight={project.height}
+          zoom={canvasZoom || 1}
+          offsetX={pan.panState.offsetX}
+          offsetY={pan.panState.offsetY}
+        />
+      ) : null}
+
+      {project ? (
+        <SelectionMarqueeHandles
           zoom={canvasZoom || 1}
           offsetX={pan.panState.offsetX}
           offsetY={pan.panState.offsetY}

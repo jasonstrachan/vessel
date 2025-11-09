@@ -53,7 +53,7 @@ jest.mock('../colorCycleBrushManager', () => ({
 // Import store after mocks are registered.
 import { useAppStore } from '@/stores/useAppStore';
 
-const createNormalLayerInput = (name: string) => ({
+const createNormalLayerInput = (name: string): Omit<Layer, 'id' | 'order'> => ({
   name,
   visible: true,
   opacity: 1,
@@ -66,7 +66,7 @@ const createNormalLayerInput = (name: string) => ({
   layerType: 'normal' as const,
 });
 
-const createColorCycleLayerInput = (name: string) => ({
+const createColorCycleLayerInput = (name: string): Omit<Layer, 'id' | 'order'> => ({
   ...createNormalLayerInput(name),
   layerType: 'color-cycle' as const,
   colorCycleData: {

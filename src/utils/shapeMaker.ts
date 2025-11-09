@@ -93,6 +93,83 @@ export function appendSegmentWithDynamicResampling(
   return steps;
 }
 
+type DragPolygonOptions = {
+  existingPoints: ShapePoint[];
+  start?: ShapePoint | null;
+  end?: ShapePoint | null;
+  zoom: number;
+  brushSize: number;
+  minWorldFloor?: number;
+};
+
+const clonePoint = (point: ShapePoint): ShapePoint => ({ x: point.x, y: point.y });
+
+const normalizeStart = (start?: ShapePoint | null, end?: ShapePoint | null): ShapePoint | null => {
+  if (start) {
+    return start;
+  }
+  if (end) {
+    return end;
+  }
+  return null;
+};
+
+const buildQuadFromLine = (
+  start: ShapePoint,
+  end: ShapePoint,
+  halfWidth: number
+): ShapePoint[] | null => {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-6) {
+    return null;
+  }
+  const invLen = 1 / length;
+  const normalX = (-dy * invLen) * halfWidth;
+  const normalY = (dx * invLen) * halfWidth;
+  return [
+    { x: start.x - normalX, y: start.y - normalY },
+    { x: end.x - normalX, y: end.y - normalY },
+    { x: end.x + normalX, y: end.y + normalY },
+    { x: start.x + normalX, y: start.y + normalY },
+  ];
+};
+
+export function ensurePolygonFromDrag(options: DragPolygonOptions): ShapePoint[] | null {
+  const {
+    existingPoints,
+    start: rawStart,
+    end: rawEnd,
+    zoom,
+    brushSize,
+    minWorldFloor = 0.25,
+  } = options;
+
+  const start = normalizeStart(rawStart, rawEnd);
+  const end = rawEnd ?? rawStart ?? null;
+  if (!start || !end) {
+    return null;
+  }
+
+  const next: ShapePoint[] = existingPoints.map(clonePoint);
+  if (next.length === 0) {
+    next.push(clonePoint(start));
+  }
+
+  const last = next[next.length - 1];
+  if (!last || last.x !== end.x || last.y !== end.y) {
+    appendSegmentWithDynamicResampling(next, clonePoint(end), zoom, brushSize, minWorldFloor, 0.6);
+  }
+
+  if (next.length >= 3) {
+    return next;
+  }
+
+  const halfWidth = Math.max(2, brushSize * 0.5);
+  return buildQuadFromLine(start, end, halfWidth);
+}
+
 /**
  * Build preview vertices by normalizing stored points and appending current pointer.
  * Uses nullish coalescing so 0 coords are preserved (not treated as falsy).
