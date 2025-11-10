@@ -1478,6 +1478,75 @@ export const useBrushEngineSimplified = () => {
     }
   }, [setMultiplyIfUnlocked, isPixelBrush]);
 
+  const applyColorCycleRisographOverlay = useCallback((
+    ctx: CanvasRenderingContext2D,
+    sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
+    outputOpacity: number
+  ) => {
+    const intensity = tools.brushSettings.risographIntensity || 0;
+    if (intensity <= 0) {
+      return;
+    }
+
+    const width = ctx.canvas.width;
+    const height = ctx.canvas.height;
+    if (!width || !height) {
+      return;
+    }
+
+    const pattern = getRisographPattern(ctx);
+    if (!pattern) {
+      return;
+    }
+
+    const effect = getRisographEffectSettings(intensity, { isPixelBrush: false });
+    if (effect.alpha <= 0) {
+      return;
+    }
+
+    const normalizedIntensity = Math.max(0, Math.min(1, intensity / 100));
+    const overlayStrength = Math.min(1, outputOpacity * (0.12 + normalizedIntensity * 0.08));
+    if (overlayStrength <= 0.01) {
+      return;
+    }
+
+    const tempCanvas = canvasPool.acquire(width, height);
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+    if (!tempCtx) {
+      canvasPool.release(tempCanvas);
+      return;
+    }
+
+    tempCtx.imageSmoothingEnabled = false;
+    tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+    tempCtx.globalCompositeOperation = 'source-over';
+    tempCtx.globalAlpha = 1;
+    tempCtx.clearRect(0, 0, width, height);
+    tempCtx.drawImage(sourceCanvas as CanvasImageSource, 0, 0, width, height);
+    tempCtx.globalCompositeOperation = 'source-in';
+    tempCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    tempCtx.fillRect(0, 0, width, height);
+
+    const misregX = (Math.random() - 0.5) * effect.jitter;
+    const misregY = (Math.random() - 0.5) * effect.jitter;
+    tempCtx.translate(misregX, misregY);
+    tempCtx.globalCompositeOperation = 'source-over';
+    tempCtx.globalAlpha = 1;
+    tempCtx.fillStyle = pattern;
+    tempCtx.fillRect(-misregX, -misregY, width, height);
+    tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+    tempCtx.globalCompositeOperation = 'source-over';
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = overlayStrength;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tempCanvas, 0, 0, width, height);
+    ctx.restore();
+
+    canvasPool.release(tempCanvas);
+  }, [tools.brushSettings.risographIntensity]);
+
   /**
    * Draw polygon with gradient - DEBUG VERSION
    */
@@ -2033,7 +2102,11 @@ export const useBrushEngineSimplified = () => {
    * Render Color Cycle output onto the provided context.
    * Applies opacity and optionally combines blend mode with transparency lock.
    */
-  const renderColorCycle = useCallback((ctx: CanvasRenderingContext2D, applyOpacity: boolean = true) => {
+  const renderColorCycle = useCallback((
+    ctx: CanvasRenderingContext2D,
+    applyOpacity: boolean = true,
+    options?: { withOverlay?: boolean }
+  ) => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (!colorCycleBrush || !activeLayerId) {
       return;
@@ -2060,10 +2133,12 @@ export const useBrushEngineSimplified = () => {
 
     const previousComposite = ctx.globalCompositeOperation;
     const previousAlpha = ctx.globalAlpha;
+    const drawOpacity = applyOpacity ? (tools.brushSettings.opacity ?? 1) : 1;
+    const shouldApplyOverlay = options?.withOverlay ?? true;
 
     try {
       const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
-      ctx.globalAlpha = applyOpacity ? tools.brushSettings.opacity : 1.0;
+      ctx.globalAlpha = drawOpacity;
 
       if (activeLayerTransparencyLock) {
         renderCCWithBlendAndLock(ctx, layerCanvas, blendMode);
@@ -2071,6 +2146,10 @@ export const useBrushEngineSimplified = () => {
         ctx.globalCompositeOperation = blendMode;
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(layerCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
+      }
+
+      if (shouldApplyOverlay) {
+        applyColorCycleRisographOverlay(ctx, layerCanvas, drawOpacity);
       }
     } finally {
       ctx.globalCompositeOperation = previousComposite;
@@ -2082,7 +2161,8 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.opacity,
     tools.brushSettings.blendMode,
     activeLayerTransparencyLock,
-    renderCCWithBlendAndLock
+    renderCCWithBlendAndLock,
+    applyColorCycleRisographOverlay
   ]);
   
   /**
@@ -2231,7 +2311,7 @@ export const useBrushEngineSimplified = () => {
 
       if (firstStampImmediateRef.current) {
         firstStampImmediateRef.current = false;
-        renderColorCycle(ctx, true);
+        renderColorCycle(ctx, true, { withOverlay: false });
       } else if (!mirrorScheduledRef.current) {
         mirrorScheduledRef.current = true;
         const scheduleRender = () => {

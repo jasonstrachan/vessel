@@ -86,9 +86,9 @@ export const resolveCustomBrushDimensions = (
 ): CustomBrushDimensionInfo => {
   const tip = brushSettings.currentBrushTip;
   if (tip) {
-    const width = tip.width ?? tip.imageData.width;
-    const height = tip.height ?? tip.imageData.height;
-    const maxDimension = Math.max(width, height);
+    const width = tip.naturalWidth ?? tip.width ?? tip.imageData.width;
+    const height = tip.naturalHeight ?? tip.height ?? tip.imageData.height;
+    const maxDimension = tip.maxDimension ?? Math.max(width, height);
     return maxDimension > 0 ? { width, height, maxDimension } : null;
   }
 
@@ -99,14 +99,18 @@ export const resolveCustomBrushDimensions = (
 
   if (state.temporaryCustomBrush?.id === selectedId) {
     const { width, height } = state.temporaryCustomBrush;
-    const maxDimension = Math.max(width, height);
+    const naturalWidth = state.temporaryCustomBrush.naturalWidth ?? width;
+    const naturalHeight = state.temporaryCustomBrush.naturalHeight ?? height;
+    const maxDimension = state.temporaryCustomBrush.maxDimension ?? Math.max(naturalWidth, naturalHeight);
     return maxDimension > 0 ? { width, height, maxDimension } : null;
   }
 
   const projectBrush = state.getCustomBrushById(selectedId);
   if (projectBrush) {
     const { width, height } = projectBrush;
-    const maxDimension = Math.max(width, height);
+    const naturalWidth = projectBrush.naturalWidth ?? width;
+    const naturalHeight = projectBrush.naturalHeight ?? height;
+    const maxDimension = projectBrush.maxDimension ?? Math.max(naturalWidth, naturalHeight);
     return maxDimension > 0 ? { width, height, maxDimension } : null;
   }
 

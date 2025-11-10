@@ -102,6 +102,9 @@ const makeCustomBrush = (id: string): CustomBrush => ({
   width: 4,
   height: 4,
   createdAt: Date.now(),
+  naturalWidth: 4,
+  naturalHeight: 4,
+  maxDimension: 4,
 });
 
 describe('project slice lifecycle flows', () => {

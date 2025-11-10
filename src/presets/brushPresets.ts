@@ -12,7 +12,7 @@ export const pixelBrushSettings: BrushSettings = {
   pressure: 1,
   rotation: 0,
   antialiasing: false,
-  pressureEnabled: true,
+  pressureEnabled: false,
   minPressure: 100,   // Maintain 1px at light pressure
   maxPressure: 300,   // Grow to 3px at firm pressure
   rotationEnabled: false,
@@ -199,7 +199,7 @@ export const pixelBrushPreset: BrushPreset = {
   preferredSettings: {
     size: 1,
     antialiasing: false,
-    pressureEnabled: true,
+    pressureEnabled: false,
     minPressure: 100,
     maxPressure: 300,
     rotationEnabled: false,
@@ -341,7 +341,7 @@ export const roundPixel4Preset: BrushPreset = {
   preferredSettings: {
     size: 4,
     antialiasing: false,
-    pressureEnabled: true,
+    pressureEnabled: false,
     minPressure: 100,
     maxPressure: 300,
     rotationEnabled: false,
@@ -816,7 +816,7 @@ export const resamplerBrushPreset: BrushPreset = {
     opacity: 1,
     antialiasing: true,
     spacing: 1,
-    pressureEnabled: true,
+    pressureEnabled: false,
     minPressure: 1,
     maxPressure: 100,
     rotationEnabled: true,
@@ -905,9 +905,9 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   } else if (preset.id === 'resampler-brush') {
     settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;
-    settings.pressureEnabled = true;
-    settings.minPressure = 50;  // 50% size at min pressure
-    settings.maxPressure = 200; // 200% size at max pressure
+    settings.pressureEnabled = false;
+    settings.minPressure = 50;  // leave defaults so users who re-enable pressure get sensible range
+    settings.maxPressure = 200;
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;

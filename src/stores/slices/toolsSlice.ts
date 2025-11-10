@@ -1088,6 +1088,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           imageData: data.imageData,
           width: data.width,
           height: data.height,
+          naturalWidth: data.width,
+          naturalHeight: data.height,
+          maxDimension: Math.max(data.width, data.height),
           thumbnail: preset.thumbnail || '',
           createdAt: customBrush?.createdAt || Date.now()
         };
@@ -1099,7 +1102,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           brushId: customBrush.id,
           isColorizable: false,
           width: customBrush.width,
-          height: customBrush.height
+          height: customBrush.height,
+          naturalWidth: customBrush.naturalWidth ?? customBrush.width,
+          naturalHeight: customBrush.naturalHeight ?? customBrush.height,
+          maxDimension: customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height)
         };
       } else {
         
@@ -1428,12 +1434,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         thumbnail,
         width: canvas.width,
         height: canvas.height,
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        maxDimension: Math.max(canvas.width, canvas.height),
       };
       state.updateCustomBrush(brushId, {
         imageData: editedImageData,
         thumbnail,
         width: canvas.width,
         height: canvas.height,
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        maxDimension: Math.max(canvas.width, canvas.height),
       });
       targetCustomBrushId = updatedBrush.id;
       targetBrush = updatedBrush;
@@ -1448,6 +1460,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         width: canvas.width,
         height: canvas.height,
         createdAt: Date.now(),
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        maxDimension: Math.max(canvas.width, canvas.height),
       };
       state.addCustomBrush(newCustomBrush);
       targetCustomBrushId = newCustomBrushId;
@@ -1472,6 +1487,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             isColorizable: false,
             width: brushTipSource.width,
             height: brushTipSource.height,
+            naturalWidth: brushTipSource.naturalWidth ?? brushTipSource.width,
+            naturalHeight: brushTipSource.naturalHeight ?? brushTipSource.height,
+            maxDimension: brushTipSource.maxDimension ?? Math.max(brushTipSource.width, brushTipSource.height),
           }
         : undefined;
 

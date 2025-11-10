@@ -10,6 +10,9 @@ interface StoredCustomBrush {
   thumbnail: string;
   createdAt: number;
   imageDataUrl: string;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  maxDimension?: number;
 }
 
 interface StoredCustomBrushState {
@@ -76,7 +79,10 @@ export function saveCustomBrushesToStorage(brushes: CustomBrush[], defaultCustom
         height: brush.height,
         thumbnail: brush.thumbnail,
         createdAt: brush.createdAt,
-        imageDataUrl: imageDataToDataUrl(brush.imageData)
+        imageDataUrl: imageDataToDataUrl(brush.imageData),
+        naturalWidth: brush.naturalWidth ?? brush.width,
+        naturalHeight: brush.naturalHeight ?? brush.height,
+        maxDimension: brush.maxDimension ?? Math.max(brush.width, brush.height)
       }))
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -107,6 +113,8 @@ export async function loadCustomBrushesFromStorage(): Promise<{
     const brushes = await Promise.all(
       parsed.brushes.map(async (brush): Promise<CustomBrush> => {
         const imageData = await dataUrlToImageData(brush.imageDataUrl, brush.width, brush.height);
+        const naturalWidth = brush.naturalWidth ?? brush.width;
+        const naturalHeight = brush.naturalHeight ?? brush.height;
         return {
           id: brush.id,
           name: brush.name,
@@ -114,7 +122,10 @@ export async function loadCustomBrushesFromStorage(): Promise<{
           height: brush.height,
           thumbnail: brush.thumbnail,
           createdAt: brush.createdAt,
-          imageData
+          imageData,
+          naturalWidth,
+          naturalHeight,
+          maxDimension: brush.maxDimension ?? Math.max(naturalWidth, naturalHeight)
         };
       })
     );

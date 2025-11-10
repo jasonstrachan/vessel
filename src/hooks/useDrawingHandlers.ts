@@ -37,6 +37,7 @@ import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
 import { EraserTool } from '@/tools/EraserTool';
 import { unwrapAngle } from '@/utils/angles';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
+import { captureBrushFromCanvas } from '@/utils/customBrushCapture';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -2548,57 +2549,28 @@ export function useDrawingHandlers({
           
           const compositeCanvas = currentState.currentOffscreenCanvas;
           if (compositeCanvas) {
-            // Calculate bounds exactly like CustomBrushPanel
-            const minX = Math.floor(worldPos.x - halfSize);
-            const minY = Math.floor(worldPos.y - halfSize);
-            const maxX = Math.floor(worldPos.x + halfSize);
-            const maxY = Math.floor(worldPos.y + halfSize);
-            
-            // Clamp to canvas bounds
-            const sampleX = Math.max(0, minX);
-            const sampleY = Math.max(0, minY);
-            const sampleEndX = Math.min(compositeCanvas.width, maxX);
-            const sampleEndY = Math.min(compositeCanvas.height, maxY);
-            const width = sampleEndX - sampleX;
-            const height = sampleEndY - sampleY;
-            
-            if (width > 0 && height > 0) {
-              // Create canvas to capture the selection - EXACTLY like CustomBrushPanel
-              const captureCanvas = document.createElement('canvas');
-              captureCanvas.width = width;
-              captureCanvas.height = height;
-              const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-              
-              if (captureCtx) {
-                // Capture the selection area from the composite canvas
-                try {
-                  captureCtx.drawImage(
-                    compositeCanvas,
-                    sampleX, sampleY, width, height, // Source rectangle
-                    0, 0, width, height              // Destination rectangle
-                  );
-                  
-                  // Get ImageData for the brush
-                  const imageData = captureCtx.getImageData(0, 0, width, height);
-                  
-                  customBrushData = {
-                    imageData,
-                    width,
-                    height,
-                    isColorizable: false,
-                    isResampler: true,
-                    cacheKey: 'resampler:single'
-                  };
+            const captureResult = captureBrushFromCanvas(
+              compositeCanvas,
+              {
+                x: Math.floor(worldPos.x - halfSize),
+                y: Math.floor(worldPos.y - halfSize),
+                width: Math.floor(halfSize * 2),
+                height: Math.floor(halfSize * 2),
+              },
+              { generateThumbnail: false }
+            );
 
-                  resamplerBrushDataRef.current = customBrushData;
-                  
-                  // DON'T change brush size - keep it as is so the sample matches cursor size
-                  // The captured area is already the right size based on current brush size
-                  
-                } catch (error) {
-                  debugWarn('resampler', 'Failed to sample canvas for Resampler brush:', error);
-                }
-              }
+            if (captureResult) {
+              customBrushData = {
+                imageData: captureResult.imageData,
+                width: captureResult.width,
+                height: captureResult.height,
+                isColorizable: false,
+                isResampler: true,
+                cacheKey: 'resampler:single'
+              };
+
+              resamplerBrushDataRef.current = customBrushData;
             }
           }
         }
@@ -2969,35 +2941,21 @@ export function useDrawingHandlers({
                     const height = sampleEndY - sampleY;
                     
                     if (width > 0 && height > 0) {
-                      // Create canvas to capture the selection
-                      const captureCanvas = document.createElement('canvas');
-                      captureCanvas.width = width;
-                      captureCanvas.height = height;
-                      const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-                      
-                      if (captureCtx) {
-                        // Capture the selection area from the composite canvas
-                        try {
-                          captureCtx.drawImage(
-                            compositeCanvas,
-                            sampleX, sampleY, width, height, // Source rectangle
-                            0, 0, width, height              // Destination rectangle
-                          );
-                          
-                          // Get ImageData for the brush
-                          const imageData = captureCtx.getImageData(0, 0, width, height);
-                          
-                          resamplerBrushDataRef.current = {
-                            imageData,
-                            width,
-                            height,
-                            isColorizable: false,
-                            isResampler: true,
-                            cacheKey: 'resampler:continuous'
-                          };
-                        } catch (error) {
-                          debugWarn('resampler', 'Failed to sample canvas for continuous Resampler:', error);
-                        }
+                      const captureResult = captureBrushFromCanvas(
+                        compositeCanvas,
+                        { x: sampleX, y: sampleY, width, height },
+                        { generateThumbnail: false }
+                      );
+
+                      if (captureResult) {
+                        resamplerBrushDataRef.current = {
+                          imageData: captureResult.imageData,
+                          width: captureResult.width,
+                          height: captureResult.height,
+                          isColorizable: false,
+                          isResampler: true,
+                          cacheKey: 'resampler:continuous'
+                        };
                       }
                     }
                   }
@@ -4326,6 +4284,7 @@ export function useDrawingHandlers({
           let customBrushImageData: ImageData | null = null;
           let customBrushWidth = 0;
           let customBrushHeight = 0;
+          let customBrushMaxDimension = 0;
           let isColorizable = false;
           
           if (isCustomBrush) {
@@ -4333,8 +4292,9 @@ export function useDrawingHandlers({
             if (liveBrushSettings.currentBrushTip) {
               const brushTip = liveBrushSettings.currentBrushTip;
               customBrushImageData = brushTip.imageData;
-              customBrushWidth = brushTip.width || brushTip.imageData.width;
-              customBrushHeight = brushTip.height || brushTip.imageData.height;
+              customBrushWidth = brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width;
+              customBrushHeight = brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height;
+              customBrushMaxDimension = brushTip.maxDimension ?? Math.max(customBrushWidth, customBrushHeight);
               isColorizable = brushTip.isColorizable || liveBrushSettings.useSwatchColor || !!liveBrushSettings.customBrushColorCycle;
             } else if (liveBrushSettings.selectedCustomBrush) {
               // Look for custom brush in project's custom brushes from the store
@@ -4344,16 +4304,18 @@ export function useDrawingHandlers({
               if (currentState.temporaryCustomBrush?.id === liveBrushSettings.selectedCustomBrush) {
                 const tempBrush = currentState.temporaryCustomBrush;
                 customBrushImageData = tempBrush.imageData;
-                customBrushWidth = tempBrush.width;
-                customBrushHeight = tempBrush.height;
+                customBrushWidth = tempBrush.naturalWidth ?? tempBrush.width;
+                customBrushHeight = tempBrush.naturalHeight ?? tempBrush.height;
+                customBrushMaxDimension = tempBrush.maxDimension ?? Math.max(customBrushWidth, customBrushHeight);
                 isColorizable = liveBrushSettings.useSwatchColor || !!liveBrushSettings.customBrushColorCycle;
               } else {
                 // Then check saved custom brushes
                 const customBrush = currentState.getCustomBrushById?.(liveBrushSettings.selectedCustomBrush ?? '') ?? null;
                 if (customBrush) {
                   customBrushImageData = customBrush.imageData;
-                  customBrushWidth = customBrush.width;
-                  customBrushHeight = customBrush.height;
+                  customBrushWidth = customBrush.naturalWidth ?? customBrush.width;
+                  customBrushHeight = customBrush.naturalHeight ?? customBrush.height;
+                  customBrushMaxDimension = customBrush.maxDimension ?? Math.max(customBrushWidth, customBrushHeight);
                   isColorizable = liveBrushSettings.useSwatchColor || !!liveBrushSettings.customBrushColorCycle;
                 }
               }
@@ -4365,7 +4327,7 @@ export function useDrawingHandlers({
             // quiet
             } catch {}
             // Calculate scaled size based on brush settings, maintaining aspect ratio
-            const maxDimension = Math.max(customBrushWidth, customBrushHeight) || 1;
+            const maxDimension = customBrushMaxDimension || Math.max(customBrushWidth, customBrushHeight) || 1;
             const scale = (liveBrushSettings.size ?? maxDimension) / maxDimension;
             // Ensure at least 1px to avoid zero-size tiles causing artifacts
             const scaledWidth = Math.max(1, Math.round(customBrushWidth * scale));
@@ -5611,8 +5573,8 @@ function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrush
     const brushTip = settings.currentBrushTip;
     return {
       imageData: brushTip.imageData,
-      width: brushTip.width || brushTip.imageData.width,
-      height: brushTip.height || brushTip.imageData.height,
+      width: brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width,
+      height: brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height,
       isColorizable:
         brushTip.isColorizable || settings.useSwatchColor || !!settings.customBrushColorCycle,
       cacheKey: `tip:${brushTip.brushId ?? 'anon'}`
@@ -5624,8 +5586,8 @@ function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrush
       const tempBrush = state.temporaryCustomBrush;
       return {
         imageData: tempBrush.imageData,
-        width: tempBrush.width,
-        height: tempBrush.height,
+        width: tempBrush.naturalWidth ?? tempBrush.width,
+        height: tempBrush.naturalHeight ?? tempBrush.height,
         isColorizable: settings.useSwatchColor || !!settings.customBrushColorCycle,
         cacheKey: `temp:${tempBrush.id ?? 'anon'}`
       };
@@ -5635,8 +5597,8 @@ function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrush
     if (saved) {
       return {
         imageData: saved.imageData,
-        width: saved.width,
-        height: saved.height,
+        width: saved.naturalWidth ?? saved.width,
+        height: saved.naturalHeight ?? saved.height,
         isColorizable: settings.useSwatchColor || !!settings.customBrushColorCycle,
         cacheKey: `project:${saved.id ?? 'anon'}`
       };

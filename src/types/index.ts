@@ -278,6 +278,9 @@ export interface CustomBrush {
   width: number;
   height: number;
   createdAt: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  maxDimension?: number;
 }
 
 
@@ -485,6 +488,9 @@ export interface BrushSettings {
     isColorizable: boolean; // Whether swatch color should be applied
     width?: number; // Actual brush width
     height?: number; // Actual brush height
+    naturalWidth?: number;
+    naturalHeight?: number;
+    maxDimension?: number;
   };
   // Rectangle/Polygon gradient colors count
   colors?: number; // 1-10 for gradient brushes

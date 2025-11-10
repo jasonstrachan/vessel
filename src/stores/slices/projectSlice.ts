@@ -100,6 +100,8 @@ const resolveBrushForSaving = (state: AppState, customBrushId: string): CustomBr
     const clonedImageData = cloneImageData(brushTip.imageData);
     const width = brushTip.width ?? brushTip.imageData.width;
     const height = brushTip.height ?? brushTip.imageData.height;
+    const naturalWidth = brushTip.naturalWidth ?? width;
+    const naturalHeight = brushTip.naturalHeight ?? height;
 
     return {
       id: customBrushId,
@@ -109,6 +111,9 @@ const resolveBrushForSaving = (state: AppState, customBrushId: string): CustomBr
       width,
       height,
       createdAt: Date.now(),
+      naturalWidth,
+      naturalHeight,
+      maxDimension: brushTip.maxDimension ?? Math.max(naturalWidth, naturalHeight),
     };
   }
 
@@ -294,13 +299,23 @@ export const createProjectSlice =
           return state;
         }
 
-        const targetSize =
-          typeof state.globalBrushSize === 'number' ? state.globalBrushSize : 100;
+        const naturalWidth = brush.naturalWidth ?? brush.width;
+        const naturalHeight = brush.naturalHeight ?? brush.height;
+        const maxDimension = brush.maxDimension ?? Math.max(naturalWidth, naturalHeight);
+        const brushWithMetadata: CustomBrush = {
+          ...brush,
+          naturalWidth,
+          naturalHeight,
+          maxDimension,
+        };
+
+        const targetSize = Math.max(1, Math.round(maxDimension));
         const brushSettings: BrushSettings = {
           ...state.tools.brushSettings,
           brushShape: BrushShape.CUSTOM,
           selectedCustomBrush: brush.id,
           size: targetSize,
+          customBrushSizePercent: 100,
           useSwatchColor: false,
           hueShift: 0,
           lightnessAdjust: 0,
@@ -313,7 +328,7 @@ export const createProjectSlice =
         return {
           project: {
             ...state.project,
-            customBrushes: [...state.project.customBrushes, brush],
+            customBrushes: [...state.project.customBrushes, brushWithMetadata],
             updatedAt: new Date(),
           },
           globalBrushSize: targetSize,

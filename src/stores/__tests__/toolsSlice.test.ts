@@ -116,6 +116,9 @@ describe('tools slice', () => {
         height: 4,
         createdAt: Date.now(),
         thumbnail: '',
+        naturalWidth: 4,
+        naturalHeight: 4,
+        maxDimension: 4,
       };
 
       const store = useAppStore.getState();
@@ -134,6 +137,9 @@ describe('tools slice', () => {
         height: 2,
         createdAt: Date.now(),
         thumbnail: '',
+        naturalWidth: 2,
+        naturalHeight: 2,
+        maxDimension: 2,
       };
 
       const store = useAppStore.getState();
@@ -168,6 +174,9 @@ describe('tools slice', () => {
               isColorizable: false,
               width: 4,
               height: 4,
+              naturalWidth: 4,
+              naturalHeight: 4,
+              maxDimension: 4,
             },
           },
         },

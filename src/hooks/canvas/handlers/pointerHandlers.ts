@@ -123,6 +123,8 @@ const cl = {
 };
 // -----------------------------------------------------------
 import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
+import { isStrokeBrush } from '@/utils/brushCategories';
+import { isColorCycleBrush } from '@/utils/colorCycleGradients';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type {
   ContourLinesBasis,
@@ -131,7 +133,7 @@ import type {
   EventHandlerDependencies,
   PointerHandlers,
 } from '../utils/types';
-import { BrushShape } from '../../../types';
+import { BrushShape, type BrushSettings } from '../../../types';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
@@ -325,6 +327,79 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
   const getDynamicDeps = () => dynamicDepsRef.current;
 
+  const customBrushPreviewCache: {
+    key: string | null;
+    canvas: HTMLCanvasElement | null;
+  } = {
+    key: null,
+    canvas: null,
+  };
+
+  const getCustomBrushPreviewCanvas = (settings: BrushSettings): HTMLCanvasElement | null => {
+    const tip = settings.currentBrushTip;
+    if (typeof document === 'undefined' || !tip || !tip.imageData) {
+      return null;
+    }
+
+    const baseWidth = tip.naturalWidth ?? tip.width ?? tip.imageData.width;
+    const baseHeight = tip.naturalHeight ?? tip.height ?? tip.imageData.height;
+    const maxDimension = (tip.maxDimension ?? Math.max(baseWidth, baseHeight)) || 1;
+    const targetSize = Math.max(1, settings.size ?? maxDimension);
+    const scale = targetSize / maxDimension;
+    const scaledWidth = Math.max(1, Math.round(baseWidth * scale));
+    const scaledHeight = Math.max(1, Math.round(baseHeight * scale));
+    const tintable = Boolean(tip.isColorizable || settings.useSwatchColor || settings.customBrushColorCycle);
+    const colorKey = tintable ? settings.color : 'native';
+    const cacheKey = `${tip.brushId ?? 'custom-tip'}:${scaledWidth}x${scaledHeight}:${colorKey}:${tintable ? 'tint' : 'raw'}`;
+
+    if (customBrushPreviewCache.key === cacheKey && customBrushPreviewCache.canvas) {
+      return customBrushPreviewCache.canvas;
+    }
+
+    const tipCanvas = document.createElement('canvas');
+    tipCanvas.width = tip.imageData.width;
+    tipCanvas.height = tip.imageData.height;
+    const tipCtx = tipCanvas.getContext('2d');
+    if (!tipCtx) {
+      return null;
+    }
+    tipCtx.putImageData(tip.imageData, 0, 0);
+
+    if (tintable) {
+      tipCtx.globalCompositeOperation = 'source-atop';
+      tipCtx.fillStyle = settings.color || '#ffffff';
+      tipCtx.fillRect(0, 0, tipCanvas.width, tipCanvas.height);
+      tipCtx.globalCompositeOperation = 'source-over';
+    }
+
+    const patternCanvas = document.createElement('canvas');
+    patternCanvas.width = scaledWidth;
+    patternCanvas.height = scaledHeight;
+    const patternCtx = patternCanvas.getContext('2d');
+    if (!patternCtx) {
+      return null;
+    }
+    patternCtx.imageSmoothingEnabled = false;
+    try {
+      patternCtx.imageSmoothingQuality = 'low';
+    } catch {}
+    patternCtx.drawImage(
+      tipCanvas,
+      0,
+      0,
+      tipCanvas.width,
+      tipCanvas.height,
+      0,
+      0,
+      scaledWidth,
+      scaledHeight
+    );
+
+    customBrushPreviewCache.key = cacheKey;
+    customBrushPreviewCache.canvas = patternCanvas;
+    return patternCanvas;
+  };
+
   const drawSimpleShapePreviewOnOverlay = () => {
     const overlay = overlayCanvasRef.current;
     if (!overlay) {
@@ -357,6 +432,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     const strokeColor = brushSettings.color || '#ffffff';
     const strokeWidth = Math.max(1, brushSettings.size ?? 1);
+    const activeBrushShape = brushSettings.brushShape ?? BrushShape.ROUND;
+    // Default/custom stroke brushes should preview without an outline so the overlay matches final output
+    const skipOutline = isStrokeBrush(activeBrushShape) && !isColorCycleBrush(activeBrushShape);
+    const isCustomBrushPreview = brushSettings.brushShape === BrushShape.CUSTOM;
 
     ctx.beginPath();
     const moveToPoint = (point: Point) => {
@@ -379,13 +458,34 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
     ctx.closePath();
 
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = strokeWidth;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
+    if (!skipOutline) {
+      // Preserve outline for non-basic brushes (e.g., color cycle + shape-fill variants)
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+    }
 
-    ctx.fillStyle = strokeColor;
-    ctx.globalAlpha = 0.18;
+    let previewFillAlpha = 0.18;
+    let customPatternApplied = false;
+
+    if (isCustomBrushPreview) {
+      const patternCanvas = getCustomBrushPreviewCanvas(brushSettings);
+      if (patternCanvas) {
+        const pattern = ctx.createPattern(patternCanvas, 'repeat');
+        if (pattern) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.fillStyle = pattern;
+          previewFillAlpha = 0.85;
+          customPatternApplied = true;
+        }
+      }
+    }
+
+    if (!customPatternApplied) {
+      ctx.fillStyle = strokeColor;
+    }
+    ctx.globalAlpha = previewFillAlpha;
     ctx.fill();
     ctx.restore();
   };
@@ -1755,17 +1855,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return;
       }
       
-      // Handle selection tool
-      // If using custom tool BUT shape mode is ON, treat as shape drawing with current brush
-      if (tools.currentTool === 'custom' && tools.shapeMode) {
-        // quiet
-        // Start shape drawing with the selected custom brush
-        interaction.dispatch({ type: 'DRAWING_START', pressure });
-        drawingHandlers.startShapeDrawing(worldPos, pressure);
-        return;
-      }
-
-      if (tools.currentTool === 'selection' || (tools.currentTool === 'custom' && !tools.shapeMode)) {
+      // Handle selection/custom brush capture tool (always behaves as selection)
+      if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
         const beforeSelection = captureSelectionSnapshot();
         pendingSelectionHistory = {
           before: cloneSelectionSnapshot(beforeSelection),

@@ -8,6 +8,7 @@ import { CustomBrush, BrushShape } from '@/types';
 import { useEffect, useCallback } from 'react';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
+import { captureBrushFromCanvas, selectionToCaptureBounds } from '@/utils/customBrushCapture';
 
 export const CustomBrushPanel = () => {
   const addCustomBrush = useAppStore((state) => state.addCustomBrush);
@@ -31,95 +32,47 @@ export const CustomBrushPanel = () => {
   // Debounced function to create the brush
   const createBrushFromSelection = useCallback(() => {
     if (!selectionStart || !selectionEnd || !currentOffscreenCanvas) return;
-    
-    // Remove the isCreatingBrush check - it was causing issues with brush creation
-    
-    // Calculate selection bounds to determine if this is a meaningful selection
-    const minX = Math.floor(Math.min(selectionStart.x, selectionEnd.x));
-    const minY = Math.floor(Math.min(selectionStart.y, selectionEnd.y));
-    const maxX = Math.floor(Math.max(selectionStart.x, selectionEnd.x));
-    const maxY = Math.floor(Math.max(selectionStart.y, selectionEnd.y));
-    const width = maxX - minX;
-    const height = maxY - minY;
-    
-    // Skip tiny or invalid selections
-    if (width <= 1 || height <= 1) {
+
+    const bounds = selectionToCaptureBounds(selectionStart, selectionEnd);
+    if (!bounds) {
       return;
     }
-    
-    // Always create a new brush for each selection - don't skip
-    
-    // Always create a new brush when there's a valid selection
-    // The previous optimization was preventing new brush creation when
-    // switching to custom tool and making the same size selection
-    
-    // Create canvas to capture the selection
-    const captureCanvas = document.createElement('canvas');
-    captureCanvas.width = width;
-    captureCanvas.height = height;
-    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-    
-    if (!captureCtx) {
+
+    const captureResult = captureBrushFromCanvas(currentOffscreenCanvas, bounds);
+    if (!captureResult) {
       return;
     }
-    
-    // Capture the selection area from the composite canvas
-    try {
-      captureCtx.drawImage(
-        currentOffscreenCanvas,
-        minX, minY, width, height, // Source rectangle
-        0, 0, width, height        // Destination rectangle
-      );
-    } catch {
-      // Error capturing image data
-      return;
-    }
-    
-    // Get ImageData for the brush
-    const imageData = captureCtx.getImageData(0, 0, width, height);
-    
-    // Create thumbnail
-    const thumbnailSize = 64;
-    const thumbnailCanvas = document.createElement('canvas');
-    thumbnailCanvas.width = thumbnailSize;
-    thumbnailCanvas.height = thumbnailSize;
-    const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true });
-    
-    if (thumbnailCtx) {
-      const scale = Math.min(thumbnailSize / width, thumbnailSize / height);
-      const scaledWidth = width * scale;
-      const scaledHeight = height * scale;
-      const offsetX = (thumbnailSize - scaledWidth) / 2;
-      const offsetY = (thumbnailSize - scaledHeight) / 2;
-      
-      thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
-      thumbnailCtx.drawImage(
-        captureCanvas,
-        0, 0, width, height,
-        offsetX, offsetY, scaledWidth, scaledHeight
-      );
-    }
-    
-    // Create temporary brush
+
+    const {
+      imageData,
+      width,
+      height,
+      naturalWidth,
+      naturalHeight,
+      maxDimension,
+      thumbnail,
+    } = captureResult;
+
     const tempBrush: CustomBrush = {
       id: `temp_brush_${Date.now()}`,
       name: `Temp Brush`,
       imageData,
-      thumbnail: thumbnailCanvas.toDataURL(),
+      thumbnail: thumbnail ?? '',
       width,
       height,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      naturalWidth,
+      naturalHeight,
+      maxDimension,
     };
-    
-    
+
     // Set as temporary brush and switch to it
     setTemporaryCustomBrush(tempBrush);
-    
+
     // Clear brush caches to ensure the new brush is used immediately
     brushCache.clear();
     scaledBrushCache.clear();
-    
-    const maxDimension = Math.max(tempBrush.width, tempBrush.height);
+
     const normalizedSize = Math.max(1, Math.round(maxDimension));
     setGlobalBrushSize(normalizedSize);
     // Switch to using this temporary brush with the current global size
@@ -133,6 +86,9 @@ export const CustomBrushPanel = () => {
         brushId: tempBrush.id,
         width: tempBrush.width,
         height: tempBrush.height,
+        naturalWidth: tempBrush.naturalWidth ?? tempBrush.width,
+        naturalHeight: tempBrush.naturalHeight ?? tempBrush.height,
+        maxDimension: tempBrush.maxDimension ?? Math.max(tempBrush.width, tempBrush.height),
         isColorizable: false
       }
     };
@@ -167,11 +123,18 @@ export const CustomBrushPanel = () => {
     );
     
     // Create a permanent brush from the temporary one
+    const baseNaturalWidth = temporaryCustomBrush.naturalWidth ?? temporaryCustomBrush.width;
+    const baseNaturalHeight = temporaryCustomBrush.naturalHeight ?? temporaryCustomBrush.height;
+    const baseMaxDimension = temporaryCustomBrush.maxDimension ?? Math.max(baseNaturalWidth, baseNaturalHeight);
+
     const permanentBrush: CustomBrush = {
       ...temporaryCustomBrush,
       id: `brush_${Date.now()}`,
       name: `Custom ${customBrushes.length + 1}`,
-      imageData: clonedImageData
+      imageData: clonedImageData,
+      naturalWidth: baseNaturalWidth,
+      naturalHeight: baseNaturalHeight,
+      maxDimension: baseMaxDimension,
     };
     
     
@@ -181,8 +144,7 @@ export const CustomBrushPanel = () => {
     
     // Update brush settings to use the new permanent brush at 100% size
     try { console.log('[CUSTOM/BRUSH] saving brush', { id: permanentBrush.id, w: permanentBrush.width, h: permanentBrush.height }); } catch {}
-    const maxDimension = Math.max(permanentBrush.width, permanentBrush.height);
-    const normalizedSize = Math.max(1, Math.round(maxDimension));
+    const normalizedSize = Math.max(1, Math.round(permanentBrush.maxDimension ?? Math.max(permanentBrush.width, permanentBrush.height)));
     setGlobalBrushSize(normalizedSize);
     setBrushSettings({
       brushShape: BrushShape.CUSTOM,
@@ -194,6 +156,9 @@ export const CustomBrushPanel = () => {
         brushId: permanentBrush.id,
         width: permanentBrush.width,
         height: permanentBrush.height,
+        naturalWidth: permanentBrush.naturalWidth ?? permanentBrush.width,
+        naturalHeight: permanentBrush.naturalHeight ?? permanentBrush.height,
+        maxDimension: permanentBrush.maxDimension ?? Math.max(permanentBrush.width, permanentBrush.height),
         isColorizable: false
       }
     });

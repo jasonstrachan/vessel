@@ -669,6 +669,43 @@ const BrushControls = () => {
           </div>
         )}
 
+        {/* Riso */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Riso
+            </label>
+            <ProgressSlider
+              value={activeSettings.risographIntensity || 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ risographIntensity: Math.round(value) })
+              }
+              aria-label="Risograph Intensity"
+              className="flex-1"
+            />
+          </div>
+          {(activeSettings.risographIntensity || 0) > 0 && (
+            <div className="flex items-center gap-2 mt-1">
+              <label
+                htmlFor="riso-outline-color-cycle"
+                className="text-[#D9D9D9] w-16 text-xs"
+              >
+                Edges
+              </label>
+              <CustomSwitch
+                id="riso-outline-color-cycle"
+                checked={activeSettings.risographOutline || false}
+                onChange={(checked) =>
+                  setActiveSettings({ risographOutline: checked })
+                }
+              />
+            </div>
+          )}
+        </div>
+
         {/* Gradient Bands / Band Gap */}
         <div className="mb-2">
           <div className="flex items-center gap-2">

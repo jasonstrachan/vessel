@@ -237,6 +237,9 @@ interface SerializedCustomBrush {
   imageDataUrl: string; // Base64 encoded ImageData
   thumbnail: string;
   createdAt: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  maxDimension?: number;
 }
 
 interface ColorCycleBrushState {
@@ -845,6 +848,10 @@ async function deserializeRecolorSettings(serialized: SerializedColorCycleRecolo
 
 // Serialize a custom brush for saving
 async function serializeCustomBrush(brush: CustomBrush): Promise<SerializedCustomBrush> {
+  const naturalWidth = brush.naturalWidth ?? brush.width;
+  const naturalHeight = brush.naturalHeight ?? brush.height;
+  const maxDimension = brush.maxDimension ?? Math.max(naturalWidth, naturalHeight);
+
   return {
     id: brush.id,
     name: brush.name,
@@ -852,7 +859,10 @@ async function serializeCustomBrush(brush: CustomBrush): Promise<SerializedCusto
     height: brush.height,
     imageDataUrl: await imageDataToDataUrl(brush.imageData),
     thumbnail: brush.thumbnail,
-    createdAt: brush.createdAt
+    createdAt: brush.createdAt,
+    naturalWidth,
+    naturalHeight,
+    maxDimension,
   };
 }
 
@@ -861,6 +871,9 @@ async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): P
   
   const imageData = await dataUrlToImageData(serializedBrush.imageDataUrl);
   
+  const naturalWidth = serializedBrush.naturalWidth ?? serializedBrush.width;
+  const naturalHeight = serializedBrush.naturalHeight ?? serializedBrush.height;
+  const maxDimension = serializedBrush.maxDimension ?? Math.max(naturalWidth, naturalHeight);
   
   return {
     id: serializedBrush.id,
@@ -869,7 +882,10 @@ async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): P
     height: serializedBrush.height,
     imageData,
     thumbnail: serializedBrush.thumbnail,
-    createdAt: serializedBrush.createdAt
+    createdAt: serializedBrush.createdAt,
+    naturalWidth,
+    naturalHeight,
+    maxDimension,
   };
 }
 

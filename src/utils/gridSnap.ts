@@ -150,7 +150,7 @@ export function calculateGridSize(brushSettings: BrushSettings, customBrush?: Cu
     if (typeof brushSettings.size === 'number' && Number.isFinite(brushSettings.size)) {
       finalSize = brushSettings.size;
     } else {
-      const baseDimension = Math.max(customBrush.width, customBrush.height);
+      const baseDimension = customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height);
       const percent = brushSettings.customBrushSizePercent ?? 100;
       finalSize = (percent / 100) * baseDimension;
     }
@@ -174,7 +174,7 @@ export function calculateGridDimensions(brushSettings: BrushSettings, customBrus
     if (!customBrush || brushSettings.brushShape !== BrushShape.CUSTOM) {
       return undefined;
     }
-    const maxDimension = Math.max(customBrush.width, customBrush.height);
+    const maxDimension = customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height);
     return Math.max(1, Math.round(((brushSettings.customBrushSizePercent ?? 100) / 100) * maxDimension));
   })();
 
@@ -191,11 +191,13 @@ export function calculateGridDimensions(brushSettings: BrushSettings, customBrus
   if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush && customBrush) {
     // For custom brushes, use exact brush dimensions for perfect tiling
     // Scale factor should match the brush engine's calculation: actualSize divided by max dimension
-    const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
+    const naturalWidth = customBrush.naturalWidth ?? customBrush.width;
+    const naturalHeight = customBrush.naturalHeight ?? customBrush.height;
+    const customBrushMaxDimension = customBrush.maxDimension ?? Math.max(naturalWidth, naturalHeight);
     const sizeForScale = effectiveActualSize || 1;
     const scaleFactor = sizeForScale / customBrushMaxDimension;
-    const gridWidth = customBrush.width * scaleFactor;
-    const gridHeight = customBrush.height * scaleFactor;
+    const gridWidth = naturalWidth * scaleFactor;
+    const gridHeight = naturalHeight * scaleFactor;
     
     dimensions = { width: gridWidth, height: gridHeight };
   } else {

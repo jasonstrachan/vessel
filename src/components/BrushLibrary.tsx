@@ -186,12 +186,17 @@ const BrushLibrary = () => {
       brushTip &&
       brushTip.brushId === selectedId
     ) {
+      const naturalWidth = brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width;
+      const naturalHeight = brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height;
       return {
         id: selectedId,
         name: 'Temp Brush',
         imageData: brushTip.imageData,
         width: brushTip.width ?? brushTip.imageData.width,
         height: brushTip.height ?? brushTip.imageData.height,
+        naturalWidth,
+        naturalHeight,
+        maxDimension: brushTip.maxDimension ?? Math.max(naturalWidth, naturalHeight),
         thumbnail: '',
         createdAt: Date.now(),
       };

@@ -37,7 +37,7 @@ export const DEFAULT_DITHER_SETTINGS: DitherBrushSettings = {
   pressure: 50,
   rotation: 0,
   antialiasing: false,
-  pressureEnabled: true,
+  pressureEnabled: false,
   minPressure: 10,
   maxPressure: 100,
   rotationEnabled: false,

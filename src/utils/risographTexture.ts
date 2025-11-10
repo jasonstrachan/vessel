@@ -81,7 +81,7 @@ const getRisographTexture = (): HTMLCanvasElement => {
   
   // Generate noise using single-pixel dots for a tighter texture
   const dotSize = 1;
-  ctx.fillStyle = 'black';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   
   for (let y = 0; y < size; y += dotSize) {
     for (let x = 0; x < size; x += dotSize) {
