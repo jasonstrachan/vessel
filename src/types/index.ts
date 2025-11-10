@@ -478,6 +478,8 @@ export interface BrushSettings {
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+  // Color Cycle stamp dithering
+  colorCycleStampDitherEnabled?: boolean;
   // Resampler brush settings
   continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5

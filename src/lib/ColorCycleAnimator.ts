@@ -534,13 +534,27 @@ export class ColorCycleAnimator {
   /**
    * Paint square brush with stamp-based color progression
    */
-  paintSquare(x: number, y: number, brushSize: number, colorIndex?: number) {
+  paintSquare(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex?: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number
+  ) {
     try {
       // Use provided color index or auto-increment
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
       
       // Paint to index buffer with the specific color index - NO RENDERING
-      this.indexBuffer.paintSquareWithIndex(x, y, brushSize, index);
+      this.indexBuffer.paintSquareWithIndex(
+        x,
+        y,
+        brushSize,
+        index,
+        maskTile,
+        maskTileSize
+      );
       this._glIndexDirty = true;
       
       // REMOVED per-stamp rendering - caller handles batched rendering
@@ -553,10 +567,24 @@ export class ColorCycleAnimator {
   /**
    * Paint triangle brush with stamp-based color progression
    */
-  paintTriangle(x: number, y: number, brushSize: number, colorIndex?: number) {
+  paintTriangle(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex?: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number
+  ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-      this.indexBuffer.paintTriangleWithIndex(x, y, brushSize, index);
+      this.indexBuffer.paintTriangleWithIndex(
+        x,
+        y,
+        brushSize,
+        index,
+        maskTile,
+        maskTileSize
+      );
       this._glIndexDirty = true;
     } catch (error) {
       console.error('[ColorCycleAnimator] Error in paintTriangle:', error);

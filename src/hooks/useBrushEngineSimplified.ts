@@ -2632,12 +2632,20 @@ export const useBrushEngineSimplified = () => {
     if (colorCycleBrush) {
       try {
         colorCycleBrush.setDitherEnabled(!!tools.brushSettings.ditherEnabled);
+        colorCycleBrush.setStampDitherEnabled(
+          !!tools.brushSettings.colorCycleStampDitherEnabled
+        );
       } catch (error) {
         void error;
         // Non-fatal; older brushes may not support dithering
       }
     }
-  }, [tools.brushSettings.ditherEnabled, activeLayerId, getActiveLayerColorCycleBrush]);
+  }, [
+    tools.brushSettings.ditherEnabled,
+    tools.brushSettings.colorCycleStampDitherEnabled,
+    activeLayerId,
+    getActiveLayerColorCycleBrush
+  ]);
 
   // Update dither pixel size (fillResolution) for color-cycle shape fills
   useEffect(() => {

@@ -790,6 +790,28 @@ const BrushControls = () => {
           </div>
         </div>
 
+        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="stamp-dither-color-cycle"
+                className="text-[#D9D9D9] w-24"
+                style={{ fontSize: '14px' }}
+              >
+                Dither
+              </label>
+              <CustomSwitch
+                id="stamp-dither-color-cycle"
+                checked={Boolean(activeSettings.colorCycleStampDitherEnabled)}
+                onChange={(checked) =>
+                  setActiveSettings({ colorCycleStampDitherEnabled: checked })
+                }
+              />
+            </div>
+          </div>
+        )}
+
         {/* Shape Mode - Hidden for Color Cycle brushes as it's auto-managed */}
 
         {/* Pressure - only for Color Cycle stroke variants */}

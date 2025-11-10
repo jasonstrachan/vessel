@@ -16,10 +16,24 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
 
       setGradient() {}
       resize() {}
-      paintSquare(_x: number, _y: number, _brushSize: number, colorIndex?: number) {
+      paintSquare(
+        _x: number,
+        _y: number,
+        _brushSize: number,
+        colorIndex?: number,
+        _maskTile?: Uint8Array,
+        _tileSize?: number
+      ) {
         paintSquareSpy(colorIndex);
       }
-      paintTriangle(_x: number, _y: number, _brushSize: number, colorIndex?: number) {
+      paintTriangle(
+        _x: number,
+        _y: number,
+        _brushSize: number,
+        colorIndex?: number,
+        _maskTile?: Uint8Array,
+        _tileSize?: number
+      ) {
         paintTriangleSpy(colorIndex);
       }
       paint() {}

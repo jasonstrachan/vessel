@@ -170,6 +170,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       if (typeof currentSettings.fillResolution === 'number') {
         brush.setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
       }
+      brush.setStampDitherEnabled(Boolean(currentSettings.colorCycleStampDitherEnabled));
 
       const brushWithOptionalControls: BrushWithOptionalControls = brush;
       brushWithOptionalControls.setLayerId?.(layerId);
@@ -348,6 +349,9 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
             if (typeof currentSettings.fillResolution === 'number') {
               existingBrush.setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
             }
+            existingBrush.setStampDitherEnabled(
+              Boolean(currentSettings.colorCycleStampDitherEnabled)
+            );
 
             updateBrushWebGLState(layerId, existingBrush as BrushWithOptionalControls);
             activeResources.add(`canvas_${layerId}`);

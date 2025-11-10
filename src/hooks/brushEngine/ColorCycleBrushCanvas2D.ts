@@ -91,6 +91,7 @@ interface ColorCycleBrushCanvasSerialized {
   fps: number;
   brushSize: number;
   stampShape?: StampShape;
+  stampDitherEnabled?: boolean;
 }
 
 interface StampMaskCacheEntry {
@@ -103,6 +104,10 @@ interface StampMaskCacheEntry {
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
+const STAMP_DITHER_BUCKETS = 16;
+const STAMP_DITHER_TILE_SIZE = 16;
+const MIN_STAMP_DITHER_COVERAGE = 0.35;
+const MAX_STAMP_DITHER_COVERAGE = 1.0;
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -217,6 +222,9 @@ export class ColorCycleBrushCanvas2D {
   private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
   private customStampMaskCache: Map<string, StampMaskCacheEntry> = new Map();
   private gradientSignatures: Map<string, string> = new Map();
+  private stampDitherEnabled: boolean = false;
+  private stampDitherTiles: Map<number, Uint8Array> = new Map();
+  private stampPaletteBuckets: Uint8Array = new Uint8Array(256);
   
   constructor(canvas: HTMLCanvasElement, options: {
     brushSize?: number;
@@ -264,6 +272,7 @@ export class ColorCycleBrushCanvas2D {
     this.pressureEnabled = false;
     this.minPressure = 1;
     this.maxPressure = 200; // Default to 2x size at max pressure
+    this.rebuildStampDitherBuckets();
   }
 
   private ensureStrokeState(layerId: string): LayerStrokeState {
@@ -637,11 +646,27 @@ export class ColorCycleBrushCanvas2D {
       
       // Detailed paint debug removed
       
+      const useStampDither = this.stampDitherEnabled;
+      const tile = useStampDither ? this.getStampDitherTile(this.stampPaletteBuckets[colorIndex] ?? 0) : undefined;
+      const tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE : undefined;
+
       // Paint with specific color index and pressure-modulated size
       if (this.stampShape === 'triangle') {
-        animator.paintTriangle(x, y, pressureSize, colorIndex);
+        if (useStampDither && tile && tileSize) {
+          animator.paintTriangle(x, y, pressureSize, colorIndex, tile, tileSize);
+        } else {
+          animator.paintTriangle(x, y, pressureSize, colorIndex);
+        }
+      } else if (useStampDither && tile && tileSize) {
+        animator.paintSquare(
+          x,
+          y,
+          pressureSize,
+          colorIndex,
+          tile,
+          tileSize
+        );
       } else {
-        // TODO: Add rotation support to paintSquare method in future update
         animator.paintSquare(x, y, pressureSize, colorIndex);
       }
       
@@ -807,6 +832,7 @@ export class ColorCycleBrushCanvas2D {
     // Cache stops for perceptual dithering paths
     try {
       this.currentGradientStops = Array.isArray(stops) && stops.length > 0 ? [...stops] : this.currentGradientStops;
+      this.rebuildStampDitherBuckets();
     } catch {}
     
     if (gradientChanged) {
@@ -889,6 +915,69 @@ export class ColorCycleBrushCanvas2D {
       }
     }
     return this.parseCssColor(sorted[sorted.length - 1].color);
+  }
+
+  private rebuildStampDitherBuckets() {
+    if (!this.stampPaletteBuckets || this.stampPaletteBuckets.length !== 256) {
+      this.stampPaletteBuckets = new Uint8Array(256);
+    }
+    for (let index = 1; index < 256; index++) {
+      const normalized = (index - 1) / 254;
+      const { r, g, b } = this.colorAtPosition(normalized);
+      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const brightness = Math.max(0, Math.min(1, luminance / 255));
+      const bucket = Math.min(
+        STAMP_DITHER_BUCKETS - 1,
+        Math.max(0, Math.floor(brightness * STAMP_DITHER_BUCKETS))
+      );
+      this.stampPaletteBuckets[index] = bucket;
+    }
+    this.stampPaletteBuckets[0] = 0;
+  }
+
+  private coverageForBucket(bucket: number): number {
+    if (STAMP_DITHER_BUCKETS <= 1) {
+      return MAX_STAMP_DITHER_COVERAGE;
+    }
+    const ratio = Math.max(0, Math.min(1, bucket / (STAMP_DITHER_BUCKETS - 1)));
+    return MIN_STAMP_DITHER_COVERAGE + (MAX_STAMP_DITHER_COVERAGE - MIN_STAMP_DITHER_COVERAGE) * (1 - ratio);
+  }
+
+  private buildStampDitherTile(bucket: number): Uint8Array {
+    const tileSize = STAMP_DITHER_TILE_SIZE;
+    const coverage = this.coverageForBucket(bucket);
+    const working = new Float32Array(tileSize * tileSize);
+    working.fill(coverage);
+    const result = new Uint8Array(tileSize * tileSize);
+    for (let y = 0; y < tileSize; y++) {
+      for (let x = 0; x < tileSize; x++) {
+        const idx = y * tileSize + x;
+        const current = working[idx];
+        const newValue = current >= 0.5 ? 1 : 0;
+        result[idx] = newValue;
+        const error = current - newValue;
+        if (x + 1 < tileSize) {
+          working[idx + 1] += error * 0.5;
+        }
+        if (y + 1 < tileSize) {
+          if (x > 0) {
+            working[idx + tileSize - 1] += error * 0.25;
+          }
+          working[idx + tileSize] += error * 0.25;
+        }
+      }
+    }
+    return result;
+  }
+
+  private getStampDitherTile(bucket: number): Uint8Array {
+    const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
+    let tile = this.stampDitherTiles.get(normalizedBucket);
+    if (!tile) {
+      tile = this.buildStampDitherTile(normalizedBucket);
+      this.stampDitherTiles.set(normalizedBucket, tile);
+    }
+    return tile;
   }
 
   private rgbToHex(c: { r: number; g: number; b: number }): string {
@@ -2684,6 +2773,14 @@ export class ColorCycleBrushCanvas2D {
     this.ditherPixelSize = Math.max(1, Math.floor(size));
   }
   
+  /** Toggle stamp-level dithering for Color Cycle strokes. */
+  setStampDitherEnabled(enabled: boolean) {
+    this.stampDitherEnabled = !!enabled;
+    if (this.stampDitherEnabled) {
+      this.rebuildStampDitherBuckets();
+    }
+  }
+  
   /**
    * Is playing? (API compatible)
    */
@@ -3119,7 +3216,8 @@ export class ColorCycleBrushCanvas2D {
       cycleSpeed: this.cycleSpeed,
       fps: this.fps,
       brushSize: this.brushSize,
-      stampShape: this.stampShape
+      stampShape: this.stampShape,
+      stampDitherEnabled: this.stampDitherEnabled
     };
   }
   
@@ -3138,6 +3236,9 @@ export class ColorCycleBrushCanvas2D {
 
     if (data.stampShape) {
       instance.setStampShape(data.stampShape);
+    }
+    if (typeof data.stampDitherEnabled === 'boolean') {
+      instance.setStampDitherEnabled(data.stampDitherEnabled);
     }
 
     data.layers?.forEach((layer) => {

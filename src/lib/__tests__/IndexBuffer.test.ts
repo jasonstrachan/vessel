@@ -125,6 +125,38 @@ describe('IndexBuffer', () => {
       expect(buffer.getPixel(44, 44)).toBe(0);
       expect(buffer.getPixel(56, 56)).toBe(0);
     });
+
+    it('should honor stamp masks when painting squares', () => {
+      const tileSize = 2;
+      const mask = new Uint8Array([1, 0, 0, 1]); // simple checker
+      const centerX = 50;
+      const centerY = 50;
+      const brushSize = 4;
+
+      buffer.paintSquareWithIndex(centerX, centerY, brushSize, 2, mask, tileSize);
+
+      const half = brushSize / 2;
+      const minX = Math.max(0, Math.floor(centerX - half));
+      const maxX = Math.min(99, Math.floor(centerX + half));
+      const minY = Math.max(0, Math.floor(centerY - half));
+      const maxY = Math.min(99, Math.floor(centerY + half));
+      const totalArea = (maxX - minX + 1) * (maxY - minY + 1);
+
+      const filled = collectFilledPixels().filter(
+        (pixel) =>
+          pixel.index === 2 &&
+          pixel.x >= minX &&
+          pixel.x <= maxX &&
+          pixel.y >= minY &&
+          pixel.y <= maxY
+      );
+
+      expect(filled.length).toBeGreaterThan(0);
+      expect(filled.length).toBeLessThan(totalArea);
+      // Ensure mask leaves gaps in a checker pattern
+      expect(buffer.getPixel(minX, minY)).toBe(2);
+      expect(buffer.getPixel(minX + 1, minY)).toBe(0);
+    });
     
     it('should paint line correctly', () => {
       buffer.paintLine(10, 10, 90, 10, 2, '#0000ff');
