@@ -1,32 +1,32 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import LeftToolbar from '../components/LeftToolbar';
-import ColorPickerPanel from '../components/panels/ColorPickerPanel';
-import LayersPanel from '../components/panels/LayersPanel';
-import AlignmentPanel from '../components/panels/AlignmentPanel';
-import AnimationControlsPanel from '../components/panels/AnimationControlsPanel';
-import BrushLibraryPanel from '../components/panels/BrushLibraryPanel';
-import BrushSettingsPanel from '../components/panels/BrushSettingsPanel';
-import DrawingCanvas from '../components/canvas/DrawingCanvas';
-import ConsoleSilencer from '../components/dev/ConsoleSilencer';
-import FeedbackStrip from '../components/FeedbackStrip';
-import FPSMeter from '../components/dev/FPSMeter';
+import LeftToolbar from '@/components/LeftToolbar';
+import ColorPickerPanel from '@/components/panels/ColorPickerPanel';
+import LayersPanel from '@/components/panels/LayersPanel';
+import AlignmentPanel from '@/components/panels/AlignmentPanel';
+import AnimationControlsPanel from '@/components/panels/AnimationControlsPanel';
+import BrushLibraryPanel from '@/components/panels/BrushLibraryPanel';
+import BrushSettingsPanel from '@/components/panels/BrushSettingsPanel';
+import DrawingCanvas from '@/components/canvas/DrawingCanvas';
+import ConsoleSilencer from '@/components/dev/ConsoleSilencer';
+import FeedbackStrip from '@/components/FeedbackStrip';
+import FPSMeter from '@/components/dev/FPSMeter';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { enableCCPerfProbe } from '@/utils/perf/ccPerfProbe';
-import { DocumentModal } from '../components/modals/DocumentModal';
-import { ExportModal } from '../components/modals/ExportModal';
-import { SettingsModal } from '../components/modals/SettingsModal';
-import LoadProjectModal from '../components/modals/LoadProjectModal';
-import { useAppStore } from '../stores/useAppStore';
+import { DocumentModal } from '@/components/modals/DocumentModal';
+import { ExportModal } from '@/components/modals/ExportModal';
+import { SettingsModal } from '@/components/modals/SettingsModal';
+import LoadProjectModal from '@/components/modals/LoadProjectModal';
+import { useAppStore } from '@/stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
 import { selectModals } from '@/stores/selectors/modalSelectors';
-import { autosaveService } from '../utils/autosave';
-import { preloadRisographTexture } from '../utils/risographTexture';
-import { devLog } from '../utils/devLog';
+import { autosaveService } from '@/utils/autosave';
+import { preloadRisographTexture } from '@/utils/risographTexture';
+import { devLog } from '@/utils/devLog';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
 const homeLog = devLog.scope('HOME');

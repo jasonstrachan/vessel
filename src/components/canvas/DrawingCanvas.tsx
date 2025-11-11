@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo, useLayoutEffect } from 'react';
-import { selectEffectiveColorCyclePlaying, useAppStore } from '../../stores/useAppStore';
+import { selectEffectiveColorCyclePlaying, useAppStore } from '@/stores/useAppStore';
 import {
   selectActiveLayerId,
   selectLayers,
@@ -19,24 +19,24 @@ import {
   selectRecolorSampling,
   selectShapeMode,
 } from '@/stores/selectors/toolsSelectors';
-import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
-import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
-import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
-import { useSimplePan, type PanSnapshot, type PanEvent } from '../../hooks/useSimplePan';
-import { useToolStateMachine } from '../../hooks/useToolStateMachine';
-import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
-import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
-import { useCanvasEventHandlers } from '../../hooks/canvas/useCanvasEventHandlers';
-import { useCropState } from '../../hooks/useCropState';
-import { BrushShape } from '../../types';
-import type { Layer, Tool } from '../../types';
-import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/utils/types';
+import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
+import { useCanvasInteraction } from '@/hooks/useCanvasInteraction';
+import { useCanvasStateMachine } from '@/hooks/useCanvasStateMachine';
+import { useSimplePan, type PanSnapshot, type PanEvent } from '@/hooks/useSimplePan';
+import { useToolStateMachine } from '@/hooks/useToolStateMachine';
+import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
+import { useDrawingHandlers } from '@/hooks/useDrawingHandlers';
+import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
+import { useCropState } from '@/hooks/useCropState';
+import { BrushShape } from '@/types';
+import type { Layer, Tool } from '@/types';
+import type { FloatingPaste as FloatingPasteState } from '@/hooks/canvas/utils/types';
 import BrushCursor, { type BrushCursorHandle } from './BrushCursor';
 import CropOverlay from './CropOverlay';
 import FloatingPasteOverlay from './FloatingPasteOverlay';
 import SelectionMarqueeHandles from './SelectionMarqueeHandles';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
-import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
+import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
@@ -2951,6 +2951,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         boxShadow: 'none'
       }}
       tabIndex={0}
+      role="region"
+      aria-label="Drawing canvas workspace"
       onBlur={handleBlur}
     >
       <canvas
@@ -2963,6 +2965,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         onPointerCancel={handlePointerCancel}
         onContextMenu={(e) => e.preventDefault()}
         tabIndex={-1}
+        aria-label="Drawing surface"
         style={canvasStyle}
       />
       
@@ -2999,6 +3002,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           zoom={canvasZoom || 1}
           offsetX={pan.panState.offsetX}
           offsetY={pan.panState.offsetY}
+          projectWidth={project.width}
+          projectHeight={project.height}
         />
       ) : null}
 

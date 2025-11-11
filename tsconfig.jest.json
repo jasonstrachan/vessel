@@ -6,7 +6,8 @@
     "jsx": "react-jsx",
     "allowJs": true,
     "esModuleInterop": true,
-    "types": ["jest", "node"]
+    "types": ["jest", "node"],
+    "baseUrl": "."
   },
   "include": [
     "jest.setup.js",

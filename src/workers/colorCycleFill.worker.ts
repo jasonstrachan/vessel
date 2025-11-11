@@ -13,7 +13,10 @@ type WorkerMessage = {
   job: import('./colorCycleFillTypes').ColorCycleFillJob;
 };
 
-const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
+const ctx: DedicatedWorkerGlobalScope =
+  typeof self === 'undefined'
+    ? ((globalThis as unknown) as DedicatedWorkerGlobalScope)
+    : ((self as unknown) as DedicatedWorkerGlobalScope);
 
 const buildPaletteMap = (entries: PaletteMapEntry[]) => {
   const map = new Map<string, number>();

@@ -9,6 +9,9 @@ const config = {
     '^@/workers/colorCycleFillClient$': '<rootDir>/__mocks__/colorCycleFillClient.ts',
     '^@/(.*)$': '<rootDir>/src/$1',
   },
+  transform: {
+    '^.+\\.(t|j)sx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.jest.json' }],
+  },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',

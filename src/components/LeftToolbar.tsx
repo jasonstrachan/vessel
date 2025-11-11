@@ -4,6 +4,23 @@ import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
+const toolShortcuts: Partial<Record<Tool, { aria: string; display: string }>> = {
+  brush: { aria: 'KeyB', display: 'B' },
+  custom: { aria: 'KeyU', display: 'U' },
+  eraser: { aria: 'KeyE', display: 'E' },
+  selection: { aria: 'KeyV', display: 'V' },
+  eyedropper: { aria: 'KeyI', display: 'I' },
+  'color-picker': { aria: 'Shift+KeyC', display: 'Shift+C' },
+  fill: { aria: 'KeyG', display: 'G' },
+  'color-adjust': { aria: 'KeyK', display: 'K' },
+  crop: { aria: 'KeyC', display: 'C' },
+  'new-document': { aria: 'Control+KeyN', display: 'Ctrl+N' },
+  save: { aria: 'Control+KeyS', display: 'Ctrl+S' },
+  load: { aria: 'Control+KeyO', display: 'Ctrl+O' },
+  export: { aria: 'Control+Shift+KeyE', display: 'Ctrl+Shift+E' },
+  options: { aria: 'Control+Comma', display: 'Ctrl+,' },
+};
+
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
   const { tools: toolState, saveProject, toggleModal } = useAppStore();
@@ -69,6 +86,8 @@ const LeftToolbar = () => {
         backgroundColor: '#1A1A1A',
         borderColor: '#242424'
       }}
+      role="toolbar"
+      aria-label="Primary tool selection"
     >
       {toolGroups.map((group, groupIndex) => (
         <React.Fragment key={groupIndex}>
@@ -83,7 +102,12 @@ const LeftToolbar = () => {
                 <button
                   onClick={() => handleToolClick(tool.id)}
                   title={tool.label}
-                className={`w-[44px] h-10 min-h-[36px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
+                  aria-label={tool.label}
+                  aria-pressed={isActive}
+                  aria-keyshortcuts={toolShortcuts[tool.id]?.aria}
+                  data-shortcut={toolShortcuts[tool.id]?.display}
+                  type="button"
+                  className={`w-[44px] h-10 min-h-[36px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
                   style={baseButtonStyle}
                 >
                   <span
