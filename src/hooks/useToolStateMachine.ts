@@ -25,6 +25,7 @@ export function useToolStateMachine({
   const rectangleBrushStateRef = useStoreSelectorRef((state) => state.rectangleBrushState);
   const polygonGradientStateRef = useStoreSelectorRef(selectPolygonGradientState);
   const toolsRef = useStoreSelectorRef(selectToolsState);
+  const paletteRef = useStoreSelectorRef((state) => state.palette);
   
   // Rectangle gradient state machine
   const handleRectangleGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
@@ -105,12 +106,28 @@ export function useToolStateMachine({
 
   const resolvePolygonPointColor = useCallback((worldPos: { x: number; y: number }) => {
     const brushSettings = toolsRef.current.brushSettings;
-    if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
-      const sampled = sampleColorAtPosition(worldPos.x, worldPos.y);
-      return toOpaqueColorString(sampled);
+    const palette = paletteRef.current;
+    const polygonState = polygonGradientStateRef.current;
+    const brushShape = brushSettings.brushShape;
+    const samplingEnabled = brushSettings.polygonSampleColors !== false;
+
+    if (brushShape === BrushShape.POLYGON_GRADIENT) {
+      if (samplingEnabled) {
+        const sampled = sampleColorAtPosition(worldPos.x, worldPos.y);
+        return toOpaqueColorString(sampled);
+      }
+
+      const existingPoints = polygonState?.points?.length ?? 0;
+      const useForeground = existingPoints % 2 === 0;
+      const fallback = brushSettings.color;
+      const fg = palette?.foregroundColor || fallback;
+      const bg = palette?.backgroundColor || fg;
+      const target = useForeground ? fg : bg;
+      return toOpaqueColorString(target);
     }
+
     return brushSettings.color;
-  }, [sampleColorAtPosition, toolsRef]);
+  }, [paletteRef, polygonGradientStateRef, sampleColorAtPosition, toolsRef]);
 
   // Polygon gradient state machine
   const handlePolygonGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {

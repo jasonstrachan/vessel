@@ -2124,8 +2124,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     },
     onPolygonCancel: () => {
-      toolStateMachine.resetPolygonGradient();
-      interaction.dispatch({ type: 'DRAWING_END' });
+      const cancelled = cancelActiveOperations({ includeFloatingPaste: false, dispatchInteractionEnd: true });
+      if (!cancelled) {
+        toolStateMachine.resetPolygonGradient();
+        interaction.dispatch({ type: 'DRAWING_END' });
+      }
     },
     onEnterPressed: async () => {
       if (tools.currentTool === 'color-adjust' && colorAdjustActive) {

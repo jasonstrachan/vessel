@@ -503,6 +503,8 @@ export interface BrushSettings {
   colors?: number; // 1-10 for gradient brushes
   // Rectangle gradient preset selection ('none' = sample from canvas)
   rectGradientPresetId?: string;
+  // Polygon gradient sampling toggle
+  polygonSampleColors?: boolean;
   shapeFillMode?: 'default' | 'linear' | 'concentric' | (string & {}); // mode for shape fill tools
   // Fill resolution for dither block size (1-32 pixels per block)
   fillResolution?: number; // 1-32 for dithering block size

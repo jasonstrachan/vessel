@@ -1386,11 +1386,25 @@ export const createShapeToolHandler = (
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
     const store = useAppStore.getState();
     const { brushSettings } = store.tools;
-    const shouldSample = brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
-    if (shouldSample) {
-      const sampled = sampleColorAtPosition(worldPos.x, worldPos.y);
-      return toOpaqueColorString(sampled);
+    const brushShape = brushSettings.brushShape;
+    const samplingEnabled = brushSettings.polygonSampleColors !== false;
+
+    if (brushShape === BrushShape.POLYGON_GRADIENT) {
+      if (samplingEnabled) {
+        const sampled = sampleColorAtPosition(worldPos.x, worldPos.y);
+        return toOpaqueColorString(sampled);
+      }
+
+      const palette = store.palette;
+      const existingPoints = store.polygonGradientState.points?.length ?? 0;
+      const useForeground = existingPoints % 2 === 0;
+      const fallback = brushSettings.color;
+      const fg = palette?.foregroundColor || fallback;
+      const bg = palette?.backgroundColor || fg;
+      const target = useForeground ? fg : bg;
+      return toOpaqueColorString(target);
     }
+
     return brushSettings.color;
   };
 

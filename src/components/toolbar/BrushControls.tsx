@@ -757,7 +757,7 @@ const BrushControls = () => {
             {activeSettings.ditherEnabled && (
               <div className="flex items-center gap-2 mt-2">
                 <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Resolution
+                  Res
                 </label>
                 <ProgressSlider
                   value={activeSettings.fillResolution || 1}
@@ -813,7 +813,7 @@ const BrushControls = () => {
             {activeSettings.colorCycleStampDitherEnabled && (
               <div className="flex items-center gap-2 mt-2">
                 <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Resolution
+                  Res
                 </label>
                 <ProgressSlider
                   value={activeSettings.colorCycleStampDitherPixelSize ?? 1}
@@ -1636,6 +1636,27 @@ const BrushControls = () => {
           </div>
         </div>
 
+        {activeSettings.brushShape === BrushShape.POLYGON_GRADIENT && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="polygon-sample-colors"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Sample
+              </label>
+              <CustomSwitch
+                id="polygon-sample-colors"
+                checked={activeSettings.polygonSampleColors !== false}
+                onChange={(checked) =>
+                  setActiveSettings({ polygonSampleColors: checked })
+                }
+              />
+            </div>
+          </div>
+        )}
+
         {/* Riso */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -1696,7 +1717,7 @@ const BrushControls = () => {
               {activeSettings.ditherEnabled && (
                 <div className="flex items-center gap-2 flex-1">
                   <span className="text-[#D9D9D9] text-xs">
-                    Resolution
+                    Res
                   </span>
                   <ProgressSlider
                     value={activeSettings.fillResolution || 1}

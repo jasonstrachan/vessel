@@ -507,6 +507,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.saturationAdjust !== undefined) settingsToSave.saturationAdjust = newSettings.saturationAdjust;
       if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
       if (settings.rectGradientPresetId !== undefined) settingsToSave.rectGradientPresetId = newSettings.rectGradientPresetId;
+      if (settings.polygonSampleColors !== undefined) settingsToSave.polygonSampleColors = newSettings.polygonSampleColors;
       if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
       if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
       if (settings.colorCycleGradient !== undefined) {
