@@ -480,6 +480,7 @@ export interface BrushSettings {
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
   // Color Cycle stamp dithering
   colorCycleStampDitherEnabled?: boolean;
+  colorCycleStampDitherPixelSize?: number;
   // Resampler brush settings
   continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5

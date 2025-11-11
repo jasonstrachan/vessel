@@ -2657,6 +2657,24 @@ export const useBrushEngineSimplified = () => {
     }
   }, [tools.brushSettings.fillResolution, activeLayerId, getActiveLayerColorCycleBrush]);
 
+  // Update stamp dithering pixel size for color-cycle strokes
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (colorCycleBrush) {
+      try {
+        const resolution = Math.max(
+          1,
+          Math.floor(tools.brushSettings.colorCycleStampDitherPixelSize ?? 1)
+        );
+        colorCycleBrush.setStampDitherPixelSize(resolution);
+      } catch {}
+    }
+  }, [
+    tools.brushSettings.colorCycleStampDitherPixelSize,
+    activeLayerId,
+    getActiveLayerColorCycleBrush
+  ]);
+
   // Perceptual dithering removed
   
   // Sync pressure configuration with active color cycle brush

@@ -92,6 +92,7 @@ interface ColorCycleBrushCanvasSerialized {
   brushSize: number;
   stampShape?: StampShape;
   stampDitherEnabled?: boolean;
+  stampDitherPixelSize?: number;
 }
 
 interface StampMaskCacheEntry {
@@ -223,7 +224,9 @@ export class ColorCycleBrushCanvas2D {
   private customStampMaskCache: Map<string, StampMaskCacheEntry> = new Map();
   private gradientSignatures: Map<string, string> = new Map();
   private stampDitherEnabled: boolean = false;
-  private stampDitherTiles: Map<number, Uint8Array> = new Map();
+  private stampDitherPixelSize: number = 1;
+  private stampDitherBaseTiles: Map<number, Uint8Array> = new Map();
+  private stampDitherTiles: Map<string, Uint8Array> = new Map();
   private stampPaletteBuckets: Uint8Array = new Uint8Array(256);
   
   constructor(canvas: HTMLCanvasElement, options: {
@@ -648,7 +651,8 @@ export class ColorCycleBrushCanvas2D {
       
       const useStampDither = this.stampDitherEnabled;
       const tile = useStampDither ? this.getStampDitherTile(this.stampPaletteBuckets[colorIndex] ?? 0) : undefined;
-      const tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE : undefined;
+      const tileScale = Math.max(1, this.stampDitherPixelSize);
+      const tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE * tileScale : undefined;
 
       // Paint with specific color index and pressure-modulated size
       if (this.stampShape === 'triangle') {
@@ -933,6 +937,8 @@ export class ColorCycleBrushCanvas2D {
       this.stampPaletteBuckets[index] = bucket;
     }
     this.stampPaletteBuckets[0] = 0;
+    this.stampDitherBaseTiles.clear();
+    this.stampDitherTiles.clear();
   }
 
   private coverageForBucket(bucket: number): number {
@@ -943,7 +949,7 @@ export class ColorCycleBrushCanvas2D {
     return MIN_STAMP_DITHER_COVERAGE + (MAX_STAMP_DITHER_COVERAGE - MIN_STAMP_DITHER_COVERAGE) * (1 - ratio);
   }
 
-  private buildStampDitherTile(bucket: number): Uint8Array {
+  private buildBaseStampDitherTile(bucket: number): Uint8Array {
     const tileSize = STAMP_DITHER_TILE_SIZE;
     const coverage = this.coverageForBucket(bucket);
     const working = new Float32Array(tileSize * tileSize);
@@ -970,12 +976,42 @@ export class ColorCycleBrushCanvas2D {
     return result;
   }
 
+  private scaleStampDitherTile(base: Uint8Array, scale: number): Uint8Array {
+    if (scale <= 1) {
+      return base;
+    }
+    const baseSize = STAMP_DITHER_TILE_SIZE;
+    const scaledSize = baseSize * scale;
+    const scaled = new Uint8Array(scaledSize * scaledSize);
+    for (let y = 0; y < scaledSize; y++) {
+      const baseY = Math.floor(y / scale);
+      for (let x = 0; x < scaledSize; x++) {
+        const baseX = Math.floor(x / scale);
+        const baseIdx = baseY * baseSize + baseX;
+        scaled[y * scaledSize + x] = base[baseIdx];
+      }
+    }
+    return scaled;
+  }
+
+  private getBaseStampDitherTile(bucket: number): Uint8Array {
+    let tile = this.stampDitherBaseTiles.get(bucket);
+    if (!tile) {
+      tile = this.buildBaseStampDitherTile(bucket);
+      this.stampDitherBaseTiles.set(bucket, tile);
+    }
+    return tile;
+  }
+
   private getStampDitherTile(bucket: number): Uint8Array {
     const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
-    let tile = this.stampDitherTiles.get(normalizedBucket);
+    const scale = Math.max(1, Math.floor(this.stampDitherPixelSize));
+    const cacheKey = `${normalizedBucket}|${scale}`;
+    let tile = this.stampDitherTiles.get(cacheKey);
     if (!tile) {
-      tile = this.buildStampDitherTile(normalizedBucket);
-      this.stampDitherTiles.set(normalizedBucket, tile);
+      const baseTile = this.getBaseStampDitherTile(normalizedBucket);
+      tile = scale === 1 ? baseTile : this.scaleStampDitherTile(baseTile, scale);
+      this.stampDitherTiles.set(cacheKey, tile);
     }
     return tile;
   }
@@ -2780,6 +2816,16 @@ export class ColorCycleBrushCanvas2D {
       this.rebuildStampDitherBuckets();
     }
   }
+
+  /** Adjust stamp dithering pixel size multiplier (>=1). */
+  setStampDitherPixelSize(size: number) {
+    const next = Math.max(1, Math.floor(size));
+    if (next === this.stampDitherPixelSize) {
+      return;
+    }
+    this.stampDitherPixelSize = next;
+    this.stampDitherTiles.clear();
+  }
   
   /**
    * Is playing? (API compatible)
@@ -3217,7 +3263,8 @@ export class ColorCycleBrushCanvas2D {
       fps: this.fps,
       brushSize: this.brushSize,
       stampShape: this.stampShape,
-      stampDitherEnabled: this.stampDitherEnabled
+      stampDitherEnabled: this.stampDitherEnabled,
+      stampDitherPixelSize: this.stampDitherPixelSize
     };
   }
   
@@ -3239,6 +3286,9 @@ export class ColorCycleBrushCanvas2D {
     }
     if (typeof data.stampDitherEnabled === 'boolean') {
       instance.setStampDitherEnabled(data.stampDitherEnabled);
+    }
+    if (typeof data.stampDitherPixelSize === 'number') {
+      instance.setStampDitherPixelSize(data.stampDitherPixelSize);
     }
 
     data.layers?.forEach((layer) => {

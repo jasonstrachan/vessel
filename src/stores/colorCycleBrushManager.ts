@@ -171,6 +171,11 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         brush.setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
       }
       brush.setStampDitherEnabled(Boolean(currentSettings.colorCycleStampDitherEnabled));
+      if (typeof currentSettings.colorCycleStampDitherPixelSize === 'number') {
+        brush.setStampDitherPixelSize(
+          Math.max(1, Math.floor(currentSettings.colorCycleStampDitherPixelSize))
+        );
+      }
 
       const brushWithOptionalControls: BrushWithOptionalControls = brush;
       brushWithOptionalControls.setLayerId?.(layerId);
@@ -352,6 +357,11 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
             existingBrush.setStampDitherEnabled(
               Boolean(currentSettings.colorCycleStampDitherEnabled)
             );
+            if (typeof currentSettings.colorCycleStampDitherPixelSize === 'number') {
+              existingBrush.setStampDitherPixelSize(
+                Math.max(1, Math.floor(currentSettings.colorCycleStampDitherPixelSize))
+              );
+            }
 
             updateBrushWebGLState(layerId, existingBrush as BrushWithOptionalControls);
             activeResources.add(`canvas_${layerId}`);

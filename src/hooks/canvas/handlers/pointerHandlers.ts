@@ -433,8 +433,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const strokeColor = brushSettings.color || '#ffffff';
     const strokeWidth = Math.max(1, brushSettings.size ?? 1);
     const activeBrushShape = brushSettings.brushShape ?? BrushShape.ROUND;
-    // Default/custom stroke brushes should preview without an outline so the overlay matches final output
-    const skipOutline = isStrokeBrush(activeBrushShape) && !isColorCycleBrush(activeBrushShape);
+    const isColorCycleShapePreview = activeBrushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    // Default/custom stroke brushes and Color Cycle shapes should preview without outlines so overlay matches final fill
+    const skipOutline =
+      isColorCycleShapePreview ||
+      (isStrokeBrush(activeBrushShape) && !isColorCycleBrush(activeBrushShape));
     const isCustomBrushPreview = brushSettings.brushShape === BrushShape.CUSTOM;
 
     ctx.beginPath();

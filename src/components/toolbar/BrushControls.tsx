@@ -45,6 +45,8 @@ import {
 } from '@/constants/colorCycle';
 
 const PRESSURE_MIN_BOUND = PRESSURE_MIN_PERCENT;
+const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
+const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
 
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
@@ -632,7 +634,7 @@ const BrushControls = () => {
         {/* Opacity */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Opacity
             </label>
             <ProgressSlider
@@ -651,7 +653,7 @@ const BrushControls = () => {
           activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                 Spacing
               </label>
               <ProgressSlider
@@ -672,7 +674,7 @@ const BrushControls = () => {
         {/* Riso */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Riso
             </label>
             <ProgressSlider
@@ -691,7 +693,7 @@ const BrushControls = () => {
             <div className="flex items-center gap-2 mt-1">
               <label
                 htmlFor="riso-outline-color-cycle"
-                className="text-[#D9D9D9] w-16 text-xs"
+                className={`${CONTROL_LABEL_CLASS} text-xs`}
               >
                 Edges
               </label>
@@ -709,7 +711,7 @@ const BrushControls = () => {
         {/* Gradient Bands / Band Gap */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
                 ? 'Band Gap'
                 : (activeSettings.ditherEnabled ? 'Colors' : 'Bands')}
@@ -741,8 +743,8 @@ const BrushControls = () => {
             <div className="flex items-center gap-2">
               <label
                 htmlFor="dither-enabled-color-cycle"
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: '14px' }}
+                className={CONTROL_LABEL_CLASS}
+                style={CONTROL_LABEL_STYLE}
               >
                 Dither
               </label>
@@ -754,7 +756,7 @@ const BrushControls = () => {
             </div>
             {activeSettings.ditherEnabled && (
               <div className="flex items-center gap-2 mt-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                   Resolution
                 </label>
                 <ProgressSlider
@@ -771,11 +773,10 @@ const BrushControls = () => {
           </div>
         )}
 
-
         {/* Color Jitter */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Col Jit
             </label>
             <ProgressSlider
@@ -796,8 +797,8 @@ const BrushControls = () => {
             <div className="flex items-center gap-2">
               <label
                 htmlFor="stamp-dither-color-cycle"
-                className="text-[#D9D9D9] w-24"
-                style={{ fontSize: '14px' }}
+                className={CONTROL_LABEL_CLASS}
+                style={CONTROL_LABEL_STYLE}
               >
                 Dither
               </label>
@@ -809,6 +810,26 @@ const BrushControls = () => {
                 }
               />
             </div>
+            {activeSettings.colorCycleStampDitherEnabled && (
+              <div className="flex items-center gap-2 mt-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Resolution
+                </label>
+                <ProgressSlider
+                  value={activeSettings.colorCycleStampDitherPixelSize ?? 1}
+                  min={1}
+                  max={16}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      colorCycleStampDitherPixelSize: Math.max(1, Math.round(value))
+                    })
+                  }
+                  aria-label="Stamp Dither Resolution"
+                  className="flex-1"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1673,17 +1694,22 @@ const BrushControls = () => {
               />
               {/* Fill Res - only show when dithering is enabled */}
               {activeSettings.ditherEnabled && (
-                <ProgressSlider
-                  value={activeSettings.fillResolution || 1}
-                  min={1}
-                  max={16}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ fillResolution: Math.round(value) })
-                  }
-                  aria-label="Fill Resolution"
-                  className="flex-1"
-                />
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-[#D9D9D9] text-xs">
+                    Resolution
+                  </span>
+                  <ProgressSlider
+                    value={activeSettings.fillResolution || 1}
+                    min={1}
+                    max={16}
+                    step={1}
+                    onChange={(value) =>
+                      setActiveSettings({ fillResolution: Math.round(value) })
+                    }
+                    aria-label="Dither Resolution"
+                    className="flex-1"
+                  />
+                </div>
               )}
             </div>
           </div>

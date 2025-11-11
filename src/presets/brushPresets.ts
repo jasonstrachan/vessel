@@ -37,6 +37,7 @@ export const pixelBrushSettings: BrushSettings = {
   risographOutline: false,
   ditherEnabled: false,
   colorCycleStampDitherEnabled: false,
+  colorCycleStampDitherPixelSize: 1,
   contourLines2Spacing: 4,
   contourLines2Density: 4,
   contourLines2Alternate: false,
@@ -105,6 +106,7 @@ export const defaultBrushSettings: BrushSettings = {
   risographOutline: false, // Default: no rough outline effect
   ditherEnabled: false,
   colorCycleStampDitherEnabled: false,
+  colorCycleStampDitherPixelSize: 1,
   customBrushColorCycle: false,
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,
