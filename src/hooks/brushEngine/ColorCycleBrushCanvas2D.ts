@@ -1639,8 +1639,6 @@ export class ColorCycleBrushCanvas2D {
 
         const startX = Math.floor(startFloat);
         const endX = Math.ceil(endFloat);
-        const spanWidth = endFloat - startFloat;
-        const invSpanWidth = Math.abs(spanWidth) > 1e-6 ? 1 / spanWidth : 0;
 
         const quantizeCoord = (value: number, base: number, limit: number) => {
           const local = value - base;
@@ -1900,11 +1898,6 @@ export class ColorCycleBrushCanvas2D {
     // bandSpacing (or passed spacing) represents pixel distance between bands
     const baseOffset = this.stampCounter % 255;
     const noiseSeed = (this.stampCounter & 0xffff) / 65535;
-    const indexFromNormalized = (pos: number): number => {
-      const raw = Math.round(pos * 254);
-      const shifted = (raw + baseOffset) % 255;
-      return Math.max(1, Math.min(255, shifted + 1));
-    };
 
     // Adaptive performance: for very large shapes, skip costly per-edge distance checks
     // and approximate distance using only span boundaries (left/right). This reduces

@@ -7,30 +7,28 @@ jest.mock('@/utils/toolSwitch', () => ({
   useToolSwitcher: () => mockSwitchTool,
 }));
 
-jest.mock('@/stores/useAppStore', () => {
-  const mockStore = {
-    tools: { currentTool: 'brush' },
-    saveProject: jest.fn().mockResolvedValue(undefined),
-    toggleModal: jest.fn(),
-  };
-  const mock = jest.fn(() => mockStore);
-  mock.getState = () => mockStore;
-  mock.setState = jest.fn();
-  mock.subscribe = jest.fn(() => () => {});
-  return {
-    useAppStore: mock,
-    __mockStore: mockStore,
-  };
+type ToolbarStore = {
+  tools: { currentTool: string };
+  saveProject: jest.Mock;
+  toggleModal: jest.Mock;
+};
+
+const mockStore: ToolbarStore = {
+  tools: { currentTool: 'brush' },
+  saveProject: jest.fn().mockResolvedValue(undefined),
+  toggleModal: jest.fn(),
+};
+
+const useAppStoreMock = Object.assign(jest.fn(() => mockStore) as jest.Mock, {
+  getState: () => mockStore,
+  setState: jest.fn(),
+  subscribe: jest.fn(() => () => {}),
 });
 
-const { useAppStore: useAppStoreMock, __mockStore: mockStore } = require('@/stores/useAppStore') as {
-  useAppStore: jest.Mock;
-  __mockStore: {
-    tools: { currentTool: string };
-    saveProject: jest.Mock;
-    toggleModal: jest.Mock;
-  };
-};
+jest.mock('@/stores/useAppStore', () => ({
+  __esModule: true,
+  useAppStore: useAppStoreMock,
+}));
 
 describe('LeftToolbar accessibility', () => {
   beforeEach(() => {

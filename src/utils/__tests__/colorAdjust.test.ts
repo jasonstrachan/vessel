@@ -13,7 +13,10 @@ describe('applyColorAdjustments', () => {
       hue: 0,
       saturation: 0,
       lightness: 0,
-      contrast: 0
+      contrast: 0,
+      red: 0,
+      green: 0,
+      blue: 0,
     });
 
     expect(result).not.toBe(original);
@@ -26,7 +29,10 @@ describe('applyColorAdjustments', () => {
       hue: 120,
       saturation: 0,
       lightness: 0,
-      contrast: 0
+      contrast: 0,
+      red: 0,
+      green: 0,
+      blue: 0,
     });
 
     const [r, g, b, a] = result.data;
@@ -45,7 +51,10 @@ describe('applyColorAdjustments', () => {
       hue: 0,
       saturation: 0,
       lightness: 0,
-      contrast
+      contrast,
+      red: 0,
+      green: 0,
+      blue: 0,
     });
 
     const contrastValue = Math.max(-255, Math.min(255, Math.round(contrast * 2.55)));
@@ -57,5 +66,23 @@ describe('applyColorAdjustments', () => {
     expect(g).toBe(expectedChannel);
     expect(b).toBe(expectedChannel);
     expect(a).toBe(255);
+  });
+
+  it('applies RGB channel offsets after other adjustments', () => {
+    const original = createImageData([10, 20, 30, 255], 1, 1);
+    const result = applyColorAdjustments(original, {
+      hue: 0,
+      saturation: 0,
+      lightness: 0,
+      contrast: 0,
+      red: 10,
+      green: -10,
+      blue: 25,
+    });
+
+    const [r, g, b] = result.data;
+    expect(r).toBeGreaterThan(original.data[0]);
+    expect(g).toBeLessThan(original.data[1]);
+    expect(b).toBeGreaterThan(original.data[2]);
   });
 });

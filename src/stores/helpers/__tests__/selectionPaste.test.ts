@@ -51,7 +51,7 @@ const createBaseLayer = (projectSize: number): Layer => {
 };
 
 const setupHelpers = (floatingOverrides: Partial<NonNullable<AppState['floatingPaste']>>) => {
-  const project = { width: 64, height: 64 } as unknown as AppState['project'];
+  const project = { width: 64, height: 64 } as unknown as NonNullable<AppState['project']>;
   const layer = createBaseLayer(project.width);
 
   const floatingPaste: NonNullable<AppState['floatingPaste']> = {

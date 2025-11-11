@@ -20,7 +20,10 @@ const SLIDER_CONFIG: Array<{
   { key: 'hue', label: 'Hue', min: -180, max: 180, suffix: '°' },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100, suffix: '%' },
   { key: 'lightness', label: 'Lightness', min: -100, max: 100, suffix: '%' },
-  { key: 'contrast', label: 'Contrast', min: -100, max: 100, suffix: '%' }
+  { key: 'contrast', label: 'Contrast', min: -100, max: 100, suffix: '%' },
+  { key: 'red', label: 'Red', min: -100, max: 100, suffix: '%' },
+  { key: 'green', label: 'Green', min: -100, max: 100, suffix: '%' },
+  { key: 'blue', label: 'Blue', min: -100, max: 100, suffix: '%' },
 ];
 
 const ColorAdjustToolPanel: React.FC = () => {
@@ -79,8 +82,16 @@ const ColorAdjustToolPanel: React.FC = () => {
   }, [resetColorAdjustParams]);
 
   const hasAdjustments = useMemo(() => {
-    const { hue, saturation, lightness, contrast } = session.params;
-    return hue !== 0 || saturation !== 0 || lightness !== 0 || contrast !== 0;
+    const { hue, saturation, lightness, contrast, red, green, blue } = session.params;
+    return (
+      hue !== 0 ||
+      saturation !== 0 ||
+      lightness !== 0 ||
+      contrast !== 0 ||
+      red !== 0 ||
+      green !== 0 ||
+      blue !== 0
+    );
   }, [session.params]);
 
   const scopeLabel = session.selectionBounds ? 'Selection' : 'Layer';
@@ -111,16 +122,12 @@ const ColorAdjustToolPanel: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {SLIDER_CONFIG.map(({ key, label, min, max, step = 1, suffix }) => (
-          <div key={key} className="space-y-2">
-            <div className="flex items-center justify-between text-xs uppercase tracking-wider text-[#9C9C9C]">
-              <span>{label}</span>
-              <span className="text-[#D9D9D9]">
-                {Math.round(session.params[key])}
-                {suffix}
-              </span>
-            </div>
+      <div className="flex flex-col gap-3">
+        {SLIDER_CONFIG.map(({ key, label, min, max, step = 1 }) => (
+          <div key={key} className="flex items-center gap-3">
+            <span className="w-20 text-xs uppercase tracking-wider text-[#9C9C9C]">
+              {label}
+            </span>
             <ProgressSlider
               value={session.params[key]}
               min={min}
@@ -128,6 +135,7 @@ const ColorAdjustToolPanel: React.FC = () => {
               step={step}
               onChange={handleSliderChange(key)}
               aria-label={`${label} adjustment`}
+              className="flex-1"
             />
           </div>
         ))}
@@ -136,7 +144,7 @@ const ColorAdjustToolPanel: React.FC = () => {
       <div className="flex gap-2">
         <button
           type="button"
-          className="px-3 py-1.5 text-sm font-medium border border-[#FFFFFF]/40 text-white rounded-sm hover:bg-white hover:text-black transition"
+          className="px-3 py-1.5 text-sm font-medium border border-[#FFFFFF]/40 text-white rounded-none hover:bg-white hover:text-black transition"
           onClick={handleApply}
           disabled={!session.active}
         >
@@ -144,7 +152,7 @@ const ColorAdjustToolPanel: React.FC = () => {
         </button>
         <button
           type="button"
-          className="px-3 py-1.5 text-sm font-medium border border-[#FFFFFF]/20 text-[#D9D9D9] rounded-sm hover:bg-[#2A2A2A] transition disabled:opacity-50"
+          className="px-3 py-1.5 text-sm font-medium border border-[#FFFFFF]/20 text-[#D9D9D9] rounded-none hover:bg-[#2A2A2A] transition disabled:opacity-50"
           onClick={handleReset}
           disabled={!session.active || !hasAdjustments}
         >
@@ -152,7 +160,7 @@ const ColorAdjustToolPanel: React.FC = () => {
         </button>
         <button
           type="button"
-          className="ml-auto px-3 py-1.5 text-sm font-medium border border-transparent text-[#FF6B6B] hover:border-[#FF6B6B] rounded-sm transition"
+          className="ml-auto px-3 py-1.5 text-sm font-medium border border-transparent text-[#FF6B6B] hover:border-[#FF6B6B] rounded-none transition"
           onClick={handleCancel}
           disabled={!session.active}
         >

@@ -24,8 +24,8 @@ import LoadProjectModal from '@/components/modals/LoadProjectModal';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
 import { selectModals } from '@/stores/selectors/modalSelectors';
-import { autosaveService } from '@/utils/autosave';
 import { preloadRisographTexture } from '@/utils/risographTexture';
+import { autosaveService } from '@/utils/autosave';
 import { devLog } from '@/utils/devLog';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
@@ -41,8 +41,6 @@ export default function Home() {
   const isExportModalOpen = modals.export;
   const isLoadModalOpen = modals.loadProject;
 
-  const autosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
-  const autosaveInterval = useAppStore((state) => state.autosave.interval);
   const canvasShowRulers = useAppStore((state) => state.canvas.showRulers);
   const setAutosaveEnabled = useAppStore((state) => state.setAutosaveEnabled);
   const setAutosaveInterval = useAppStore((state) => state.setAutosaveInterval);
@@ -51,6 +49,8 @@ export default function Home() {
   const newProject = useAppStore((state) => state.newProject);
   const ensureCustomBrushHydrated = useAppStore((state) => state.ensureCustomBrushHydrated);
   const layers = useAppStore(selectLayers);
+  const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
+  const autosaveIntervalMinutes = useAppStore((state) => state.autosave.interval);
   
   // Feedback strip state
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -130,31 +130,18 @@ export default function Home() {
     }
   }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, toggleRulers]);
 
-  // Initialize/manage autosave service
   useEffect(() => {
-    // Cleanup on unmount
-    return () => {
+    if (!isAutosaveEnabled) {
       autosaveService.stop();
-    };
-  }, []);
-
-  // Watch for autosave settings changes
-  useEffect(() => {
-    const isCurrentlyRunning = autosaveService.isRunning();
-
-    if (!autosaveEnabled) {
-      if (isCurrentlyRunning) {
-        autosaveService.stop();
-      }
       return;
     }
 
-    autosaveService.setInterval(autosaveInterval);
+    autosaveService.setInterval(autosaveIntervalMinutes);
 
-    if (!isCurrentlyRunning) {
+    if (!autosaveService.isRunning()) {
       autosaveService.start();
     }
-  }, [autosaveEnabled, autosaveInterval]);
+  }, [autosaveIntervalMinutes, isAutosaveEnabled]);
 
   // Save/Open keyboard shortcuts are centralized in useComprehensiveKeyboard
 

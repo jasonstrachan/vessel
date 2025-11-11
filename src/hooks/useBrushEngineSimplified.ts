@@ -2478,7 +2478,15 @@ export const useBrushEngineSimplified = () => {
       // Force a render to ensure the shape is visible
       renderBrushToLayerCanvas(brush, layerId);
     }
-  }, [initializeColorCycleBrush, activeLayerId, tools.brushSettings.colorCycleGradient, tools.brushSettings.gradientBands]);
+  }, [
+    initializeColorCycleBrush,
+    activeLayerId,
+    tools.brushSettings.colorCycleGradient,
+    tools.brushSettings.gradientBands,
+    tools.brushSettings.brushShape,
+    tools.brushSettings.colorCycleBandSpacingPx,
+    tools.brushSettings.spacing,
+  ]);
   
   /**
    * Fill a shape with color cycle gradient from edges to center
@@ -2535,7 +2543,14 @@ export const useBrushEngineSimplified = () => {
       // Force a render to ensure the shape is visible
       renderBrushToLayerCanvas(brush, layerId);
     }
-  }, [initializeColorCycleBrush, activeLayerId, tools.brushSettings.colorCycleGradient, tools.brushSettings.spacing, tools.brushSettings.gradientBands]);
+  }, [
+    initializeColorCycleBrush,
+    activeLayerId,
+    tools.brushSettings.colorCycleGradient,
+    tools.brushSettings.spacing,
+    tools.brushSettings.gradientBands,
+    tools.brushSettings.colorCycleBandSpacingPx,
+  ]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
@@ -2610,7 +2625,14 @@ export const useBrushEngineSimplified = () => {
         window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
       }
     }
-  }, [tools.brushSettings.colorCycleBandSpacingPx, getActiveLayerColorCycleBrush, activeLayerId, initializeColorCycleBrush]);
+  }, [
+    tools.brushSettings.colorCycleBandSpacingPx,
+    tools.brushSettings.spacing,
+    tools.brushSettings.brushShape,
+    getActiveLayerColorCycleBrush,
+    activeLayerId,
+    initializeColorCycleBrush,
+  ]);
   
   // Update band spacing when it changes
   useEffect(() => {
@@ -2624,7 +2646,13 @@ export const useBrushEngineSimplified = () => {
       );
       colorCycleBrush.setBandSpacing(resolvedBandSpacing);
     }
-  }, [tools.brushSettings.spacing, activeLayerId, getActiveLayerColorCycleBrush]);
+  }, [
+    tools.brushSettings.spacing,
+    tools.brushSettings.colorCycleBandSpacingPx,
+    tools.brushSettings.brushShape,
+    activeLayerId,
+    getActiveLayerColorCycleBrush,
+  ]);
 
   // Update dithering toggle for color-cycle shape fills
   useEffect(() => {

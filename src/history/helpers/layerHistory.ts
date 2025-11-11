@@ -51,7 +51,6 @@ const markUnsavedChanges = (): void => {
     autosave: {
       ...state.autosave,
       hasUnsavedChanges: true,
-      lastSaveTime: new Date(),
     },
   }));
 };

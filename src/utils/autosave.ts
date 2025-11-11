@@ -2,17 +2,85 @@
 // Implements 2-minute interval autosave with change detection
 // Now uses background storage for silent, non-blocking saves
 
-import { useAppStore } from '../stores/useAppStore';
+import { useAppStore } from '@/stores/useAppStore';
+import type { AppState } from '@/stores/useAppStore';
 import { backgroundStorageService } from './backgroundStorage';
 import { fileBackupService } from './fileBackupService';
 import { devLog } from './devLog';
 
 const autosaveLog = devLog.scope('AUTOSAVE');
 
+type AutosaveConfig = {
+  enabled: boolean;
+  interval: number;
+};
+
+const selectAutosaveConfig = (state: AppState): AutosaveConfig => ({
+  enabled: state.autosave.isEnabled,
+  interval: state.autosave.interval,
+});
+
+const configsEqual = (a: AutosaveConfig, b: AutosaveConfig): boolean =>
+  a.enabled === b.enabled && a.interval === b.interval;
+
+type SelectorSubscriber = <Slice>(
+  selector: (state: AppState) => Slice,
+  listener: (slice: Slice, prevSlice: Slice) => void,
+  options?: { equalityFn?: (a: Slice, b: Slice) => boolean }
+) => () => void;
+
+const subscribeWithSelector = useAppStore.subscribe as unknown as SelectorSubscriber;
+
 class AutosaveService {
   private intervalId: NodeJS.Timeout | null = null;
   private intervalMs: number = 2 * 60 * 1000; // 2 minutes
   private inProgress = false;
+  private storeUnsubscribe: (() => void) | null = null;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.bindStoreSubscription();
+    }
+  }
+
+  private bindStoreSubscription(): void {
+    const selector = selectAutosaveConfig;
+    this.storeUnsubscribe = subscribeWithSelector(
+      selector,
+      (next: AutosaveConfig, prev: AutosaveConfig | undefined) => {
+        this.applyConfig(next, prev ?? next);
+      },
+      {
+        equalityFn: configsEqual,
+      }
+    );
+
+    const initialConfig = selector(useAppStore.getState());
+    this.applyConfig(initialConfig, initialConfig);
+  }
+
+  private applyConfig(next: AutosaveConfig, prev: AutosaveConfig): void {
+    if (!next.enabled) {
+      this.stop();
+      return;
+    }
+
+    const nextIntervalMs = next.interval * 60 * 1000;
+    const intervalChanged = this.intervalMs !== nextIntervalMs;
+    this.intervalMs = nextIntervalMs;
+
+    if (intervalChanged && this.intervalId) {
+      this.stop();
+    }
+
+    if (!this.intervalId) {
+      this.start();
+    }
+
+    if (!prev.enabled && next.enabled) {
+      void this.performAutosave();
+    }
+  }
 
   start(): void {
     if (this.intervalId || typeof setInterval === 'undefined') {
@@ -131,6 +199,13 @@ class AutosaveService {
       
       // Clear dirty state after successful background save
       freshState.clearDirtyState();
+      const savedAt = new Date();
+      useAppStore.setState((state) => ({
+        autosave: {
+          ...state.autosave,
+          lastSaveTime: savedAt,
+        },
+      }));
       useAppStore.setState({ paletteDirty: false });
       
       // Project "${freshState.project.name}" saved to background storage

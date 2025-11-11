@@ -27,5 +27,8 @@ parentPort.on('message', (dataMessage) => {
   }
 });
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-require(data.entry);
+void import(data.entry).catch((error) => {
+  setImmediate(() => {
+    throw error;
+  });
+});

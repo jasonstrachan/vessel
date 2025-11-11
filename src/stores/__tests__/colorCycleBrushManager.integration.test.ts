@@ -130,7 +130,7 @@ describe('colorCycleBrushManager integration', () => {
   it('responds to feature-flag events by toggling canvas implementation', () => {
     const manager = getColorCycleBrushManager();
     manager.initColorCycleForLayer('layer-flag', 8, 8);
-    const brush = manager.getBrush('layer-flag') as MockBrush;
+    const brush = manager.getBrush('layer-flag') as unknown as MockBrush;
 
     window.dispatchEvent(new CustomEvent('vessel:featureFlagChange', {
       detail: { key: 'useCanvas2DColorCycle', value: true },

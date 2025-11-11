@@ -254,6 +254,7 @@ import {
   commitLayerStructureHistory,
 } from '@/stores/helpers/layerStructureHistory';
 import { createSelectionSlice } from '@/stores/slices/selectionSlice';
+import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 
 
@@ -389,10 +390,13 @@ export interface AppState {
   // Selection State
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
+  selectionClipboard: SelectionClipboardPayload | null;
   setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
   deleteSelectedPixels: () => void;
+  copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
+  clearSelectionClipboard: () => void;
 
   // Color Adjust Tool
   colorAdjust: ColorAdjustState;

@@ -1,51 +1,122 @@
+import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { autosaveService as mockAutosaveService } from '@/utils/autosave';
 import Home from '../page';
 
-jest.mock('@/components/LeftToolbar', () => () => <div data-testid="left-toolbar" />);
-jest.mock('@/components/panels/ColorPickerPanel', () => () => <div data-testid="color-picker" />);
-jest.mock('@/components/panels/LayersPanel', () => () => <div data-testid="layers-panel" />);
-jest.mock('@/components/panels/AlignmentPanel', () => () => <div data-testid="alignment-panel" />);
-jest.mock('@/components/panels/AnimationControlsPanel', () => () => <div data-testid="animation-panel" />);
-jest.mock('@/components/panels/BrushLibraryPanel', () => () => <div data-testid="brush-library" />);
-jest.mock('@/components/panels/BrushSettingsPanel', () => () => <div data-testid="brush-settings" />);
-jest.mock('@/components/canvas/DrawingCanvas', () => {
-  const React = require('react');
-  return ({ showFeedback }: { showFeedback: (msg: string) => void }) => {
+function createMockComponent<P extends Record<string, unknown> = Record<string, never>>(
+  testId: string,
+  name: string,
+  renderFn?: (props: P) => React.ReactElement | null
+): React.FC<P> {
+  const MockComponent: React.FC<P> = (props) => {
+    if (renderFn) {
+      return renderFn(props);
+    }
+    return <div data-testid={testId} />;
+  };
+  MockComponent.displayName = name;
+  return MockComponent;
+}
+
+function createModalMock(testId: string, label: string) {
+  return createMockComponent<{ isOpen?: boolean; onClose?: () => void }>(testId, label, ({ isOpen }) =>
+    isOpen ? <div data-testid={testId} /> : null
+  );
+}
+
+function createDrawingCanvasMock() {
+  const MockDrawingCanvas: React.FC<{ showFeedback: (msg: string) => void }> = ({ showFeedback }) => {
     React.useEffect(() => {
       showFeedback('test');
     }, [showFeedback]);
     return <div data-testid="drawing-canvas" />;
   };
-});
-jest.mock('@/components/dev/ConsoleSilencer', () => () => null);
-jest.mock('@/components/dev/FPSMeter', () => () => <div data-testid="fps-meter" />);
-jest.mock('@/components/FeedbackStrip', () => ({ message, onClose }: { message: string; onClose: () => void }) => (
-  <div data-testid="feedback-strip" onClick={onClose}>{message}</div>
-));
-jest.mock('@/components/modals/DocumentModal', () => ({ DocumentModal: () => <div data-testid="document-modal" /> }));
-jest.mock('@/components/modals/ExportModal', () => ({ ExportModal: () => <div data-testid="export-modal" /> }));
-jest.mock('@/components/modals/SettingsModal', () => ({ SettingsModal: () => <div data-testid="settings-modal" /> }));
-jest.mock('@/components/modals/LoadProjectModal', () => () => <div data-testid="load-modal" />);
+  MockDrawingCanvas.displayName = 'MockDrawingCanvas';
+  return MockDrawingCanvas;
+}
+
+jest.mock('@/components/LeftToolbar', () => ({
+  __esModule: true,
+  default: createMockComponent('left-toolbar', 'MockLeftToolbar'),
+}));
+jest.mock('@/components/panels/ColorPickerPanel', () => ({
+  __esModule: true,
+  default: createMockComponent('color-picker', 'MockColorPickerPanel'),
+}));
+jest.mock('@/components/panels/LayersPanel', () => ({
+  __esModule: true,
+  default: createMockComponent('layers-panel', 'MockLayersPanel'),
+}));
+jest.mock('@/components/panels/AlignmentPanel', () => ({
+  __esModule: true,
+  default: createMockComponent('alignment-panel', 'MockAlignmentPanel'),
+}));
+jest.mock('@/components/panels/AnimationControlsPanel', () => ({
+  __esModule: true,
+  default: createMockComponent('animation-panel', 'MockAnimationControlsPanel'),
+}));
+jest.mock('@/components/panels/BrushLibraryPanel', () => ({
+  __esModule: true,
+  default: createMockComponent('brush-library', 'MockBrushLibraryPanel'),
+}));
+jest.mock('@/components/panels/BrushSettingsPanel', () => ({
+  __esModule: true,
+  default: createMockComponent('brush-settings', 'MockBrushSettingsPanel'),
+}));
+jest.mock('@/components/canvas/DrawingCanvas', () => ({
+  __esModule: true,
+  default: createDrawingCanvasMock(),
+}));
+jest.mock('@/components/dev/ConsoleSilencer', () => ({
+  __esModule: true,
+  default: createMockComponent('console-silencer', 'MockConsoleSilencer', () => null),
+}));
+jest.mock('@/components/dev/FPSMeter', () => ({
+  __esModule: true,
+  default: createMockComponent('fps-meter', 'MockFPSMeter'),
+}));
+jest.mock('@/components/FeedbackStrip', () => ({
+  __esModule: true,
+  default: createMockComponent<{ message: string; onClose: () => void }>(
+    'feedback-strip',
+    'MockFeedbackStrip',
+    ({ message, onClose }) => (
+      <div data-testid="feedback-strip" onClick={onClose}>
+        {message}
+      </div>
+    )
+  ),
+}));
+jest.mock('@/components/modals/DocumentModal', () => ({
+  __esModule: true,
+  DocumentModal: createModalMock('document-modal', 'MockDocumentModal'),
+}));
+jest.mock('@/components/modals/ExportModal', () => ({
+  __esModule: true,
+  ExportModal: createModalMock('export-modal', 'MockExportModal'),
+}));
+jest.mock('@/components/modals/SettingsModal', () => ({
+  __esModule: true,
+  SettingsModal: createModalMock('settings-modal', 'MockSettingsModal'),
+}));
+jest.mock('@/components/modals/LoadProjectModal', () => ({
+  __esModule: true,
+  default: createModalMock('load-modal', 'MockLoadProjectModal'),
+}));
 
 jest.mock('@/utils/autosave', () => {
-  const service = {
+  const autosaveMock = {
     start: jest.fn(),
     stop: jest.fn(),
     setInterval: jest.fn(),
     isRunning: jest.fn(() => false),
   };
   return {
-    autosaveService: service,
-    __autosaveService: service,
+    __esModule: true,
+    autosaveService: autosaveMock,
+    useAutosave: () => autosaveMock,
   };
 });
-
-const { __autosaveService: mockAutosaveService } = require('@/utils/autosave') as { __autosaveService: {
-  start: jest.Mock;
-  stop: jest.Mock;
-  setInterval: jest.Mock;
-  isRunning: jest.Mock;
-}; };
 
 jest.mock('@/utils/risographTexture', () => ({
   preloadRisographTexture: jest.fn(),
@@ -80,31 +151,38 @@ function createMockStore() {
   };
 }
 
+type MockStore = ReturnType<typeof createMockStore>;
+const mockStore: MockStore = createMockStore();
+
+const resetMockStore = () => {
+  Object.assign(mockStore, createMockStore());
+};
+
 jest.mock('@/stores/useAppStore', () => {
-  const store = createMockStore();
-  const mock = jest.fn((selector?: (state: typeof store) => unknown) => {
-    if (selector) {
-      return selector(store as never);
+  const useAppStore = Object.assign(
+    jest.fn((selector?: (state: MockStore) => unknown) => {
+      if (selector) {
+        return selector(mockStore as never);
+      }
+      return mockStore;
+    }) as jest.Mock,
+    {
+      getState: () => mockStore,
+      setState: jest.fn(),
+      subscribe: jest.fn(() => () => {}),
     }
-    return store;
-  });
-  (mock as any).getState = () => store;
-  (mock as any).setState = jest.fn();
-  (mock as any).subscribe = jest.fn(() => () => {});
+  );
+
   return {
-    useAppStore: mock,
-    __mockStore: store,
+    __esModule: true,
+    useAppStore,
   };
 });
-
-const { useAppStore: useAppStoreMock, __mockStore: mockStore } = require('@/stores/useAppStore') as {
-  useAppStore: jest.Mock;
-  __mockStore: ReturnType<typeof createMockStore>;
-};
 
 describe('Home page client rendering', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetMockStore();
   });
 
   it('renders primary panels and toolbars', () => {

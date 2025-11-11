@@ -663,6 +663,9 @@ export interface ColorAdjustParams {
   saturation: number; // -100 to 100 percent delta
   lightness: number;  // -100 to 100 percent delta
   contrast: number;   // -100 to 100 percent delta
+  red: number;        // -100 to 100 percent channel delta
+  green: number;      // -100 to 100 percent channel delta
+  blue: number;       // -100 to 100 percent channel delta
 }
 
 export interface ColorAdjustState {

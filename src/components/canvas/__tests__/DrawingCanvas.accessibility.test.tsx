@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import DrawingCanvas from '../DrawingCanvas';
 import type { AppState } from '@/stores/useAppStore';
@@ -81,31 +82,31 @@ function createBaseState(): AppState {
 } as unknown as AppState);
 }
 
+const baseState = createBaseState();
+
+const useAppStoreMock = Object.assign(
+  jest.fn((selector?: (store: AppState) => unknown) => {
+    if (selector) {
+      return selector(baseState);
+    }
+    return baseState;
+  }),
+  {
+    getState: () => baseState,
+    setState: jest.fn(),
+    subscribe: jest.fn(() => () => {}),
+  }
+);
+
 jest.mock('@/stores/useAppStore', () => {
   const actual = jest.requireActual('@/stores/useAppStore');
-  const state = createBaseState();
-  const baseHook: typeof actual.useAppStore = (selector?: (store: AppState) => unknown) => {
-    if (selector) {
-      return selector(state);
-    }
-    return state;
-  };
-  const useAppStore = jest.fn(baseHook);
-  useAppStore.getState = () => state;
-  useAppStore.setState = jest.fn();
-  useAppStore.subscribe = jest.fn(() => () => {});
   return {
+    __esModule: true,
     ...actual,
-    useAppStore,
-    __mockStoreState: state,
+    useAppStore: useAppStoreMock as typeof actual.useAppStore,
     selectEffectiveColorCyclePlaying: jest.fn(() => false),
   };
 });
-
-const { useAppStore: useAppStoreMock, __mockStoreState: baseState } = require('@/stores/useAppStore') as {
-  useAppStore: jest.MockedFunction<typeof import('@/stores/useAppStore').useAppStore>;
-  __mockStoreState: AppState;
-};
 
 const brushEngineStub = {
   updateColorCycleGradient: jest.fn(),
@@ -266,10 +267,11 @@ jest.mock('../SimplifiedColorCycleManager', () => ({
 }));
 
 jest.mock('../BrushCursor', () => {
-  const React = require('react');
+  const MockBrushCursor = React.forwardRef<HTMLDivElement>(() => null);
+  MockBrushCursor.displayName = 'MockBrushCursor';
   return {
     __esModule: true,
-    default: React.forwardRef(() => null),
+    default: MockBrushCursor,
   };
 });
 

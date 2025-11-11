@@ -57,7 +57,6 @@ export const commitLayerStructureHistory = ({
       autosave: {
         ...state.autosave,
         hasUnsavedChanges: true,
-        lastSaveTime: new Date(),
       },
     }));
   } catch (error) {

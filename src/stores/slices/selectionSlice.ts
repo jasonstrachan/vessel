@@ -48,7 +48,7 @@ export interface SelectionSlice {
   clearSelectionClipboard: () => void;
 }
 
-interface SelectionClipboardPayload {
+export interface SelectionClipboardPayload {
   imageData: ImageData;
   position: { x: number; y: number };
   width: number;
@@ -248,7 +248,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                 layerId: activeLayerId,
                 beforeImage,
                 beforeColorState,
-                actionType: 'cut',
+                actionType: 'selection',
                 description: 'Cut selection to clipboard',
                 tool: 'selection',
                 selectionBefore,
@@ -332,13 +332,19 @@ const cloneImageData = (imageData: ImageData): ImageData =>
 const createClipboardPayloadFromFloatingPaste = (
   floatingPaste: NonNullable<AppState['floatingPaste']>,
   mode: 'copy' | 'cut'
-): SelectionClipboardPayload => ({
-  imageData: cloneImageData(floatingPaste.imageData),
-  position: {
-    x: Math.round(floatingPaste.position.x),
-    y: Math.round(floatingPaste.position.y),
-  },
-  width: floatingPaste.imageData.width,
-  height: floatingPaste.imageData.height,
-  mode,
-});
+): SelectionClipboardPayload => {
+  if (!floatingPaste.imageData) {
+    throw new Error('Floating paste is missing image data.');
+  }
+
+  return {
+    imageData: cloneImageData(floatingPaste.imageData),
+    position: {
+      x: Math.round(floatingPaste.position.x),
+      y: Math.round(floatingPaste.position.y),
+    },
+    width: floatingPaste.imageData.width,
+    height: floatingPaste.imageData.height,
+    mode,
+  };
+};

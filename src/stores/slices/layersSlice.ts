@@ -560,7 +560,6 @@ export const createLayersSlice = (
     });
 
     const newLayerId = `layer-${Date.now()}-${Math.random()}`;
-    const hasColorCycleData = Boolean(targetLayer.colorCycleData);
     const inheritsColorCycleType = targetLayer.layerType === 'color-cycle';
     const hasCanvasBackedCC = inheritsColorCycleType && Boolean(targetLayer.colorCycleData?.canvas);
     const treatAsColorCycle = inheritsColorCycleType || Boolean(targetLayer.colorCycleData?.canvas);

@@ -324,19 +324,70 @@ export function adjustContrast(imageData: ImageData, contrast: number): ImageDat
   return new ImageData(data, imageData.width, imageData.height);
 }
 
+const clampByte = (value: number): number => {
+  if (value <= 0) return 0;
+  if (value >= 255) return 255;
+  return value;
+};
+
+const channelPercentToOffset = (percent: number): number => {
+  if (!Number.isFinite(percent)) {
+    return 0;
+  }
+  return Math.max(-255, Math.min(255, Math.round(percent * 2.55)));
+};
+
+export interface RgbChannelOffsets {
+  red: number;
+  green: number;
+  blue: number;
+}
+
+export function adjustRgbChannelOffsets(
+  imageData: ImageData,
+  offsets: RgbChannelOffsets
+): ImageData {
+  const rOffset = channelPercentToOffset(offsets.red);
+  const gOffset = channelPercentToOffset(offsets.green);
+  const bOffset = channelPercentToOffset(offsets.blue);
+
+  if (rOffset === 0 && gOffset === 0 && bOffset === 0) {
+    return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  }
+
+  const data = new Uint8ClampedArray(imageData.data);
+
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3];
+    if (alpha === 0) {
+      continue;
+    }
+
+    data[i] = clampByte(data[i] + rOffset);
+    data[i + 1] = clampByte(data[i + 1] + gOffset);
+    data[i + 2] = clampByte(data[i + 2] + bOffset);
+  }
+
+  return new ImageData(data, imageData.width, imageData.height);
+}
+
 export interface ColorAdjustOptions {
   hue: number;
   saturation: number;
   lightness: number;
   contrast: number;
+  red: number;
+  green: number;
+  blue: number;
 }
 
 export function applyColorAdjustments(imageData: ImageData, options: ColorAdjustOptions): ImageData {
-  const { hue, saturation, lightness, contrast } = options;
+  const { hue, saturation, lightness, contrast, red, green, blue } = options;
   const hasHueSatLightness = hue !== 0 || saturation !== 0 || lightness !== 0;
   const hasContrast = contrast !== 0;
+  const hasChannelOffsets = red !== 0 || green !== 0 || blue !== 0;
 
-  if (!hasHueSatLightness && !hasContrast) {
+  if (!hasHueSatLightness && !hasContrast && !hasChannelOffsets) {
     return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
   }
 
@@ -356,6 +407,10 @@ export function applyColorAdjustments(imageData: ImageData, options: ColorAdjust
     if (contrastValue !== 0) {
       working = adjustContrast(working, contrastValue);
     }
+  }
+
+  if (hasChannelOffsets) {
+    working = adjustRgbChannelOffsets(working, { red, green, blue });
   }
 
   return working;

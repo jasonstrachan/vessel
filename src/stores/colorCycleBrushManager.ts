@@ -695,9 +695,9 @@ let ColorCycleBrushCanvas2DImpl: ColorCycleBrushCanvas2DConstructor | null = nul
 const getColorCycleBrushCanvas2D = (): ColorCycleBrushCanvas2DConstructor => {
   if (!ColorCycleBrushCanvas2DImpl) {
     // Lazily require to avoid circular dependency with useAppStore during Jest runs.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
-    const module = require('@/hooks/brushEngine/ColorCycleBrushCanvas2D') as typeof import('@/hooks/brushEngine/ColorCycleBrushCanvas2D');
-    ColorCycleBrushCanvas2DImpl = module.ColorCycleBrushCanvas2D;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const colorCycleModule = require('@/hooks/brushEngine/ColorCycleBrushCanvas2D') as typeof import('@/hooks/brushEngine/ColorCycleBrushCanvas2D');
+    ColorCycleBrushCanvas2DImpl = colorCycleModule.ColorCycleBrushCanvas2D;
   }
   return ColorCycleBrushCanvas2DImpl;
 };

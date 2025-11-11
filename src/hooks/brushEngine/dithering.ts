@@ -560,7 +560,7 @@ export const applyDitheringWithFillResolution = (
     );
   }
 
-  return scaleDownAndDither(
+  return downsampleDitherAndScale(
     imageData,
     numColors,
     pixelSize,

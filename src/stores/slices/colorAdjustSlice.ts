@@ -34,6 +34,9 @@ export const defaultColorAdjustParams: ColorAdjustParams = {
   saturation: 0,
   lightness: 0,
   contrast: 0,
+  red: 0,
+  green: 0,
+  blue: 0,
 };
 
 export const createDefaultColorAdjustState = (): ColorAdjustState => ({
@@ -146,7 +149,13 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
 
     const { params, selectionBounds, originalImageData } = colorAdjust;
     const hasAdjustments =
-      params.hue !== 0 || params.saturation !== 0 || params.lightness !== 0 || params.contrast !== 0;
+      params.hue !== 0 ||
+      params.saturation !== 0 ||
+      params.lightness !== 0 ||
+      params.contrast !== 0 ||
+      params.red !== 0 ||
+      params.green !== 0 ||
+      params.blue !== 0;
 
     let finalImageData: ImageData;
     if (!hasAdjustments) {

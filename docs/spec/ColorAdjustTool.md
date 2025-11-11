@@ -29,6 +29,9 @@ Introduce a destructive-but-undoable Hue/Sat tool that lets artists tweak hue, s
   - Saturation: −100 … +100 (% delta applied via factor)
   - Lightness: −100 … +100 (relative offset)
   - Contrast: −100 … +100 (standard contrast curve)
+  - Red: −100 … +100 (% channel delta)
+  - Green: −100 … +100 (% channel delta)
+  - Blue: −100 … +100 (% channel delta)
 - Buttons: `Apply`, `Reset`, `Cancel`. Enter triggers `Apply`; Escape triggers `Cancel`.
 - Disable sliders when there is no active layer or when selection bounds are empty.
 - Show value readouts near each slider for precision (inline numeric label).
@@ -38,7 +41,15 @@ Introduce a destructive-but-undoable Hue/Sat tool that lets artists tweak hue, s
 - Add `colorAdjust` slice in `useAppStore`:
   ```ts
   interface ColorAdjustState {
-    params: { hue: number; saturation: number; lightness: number; contrast: number };
+    params: {
+      hue: number;
+      saturation: number;
+      lightness: number;
+      contrast: number;
+      red: number;
+      green: number;
+      blue: number;
+    };
     originalImageData: ImageData | null;
     selectionBounds: { x: number; y: number; width: number; height: number } | null;
     targetLayerId: string | null;
@@ -60,6 +71,7 @@ Introduce a destructive-but-undoable Hue/Sat tool that lets artists tweak hue, s
    - Recreate a working copy from `originalImageData`.
    - Run `adjustHueLightnessSaturation` with `hue`, `lightness`, `saturation`.
    - Run `adjustContrast` on the result.
+   - Run `adjustRgbChannelOffsets` with `red/green/blue` deltas for channel-specific tweaks.
    - If selection-scoped, composite processed rect back into `layer.imageData` while preserving untouched pixels.
    - Dispatch `updateLayerImageData`/`commitLayerHistory` preview updates so canvas rerender triggers.
 3. `apply` uses `commitLayerHistory` (or equivalent) before final draw to ensure undo.

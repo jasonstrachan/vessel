@@ -6,12 +6,10 @@ const utilTextEncoder = TextEncoder;
 const utilTextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;
 
 if (typeof globalThis.TextEncoder === 'undefined') {
-  // @ts-expect-error - jsdom environment misses TextEncoder in Node 18
   globalThis.TextEncoder = utilTextEncoder;
 }
 
 if (typeof globalThis.TextDecoder === 'undefined') {
-  // @ts-expect-error - jsdom environment misses TextDecoder in Node 18
   globalThis.TextDecoder = utilTextDecoder;
 }
 

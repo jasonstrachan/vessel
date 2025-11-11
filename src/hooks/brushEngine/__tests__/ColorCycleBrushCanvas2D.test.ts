@@ -20,9 +20,7 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
         _x: number,
         _y: number,
         _brushSize: number,
-        colorIndex?: number,
-        _maskTile?: Uint8Array,
-        _tileSize?: number
+        colorIndex?: number
       ) {
         paintSquareSpy(colorIndex);
       }
@@ -30,9 +28,7 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
         _x: number,
         _y: number,
         _brushSize: number,
-        colorIndex?: number,
-        _maskTile?: Uint8Array,
-        _tileSize?: number
+        colorIndex?: number
       ) {
         paintTriangleSpy(colorIndex);
       }
