@@ -46,6 +46,7 @@ import { useToolSwitcher } from '@/utils/toolSwitch';
 import { FillStage } from '@/shapeFill/types';
 import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '@/constants/canvas';
 import { viewPerformanceTracker } from '@/utils/viewPerformanceTracker';
+import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
 
 type GradientStop = { position: number; color: string };
 
@@ -171,6 +172,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectionStart = useAppStore((state) => state.selectionStart);
   const selectionEnd = useAppStore((state) => state.selectionEnd);
+  const selectionClipboardRef = useStoreSelectorRef((state) => state.selectionClipboard);
+  const floatingPasteRef = useStoreSelectorRef((state) => state.floatingPaste);
   const floatingPaste = useAppStore(selectFloatingPaste);
   const layersNeedRecomposition = useAppStore(selectLayersNeedRecomposition);
   const canvasZoom = useAppStore((state) => state.canvas.zoom);
@@ -2601,68 +2604,125 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // This now correctly depends on the sources of truth for a redraw
   }, [canvasZoom, canvasOffsetX, canvasOffsetY, draw, needsRedraw, stateMachine.state.mode]);
   
+  const getViewportPastePosition = useCallback(
+    (contentWidth: number, contentHeight: number) => {
+      if (!project) {
+        return null;
+      }
+
+      const canvasElement = canvasRef.current;
+      if (!canvasElement) {
+        return null;
+      }
+
+      const rect = canvasElement.getBoundingClientRect();
+      if (!rect || rect.width === 0 || rect.height === 0) {
+        return null;
+      }
+
+      const { scale, offsetX, offsetY } = viewTransformRef.current;
+      const safeScale = scale || 1;
+
+      const centerScreenX = rect.width / 2;
+      const centerScreenY = rect.height / 2;
+
+      const centerWorldX = (centerScreenX - offsetX) / safeScale;
+      const centerWorldY = (centerScreenY - offsetY) / safeScale;
+
+      const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+      const maxX = Math.max(0, project.width - contentWidth);
+      const maxY = Math.max(0, project.height - contentHeight);
+
+      return {
+        x: clamp(Math.round(centerWorldX - contentWidth / 2), 0, maxX),
+        y: clamp(Math.round(centerWorldY - contentHeight / 2), 0, maxY),
+      };
+    },
+    [project]
+  );
+
+  const commitExistingFloatingIfPresent = useCallback(async () => {
+    const existingFloating = floatingPasteRef.current;
+    if (existingFloating) {
+      try {
+        await commitFloatingPaste();
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[floatingPaste] Failed to commit existing floating before paste', error);
+        }
+      }
+    }
+  }, [commitFloatingPaste, floatingPasteRef]);
+
   // Handle paste event
   useEffect(() => {
+    const cloneClipboardImageData = (imageData: ImageData): ImageData =>
+      new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+
     const handlePaste = async (event: ClipboardEvent) => {
       event.preventDefault();
-      
+
       const items = event.clipboardData?.items;
-      if (!items) return;
-      
-      for (const item of items) {
-        if (item.type.indexOf('image') !== -1) {
+      let handled = false;
+
+      if (items) {
+        for (const item of items) {
+          if (item.type.indexOf('image') === -1) {
+            continue;
+          }
+
           const blob = item.getAsFile();
-          if (!blob) continue;
-          
-          // Convert blob to image
+          if (!blob) {
+            continue;
+          }
+
+          handled = true;
+
           const reader = new FileReader();
           reader.onload = async (e) => {
             const img = new Image();
             img.onload = async () => {
-              // Create a canvas to draw the image
               const tempCanvas = document.createElement('canvas');
               const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-              if (!tempCtx || !project) return;
-              
-              // Set canvas size to match project
+              if (!tempCtx || !project) {
+                return;
+              }
+
               tempCanvas.width = project.width;
               tempCanvas.height = project.height;
-              
-              // Calculate position to center the image
-              const scale = Math.min(
-                project.width / img.width,
-                project.height / img.height,
-                1 // Don't scale up
-              );
-              
+
+              const scale = Math.min(project.width / img.width, project.height / img.height, 1);
               const scaledWidth = img.width * scale;
               const scaledHeight = img.height * scale;
               const x = (project.width - scaledWidth) / 2;
               const y = (project.height - scaledHeight) / 2;
-              
-              // Draw the image centered and scaled
-              tempCtx.drawImage(img, x, y, scaledWidth, scaledHeight);
-              
-              // Get only the actual image area, not the entire canvas
               const imageX = Math.floor(x);
               const imageY = Math.floor(y);
               const imageWidth = Math.ceil(scaledWidth);
               const imageHeight = Math.ceil(scaledHeight);
-              
-              // Get the image data for just the pasted content
+
+              const fallbackPosition = {
+                x: Math.max(0, Math.min(project.width - imageWidth, imageX)),
+                y: Math.max(0, Math.min(project.height - imageHeight, imageY)),
+              };
+              const viewportPosition =
+                getViewportPastePosition(imageWidth, imageHeight) ?? fallbackPosition;
+
+              tempCtx.drawImage(img, x, y, scaledWidth, scaledHeight);
+
               const pasteImageData = tempCtx.getImageData(imageX, imageY, imageWidth, imageHeight);
-              
-              // Create floating paste with actual image dimensions
+
+              await commitExistingFloatingIfPresent();
+              clearSelection();
               setFloatingPaste({
                 imageData: pasteImageData,
-                position: { x: imageX, y: imageY }, // Start at the centered position
+                position: viewportPosition,
                 width: imageWidth,
                 height: imageHeight,
                 displayWidth: imageWidth,
-                displayHeight: imageHeight
+                displayHeight: imageHeight,
               });
-              
-              // Trigger redraw to show floating paste
+
               requestAnimationFrame(() => {
                 const canvas = canvasRef.current;
                 const ctx = canvas?.getContext('2d', { willReadFrequently: true });
@@ -2671,23 +2731,68 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 }
               });
             };
-            
+
             img.src = e.target?.result as string;
           };
-          
+
           reader.readAsDataURL(blob);
-          break; // Only handle first image
+          break;
         }
       }
+
+      if (handled) {
+        return;
+      }
+
+      const clipboardPayload = selectionClipboardRef.current;
+      if (!clipboardPayload) {
+        return;
+      }
+
+      const viewportPosition =
+        clipboardPayload.mode === 'cut'
+          ? clipboardPayload.position
+          : getViewportPastePosition(clipboardPayload.width, clipboardPayload.height);
+
+      const position = viewportPosition ?? { ...clipboardPayload.position };
+
+      await commitExistingFloatingIfPresent();
+      clearSelection();
+      setFloatingPaste({
+        imageData: cloneClipboardImageData(clipboardPayload.imageData),
+        position,
+        width: clipboardPayload.width,
+        height: clipboardPayload.height,
+        displayWidth: clipboardPayload.width,
+        displayHeight: clipboardPayload.height,
+      });
+
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          draw(ctx, viewTransformRef.current);
+        }
+      });
     };
-    
-    // Add paste event listener
+
     document.addEventListener('paste', handlePaste);
-    
+
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [project, layers, activeLayerId, draw, setFloatingPaste]);
+  }, [
+    project,
+    layers,
+    activeLayerId,
+    draw,
+    setFloatingPaste,
+    selectionClipboardRef,
+    viewTransformRef,
+    getViewportPastePosition,
+    clearSelection,
+    commitExistingFloatingIfPresent,
+  ]);
 
   // Handle canvas resizing - run only once on mount
   useEffect(() => {

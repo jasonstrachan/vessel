@@ -73,6 +73,9 @@ export const createDefaultToolState = (): ToolState => ({
     eraseInstead: false,
   },
   shapeMode: false,
+  customBrushCapture: {
+    sampleAllLayers: false,
+  },
 });
 
 export const defaultBrushEditorState: BrushEditorState = {
@@ -178,6 +181,7 @@ export interface ToolsSlice {
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
   setShapeMode: (enabled: boolean) => void;
+  setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
   setCurrentTool: (tool: Tool) => void;
   setTemporaryCustomBrush: (brush: CustomBrush | null) => void;
   setPolygonGradientState: (partial: Partial<PolygonGradientState>) => void;
@@ -743,6 +747,22 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       fillSettings: { ...state.tools.fillSettings, ...settings }
     }
   })),
+  setCustomBrushSampleAllLayers: (sampleAllLayers) =>
+    set((state) => {
+      const currentCapture = state.tools.customBrushCapture ?? { sampleAllLayers: false };
+      if (currentCapture.sampleAllLayers === sampleAllLayers) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          customBrushCapture: {
+            ...currentCapture,
+            sampleAllLayers,
+          },
+        },
+      };
+    }),
   setShapeMode: (enabled) => set((state) => {
     try {
       // Gate noisy logs behind debug toggle

@@ -158,6 +158,7 @@ import {
   commitSelectionHistory,
   cloneSelectionSnapshot,
 } from '@/history/helpers/selectionHistory';
+import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
 import type { SelectionSnapshot } from '@/history/selectionState';
 
 type VerticalSpacingMapperConfig = {
@@ -744,106 +745,35 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     displayHeight: number;
     layerId: string;
   } | null => {
-    const {
-      project,
-      layers,
-      activeLayerId,
-      selectionStart,
-      selectionEnd,
-    } = getDynamicDeps();
+    const { project, layers, activeLayerId, selectionStart, selectionEnd } = getDynamicDeps();
 
     if (!selectionStart || !selectionEnd || !project || !activeLayerId) {
       return null;
     }
 
-    const activeLayer = layers.find((layer) => layer.id === activeLayerId);
-    if (!activeLayer) {
+    const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
+    const captureResult = captureSelectionBitmap({
+      selectionStart,
+      selectionEnd,
+      project,
+      layer: activeLayer,
+      clearSource: true,
+    });
+
+    if (!captureResult || !captureResult.updatedLayerImageData) {
       return null;
     }
 
-    let layerImageData = activeLayer.imageData || null;
-    if (!layerImageData && activeLayer.framebuffer) {
-      try {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = activeLayer.framebuffer.width;
-        tempCanvas.height = activeLayer.framebuffer.height;
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-        if (tempCtx) {
-          tempCtx.drawImage(activeLayer.framebuffer, 0, 0);
-          layerImageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-        }
-      } catch {
-        layerImageData = null;
-      }
-    }
-
-    if (!layerImageData) {
-      return null;
-    }
-
-    const rawMinX = Math.min(selectionStart.x, selectionEnd.x);
-    const rawMinY = Math.min(selectionStart.y, selectionEnd.y);
-    const rawMaxX = Math.max(selectionStart.x, selectionEnd.x);
-    const rawMaxY = Math.max(selectionStart.y, selectionEnd.y);
-
-    const clampedMinX = Math.max(0, Math.min(project.width, Math.floor(rawMinX)));
-    const clampedMinY = Math.max(0, Math.min(project.height, Math.floor(rawMinY)));
-    const clampedMaxX = Math.max(0, Math.min(project.width, Math.ceil(rawMaxX)));
-    const clampedMaxY = Math.max(0, Math.min(project.height, Math.ceil(rawMaxY)));
-
-    const width = clampedMaxX - clampedMinX;
-    const height = clampedMaxY - clampedMinY;
-
-    if (width <= 0 || height <= 0) {
-      return null;
-    }
-
-    const safeWidth = Math.min(width, layerImageData.width - clampedMinX);
-    const safeHeight = Math.min(height, layerImageData.height - clampedMinY);
-
-    if (safeWidth <= 0 || safeHeight <= 0) {
-      return null;
-    }
-
-    const selectionBuffer = new Uint8ClampedArray(safeWidth * safeHeight * 4);
-    const updatedLayerBuffer = new Uint8ClampedArray(layerImageData.data);
-
-    for (let y = 0; y < safeHeight; y++) {
-      const sourceY = clampedMinY + y;
-      if (sourceY < 0 || sourceY >= layerImageData.height) continue;
-
-      for (let x = 0; x < safeWidth; x++) {
-        const sourceX = clampedMinX + x;
-        if (sourceX < 0 || sourceX >= layerImageData.width) continue;
-
-        const sourceIndex = (sourceY * layerImageData.width + sourceX) * 4;
-        const destIndex = (y * safeWidth + x) * 4;
-
-        selectionBuffer[destIndex] = layerImageData.data[sourceIndex];
-        selectionBuffer[destIndex + 1] = layerImageData.data[sourceIndex + 1];
-        selectionBuffer[destIndex + 2] = layerImageData.data[sourceIndex + 2];
-        selectionBuffer[destIndex + 3] = layerImageData.data[sourceIndex + 3];
-
-        updatedLayerBuffer[sourceIndex] = 0;
-        updatedLayerBuffer[sourceIndex + 1] = 0;
-        updatedLayerBuffer[sourceIndex + 2] = 0;
-        updatedLayerBuffer[sourceIndex + 3] = 0;
-      }
-    }
-
-    const selectionImageData = new ImageData(selectionBuffer, safeWidth, safeHeight);
-    const updatedLayerImageData = new ImageData(updatedLayerBuffer, layerImageData.width, layerImageData.height);
-
-    updateLayer(activeLayerId, { imageData: updatedLayerImageData });
+    updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
 
     return {
-      imageData: selectionImageData,
-      position: { x: clampedMinX, y: clampedMinY },
-      width: safeWidth,
-      height: safeHeight,
-      displayWidth: safeWidth,
-      displayHeight: safeHeight,
-      layerId: activeLayerId
+      imageData: captureResult.selectionImageData,
+      position: { x: captureResult.bounds.x, y: captureResult.bounds.y },
+      width: captureResult.bounds.width,
+      height: captureResult.bounds.height,
+      displayWidth: captureResult.bounds.width,
+      displayHeight: captureResult.bounds.height,
+      layerId: activeLayerId,
     };
   };
 

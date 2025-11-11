@@ -1,9 +1,11 @@
 'use client';
 
+import CustomSwitch from '@/components/ui/CustomSwitch';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectCustomBrushes } from '@/stores/selectors/projectSelectors';
-import { selectTemporaryCustomBrush } from '@/stores/selectors/toolsSelectors';
+import { selectTemporaryCustomBrush, selectCustomBrushCaptureAllLayers } from '@/stores/selectors/toolsSelectors';
 import { selectSelectionRects } from '@/stores/selectors/pasteSelectors';
+import { selectActiveLayer } from '@/stores/selectors/layersSelectors';
 import { CustomBrush, BrushShape } from '@/types';
 import { useEffect, useCallback } from 'react';
 import { brushCache } from '@/utils/brushCache';
@@ -14,6 +16,7 @@ export const CustomBrushPanel = () => {
   const addCustomBrush = useAppStore((state) => state.addCustomBrush);
   const customBrushes = useAppStore(selectCustomBrushes);
   const temporaryCustomBrush = useAppStore(selectTemporaryCustomBrush);
+  const activeLayer = useAppStore(selectActiveLayer);
   const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
   const clearSelection = useAppStore((state) => state.clearSelection);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
@@ -21,6 +24,18 @@ export const CustomBrushPanel = () => {
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore((state) => state.setCustomBrushSizePercent);
+  const sampleAllLayers = useAppStore(selectCustomBrushCaptureAllLayers);
+  const setCustomBrushSampleAllLayers = useAppStore((state) => state.setCustomBrushSampleAllLayers);
+
+  const resolveCaptureCanvas = useCallback(() => {
+    if (!sampleAllLayers && activeLayer) {
+      if (activeLayer.layerType === 'color-cycle') {
+        return activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer;
+      }
+      return activeLayer.framebuffer;
+    }
+    return currentOffscreenCanvas;
+  }, [sampleAllLayers, activeLayer, currentOffscreenCanvas]);
 
   // Clear temporary brush when there's no selection (i.e., when custom tool is deactivated)
   useEffect(() => {
@@ -31,14 +46,19 @@ export const CustomBrushPanel = () => {
 
   // Debounced function to create the brush
   const createBrushFromSelection = useCallback(() => {
-    if (!selectionStart || !selectionEnd || !currentOffscreenCanvas) return;
+    if (!selectionStart || !selectionEnd) return;
 
     const bounds = selectionToCaptureBounds(selectionStart, selectionEnd);
     if (!bounds) {
       return;
     }
 
-    const captureResult = captureBrushFromCanvas(currentOffscreenCanvas, bounds);
+    const sourceCanvas = resolveCaptureCanvas();
+    if (!sourceCanvas) {
+      return;
+    }
+
+    const captureResult = captureBrushFromCanvas(sourceCanvas, bounds);
     if (!captureResult) {
       return;
     }
@@ -97,7 +117,7 @@ export const CustomBrushPanel = () => {
   }, [
     selectionStart,
     selectionEnd,
-    currentOffscreenCanvas,
+    resolveCaptureCanvas,
     setTemporaryCustomBrush,
     setBrushSettings,
     setGlobalBrushSize,
@@ -107,10 +127,10 @@ export const CustomBrushPanel = () => {
   // Create brush immediately when selection changes
   useEffect(() => {
     // Create brush immediately if we have a valid selection
-    if (selectionStart && selectionEnd && currentOffscreenCanvas) {
+    if (selectionStart && selectionEnd && resolveCaptureCanvas()) {
       createBrushFromSelection();
     }
-  }, [selectionStart, selectionEnd, currentOffscreenCanvas, createBrushFromSelection]);
+  }, [selectionStart, selectionEnd, resolveCaptureCanvas, createBrushFromSelection]);
 
   const handleSaveCustomBrush = () => {
     if (!temporaryCustomBrush) return;
@@ -213,6 +233,18 @@ export const CustomBrushPanel = () => {
         )}
       </div>
       
+      <div className="mt-2 flex items-center justify-between">
+        <span className="text-sm text-gray-300">All layers</span>
+        <CustomSwitch
+          aria-label="All layers"
+          checked={sampleAllLayers}
+          onChange={setCustomBrushSampleAllLayers}
+        />
+      </div>
+      <p className="mt-1 text-xs text-gray-500">
+        When off, capture only the active layer.
+      </p>
+
       {/* Show temporary brush preview if available */}
       {hasTemporaryBrush && (
         <div className="mt-4 p-3 bg-[#1a1a1a] rounded">

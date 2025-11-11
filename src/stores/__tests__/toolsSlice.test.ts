@@ -73,6 +73,13 @@ describe('tools slice', () => {
     expect(eraserSize).toBe(18);
   });
 
+  it('toggles custom brush capture source', () => {
+    const store = useAppStore.getState();
+    expect(store.tools.customBrushCapture.sampleAllLayers).toBe(false);
+    store.setCustomBrushSampleAllLayers(true);
+    expect(useAppStore.getState().tools.customBrushCapture.sampleAllLayers).toBe(true);
+  });
+
   it('reuses stored gradients when switching to color cycle presets', () => {
     const store = useAppStore.getState();
     const gradientStops = [

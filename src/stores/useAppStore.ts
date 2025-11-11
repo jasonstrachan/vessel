@@ -444,6 +444,7 @@ export interface AppState {
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
   setShapeMode: (enabled: boolean) => void;
+  setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
   
   // Brush Presets
   brushPresets: BrushPreset[];

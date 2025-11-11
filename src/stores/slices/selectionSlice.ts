@@ -4,12 +4,14 @@ import { selectionSnapshotFromValues } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
+import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
 
 type AppState = import('../useAppStore').AppState;
 
 export interface SelectionSlice {
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
+  selectionClipboard: SelectionClipboardPayload | null;
   setSelectionBounds: (
     start: { x: number; y: number } | null,
     end: { x: number; y: number } | null
@@ -42,6 +44,16 @@ export interface SelectionSlice {
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
   commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
+  copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
+  clearSelectionClipboard: () => void;
+}
+
+interface SelectionClipboardPayload {
+  imageData: ImageData;
+  position: { x: number; y: number };
+  width: number;
+  height: number;
+  mode: 'copy' | 'cut';
 }
 
 const computeBoundsFromSelection = (
@@ -64,6 +76,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
   return {
     selectionStart: null,
     selectionEnd: null,
+    selectionClipboard: null,
     setSelectionBounds: (start, end) => set({ selectionStart: start, selectionEnd: end }),
     clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
     selectAllActiveLayerPixels: () => {
@@ -193,5 +206,139 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       })),
     commitFloatingPaste: () => selectionPasteHelpers.commitFloatingPaste(),
     cancelFloatingPaste: () => selectionPasteHelpers.cancelFloatingPaste(),
+    copySelectionToClipboard: async (options) => {
+      const mode = options?.mode ?? 'copy';
+      const state = get();
+      const { selectionStart, selectionEnd, project, layers, activeLayerId, floatingPaste } = state;
+
+      let clipboardPayload: SelectionClipboardPayload | null = null;
+
+      if (selectionStart && selectionEnd && project && activeLayerId) {
+        const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
+        if (activeLayer) {
+          const capture = captureSelectionBitmap({
+            selectionStart,
+            selectionEnd,
+            project,
+            layer: activeLayer,
+            clearSource: mode === 'cut',
+          });
+
+          if (capture) {
+            clipboardPayload = {
+              imageData: capture.selectionImageData,
+              position: { x: capture.bounds.x, y: capture.bounds.y },
+              width: capture.bounds.width,
+              height: capture.bounds.height,
+              mode,
+            };
+
+            if (mode === 'cut' && capture.updatedLayerImageData) {
+              const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
+              const beforeImage = activeLayer.imageData ? cloneLayerImageData(activeLayer.imageData) : null;
+              const beforeColorState =
+                activeLayer.layerType === 'color-cycle'
+                  ? captureColorCycleBrushState(activeLayer.id)
+                  : null;
+
+              state.updateLayer(activeLayerId, { imageData: capture.updatedLayerImageData });
+              state.setLayersNeedRecomposition(true);
+
+              void commitLayerHistory({
+                layerId: activeLayerId,
+                beforeImage,
+                beforeColorState,
+                actionType: 'cut',
+                description: 'Cut selection to clipboard',
+                tool: 'selection',
+                selectionBefore,
+              }).catch((error) => {
+                if (process.env.NODE_ENV !== 'production') {
+                  console.warn('[history] Failed to record selection cut', error);
+                }
+              });
+            }
+          }
+        }
+      }
+
+      if (!clipboardPayload && floatingPaste?.imageData) {
+        clipboardPayload = createClipboardPayloadFromFloatingPaste(floatingPaste, mode);
+        if (mode === 'cut') {
+          set({ floatingPaste: null });
+        }
+      }
+
+      if (!clipboardPayload) {
+        return false;
+      }
+
+      set({ selectionClipboard: clipboardPayload });
+      void writeImageDataToClipboard(clipboardPayload.imageData);
+      return true;
+    },
+    clearSelectionClipboard: () => set({ selectionClipboard: null }),
   };
 };
+
+const writeImageDataToClipboard = async (imageData: ImageData): Promise<void> => {
+  if (typeof navigator === 'undefined' || !navigator.clipboard) {
+    return;
+  }
+
+  const clipboardCtor = (globalThis as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
+  if (typeof clipboardCtor !== 'function') {
+    return;
+  }
+
+  const blob = await imageDataToBlob(imageData);
+  if (!blob) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.write([new clipboardCtor({ [blob.type]: blob })]);
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[selectionClipboard] Failed to write image to clipboard', error);
+    }
+  }
+};
+
+const imageDataToBlob = async (imageData: ImageData): Promise<Blob | null> => {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      resolve(blob ?? null);
+    }, 'image/png');
+  });
+};
+
+const cloneImageData = (imageData: ImageData): ImageData =>
+  new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+
+const createClipboardPayloadFromFloatingPaste = (
+  floatingPaste: NonNullable<AppState['floatingPaste']>,
+  mode: 'copy' | 'cut'
+): SelectionClipboardPayload => ({
+  imageData: cloneImageData(floatingPaste.imageData),
+  position: {
+    x: Math.round(floatingPaste.position.x),
+    y: Math.round(floatingPaste.position.y),
+  },
+  width: floatingPaste.imageData.width,
+  height: floatingPaste.imageData.height,
+  mode,
+});

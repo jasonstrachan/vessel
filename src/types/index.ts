@@ -322,6 +322,10 @@ export interface ToolState {
     eraseInstead: boolean;
   };
   shapeMode: boolean; // When true, draws closed polygon shapes with current brush
+  customBrushCapture: {
+    /** When true, capture pixels from the composited canvas (all visible layers). */
+    sampleAllLayers: boolean;
+  };
 }
 
 export type CropHandle =

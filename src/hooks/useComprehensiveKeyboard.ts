@@ -119,6 +119,7 @@ export function useComprehensiveKeyboard({
   const deleteSelectedPixels = useAppStore((state) => state.deleteSelectedPixels);
   const selectAllActiveLayerPixels = useAppStore((state) => state.selectAllActiveLayerPixels);
   const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
+  const copySelectionToClipboard = useAppStore((state) => state.copySelectionToClipboard);
   const swapPaletteColors = useAppStore((state) => state.swapPaletteColors);
   const setPaletteColor = useAppStore((state) => state.setPaletteColor);
 
@@ -201,6 +202,34 @@ export function useComprehensiveKeyboard({
       event.preventDefault();
       void onOpenRef.current?.();
       return;
+    }
+
+    const isCopyShortcut =
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === 'c' &&
+      !event.shiftKey &&
+      !event.altKey;
+
+    if (isCopyShortcut) {
+      const handled = await copySelectionToClipboard({ mode: 'copy' });
+      if (handled) {
+        event.preventDefault();
+        return;
+      }
+    }
+
+    const isCutShortcut =
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === 'x' &&
+      !event.shiftKey &&
+      !event.altKey;
+
+    if (isCutShortcut) {
+      const handled = await copySelectionToClipboard({ mode: 'cut' });
+      if (handled) {
+        event.preventDefault();
+        return;
+      }
     }
 
     const scopeAllowed = allowedScopes.includes(currentScope);
@@ -473,6 +502,7 @@ export function useComprehensiveKeyboard({
       switchTool, setGlobalBrushSize, setEraserSettings,
       setCustomBrushSizePercent,
       deleteSelectedPixels, selectAllActiveLayerPixels,
+      copySelectionToClipboard,
       setFloatingPaste, setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
       floatingPasteRef, paletteRef]);

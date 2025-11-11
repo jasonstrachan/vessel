@@ -15,6 +15,8 @@ export const selectBrushEditor = (state: AppState): BrushEditorState => state.br
 export const selectPolygonGradientState = (state: AppState): PolygonGradientState =>
   state.polygonGradientState;
 export const selectRecolorSampling = (state: AppState) => state.recolorSampling;
+export const selectCustomBrushCaptureAllLayers = (state: AppState) =>
+  state.tools.customBrushCapture.sampleAllLayers;
 export const selectBrushPresetMeta = (state: AppState) => ({
   current: state.currentBrushPreset,
   presets: state.brushPresets,
