@@ -4,7 +4,7 @@
  */
 
 import { featureFlags } from '@/config/featureFlags';
-import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
+import type { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { defaultBrushSettings } from '@/presets/brushPresets';
 import type { BrushSettings, Layer } from '@/types';
@@ -54,6 +54,12 @@ const getRuntime = (): BrushManagerRuntime => {
 };
 
 const runtime = getRuntime();
+
+// Global instance for the application. Declared early to avoid TDZ issues during circular imports.
+let globalManager: ColorCycleBrushManager | null = null;
+
+// Store reference to the layer getter function
+let getValidLayerIds: (() => Set<string>) | null = null;
 
 export function setColorCycleStoreStateGetter(getter: () => StoreSlice): void {
   storeStateGetter = getter;
@@ -142,7 +148,8 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       canvas.height = height;
 
       const currentSettings = getBrushSettings();
-      const brush = new ColorCycleBrushCanvas2D(canvas, {
+      const BrushCanvas = getColorCycleBrushCanvas2D();
+      const brush = new BrushCanvas(canvas, {
         brushSize: currentSettings.size ?? defaultBrushSettings.size,
         fps: currentSettings.colorCycleFPS ?? 30,
         forceCanvas2D: featureFlags.useCanvas2DColorCycle
@@ -578,12 +585,6 @@ function hashGradient(gradient: Uint8Array): string {
   return hash.toString(36);
 }
 
-// Global instance for the application
-let globalManager: ColorCycleBrushManager | null = null;
-
-// Store reference to the layer getter function
-let getValidLayerIds: (() => Set<string>) | null = null;
-
 const stopPeriodicMaintenance = (): void => {
   if (runtime.cleanupInactiveTimer) {
     clearInterval(runtime.cleanupInactiveTimer);
@@ -688,3 +689,15 @@ export function disposeColorCycleBrushManager(): void {
 
 // Export types
 export type { ColorCycleBrushImplementation };
+type ColorCycleBrushCanvas2DConstructor = typeof ColorCycleBrushCanvas2D;
+let ColorCycleBrushCanvas2DImpl: ColorCycleBrushCanvas2DConstructor | null = null;
+
+const getColorCycleBrushCanvas2D = (): ColorCycleBrushCanvas2DConstructor => {
+  if (!ColorCycleBrushCanvas2DImpl) {
+    // Lazily require to avoid circular dependency with useAppStore during Jest runs.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('@/hooks/brushEngine/ColorCycleBrushCanvas2D') as typeof import('@/hooks/brushEngine/ColorCycleBrushCanvas2D');
+    ColorCycleBrushCanvas2DImpl = module.ColorCycleBrushCanvas2D;
+  }
+  return ColorCycleBrushCanvas2DImpl;
+};

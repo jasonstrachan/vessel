@@ -14,19 +14,73 @@ const clamp = (value: number, min: number, max: number) => {
   return Math.max(min, Math.min(max, value));
 };
 
-const normalizePasteROI = (
-  floatingPaste: NonNullable<AppState['floatingPaste']>,
-  project: { width: number; height: number }
-): CaptureROI => {
-  const width = Math.max(1, Math.round(floatingPaste.displayWidth ?? floatingPaste.width));
-  const height = Math.max(1, Math.round(floatingPaste.displayHeight ?? floatingPaste.height));
-  const x = clamp(Math.round(floatingPaste.position.x), 0, Math.max(0, project.width - width));
-  const y = clamp(Math.round(floatingPaste.position.y), 0, Math.max(0, project.height - height));
+type FloatRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const getDestinationRect = (
+  floatingPaste: NonNullable<AppState['floatingPaste']>
+): FloatRect => {
+  const width = Math.max(1, floatingPaste.displayWidth ?? floatingPaste.width);
+  const height = Math.max(1, floatingPaste.displayHeight ?? floatingPaste.height);
   return {
-    x,
-    y,
-    width: Math.min(width, project.width - x),
-    height: Math.min(height, project.height - y),
+    x: floatingPaste.position.x,
+    y: floatingPaste.position.y,
+    width,
+    height,
+  };
+};
+
+const intersectWithProject = (rect: FloatRect, project: { width: number; height: number }): CaptureROI | null => {
+  const x = Math.max(rect.x, 0);
+  const y = Math.max(rect.y, 0);
+  const maxX = Math.min(rect.x + rect.width, project.width);
+  const maxY = Math.min(rect.y + rect.height, project.height);
+  const width = maxX - x;
+  const height = maxY - y;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  return { x, y, width, height };
+};
+
+const deriveSourceCrop = (
+  visibleRect: FloatRect,
+  destRect: FloatRect,
+  intrinsicWidth: number,
+  intrinsicHeight: number
+): FloatRect | null => {
+  const safeSourceWidth = Math.max(1, intrinsicWidth);
+  const safeSourceHeight = Math.max(1, intrinsicHeight);
+  const scaleX = destRect.width / safeSourceWidth;
+  const scaleY = destRect.height / safeSourceHeight;
+  const safeScaleX = Number.isFinite(scaleX) && scaleX !== 0 ? scaleX : 1;
+  const safeScaleY = Number.isFinite(scaleY) && scaleY !== 0 ? scaleY : 1;
+
+  const sourceX = (visibleRect.x - destRect.x) / safeScaleX;
+  const sourceY = (visibleRect.y - destRect.y) / safeScaleY;
+  const sourceWidth = visibleRect.width / safeScaleX;
+  const sourceHeight = visibleRect.height / safeScaleY;
+
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return null;
+  }
+
+  const clampToSource = (value: number, max: number) => clamp(value, 0, max);
+
+  const clampedX = clampToSource(sourceX, safeSourceWidth);
+  const clampedY = clampToSource(sourceY, safeSourceHeight);
+  const maxWidth = safeSourceWidth - clampedX;
+  const maxHeight = safeSourceHeight - clampedY;
+
+  return {
+    x: clampedX,
+    y: clampedY,
+    width: Math.min(sourceWidth, maxWidth),
+    height: Math.min(sourceHeight, maxHeight),
   };
 };
 
@@ -64,7 +118,13 @@ export const createSelectionPasteHelpers = ({
         : null;
 
     try {
-      const roi = normalizePasteROI(floatingPaste, project);
+      const destinationRect = getDestinationRect(floatingPaste);
+      const captureArea = intersectWithProject(destinationRect, project);
+      if (!captureArea) {
+        set({ floatingPaste: null });
+        return;
+      }
+
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = project.width;
       tempCanvas.height = project.height;
@@ -91,16 +151,31 @@ export const createSelectionPasteHelpers = ({
         try {
           pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
         } catch {}
+        const sourceCrop = deriveSourceCrop(
+          captureArea,
+          destinationRect,
+          floatingPaste.width,
+          floatingPaste.height
+        );
+        if (!sourceCrop) {
+          set({ floatingPaste: null });
+          return;
+        }
+
         tempCtx.drawImage(
           pasteCanvas,
-          roi.x,
-          roi.y,
-          roi.width,
-          roi.height
+          sourceCrop.x,
+          sourceCrop.y,
+          sourceCrop.width,
+          sourceCrop.height,
+          captureArea.x,
+          captureArea.y,
+          captureArea.width,
+          captureArea.height
         );
       }
 
-      await captureCanvasToActiveLayer(tempCanvas, roi);
+      await captureCanvasToActiveLayer(tempCanvas, captureArea);
 
       await commitLayerHistory({
         layerId: activeLayer.id,

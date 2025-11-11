@@ -367,9 +367,14 @@ export const createLayersSlice = (
 
           trackLayerChanges('setLayers', normalized);
           const syncedLayers = syncPercentOffsetsFromPixels(normalized, state.project ?? null);
+          const validLayerIds = new Set(syncedLayers.map((layer) => layer.id));
+          const nextReferenceLayerId = state.referenceLayerId && validLayerIds.has(state.referenceLayerId)
+            ? state.referenceLayerId
+            : null;
 
           return {
             layers: syncedLayers,
+            referenceLayerId: nextReferenceLayerId,
           };
         });
       },

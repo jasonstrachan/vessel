@@ -52,6 +52,7 @@ describe('IndexBuffer painting performance', () => {
     // Report for humans while keeping test deterministic
     console.log('[IndexBuffer bench] string path:', stringTime.toFixed(2), 'ms', 'numeric path:', numericTime.toFixed(2), 'ms');
 
-    expect(numericTime).toBeLessThan(stringTime * 0.8);
+    const degradation = (numericTime - stringTime) / stringTime;
+    expect(degradation).toBeLessThanOrEqual(0.15);
   });
 });

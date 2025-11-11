@@ -13,6 +13,7 @@ jest.mock('../../stores/useAppStore', () => ({
 describe('AutosaveService', () => {
   const getStateMock = useAppStore.getState as unknown as jest.Mock;
   const setStateMock = useAppStore.setState as unknown as jest.Mock;
+  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
   beforeEach(() => {
     jest.resetModules();
@@ -59,6 +60,11 @@ describe('AutosaveService', () => {
 
   afterEach(() => {
     autosaveService.stop();
+    consoleErrorSpy.mockClear();
+  });
+
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it('should start autosave service', () => {
