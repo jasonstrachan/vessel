@@ -1458,6 +1458,16 @@ export class ColorCycleBrushCanvas2D {
         }
         const projRange = Math.max(1e-6, maxProj - minProj);
 
+        const useBlockQuantization = this.ditherEnabled && Math.max(1, this.ditherPixelSize) > 1;
+        const blockSize = Math.max(1, this.ditherPixelSize);
+        const quantizeSample = (value: number, base: number, extent: number) => {
+          if (!useBlockQuantization || blockSize <= 1) return value + 0.5;
+          const rel = value - base;
+          const snapped = base + Math.floor(rel / blockSize) * blockSize + blockSize * 0.5;
+          const limit = base + extent - 0.5;
+          return Math.min(limit, Math.max(base, snapped));
+        };
+
         for (let yy = 0; yy < height; yy++) {
           await yieldIfNeeded(yy);
           const y = y0 + yy;
@@ -1465,7 +1475,9 @@ export class ColorCycleBrushCanvas2D {
           for (const [sx, ex] of rowSpans) {
             for (let x = sx; x <= ex; x++) {
               const xx = x - x0; if (xx < 0 || xx >= width) continue;
-              const dx = x - centerX; const dy = y - centerY;
+              const sampleX = quantizeSample(x, x0, width);
+              const sampleY = quantizeSample(y, y0, height);
+              const dx = sampleX - centerX; const dy = sampleY - centerY;
               const proj = dx * dirX + dy * dirY;
               const r = applyEdgePadding((proj - minProj) / Math.max(projRange, 1e-6));
               const { r: R, g: G, b: B } = this.colorAtPosition(r);
@@ -1630,17 +1642,17 @@ export class ColorCycleBrushCanvas2D {
         const spanWidth = endFloat - startFloat;
         const invSpanWidth = Math.abs(spanWidth) > 1e-6 ? 1 / spanWidth : 0;
 
-        const spanStartProj = (startFloat - centerX) * dirX + (y - centerY) * dirY;
-        const spanEndProj = (endFloat - centerX) * dirX + (y - centerY) * dirY;
-        const spanStartNorm = clamp01((spanStartProj - minProjection) / safeProjectionRange);
-        const spanEndNorm = clamp01((spanEndProj - minProjection) / safeProjectionRange);
-        const spanDeltaNorm = spanEndNorm - spanStartNorm;
+        const quantizeCoord = (value: number, base: number, limit: number) => {
+          const local = value - base;
+          const snapped = base + Math.floor(local / cellSize) * cellSize + cellSize * 0.5;
+          return Math.min(limit, Math.max(base, snapped));
+        };
 
-        const sampleNormalized = (sampleX: number) => {
-          if (!isFinite(sampleX)) return spanStartNorm;
-          const t = (sampleX - startFloat) * invSpanWidth;
-          const clampedT = Math.min(1, Math.max(0, t));
-          return clamp01(spanStartNorm + clampedT * spanDeltaNorm);
+        const evaluateNormalized = (rawX: number, rawY: number, quantize: boolean) => {
+          const px = quantize && cellSize > 1 ? quantizeCoord(rawX, ixBase, maxX) : rawX;
+          const py = quantize && cellSize > 1 ? quantizeCoord(rawY, iyBase, maxY) : rawY;
+          const proj = (px - centerX) * dirX + (py - centerY) * dirY;
+          return clamp01((proj - minProjection) / safeProjectionRange);
         };
 
         if (this.ditherEnabled && cellSize > 1) {
@@ -1657,13 +1669,16 @@ export class ColorCycleBrushCanvas2D {
               const xCenter = Math.min(endX, xBlock + Math.floor(cellSize / 2));
               const yCenterBlock = Math.min(Math.ceil(maxY), iyBase + cy * cellSize + Math.floor(cellSize / 2));
 
-              // Projection at block center
-              const sampleX = xCenter + 0.5;
-              let r = sampleNormalized(sampleX);
+              // Projection at block center (quantized)
+              const rawSampleX = xCenter + 0.5;
+              const rawSampleY = yCenterBlock + 0.5;
+              let r = evaluateNormalized(rawSampleX, rawSampleY, true);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
-                const j = (noiseAt(xCenter, yCenterBlock) - 0.5) * (jitterScale / quantLevels);
+                const noiseSeedX = Math.floor(rawSampleX);
+                const noiseSeedY = Math.floor(rawSampleY);
+                const j = (noiseAt(noiseSeedX, noiseSeedY) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
 
@@ -1675,7 +1690,7 @@ export class ColorCycleBrushCanvas2D {
               const upperPos = Math.min(1, (kLower + 1) * qStep);
               const frac = Math.max(0, Math.min(1, scaled - kLower));
               const adj = frac + (cErrCurr[cx] || 0);
-              const thr = 0.5 + (noiseAt(xCenter, yCenterBlock) - 0.5) * thresholdJitter;
+              const thr = 0.5 + (noiseAt(Math.floor(rawSampleX), Math.floor(rawSampleY)) - 0.5) * thresholdJitter;
               const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
               const q = chooseUpper ? 1 : 0;
               const err = (frac - q) * this.ditherStrength;
@@ -1696,12 +1711,12 @@ export class ColorCycleBrushCanvas2D {
             const xTo = Math.min(endX, xBlock + cellSize - 1);
             const fillStart = Math.max(startX, xBlock);
             if (fillStart <= xTo) {
-              for (let xx = fillStart; xx <= xTo; xx++) {
-                this.logSetIndexSample(id, xx, y);
-                writeLinearIndex(xx, y, cached);
+                  for (let xx = fillStart; xx <= xTo; xx++) {
+                    this.logSetIndexSample(id, xx, y);
+                    writeLinearIndex(xx, y, cached);
+                  }
               }
-            }
-          };
+            };
 
           if (!serpentineCell) {
             for (let cx = xStartCell; cx <= xEndCell; cx++) processCell(cx);
@@ -1715,7 +1730,7 @@ export class ColorCycleBrushCanvas2D {
 
           if (!serpentine) {
             for (let x = startX; x <= endX; x++) {
-              let r = sampleNormalized(x + 0.5);
+              let r = evaluateNormalized(x + 0.5, y + 0.5, false);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
@@ -1742,7 +1757,7 @@ export class ColorCycleBrushCanvas2D {
             }
           } else {
             for (let x = endX; x >= startX; x--) {
-              let r = sampleNormalized(x + 0.5);
+              let r = evaluateNormalized(x + 0.5, y + 0.5, false);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
@@ -1773,7 +1788,7 @@ export class ColorCycleBrushCanvas2D {
           // Respect gradientBands so the UI "Bands" slider affects linear fills.
           const quantLevels = bands;
           for (let x = startX; x <= endX; x++) {
-            const r = sampleNormalized(x + 0.5);
+            const r = evaluateNormalized(x + 0.5, y + 0.5, false);
             const scaled = r * quantLevels;
             const k = Math.min(quantLevels - 1, Math.floor(scaled)); // ensure exactly quantLevels unique bands
             const pos = k / quantLevels; // 0..1 range without duplicating endpoints
@@ -2081,6 +2096,16 @@ export class ColorCycleBrushCanvas2D {
           const shapeSize2 = Math.max(shapeWidth2, shapeHeight2);
           const maxDist2 = Math.max(50, shapeSize2 / 2);
 
+          const useBlockQuantization = this.ditherEnabled && Math.max(1, this.ditherPixelSize) > 1;
+          const blockSize = Math.max(1, this.ditherPixelSize);
+          const quantizeSample = (value: number, base: number, extent: number) => {
+            if (!useBlockQuantization || blockSize <= 1) return value + 0.5;
+            const rel = value - base;
+            const snapped = base + Math.floor(rel / blockSize) * blockSize + blockSize * 0.5;
+            const limit = base + extent - 0.5;
+            return Math.min(limit, Math.max(base, snapped));
+          };
+
           // Fill gradient colors into buffer using concentric distance
           for (let yy = 0; yy < height2; yy++) {
             await yieldIfNeeded(yy);
@@ -2090,20 +2115,22 @@ export class ColorCycleBrushCanvas2D {
               for (let x = sx; x <= ex; x++) {
                 const xx = x - x02;
                 if (xx < 0 || xx >= width2) continue;
+                const sampleX = quantizeSample(x, x02, width2);
+                const sampleY = quantizeSample(y, y02, height2);
                 let minDistSq = Infinity;
-                const left = x - sx;
-                const right = ex - x;
+                const left = sampleX - sx;
+                const right = ex - sampleX;
                 const dLR = Math.min(left * left, right * right);
                 minDistSq = Math.min(minDistSq, dLR);
                 for (let k = 0; k < edges2.length; k++) {
                   const e = edges2[k];
                   if (e.len2 <= 0) continue;
-                  const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy;
+                  const tNum = (sampleX - e.v1x) * e.dx + (sampleY - e.v1y) * e.dy;
                   const tVal = Math.max(0, Math.min(1, tNum / e.len2));
                   const px = e.v1x + tVal * e.dx;
                   const py = e.v1y + tVal * e.dy;
-                  const ddx = x - px;
-                  const ddy = y - py;
+                  const ddx = sampleX - px;
+                  const ddy = sampleY - py;
                   const d2 = ddx * ddx + ddy * ddy;
                   if (d2 < minDistSq) {
                     minDistSq = d2;

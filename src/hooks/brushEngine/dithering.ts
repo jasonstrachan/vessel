@@ -227,6 +227,40 @@ const quantizeColors = (
   return selected;
 };
 
+const parseCustomPaletteColors = (paletteStrings: string[]): [number, number, number][] => {
+  return paletteStrings.map((color) => {
+    if (color.startsWith('#')) {
+      const hex = color.slice(1);
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return [r, g, b] as [number, number, number];
+    }
+    if (color.startsWith('rgb')) {
+      const match = color.match(/\d+/g);
+      if (match && match.length >= 3) {
+        return [parseInt(match[0], 10), parseInt(match[1], 10), parseInt(match[2], 10)] as [number, number, number];
+      }
+    }
+    return [0, 0, 0];
+  });
+};
+
+const resolveDitherPalette = (
+  imageData: ImageData,
+  numColors: number,
+  customPalette?: string[]
+): [number, number, number][] => {
+  if (customPalette && customPalette.length > 0) {
+    const parsed = parseCustomPaletteColors(customPalette);
+    if (parsed.length > numColors) {
+      return quantizeColors(parsed, numColors);
+    }
+    return parsed;
+  }
+  return selectDynamicPalette(imageData, numColors);
+};
+
 /**
  * Select a dynamic palette based on image content
  * Extracts actual colors from the gradient instead of using predefined palette
@@ -360,41 +394,7 @@ export const applyDithering = (
   patternStyle?: string,
   customPalette?: string[]  // Accept custom palette
 ): ImageData => {
-  // Convert custom palette strings to RGB tuples, or use dynamic extraction
-  let palette: [number, number, number][];
-  
-  if (customPalette && customPalette.length > 0) {
-    // console.log('Using custom palette:', customPalette);
-    // Parse the custom palette colors
-    const parsedColors = customPalette.map(color => {
-      // Parse hex or rgb color strings
-      if (color.startsWith('#')) {
-        const hex = color.slice(1);
-        const r = parseInt(hex.substr(0, 2), 16);
-        const g = parseInt(hex.substr(2, 2), 16);
-        const b = parseInt(hex.substr(4, 2), 16);
-        return [r, g, b] as [number, number, number];
-      } else if (color.startsWith('rgb')) {
-        const match = color.match(/\d+/g);
-        if (match && match.length >= 3) {
-          return [parseInt(match[0]), parseInt(match[1]), parseInt(match[2])] as [number, number, number];
-        }
-      }
-      // Fallback to black if parsing fails
-      return [0, 0, 0] as [number, number, number];
-    });
-    
-    // Reduce palette to numColors using color quantization
-    if (parsedColors.length > numColors) {
-      palette = quantizeColors(parsedColors, numColors);
-    } else {
-      palette = parsedColors;
-    }
-    
-    // console.log(`Reduced palette from ${customPalette.length} to ${palette.length} colors`);
-  } else {
-    palette = selectDynamicPalette(imageData, numColors);
-  }
+  const palette = resolveDitherPalette(imageData, numColors, customPalette);
   
   // Create dither settings
   const ditherSettings: DitherSettings = {
@@ -544,42 +544,143 @@ export const applyDitheringWithFillResolution = (
   patternStyle?: string,
   customPalette?: string[]  // Accept custom palette
 ): ImageData => {
-  // First scale down the image data
-  const scaledWidth = Math.max(1, Math.floor(imageData.width / fillResolution));
-  const scaledHeight = Math.max(1, Math.floor(imageData.height / fillResolution));
-  
-  // Create a smaller canvas for the block image
-  const blockCanvas = document.createElement('canvas');
-  blockCanvas.width = scaledWidth;
-  blockCanvas.height = scaledHeight;
-  const blockCtx = blockCanvas.getContext('2d')!;
-  
-  // Draw the original image scaled down
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = imageData.width;
-  tempCanvas.height = imageData.height;
-  const tempCtx = tempCanvas.getContext('2d')!;
-  tempCtx.putImageData(imageData, 0, 0);
-  
-  blockCtx.imageSmoothingEnabled = false;
-  blockCtx.drawImage(tempCanvas, 0, 0, scaledWidth, scaledHeight);
-  
-  const blockImageData = blockCtx.getImageData(0, 0, scaledWidth, scaledHeight);
-  
-  // Apply dithering to the scaled-down image
-  const ditheredBlockImage = applyDithering(blockImageData, numColors, algorithm, patternStyle, customPalette);
-  
-  // Scale back up to original resolution
-  blockCtx.putImageData(ditheredBlockImage, 0, 0);
-  
-  const finalCanvas = document.createElement('canvas');
-  finalCanvas.width = imageData.width;
-  finalCanvas.height = imageData.height;
-  const finalCtx = finalCanvas.getContext('2d')!;
-  
-  finalCtx.imageSmoothingEnabled = false;
-  finalCtx.drawImage(blockCanvas, 0, 0, imageData.width, imageData.height);
-  
-  return finalCtx.getImageData(0, 0, imageData.width, imageData.height);
+  const pixelSize = Math.max(1, Math.floor(fillResolution));
+  const resolvedAlgorithm = algorithm || 'sierra-lite';
+
+  if (pixelSize <= 1) {
+    return applyDithering(imageData, numColors, resolvedAlgorithm, patternStyle, customPalette);
+  }
+
+  if (resolvedAlgorithm === 'sierra-lite') {
+    return applySierraLiteDitherWithPixelSize(
+      imageData,
+      numColors,
+      pixelSize,
+      customPalette
+    );
+  }
+
+  return scaleDownAndDither(
+    imageData,
+    numColors,
+    pixelSize,
+    resolvedAlgorithm,
+    patternStyle,
+    customPalette
+  );
+};
+
+const applySierraLiteDitherWithPixelSize = (
+  imageData: ImageData,
+  numColors: number,
+  pixelSize: number,
+  customPalette?: string[]
+): ImageData => {
+  return downsampleDitherAndScale(
+    imageData,
+    numColors,
+    pixelSize,
+    'sierra-lite',
+    undefined,
+    customPalette
+  );
+};
+
+const downsampleDitherAndScale = (
+  imageData: ImageData,
+  numColors: number,
+  pixelSize: number,
+  algorithm: string,
+  patternStyle?: string,
+  customPalette?: string[]
+): ImageData => {
+  const downsampled = createDownsampledImageData(imageData, pixelSize);
+  const dithered = applyDithering(downsampled, numColors, algorithm, patternStyle, customPalette);
+  return expandNearestNeighbor(dithered, imageData.width, imageData.height, pixelSize);
+};
+
+const createDownsampledImageData = (imageData: ImageData, blockSize: number): ImageData => {
+  const width = imageData.width;
+  const height = imageData.height;
+  const blockWidth = Math.max(1, Math.ceil(width / blockSize));
+  const blockHeight = Math.max(1, Math.ceil(height / blockSize));
+  const blockData = new Uint8ClampedArray(blockWidth * blockHeight * 4);
+  const source = imageData.data;
+
+  for (let by = 0; by < blockHeight; by++) {
+    const startY = by * blockSize;
+    const endY = Math.min(startY + blockSize, height);
+    for (let bx = 0; bx < blockWidth; bx++) {
+      const startX = bx * blockSize;
+      const endX = Math.min(startX + blockSize, width);
+      let sumR = 0;
+      let sumG = 0;
+      let sumB = 0;
+      let sumA = 0;
+      let count = 0;
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const idx = (y * width + x) * 4;
+          sumR += source[idx];
+          sumG += source[idx + 1];
+          sumB += source[idx + 2];
+          sumA += source[idx + 3];
+          count++;
+        }
+      }
+      const target = (by * blockWidth + bx) * 4;
+      if (count === 0) {
+        blockData[target] = 0;
+        blockData[target + 1] = 0;
+        blockData[target + 2] = 0;
+        blockData[target + 3] = 0;
+      } else {
+        blockData[target] = Math.round(sumR / count);
+        blockData[target + 1] = Math.round(sumG / count);
+        blockData[target + 2] = Math.round(sumB / count);
+        blockData[target + 3] = Math.round(sumA / count);
+      }
+    }
+  }
+
+  return new ImageData(blockData, blockWidth, blockHeight);
+};
+
+const expandNearestNeighbor = (
+  source: ImageData,
+  targetWidth: number,
+  targetHeight: number,
+  blockSize: number
+): ImageData => {
+  const output = new ImageData(targetWidth, targetHeight);
+  const out = output.data;
+  const src = source.data;
+  const blockWidth = source.width;
+  const blockHeight = source.height;
+
+  for (let by = 0; by < blockHeight; by++) {
+    const startY = by * blockSize;
+    const endY = Math.min(startY + blockSize, targetHeight);
+    for (let bx = 0; bx < blockWidth; bx++) {
+      const startX = bx * blockSize;
+      const endX = Math.min(startX + blockSize, targetWidth);
+      const srcIdx = (by * blockWidth + bx) * 4;
+      const r = src[srcIdx];
+      const g = src[srcIdx + 1];
+      const b = src[srcIdx + 2];
+      const a = src[srcIdx + 3];
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const idx = (y * targetWidth + x) * 4;
+          out[idx] = r;
+          out[idx + 1] = g;
+          out[idx + 2] = b;
+          out[idx + 3] = a;
+        }
+      }
+    }
+  }
+
+  return output;
 };
 import { debugLog } from '@/utils/debug';

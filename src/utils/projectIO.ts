@@ -11,6 +11,7 @@ import type {
   PaletteState
 } from '@/types';
 import JSZip from 'jszip';
+import { gunzipSync } from 'fflate';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import {
@@ -35,6 +36,21 @@ function isZipBytes(bytes: Uint8Array): boolean {
     return false;
   }
   return bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
+function isGzipBytes(bytes: Uint8Array): boolean {
+  if (bytes.length < 2) {
+    return false;
+  }
+  return bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
+function binaryStringToUint8Array(payload: string): Uint8Array {
+  const bytes = new Uint8Array(payload.length);
+  for (let i = 0; i < payload.length; i += 1) {
+    bytes[i] = payload.charCodeAt(i) & 0xff;
+  }
+  return bytes;
 }
 
 async function decodeProjectData(input: ProjectFileData): Promise<string> {
@@ -74,6 +90,12 @@ async function decodeProjectData(input: ProjectFileData): Promise<string> {
     }
 
     return entry.async('string');
+  }
+
+  if (isGzipBytes(bytes)) {
+    const decoder = new TextDecoder();
+    const decompressed = gunzipSync(bytes);
+    return decoder.decode(decompressed);
   }
 
   const decoder = new TextDecoder();
@@ -1043,17 +1065,23 @@ export async function readProjectManifest(projectData: ProjectFileData): Promise
   } catch (error) {
     const trimmed = projectJson.trimStart();
     const firstChar = trimmed.charCodeAt(0);
+    const secondChar = trimmed.charCodeAt(1);
 
     // Fallback: the caller might have provided a stringified binary (e.g. via File.text())
     // or base64 payload. Attempt to recover once before surfacing the error.
-    if (firstChar === 0x50 && trimmed.charCodeAt(1) === 0x4b) {
+    if (firstChar === 0x50 && secondChar === 0x4b) {
       // Starts with 'PK' – likely raw zip bytes interpreted as a string.
-      const encoder = new TextEncoder();
-      projectJson = await decodeProjectData(encoder.encode(projectJson));
+      projectJson = await decodeProjectData(binaryStringToUint8Array(projectJson));
       return parseVesselProjectJson(projectJson);
     }
 
-    if (trimmed.startsWith('UEs')) {
+    if (firstChar === 0x1f && secondChar === 0x8b) {
+      // Starts with gzip magic bytes interpreted as a string.
+      projectJson = await decodeProjectData(binaryStringToUint8Array(projectJson));
+      return parseVesselProjectJson(projectJson);
+    }
+
+    if (trimmed.startsWith('UEs') || trimmed.startsWith('H4sI')) {
       try {
         const binary = base64ToArrayBuffer(trimmed.replace(/\s+/g, ''));
         if (binary) {

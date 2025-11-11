@@ -479,6 +479,15 @@ export class WebGLColorCycleRenderer {
         float y = u_minY + (u_bboxH - 1.0 - yGL); // convert to top-left origin
 
         // Crossing parity inside test and min distance to segments
+        float cell = max(u_ditherPixelSize, 1.0);
+        vec2 actualPos = vec2(x, y);
+        vec2 samplePos = actualPos;
+        if (cell > 1.0) {
+          float snappedX = floor(x / cell) * cell + (cell * 0.5);
+          float snappedY = floor(y / cell) * cell + (cell * 0.5);
+          samplePos = vec2(snappedX, snappedY);
+        }
+
         float minDistSq = 1.0e20;
         bool inside = false;
         for (int i = 0; i < ${MAX}; i++) {
@@ -488,16 +497,17 @@ export class WebGLColorCycleRenderer {
           vec2 b = u_verts[j];
 
           // Crossing test (top-left coords)
-          bool cond = ((a.y > y) != (b.y > y)) && (x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x);
+          bool cond = ((a.y > actualPos.y) != (b.y > actualPos.y)) &&
+            (actualPos.x < (b.x - a.x) * (actualPos.y - a.y) / (b.y - a.y) + a.x);
           if (cond) inside = !inside;
 
           // Distance to segment squared (for concentric mode)
-          vec2 pa = vec2(x, y) - a;
+          vec2 pa = samplePos - a;
           vec2 ba = b - a;
           float denomSeg = max(dot(ba, ba), 1e-6);
           float h = clamp(dot(pa, ba) / denomSeg, 0.0, 1.0);
           vec2 proj = a + h * ba;
-          vec2 d = vec2(x, y) - proj;
+          vec2 d = samplePos - proj;
           float dsq = dot(d, d);
           if (dsq < minDistSq) minDistSq = dsq;
         }
@@ -514,7 +524,7 @@ export class WebGLColorCycleRenderer {
           float dist = sqrt(minDistSq);
           normalized = clamp(dist / maxDist, padding, 1.0 - padding);
         } else {
-          vec2 rel = vec2(x, y) - u_dirOrigin;
+          vec2 rel = samplePos - u_dirOrigin;
           float safeRange = max(abs(u_dirRange), 1e-6);
           vec2 dir = normalize(u_dirVector);
           float proj = dot(rel, dir);
@@ -527,7 +537,7 @@ export class WebGLColorCycleRenderer {
         float jittered = normalized;
 
         if (u_ditherStrength > 0.0) {
-          float noise = sampleNoise(vec2(x, y));
+          float noise = sampleNoise(samplePos);
           float jitter = (noise - 0.5) * u_ditherStrength * quantStep;
           jittered = clamp(normalized + jitter, padding, 1.0 - padding);
         }
