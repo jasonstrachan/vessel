@@ -404,6 +404,8 @@ export const createProjectSlice =
           autosave: {
             ...current.autosave,
             hasUnsavedChanges: true,
+            lastDirtyReason: 'project-change',
+            lastDirtyAt: new Date(),
           },
         };
       });

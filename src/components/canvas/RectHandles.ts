@@ -9,6 +9,10 @@ export const MIN_RECT_SIZE = 1;
 export const clampValue = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
+type ClampOptions = {
+  clampToBounds?: boolean;
+};
+
 export const rectEquals = (a: Rectangle | null, b: Rectangle | null): boolean => {
   if (!a || !b) {
     return a === b;
@@ -32,8 +36,20 @@ export const normalizeRect = (start: Point, end: Point): Rectangle => {
 export const snapRectToBounds = (
   rect: Rectangle,
   maxWidth: number,
-  maxHeight: number
+  maxHeight: number,
+  options?: ClampOptions
 ): Rectangle => {
+  const clampToBounds = options?.clampToBounds !== false;
+
+  if (!clampToBounds) {
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.max(MIN_RECT_SIZE, Math.round(rect.width)),
+      height: Math.max(MIN_RECT_SIZE, Math.round(rect.height)),
+    };
+  }
+
   let x = rect.x;
   let y = rect.y;
   let width = Math.max(rect.width, MIN_RECT_SIZE);
@@ -70,10 +86,6 @@ export const deriveHandleFromDrag = (start: Point, current: Point): RectHandle =
   const horizontal = current.x >= start.x ? 'right' : 'left';
   const vertical = current.y >= start.y ? 'bottom' : 'top';
   return `${vertical}-${horizontal}` as RectHandle;
-};
-
-type ClampOptions = {
-  clampToBounds?: boolean;
 };
 
 export const resizeRect = (

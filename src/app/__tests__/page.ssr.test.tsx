@@ -137,7 +137,23 @@ jest.mock('@/history/helpers/colorCycle', () => ({
 function createMockStore() {
   return {
     toggleModal: jest.fn(),
-    autosave: { isEnabled: true, interval: 5 },
+    autosave: {
+      isEnabled: true,
+      isRunning: false,
+      hasUnsavedChanges: false,
+      lastSaveTime: null,
+      interval: 5,
+      lastDirtyReason: null,
+      lastDirtyAt: null,
+      fileBackup: {
+        enabled: false,
+        mode: 'single-file' as const,
+        fileHandle: null,
+        directoryHandle: null,
+        backupPath: null,
+        lastBackupTime: null,
+      },
+    },
     canvas: { showRulers: false },
     setAutosaveEnabled: jest.fn(),
     setAutosaveInterval: jest.fn(),

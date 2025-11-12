@@ -14,7 +14,6 @@ import {
   resizeRect,
   snapRectToBounds,
   deriveHandleFromDrag,
-  clampValue,
   type Point,
 } from './RectHandles';
 
@@ -25,6 +24,7 @@ interface CropOverlayProps {
   offsetX: number;
   offsetY: number;
   active: boolean;
+  isSpacePressed: boolean;
 }
 
 type InteractionState =
@@ -33,8 +33,6 @@ type InteractionState =
   | { type: 'resizing'; start: Point; initialRect: Rectangle; handle: CropHandle }
   | { type: 'moving'; start: Point; initialRect: Rectangle };
 
-const clamp = clampValue;
-
 const CropOverlay: React.FC<CropOverlayProps> = ({
   projectWidth,
   projectHeight,
@@ -42,6 +40,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
   offsetX,
   offsetY,
   active,
+  isSpacePressed,
 }) => {
   const { crop, setCropState } = useCropState();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -63,12 +62,12 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
       const localY = event.clientY - rect.top;
       const safeZoom = zoom || 1;
 
-      const worldX = clamp(Math.round((localX - offsetX) / safeZoom), 0, projectWidth);
-      const worldY = clamp(Math.round((localY - offsetY) / safeZoom), 0, projectHeight);
+      const worldX = Math.round((localX - offsetX) / safeZoom);
+      const worldY = Math.round((localY - offsetY) / safeZoom);
 
       return { x: worldX, y: worldY };
     },
-    [active, offsetX, offsetY, projectHeight, projectWidth, zoom],
+    [active, offsetX, offsetY, zoom],
   );
 
   const applyRectUpdate = useCallback(
@@ -123,6 +122,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
         },
         projectWidth,
         projectHeight,
+        { clampToBounds: false },
       );
 
       applyRectUpdate(initialRect, 'creating', 'bottom-right');
@@ -236,7 +236,9 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
 
       if (interaction.type === 'creating') {
         const rawRect = normalizeRect(interaction.start, worldPoint);
-        const nextRect = snapRectToBounds(rawRect, projectWidth, projectHeight);
+        const nextRect = snapRectToBounds(rawRect, projectWidth, projectHeight, {
+          clampToBounds: false,
+        });
         const handle = deriveHandleFromDrag(interaction.start, worldPoint);
         applyRectUpdate(nextRect, 'creating', handle);
       } else if (interaction.type === 'resizing') {
@@ -246,6 +248,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
           worldPoint,
           projectWidth,
           projectHeight,
+          { clampToBounds: false },
         );
         applyRectUpdate(nextRect, 'adjusting', interaction.handle);
       } else if (interaction.type === 'moving') {
@@ -255,6 +258,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
           worldPoint,
           projectWidth,
           projectHeight,
+          { clampToBounds: false },
         );
         applyRectUpdate(nextRect, 'adjusting', 'center');
       }
@@ -344,6 +348,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
         zIndex: 5,
         touchAction: 'none',
         cursor: 'crosshair',
+        pointerEvents: isSpacePressed ? 'none' : 'auto',
       }}
       onPointerDown={handleOverlayPointerDown}
       onPointerMove={handlePointerMove}

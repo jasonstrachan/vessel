@@ -47,12 +47,10 @@ const normalizeImageDataSize = (imageData: ImageData, width: number, height: num
 };
 
 const markUnsavedChanges = (): void => {
-  useAppStore.setState((state) => ({
-    autosave: {
-      ...state.autosave,
-      hasUnsavedChanges: true,
-    },
-  }));
+  const state = useAppStore.getState();
+  if (state.markAutosaveDirty) {
+    state.markAutosaveDirty('history-change');
+  }
 };
 
 export interface LayerHistoryPayload {

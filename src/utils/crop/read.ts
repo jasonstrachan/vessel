@@ -100,6 +100,76 @@ const ensureSourceCanvas = (layer: Layer, logger: Logger): HTMLCanvasElement | n
   return null;
 };
 
+type CropPlacement = {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+  dx: number;
+  dy: number;
+};
+
+const computeCropPlacement = (
+  rect: NormalizedCropRect,
+  sourceWidth: number,
+  sourceHeight: number
+): CropPlacement => {
+  const safeSourceWidth = Math.max(0, sourceWidth);
+  const safeSourceHeight = Math.max(0, sourceHeight);
+  const sourceRight = safeSourceWidth;
+  const sourceBottom = safeSourceHeight;
+  const rectRight = rect.x + rect.width;
+  const rectBottom = rect.y + rect.height;
+  const sx = Math.max(0, Math.min(sourceRight, rect.x));
+  const sy = Math.max(0, Math.min(sourceBottom, rect.y));
+  const sw = Math.max(0, Math.min(sourceRight, rectRight) - sx);
+  const sh = Math.max(0, Math.min(sourceBottom, rectBottom) - sy);
+
+  return {
+    sx,
+    sy,
+    sw,
+    sh,
+    dx: sx - rect.x,
+    dy: sy - rect.y,
+  };
+};
+
+const copyScalarRegion = (
+  source: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: NormalizedCropRect
+): Uint8Array => {
+  const targetWidth = rect.width;
+  const targetHeight = rect.height;
+  const destination = new Uint8Array(targetWidth * targetHeight);
+  const placement = computeCropPlacement(rect, sourceWidth, sourceHeight);
+
+  if (placement.sw === 0 || placement.sh === 0) {
+    return destination;
+  }
+
+  for (let row = 0; row < placement.sh; row += 1) {
+    const srcRow = placement.sy + row;
+    if (srcRow < 0 || srcRow >= sourceHeight) {
+      continue;
+    }
+    const destRow = placement.dy + row;
+    if (destRow < 0 || destRow >= targetHeight) {
+      continue;
+    }
+    const srcStart = srcRow * sourceWidth + placement.sx;
+    const destStart = destRow * targetWidth + placement.dx;
+    destination.set(
+      source.subarray(srcStart, srcStart + placement.sw),
+      destStart
+    );
+  }
+
+  return destination;
+};
+
 const sliceImageData = (
   source: ImageData,
   rect: NormalizedCropRect,
@@ -107,12 +177,25 @@ const sliceImageData = (
   targetHeight: number
 ): ImageData => {
   const destination = new ImageData(targetWidth, targetHeight);
-  for (let row = 0; row < targetHeight; row += 1) {
-    const srcRow = rect.y + row;
-    const srcStart = (srcRow * source.width + rect.x) * 4;
-    const destStart = row * targetWidth * 4;
+  const placement = computeCropPlacement(rect, source.width, source.height);
+
+  if (placement.sw === 0 || placement.sh === 0) {
+    return destination;
+  }
+
+  for (let row = 0; row < placement.sh; row += 1) {
+    const srcRow = placement.sy + row;
+    if (srcRow < 0 || srcRow >= source.height) {
+      continue;
+    }
+    const destRow = placement.dy + row;
+    if (destRow < 0 || destRow >= targetHeight) {
+      continue;
+    }
+    const srcStart = (srcRow * source.width + placement.sx) * 4;
+    const destStart = (destRow * targetWidth + placement.dx) * 4;
     destination.data.set(
-      source.data.subarray(srcStart, srcStart + targetWidth * 4),
+      source.data.subarray(srcStart, srcStart + placement.sw * 4),
       destStart
     );
   }
@@ -238,17 +321,20 @@ export function readLayerSourcesForCrop(
       }
     } else if (sourceCanvas) {
       try {
-        targetCtx.drawImage(
-          sourceCanvas as unknown as CanvasImageSource,
-          rect.x,
-          rect.y,
-          targetWidth,
-          targetHeight,
-          0,
-          0,
-          targetWidth,
-          targetHeight
-        );
+        const placement = computeCropPlacement(rect, sourceCanvas.width, sourceCanvas.height);
+        if (placement.sw > 0 && placement.sh > 0) {
+          targetCtx.drawImage(
+            sourceCanvas as unknown as CanvasImageSource,
+            placement.sx,
+            placement.sy,
+            placement.sw,
+            placement.sh,
+            placement.dx,
+            placement.dy,
+            placement.sw,
+            placement.sh
+          );
+        }
         croppedImageData = targetCtx.getImageData(0, 0, targetWidth, targetHeight);
       } catch {
         croppedImageData = null;
@@ -281,17 +367,24 @@ export function readLayerSourcesForCrop(
         const ccCtx = croppedCcCanvas.getContext('2d', CONTEXT_SETTINGS);
         if (ccCtx) {
           ccCtx.clearRect(0, 0, targetWidth, targetHeight);
-          ccCtx.drawImage(
-            sourceColorCycleCanvas as unknown as CanvasImageSource,
-            rect.x,
-            rect.y,
-            targetWidth,
-            targetHeight,
-            0,
-            0,
-            targetWidth,
-            targetHeight
+          const placement = computeCropPlacement(
+            rect,
+            sourceColorCycleCanvas.width,
+            sourceColorCycleCanvas.height
           );
+          if (placement.sw > 0 && placement.sh > 0) {
+            ccCtx.drawImage(
+              sourceColorCycleCanvas as unknown as CanvasImageSource,
+              placement.sx,
+              placement.sy,
+              placement.sw,
+              placement.sh,
+              placement.dx,
+              placement.dy,
+              placement.sw,
+              placement.sh
+            );
+          }
         }
       } catch (error) {
         logger('[crop] Failed to crop color-cycle canvas', error);
@@ -385,21 +478,13 @@ export function readLayerSourcesForCrop(
             const srcWidth = sourceColorCycleCanvas.width;
             const srcHeight = sourceColorCycleCanvas.height;
             const sourceBuffer = new Uint8Array(rawSnapshot.paintBuffer);
-            if (
-              srcWidth >= rect.x + targetWidth &&
-              srcHeight >= rect.y + targetHeight &&
-              srcWidth * srcHeight === sourceBuffer.length
-            ) {
-              const croppedBuffer = new Uint8Array(targetWidth * targetHeight);
-              for (let row = 0; row < targetHeight; row += 1) {
-                const srcRow = rect.y + row;
-                const srcStart = srcRow * srcWidth + rect.x;
-                const destStart = row * targetWidth;
-                const srcEnd = srcStart + targetWidth;
-                if (srcStart >= 0 && srcEnd <= sourceBuffer.length) {
-                  croppedBuffer.set(sourceBuffer.subarray(srcStart, srcEnd), destStart);
-                }
-              }
+            if (srcWidth * srcHeight === sourceBuffer.length) {
+              const croppedBuffer = copyScalarRegion(
+                sourceBuffer,
+                srcWidth,
+                srcHeight,
+                rect
+              );
               const hasContent =
                 Boolean(rawSnapshot.hasContent) && croppedBuffer.some((value) => value !== 0);
               strokeSnapshot = {
@@ -431,16 +516,7 @@ export function readLayerSourcesForCrop(
             const expectedLength = sw * colorCycleReadbackCanvas.height;
             const full = new Uint8Array(idx.data);
             if (expectedLength > 0 && full.length === expectedLength) {
-              const out = new Uint8Array(targetWidth * targetHeight);
-              for (let row = 0; row < targetHeight; row += 1) {
-                const srcRow = rect.y + row;
-                const srcStart = srcRow * sw + rect.x;
-                const destStart = row * targetWidth;
-                const srcEnd = srcStart + targetWidth;
-                if (srcStart >= 0 && srcEnd <= full.length) {
-                  out.set(full.subarray(srcStart, srcEnd), destStart);
-                }
-              }
+              const out = copyScalarRegion(full, sw, colorCycleReadbackCanvas.height, rect);
               croppedAnimatorIndex = {
                 width: targetWidth,
                 height: targetHeight,

@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { AutosaveState } from '@/types';
+import type { AutosaveDirtyReason, AutosaveState } from '@/types';
 import historyManager from '@/history/historyService';
 
 type AppState = import('../useAppStore').AppState;
@@ -12,6 +12,7 @@ export interface AutosaveSlice {
   setFileBackupFile: (handle: FileSystemFileHandle | null, path?: string) => void;
   setFileBackupDirectory: (handle: FileSystemDirectoryHandle | null, path?: string) => void;
   clearDirtyState: () => void;
+  markAutosaveDirty: (reason: AutosaveDirtyReason) => void;
   updateFileBackupTime: () => void;
   setAutosaveInterval: (interval: number) => void;
   setHistorySize: (size: number) => void;
@@ -23,6 +24,8 @@ const defaultAutosaveState: AutosaveState = {
   hasUnsavedChanges: false,
   lastSaveTime: null,
   interval: 2,
+  lastDirtyReason: null,
+  lastDirtyAt: null,
   fileBackup: {
     enabled: false,
     mode: 'single-file',
@@ -83,7 +86,22 @@ export const createAutosaveSlice: StateCreator<AppState, [], [], AutosaveSlice> 
 
   clearDirtyState: () =>
     set((state) => ({
-      autosave: { ...state.autosave, hasUnsavedChanges: false },
+      autosave: {
+        ...state.autosave,
+        hasUnsavedChanges: false,
+        lastDirtyReason: null,
+        lastDirtyAt: null,
+      },
+    })),
+
+  markAutosaveDirty: (reason) =>
+    set((state) => ({
+      autosave: {
+        ...state.autosave,
+        hasUnsavedChanges: true,
+        lastDirtyReason: reason,
+        lastDirtyAt: new Date(),
+      },
     })),
 
   updateFileBackupTime: () =>

@@ -1204,6 +1204,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Simplified cursor state ref for space key
   const isSpacePressedRef = useRef(false);
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
   
   // Refs for instant panning without re-renders
   const panRef = useRef(pan);
@@ -1919,6 +1920,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         // quiet
 
         isSpacePressedRef.current = true;
+        setIsSpacePressed(true);
         setShowBrushCursorRef.current(false);
         setCursorStyleRef.current('grab');
         
@@ -1952,6 +1954,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         e.preventDefault();
         e.stopPropagation();
         isSpacePressedRef.current = false;
+        setIsSpacePressed(false);
 
         const wasPanning = panRef.current.panState.isPanning;
         if (wasPanning) {
@@ -1993,6 +1996,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Fallback: ensure space press is honored even if our direct handler missed it
       if (!isSpacePressedRef.current) {
         isSpacePressedRef.current = true;
+        setIsSpacePressed(true);
         setShowBrushCursorRef.current(false);
         setCursorStyleRef.current('grab');
         const { x: pointerX, y: pointerY } = mousePositionRef.current;
@@ -2007,6 +2011,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     onSpaceReleased: () => {
       if (isSpacePressedRef.current) {
         isSpacePressedRef.current = false;
+        setIsSpacePressed(false);
         if (panRef.current.panState.isPanning) {
           panRef.current.endPan();
         }
@@ -2520,14 +2525,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     };
     
-    const canvasElement = canvasRef.current;
-    if (canvasElement) {
-      canvasElement.addEventListener('wheel', handleWheel, { passive: false });
+    const targets: EventTarget[] = [];
+    const primaryTarget = wrapperRef.current ?? canvasRef.current;
+    if (primaryTarget) {
+      primaryTarget.addEventListener('wheel', handleWheel, { passive: false });
+      targets.push(primaryTarget);
     }
+
     return () => {
-      if (canvasElement) {
-        canvasElement.removeEventListener('wheel', handleWheel);
-      }
+      targets.forEach((target) => {
+        target.removeEventListener('wheel', handleWheel);
+      });
       if (zoomEndTimeoutRef.current !== null) {
         window.clearTimeout(zoomEndTimeoutRef.current);
         zoomEndTimeoutRef.current = null;
@@ -3018,6 +3026,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           zoom={canvasZoom || 1}
           offsetX={pan.panState.offsetX}
           offsetY={pan.panState.offsetY}
+          isSpacePressed={isSpacePressed}
         />
       ) : null}
       

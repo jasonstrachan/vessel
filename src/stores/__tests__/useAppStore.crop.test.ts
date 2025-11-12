@@ -7,7 +7,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import historyManager from '@/history/historyService';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
-import type { Layer, Project } from '@/types';
+import type { Layer, Project, Rectangle } from '@/types';
 
 
 const createImageData = (width: number, height: number): ImageData => {
@@ -196,7 +196,12 @@ const createRecolorLayer = (width: number, height: number): Layer => {
   return baseLayer;
 };
 
-const primeStoreForCrop = (layer: Layer, projectWidth: number, projectHeight: number) => {
+const primeStoreForCrop = (
+  layer: Layer,
+  projectWidth: number,
+  projectHeight: number,
+  marquee: Rectangle = { x: 1, y: 1, width: 3, height: 2 }
+) => {
   const baseProject = useAppStore.getState().project;
   const project: Project = baseProject
     ? {
@@ -234,7 +239,7 @@ const primeStoreForCrop = (layer: Layer, projectWidth: number, projectHeight: nu
     },
     crop: {
       status: 'ready',
-      marquee: { x: 1, y: 1, width: 3, height: 2 },
+      marquee,
       activeHandle: null,
       commitInFlight: false
     },
@@ -287,6 +292,32 @@ describe('useAppStore commitCrop', () => {
 
     expect(state.crop.marquee).toBeNull();
     expect(state.crop.status).toBe('idle');
+  });
+
+  it('extends the canvas when the crop marquee exceeds the project bounds', async () => {
+    const layer = createLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4, { x: -2, y: -1, width: 9, height: 6 });
+
+    await useAppStore.getState().commitCrop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const state = useAppStore.getState();
+    expect(state.project?.width).toBe(9);
+    expect(state.project?.height).toBe(6);
+
+    const updatedLayer = state.layers[0];
+    expect(updatedLayer.imageData?.width).toBe(9);
+    expect(updatedLayer.imageData?.height).toBe(6);
+
+    const pixels = updatedLayer.imageData?.data ?? new Uint8ClampedArray();
+    const destOriginIndex = ((1 * 9) + 2) * 4;
+    expect(Array.from(pixels.slice(destOriginIndex, destOriginIndex + 4))).toEqual([0, 0, 0, 255]);
+
+    const blankPaddingIndex = ((1 * 9) + 0) * 4;
+    expect(Array.from(pixels.slice(blankPaddingIndex, blankPaddingIndex + 4))).toEqual([0, 0, 0, 0]);
+
+    expect(state.canvas.offsetX).toBe(-2);
+    expect(state.canvas.offsetY).toBe(-1);
   });
 
   it('crops color-cycle layers and preserves their canvas bindings', async () => {

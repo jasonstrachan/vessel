@@ -7,6 +7,7 @@ import { CustomBrushPanel } from '@/components/toolbar/CustomBrushPanel';
 import { ColorCycleUI } from '@/components/colorCycle/integration/ColorCycleUI';
 import BrushEditorUI from '@/components/BrushEditorUI';
 import ColorSlidersPanel from '@/components/panels/ColorSlidersPanel';
+import CropOptionsPanel from '@/components/panels/CropOptionsPanel';
 import { useAppStore } from '@/stores/useAppStore';
 import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
 import { brushCache } from '@/utils/brushCache';
@@ -74,29 +75,35 @@ const BrushSettingsPanel: React.FC = () => {
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
-        {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
-        {currentTool === 'fill' && <FillControls />}
-        {currentTool === 'custom' && <CustomBrushPanel />}
-        {brushSettings.brushShape === BrushShape.CUSTOM && (
-          <div className="px-4 pb-0">
-            <ColorSlidersPanel
-              hueShift={hueShift}
-              lightness={lightness}
-              saturation={saturation}
-              onHueShiftChange={handleHueShiftChange}
-              onLightnessChange={handleLightnessChange}
-              onSaturationChange={handleSaturationChange}
-              brushShape={brushSettings.brushShape}
-            />
-          </div>
+        {currentTool === 'crop' ? (
+          <CropOptionsPanel />
+        ) : (
+          <>
+            {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
+            {currentTool === 'fill' && <FillControls />}
+            {currentTool === 'custom' && <CustomBrushPanel />}
+            {brushSettings.brushShape === BrushShape.CUSTOM && (
+              <div className="px-4 pb-0">
+                <ColorSlidersPanel
+                  hueShift={hueShift}
+                  lightness={lightness}
+                  saturation={saturation}
+                  onHueShiftChange={handleHueShiftChange}
+                  onLightnessChange={handleLightnessChange}
+                  onSaturationChange={handleSaturationChange}
+                  brushShape={brushSettings.brushShape}
+                />
+              </div>
+            )}
+            {currentTool === 'recolor' && (
+              <div className="p-2">
+                <ColorCycleUI isVisible={true} />
+              </div>
+            )}
+            {currentTool === 'color-adjust' && <ColorAdjustToolPanel />}
+            {shouldShowBrushEditor && <BrushEditorUI key={brushEditorStatus} />}
+          </>
         )}
-        {currentTool === 'recolor' && (
-          <div className="p-2">
-            <ColorCycleUI isVisible={true} />
-          </div>
-        )}
-        {currentTool === 'color-adjust' && <ColorAdjustToolPanel />}
-        {shouldShowBrushEditor && <BrushEditorUI key={brushEditorStatus} />}
       </div>
     </div>
   );

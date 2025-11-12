@@ -394,12 +394,21 @@ export interface BrushEditorState {
   editingBrushData?: CustomBrush | null; // Store the brush being edited
 }
 
+export type AutosaveDirtyReason =
+  | 'project-change'
+  | 'layer-change'
+  | 'palette-change'
+  | 'history-change'
+  | 'manual';
+
 export interface AutosaveState {
   isEnabled: boolean;
   isRunning: boolean;
   hasUnsavedChanges: boolean;
   lastSaveTime: Date | null;
   interval: number; // in minutes
+  lastDirtyReason: AutosaveDirtyReason | null;
+  lastDirtyAt: Date | null;
   fileBackup: {
     enabled: boolean;
     mode: 'single-file' | 'timestamped-files';

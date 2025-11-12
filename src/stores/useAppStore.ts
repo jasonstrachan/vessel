@@ -207,6 +207,7 @@ import type {
   CanvasState,
   ToolState,
   UIState,
+  AutosaveDirtyReason,
   AutosaveState,
   Tool,
   BrushSettings,
@@ -602,6 +603,7 @@ export interface AppState {
   setFileBackupFile: (handle: FileSystemFileHandle | null, path?: string) => void;
   setFileBackupDirectory: (handle: FileSystemDirectoryHandle | null, path?: string) => void;
   clearDirtyState: () => void;
+  markAutosaveDirty: (reason: AutosaveDirtyReason) => void;
   updateFileBackupTime: () => void;
   setAutosaveInterval: (interval: number) => void;
   setHistorySize: (size: number) => void;
@@ -911,6 +913,8 @@ export const useAppStore = createVesselStore<AppState>(
         hasUnsavedChanges: false,
         lastSaveTime: null,
         interval: 2, // default 2 minutes
+        lastDirtyReason: null,
+        lastDirtyAt: null,
         fileBackup: {
           enabled: false,
           mode: 'single-file',
@@ -940,7 +944,20 @@ export const useAppStore = createVesselStore<AppState>(
         autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, directoryHandle: handle, backupPath: path || null } }
       })),
       clearDirtyState: () => set((state) => ({
-        autosave: { ...state.autosave, hasUnsavedChanges: false }
+        autosave: {
+          ...state.autosave,
+          hasUnsavedChanges: false,
+          lastDirtyReason: null,
+          lastDirtyAt: null
+        }
+      })),
+      markAutosaveDirty: (reason) => set((state) => ({
+        autosave: {
+          ...state.autosave,
+          hasUnsavedChanges: true,
+          lastDirtyReason: reason,
+          lastDirtyAt: new Date()
+        }
       })),
       updateFileBackupTime: () => set((state) => ({
         autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, lastBackupTime: new Date() } }
@@ -992,6 +1009,59 @@ useAppStore.subscribe((state) => {
   // Note: Zustand v4 doesn't provide previous state in subscribe
   // Would need to track manually if we need to compare
 });
+
+const subscribeToAutosaveDirtyTracking = (): void => {
+  const ensureMarkDirty = (reason: AutosaveDirtyReason) => {
+    const store = useAppStore.getState();
+    if (store.markAutosaveDirty) {
+      store.markAutosaveDirty(reason);
+    }
+  };
+
+  useAppStore.subscribe(
+    (state) => state.layers,
+    (next, prev) => {
+      if (next !== prev) {
+        ensureMarkDirty('layer-change');
+      }
+    }
+  );
+
+  useAppStore.subscribe(
+    (state) => state.project,
+    (next, prev) => {
+      if (next !== prev) {
+        ensureMarkDirty('project-change');
+      }
+    }
+  );
+
+  useAppStore.subscribe(
+    (state) => state.palette,
+    (next, prev) => {
+      if (next !== prev) {
+        ensureMarkDirty('palette-change');
+      }
+    }
+  );
+
+  useAppStore.subscribe(
+    (state) => ({
+      undo: state.history.undoStack.length,
+      redo: state.history.redoStack.length,
+    }),
+    (next, prev) => {
+      if (next.undo !== prev.undo || next.redo !== prev.redo) {
+        ensureMarkDirty('history-change');
+      }
+    },
+    {
+      equalityFn: (a, b) => a.undo === b.undo && a.redo === b.redo,
+    }
+  );
+};
+
+subscribeToAutosaveDirtyTracking();
 
 // DEBUG ONLY
 (() => {

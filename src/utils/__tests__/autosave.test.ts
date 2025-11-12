@@ -22,6 +22,8 @@ jest.mock('@/stores/useAppStore', () => {
       hasUnsavedChanges: false,
       lastSaveTime: null,
       interval: 2,
+      lastDirtyReason: null,
+      lastDirtyAt: null,
       fileBackup: {
         enabled: false,
         mode: 'single-file',
@@ -111,6 +113,8 @@ const createStoreStub = () => ({
     isRunning: false,
     lastSaveTime: null,
     interval: 2,
+    lastDirtyReason: null,
+    lastDirtyAt: null,
     fileBackup: {
       enabled: false,
       mode: 'single-file' as const,
@@ -132,6 +136,7 @@ const createStoreStub = () => ({
   layers: [{ id: 'layer-1' }],
   captureCanvasToActiveLayer: jest.fn().mockResolvedValue(undefined),
   clearDirtyState: jest.fn(),
+  markAutosaveDirty: jest.fn(),
   updateFileBackupTime: jest.fn(),
   addNotification: jest.fn(),
 });
