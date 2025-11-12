@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 /**
  * FPSMeter - Lightweight on-screen FPS indicator
  * - Fixed bottom-left overlay
- * - Colors: green > 60, orange 30-60, red < 30
+ * - Grey by default; pulses red when FPS drops below 30
  */
 export default function FPSMeter() {
   const rafId = useRef<number | null>(null);
@@ -45,11 +45,14 @@ export default function FPSMeter() {
     };
   }, []);
 
-  const colorClass = fps > 60 ? 'bg-green-600/80' : fps >= 30 ? 'bg-orange-500/80' : 'bg-red-600/80';
+  const isLow = fps > 0 && fps < 30;
+  const containerColor = isLow
+    ? 'bg-red-600/90 text-white shadow-red-900/40'
+    : 'bg-[#333333]/85 text-[#D0D0D0] shadow-black/30';
 
   return (
     <div
-      className={`fixed bottom-2 left-2 z-50 ${colorClass} text-white rounded px-2 py-1 text-xs font-medium shadow-lg select-none pointer-events-none`}
+      className={`fixed bottom-2 left-2 z-50 rounded px-2 py-1 text-xs font-medium select-none pointer-events-none transition-colors duration-150 ${containerColor}`}
       aria-label="frames-per-second-indicator"
       title="Frames per second"
     >
@@ -57,4 +60,3 @@ export default function FPSMeter() {
     </div>
   );
 }
-

@@ -54,7 +54,7 @@ const LeftToolbar = () => {
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },
       { id: 'load' as Tool, label: 'Load File', abbr: 'Ld' },
       { id: 'export' as Tool, label: 'Export', abbr: 'Ex' },
-      { id: 'options' as Tool, label: 'Options', abbr: 'Op' },
+      { id: 'options' as Tool, label: 'Options', abbr: 'St' },
     ],
   ];
 

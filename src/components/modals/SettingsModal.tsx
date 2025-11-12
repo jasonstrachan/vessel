@@ -17,6 +17,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
   const showRulers = useAppStore(state => state.canvas.showRulers);
+  const showFPSMeter = useAppStore(state => state.canvas.showFPSMeter);
   const isAutosaveEnabled = useAppStore(state => state.autosave.isEnabled);
   const autosaveInterval = useAppStore(state => state.autosave.interval);
   const historySize = useAppStore(state => state.history.maxHistorySize);
@@ -24,6 +25,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const setAutosaveInterval = useAppStore(state => state.setAutosaveInterval);
   const setHistorySize = useAppStore(state => state.setHistorySize);
   const toggleRulers = useAppStore(state => state.toggleRulers);
+  const setShowFPSMeter = useAppStore(state => state.setShowFPSMeter);
   
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -41,6 +43,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       },
       canvas: {
         showRulers: currentState.canvas.showRulers,
+        showFPSMeter: currentState.canvas.showFPSMeter,
       },
       history: {
         maxHistorySize: currentState.history.maxHistorySize,
@@ -82,6 +85,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     if (showRulers !== enabled) {
       toggleRulers();
     }
+  };
+
+  const handleFPSMeterToggle = (enabled: boolean) => {
+    setShowFPSMeter(enabled);
   };
 
   useEffect(() => {
@@ -169,6 +176,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   id="show-rulers"
                   checked={showRulers}
                   onChange={handleRulersToggle}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <label htmlFor="show-fps-meter" className="text-base text-[#888]">Show FPS Meter</label>
+                <Switch
+                  id="show-fps-meter"
+                  checked={showFPSMeter}
+                  onChange={handleFPSMeterToggle}
                 />
               </div>
             </div>

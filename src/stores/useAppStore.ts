@@ -380,6 +380,7 @@ export interface AppState {
   };
   setCanvasViewport: (viewport: { left: number; top: number; width: number; height: number }) => void;
   toggleRulers: () => void;
+  setShowFPSMeter: (visible: boolean) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setCanvasDimensions: (width: number, height: number) => void;
   setProjectDimensions: (width: number, height: number) => void;

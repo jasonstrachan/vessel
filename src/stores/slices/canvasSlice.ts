@@ -18,6 +18,7 @@ export interface CanvasSlice {
   setCanvasOffset: (offsetX: number, offsetY: number) => void;
   setCanvasViewport: (viewport: { left: number; top: number; width: number; height: number }) => void;
   toggleRulers: () => void;
+  setShowFPSMeter: (visible: boolean) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setCanvasDimensions: (width: number, height: number) => void;
   resizeCanvas: (width: number, height: number) => Promise<void>;
@@ -36,6 +37,7 @@ export const defaultCanvasState: CanvasState = {
   rotation: 0,
   gridSize: 16,
   showRulers: false,
+  showFPSMeter: true,
   displayMode: 'pixelated',
   canvasWidth: 2000,
   canvasHeight: 2000,
@@ -100,6 +102,15 @@ export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (s
     set((state) => ({
       canvas: { ...state.canvas, showRulers: !state.canvas.showRulers },
     })),
+  setShowFPSMeter: (visible) =>
+    set((state) => {
+      if (state.canvas.showFPSMeter === visible) {
+        return state;
+      }
+      return {
+        canvas: { ...state.canvas, showFPSMeter: visible },
+      };
+    }),
   setDisplayMode: (mode) =>
     set((state) => ({
       canvas: { ...state.canvas, displayMode: mode },

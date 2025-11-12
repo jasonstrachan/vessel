@@ -42,9 +42,11 @@ export default function Home() {
   const isLoadModalOpen = modals.loadProject;
 
   const canvasShowRulers = useAppStore((state) => state.canvas.showRulers);
+  const showFPSMeter = useAppStore((state) => state.canvas.showFPSMeter);
   const setAutosaveEnabled = useAppStore((state) => state.setAutosaveEnabled);
   const setAutosaveInterval = useAppStore((state) => state.setAutosaveInterval);
   const toggleRulers = useAppStore((state) => state.toggleRulers);
+  const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
   const setHistorySize = useAppStore((state) => state.setHistorySize);
   const newProject = useAppStore((state) => state.newProject);
   const ensureCustomBrushHydrated = useAppStore((state) => state.ensureCustomBrushHydrated);
@@ -115,6 +117,9 @@ export default function Home() {
           if (typeof settings.canvas.showRulers === 'boolean' && settings.canvas.showRulers !== canvasShowRulers) {
             toggleRulers();
           }
+          if (typeof settings.canvas.showFPSMeter === 'boolean') {
+            setShowFPSMeter(settings.canvas.showFPSMeter);
+          }
         }
 
         // Load history settings
@@ -128,7 +133,7 @@ export default function Home() {
         localStorage.removeItem('vessel-settings');
       }
     }
-  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, toggleRulers]);
+  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, toggleRulers]);
 
   useEffect(() => {
     if (!isAutosaveEnabled) {
@@ -228,7 +233,7 @@ export default function Home() {
       {/* <TestPluginBrushes /> */}
 
       {/* Simple FPS overlay */}
-      <FPSMeter />
+      {showFPSMeter && <FPSMeter />}
 
 
     </main>

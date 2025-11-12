@@ -289,6 +289,7 @@ export interface CanvasState {
   rotation: number;
   gridSize: number;
   showRulers: boolean;
+  showFPSMeter: boolean;
   displayMode: 'pixelated' | 'smooth';
   canvasWidth: number;
   canvasHeight: number;
