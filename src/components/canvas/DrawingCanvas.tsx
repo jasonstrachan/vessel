@@ -164,6 +164,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const drawAnimationFrameRef = useRef<number | null>(null); // RAF throttling for pan
   const pointerMoveThrottled = useRef<number>(0); // Throttle pointer move to 120fps
   const colorCycleBrushManagerRef = useRef<ColorCycleBrushManager | null>(null);
+  const colorCycleOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const colorCycleOverlayHasContentRef = useRef(false);
   
   // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
@@ -180,6 +182,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const canvasOffsetX = useAppStore((state) => state.canvas.offsetX);
   const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
   const compositeBitmap = useAppStore((state) => state.currentCompositeBitmap);
+  const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
   const currentTool = useAppStore(selectCurrentTool);
   const brushSettings = useAppStore(selectBrushSettings);
   const fillSettings = useAppStore(selectFillSettings);
@@ -219,7 +222,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const commitFloatingPaste = useAppStore((state) => state.commitFloatingPaste);
   const cancelFloatingPaste = useAppStore((state) => state.cancelFloatingPaste);
   const setCurrentOffscreenCanvas = useAppStore((state) => state.setCurrentOffscreenCanvas);
-  const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
+  const renderStaticComposite = useAppStore((state) => state.renderStaticComposite);
+  const renderColorCycleOverlay = useAppStore((state) => state.renderColorCycleOverlay);
   const setCanvasDimensions = useAppStore((state) => state.setCanvasDimensions);
   const setZoom = useAppStore((state) => state.setZoom);
   const setCanvasOffset = useAppStore((state) => state.setCanvasOffset);
@@ -713,6 +717,64 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     tools.brushSettings.brushShape,
     tools.brushSettings.antialiasing
   ]);
+
+  const ensureStaticCompositeCanvas = useCallback(() => {
+    if (!project) {
+      return null;
+    }
+    if (!compositeCanvasRef.current && typeof document !== 'undefined') {
+      compositeCanvasRef.current = document.createElement('canvas');
+    }
+    if (compositeCanvasRef.current) {
+      if (
+        compositeCanvasRef.current.width !== project.width ||
+        compositeCanvasRef.current.height !== project.height
+      ) {
+        compositeCanvasRef.current.width = project.width;
+        compositeCanvasRef.current.height = project.height;
+      }
+    }
+    return compositeCanvasRef.current;
+  }, [project]);
+
+  const ensureColorCycleOverlayCanvas = useCallback(() => {
+    if (!project || typeof document === 'undefined') {
+      return null;
+    }
+    if (!colorCycleOverlayCanvasRef.current) {
+      colorCycleOverlayCanvasRef.current = document.createElement('canvas');
+    }
+    const canvas = colorCycleOverlayCanvasRef.current;
+    if (canvas.width !== project.width || canvas.height !== project.height) {
+      canvas.width = project.width;
+      canvas.height = project.height;
+    }
+    return canvas;
+  }, [project]);
+
+  const refreshColorCycleOverlay = useCallback(() => {
+    const canvas = ensureColorCycleOverlayCanvas();
+    if (!canvas) {
+      colorCycleOverlayHasContentRef.current = false;
+      return false;
+    }
+    const hasContent = renderColorCycleOverlay(canvas);
+    colorCycleOverlayHasContentRef.current = hasContent;
+    return hasContent;
+  }, [ensureColorCycleOverlayCanvas, renderColorCycleOverlay]);
+
+  const rebuildStaticComposite = useCallback(() => {
+    const canvas = ensureStaticCompositeCanvas();
+    if (!canvas) {
+      return false;
+    }
+    const rendered = renderStaticComposite(canvas);
+    if (rendered) {
+      setCurrentOffscreenCanvas(canvas);
+      refreshColorCycleOverlay();
+    }
+    return rendered;
+  }, [ensureStaticCompositeCanvas, refreshColorCycleOverlay, renderStaticComposite, setCurrentOffscreenCanvas]);
   
   // Drawing function - base implementation without hooks
   const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio = 1) => {
@@ -903,7 +965,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           }
         }
       }
-      
+      if (colorCycleOverlayHasContentRef.current && colorCycleOverlayCanvasRef.current && visibleRect) {
+        const { x, y, width, height } = visibleRect;
+        const overlayCanvas = colorCycleOverlayCanvasRef.current;
+        ctx.drawImage(
+          overlayCanvas,
+          x,
+          y,
+          width,
+          height,
+          x,
+          y,
+          width,
+          height
+        );
+      }
+
       // Draw temporary drawing canvas
       if (overlayActive && overlayCanvasElement && visibleRect) {
         // Strictly avoid overlaying CC animation frames above the stack.
@@ -1405,9 +1482,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     await drawingHandlers.finalizeDrawing(false);
     stateMachine.finalizationComplete();
 
-    if (compositeCanvasRef.current && project) {
-      compositeLayersToCanvas(compositeCanvasRef.current);
-      setCurrentOffscreenCanvas(compositeCanvasRef.current);
+    if (rebuildStaticComposite()) {
       compositeCanvasDirtyRef.current = false;
     }
 
@@ -1423,13 +1498,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [
     brushEngine,
     compositeCanvasDirtyRef,
-    compositeCanvasRef,
-    compositeLayersToCanvas,
+    rebuildStaticComposite,
     drawingHandlers,
     interactionDispatch,
-    project,
     sampleColorsAlongLine,
-    setCurrentOffscreenCanvas,
     setNeedsRedraw,
     stateMachine,
     toolStateMachine,
@@ -1514,9 +1586,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
             useAppStore.getState().cancelShapeFillSession();
 
-            if (compositeCanvasRef.current && project) {
-              compositeLayersToCanvas(compositeCanvasRef.current);
-              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+            if (rebuildStaticComposite()) {
               compositeCanvasDirtyRef.current = false;
             }
 
@@ -1532,9 +1602,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       await drawingHandlers.finalizeShapeDrawing();
       stateMachine.finalizationComplete();
 
-      if (compositeCanvasRef.current && project) {
-        compositeLayersToCanvas(compositeCanvasRef.current);
-        setCurrentOffscreenCanvas(compositeCanvasRef.current);
+      if (rebuildStaticComposite()) {
         compositeCanvasDirtyRef.current = false;
       }
 
@@ -1546,14 +1614,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     return false;
   }, [
     compositeCanvasDirtyRef,
-    compositeCanvasRef,
-    compositeLayersToCanvas,
+    rebuildStaticComposite,
     drawingHandlers,
     finalizeRectangleGradientFromState,
     interactionDispatch,
-    project,
     sampleColorAtPosition,
-    setCurrentOffscreenCanvas,
     setNeedsRedraw,
     stateMachine,
     tools.shapeMode
@@ -1833,24 +1898,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
     
     const handleColorCycleFrameUpdate = () => {
-      // debug log removed
-
-      // Mark composite canvas as dirty
       compositeCanvasDirtyRef.current = true;
-      
-      // Regenerate composite canvas to include updated layer imageData
-      if (compositeCanvasRef.current && project && compositeLayersToCanvas) {
-        compositeLayersToCanvas(compositeCanvasRef.current);
-      }
-      
+      refreshColorCycleOverlay();
+
       // Trigger a redraw to show the updated animation frame
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d', { willReadFrequently: true });
       if (ctx && drawRef.current && viewTransformRef.current) {
         drawRef.current(ctx, viewTransformRef.current);
       }
-      
-      // debug log removed
     };
     
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
@@ -1860,7 +1916,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
       window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
     };
-  }, [project, compositeLayersToCanvas]);
+  }, [project, refreshColorCycleOverlay]);
+
+  useEffect(() => () => {
+    colorCycleOverlayCanvasRef.current = null;
+    colorCycleOverlayHasContentRef.current = false;
+  }, []);
   
   // Handle blur to reset space key state when losing focus
   const handleBlur = useCallback((e: React.FocusEvent) => {
@@ -2106,9 +2167,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             stateMachine.finalizationComplete();
             
             // Force immediate composite regeneration after layer update
-            if (compositeCanvasRef.current && project) {
-              compositeLayersToCanvas(compositeCanvasRef.current);
-              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+            if (rebuildStaticComposite()) {
               compositeCanvasDirtyRef.current = false;
             }
             
@@ -2369,64 +2428,49 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Regenerate composite canvas when layers change
   useEffect(() => {
-    if (!project || !compositeLayersToCanvas) return;
+    if (!project) return;
 
     const activeLayerChanged = activeLayerId !== lastActiveLayerIdRef.current;
-    
-    // Check if we actually need to update the composite
+
     if (
       layersHash === lastCompositeHashRef.current &&
       !compositeCanvasDirtyRef.current &&
       !layersNeedRecomposition &&
       !activeLayerChanged
     ) {
-      return; // Skip if nothing changed
+      return;
     }
-    
-    if (!compositeCanvasRef.current && typeof document !== 'undefined') {
-      compositeCanvasRef.current = document.createElement('canvas');
-    }
-    if (compositeCanvasRef.current) {
-      if (compositeCanvasRef.current.width !== project.width || 
-          compositeCanvasRef.current.height !== project.height) {
-        compositeCanvasRef.current.width = project.width;
-        compositeCanvasRef.current.height = project.height;
+
+    const rebuilt = rebuildStaticComposite();
+
+    if (rebuilt) {
+      renderSplitComposites();
+      lastCompositeHashRef.current = layersHash;
+      lastActiveLayerIdRef.current = activeLayerId ?? null;
+      compositeCanvasDirtyRef.current = false;
+      lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null };
+      if (layersNeedRecomposition) {
+        setLayersNeedRecomposition(false);
       }
-      
-      const compCtx = compositeCanvasRef.current.getContext('2d', { willReadFrequently: true });
-      if (compCtx) {
-        compCtx.imageSmoothingEnabled = false;
-      }
-    
-      compositeLayersToCanvas(compositeCanvasRef.current);
-      setCurrentOffscreenCanvas(compositeCanvasRef.current);
-    }
+      setNeedsRedraw(prev => prev + 1);
 
-    renderSplitComposites();
-
-    // Update tracking
-    lastCompositeHashRef.current = layersHash;
-    lastActiveLayerIdRef.current = activeLayerId ?? null;
-    compositeCanvasDirtyRef.current = false;
-    // Reset last sampled pixel cache after recomposition
-    lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null };
-
-    // Reset the recomposition flag if it was set
-    if (layersNeedRecomposition) {
-      setLayersNeedRecomposition(false);
-    }
-
-    setNeedsRedraw(prev => prev + 1);
-
-    // Also trigger immediate redraw
-    const canvas = canvasRef.current;
-    if (canvas && drawRef.current && viewTransformRef.current) {
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        drawRef.current(ctx, viewTransformRef.current);
+      const canvas = canvasRef.current;
+      if (canvas && drawRef.current && viewTransformRef.current) {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          drawRef.current(ctx, viewTransformRef.current);
+        }
       }
     }
-  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition, activeLayerId, renderSplitComposites]);
+  }, [
+    layersHash,
+    project,
+    layersNeedRecomposition,
+    setLayersNeedRecomposition,
+    activeLayerId,
+    renderSplitComposites,
+    rebuildStaticComposite
+  ]);
   
   // Animate marching ants
   useEffect(() => {
@@ -2468,7 +2512,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   useEffect(() => {
     const shouldMeasure = process.env.NODE_ENV !== 'production';
 
-    const handleWheel = (e: WheelEvent) => {
+    const handleWheel: EventListener = (event) => {
+      const e = event as WheelEvent;
       e.preventDefault();
 
       // Always read from the ref to get the most up-to-date values

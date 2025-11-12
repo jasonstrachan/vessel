@@ -55,6 +55,8 @@ function createBaseState(): AppState {
   commitFloatingPaste: jest.fn(),
   cancelFloatingPaste: jest.fn(),
   setCurrentOffscreenCanvas: jest.fn(),
+  renderStaticComposite: jest.fn(() => true),
+  renderColorCycleOverlay: jest.fn(() => true),
   compositeLayersToCanvas: jest.fn(),
   setCanvasDimensions: jest.fn(),
   setZoom: jest.fn(),
@@ -100,28 +102,35 @@ function createBaseState(): AppState {
 
 const baseState = createBaseState();
 
-const useAppStoreMock = Object.assign(
-  jest.fn((selector?: (store: AppState) => unknown) => {
-    if (selector) {
-      return selector(baseState);
-    }
-    return baseState;
-  }),
-  {
-    getState: () => baseState,
-    setState: jest.fn(),
-    subscribe: jest.fn(() => () => {}),
-  }
-);
-
 jest.mock('@/stores/useAppStore', () => {
   const actual = jest.requireActual('@/stores/useAppStore');
   return {
     __esModule: true,
     ...actual,
-    useAppStore: useAppStoreMock as typeof actual.useAppStore,
+    useAppStore: jest.fn(),
     selectEffectiveColorCyclePlaying: jest.fn(() => false),
   };
+});
+
+const { useAppStore: useAppStoreMock } = jest.requireMock('@/stores/useAppStore') as {
+  useAppStore: jest.MockedFunction<(selector?: (store: AppState) => unknown) => unknown> & {
+    getState?: () => AppState;
+    setState?: jest.Mock;
+    subscribe?: jest.Mock;
+  };
+};
+
+Object.assign(useAppStoreMock, {
+  getState: () => baseState,
+  setState: jest.fn(),
+  subscribe: jest.fn(() => () => {}),
+});
+
+useAppStoreMock.mockImplementation((selector?: (store: AppState) => unknown) => {
+  if (selector) {
+    return selector(baseState);
+  }
+  return baseState;
 });
 
 const brushEngineStub = {

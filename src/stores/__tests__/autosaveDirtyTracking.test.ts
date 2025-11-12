@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/useAppStore';
+import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import type { CanvasSnapshot, Layer, PaletteState, Project } from '@/types';
 
 const resetAutosaveState = () => {
@@ -20,22 +21,16 @@ const coerceLayer = (overrides: Partial<Layer> = {}): Layer => {
   return {
     id: `layer-${Math.random().toString(36).slice(2)}`,
     name: 'Layer',
-    layerType: 'bitmap',
+    layerType: 'normal',
     order: 0,
     blendMode: 'source-over',
     opacity: 1,
-    isLocked: false,
-    isVisible: true,
+    locked: false,
+    visible: true,
     imageData: null,
-    framebuffer: {
-      width: 1,
-      height: 1,
-      getContext: () => null,
-    } as unknown as HTMLCanvasElement,
-    transform: null,
-    alignment: null,
+    framebuffer: document.createElement('canvas'),
+    alignment: createDefaultLayerAlignment(),
     colorCycleData: undefined,
-    metadata: {},
     ...overrides,
   };
 };
@@ -47,7 +42,11 @@ describe('autosave dirty tracking', () => {
 
   it('marks dirty when project updates', () => {
     const store = useAppStore.getState();
-    const baseProject = (store.project ?? {
+    const existingProject = store.project;
+    const fallbackExportLayout = existingProject?.exportLayout ?? createDefaultExportLayout();
+
+    const baseProject: Project =
+      existingProject ?? {
       id: 'project-test',
       name: 'Untitled',
       width: 1024,
@@ -59,13 +58,9 @@ describe('autosave dirty tracking', () => {
       customBrushes: [],
       defaultCustomBrushId: null,
       brushSpecificSettings: {},
-      exportLayout: store.project?.exportLayout ?? {
-        frames: [],
-        width: 1024,
-        height: 1024,
-      },
+      exportLayout: fallbackExportLayout,
       palette: store.palette,
-    }) as Project;
+    };
 
     store.setProject({ ...baseProject, name: 'Dirty Project' });
 
@@ -75,7 +70,7 @@ describe('autosave dirty tracking', () => {
   });
 
   it('marks dirty when layers array changes', () => {
-    useAppStore.setState((state) => ({
+    useAppStore.setState(() => ({
       layers: [coerceLayer()],
     }));
 

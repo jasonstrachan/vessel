@@ -89,6 +89,7 @@ const seedCropState = () => {
       rotation: 0,
       gridSize: 8,
       showRulers: true,
+      showFPSMeter: false,
       displayMode: 'smooth',
       canvasWidth: baseProject.width,
       canvasHeight: baseProject.height,

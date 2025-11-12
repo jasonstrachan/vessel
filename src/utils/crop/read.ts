@@ -488,7 +488,7 @@ export function readLayerSourcesForCrop(
               const hasContent =
                 Boolean(rawSnapshot.hasContent) && croppedBuffer.some((value) => value !== 0);
               strokeSnapshot = {
-                paintBuffer: croppedBuffer.buffer.slice(0),
+                paintBuffer: croppedBuffer.buffer.slice(0) as ArrayBuffer,
                 hasContent,
                 strokeCounter: rawSnapshot.strokeCounter
               };
@@ -520,7 +520,7 @@ export function readLayerSourcesForCrop(
               croppedAnimatorIndex = {
                 width: targetWidth,
                 height: targetHeight,
-                data: out.buffer,
+                data: out.buffer as ArrayBuffer,
                 gradientStops: layerState?.data?.gradient?.gradientStops
               };
             }

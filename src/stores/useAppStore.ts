@@ -585,6 +585,12 @@ export interface AppState {
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
   currentCompositeBitmap: ImageBitmap | null;
   setCurrentCompositeBitmap: (bitmap: ImageBitmap | null) => void;
+  staticCompositeVersion: number;
+  renderStaticComposite: (
+    targetCanvas: HTMLCanvasElement,
+    options?: { captureBitmap?: boolean }
+  ) => boolean | Promise<boolean>;
+  renderColorCycleOverlay: (targetCanvas: HTMLCanvasElement) => boolean;
   
   // Project Save/Load Management
   saveProject: (filename?: string) => Promise<void>;
@@ -986,6 +992,17 @@ export const selectActivePaletteColor = (state: AppState): string =>
     ? state.palette.backgroundColor
     : state.palette.foregroundColor;
 
+type StoreSubscribeWithSelector<TState> = <Slice>(
+  selector: (state: TState) => Slice,
+  listener: (nextSlice: Slice, previousSlice: Slice) => void,
+  options?: {
+    equalityFn?: (a: Slice, b: Slice) => boolean;
+    fireImmediately?: boolean;
+  }
+) => () => void;
+
+const storeSubscribeWithSelector = useAppStore.subscribe as unknown as StoreSubscribeWithSelector<AppState>;
+
 setColorCycleStoreStateGetter(() => useAppStore.getState());
 configureMaskManager({
   getLayer: (layerId) => {
@@ -1019,7 +1036,7 @@ const subscribeToAutosaveDirtyTracking = (): void => {
     }
   };
 
-  useAppStore.subscribe(
+  storeSubscribeWithSelector(
     (state) => state.layers,
     (next, prev) => {
       if (next !== prev) {
@@ -1028,7 +1045,7 @@ const subscribeToAutosaveDirtyTracking = (): void => {
     }
   );
 
-  useAppStore.subscribe(
+  storeSubscribeWithSelector(
     (state) => state.project,
     (next, prev) => {
       if (next !== prev) {
@@ -1037,7 +1054,7 @@ const subscribeToAutosaveDirtyTracking = (): void => {
     }
   );
 
-  useAppStore.subscribe(
+  storeSubscribeWithSelector(
     (state) => state.palette,
     (next, prev) => {
       if (next !== prev) {
@@ -1046,7 +1063,7 @@ const subscribeToAutosaveDirtyTracking = (): void => {
     }
   );
 
-  useAppStore.subscribe(
+  storeSubscribeWithSelector(
     (state) => ({
       undo: state.history.undoStack.length,
       redo: state.history.redoStack.length,

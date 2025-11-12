@@ -19,16 +19,30 @@ const mockStore: ToolbarStore = {
   toggleModal: jest.fn(),
 };
 
-const useAppStoreMock = Object.assign(jest.fn(() => mockStore) as jest.Mock, {
+jest.mock('@/stores/useAppStore', () => {
+  const actual = jest.requireActual('@/stores/useAppStore');
+  return {
+    __esModule: true,
+    ...actual,
+    useAppStore: jest.fn(),
+  };
+});
+
+const { useAppStore: useAppStoreMock } = jest.requireMock('@/stores/useAppStore') as {
+  useAppStore: jest.Mock & {
+    getState?: () => ToolbarStore;
+    setState?: jest.Mock;
+    subscribe?: jest.Mock;
+  };
+};
+
+Object.assign(useAppStoreMock, {
   getState: () => mockStore,
   setState: jest.fn(),
   subscribe: jest.fn(() => () => {}),
 });
 
-jest.mock('@/stores/useAppStore', () => ({
-  __esModule: true,
-  useAppStore: useAppStoreMock,
-}));
+useAppStoreMock.mockImplementation(() => mockStore);
 
 describe('LeftToolbar accessibility', () => {
   beforeEach(() => {
