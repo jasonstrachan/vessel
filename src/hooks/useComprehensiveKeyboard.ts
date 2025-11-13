@@ -132,7 +132,8 @@ export function useComprehensiveKeyboard({
   const swapPaletteColors = useAppStore((state) => state.swapPaletteColors);
   const setPaletteColor = useAppStore((state) => state.setPaletteColor);
   const bufferedBrushSizeTargetRef = useRef<number | null>(null);
-  const bufferedBrushSizeRafRef = useRef<number | null>(null);
+  const bufferedBrushSizeTimerRef = useRef<number | null>(null);
+  const bufferedBrushSizeTimerKindRef = useRef<'idle' | 'timeout' | null>(null);
 
   const keyboardScopeRef = useStoreSelectorRef(selectKeyboardScope);
   const toolsRef = useStoreSelectorRef(selectToolsState);
@@ -156,31 +157,64 @@ export function useComprehensiveKeyboard({
     await flushPendingToolWork();
     setCurrentTool(tool);
   }, [setCurrentTool]);
-  const flushBufferedBrushSizeTarget = useCallback(() => {
-    if (bufferedBrushSizeRafRef.current !== null) {
-      cancelAnimationFrame(bufferedBrushSizeRafRef.current);
-      bufferedBrushSizeRafRef.current = null;
+  const cancelBufferedBrushSizeTimer = useCallback(() => {
+    if (bufferedBrushSizeTimerRef.current === null) {
+      return;
     }
+    if (
+      typeof window !== 'undefined' &&
+      bufferedBrushSizeTimerKindRef.current === 'idle' &&
+      'cancelIdleCallback' in window
+    ) {
+      (window as Window & { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback?.(
+        bufferedBrushSizeTimerRef.current
+      );
+    } else {
+      clearTimeout(bufferedBrushSizeTimerRef.current);
+    }
+    bufferedBrushSizeTimerRef.current = null;
+    bufferedBrushSizeTimerKindRef.current = null;
+  }, []);
+
+  const flushBufferedBrushSizeTarget = useCallback(() => {
+    cancelBufferedBrushSizeTimer();
     const pendingSize = bufferedBrushSizeTargetRef.current;
     if (pendingSize == null) {
       return;
     }
     bufferedBrushSizeTargetRef.current = null;
     setGlobalBrushSize(pendingSize);
-  }, [setGlobalBrushSize]);
+  }, [cancelBufferedBrushSizeTimer, setGlobalBrushSize]);
 
   const scheduleBufferedBrushSizeFlush = useCallback(() => {
-    if (bufferedBrushSizeRafRef.current !== null) {
+    if (bufferedBrushSizeTimerRef.current !== null) {
       return;
     }
     if (typeof window === 'undefined') {
       flushBufferedBrushSizeTarget();
       return;
     }
-    bufferedBrushSizeRafRef.current = window.requestAnimationFrame(() => {
-      bufferedBrushSizeRafRef.current = null;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
+    };
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+      bufferedBrushSizeTimerKindRef.current = 'idle';
+      bufferedBrushSizeTimerRef.current = idleWindow.requestIdleCallback(
+        () => {
+          bufferedBrushSizeTimerRef.current = null;
+          bufferedBrushSizeTimerKindRef.current = null;
+          flushBufferedBrushSizeTarget();
+        },
+        { timeout: 180 }
+      );
+      return;
+    }
+    bufferedBrushSizeTimerKindRef.current = 'timeout';
+    bufferedBrushSizeTimerRef.current = window.setTimeout(() => {
+      bufferedBrushSizeTimerRef.current = null;
+      bufferedBrushSizeTimerKindRef.current = null;
       flushBufferedBrushSizeTarget();
-    });
+    }, 120);
   }, [flushBufferedBrushSizeTarget]);
 
   const applyBufferedBrushSizeDelta = useCallback((delta: number, options: { immediate?: boolean } = {}) => {
@@ -695,13 +729,10 @@ export function useComprehensiveKeyboard({
 
   useEffect(() => {
     return () => {
-      if (bufferedBrushSizeRafRef.current !== null) {
-        cancelAnimationFrame(bufferedBrushSizeRafRef.current);
-        bufferedBrushSizeRafRef.current = null;
-      }
+      cancelBufferedBrushSizeTimer();
       flushBufferedBrushSizeTarget();
     };
-  }, [flushBufferedBrushSizeTarget]);
+  }, [cancelBufferedBrushSizeTimer, flushBufferedBrushSizeTarget]);
 
   useEffect(() => {
     if (!enabled) return;
