@@ -34,6 +34,7 @@ export interface CanvasState {
 
 export type RecolorSamplingState = AppState['recolorSampling'];
 export type RectangleBrushState = AppState['rectangleBrushState'];
+type CustomBrushCaptureState = AppState['tools']['customBrushCapture'];
 
 export interface ToolsState {
   currentTool: string;
@@ -47,6 +48,7 @@ export interface ToolsState {
     opacity?: number;
   };
   shapeMode: boolean;
+  customBrushCapture: CustomBrushCaptureState;
 }
 
 export type ContourLinesStage =
@@ -140,6 +142,7 @@ export interface EventHandlerDependencies {
   updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
   stopRecolorSampling: () => void;
   setRectangleBrushState: (partial: Partial<RectangleBrushState>) => void;
+  setCustomBrushFreehandPath: (payload: CustomBrushCaptureState['freehandPath'] | null) => void;
   
   // Floating paste actions
   setFloatingPaste: (paste: FloatingPaste | null) => void;

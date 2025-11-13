@@ -2,7 +2,7 @@
 
 import React from 'react';
 import ProgressSlider from '@/components/ui/ProgressSlider';
-import ButtonGroup from '@/components/ui/ButtonGroup';
+import ButtonGroup, { type ButtonGroupOption } from '@/components/ui/ButtonGroup';
 import { useAppStore, selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
 import {
   selectLayers,
@@ -16,11 +16,11 @@ import {
   MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 
-const FLOW_DIRECTION_BUTTONS = [
+const FLOW_DIRECTION_BUTTONS: ButtonGroupOption[] = [
   { label: '<--', value: 'reverse' },
   { label: '-->', value: 'forward' },
   { label: '<-->', value: 'pingpong' }
-] as const;
+];
 
 const AnimationControlsPanel: React.FC = () => {
   const layers = useAppStore(selectLayers);

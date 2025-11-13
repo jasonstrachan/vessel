@@ -326,6 +326,13 @@ export interface ToolState {
   customBrushCapture: {
     /** When true, capture pixels from the composited canvas (all visible layers). */
     sampleAllLayers: boolean;
+    /** Preferred capture geometry for the custom brush tool. */
+    mode: 'rectangle' | 'freehand';
+    /** Last completed freehand path that can be converted into a custom brush. */
+    freehandPath?: {
+      points: Array<{ x: number; y: number }>;
+      bounds: Rectangle | null;
+    } | null;
   };
 }
 

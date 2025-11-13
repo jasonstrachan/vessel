@@ -3,14 +3,20 @@
 import CustomSwitch from '@/components/ui/CustomSwitch';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectCustomBrushes } from '@/stores/selectors/projectSelectors';
-import { selectTemporaryCustomBrush, selectCustomBrushCaptureAllLayers } from '@/stores/selectors/toolsSelectors';
+import {
+  selectTemporaryCustomBrush,
+  selectCustomBrushCaptureAllLayers,
+  selectCustomBrushCaptureMode,
+  selectCustomBrushFreehandPath,
+} from '@/stores/selectors/toolsSelectors';
 import { selectSelectionRects } from '@/stores/selectors/pasteSelectors';
 import { selectActiveLayer } from '@/stores/selectors/layersSelectors';
 import { CustomBrush, BrushShape } from '@/types';
 import { useEffect, useCallback } from 'react';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
-import { captureBrushFromCanvas, selectionToCaptureBounds } from '@/utils/customBrushCapture';
+import { captureBrushFromCanvas, captureBrushFromPath, selectionToCaptureBounds } from '@/utils/customBrushCapture';
+import type { BrushCaptureResult } from '@/utils/customBrushCapture';
 
 export const CustomBrushPanel = () => {
   const addCustomBrush = useAppStore((state) => state.addCustomBrush);
@@ -25,7 +31,11 @@ export const CustomBrushPanel = () => {
   const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore((state) => state.setCustomBrushSizePercent);
   const sampleAllLayers = useAppStore(selectCustomBrushCaptureAllLayers);
+  const captureMode = useAppStore(selectCustomBrushCaptureMode);
+  const freehandPath = useAppStore(selectCustomBrushFreehandPath);
   const setCustomBrushSampleAllLayers = useAppStore((state) => state.setCustomBrushSampleAllLayers);
+  const setCustomBrushCaptureMode = useAppStore((state) => state.setCustomBrushCaptureMode);
+  const setCustomBrushFreehandPath = useAppStore((state) => state.setCustomBrushFreehandPath);
 
   const resolveCaptureCanvas = useCallback(() => {
     if (!sampleAllLayers && activeLayer) {
@@ -44,8 +54,65 @@ export const CustomBrushPanel = () => {
     }
   }, [selectionStart, selectionEnd, setTemporaryCustomBrush]);
 
-  // Debounced function to create the brush
+  const applyCaptureResult = useCallback((captureResult: BrushCaptureResult) => {
+    const {
+      imageData,
+      width,
+      height,
+      naturalWidth,
+      naturalHeight,
+      maxDimension,
+      thumbnail,
+    } = captureResult;
+
+    const tempBrush: CustomBrush = {
+      id: `temp_brush_${Date.now()}`,
+      name: 'Temp Brush',
+      imageData,
+      thumbnail: thumbnail ?? '',
+      width,
+      height,
+      createdAt: Date.now(),
+      naturalWidth,
+      naturalHeight,
+      maxDimension,
+    };
+
+    setTemporaryCustomBrush(tempBrush);
+    brushCache.clear();
+    scaledBrushCache.clear();
+
+    const normalizedSize = Math.max(1, Math.round(maxDimension));
+    setGlobalBrushSize(normalizedSize);
+    setBrushSettings({
+      brushShape: BrushShape.CUSTOM,
+      selectedCustomBrush: tempBrush.id,
+      size: normalizedSize,
+      customBrushSizePercent: 100,
+      currentBrushTip: {
+        imageData: tempBrush.imageData,
+        brushId: tempBrush.id,
+        width: tempBrush.width,
+        height: tempBrush.height,
+        naturalWidth: tempBrush.naturalWidth ?? tempBrush.width,
+        naturalHeight: tempBrush.naturalHeight ?? tempBrush.height,
+        maxDimension: tempBrush.maxDimension ?? Math.max(tempBrush.width, tempBrush.height),
+        isColorizable: false
+      }
+    });
+    setCustomBrushSizePercent(100);
+  }, [
+    setTemporaryCustomBrush,
+    setBrushSettings,
+    setGlobalBrushSize,
+    setCustomBrushSizePercent
+  ]);
+
   const createBrushFromSelection = useCallback(() => {
+    if (captureMode !== 'rectangle') {
+      return;
+    }
+
     if (!selectionStart || !selectionEnd) return;
 
     const bounds = selectionToCaptureBounds(selectionStart, selectionEnd);
@@ -63,74 +130,61 @@ export const CustomBrushPanel = () => {
       return;
     }
 
-    const {
-      imageData,
-      width,
-      height,
-      naturalWidth,
-      naturalHeight,
-      maxDimension,
-      thumbnail,
-    } = captureResult;
-
-    const tempBrush: CustomBrush = {
-      id: `temp_brush_${Date.now()}`,
-      name: `Temp Brush`,
-      imageData,
-      thumbnail: thumbnail ?? '',
-      width,
-      height,
-      createdAt: Date.now(),
-      naturalWidth,
-      naturalHeight,
-      maxDimension,
-    };
-
-    // Set as temporary brush and switch to it
-    setTemporaryCustomBrush(tempBrush);
-
-    // Clear brush caches to ensure the new brush is used immediately
-    brushCache.clear();
-    scaledBrushCache.clear();
-
-    const normalizedSize = Math.max(1, Math.round(maxDimension));
-    setGlobalBrushSize(normalizedSize);
-    // Switch to using this temporary brush with the current global size
-    const brushSettings = {
-      brushShape: BrushShape.CUSTOM,
-      selectedCustomBrush: tempBrush.id,
-      size: normalizedSize,
-      customBrushSizePercent: 100,
-      currentBrushTip: {
-        imageData: tempBrush.imageData,
-        brushId: tempBrush.id,
-        width: tempBrush.width,
-        height: tempBrush.height,
-        naturalWidth: tempBrush.naturalWidth ?? tempBrush.width,
-        naturalHeight: tempBrush.naturalHeight ?? tempBrush.height,
-        maxDimension: tempBrush.maxDimension ?? Math.max(tempBrush.width, tempBrush.height),
-        isColorizable: false
-      }
-    };
-    setBrushSettings(brushSettings);
-    setCustomBrushSizePercent(100);
+    applyCaptureResult(captureResult);
   }, [
+    captureMode,
     selectionStart,
     selectionEnd,
     resolveCaptureCanvas,
-    setTemporaryCustomBrush,
-    setBrushSettings,
-    setGlobalBrushSize,
-    setCustomBrushSizePercent
+    applyCaptureResult
+  ]);
+
+  const createBrushFromFreehandPath = useCallback(() => {
+    if (captureMode !== 'freehand' || !freehandPath) {
+      return;
+    }
+
+    if (!freehandPath.bounds || freehandPath.points.length < 3) {
+      return;
+    }
+
+    const sourceCanvas = resolveCaptureCanvas();
+    if (!sourceCanvas) {
+      return;
+    }
+
+    const captureResult = captureBrushFromPath(sourceCanvas, {
+      points: freehandPath.points,
+      bounds: freehandPath.bounds,
+    });
+
+    if (!captureResult) {
+      return;
+    }
+
+    applyCaptureResult(captureResult);
+    setCustomBrushFreehandPath(null);
+  }, [
+    captureMode,
+    freehandPath,
+    resolveCaptureCanvas,
+    applyCaptureResult,
+    setCustomBrushFreehandPath
   ]);
 
   // Create brush immediately when selection changes
   useEffect(() => {
     // Create brush immediately if we have a valid selection
-    if (selectionStart && selectionEnd && resolveCaptureCanvas()) {
+    if (captureMode === 'rectangle' && selectionStart && selectionEnd && resolveCaptureCanvas()) {
       createBrushFromSelection();
     }
-  }, [selectionStart, selectionEnd, resolveCaptureCanvas, createBrushFromSelection]);
+  }, [captureMode, selectionStart, selectionEnd, resolveCaptureCanvas, createBrushFromSelection]);
+
+  useEffect(() => {
+    if (captureMode === 'freehand' && freehandPath) {
+      createBrushFromFreehandPath();
+    }
+  }, [captureMode, createBrushFromFreehandPath, freehandPath]);
 
   const handleSaveCustomBrush = () => {
     if (!temporaryCustomBrush) return;
@@ -193,7 +247,9 @@ export const CustomBrushPanel = () => {
   };
 
 
-  const canCreateBrush = selectionStart && selectionEnd;
+  const canCreateBrush = captureMode === 'rectangle'
+    ? Boolean(selectionStart && selectionEnd)
+    : Boolean(freehandPath && freehandPath.points.length >= 3);
   const hasTemporaryBrush = !!temporaryCustomBrush;
 
   return (
@@ -232,7 +288,38 @@ export const CustomBrushPanel = () => {
           </div>
         )}
       </div>
-      
+
+      <div className="mb-3">
+        <p className="text-sm text-gray-300 mb-2">Capture shape</p>
+        <div className="flex gap-2" role="group" aria-label="Custom brush capture mode">
+          {(
+            [
+              { label: 'Box', value: 'rectangle' as const },
+              { label: 'Freehand', value: 'freehand' as const }
+            ]
+          ).map((option) => {
+            const isActive = captureMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setCustomBrushCaptureMode(option.value)}
+                className={`${
+                  isActive ? 'bg-white text-black' : 'bg-[#1f1f1f] text-gray-300'
+                } px-3 py-1 text-sm rounded border border-[#3a3a3a] transition-colors`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          {captureMode === 'rectangle'
+            ? 'Press C and drag a marquee to capture a box area.'
+            : 'Draw a freehand outline directly on the canvas; release to capture that exact region.'}
+        </p>
+      </div>
+
       <div className="mt-2 flex items-center justify-between">
         <span className="text-sm text-gray-300">All layers</span>
         <CustomSwitch

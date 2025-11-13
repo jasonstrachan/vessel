@@ -188,9 +188,11 @@ export class ColorCycleBrushCanvas2D {
   // Animation state
   private isAnimating: boolean = false;
   private isPaused: boolean = false;
-  
-  // Track animation callbacks to prevent memory leaks
-  private animatorCallbacks: Map<string, () => void> = new Map();
+
+  // Single playback driver (one RAF + accumulator)
+  private animationFrameId: number | null = null;
+  private lastAnimationTimestamp: number = 0;
+  private playbackAccumulatorMs: number = 0;
   
   // Stroke tracking
   private strokeCounter: number = 0;
@@ -341,41 +343,6 @@ export class ColorCycleBrushCanvas2D {
       this.deferredAnimatorSizes.set(animator, { width: this.width, height: this.height });
 
       this.animators.set(layerId, animator);
-      
-      // Measure callback setup
-      // quiet
-      if (this.isAnimating) {
-        // Use requestIdleCallback to defer non-critical setup
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(() => {
-            if (!this.animatorCallbacks.has(layerId)) {
-              animator.start();
-              const callback = () => {
-                if (!this.isPaused) {
-                  this.render(false);
-                }
-              };
-              this.animatorCallbacks.set(layerId, callback);
-              animator.onFrame(callback);
-            }
-          });
-        } else {
-          // Fallback for browsers without requestIdleCallback
-          setTimeout(() => {
-            if (!this.animatorCallbacks.has(layerId)) {
-              animator.start();
-              const callback = () => {
-                if (!this.isPaused) {
-                  this.render(false);
-                }
-              };
-              this.animatorCallbacks.set(layerId, callback);
-              animator.onFrame(callback);
-            }
-          }, 0);
-        }
-      }
-      // quiet
       
       // Measure stroke data setup
       // quiet
@@ -683,9 +650,8 @@ export class ColorCycleBrushCanvas2D {
     // Mark layer as dirty for batched rendering
     this.dirtyLayers.add(id);
     
-    // If we're supposed to be animating but no callback is wired for this layer yet
-    // (e.g. after restoring a snapshot), force an immediate render so the stroke appears.
-    const needsImmediateRender = this.isAnimating && !this.animatorCallbacks.has(id);
+    // If animation just resumed but the global driver hasn't scheduled yet, flush immediately.
+    const needsImmediateRender = this.isAnimating && this.animationFrameId === null;
     const hasPresentationSurface =
       !!this.webglCanvas && (!(this.webglCanvas instanceof HTMLCanvasElement) || this.webglCanvas.isConnected);
     if (needsImmediateRender && hasPresentationSurface) {
@@ -2545,81 +2511,110 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Start animation (API compatible)
    */
+  private frameIntervalMs(): number {
+    const frameFps = Math.max(1, Math.min(120, this.fps || 30));
+    return 1000 / frameFps;
+  }
+
+  private ensureAnimationLoop() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (this.animationFrameId !== null) {
+      return;
+    }
+    this.lastAnimationTimestamp = 0;
+    this.playbackAccumulatorMs = 0;
+    this.animationFrameId = requestAnimationFrame(this.handleAnimationTick);
+  }
+
+  private cancelAnimationLoop() {
+    if (this.animationFrameId !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.animationFrameId);
+    }
+    this.animationFrameId = null;
+  }
+
+  private handleAnimationTick = (timestamp: number) => {
+    if (!this.isAnimating) {
+      this.animationFrameId = null;
+      return;
+    }
+
+    if (this.lastAnimationTimestamp === 0) {
+      this.lastAnimationTimestamp = timestamp;
+    }
+
+    const delta = timestamp - this.lastAnimationTimestamp;
+    this.lastAnimationTimestamp = timestamp;
+
+    if (!this.isPaused) {
+      const interval = this.frameIntervalMs();
+      this.playbackAccumulatorMs += delta;
+      const maxCatchup = interval * 4;
+      if (this.playbackAccumulatorMs > maxCatchup) {
+        this.playbackAccumulatorMs = interval;
+      }
+      while (this.playbackAccumulatorMs >= interval) {
+        this.playbackAccumulatorMs -= interval;
+        this.updateAnimation();
+      }
+    }
+
+    this.animationFrameId = requestAnimationFrame(this.handleAnimationTick);
+  };
+
+  private flushScheduledRender() {
+    if (!this.renderScheduled) {
+      return;
+    }
+    this.renderScheduled = false;
+    if (this.dirtyLayers.size === 0) {
+      return;
+    }
+
+    this.dirtyLayers.forEach(layerId => {
+      const animator = this.animators.get(layerId);
+      if (animator) {
+        try {
+          animator.forceRender();
+        } catch {}
+      }
+    });
+    this.dirtyLayers.clear();
+    this.render(false);
+  }
+
   startAnimation() {
     if (this.isAnimating) {
       return;
     }
     
     // Flush any pending renders before starting animation
-    if (this.renderScheduled) {
-      this.renderScheduled = false;
-      
-      // Render all dirty layers
-      if (this.dirtyLayers.size > 0) {
-        this.dirtyLayers.forEach(layerId => {
-          const animator = this.animators.get(layerId);
-          if (animator) {
-            animator.forceRender();
-          }
-        });
-        this.dirtyLayers.clear();
-        this.render(false);
-      }
-    }
+    this.flushScheduledRender();
     
     this.isAnimating = true;
     this.isPaused = false;
-    
-    // Start all animators and register callbacks only if not already registered
-    this.animators.forEach((animator, layerId) => {
-      animator.start();
-      
-      // Only add callback if we haven't already for this layer
-      if (!this.animatorCallbacks.has(layerId)) {
-        const callback = () => {
-          if (!this.isPaused) {
-            this.render(false);
-          }
-        };
-        this.animatorCallbacks.set(layerId, callback);
-        animator.onFrame(callback);
-      }
-    });
+    this.ensureAnimationLoop();
   }
   
   /**
    * Stop animation (API compatible)
    */
   stopAnimation() {
-    this.isAnimating = false;
-    
-    // Flush any pending renders when stopping animation
-    if (this.renderScheduled) {
-      this.renderScheduled = false;
-      
-      // Render all dirty layers
-      if (this.dirtyLayers.size > 0) {
-        this.dirtyLayers.forEach(layerId => {
-          const animator = this.animators.get(layerId);
-          if (animator) {
-            animator.forceRender();
-          }
-        });
-        this.dirtyLayers.clear();
-        this.render(false);
-      }
+    if (!this.isAnimating && this.animationFrameId === null) {
+      return;
     }
-    
-    // Stop all animators and clean up callbacks
-    this.animators.forEach((animator, layerId) => {
-      animator.stop();
-      
-      // Remove callback if it exists
-      const callback = this.animatorCallbacks.get(layerId);
-      if (callback) {
-        animator.offFrame(callback);
-        this.animatorCallbacks.delete(layerId);
-      }
+
+    this.isAnimating = false;
+    this.isPaused = false;
+    this.cancelAnimationLoop();
+    this.flushScheduledRender();
+
+    this.animators.forEach((animator) => {
+      try {
+        animator.stop();
+      } catch {}
     });
   }
   
@@ -2647,16 +2642,26 @@ export class ColorCycleBrushCanvas2D {
    * Pause animation (API compatible)
    */
   pause() {
+    if (!this.isAnimating) {
+      this.isPaused = true;
+      return;
+    }
     this.isPaused = true;
-    this.animators.forEach(animator => animator.pause());
   }
   
   /**
    * Resume animation (API compatible)
    */
   resume() {
+    if (!this.isAnimating) {
+      this.startAnimation();
+      return;
+    }
+    if (!this.isPaused) {
+      return;
+    }
     this.isPaused = false;
-    this.animators.forEach(animator => animator.resume());
+    this.ensureAnimationLoop();
   }
 
   /** Legacy alias maintained for callers using the old API */
@@ -2724,6 +2729,8 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     this.fps = fps;
+    this.playbackAccumulatorMs = 0;
+    this.lastAnimationTimestamp = 0;
     this.animators.forEach(animator => animator.setFPS(fps));
   }
   
@@ -3052,18 +3059,17 @@ export class ColorCycleBrushCanvas2D {
     
     this.stopAnimation();
     
-    // Clean up all callbacks and animators
-    this.animators.forEach((animator, layerId) => {
-      const callback = this.animatorCallbacks.get(layerId);
-      if (callback) {
-        animator.offFrame(callback);
-      }
-      animator.stop();
+    // Clean up all animators
+    this.animators.forEach((animator) => {
+      try {
+        animator.stop();
+      } catch {}
       // Properly clean up animator resources and return canvas to pool
-      animator.cleanup();
+      try {
+        animator.cleanup();
+      } catch {}
     });
     
-    this.animatorCallbacks.clear();
     this.animators.clear();
     this.layerStrokes.clear();
   }
@@ -3430,34 +3436,6 @@ export class ColorCycleBrushCanvas2D {
         // Replace existing animator for this layer
         this.animators.set(layerId, rebuilt);
         animator = rebuilt;
-        // Ensure animation callbacks are re-bound when swapping animators during history restore.
-        if (this.isAnimating) {
-          try {
-            if (typeof animator.start === 'function') {
-              animator.start();
-            }
-          } catch {}
-        }
-        const existingCallback = this.animatorCallbacks.get(layerId);
-        if (existingCallback) {
-          try {
-            if (typeof animator.onFrame === 'function') {
-              animator.onFrame(existingCallback);
-            }
-          } catch {}
-        } else if (this.isAnimating) {
-          const callback = () => {
-            if (!this.isPaused) {
-              this.render(false);
-            }
-          };
-          this.animatorCallbacks.set(layerId, callback);
-          try {
-            if (typeof animator.onFrame === 'function') {
-              animator.onFrame(callback);
-            }
-          } catch {}
-        }
         hasLayerContent = hasLayerContent || anyNonZero;
       } catch (error) {
         console.warn('[ColorCycleBrush.applyLayerSnapshot] Failed to rebuild animator from snapshot:', error);
@@ -3540,9 +3518,6 @@ export class ColorCycleBrushCanvas2D {
       }
     }
     this.animators.clear();
-    
-    // Clear callbacks
-    this.animatorCallbacks.clear();
     
     // Clear stroke data
     this.layerStrokes.clear();

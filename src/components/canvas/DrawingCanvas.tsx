@@ -197,6 +197,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const fillSettings = useAppStore(selectFillSettings);
   const eraserSettings = useAppStore(selectEraserSettings);
   const shapeMode = useAppStore(selectShapeMode);
+  const customBrushCapture = useAppStore((state) => state.tools.customBrushCapture);
   const previousTool = useAppStore(selectPreviousTool);
   const colorAdjustActive = useAppStore((state) => state.colorAdjust.active);
   const globalBrushSize = useAppStore(selectGlobalBrushSize);
@@ -215,9 +216,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       brushSettings,
       fillSettings,
       eraserSettings,
-      shapeMode
+      shapeMode,
+      customBrushCapture
     }),
-    [brushSettings, currentTool, eraserSettings, fillSettings, shapeMode]
+    [brushSettings, currentTool, customBrushCapture, eraserSettings, fillSettings, shapeMode]
   );
   const { crop, commitCrop, cancelCrop } = useCropState();
   
@@ -242,6 +244,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const updateLayer = useAppStore((state) => state.updateLayer);
   const applyColorAdjust = useAppStore((state) => state.applyColorAdjust);
   const cancelColorAdjust = useAppStore((state) => state.cancelColorAdjust);
+  const setCustomBrushFreehandPath = useAppStore((state) => state.setCustomBrushFreehandPath);
 
   const switchTool = useToolSwitcher();
 
@@ -2425,7 +2428,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       brushSettings: tools.brushSettings,
       fillSettings: tools.fillSettings,
       eraserSettings: tools.eraserSettings,
-      shapeMode: tools.shapeMode
+      shapeMode: tools.shapeMode,
+      customBrushCapture: tools.customBrushCapture
     },
     layers,
     activeLayerId,
@@ -2449,6 +2453,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     updateRecolorSampling,
     stopRecolorSampling,
     setRectangleBrushState,
+    setCustomBrushFreehandPath: (payload) => setCustomBrushFreehandPath(payload ?? null),
 
     // Floating paste
     setFloatingPaste: setFloatingPasteFromHandlers,

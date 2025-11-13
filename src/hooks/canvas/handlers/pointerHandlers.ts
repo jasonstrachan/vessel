@@ -123,7 +123,7 @@ const cl = {
 };
 // -----------------------------------------------------------
 import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
-import { isStrokeBrush } from '@/utils/brushCategories';
+import { isStrokeBrush, isShapeFillBrush } from '@/utils/brushCategories';
 import { isColorCycleBrush } from '@/utils/colorCycleGradients';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type {
@@ -260,10 +260,25 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,
+    setCustomBrushFreehandPath,
   } = deps;
 
   type Point = { x: number; y: number };
   type CaptureRegion = { x: number; y: number; width: number; height: number };
+  type FreehandBounds = { minX: number; minY: number; maxX: number; maxY: number } | null;
+  type FreehandCaptureState = {
+    active: boolean;
+    pointerId: number | null;
+    points: Point[];
+    bounds: FreehandBounds;
+  };
+
+  const freehandCaptureState: FreehandCaptureState = {
+    active: false,
+    pointerId: null,
+    points: [],
+    bounds: null,
+  };
 
   const CAPTURE_PADDING_PX = 2;
 
@@ -309,6 +324,135 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       width: Math.max(1, right - x),
       height: Math.max(1, bottom - y),
     };
+  };
+
+  const resetFreehandCaptureState = () => {
+    freehandCaptureState.active = false;
+    freehandCaptureState.pointerId = null;
+    freehandCaptureState.points = [];
+    freehandCaptureState.bounds = null;
+  };
+
+  const drawFreehandCapturePreview = () => {
+    const overlayCanvas = overlayCanvasRef.current;
+    const overlayCtx = overlayCanvas?.getContext('2d');
+    if (!overlayCanvas || !overlayCtx) {
+      return;
+    }
+
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    if (!freehandCaptureState.active || freehandCaptureState.points.length < 2) {
+      return;
+    }
+
+    const transform = deps.viewTransformRef.current;
+    overlayCtx.save();
+    overlayCtx.translate(transform.offsetX, transform.offsetY);
+    overlayCtx.scale(transform.scale, transform.scale);
+
+    const safeScale = Math.max(transform.scale, 0.001);
+    const points = freehandCaptureState.points;
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) {
+      overlayCtx.lineTo(points[i].x, points[i].y);
+    }
+    overlayCtx.closePath();
+    overlayCtx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    overlayCtx.strokeStyle = '#8fd3ff';
+    overlayCtx.lineWidth = Math.max(0.75, 1.5 / safeScale);
+    overlayCtx.fill();
+    overlayCtx.stroke();
+    overlayCtx.restore();
+  };
+
+  const startFreehandCapture = (pointerId: number, start: Point) => {
+    freehandCaptureState.active = true;
+    freehandCaptureState.pointerId = pointerId;
+    freehandCaptureState.points = [start];
+    freehandCaptureState.bounds = {
+      minX: start.x,
+      minY: start.y,
+      maxX: start.x,
+      maxY: start.y,
+    };
+    setCustomBrushFreehandPath(null);
+    drawFreehandCapturePreview();
+  };
+
+  const appendFreehandPoint = (point: Point) => {
+    if (!freehandCaptureState.active) {
+      return;
+    }
+    const points = freehandCaptureState.points;
+    const last = points[points.length - 1];
+    if (last) {
+      const dx = point.x - last.x;
+      const dy = point.y - last.y;
+      if (dx * dx + dy * dy < 0.25) {
+        return;
+      }
+    }
+    points.push(point);
+    const bounds = freehandCaptureState.bounds;
+    if (bounds) {
+      bounds.minX = Math.min(bounds.minX, point.x);
+      bounds.minY = Math.min(bounds.minY, point.y);
+      bounds.maxX = Math.max(bounds.maxX, point.x);
+      bounds.maxY = Math.max(bounds.maxY, point.y);
+    } else {
+      freehandCaptureState.bounds = {
+        minX: point.x,
+        minY: point.y,
+        maxX: point.x,
+        maxY: point.y,
+      };
+    }
+    drawFreehandCapturePreview();
+  };
+
+  const completeFreehandCapture = () => {
+    if (!freehandCaptureState.active) {
+      return false;
+    }
+
+    const overlayCanvas = overlayCanvasRef.current;
+    overlayCanvas?.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    const points = freehandCaptureState.points.slice();
+    const bounds = freehandCaptureState.bounds;
+    resetFreehandCaptureState();
+
+    if (!bounds || points.length < 3) {
+      setCustomBrushFreehandPath(null);
+      return false;
+    }
+
+    const startX = Math.max(0, Math.floor(bounds.minX));
+    const startY = Math.max(0, Math.floor(bounds.minY));
+    const endX = Math.ceil(bounds.maxX);
+    const endY = Math.ceil(bounds.maxY);
+    const width = Math.max(1, endX - startX);
+    const height = Math.max(1, endY - startY);
+
+    if (width <= 1 || height <= 1) {
+      setCustomBrushFreehandPath(null);
+      return false;
+    }
+
+    setCustomBrushFreehandPath({
+      points,
+      bounds: { x: startX, y: startY, width, height },
+    });
+    return true;
+  };
+
+  const cancelFreehandCapture = () => {
+    const overlayCanvas = overlayCanvasRef.current;
+    overlayCanvas?.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    resetFreehandCaptureState();
+    setCustomBrushFreehandPath(null);
   };
 
   const strokeStartWorldPosRef = ensurePointRef(deps.snapStrokeStartRef);
@@ -438,6 +582,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Default/custom stroke brushes and Color Cycle shapes should preview without outlines so overlay matches final fill
     const skipOutline =
       isColorCycleShapePreview ||
+      isShapeFillBrush(activeBrushShape) ||
       (isStrokeBrush(activeBrushShape) && !isColorCycleBrush(activeBrushShape));
     const isCustomBrushPreview = brushSettings.brushShape === BrushShape.CUSTOM;
 
@@ -1785,9 +1930,16 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           }
         });
         
-        return;
-      }
-      
+      return;
+    }
+
+    if (tools.currentTool === 'custom' && tools.customBrushCapture?.mode === 'freehand') {
+      startFreehandCapture(event.pointerId, worldPos);
+      setShowBrushCursor(false);
+      updateBrushCursorVisibility(false);
+      return;
+    }
+
       // Handle selection/custom brush capture tool (always behaves as selection)
       if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
         const beforeSelection = captureSelectionSnapshot();
@@ -2090,6 +2242,16 @@ function cssColorToHex(color: string): string {
     );
 
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
+
+    if (
+      freehandCaptureState.active &&
+      freehandCaptureState.pointerId === event.pointerId &&
+      tools.currentTool === 'custom' &&
+      tools.customBrushCapture?.mode === 'freehand'
+    ) {
+      appendFreehandPoint(worldPos);
+      return;
+    }
 
     if (tools.currentTool === 'color-picker') {
       setCursorStyle('crosshair');
@@ -2878,6 +3040,23 @@ function cssColorToHex(color: string): string {
       return;
     }
 
+    if (
+      freehandCaptureState.active &&
+      freehandCaptureState.pointerId === event.pointerId &&
+      tools.currentTool === 'custom' &&
+      tools.customBrushCapture?.mode === 'freehand'
+    ) {
+      const captured = completeFreehandCapture();
+      setCursorStyle(deps.defaultCursorStyle || 'none');
+      updateBrushCursorVisibility();
+      setShowBrushCursor(true);
+      if (captured) {
+        void flushAndSetCurrentTool('brush');
+        clearSelection();
+      }
+      return;
+    }
+
     // Clear overlay canvas
     const contourStateOnUp = contourLinesStateRef.current;
     if (contourStateOnUp.stage === 'awaitingAnchorA') {
@@ -3253,6 +3432,10 @@ function cssColorToHex(color: string): string {
       pan.endPan();
       void resumeAnimationAfterPan?.();
     }
+    if (freehandCaptureState.active) {
+      cancelFreehandCapture();
+      setShowBrushCursor(true);
+    }
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -3282,6 +3465,14 @@ function cssColorToHex(color: string): string {
     if (tools.currentTool === 'color-picker') {
       setCursorStyle('crosshair');
       setShowBrushCursor(false);
+    }
+    if (
+      freehandCaptureState.active &&
+      freehandCaptureState.pointerId === event.pointerId
+    ) {
+      cancelFreehandCapture();
+      updateBrushCursorVisibility();
+      setShowBrushCursor(true);
     }
   };
 

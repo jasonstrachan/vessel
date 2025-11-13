@@ -444,11 +444,14 @@ export const createShapeToolHandler = (
       }
     }
 
+    const previewColors = resolveShapeFillColors(session.shape.points);
+    const previewPrimary = getPrimaryColor(previewColors) ?? '#ffffff';
+
     overlayCtx.save();
     overlayCtx.translate(offsetX, offsetY);
     overlayCtx.scale(scale, scale);
-    overlayCtx.lineWidth = 1 / Math.max(scale, 1e-3);
-    overlayCtx.strokeStyle = '#000000';
+    overlayCtx.globalAlpha = 0.35;
+    overlayCtx.fillStyle = previewPrimary;
     overlayCtx.beginPath();
     overlayCtx.moveTo(session.shape.points[0].x, session.shape.points[0].y);
     for (let i = 1; i < session.shape.points.length; i += 1) {
@@ -456,7 +459,7 @@ export const createShapeToolHandler = (
       overlayCtx.lineTo(pt.x, pt.y);
     }
     overlayCtx.closePath();
-    overlayCtx.stroke();
+    overlayCtx.fill();
     overlayCtx.restore();
     lastPreviewRect = rect;
   };
@@ -2342,6 +2345,9 @@ export const createShapeToolHandler = (
               } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
                 overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 overlayCtx.globalAlpha = 1.0;
+              } else if (isShapeFill) {
+                overlayCtx.fillStyle = tools.brushSettings.color ?? 'rgba(255,255,255,1)';
+                overlayCtx.globalAlpha = 0.35;
               } else if (tools.shapeMode && !isPolygonGradient && !isShapeFill) {
                 overlayCtx.fillStyle = tools.brushSettings.color;
                 overlayCtx.globalAlpha = 0.4;
@@ -2408,7 +2414,7 @@ export const createShapeToolHandler = (
                 overlayCtx.stroke();
                 strokePreviewOutline();
               } else if (isShapeFill) {
-                strokePreviewOutline();
+                overlayCtx.fill();
               } else {
                 overlayCtx.fill();
                 strokePreviewOutline();

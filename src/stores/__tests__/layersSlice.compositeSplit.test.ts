@@ -65,7 +65,7 @@ describe('static vs animated compositor', () => {
       locked: false,
       order: 1,
       imageData: null,
-      framebuffer: null,
+      framebuffer: colorCycleCanvas,
       alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle' as const,
       colorCycleData: {
@@ -179,7 +179,7 @@ describe('static vs animated compositor', () => {
         locked: false,
         order: 1,
         imageData: null,
-        framebuffer: null,
+        framebuffer: colorCycleCanvas,
         alignment: createDefaultLayerAlignment(),
         layerType: 'color-cycle' as const,
         colorCycleData: {

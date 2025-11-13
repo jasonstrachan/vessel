@@ -103,7 +103,12 @@ export class ColorCycleCompositorClient {
     const requestId = this.nextRequestId();
     const payload = { ...message, requestId } as ColorCycleCompositorMessage & { requestId: number };
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(requestId, { resolve, reject });
+      this.pending.set(requestId, {
+        resolve: (value: unknown) => {
+          resolve(value as T);
+        },
+        reject,
+      });
       this.worker.postMessage(payload);
     });
   }

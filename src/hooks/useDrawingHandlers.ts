@@ -5006,8 +5006,15 @@ export function useDrawingHandlers({
 
         let animatorUpdated = false;
         if (layer.colorCycleData.isAnimating) {
-          colorCycleBrush.updateAnimation();
-          animatorUpdated = true;
+          const brushPlaying = typeof colorCycleBrush.isPlaying === 'function'
+            ? colorCycleBrush.isPlaying()
+            : false;
+          if (brushPlaying) {
+            animatorUpdated = true;
+          } else {
+            colorCycleBrush.updateAnimation();
+            animatorUpdated = true;
+          }
         }
 
         if (liveCanvas.isConnected) {

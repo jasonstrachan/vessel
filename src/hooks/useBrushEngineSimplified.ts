@@ -6,13 +6,14 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { selectEffectiveColorCyclePlaying, useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
-import { BrushShape, type Layer } from '../types';
+import { BrushShape, type Layer, type BrushSettings } from '../types';
 import { getRisographPattern, getRisographEffectSettings } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 
 declare global {
   interface Window {
@@ -31,6 +32,39 @@ type DrawColorCycleOptions = {
 };
 
 type ShapeFillOptions = Record<string, unknown>;
+
+type IdleHandle = { id: number; kind: 'idle' | 'timeout' } | null;
+
+const scheduleDeferred = (callback: () => void, timeout = 120): IdleHandle => {
+  if (typeof window === 'undefined') {
+    callback();
+    return null;
+  }
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+  if (typeof idleWindow.requestIdleCallback === 'function') {
+    const id = idleWindow.requestIdleCallback(() => callback(), { timeout });
+    return { id, kind: 'idle' };
+  }
+  const id = window.setTimeout(callback, timeout);
+  return { id, kind: 'timeout' };
+};
+
+const cancelDeferred = (handle: IdleHandle) => {
+  if (!handle || typeof window === 'undefined') {
+    return;
+  }
+  const idleWindow = window as Window & {
+    cancelIdleCallback?: (handle: number) => void;
+  };
+  if (handle.kind === 'idle' && typeof idleWindow.cancelIdleCallback === 'function') {
+    idleWindow.cancelIdleCallback(handle.id);
+    return;
+  }
+  clearTimeout(handle.id);
+};
 
 const warnShapeFillRemoved = (() => {
   let hasWarned = false;
@@ -72,6 +106,15 @@ const clampColorCycleBandSpacing = (value?: number) => {
     return DEFAULT_CC_BAND_SPACING;
   }
   return Math.max(2, Math.min(256, Math.round(value)));
+};
+
+const normalizePressureSettings = (settings: BrushSettings) => {
+  const range = resolveBrushPressureRange(settings);
+  return {
+    enabled: range.enabled,
+    min: range.enabled ? range.minPercent : 100,
+    max: range.enabled ? range.maxPercent : 100,
+  };
 };
 
 type Rect = {
@@ -813,12 +856,31 @@ export const useBrushEngineSimplified = () => {
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
+  const brushPressurePendingRef = useRef(normalizePressureSettings(tools.brushSettings));
+  const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
 
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
     if (!activeLayerId) return null;
     return useAppStore.getState().getLayerColorCycleBrush(activeLayerId);
   }, [activeLayerId]);
+
+  const applyPendingBrushSizing = useCallback(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (!colorCycleBrush) {
+      return;
+    }
+    const pressure = brushPressurePendingRef.current;
+    try {
+      colorCycleBrush.setBrushSize(brushSizePendingRef.current);
+      colorCycleBrush.setPressureEnabled(pressure.enabled);
+      colorCycleBrush.setMinPressure(pressure.min);
+      colorCycleBrush.setMaxPressure(pressure.max);
+    } catch (error) {
+      console.error('[CC Effect] Failed to sync pressure settings:', error);
+    }
+  }, [getActiveLayerColorCycleBrush]);
   
   // Performance: Cache expensive computations
   const isPixelBrush = useMemo(() => 
@@ -2081,8 +2143,33 @@ export const useBrushEngineSimplified = () => {
   ]);
 
   const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
-    void shouldPlay;
-    // Animation loop temporarily disabled; rendering is driven directly via renderDirectToCanvas.
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const manager = getColorCycleBrushManager();
+    const { layers } = useAppStore.getState();
+    layers.forEach((layer) => {
+      if (layer.layerType !== 'color-cycle') {
+        return;
+      }
+      const brush = manager.getBrush(layer.id) as Partial<ColorCycleBrushImplementation> | undefined;
+      if (!brush) {
+        return;
+      }
+      if (shouldPlay) {
+        if (typeof brush.startAnimation === 'function') {
+          brush.startAnimation();
+        } else if (typeof brush.setPlaying === 'function') {
+          brush.setPlaying(true);
+        }
+      } else {
+        if (typeof brush.stopAnimation === 'function') {
+          brush.stopAnimation();
+        } else if (typeof brush.setPlaying === 'function') {
+          brush.setPlaying(false);
+        }
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -2705,31 +2792,39 @@ export const useBrushEngineSimplified = () => {
 
   // Perceptual dithering removed
   
-  // Sync pressure configuration with active color cycle brush
+  // Sync brush size + pressure with debounce so rapid slider changes don't stall UI
   useEffect(() => {
-    const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (!colorCycleBrush) {
-      return;
-    }
+    const targetSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
+    brushSizePendingRef.current = targetSize;
+    brushPressurePendingRef.current = normalizePressureSettings(tools.brushSettings);
 
-    const baseBrushSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
-    const { enabled, minPercent: rangeMinPercent, maxPercent: rangeMaxPercent } = resolveBrushPressureRange(tools.brushSettings);
-    const minPercent = enabled ? rangeMinPercent : 100;
-    const maxPercent = enabled ? rangeMaxPercent : 100;
+    cancelDeferred(brushSizeDeferredHandleRef.current);
+    brushSizeDeferredHandleRef.current = scheduleDeferred(() => {
+      brushSizeDeferredHandleRef.current = null;
+      applyPendingBrushSizing();
+    }, 150);
 
-    try {
-      colorCycleBrush.setPressureEnabled(enabled);
-      colorCycleBrush.setBrushSize(baseBrushSize);
-      colorCycleBrush.setMinPressure(minPercent);
-      colorCycleBrush.setMaxPressure(maxPercent);
-    } catch (error) {
-      console.error('[CC Effect] Failed to sync pressure settings:', error);
-    }
+    return () => {
+      cancelDeferred(brushSizeDeferredHandleRef.current);
+      brushSizeDeferredHandleRef.current = null;
+    };
   }, [
+    tools.brushSettings.size,
+    tools.brushSettings.pressureEnabled,
+    tools.brushSettings.minPressure,
+    tools.brushSettings.maxPressure,
+    tools.brushSettings.brushShape,
+    applyPendingBrushSizing,
     activeLayerId,
-    getActiveLayerColorCycleBrush,
-    tools.brushSettings,
   ]);
+
+  const lastActiveLayerIdRef = useRef<string | null>(activeLayerId);
+  useEffect(() => {
+    if (lastActiveLayerIdRef.current !== activeLayerId) {
+      lastActiveLayerIdRef.current = activeLayerId;
+      applyPendingBrushSizing();
+    }
+  }, [activeLayerId, applyPendingBrushSizing]);
 
   useEffect(() => {
     let previous = selectEffectiveColorCyclePlaying(useAppStore.getState());

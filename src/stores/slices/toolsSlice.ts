@@ -9,6 +9,7 @@ import type {
   BrushEditorState,
   PaletteState,
   Tool,
+  Rectangle,
 } from '@/types';
 import { BrushShape } from '@/types';
 import {
@@ -75,6 +76,8 @@ export const createDefaultToolState = (): ToolState => ({
   shapeMode: false,
   customBrushCapture: {
     sampleAllLayers: false,
+    mode: 'rectangle',
+    freehandPath: null,
   },
 });
 
@@ -182,6 +185,8 @@ export interface ToolsSlice {
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
   setShapeMode: (enabled: boolean) => void;
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
+  setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
+  setCustomBrushFreehandPath: (payload: { points: { x: number; y: number }[]; bounds: Rectangle | null } | null) => void;
   setCurrentTool: (tool: Tool) => void;
   setTemporaryCustomBrush: (brush: CustomBrush | null) => void;
   setPolygonGradientState: (partial: Partial<PolygonGradientState>) => void;
@@ -760,6 +765,48 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           customBrushCapture: {
             ...currentCapture,
             sampleAllLayers,
+          },
+        },
+      };
+    }),
+  setCustomBrushCaptureMode: (mode) =>
+    set((state) => {
+      const currentCapture = state.tools.customBrushCapture ?? {
+        sampleAllLayers: false,
+        mode: 'rectangle' as const,
+        freehandPath: null,
+      };
+      if (currentCapture.mode === mode) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          customBrushCapture: {
+            ...currentCapture,
+            mode,
+            // Reset stored freehand path whenever the mode changes to avoid stale captures
+            freehandPath: null,
+          },
+        },
+      };
+    }),
+  setCustomBrushFreehandPath: (payload) =>
+    set((state) => {
+      const currentCapture = state.tools.customBrushCapture ?? {
+        sampleAllLayers: false,
+        mode: 'rectangle' as const,
+        freehandPath: null,
+      };
+      if (currentCapture.freehandPath === payload) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          customBrushCapture: {
+            ...currentCapture,
+            freehandPath: payload,
           },
         },
       };

@@ -452,6 +452,8 @@ export interface AppState {
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
   setShapeMode: (enabled: boolean) => void;
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
+  setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
+  setCustomBrushFreehandPath: (payload: { points: { x: number; y: number }[]; bounds: Rectangle | null } | null) => void;
   
   // Brush Presets
   brushPresets: BrushPreset[];

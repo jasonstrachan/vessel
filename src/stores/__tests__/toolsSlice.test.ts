@@ -80,6 +80,20 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.customBrushCapture.sampleAllLayers).toBe(true);
   });
 
+  it('switches custom brush capture modes and resets freehand path', () => {
+    const store = useAppStore.getState();
+    expect(store.tools.customBrushCapture.mode).toBe('rectangle');
+    store.setCustomBrushFreehandPath({
+      points: [{ x: 0, y: 0 }],
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+    });
+    expect(useAppStore.getState().tools.customBrushCapture.freehandPath?.points).toHaveLength(1);
+    store.setCustomBrushCaptureMode('freehand');
+    const capture = useAppStore.getState().tools.customBrushCapture;
+    expect(capture.mode).toBe('freehand');
+    expect(capture.freehandPath).toBeNull();
+  });
+
   it('reuses stored gradients when switching to color cycle presets', () => {
     const store = useAppStore.getState();
     const gradientStops = [
