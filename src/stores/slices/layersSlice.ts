@@ -17,6 +17,27 @@ import type {
 } from '@/stores/helpers/layerStructureHistory';
 import type { AppState, CaptureROI, VesselWindow } from '../useAppStore';
 
+type StaticCompositeSegment = {
+  kind: 'static';
+  id: string;
+  layerIds: string[];
+  includeBackground: boolean;
+  orderRange: { start: number; end: number };
+  canvas: HTMLCanvasElement;
+  bitmap: ImageBitmap | null;
+  dirty: boolean;
+};
+
+type ColorCycleCompositeSegment = {
+  kind: 'color-cycle';
+  id: string;
+  layerId: string;
+  blendMode: GlobalCompositeOperation;
+  opacity: number;
+};
+
+export type CompositeSegment = StaticCompositeSegment | ColorCycleCompositeSegment;
+
 const normalizeCaptureROI = (
   roi: CaptureROI | undefined,
   maxWidth: number,
@@ -296,6 +317,8 @@ export interface LayersSlice {
   layers: Layer[];
   layersNeedRecomposition: boolean;
   staticCompositeVersion: number;
+  compositeSegmentsVersion: number;
+  compositeSegments: CompositeSegment[];
   activeLayerId: string | null;
   selectedLayerIds: string[];
   referenceLayerId: string | null;
@@ -320,6 +343,9 @@ export interface LayersSlice {
     options?: { captureBitmap?: boolean }
   ) => boolean | Promise<boolean>;
   renderColorCycleOverlay: (targetCanvas: HTMLCanvasElement) => boolean;
+  getCompositeSegmentsSnapshot: () => CompositeSegment[];
+  markCompositeSegmentsDirtyByLayerIds: (layerIds: string[]) => void;
+  markAllCompositeSegmentsDirty: () => void;
   captureCanvasToActiveLayer: (
     sourceCanvas?: HTMLCanvasElement,
     roi?: CaptureROI
@@ -501,8 +527,45 @@ export const createLayersSlice = (
       layers: [],
       layersNeedRecomposition: false,
       staticCompositeVersion: 0,
+      compositeSegmentsVersion: 0,
+      compositeSegments: [],
       setLayersNeedRecomposition: (needed) => {
-        set({ layersNeedRecomposition: needed });
+        set((state) => {
+          if (needed) {
+            return {
+              layersNeedRecomposition: needed,
+              compositeSegments: state.compositeSegments.map((segment) =>
+                segment.kind === 'static' ? { ...segment, dirty: true } : segment
+              )
+            };
+          }
+          return { layersNeedRecomposition: needed };
+        });
+      },
+      getCompositeSegmentsSnapshot: () =>
+        get().compositeSegments.map((segment) =>
+          segment.kind === 'static'
+            ? { ...segment, canvas: segment.canvas, bitmap: segment.bitmap }
+            : { ...segment }
+        ),
+      markCompositeSegmentsDirtyByLayerIds: (layerIds) => {
+        if (!layerIds.length) {
+          return;
+        }
+        set((state) => ({
+          compositeSegments: state.compositeSegments.map((segment) =>
+            segment.kind === 'static' && segment.layerIds.some((layerId) => layerIds.includes(layerId))
+              ? { ...segment, dirty: true }
+              : segment
+          )
+        }));
+      },
+      markAllCompositeSegmentsDirty: () => {
+        set((state) => ({
+          compositeSegments: state.compositeSegments.map((segment) =>
+            segment.kind === 'static' ? { ...segment, dirty: true } : segment
+          )
+        }));
       },
       setLayers: (incomingLayers) => {
         set((state) => {
@@ -526,6 +589,7 @@ export const createLayersSlice = (
             referenceLayerId: nextReferenceLayerId,
           };
         });
+        get().markAllCompositeSegmentsDirty();
       },
   // Layer Management - Start empty for SSR compatibility
   activeLayerId: null,
@@ -691,6 +755,7 @@ export const createLayersSlice = (
       label: 'Add layer',
       metadata: { layerId: newLayerId, operation: 'add' },
     });
+    get().markAllCompositeSegmentsDirty();
 
     return newLayerId;
   },
@@ -813,6 +878,7 @@ export const createLayersSlice = (
       label: 'Duplicate layer',
       metadata: { sourceLayerId: layerId, duplicatedLayerId: newLayerId, operation: 'duplicate' },
     });
+    get().markAllCompositeSegmentsDirty();
 
     return newLayerId;
   },
@@ -866,8 +932,10 @@ export const createLayersSlice = (
       label: 'Remove layer',
       metadata: { layerId: id, operation: 'remove' },
     });
+    get().markAllCompositeSegmentsDirty();
   },
-  updateLayer: (id, updates) => set((state) => {
+  updateLayer: (id, updates) => {
+    set((state) => {
     const originalLayer = state.layers.find(l => l.id === id);
     
     // CRITICAL: Detect when a color-cycle layer is being changed to normal
@@ -1010,12 +1078,14 @@ export const createLayersSlice = (
       logError('[updateLayer] Failed to sync CC runtime', error);
     }
 
-    return {
-      layers: syncedLayers,
-      layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition
-      // Remove the project update entirely - only update top-level layers
-    };
-  }),
+      return {
+        layers: syncedLayers,
+        layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition
+        // Remove the project update entirely - only update top-level layers
+      };
+    });
+    get().markCompositeSegmentsDirtyByLayerIds([id]);
+  },
   setSelectedLayerIds: (layerIds) => set((state) => {
     const validIds = layerIds.filter((layerId, index, list) => {
       return list.indexOf(layerId) === index && state.layers.some(layer => layer.id === layerId);
@@ -1224,7 +1294,8 @@ export const createLayersSlice = (
 
     return { referenceLayerId: id ?? null };
   }),
-  updateLayerAlignment: (layerId, alignment) => set((state) => {
+  updateLayerAlignment: (layerId, alignment) => {
+    set((state) => {
     const targetLayer = state.layers.find(layer => layer.id === layerId);
 
     if (!targetLayer) {
@@ -1289,7 +1360,9 @@ export const createLayersSlice = (
       layers: syncedLayers,
       layersNeedRecomposition: true
     };
-  }),
+  });
+    get().markCompositeSegmentsDirtyByLayerIds([layerId]);
+  },
   reorderLayers: (sourceIndex, destinationIndex) => {
     const stateBeforeReorder = get();
     const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeReorder, {
@@ -1332,10 +1405,12 @@ export const createLayersSlice = (
       label: 'Reorder layers',
       metadata: { operation: 'reorder' },
     });
+    get().markAllCompositeSegmentsDirty();
   },
 
   // Color Cycle Layer Management
-  initColorCycleForLayer: (layerId, width, height) => set((state) => {
+  initColorCycleForLayer: (layerId, width, height) => {
+    set((state) => {
     try {
       const layer = state.layers.find(l => l.id === layerId);
       if (!layer) {
@@ -1506,9 +1581,12 @@ export const createLayersSlice = (
       console.error('[Store] Error initializing color cycle:', error);
       return {}; // Return empty partial state on error
     }
-  }),
+    });
+    get().markAllCompositeSegmentsDirty();
+  },
 
-  cleanupColorCycleForLayer: (layerId) => set((state) => {
+  cleanupColorCycleForLayer: (layerId) => {
+    set((state) => {
     const layer = state.layers.find(l => l.id === layerId);
     // CRITICAL: Only cleanup color-cycle layers, never touch normal layers
     if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) return state;
@@ -1535,7 +1613,9 @@ export const createLayersSlice = (
     return {
       layers: syncedLayers
     };
-  }),
+  });
+    get().markAllCompositeSegmentsDirty();
+  },
 
   compositeLayersToCanvas: (targetCanvas) => {
     const state = get();
@@ -1611,18 +1691,24 @@ export const createLayersSlice = (
   renderStaticComposite: (targetCanvas, options) => {
     const state = get();
     try {
-      if (!state.project || !state.layers.length) {
+      if (!state.project) {
         const ctx = targetCanvas.getContext(
           '2d',
           { willReadFrequently: true } as CanvasRenderingContext2DSettings
         );
         ctx?.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
         get().setCurrentCompositeBitmap(null);
+        set({ compositeSegments: [], compositeSegmentsVersion: 0 });
         return false;
       }
 
-      const expectedWidth = state.project.width;
-      const expectedHeight = state.project.height;
+      if (typeof document === 'undefined') {
+        return false;
+      }
+
+      const project = state.project;
+      const expectedWidth = project.width;
+      const expectedHeight = project.height;
       if (expectedWidth <= 0 || expectedHeight <= 0) {
         return false;
       }
@@ -1632,24 +1718,246 @@ export const createLayersSlice = (
         targetCanvas.height = expectedHeight;
       }
 
-      const ctx = targetCanvas.getContext(
+      const staticCtx = targetCanvas.getContext(
         '2d',
         { willReadFrequently: true } as CanvasRenderingContext2DSettings
       ) as CanvasRenderingContext2D | null;
-      if (!ctx) {
+      if (!staticCtx) {
         return false;
+      }
+
+      type SegmentDescriptor =
+        | {
+            kind: 'static';
+            layerIds: string[];
+            includeBackground: boolean;
+            orderRange: { start: number; end: number };
+          }
+        | {
+            kind: 'color-cycle';
+            layerId: string;
+            blendMode: GlobalCompositeOperation;
+            opacity: number;
+          };
+
+      const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
+      const layerLookup = new Map(sortedLayers.map((layer) => [layer.id, layer]));
+
+      const descriptors: SegmentDescriptor[] = [];
+      let pendingStatic: Layer[] = [];
+      const shouldPaintBackground = Boolean(
+        project.backgroundColor && project.backgroundColor !== 'transparent'
+      );
+      let includeBackgroundNext = shouldPaintBackground;
+
+      const flushStaticSegment = () => {
+        if (!pendingStatic.length && !includeBackgroundNext) {
+          return;
+        }
+        const layerIds = pendingStatic.map((layer) => layer.id);
+        const orderStart = pendingStatic.length ? pendingStatic[0].order : Number.NEGATIVE_INFINITY;
+        const orderEnd = pendingStatic.length
+          ? pendingStatic[pendingStatic.length - 1].order
+          : orderStart;
+        descriptors.push({
+          kind: 'static',
+          layerIds,
+          includeBackground: includeBackgroundNext,
+          orderRange: {
+            start: orderStart,
+            end: orderEnd
+          }
+        });
+        includeBackgroundNext = false;
+        pendingStatic = [];
+      };
+
+      for (const layer of sortedLayers) {
+        if (!layer.visible) {
+          continue;
+        }
+        if (layer.layerType === 'color-cycle') {
+          flushStaticSegment();
+          descriptors.push({
+            kind: 'color-cycle',
+            layerId: layer.id,
+            blendMode: layer.blendMode,
+            opacity: layer.opacity,
+          });
+          continue;
+        }
+        pendingStatic.push(layer);
+      }
+      flushStaticSegment();
+      if (!descriptors.length) {
+        descriptors.push({
+          kind: 'static',
+          layerIds: [],
+          includeBackground: includeBackgroundNext,
+          orderRange: { start: Number.NEGATIVE_INFINITY, end: Number.NEGATIVE_INFINITY }
+        });
+      }
+
+      const makeStaticSegment = (
+        descriptor: Extract<SegmentDescriptor, { kind: 'static' }>,
+        index: number
+      ): StaticCompositeSegment => {
+        const canvas = document.createElement('canvas');
+        canvas.width = expectedWidth;
+        canvas.height = expectedHeight;
+        return {
+          kind: 'static',
+          id: `static-${Date.now()}-${index}`,
+          layerIds: descriptor.layerIds,
+          includeBackground: descriptor.includeBackground,
+          orderRange: descriptor.orderRange,
+          canvas,
+          bitmap: null,
+          dirty: true
+        };
+      };
+
+      const structuresMatch =
+        state.compositeSegments.length === descriptors.length &&
+        state.compositeSegments.every((segment, index) => {
+          const descriptor = descriptors[index];
+          if (!descriptor || segment.kind !== descriptor.kind) {
+            return false;
+          }
+          if (descriptor.kind === 'static' && segment.kind === 'static') {
+            if (segment.includeBackground !== descriptor.includeBackground) {
+              return false;
+            }
+            if (segment.layerIds.length !== descriptor.layerIds.length) {
+              return false;
+            }
+            for (let idx = 0; idx < descriptor.layerIds.length; idx += 1) {
+              if (segment.layerIds[idx] !== descriptor.layerIds[idx]) {
+                return false;
+              }
+            }
+            return true;
+          }
+          if (descriptor.kind === 'color-cycle' && segment.kind === 'color-cycle') {
+            return segment.layerId === descriptor.layerId;
+          }
+          return false;
+        });
+
+      const nextSegments: CompositeSegment[] = descriptors.map((descriptor, index) => {
+        if (descriptor.kind === 'static') {
+          if (structuresMatch) {
+            const previous = state.compositeSegments[index] as StaticCompositeSegment;
+            return {
+              ...previous,
+              layerIds: descriptor.layerIds,
+              includeBackground: descriptor.includeBackground,
+              orderRange: descriptor.orderRange,
+            };
+          }
+          return makeStaticSegment(descriptor, index);
+        }
+        if (structuresMatch) {
+          const previous = state.compositeSegments[index] as ColorCycleCompositeSegment;
+          return {
+            ...previous,
+            blendMode: descriptor.blendMode,
+            opacity: descriptor.opacity
+          };
+        }
+        return {
+          kind: 'color-cycle',
+          id: `cc-${descriptor.layerId}-${index}`,
+          layerId: descriptor.layerId,
+          blendMode: descriptor.blendMode,
+          opacity: descriptor.opacity
+        };
+      });
+
+      const repaintStaticSegment = (
+        segment: StaticCompositeSegment,
+        layerIds: string[]
+      ): StaticCompositeSegment => {
+        if (segment.canvas.width !== expectedWidth || segment.canvas.height !== expectedHeight) {
+          segment.canvas.width = expectedWidth;
+          segment.canvas.height = expectedHeight;
+        }
+        const ctx = segment.canvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        ) as CanvasRenderingContext2D | null;
+        if (!ctx) {
+          return segment;
+        }
+        ctx.clearRect(0, 0, expectedWidth, expectedHeight);
+        if (segment.includeBackground && project.backgroundColor && project.backgroundColor !== 'transparent') {
+          ctx.fillStyle = project.backgroundColor;
+          ctx.fillRect(0, 0, expectedWidth, expectedHeight);
+        }
+        for (const layerId of layerIds) {
+          const layer = layerLookup.get(layerId);
+          if (!layer || !layer.visible || layer.layerType === 'color-cycle') {
+            continue;
+          }
+          let source: CanvasImageSource | null = null;
+          if (layer.framebuffer) {
+            source = layer.framebuffer as CanvasImageSource;
+          } else if (layer.imageData) {
+            const transferCanvas = createLayerTransferCanvas(
+              layer.imageData.width,
+              layer.imageData.height
+            );
+            if (transferCanvas) {
+              const transferCtx = transferCanvas.getContext(
+                '2d',
+                { willReadFrequently: true } as CanvasRenderingContext2DSettings
+              ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+              transferCtx?.putImageData(layer.imageData, 0, 0);
+              source = transferCanvas as CanvasImageSource;
+            }
+          }
+          if (!source) {
+            continue;
+          }
+          ctx.globalCompositeOperation = layer.blendMode;
+          ctx.globalAlpha = layer.opacity;
+          ctx.drawImage(source, 0, 0);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        return { ...segment, dirty: false };
+      };
+
+      let anySegmentUpdated = !structuresMatch;
+      const realizedSegments = nextSegments.map((segment) => {
+        if (segment.kind === 'static') {
+          if (segment.dirty || !structuresMatch) {
+            anySegmentUpdated = true;
+            return repaintStaticSegment(segment, segment.layerIds);
+          }
+        }
+        return segment;
+      });
+
+      if (anySegmentUpdated) {
+        set((prev) => ({
+          compositeSegments: realizedSegments,
+          compositeSegmentsVersion: prev.compositeSegmentsVersion + 1,
+          staticCompositeVersion: prev.staticCompositeVersion + 1
+        }));
+      } else {
+        set((prev) => ({
+          compositeSegments: realizedSegments,
+          staticCompositeVersion: prev.staticCompositeVersion + 1
+        }));
       }
 
       const isPixelBrush =
         state.tools.brushSettings.brushShape === 'pixel_round' ||
         (state.tools.brushSettings.brushShape === 'square' &&
           !state.tools.brushSettings.antialiasing);
-      ctx.imageSmoothingEnabled = !isPixelBrush;
-
-      const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
-      drawStaticLayers(ctx, sortedLayers, state.project);
-
-      set((prev) => ({ staticCompositeVersion: prev.staticCompositeVersion + 1 }));
+      staticCtx.imageSmoothingEnabled = !isPixelBrush;
+      drawStaticLayers(staticCtx, sortedLayers, project);
 
       if (
         options?.captureBitmap !== false &&

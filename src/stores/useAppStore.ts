@@ -236,6 +236,7 @@ import {
 } from '@/stores/helpers/toolsState';
 import { createHistorySlice } from '@/stores/slices/historySlice';
 import { createLayersSlice } from '@/stores/slices/layersSlice';
+import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { createProjectSlice } from '@/stores/slices/projectSlice';
 import { createUiSlice } from '@/stores/slices/uiSlice';
 import { createToolsSlice } from '@/stores/slices/toolsSlice';
@@ -586,11 +587,16 @@ export interface AppState {
   currentCompositeBitmap: ImageBitmap | null;
   setCurrentCompositeBitmap: (bitmap: ImageBitmap | null) => void;
   staticCompositeVersion: number;
+  compositeSegments: CompositeSegment[];
+  compositeSegmentsVersion: number;
   renderStaticComposite: (
     targetCanvas: HTMLCanvasElement,
     options?: { captureBitmap?: boolean }
   ) => boolean | Promise<boolean>;
   renderColorCycleOverlay: (targetCanvas: HTMLCanvasElement) => boolean;
+  getCompositeSegmentsSnapshot: () => CompositeSegment[];
+  markCompositeSegmentsDirtyByLayerIds: (layerIds: string[]) => void;
+  markAllCompositeSegmentsDirty: () => void;
   
   // Project Save/Load Management
   saveProject: (filename?: string) => Promise<void>;

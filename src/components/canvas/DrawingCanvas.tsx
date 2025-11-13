@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo, useLayoutEffect } from 'react';
+import { useFeatureFlag } from '@/config/featureFlags';
 import { selectEffectiveColorCyclePlaying, useAppStore } from '@/stores/useAppStore';
 import {
   selectActiveLayerId,
@@ -19,7 +20,7 @@ import {
   selectRecolorSampling,
   selectShapeMode,
 } from '@/stores/selectors/toolsSelectors';
-import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
+import { useBrushEngineSimplified, refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '@/hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '@/hooks/useCanvasStateMachine';
 import { useSimplePan, type PanSnapshot, type PanEvent } from '@/hooks/useSimplePan';
@@ -38,7 +39,10 @@ import SelectionMarqueeHandles from './SelectionMarqueeHandles';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
+import { detectColorCycleWorkerSupport } from '@/utils/colorCycleWorkerSupport';
+import { getMaskManager } from '@/layers/MaskManager';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { computeShapeFillColors } from '@/shapeFill/colorUtils';
 import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
@@ -47,6 +51,7 @@ import { FillStage } from '@/shapeFill/types';
 import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '@/constants/canvas';
 import { viewPerformanceTracker } from '@/utils/viewPerformanceTracker';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
+import { getColorCycleCompositorClient } from '@/workers/colorCycleCompositorClient';
 
 type GradientStop = { position: number; color: string };
 
@@ -164,8 +169,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const drawAnimationFrameRef = useRef<number | null>(null); // RAF throttling for pan
   const pointerMoveThrottled = useRef<number>(0); // Throttle pointer move to 120fps
   const colorCycleBrushManagerRef = useRef<ColorCycleBrushManager | null>(null);
-  const colorCycleOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const colorCycleOverlayHasContentRef = useRef(false);
+  const compositeSegmentsRef = useRef<CompositeSegment[]>([]);
+  const layerMapRef = useRef<Map<string, Layer>>(new Map());
+  const pendingColorCycleRefreshRef = useRef(false);
   
   // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
@@ -183,6 +189,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
   const compositeBitmap = useAppStore((state) => state.currentCompositeBitmap);
   const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
+  const compositeSegmentsVersion = useAppStore((state) => state.compositeSegmentsVersion);
+  const getCompositeSegmentsSnapshot = useAppStore((state) => state.getCompositeSegmentsSnapshot);
+  const maskManager = useMemo(() => getMaskManager(), []);
   const currentTool = useAppStore(selectCurrentTool);
   const brushSettings = useAppStore(selectBrushSettings);
   const fillSettings = useAppStore(selectFillSettings);
@@ -274,6 +283,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const checkerPatternCacheRef = useRef<WeakMap<CanvasRenderingContext2D, CanvasPattern | null>>(new WeakMap());
   const isZoomingRef = useRef(false);
   const zoomEndTimeoutRef = useRef<number | null>(null);
+  const colorCycleWorkerEnabled = useFeatureFlag('useColorCycleWorker');
+  const colorCycleWorkerSupport = useMemo(() => detectColorCycleWorkerSupport(), []);
+  const shouldUseColorCycleWorker = colorCycleWorkerEnabled && colorCycleWorkerSupport.supported;
 
   const setCursorScreenPosition = useCallback((screenX: number, screenY: number) => {
     mousePositionRef.current = { x: screenX, y: screenY };
@@ -286,6 +298,98 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
     colorCycleBrushManagerRef.current = getColorCycleBrushManager();
   }, []);
+
+  useEffect(() => {
+    if (!shouldUseColorCycleWorker) {
+      return;
+    }
+    let cancelled = false;
+    getColorCycleCompositorClient()
+      .then((client) => {
+        if (cancelled) {
+          return;
+        }
+        return client.ping();
+      })
+      .catch((error) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[ColorCycleWorker] init failed', error);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldUseColorCycleWorker]);
+
+  useEffect(() => {
+    const map = new Map<string, Layer>();
+    layers.forEach((layer) => {
+      map.set(layer.id, layer);
+    });
+    layerMapRef.current = map;
+    pendingColorCycleRefreshRef.current = true;
+  }, [layers]);
+
+  useEffect(() => {
+    compositeSegmentsRef.current = getCompositeSegmentsSnapshot();
+    pendingColorCycleRefreshRef.current = true;
+  }, [compositeSegmentsVersion, getCompositeSegmentsSnapshot]);
+
+  const refreshColorCycleSegments = useCallback(() => {
+    const segments = compositeSegmentsRef.current;
+    if (!segments.length) {
+      return;
+    }
+    const manager = colorCycleBrushManagerRef.current ?? getColorCycleBrushManager();
+    if (!colorCycleBrushManagerRef.current) {
+      colorCycleBrushManagerRef.current = manager;
+    }
+
+    segments.forEach((segment) => {
+      if (segment.kind !== 'color-cycle') {
+        return;
+      }
+      const layer = layerMapRef.current.get(segment.layerId);
+      if (!layer || !layer.colorCycleData) {
+        return;
+      }
+      const brush = manager?.getBrush(segment.layerId);
+      if (!brush) {
+        return;
+      }
+      const layerCanvas = refreshLayerCCSurface(brush, segment.layerId);
+      if (!layerCanvas) {
+        return;
+      }
+      if (layerCanvas && 'setTargetCanvas' in brush && typeof brush.setTargetCanvas === 'function') {
+        brush.setTargetCanvas(layerCanvas);
+      }
+
+      const wantPlaying = Boolean(layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor');
+      const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+      if (wantPlaying && !isPlaying) {
+        brush.startAnimation?.();
+      } else if (!wantPlaying && isPlaying) {
+        brush.stopAnimation?.();
+      }
+
+      if (layer.colorCycleData.isAnimating) {
+        brush.updateAnimation?.();
+      }
+      brush.renderDirectToCanvas?.(layerCanvas, segment.layerId);
+      const layerCanvasCtx = layerCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+      if (layerCanvasCtx) {
+        maskManager.applyMaskToCanvas(layer.id, layerCanvasCtx);
+      }
+    });
+  }, [maskManager]);
+
+  useEffect(() => {
+    if (pendingColorCycleRefreshRef.current) {
+      pendingColorCycleRefreshRef.current = false;
+      refreshColorCycleSegments();
+    }
+  }, [refreshColorCycleSegments, layers, compositeSegmentsVersion]);
 
   const isPointerInsideCanvas = useCallback(() => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -737,31 +841,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     return compositeCanvasRef.current;
   }, [project]);
 
-  const ensureColorCycleOverlayCanvas = useCallback(() => {
-    if (!project || typeof document === 'undefined') {
-      return null;
-    }
-    if (!colorCycleOverlayCanvasRef.current) {
-      colorCycleOverlayCanvasRef.current = document.createElement('canvas');
-    }
-    const canvas = colorCycleOverlayCanvasRef.current;
-    if (canvas.width !== project.width || canvas.height !== project.height) {
-      canvas.width = project.width;
-      canvas.height = project.height;
-    }
-    return canvas;
-  }, [project]);
-
-  const refreshColorCycleOverlay = useCallback(() => {
-    const canvas = ensureColorCycleOverlayCanvas();
-    if (!canvas) {
-      colorCycleOverlayHasContentRef.current = false;
-      return false;
-    }
-    const hasContent = renderColorCycleOverlay(canvas);
-    colorCycleOverlayHasContentRef.current = hasContent;
-    return hasContent;
-  }, [ensureColorCycleOverlayCanvas, renderColorCycleOverlay]);
 
   const rebuildStaticComposite = useCallback(() => {
     const canvas = ensureStaticCompositeCanvas();
@@ -771,10 +850,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     const rendered = renderStaticComposite(canvas);
     if (rendered) {
       setCurrentOffscreenCanvas(canvas);
-      refreshColorCycleOverlay();
     }
     return rendered;
-  }, [ensureStaticCompositeCanvas, refreshColorCycleOverlay, renderStaticComposite, setCurrentOffscreenCanvas]);
+  }, [ensureStaticCompositeCanvas, renderStaticComposite, setCurrentOffscreenCanvas]);
   
   // Drawing function - base implementation without hooks
   const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio = 1) => {
@@ -921,11 +999,46 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               height
             );
           } else if (!isActivelyErasing) {
+            const segments = compositeSegmentsRef.current;
             let compositeDrawn = false;
-            if (compositeBitmap) {
-              try {
+            if (segments.length > 0) {
+              compositeDrawn = true;
+              segments.forEach((segment) => {
+                if (segment.kind === 'static') {
+                  const source = segment.bitmap ?? segment.canvas;
+                  try {
+                    ctx.drawImage(
+                      source,
+                      x,
+                      y,
+                      width,
+                      height,
+                      x,
+                      y,
+                      width,
+                      height
+                    );
+                  } catch (error) {
+                    console.warn('[CompositeSegments] Failed to draw static segment', error);
+                  }
+                  return;
+                }
+
+                const layer = layerMapRef.current.get(segment.layerId);
+                if (!layer || !layer.visible || layer.layerType !== 'color-cycle') {
+                  return;
+                }
+
+                const layerCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+                if (!layerCanvas) {
+                  return;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = segment.opacity;
+                ctx.globalCompositeOperation = segment.blendMode ?? 'source-over';
                 ctx.drawImage(
-                  compositeBitmap,
+                  layerCanvas,
                   x,
                   y,
                   width,
@@ -935,50 +1048,54 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                   width,
                   height
                 );
-                compositeDrawn = true;
-              } catch (error) {
-                const isInvalidState =
-                  error instanceof DOMException && error.name === 'InvalidStateError';
-                if (isInvalidState) {
-                  const state = useAppStore.getState();
-                  state.setCurrentCompositeBitmap(null);
-                  state.setLayersNeedRecomposition(true);
-                } else {
-                  throw error;
-                }
-              }
+                ctx.restore();
+              });
             }
 
-            if (!compositeDrawn && compositeCanvasRef.current) {
-              ctx.drawImage(
-                compositeCanvasRef.current,
-                x,
-                y,
-                width,
-                height,
-                x,
-                y,
-                width,
-                height
-              );
+            if (!compositeDrawn) {
+              if (compositeBitmap) {
+                try {
+                  ctx.drawImage(
+                    compositeBitmap,
+                    x,
+                    y,
+                    width,
+                    height,
+                    x,
+                    y,
+                    width,
+                    height
+                  );
+                  compositeDrawn = true;
+                } catch (error) {
+                  const isInvalidState =
+                    error instanceof DOMException && error.name === 'InvalidStateError';
+                  if (isInvalidState) {
+                    const state = useAppStore.getState();
+                    state.setCurrentCompositeBitmap(null);
+                    state.setLayersNeedRecomposition(true);
+                  } else {
+                    throw error;
+                  }
+                }
+              }
+
+              if (!compositeDrawn && compositeCanvasRef.current) {
+                ctx.drawImage(
+                  compositeCanvasRef.current,
+                  x,
+                  y,
+                  width,
+                  height,
+                  x,
+                  y,
+                  width,
+                  height
+                );
+              }
             }
           }
         }
-      }
-      if (colorCycleOverlayHasContentRef.current && colorCycleOverlayCanvasRef.current && visibleRect) {
-        const { x, y, width, height } = visibleRect;
-        const overlayCanvas = colorCycleOverlayCanvasRef.current;
-        ctx.drawImage(
-          overlayCanvas,
-          x,
-          y,
-          width,
-          height,
-          x,
-          y,
-          width,
-          height
-        );
       }
 
       // Draw temporary drawing canvas
@@ -1886,42 +2003,26 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
   }, [draw]);
   
-  // Listen for color cycle animation frame updates
+  // Listen for color cycle animation frame updates and trigger redraws
   useEffect(() => {
     const handleColorCycleFrame = () => {
-      // Trigger a redraw when color cycle animation updates
+      refreshColorCycleSegments();
+      setNeedsRedraw((prev) => prev + 1);
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d', { willReadFrequently: true });
       if (ctx && drawRef.current && viewTransformRef.current) {
         drawRef.current(ctx, viewTransformRef.current);
       }
     };
-    
-    const handleColorCycleFrameUpdate = () => {
-      compositeCanvasDirtyRef.current = true;
-      refreshColorCycleOverlay();
 
-      // Trigger a redraw to show the updated animation frame
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-      if (ctx && drawRef.current && viewTransformRef.current) {
-        drawRef.current(ctx, viewTransformRef.current);
-      }
-    };
-    
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
-    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
+    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrame);
 
     return () => {
       window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
-      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
+      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrame);
     };
-  }, [project, refreshColorCycleOverlay]);
-
-  useEffect(() => () => {
-    colorCycleOverlayCanvasRef.current = null;
-    colorCycleOverlayHasContentRef.current = false;
-  }, []);
+  }, [refreshColorCycleSegments, setNeedsRedraw]);
   
   // Handle blur to reset space key state when losing focus
   const handleBlur = useCallback((e: React.FocusEvent) => {

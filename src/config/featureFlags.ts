@@ -2,18 +2,21 @@ import { useSyncExternalStore } from 'react';
 
 export type FeatureFlagKey =
   | 'useCanvas2DColorCycle'
-  | 'logColorCycleOperations';
+  | 'logColorCycleOperations'
+  | 'useColorCycleWorker';
 
 type FeatureFlagState = Record<FeatureFlagKey, boolean>;
 
 const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
   useCanvas2DColorCycle: 'vessel:flag:useCanvas2DColorCycle',
   logColorCycleOperations: 'vessel:flag:logColorCycleOperations',
+  useColorCycleWorker: 'vessel:flag:useColorCycleWorker',
 };
 
 const defaultState: FeatureFlagState = {
   useCanvas2DColorCycle: false,
   logColorCycleOperations: false,
+  useColorCycleWorker: false,
 };
 
 const state: FeatureFlagState = { ...defaultState };
@@ -76,9 +79,15 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
   if (state[key] === value) return;
   state[key] = value;
 
-  if (process.env.NODE_ENV !== 'production' && key === 'useCanvas2DColorCycle') {
-    const mode = value ? 'Canvas2D' : 'WebGL';
-    console.log(`[featureFlags] useCanvas2DColorCycle set to ${mode}`);
+  if (process.env.NODE_ENV !== 'production') {
+    if (key === 'useCanvas2DColorCycle') {
+      const mode = value ? 'Canvas2D' : 'WebGL';
+      console.log(`[featureFlags] useCanvas2DColorCycle set to ${mode}`);
+    }
+    if (key === 'useColorCycleWorker') {
+      const status = value ? 'worker' : 'main-thread';
+      console.log(`[featureFlags] useColorCycleWorker set to ${status}`);
+    }
   }
 
   if (typeof window !== 'undefined') {

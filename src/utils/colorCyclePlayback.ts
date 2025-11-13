@@ -117,9 +117,14 @@ export const toggleGlobalColorCyclePlayback = async (
   });
 
   try {
-    if (shouldPlay && typeof window !== 'undefined' && window.__ccRafAlive !== true) {
-      useAppStore.getState().colorCycleRuntimeHandlers?.start?.('store-sync');
-      ccLog('kicked colorCycleRuntimeHandlers.start from toggleGlobalColorCyclePlayback', { reason });
+    if (shouldPlay) {
+      if (typeof window !== 'undefined' && window.__ccRafAlive !== true) {
+        useAppStore.getState().colorCycleRuntimeHandlers?.start?.('store-sync');
+        ccLog('kicked colorCycleRuntimeHandlers.start from toggleGlobalColorCyclePlayback', { reason });
+      }
+    } else {
+      useAppStore.getState().colorCycleRuntimeHandlers?.stop?.('store-sync');
+      ccLog('invoked colorCycleRuntimeHandlers.stop from toggleGlobalColorCyclePlayback', { reason });
     }
   } catch {}
 
