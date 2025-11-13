@@ -171,6 +171,12 @@ export function useComprehensiveKeyboard({
     const palette = paletteRef.current;
 
     const target = event.target as HTMLElement | null;
+    const targetIsTextEntry = isTextEntryTarget(target);
+    const allowBracketInNumericInput =
+      targetIsTextEntry &&
+      isBracketShortcut &&
+      target instanceof HTMLInputElement &&
+      target.type?.toLowerCase() === 'number';
 
     const isUndoShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey;
     const isRedoShortcut = (event.ctrlKey || event.metaKey) && (
@@ -238,7 +244,7 @@ export function useComprehensiveKeyboard({
     }
 
     // Ignore if typing in text-focused inputs or editable elements
-    if (isTextEntryTarget(target)) {
+    if (targetIsTextEntry && !allowBracketInNumericInput) {
       return;
     }
 

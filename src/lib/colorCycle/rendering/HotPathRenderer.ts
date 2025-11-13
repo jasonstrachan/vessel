@@ -188,7 +188,7 @@ export class HotPathRenderer {
     animationOffset: number,
     cycleColors: number,
     context: RenderingContext,
-    flowDirection: 'forward' | 'reverse' = 'forward'
+    flowDirection: 'forward' | 'reverse' = 'reverse'
   ): void {
     const { pixels32 } = context;
 

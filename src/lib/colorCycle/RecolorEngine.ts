@@ -164,7 +164,7 @@ export class RecolorEngine {
             ticksPerFrame,
             isPlaying: false,
             currentTick: 0,
-            flowDirection: 'forward'
+            flowDirection: 'reverse'
           },
           cycleColors,
           gradient: [],

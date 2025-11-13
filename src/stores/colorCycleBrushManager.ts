@@ -197,7 +197,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       const perLayerFlowMode =
         layer?.colorCycleData?.flowMode ??
         currentSettings.colorCycleFlowMode ??
-        'forward';
+        'reverse';
       if (typeof brushWithOptionalControls.setFlowMode === 'function') {
         brushWithOptionalControls.setFlowMode(perLayerFlowMode);
       } else if (typeof brushWithOptionalControls.setFlowDirection === 'function') {

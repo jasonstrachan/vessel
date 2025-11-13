@@ -1135,7 +1135,7 @@ export const createLayersSlice = (
       if (typeof layer.colorCycleData?.brushSpeed === 'number') {
         nextBrushSettings.colorCycleSpeed = layer.colorCycleData.brushSpeed;
       }
-      const resolvedFlowMode = layer.colorCycleData?.flowMode ?? state.tools.brushSettings.colorCycleFlowMode ?? 'forward';
+      const resolvedFlowMode = layer.colorCycleData?.flowMode ?? state.tools.brushSettings.colorCycleFlowMode ?? 'reverse';
       nextBrushSettings.colorCycleFlowMode = resolvedFlowMode;
 
       const result = {
@@ -1383,7 +1383,7 @@ export const createLayersSlice = (
               isAnimating: l.colorCycleData?.isAnimating ?? true,
               // Ensure per-layer brush speed exists
               brushSpeed: l.colorCycleData?.brushSpeed ?? (state.tools.brushSettings.colorCycleSpeed || 0.1),
-              flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'forward'),
+              flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'reverse'),
               canvas
             }
           };
@@ -1488,7 +1488,7 @@ export const createLayersSlice = (
           isAnimating: true,
           // Initialize per-layer brush speed from current brush settings
           brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
-          flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'forward',
+          flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'reverse',
           canvas: layerCanvas ?? (colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined),
           eraseMask,
           eraseMaskVersion

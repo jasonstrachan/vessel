@@ -201,7 +201,7 @@ export class ColorCycleBrushCanvas2D {
   // Stamp tracking for gradient progression
   private stampCounter: number = 0;
   private totalGradientSteps: number = 256; // Total colors in gradient
-  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'forward';
+  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'reverse';
   
   // Batched rendering
   private renderScheduled: boolean = false;

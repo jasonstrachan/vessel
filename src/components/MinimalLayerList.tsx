@@ -408,7 +408,7 @@ const MinimalLayerList = () => {
         gradient: currentGradient,
         isAnimating: isGlobalPlaying,
         brushSpeed: brushSettingsRef.current.colorCycleSpeed || 0.1,
-        flowMode: brushSettingsRef.current.colorCycleFlowMode ?? 'forward'
+        flowMode: brushSettingsRef.current.colorCycleFlowMode ?? 'reverse'
       }
     };
     // quiet

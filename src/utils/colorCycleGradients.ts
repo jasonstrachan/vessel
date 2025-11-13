@@ -68,7 +68,7 @@ export function getSharedColorCycleSettings() {
     gradient: settings.colorCycleGradient || DEFAULT_GRADIENT_STOPS,
     speed: settings.colorCycleSpeed || 0.1,
     fps: settings.colorCycleFPS || 30,
-    flowMode: settings.colorCycleFlowMode ?? 'forward',
+    flowMode: settings.colorCycleFlowMode ?? 'reverse',
     gradientBands: settings.gradientBands || 12
   };
 }

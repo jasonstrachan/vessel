@@ -81,3 +81,41 @@ describe('useComprehensiveKeyboard – temporary eraser hold', () => {
     keyboard.unmount();
   });
 });
+
+describe('useComprehensiveKeyboard – brush size shortcuts', () => {
+  beforeEach(() => {
+    act(() => {
+      resetStore();
+    });
+  });
+
+  it('handles bracket shortcuts when a numeric input has focus', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+    const initialSize = 12;
+
+    act(() => {
+      useAppStore.getState().setGlobalBrushSize(initialSize);
+    });
+
+    const numericInput = document.createElement('input');
+    numericInput.type = 'number';
+    document.body.appendChild(numericInput);
+    numericInput.focus();
+
+    await act(async () => {
+      fireEvent.keyDown(numericInput, { key: '[', code: 'BracketLeft' });
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(initialSize - 1);
+
+    await act(async () => {
+      fireEvent.keyDown(numericInput, { key: ']', code: 'BracketRight' });
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(initialSize);
+
+    numericInput.blur();
+    document.body.removeChild(numericInput);
+    keyboard.unmount();
+  });
+});

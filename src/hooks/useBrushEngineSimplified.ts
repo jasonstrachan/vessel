@@ -2060,7 +2060,7 @@ export const useBrushEngineSimplified = () => {
       }
       
       const layerFlowMode = activeLayer?.colorCycleData?.flowMode;
-      const flowMode = layerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'forward';
+      const flowMode = layerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'reverse';
       if (typeof colorCycleBrush.setFlowMode === 'function') {
         colorCycleBrush.setFlowMode(flowMode);
       } else {
@@ -2090,7 +2090,7 @@ export const useBrushEngineSimplified = () => {
     if (!colorCycleBrush) {
       return;
     }
-    const flowMode = activeLayerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'forward';
+    const flowMode = activeLayerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'reverse';
     if (typeof colorCycleBrush.setFlowMode === 'function') {
       colorCycleBrush.setFlowMode(flowMode);
     } else {

@@ -16,13 +16,19 @@ import {
   MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 
+const FLOW_DIRECTION_BUTTONS = [
+  { label: '<--', value: 'reverse' },
+  { label: '-->', value: 'forward' },
+  { label: '<-->', value: 'pingpong' }
+] as const;
+
 const AnimationControlsPanel: React.FC = () => {
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const brushSettings = useAppStore(selectBrushSettings);
   const globalColorCycleSpeed = brushSettings.colorCycleSpeed || 0.1;
-  const globalColorCycleFlowMode = brushSettings.colorCycleFlowMode ?? 'forward';
+  const globalColorCycleFlowMode = brushSettings.colorCycleFlowMode ?? 'reverse';
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
@@ -131,14 +137,10 @@ const AnimationControlsPanel: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" dir="ltr">
           <span className="text-[#D9D9D9] w-12" style={{ fontSize: '14px' }}>Flow</span>
           <ButtonGroup
-            options={[
-              { label: '-->', value: 'forward' },
-              { label: '<--', value: 'reverse' },
-              { label: '<-->', value: 'pingpong' }
-            ]}
+            options={FLOW_DIRECTION_BUTTONS}
             value={colorCycleFlowModeValue}
             onChange={handleFlowModeChange}
             className="flex-1 [&>button]:flex-1"

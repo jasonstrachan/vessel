@@ -73,7 +73,7 @@ export class ColorCycleAnimator {
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
   private currentStrokeIndex: number = 1;
   private maxStrokeIndex: number = 0;
-  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'forward'; // Flow direction mode
+  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'reverse'; // Flow direction mode
   private lastControllerOffset: number = 0;
   private pingPongAscending: boolean = true;
   private gradientSignature: string | null = null;

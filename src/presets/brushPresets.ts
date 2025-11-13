@@ -42,7 +42,7 @@ export const pixelBrushSettings: BrushSettings = {
   contourLines2Density: 4,
   contourLines2Alternate: false,
   customBrushColorCycle: false,
-  colorCycleFlowMode: 'forward',
+  colorCycleFlowMode: 'reverse',
   colorCycleFillMode: 'concentric',
   colorCycleBandSpacingPx: 12,
   triangleFillSize: 36,
@@ -121,7 +121,7 @@ export const defaultBrushSettings: BrushSettings = {
   contourLines2Spacing: 4, // Default base spacing for Lines2 brush
   contourLines2Density: 4, // Default line bundle density
   contourLines2Alternate: false, // Default to uniform direction
-  colorCycleFlowMode: 'forward',
+  colorCycleFlowMode: 'reverse',
   colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
   colorCycleBandSpacingPx: 12,
   shapeGradientMode: 'contour', // Default to contour mode for shape gradient brushes

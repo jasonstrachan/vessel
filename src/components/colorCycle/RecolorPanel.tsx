@@ -84,7 +84,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     speed: 0.1 as number,
     fps: 30 as number,
     cycleColors: 16 as number,
-    flowDirection: 'forward' as 'forward' | 'reverse' | 'pingpong' | 'bounce',
+    flowDirection: 'reverse' as 'forward' | 'reverse' | 'pingpong' | 'bounce',
     mappingMode: 'banded' as 'banded' | 'continuous',
     flowMapping: 'palette' as 'palette' | 'directional' | 'luminance'
   });
@@ -184,7 +184,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       speed: recolorSettings.animation.speed ?? 0.1,
       fps: recolorSettings.animation.fps ?? 30,
       cycleColors: recolorSettings.cycleColors ?? 16,
-      flowDirection: recolorSettings.animation.flowDirection ?? 'forward',
+      flowDirection: recolorSettings.animation.flowDirection ?? 'reverse',
       mappingMode: recolorSettings.mappingMode ?? 'banded',
       flowMapping: recolorSettings.flowMapping ?? 'palette'
     });
@@ -492,7 +492,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
             speed={isRecolorEnabled ? (recolorSettings?.animation.speed || 0.1) : plannedSettings.speed}
             fps={isRecolorEnabled ? (recolorSettings?.animation.fps || 30) : plannedSettings.fps}
             cycleColors={isRecolorEnabled ? (recolorSettings?.cycleColors || 16) : plannedSettings.cycleColors}
-            flowDirection={isRecolorEnabled ? (recolorSettings?.animation.flowDirection || 'forward') : plannedSettings.flowDirection}
+            flowDirection={isRecolorEnabled ? (recolorSettings?.animation.flowDirection || 'reverse') : plannedSettings.flowDirection}
             mappingMode={isRecolorEnabled ? (recolorSettings?.mappingMode || 'banded') : plannedSettings.mappingMode}
             flowMapping={isRecolorEnabled ? (recolorSettings?.flowMapping || 'palette') : plannedSettings.flowMapping}
             onSpeedChange={(speed) => {

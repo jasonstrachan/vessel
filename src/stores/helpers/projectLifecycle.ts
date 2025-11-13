@@ -500,7 +500,7 @@ export const createProjectLifecycle = ({
         gradient: initialColorCycleGradient,
         isAnimating: true,
         brushSpeed: initialColorCycleSpeed,
-        flowMode: currentState.tools?.brushSettings?.colorCycleFlowMode ?? 'forward',
+        flowMode: currentState.tools?.brushSettings?.colorCycleFlowMode ?? 'reverse',
         canvas: colorCycleCanvas,
       },
     };
