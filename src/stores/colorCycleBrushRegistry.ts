@@ -142,6 +142,11 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
           Math.max(1, Math.floor(currentSettings.colorCycleStampDitherPixelSize))
         );
       }
+      if (typeof brush.setStampDitherClears === 'function') {
+        brush.setStampDitherClears(
+          Boolean(currentSettings.colorCycleStampDitherClears)
+        );
+      }
 
       const brushWithOptionalControls: BrushWithOptionalControls = brush;
       brushWithOptionalControls.setLayerId?.(layerId);

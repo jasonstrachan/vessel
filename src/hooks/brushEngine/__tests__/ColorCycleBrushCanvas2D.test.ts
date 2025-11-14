@@ -20,17 +20,23 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
         _x: number,
         _y: number,
         _brushSize: number,
-        colorIndex?: number
+        colorIndex?: number,
+        _maskTile?: Uint8Array,
+        _maskTileSize?: number,
+        maskClears?: boolean
       ) {
-        paintSquareSpy(colorIndex);
+        paintSquareSpy({ colorIndex, maskClears });
       }
       paintTriangle(
         _x: number,
         _y: number,
         _brushSize: number,
-        colorIndex?: number
+        colorIndex?: number,
+        _maskTile?: Uint8Array,
+        _maskTileSize?: number,
+        maskClears?: boolean
       ) {
-        paintTriangleSpy(colorIndex);
+        paintTriangleSpy({ colorIndex, maskClears });
       }
       paint() {}
       paintLine() {}
@@ -176,7 +182,7 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
     brush.paint(10, 10, 'layer-short');
     brush.paint(12, 12, 'layer-short');
 
-    const indices = paintSquareSpy.mock.calls.map(call => call[0]);
+    const indices = paintSquareSpy.mock.calls.map(call => call[0]?.colorIndex);
     expect(indices).toEqual([1, 128, 255]);
   });
 
@@ -234,7 +240,7 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
     brush.paint(32, 32, 'layer-cycle');
     brush.paint(36, 36, 'layer-cycle');
 
-    const indices = paintSquareSpy.mock.calls.map(call => call[0]);
+    const indices = paintSquareSpy.mock.calls.map(call => call[0]?.colorIndex);
     expect(indices).toEqual([1, 24, 47]);
   });
 

@@ -502,6 +502,7 @@ export interface BrushSettings {
   // Color Cycle stamp dithering
   colorCycleStampDitherEnabled?: boolean;
   colorCycleStampDitherPixelSize?: number;
+  colorCycleStampDitherClears?: boolean;
   // Resampler brush settings
   continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5

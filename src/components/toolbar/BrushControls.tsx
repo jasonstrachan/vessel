@@ -811,24 +811,38 @@ const BrushControls = () => {
               />
             </div>
             {activeSettings.colorCycleStampDitherEnabled && (
-              <div className="flex items-center gap-2 mt-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Res
-                </label>
-                <ProgressSlider
-                  value={activeSettings.colorCycleStampDitherPixelSize ?? 1}
-                  min={1}
-                  max={16}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      colorCycleStampDitherPixelSize: Math.max(1, Math.round(value))
-                    })
-                  }
-                  aria-label="Stamp Dither Resolution"
-                  className="flex-1"
-                />
-              </div>
+              <>
+                <div className="flex items-center gap-2 mt-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Res
+                  </label>
+                  <ProgressSlider
+                    value={activeSettings.colorCycleStampDitherPixelSize ?? 1}
+                    min={1}
+                    max={16}
+                    step={1}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        colorCycleStampDitherPixelSize: Math.max(1, Math.round(value))
+                      })
+                    }
+                    aria-label="Stamp Dither Resolution"
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Erase
+                  </label>
+                  <CustomSwitch
+                    id="stamp-dither-clear-color-cycle"
+                    checked={Boolean(activeSettings.colorCycleStampDitherClears)}
+                    onChange={(checked) =>
+                      setActiveSettings({ colorCycleStampDitherClears: checked })
+                    }
+                  />
+                </div>
+              </>
             )}
           </div>
         )}

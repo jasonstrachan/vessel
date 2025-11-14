@@ -185,11 +185,20 @@ export class IndexBuffer {
     brushSize: number,
     color: string,
     maskTile?: Uint8Array,
-    maskTileSize?: number
+    maskTileSize?: number,
+    maskClears?: boolean
   ) {
     // TODO(color-cycle): remove once all callers migrate to paintSquareWithIndex.
     const colorIndex = this.getColorIndex(color);
-    this.paintSquareInternal(x, y, brushSize, colorIndex, maskTile, maskTileSize);
+    this.paintSquareInternal(
+      x,
+      y,
+      brushSize,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears
+    );
     this.isDirty = true;
   }
 
@@ -199,9 +208,18 @@ export class IndexBuffer {
     brushSize: number,
     colorIndex: number,
     maskTile?: Uint8Array,
-    maskTileSize?: number
+    maskTileSize?: number,
+    maskClears?: boolean
   ) {
-    this.paintSquareInternal(x, y, brushSize, colorIndex, maskTile, maskTileSize);
+    this.paintSquareInternal(
+      x,
+      y,
+      brushSize,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears
+    );
     this.isDirty = true;
   }
 
@@ -211,7 +229,8 @@ export class IndexBuffer {
     brushSize: number,
     colorIndex: number,
     maskTile?: Uint8Array,
-    maskTileSize: number = 0
+    maskTileSize: number = 0,
+    maskClears: boolean = false
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const halfSize = brushSize / 2;
@@ -222,9 +241,11 @@ export class IndexBuffer {
     const maxY = Math.min(this.height - 1, Math.floor(y + halfSize));
 
     const useMask = !!maskTile && maskTileSize > 0;
+    const shouldClearMaskedPixels = useMask && !!maskClears;
 
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
+        const dataIndex = py * this.width + px;
         if (useMask) {
           const localY = py - minY;
           const localX = px - minX;
@@ -232,10 +253,12 @@ export class IndexBuffer {
           const sampleX = localX % maskTileSize;
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
+            if (shouldClearMaskedPixels) {
+              this.data[dataIndex] = 0;
+            }
             continue;
           }
         }
-        const dataIndex = py * this.width + px;
         this.data[dataIndex] = normalizedIndex;
       }
     }
@@ -250,11 +273,20 @@ export class IndexBuffer {
     brushSize: number,
     color: string,
     maskTile?: Uint8Array,
-    maskTileSize?: number
+    maskTileSize?: number,
+    maskClears?: boolean
   ) {
     // TODO(color-cycle): remove once all callers migrate to paintTriangleWithIndex.
     const colorIndex = this.getColorIndex(color);
-    this.paintTriangleInternal(x, y, brushSize, colorIndex, maskTile, maskTileSize);
+    this.paintTriangleInternal(
+      x,
+      y,
+      brushSize,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears
+    );
     this.isDirty = true;
   }
 
@@ -264,9 +296,18 @@ export class IndexBuffer {
     brushSize: number,
     colorIndex: number,
     maskTile?: Uint8Array,
-    maskTileSize?: number
+    maskTileSize?: number,
+    maskClears?: boolean
   ) {
-    this.paintTriangleInternal(x, y, brushSize, colorIndex, maskTile, maskTileSize);
+    this.paintTriangleInternal(
+      x,
+      y,
+      brushSize,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears
+    );
     this.isDirty = true;
   }
 
@@ -276,7 +317,8 @@ export class IndexBuffer {
     brushSize: number,
     colorIndex: number,
     maskTile?: Uint8Array,
-    maskTileSize: number = 0
+    maskTileSize: number = 0,
+    maskClears: boolean = false
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const halfSize = brushSize / 2;
@@ -297,6 +339,7 @@ export class IndexBuffer {
       (px - bx) * (ay - by) - (ax - bx) * (py - by);
 
     const useMask = !!maskTile && maskTileSize > 0;
+    const shouldClearMaskedPixels = useMask && !!maskClears;
 
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
@@ -308,6 +351,7 @@ export class IndexBuffer {
         const b3 = sign(sampleX, sampleY, rightX, rightY, topX, topY) <= 0;
 
         if ((b1 === b2) && (b2 === b3)) {
+          const dataIndex = py * this.width + px;
           if (useMask) {
             const localY = py - minY;
             const localX = px - minX;
@@ -315,10 +359,12 @@ export class IndexBuffer {
             const sampleXMask = localX % maskTileSize;
             const maskIdx = sampleYMask * maskTileSize + sampleXMask;
             if (maskTile![maskIdx] === 0) {
+              if (shouldClearMaskedPixels) {
+                this.data[dataIndex] = 0;
+              }
               continue;
             }
           }
-          const dataIndex = py * this.width + px;
           this.data[dataIndex] = normalizedIndex;
         }
       }

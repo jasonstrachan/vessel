@@ -540,7 +540,8 @@ export class ColorCycleAnimator {
     brushSize: number,
     colorIndex?: number,
     maskTile?: Uint8Array,
-    maskTileSize?: number
+    maskTileSize?: number,
+    maskClears?: boolean
   ) {
     try {
       // Use provided color index or auto-increment
@@ -553,7 +554,8 @@ export class ColorCycleAnimator {
         brushSize,
         index,
         maskTile,
-        maskTileSize
+        maskTileSize,
+        maskClears
       );
       this._glIndexDirty = true;
       
@@ -573,7 +575,8 @@ export class ColorCycleAnimator {
     brushSize: number,
     colorIndex?: number,
     maskTile?: Uint8Array,
-    maskTileSize?: number
+    maskTileSize?: number,
+    maskClears?: boolean
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
@@ -583,7 +586,8 @@ export class ColorCycleAnimator {
         brushSize,
         index,
         maskTile,
-        maskTileSize
+        maskTileSize,
+        maskClears
       );
       this._glIndexDirty = true;
     } catch (error) {

@@ -38,6 +38,7 @@ export const pixelBrushSettings: BrushSettings = {
   ditherEnabled: false,
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
+  colorCycleStampDitherClears: false,
   contourLines2Spacing: 4,
   contourLines2Density: 4,
   contourLines2Alternate: false,
@@ -107,6 +108,7 @@ export const defaultBrushSettings: BrushSettings = {
   ditherEnabled: false,
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
+  colorCycleStampDitherClears: false,
   customBrushColorCycle: false,
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,

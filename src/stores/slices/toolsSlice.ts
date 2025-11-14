@@ -499,6 +499,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleStampDitherPixelSize !== undefined) {
         settingsToSave.colorCycleStampDitherPixelSize = newSettings.colorCycleStampDitherPixelSize;
       }
+      if (settings.colorCycleStampDitherClears !== undefined) {
+        settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
+      }
       if (settings.fillResolution !== undefined) settingsToSave.fillResolution = newSettings.fillResolution;
       if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
       if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;

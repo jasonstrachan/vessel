@@ -157,6 +157,26 @@ describe('IndexBuffer', () => {
       expect(buffer.getPixel(minX, minY)).toBe(2);
       expect(buffer.getPixel(minX + 1, minY)).toBe(0);
     });
+
+    it('clears masked pixels when requested', () => {
+      const brushSize = 4;
+      const centerX = 40;
+      const centerY = 40;
+      const half = brushSize / 2;
+      const minX = Math.max(0, Math.floor(centerX - half));
+      const minY = Math.max(0, Math.floor(centerY - half));
+
+      buffer.paintSquareWithIndex(centerX, centerY, brushSize, 2);
+
+      const mask = new Uint8Array([1, 0, 1, 0]);
+
+      buffer.paintSquareWithIndex(centerX, centerY, brushSize, 3, mask, 2, true);
+
+      expect(buffer.getPixel(minX, minY)).toBe(3);
+      expect(buffer.getPixel(minX + 1, minY)).toBe(0);
+      expect(buffer.getPixel(minX, minY + 1)).toBe(3);
+      expect(buffer.getPixel(minX + 1, minY + 1)).toBe(0);
+    });
     
     it('should paint line correctly', () => {
       buffer.paintLine(10, 10, 90, 10, 2, '#0000ff');

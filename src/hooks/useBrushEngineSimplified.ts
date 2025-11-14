@@ -2750,6 +2750,11 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.setStampDitherEnabled(
           !!tools.brushSettings.colorCycleStampDitherEnabled
         );
+        if (typeof colorCycleBrush.setStampDitherClears === 'function') {
+          colorCycleBrush.setStampDitherClears(
+            !!tools.brushSettings.colorCycleStampDitherClears
+          );
+        }
       } catch (error) {
         void error;
         // Non-fatal; older brushes may not support dithering
@@ -2758,6 +2763,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.colorCycleStampDitherEnabled,
+    tools.brushSettings.colorCycleStampDitherClears,
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);

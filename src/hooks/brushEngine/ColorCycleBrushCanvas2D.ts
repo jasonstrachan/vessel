@@ -80,6 +80,7 @@ interface ColorCycleBrushCanvasState {
   brushSize?: number;
   layerSnapshots?: LayerSnapshots;
   stampShape?: StampShape;
+  stampDitherClears?: boolean;
   [key: string]: unknown;
 }
 
@@ -93,6 +94,7 @@ interface ColorCycleBrushCanvasSerialized {
   stampShape?: StampShape;
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
+  stampDitherClears?: boolean;
 }
 
 interface StampMaskCacheEntry {
@@ -230,6 +232,7 @@ export class ColorCycleBrushCanvas2D {
   private stampDitherBaseTiles: Map<number, Uint8Array> = new Map();
   private stampDitherTiles: Map<string, Uint8Array> = new Map();
   private stampPaletteBuckets: Uint8Array = new Uint8Array(256);
+  private stampDitherClears: boolean = false;
   
   constructor(canvas: HTMLCanvasElement, options: {
     brushSize?: number;
@@ -620,11 +623,12 @@ export class ColorCycleBrushCanvas2D {
       const tile = useStampDither ? this.getStampDitherTile(this.stampPaletteBuckets[colorIndex] ?? 0) : undefined;
       const tileScale = Math.max(1, this.stampDitherPixelSize);
       const tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE * tileScale : undefined;
+      const tileClears = useStampDither && this.stampDitherClears;
 
       // Paint with specific color index and pressure-modulated size
       if (this.stampShape === 'triangle') {
         if (useStampDither && tile && tileSize) {
-          animator.paintTriangle(x, y, pressureSize, colorIndex, tile, tileSize);
+          animator.paintTriangle(x, y, pressureSize, colorIndex, tile, tileSize, tileClears);
         } else {
           animator.paintTriangle(x, y, pressureSize, colorIndex);
         }
@@ -635,7 +639,8 @@ export class ColorCycleBrushCanvas2D {
           pressureSize,
           colorIndex,
           tile,
-          tileSize
+          tileSize,
+          tileClears
         );
       } else {
         animator.paintSquare(x, y, pressureSize, colorIndex);
@@ -912,7 +917,7 @@ export class ColorCycleBrushCanvas2D {
       return MAX_STAMP_DITHER_COVERAGE;
     }
     const ratio = Math.max(0, Math.min(1, bucket / (STAMP_DITHER_BUCKETS - 1)));
-    return MIN_STAMP_DITHER_COVERAGE + (MAX_STAMP_DITHER_COVERAGE - MIN_STAMP_DITHER_COVERAGE) * (1 - ratio);
+    return MIN_STAMP_DITHER_COVERAGE + (MAX_STAMP_DITHER_COVERAGE - MIN_STAMP_DITHER_COVERAGE) * ratio;
   }
 
   private buildBaseStampDitherTile(bucket: number): Uint8Array {
@@ -2271,6 +2276,13 @@ export class ColorCycleBrushCanvas2D {
     if (webglCtx) {
       // Do NOT clear the layer canvas here; draw over existing pixels so
       // previously committed strokes remain persistent between strokes.
+      // However, when stamp dithering is configured to punch holes we need to
+      // clear before drawing so transparent pixels actually erase instead of
+      // simply revealing whatever was already on the preview canvas.
+      const shouldClearLayerSurface = this.stampDitherClears;
+      if (shouldClearLayerSurface) {
+        webglCtx.clearRect(0, 0, this.width, this.height);
+      }
       webglCtx.globalAlpha = 1.0;
       webglCtx.drawImage(this.compositeCanvas, 0, 0);
       webglCtx.globalAlpha = 1.0;
@@ -2853,6 +2865,11 @@ export class ColorCycleBrushCanvas2D {
     this.stampDitherPixelSize = next;
     this.stampDitherTiles.clear();
   }
+
+  /** Toggle whether stamp dithering should clear skipped pixels. */
+  setStampDitherClears(enabled: boolean) {
+    this.stampDitherClears = !!enabled;
+  }
   
   /**
    * Is playing? (API compatible)
@@ -3290,7 +3307,8 @@ export class ColorCycleBrushCanvas2D {
       brushSize: this.brushSize,
       stampShape: this.stampShape,
       stampDitherEnabled: this.stampDitherEnabled,
-      stampDitherPixelSize: this.stampDitherPixelSize
+      stampDitherPixelSize: this.stampDitherPixelSize,
+      stampDitherClears: this.stampDitherClears
     };
   }
   
@@ -3315,6 +3333,9 @@ export class ColorCycleBrushCanvas2D {
     }
     if (typeof data.stampDitherPixelSize === 'number') {
       instance.setStampDitherPixelSize(data.stampDitherPixelSize);
+    }
+    if (typeof data.stampDitherClears === 'boolean') {
+      instance.setStampDitherClears(data.stampDitherClears);
     }
 
     data.layers?.forEach((layer) => {

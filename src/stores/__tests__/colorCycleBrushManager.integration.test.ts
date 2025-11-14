@@ -22,6 +22,7 @@ function createMockBrush() {
     setDitherPixelSize: jest.fn(),
     setStampDitherEnabled: jest.fn(),
     setStampDitherPixelSize: jest.fn(),
+    setStampDitherClears: jest.fn(),
     setLayerId: jest.fn(),
     setTargetCanvas: jest.fn(),
     setSpeed: jest.fn(),
