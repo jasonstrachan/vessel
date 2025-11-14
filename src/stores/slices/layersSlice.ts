@@ -79,17 +79,26 @@ const mergeImageDataRegion = (
   const targetHeight = fullHeight;
   const baseMatches =
     base && base.width === targetWidth && base.height === targetHeight;
-  const mergedData = baseMatches
-    ? new Uint8ClampedArray(base!.data)
+  const writeRegion = (target: Uint8ClampedArray): void => {
+    const src = region.data;
+    const rowStride = region.width * 4;
+    for (let row = 0; row < region.height; row++) {
+      const srcStart = row * rowStride;
+      const destStart = ((offsetY + row) * targetWidth + offsetX) * 4;
+      target.set(src.subarray(srcStart, srcStart + rowStride), destStart);
+    }
+  };
+
+  if (baseMatches && base) {
+    writeRegion(base.data);
+    return base;
+  }
+
+  const mergedData = base
+    ? new Uint8ClampedArray(base.data)
     : new Uint8ClampedArray(targetWidth * targetHeight * 4);
 
-  const src = region.data;
-  const rowStride = region.width * 4;
-  for (let row = 0; row < region.height; row++) {
-    const srcStart = row * rowStride;
-    const destStart = ((offsetY + row) * targetWidth + offsetX) * 4;
-    mergedData.set(src.subarray(srcStart, srcStart + rowStride), destStart);
-  }
+  writeRegion(mergedData);
 
   return new ImageData(mergedData, targetWidth, targetHeight);
 };

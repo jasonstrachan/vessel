@@ -115,6 +115,7 @@ type CommitRasterOverlayOptions = {
   bitmapRoi?: CaptureRegion;
   skipHistory?: boolean;
   skipBitmapDelta?: boolean;
+  deferHistory?: boolean;
 };
 
 const BRUSH_HISTORY_COALESCE_WINDOW_MS = 250;
@@ -123,6 +124,7 @@ const START_CC_TRACE_THROTTLE_MS = 2000;
 const SYNTHETIC_STOP_THROTTLE_MS = 200;
 const START_CC_COOLDOWN_MS = 200;
 const SKIP_CC_LOG_THROTTLE_MS = 1000;
+type IdleHandle = { id: number; kind: 'idle' | 'timeout' } | null;
 const HISTORY_FINALIZE_LANE = '__history__';
 
 const ROTATION_DISTANCE_EPSILON = 1e-3;
@@ -836,6 +838,55 @@ export function useDrawingHandlers({
     [storeRef]
   );
 
+  const runIdle = useCallback((cb: () => void) => {
+    if (typeof window !== 'undefined') {
+      type RequestIdle = (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      const requestIdle = (window as typeof window & { requestIdleCallback?: RequestIdle })
+        .requestIdleCallback;
+      if (typeof requestIdle === 'function') {
+        requestIdle(() => cb(), { timeout: 60 });
+        return;
+      }
+    }
+    setTimeout(cb, 0);
+  }, []);
+
+  const runIdleAsync = useCallback(<T>(task: () => Promise<T> | T): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      runIdle(() => {
+        try {
+          Promise.resolve(task()).then(resolve, reject);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }), [runIdle]);
+
+  const scheduleHistoryCommit = useCallback(
+    (payload: LayerHistoryPayload): Promise<void> => {
+      try {
+        const job = finalizeQueueRef.current.enqueue(
+          async () => {
+            await runIdleAsync(async () => {
+              await withTiming('cc:commit', () => commitLayerHistory(payload));
+            });
+          },
+          HISTORY_FINALIZE_LANE
+        );
+
+        job.catch(error => {
+          logError('[history] deferred commit failed', error);
+        });
+
+        return job;
+      } catch (error) {
+        logError('[history] failed to enqueue commit', error);
+        return Promise.reject(error);
+      }
+    },
+    [runIdleAsync]
+  );
+
   const commitRasterOverlay = useCallback(async (options: CommitRasterOverlayOptions) => {
     if (!project) {
       return;
@@ -876,20 +927,25 @@ export function useDrawingHandlers({
       return;
     }
 
-    await withTiming('cc:commit', () =>
-      commitLayerHistory({
-        layerId: options.layer.id,
-        beforeImage: options.beforeImage,
-        beforeColorState: options.beforeColorState,
-        actionType: options.historyAction,
-        description: options.historyDescription,
-        tool: options.tool,
-        coalesce: options.coalesce,
-        bitmapRoi: options.bitmapRoi ?? undefined,
-        skipBitmapDelta: options.skipBitmapDelta ?? false,
-      })
-    );
-  }, [captureCanvasToActiveLayer, project]);
+    const payload: LayerHistoryPayload = {
+      layerId: options.layer.id,
+      beforeImage: options.beforeImage,
+      beforeColorState: options.beforeColorState,
+      actionType: options.historyAction,
+      description: options.historyDescription,
+      tool: options.tool,
+      coalesce: options.coalesce,
+      bitmapRoi: options.bitmapRoi ?? undefined,
+      skipBitmapDelta: options.skipBitmapDelta ?? false,
+    };
+
+    if (options.deferHistory) {
+      void scheduleHistoryCommit(payload);
+      return;
+    }
+
+    await withTiming('cc:commit', () => commitLayerHistory(payload));
+  }, [captureCanvasToActiveLayer, project, scheduleHistoryCommit]);
   const eraserRoiRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const createBrushStampSource = useCallback(
     () =>
@@ -1149,6 +1205,8 @@ export function useDrawingHandlers({
   const startupKickDoneRef = useRef<boolean>(false);
   const skipStartLogAtRef = useRef<Record<string, number>>({});
   const skipStopLogAtRef = useRef<Record<string, number>>({});
+  const deferredOverlayRenderHandleRef = useRef<number | null>(null);
+  const deferredOverlayRenderKindRef = useRef<'idle' | 'timeout' | null>(null);
 
   // Finalization queue to prevent concurrent finalization operations
   const finalizeQueueRef = useRef(new FinalizeQueue());
@@ -1160,29 +1218,6 @@ export function useDrawingHandlers({
     };
   }, []);
 
-  const runIdle = useCallback((cb: () => void) => {
-    if (typeof window !== 'undefined') {
-      type RequestIdle = (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      const requestIdle = (window as typeof window & { requestIdleCallback?: RequestIdle })
-        .requestIdleCallback;
-      if (typeof requestIdle === 'function') {
-        requestIdle(() => cb(), { timeout: 60 });
-        return;
-      }
-    }
-    setTimeout(cb, 0);
-  }, []);
-
-  const runIdleAsync = useCallback(<T>(task: () => Promise<T> | T): Promise<T> =>
-    new Promise<T>((resolve, reject) => {
-      runIdle(() => {
-        try {
-          Promise.resolve(task()).then(resolve, reject);
-        } catch (error) {
-          reject(error);
-        }
-      });
-    }), [runIdle]);
 
   const scheduleDeferredColorCycleSave = useCallback(
     ({
@@ -1688,8 +1723,132 @@ export function useDrawingHandlers({
     }
   }, [getEffectiveColorCyclePlaying, storeRef]);
 
+
+  // Helper function to render all visible color cycle layers
+  const renderAllColorCycleLayers = useCallback((targetCtx?: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
+    const currentState = storeRef.current;
+    let hasRendered = false;
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - renderAllCCLogTSRef.current > 1000) {
+      const ccLayersSnapshot = currentState.layers.filter(layer => layer.layerType === 'color-cycle');
+      const animatingCount = ccLayersSnapshot.filter(layer => layer.colorCycleData?.isAnimating).length;
+      ccLog('renderAllCC', {
+        onlyActiveLayer,
+        ccLayers: ccLayersSnapshot.length,
+        animating: animatingCount
+      });
+      renderAllCCLogTSRef.current = now;
+    }
+
+    currentState.layers.forEach(layer => {
+      if (onlyActiveLayer && layer.id !== currentState.activeLayerId) {
+        return;
+      }
+      if (layer.visible && layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
+        const colorCycleBrushManager = getColorCycleBrushManager();
+        const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
+        if (!colorCycleBrush) return;
+
+        const liveCanvas = refreshLayerCCSurface(colorCycleBrush, layer.id, currentState);
+        if (!liveCanvas) {
+          return;
+        }
+
+        let animatorUpdated = false;
+        if (layer.colorCycleData.isAnimating) {
+          const brushPlaying = typeof colorCycleBrush.isPlaying === 'function'
+            ? colorCycleBrush.isPlaying()
+            : false;
+          if (brushPlaying) {
+            animatorUpdated = true;
+          } else {
+            colorCycleBrush.updateAnimation();
+            animatorUpdated = true;
+          }
+        }
+
+        if (liveCanvas.isConnected) {
+          bindBrushToCanvas(colorCycleBrush, liveCanvas);
+        }
+        if (!animatorUpdated) {
+          colorCycleBrush.renderDirectToCanvas(liveCanvas, layer.id);
+        }
+        const maskCtx = liveCanvas.getContext('2d', { willReadFrequently: true });
+        if (maskCtx) {
+          maskManager.applyMaskToCanvas(layer.id, maskCtx);
+        }
+        hasRendered = true;
+
+        if (
+          targetCtx &&
+          (layer.id === currentState.activeLayerId || !onlyActiveLayer)
+        ) {
+          targetCtx.globalAlpha = layer.opacity;
+          targetCtx.globalCompositeOperation = layer.blendMode || 'source-over';
+          targetCtx.drawImage(liveCanvas, 0, 0);
+          hasRendered = true;
+        }
+      }
+    });
+
+    return hasRendered;
+  }, [maskManager, storeRef]);
+
+  const cancelDeferredOverlayRender = useCallback(() => {
+    if (deferredOverlayRenderHandleRef.current === null) {
+      return;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      deferredOverlayRenderKindRef.current === 'idle' &&
+      'cancelIdleCallback' in window
+    ) {
+      (window as Window & { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback?.(
+        deferredOverlayRenderHandleRef.current
+      );
+    } else {
+      clearTimeout(deferredOverlayRenderHandleRef.current!);
+    }
+    deferredOverlayRenderHandleRef.current = null;
+    deferredOverlayRenderKindRef.current = null;
+  }, []);
+
+  const scheduleDeferredOverlayRender = useCallback(() => {
+    if (typeof window === 'undefined') {
+      renderAllColorCycleLayers(undefined, false);
+      return;
+    }
+    cancelDeferredOverlayRender();
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
+    };
+    const run = () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      deferredOverlayRenderHandleRef.current = null;
+      deferredOverlayRenderKindRef.current = null;
+      renderAllColorCycleLayers(undefined, false);
+      try {
+        window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+      } catch {}
+    };
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+      deferredOverlayRenderKindRef.current = 'idle';
+      deferredOverlayRenderHandleRef.current = idleWindow.requestIdleCallback(
+        () => run(),
+        { timeout: 250 }
+      );
+      return;
+    }
+    deferredOverlayRenderKindRef.current = 'timeout';
+    deferredOverlayRenderHandleRef.current = window.setTimeout(run, 50);
+  }, [cancelDeferredOverlayRender, renderAllColorCycleLayers]);
+
   // Stop continuous color cycle animation AND pause it (applies to all brush-based CC layers)
   const stopContinuousColorCycleAnimationCore = useCallback((reason = 'unknown') => {
+    cancelDeferredOverlayRender();
     let isCCBrushActive = false;
     try {
       const st = storeRef.current;
@@ -1882,7 +2041,7 @@ export function useDrawingHandlers({
         st.pauseColorCycle?.('toolbar');
       } catch {}
     }
-  }, [pauseAllBrushCCAnimationsNow, storeRef]);
+  }, [pauseAllBrushCCAnimationsNow, storeRef, cancelDeferredOverlayRender]);
 
   // DEBUG ONLY
   const stopContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
@@ -3255,19 +3414,17 @@ export function useDrawingHandlers({
                 captureCanvasToActiveLayer(layerCanvas, roiForEraser ?? undefined)
               );
               if (!skipSave) {
-                await withTiming('cc:commit', () =>
-                  commitLayerHistory({
-                    layerId: activeLayerIdString,
-                    beforeImage: layerBeforeImage,
-                    beforeColorState: layerBeforeColorState,
-                    actionType: historyAction,
-                    description: historyDescription,
-                    tool: 'eraser',
-                    coalesce: coalescePayload,
-                    bitmapRoi: roiForEraser ?? undefined,
-                    skipBitmapDelta: true,
-                  })
-                );
+                void scheduleHistoryCommit({
+                  layerId: activeLayerIdString,
+                  beforeImage: layerBeforeImage,
+                  beforeColorState: layerBeforeColorState,
+                  actionType: historyAction,
+                  description: historyDescription,
+                  tool: 'eraser',
+                  coalesce: coalescePayload,
+                  bitmapRoi: roiForEraser ?? undefined,
+                  skipBitmapDelta: true,
+                });
                 historyHandled = true;
               }
             } else if (drawingCanvas) {
@@ -3282,8 +3439,7 @@ export function useDrawingHandlers({
                 if (!layerBeforeImage) {
                   logError('[finalize] eraser beforeImage missing; skipping history to avoid destructive undo.');
                 } else {
-                  await withTiming('cc:commit', () =>
-                  commitLayerHistory({
+                  void scheduleHistoryCommit({
                     layerId: activeLayerIdString,
                     beforeImage: layerBeforeImage,
                     beforeColorState: layerBeforeColorState,
@@ -3292,10 +3448,8 @@ export function useDrawingHandlers({
                     tool: 'eraser',
                     coalesce: coalescePayload,
                     bitmapRoi: (roiForEraser ?? captureRoi) ?? undefined,
-                    // Raster eraser strokes must record bitmap deltas so undo restores erased pixels.
                     skipBitmapDelta: false,
-                  })
-                );
+                  });
                   historyHandled = true;
                 }
               }
@@ -3544,15 +3698,18 @@ export function useDrawingHandlers({
                   layer: activeLayer,
                   overlayCanvas: drawingCanvasRef.current ?? null,
                   beforeImage: layerBeforeImage,
-                beforeColorState: layerBeforeColorState,
-                historyAction: resolvedHistoryAction,
-                historyDescription: resolvedHistoryDescription,
-                tool: currentTool,
-                coalesce: skipSave ? undefined : coalescePayload,
-                bitmapRoi: captureRoi ?? undefined,
-                skipHistory: skipSave,
-              });
-              historyHandled = historyHandled || !skipSave;
+                  beforeColorState: layerBeforeColorState,
+                  historyAction: resolvedHistoryAction,
+                  historyDescription: resolvedHistoryDescription,
+                  tool: currentTool,
+                  coalesce: skipSave ? undefined : coalescePayload,
+                  bitmapRoi: captureRoi ?? undefined,
+                  skipHistory: skipSave,
+                  deferHistory: !skipSave,
+                });
+                if (!skipSave) {
+                  historyHandled = true;
+                }
               }
             }
 
@@ -3648,21 +3805,20 @@ export function useDrawingHandlers({
                       afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
                   });
                 }
-                await withTiming('cc:commit', () =>
-                  commitLayerHistory({
-                    layerId: activeLayerIdString,
-                    beforeImage: layerBeforeImage,
-                    beforeColorState: layerBeforeColorState,
-                    afterColorState,
-                    actionType,
-                    description: historyDescription,
-                    tool: currentTool,
-                    coalesce: coalesceForHistory,
-                    skipBitmapDelta: shouldSkipBitmapDelta,
-                    bitmapRoi: historyBitmapRoi ?? undefined,
-                  })
-                );
+                void scheduleHistoryCommit({
+                  layerId: activeLayerIdString,
+                  beforeImage: layerBeforeImage,
+                  beforeColorState: layerBeforeColorState,
+                  afterColorState,
+                  actionType,
+                  description: historyDescription,
+                  tool: currentTool,
+                  coalesce: coalesceForHistory,
+                  skipBitmapDelta: shouldSkipBitmapDelta,
+                  bitmapRoi: historyBitmapRoi ?? undefined,
+                });
               }
+              historyHandled = true;
             }
 
             if (!(isColorCycleLayer && isAnyColorCycleBrush)) {
@@ -4967,83 +5123,6 @@ export function useDrawingHandlers({
     triggerSimpleShapePreview
   ]);
   
-  // Helper function to render all visible color cycle layers
-  const renderAllColorCycleLayers = useCallback((targetCtx?: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
-    const currentState = storeRef.current;
-    let hasRendered = false;
-
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (now - renderAllCCLogTSRef.current > 1000) {
-      const ccLayersSnapshot = currentState.layers.filter(layer => layer.layerType === 'color-cycle');
-          const animatingCount = ccLayersSnapshot.filter(layer => layer.colorCycleData?.isAnimating).length;
-      ccLog('renderAllCC', {
-        onlyActiveLayer,
-        ccLayers: ccLayersSnapshot.length,
-        animating: animatingCount
-      });
-      renderAllCCLogTSRef.current = now;
-    }
-    
-    // Iterate through all layers and render color cycles
-    currentState.layers.forEach(layer => {
-      // Skip if we only want active layer and this isn't it
-      if (onlyActiveLayer && layer.id !== currentState.activeLayerId) {
-        return;
-      }
-      
-      // Check if layer has color cycle and is visible
-      if (layer.visible && layer.layerType === 'color-cycle' && 
-          layer.colorCycleData?.canvas) {
-        
-        const colorCycleBrushManager = getColorCycleBrushManager();
-        const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
-        if (!colorCycleBrush) return;
-
-        const liveCanvas = refreshLayerCCSurface(colorCycleBrush, layer.id, currentState);
-        if (!liveCanvas) {
-          return;
-        }
-
-        let animatorUpdated = false;
-        if (layer.colorCycleData.isAnimating) {
-          const brushPlaying = typeof colorCycleBrush.isPlaying === 'function'
-            ? colorCycleBrush.isPlaying()
-            : false;
-          if (brushPlaying) {
-            animatorUpdated = true;
-          } else {
-            colorCycleBrush.updateAnimation();
-            animatorUpdated = true;
-          }
-        }
-
-        if (liveCanvas.isConnected) {
-          bindBrushToCanvas(colorCycleBrush, liveCanvas);
-        }
-        if (!animatorUpdated) {
-          colorCycleBrush.renderDirectToCanvas(liveCanvas, layer.id);
-        }
-        const maskCtx = liveCanvas.getContext('2d', { willReadFrequently: true });
-        if (maskCtx) {
-          maskManager.applyMaskToCanvas(layer.id, maskCtx);
-        }
-        hasRendered = true;
-
-        if (
-          targetCtx &&
-          (layer.id === currentState.activeLayerId || !onlyActiveLayer)
-        ) {
-          targetCtx.globalAlpha = layer.opacity;
-          targetCtx.globalCompositeOperation = layer.blendMode || 'source-over';
-          targetCtx.drawImage(liveCanvas, 0, 0);
-          hasRendered = true;
-        }
-      }
-    });
-    
-    return hasRendered;
-  }, [maskManager, storeRef]);
-
   // Start continuous color cycle animation (for when play button is pressed)
   const startContinuousColorCycleAnimationCore = useCallback((reason = 'unknown') => {
     if (continuousColorCycleAnimationActiveRef.current && !continuousColorCycleAnimationRef.current) {
@@ -5181,12 +5260,16 @@ export function useDrawingHandlers({
         });
       } catch {}
 
-      // IMPORTANT: Do an initial render into layer canvases so the main canvas can refresh
-      renderAllColorCycleLayers(undefined, false);
+      const limitInitialRenderToActiveLayer = reason === 'stroke-start';
+      cancelDeferredOverlayRender();
+      renderAllColorCycleLayers(undefined, limitInitialRenderToActiveLayer);
       try {
         window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
         ccLog('dispatched colorCycleFrameUpdate', { reason });
       } catch {}
+      if (limitInitialRenderToActiveLayer) {
+        scheduleDeferredOverlayRender();
+      }
 
       if (!overlayReady) {
         debugWarn('[DrawingHandlers] Overlay canvas not ready; animation will start once initialized');
@@ -5292,7 +5375,15 @@ export function useDrawingHandlers({
     } finally {
       startingColorCycleAnimationRef.current = false;
     }
-  }, [brushEngine, ensureOverlayInitialized, renderAllColorCycleLayers, storeRef, getEffectiveColorCyclePlaying]);
+  }, [
+    brushEngine,
+    ensureOverlayInitialized,
+    renderAllColorCycleLayers,
+    storeRef,
+    getEffectiveColorCyclePlaying,
+    cancelDeferredOverlayRender,
+    scheduleDeferredOverlayRender,
+  ]);
 
   // DEBUG ONLY - throttle noisy trace logs to avoid console spam while retaining stack samples
   const startContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
@@ -5346,7 +5437,16 @@ export function useDrawingHandlers({
 
   useEffect(() => {
     startPlaybackRef.current = startContinuousColorCycleAnimation;
+    return () => {
+      startPlaybackRef.current = null;
+    };
   }, [startContinuousColorCycleAnimation]);
+
+  useEffect(() => {
+    return () => {
+      cancelDeferredOverlayRender();
+    };
+  }, [cancelDeferredOverlayRender]);
 
   useEffect(() => {
     if (!project) {
