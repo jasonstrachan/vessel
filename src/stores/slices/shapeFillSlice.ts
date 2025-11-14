@@ -111,6 +111,8 @@ const VALID_FILL_PARAM_KEYS: (keyof FillParams)[] = [
   'rotation',
   'thickness',
   'variance',
+  'wobble',
+  'spacingWobble',
   'seed',
   'dashLength',
   'dashLengthJitter',

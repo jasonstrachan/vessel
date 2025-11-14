@@ -63,4 +63,20 @@ describe('toPixelPerfectFill', () => {
       });
     });
   });
+
+  it('quantizes dot instances without collapsing their size', () => {
+    const result: FillResult = {
+      dotInstances: [
+        { center: { x: 1.1, y: 1.1 }, radius: 2.2 },
+        { center: { x: 4.4, y: 4.6 }, radius: 0.7 },
+      ],
+    };
+
+    const pixelated = toPixelPerfectFill(result, { pixelSize: 1 });
+    const radii = pixelated.dotInstances?.map(instance => instance.radius) ?? [];
+    expect(radii.length).toBe(2);
+    expect(radii[0]).toBeGreaterThan(radii[1]);
+    expect(radii[0]).toBeGreaterThanOrEqual(2);
+    expect(radii[1]).toBeGreaterThanOrEqual(0.5);
+  });
 });

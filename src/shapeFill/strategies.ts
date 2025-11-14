@@ -143,10 +143,10 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       rotation: 0,
       thickness: 1,
       variance: 0.2,
-      seed: 0,
+      spacingWobble: 0.45,
     },
     apply: contourFill,
-    adjustOrder: ['spacing', 'variance', 'thickness'],
+    adjustOrder: ['spacing'],
     ui: [
       {
         key: 'spacing',
@@ -167,6 +167,15 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
         default: 0.2,
       },
       {
+        key: 'spacingWobble',
+        type: 'number',
+        label: 'S Wobble',
+        min: 0,
+        max: 1,
+        step: 0.05,
+        default: 0.45,
+      },
+      {
         key: 'thickness',
         type: 'number',
         label: 'Line Width',
@@ -184,11 +193,11 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       spacing: 12,
       rotation: 0,
       thickness: 1,
-      variance: 0.5,
+      wobble: 0.45,
       seed: 0,
     },
     apply: stippleFill,
-    adjustOrder: ['spacing', 'variance', 'thickness'],
+    adjustOrder: ['spacing'],
     ui: [
       {
         key: 'spacing',
@@ -200,13 +209,13 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
         default: 12,
       },
       {
-        key: 'variance',
+        key: 'wobble',
         type: 'number',
-        label: 'Variance',
+        label: 'Wobble',
         min: 0,
         max: 1,
         step: 0.05,
-        default: 0.5,
+        default: 0.45,
       },
       {
         key: 'thickness',
@@ -297,7 +306,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       seed: 0,
     },
     apply: sierraFill,
-    adjustOrder: ['sierraDensity'],
+    adjustOrder: [],
     ui: [
       {
         key: 'sierraDensity',

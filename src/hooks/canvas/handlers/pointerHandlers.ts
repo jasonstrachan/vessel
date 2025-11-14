@@ -123,6 +123,7 @@ const cl = {
 };
 // -----------------------------------------------------------
 import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
+import { useAppStore } from '@/stores/useAppStore';
 import { isStrokeBrush, isShapeFillBrush } from '@/utils/brushCategories';
 import { isColorCycleBrush } from '@/utils/colorCycleGradients';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
@@ -957,6 +958,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const safeScale = Math.max(deps.viewTransformRef.current.scale, 0.001);
 
     const { tools: currentTools } = getDynamicDeps();
+    const shapeFillSession = useAppStore.getState().shapeFill.session;
+    if (
+      currentTools.brushSettings.brushShape === BrushShape.SHAPE_FILL ||
+      !!shapeFillSession
+    ) {
+      overlayCtx.restore();
+      return;
+    }
     const sampledStrokeColor = currentTools.brushSettings.color;
     overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
     overlayCtx.strokeStyle = sampledStrokeColor;

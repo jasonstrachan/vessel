@@ -76,7 +76,7 @@ export interface ShapeFillSession {
   - Consumes `variance` to modulate contour band spacing (`variance ?? 0`).  
   - Seeds its internal RNG with `seed ?? hashPoints(shape.points)`.  
 - `stipple`  
-  - Requires both `variance` (dot jitter/density) and `seed` (stable dot placement).  
+  - Requires `wobble` (dot jitter/density) and `seed` (stable dot placement). Falls back to `variance` when loading legacy sessions.  
 - All strategies must declare their fallbacks so `ShapeFillSession.params` can omit unused keys without breaking determinism.
 ✏️ Shape Factory (shapeFactory.ts)
 ts
@@ -115,6 +115,8 @@ export function adjustParameterFromCursor(
 // NOTE: Callers must clamp/wrap the returned value to the UI range for the active param.
 Shared by preview + final render for pixel-perfect consistency.
 
+Spacing is the sole parameter that currently participates in the auto AdjustingParam stage; rotation (and other sliders) remain UI-driven but keep their preview helpers for potential future use.
+
 👁️ Parameter Preview (paramPreview.ts)
 ts
 Copy code
@@ -152,7 +154,7 @@ export function drawAdjustmentPreview(
 
 - `hatch`: spacing ring + rotation arm (existing behavior).  
 - `contour`: render lightweight concentric contour bands previewing current spacing/variance.  
-- `stipple`: scatter a representative subset of dots, modulated by `variance`, inside the shape bounds.  
+- `stipple`: scatter a representative subset of dots, modulated by the `wobble` slider, inside the shape bounds.  
 - Additional fills may register their own preview handlers; defaulting to spacing/rotation visuals should be an explicit choice, not an omission.
 
 ### Pixel-Perfect Mode
@@ -248,11 +250,11 @@ UI reacts dynamically to activeFill.
 Stage	Input	Visual
 Draw Shape	Click + drag	Outline follows cursor
 Adjust Spacing	Move cursor	Ring preview
-Commit	Click	Lock spacing
-Adjust Rotation	Move cursor	Angle line preview
 Commit	Click	Render fill
-Enter	Force commit	
-Esc	Cancel/reset	
+Enter	Force commit	 
+Esc	Cancel/reset	 
+
+Only the spacing parameter enters the automatic AdjustingParam stage; all other fill properties are adjusted through the control panel sliders/toggles.
 
 ⚙️ Memory & Performance Policy
 Concern	Mitigation

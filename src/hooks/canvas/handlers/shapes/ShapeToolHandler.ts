@@ -439,7 +439,7 @@ export const createShapeToolHandler = (
         overlayCtx.save();
         overlayCtx.translate(offsetX, offsetY);
         overlayCtx.scale(scale, scale);
-        renderer(overlayCtx, session.shape, param, value);
+        renderer(overlayCtx, session.shape, param, value, session.params, strategy.defaults);
         overlayCtx.restore();
         lastPreviewRect = rect;
         return;
@@ -517,6 +517,8 @@ export const createShapeToolHandler = (
     const renderedResult = pixelPerfect ? toPixelPerfectFill(previewResult) : previewResult;
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawCtx.globalAlpha = store.tools.brushSettings.opacity ?? 1;
+    drawCtx.globalCompositeOperation = 'source-over';
     if (secondaryColor && polygonPoints.length >= 3) {
       fillShapeArea(drawCtx, polygonPoints, secondaryColor);
     }
@@ -592,6 +594,8 @@ export const createShapeToolHandler = (
     payload.result = renderedResult;
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawCtx.globalAlpha = store.tools.brushSettings.opacity ?? 1;
+    drawCtx.globalCompositeOperation = 'source-over';
     if (secondaryColor && polygonPoints.length >= 3) {
       fillShapeArea(drawCtx, polygonPoints, secondaryColor);
     }
@@ -3086,4 +3090,4 @@ export const createShapeToolHandler = (
 export const __shapeToolTestUtils = {
   isShapeFillToolActive,
 };
-const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing', 'rotation', 'thickness']);
+const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing']);

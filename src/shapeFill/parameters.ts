@@ -49,6 +49,20 @@ const PARAM_DEFINITIONS: Record<ShapeFillParamKey, ShapeFillParameterDefinition>
     default: 0.3,
     scale: 0.01,
   },
+  spacingWobble: {
+    key: 'spacingWobble',
+    min: 0,
+    max: 1,
+    default: 0.4,
+    scale: 0.01,
+  },
+  wobble: {
+    key: 'wobble',
+    min: 0,
+    max: 1,
+    default: 0.45,
+    scale: 0.01,
+  },
   dashLength: {
     key: 'dashLength',
     min: 2,

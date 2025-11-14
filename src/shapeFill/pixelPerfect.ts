@@ -1,6 +1,6 @@
 import { bresenhamLine } from '@/lib/brush/algorithms';
 import { snapPointToPixel } from '@/utils/pixelSharp';
-import type { FillResult, FillStrokeSegment, Vec2 } from './types';
+import type { FillDotInstance, FillResult, FillStrokeSegment, Vec2 } from './types';
 
 type PixelPerfectOptions = {
   pixelSize?: number;
@@ -74,16 +74,7 @@ const snapDotInstances = (
   if (!instances || instances.length === 0) {
     return [];
   }
-  return instances.map(instance => {
-    const snappedCenter = snapPointToPixel(instance.center, { strategy: 'center' });
-    return {
-      ...instance,
-      center: snappedCenter,
-      radius: pixelSize * 0.5,
-      size: pixelSize,
-      shape: 'square',
-    };
-  });
+  return instances.map(instance => quantizeDotInstance(instance, pixelSize));
 };
 
 const convertDotsToInstances = (
@@ -95,15 +86,15 @@ const convertDotsToInstances = (
     return [];
   }
   const radius = dotRadius ?? pixelSize * 0.5;
-  return dots.map(dot => {
-    const center = snapPointToPixel(dot, { strategy: 'center' });
-    return {
-      center,
-      radius,
-      size: pixelSize,
-      shape: 'square',
-    };
-  });
+  return dots.map(dot =>
+    quantizeDotInstance(
+      {
+        center: dot,
+        radius,
+      },
+      pixelSize
+    )
+  );
 };
 
 const emitLinePixels = (start: Vec2, end: Vec2, target: Map<string, Vec2>): void => {
@@ -133,4 +124,18 @@ const buildDotInstances = (points: Map<string, Vec2>, pixelSize: number) => {
       shape: 'square' as const,
     };
   });
+};
+
+const quantizeDotInstance = (instance: FillDotInstance, pixelSize: number): FillDotInstance => {
+  const snappedCenter = snapPointToPixel(instance.center, { strategy: 'center' });
+  const baseRadius = Math.max(instance.radius ?? pixelSize * 0.5, pixelSize * 0.5);
+  const quantizedSize = Math.max(pixelSize, Math.round((baseRadius * 2) / pixelSize) * pixelSize);
+  const quantizedRadius = quantizedSize * 0.5;
+  return {
+    ...instance,
+    center: snappedCenter,
+    radius: quantizedRadius,
+    size: quantizedSize,
+    shape: 'square',
+  };
 };

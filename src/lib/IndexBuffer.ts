@@ -9,6 +9,7 @@ export class IndexBuffer {
   private height: number;
   private palette: string[];
   private isDirty: boolean = false;
+  private maxPaletteIndex: number;
   
   // Cache for converted RGBA values
   private rgbaCache: Map<number, [number, number, number, number]> = new Map();
@@ -23,6 +24,7 @@ export class IndexBuffer {
     // Initialize with zeros (transparent/no color)
     this.data = new Uint8Array(width * height);
     this.palette = ['rgba(0,0,0,0)']; // Index 0 = transparent
+    this.maxPaletteIndex = 0;
     
     // Pre-populate cache for transparent
     this.rgbaCache.set(0, [0, 0, 0, 0]);
@@ -39,6 +41,7 @@ export class IndexBuffer {
       limited[limited.length - 1] = colors[colors.length - 1];
     }
     this.palette = ['rgba(0,0,0,0)', ...limited];
+    this.maxPaletteIndex = Math.min(255, this.palette.length - 1);
     // Clear cache when palette changes
     this.rgbaCache.clear();
     this.rgbaCache.set(0, [0, 0, 0, 0]);
@@ -100,32 +103,36 @@ export class IndexBuffer {
     if (existingIndex !== -1) {
       return existingIndex;
     }
-    
+
     if (this.palette.length >= 256) {
       // Palette is saturated; reuse the last non-transparent slot to avoid overflow
       return 255;
     }
-    
+
     // Add new color to palette
     const newIndex = this.palette.length;
     this.palette.push(color);
+    this.maxPaletteIndex = Math.min(255, this.palette.length - 1);
     // Don't parse color here - let it be parsed lazily during rendering
     
     return newIndex;
   }
 
   private normalizeColorIndex(colorIndex: number): number {
-    if (!Number.isFinite(colorIndex)) {
+    if (Number.isInteger(colorIndex) && colorIndex >= 0 && colorIndex <= this.maxPaletteIndex) {
+      return colorIndex;
+    }
+
+    if (!Number.isFinite(colorIndex) || this.maxPaletteIndex <= 0) {
       return 0;
     }
 
     const clamped = Math.max(0, Math.min(255, Math.round(colorIndex)));
-    if (this.palette.length <= 1) {
+    if (clamped <= this.maxPaletteIndex) {
       return clamped;
     }
 
-    const maxIndex = Math.min(255, this.palette.length - 1);
-    return Math.max(0, Math.min(maxIndex, clamped));
+    return this.maxPaletteIndex;
   }
 
   private paintCircleInternal(x: number, y: number, brushSize: number, colorIndex: number) {

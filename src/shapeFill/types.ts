@@ -21,6 +21,8 @@ export type ShapeFillParamKey =
   | 'rotation'
   | 'thickness'
   | 'variance'
+  | 'wobble'
+  | 'spacingWobble'
   | 'seed'
   | 'dashLength'
   | 'dashLengthJitter'
@@ -73,6 +75,8 @@ export interface FillParams {
   noiseOctaves?: number;
   noiseRandomness?: number;
   delaunayVariation?: number;
+  wobble?: number;
+  spacingWobble?: number;
   fillColor?: string;
   backgroundColor?: string;
 }

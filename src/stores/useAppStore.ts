@@ -482,6 +482,7 @@ export interface AppState {
   setShapeFillShowOutline: (show: boolean) => void;
   setShapeFillSampleUnderShape: (sample: boolean) => void;
   setShapeFillUseBackground: (enabled: boolean) => void;
+  setShapeFillPixelPerfect: (enabled: boolean) => void;
   beginShapeFillSession: (points: Vec2[]) => void;
   updateShapeFillCursor: (cursor: Vec2) => void;
   commitShapeFillParameter: () => void;

@@ -29,6 +29,7 @@ function createBaseState(): AppState {
   layersNeedRecomposition: true,
   canvas: { zoom: 1, offsetX: 0, offsetY: 0 } as unknown,
   currentCompositeBitmap: null,
+  compositeSegmentsVersion: 0,
   tools: {
     currentTool: 'brush',
     previousTool: 'brush',
@@ -58,6 +59,7 @@ function createBaseState(): AppState {
   renderStaticComposite: jest.fn(() => true),
   renderColorCycleOverlay: jest.fn(() => true),
   compositeLayersToCanvas: jest.fn(),
+  getCompositeSegmentsSnapshot: jest.fn(() => []),
   setCanvasDimensions: jest.fn(),
   setZoom: jest.fn(),
   setCanvasOffset: jest.fn(),

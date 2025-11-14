@@ -950,6 +950,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
       }
 
+      const activeLayer =
+        activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
+
       const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
         (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
       ctx.imageSmoothingEnabled = !isPixelBrush && scale < 3;
@@ -965,8 +968,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
 
       if (overlayEligibleForSplit) {
-        const activeLayer =
-          activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
         const anyAnimatingColorCycle = layers.some(
           (layer) =>
             layer.visible &&
@@ -1124,6 +1125,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           // For brush, it's just the new strokes to overlay
           const { x, y, width, height } = visibleRect;
           if (width > 0 && height > 0) {
+            ctx.save();
+            if (activeLayer) {
+              ctx.globalAlpha = activeLayer.opacity;
+              ctx.globalCompositeOperation = activeLayer.blendMode ?? 'source-over';
+            } else {
+              ctx.globalAlpha = 1;
+              ctx.globalCompositeOperation = 'source-over';
+            }
             ctx.drawImage(
               overlayCanvasElement,
               x,
@@ -1135,6 +1144,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               width,
               height
             );
+            ctx.restore();
           }
         }
       }

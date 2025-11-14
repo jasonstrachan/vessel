@@ -34,8 +34,7 @@ export class ShapeFillOrchestrator {
   private activeFillId: ShapeFillId | null = null;
 
   constructor(config: ShapeFillOrchestratorConfig = {}) {
-    this.parameterOrder =
-      config.parameterOrder ?? (['spacing', 'rotation'] as ShapeFillParamKey[]);
+    this.parameterOrder = config.parameterOrder ?? (['spacing'] as ShapeFillParamKey[]);
     this.onSessionChange = config.onSessionChange;
   }
 
@@ -157,7 +156,8 @@ export class ShapeFillOrchestrator {
       currentParam === 'spacing' ||
       currentParam === 'thickness' ||
       currentParam === 'variance' ||
-      currentParam === 'dashLength'
+      currentParam === 'dashLength' ||
+      currentParam === 'wobble'
     ) {
       const definition = getParameterDefinition(currentParam);
       const rawValue = definition.min + cursorDistance * definition.scale;
@@ -402,6 +402,7 @@ function isClampableParam(param: keyof FillParams): param is ShapeFillParamKey {
     'rotation',
     'thickness',
     'variance',
+    'wobble',
     'seed',
     'dashLength',
     'dashLengthJitter',
