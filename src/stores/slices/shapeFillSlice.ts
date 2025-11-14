@@ -24,6 +24,7 @@ export interface ShapeFillState {
   showOutline: boolean;
   sampleUnderShape: boolean;
   useBackgroundColor: boolean;
+  pixelPerfectMode: boolean;
 }
 
 export interface ShapeFillSlice {
@@ -38,6 +39,7 @@ export interface ShapeFillSlice {
   setShapeFillShowOutline: (show: boolean) => void;
   setShapeFillSampleUnderShape: (sample: boolean) => void;
   setShapeFillUseBackground: (enabled: boolean) => void;
+  setShapeFillPixelPerfect: (enabled: boolean) => void;
   beginShapeFillSession: (points: Vec2[]) => void;
   updateShapeFillCursor: (cursor: Vec2) => void;
   commitShapeFillParameter: () => void;
@@ -65,6 +67,7 @@ export const defaultShapeFillState: ShapeFillState = {
   showOutline: false,
   sampleUnderShape: false,
   useBackgroundColor: false,
+  pixelPerfectMode: false,
 };
 
 const SHAPE_FILL_STORAGE_KEY = 'vessel-shape-fill-settings';
@@ -100,6 +103,7 @@ type PersistedShapeFillSnapshot = {
   showOutline?: boolean;
   sampleUnderShape?: boolean;
   useBackgroundColor?: boolean;
+  pixelPerfectMode?: boolean;
 };
 
 const VALID_FILL_PARAM_KEYS: (keyof FillParams)[] = [
@@ -205,6 +209,7 @@ const persistShapeFillState = (state: ShapeFillState): void => {
     showOutline: state.showOutline,
     sampleUnderShape: state.sampleUnderShape,
     useBackgroundColor: state.useBackgroundColor,
+    pixelPerfectMode: state.pixelPerfectMode,
   };
 
   try {
@@ -248,6 +253,9 @@ export const createInitialShapeFillState = (): ShapeFillState => {
   base.showOutline = Boolean(persisted.showOutline);
   base.sampleUnderShape = Boolean(persisted.sampleUnderShape);
   base.useBackgroundColor = Boolean(persisted.useBackgroundColor);
+  if (typeof persisted.pixelPerfectMode === 'boolean') {
+    base.pixelPerfectMode = persisted.pixelPerfectMode;
+  }
 
   persistShapeFillState(base);
   return base;
@@ -344,6 +352,15 @@ export const createShapeFillSlice: StateCreator<AppState, [], [], ShapeFillSlice
         shapeFill: {
           ...state.shapeFill,
           useBackgroundColor: Boolean(enabled),
+        },
+      }));
+      persistShapeFillState(get().shapeFill);
+    },
+    setShapeFillPixelPerfect: (enabled) => {
+      set((state) => ({
+        shapeFill: {
+          ...state.shapeFill,
+          pixelPerfectMode: Boolean(enabled),
         },
       }));
       persistShapeFillState(get().shapeFill);

@@ -45,9 +45,11 @@ import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { computeShapeFillColors } from '@/shapeFill/colorUtils';
+import { toPixelPerfectFill } from '@/shapeFill/pixelPerfect';
 import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { FillStage } from '@/shapeFill/types';
+import { snapPointToPixel } from '@/utils/pixelSharp';
 import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '@/constants/canvas';
 import { viewPerformanceTracker } from '@/utils/viewPerformanceTracker';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
@@ -1660,6 +1662,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               sampleColorAtPosition,
               fallbackBackground: storeSnapshot.project?.backgroundColor,
             });
+            const pixelPerfect = storeSnapshot.shapeFill.pixelPerfectMode;
 
             const primaryColor =
               colors.primary === 'background' && colors.background
@@ -1680,13 +1683,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.lineWidth = payload.params.thickness ?? 1;
-            if (secondaryColor && payload.shape.points.length >= 3) {
+            const renderPolygon = pixelPerfect
+              ? payload.shape.points.map(point => snapPointToPixel(point, { strategy: 'nearest' }))
+              : payload.shape.points;
+            const renderResult = pixelPerfect ? toPixelPerfectFill(payload.result) : payload.result;
+            ctx.lineWidth = pixelPerfect ? 1 : payload.params.thickness ?? 1;
+            if (secondaryColor && renderPolygon.length >= 3) {
               ctx.fillStyle = secondaryColor;
               ctx.beginPath();
-              ctx.moveTo(payload.shape.points[0].x, payload.shape.points[0].y);
-              for (let i = 1; i < payload.shape.points.length; i += 1) {
-                const pt = payload.shape.points[i];
+              ctx.moveTo(renderPolygon[0].x, renderPolygon[0].y);
+              for (let i = 1; i < renderPolygon.length; i += 1) {
+                const pt = renderPolygon[i];
                 ctx.lineTo(pt.x, pt.y);
               }
               ctx.closePath();
@@ -1694,8 +1701,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             }
             ctx.strokeStyle = primaryColor;
             ctx.fillStyle = primaryColor;
-            renderFill(ctx, payload.result);
+            renderFill(ctx, renderResult);
             ctx.restore();
+            payload.result = renderResult;
 
             drawingHandlers.drawingCanvasHasContent.current = true;
             await drawingHandlers.finalizeDrawing(false);

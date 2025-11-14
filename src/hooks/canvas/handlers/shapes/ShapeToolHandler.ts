@@ -11,8 +11,10 @@ import { MIN_LINE_SPACING } from '@/utils/contourLines';
 import { getPreviewRenderer } from '@/shapeFill/paramPreview';
 import { getFillStrategy } from '@/shapeFill/strategies';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
+import { toPixelPerfectFill } from '@/shapeFill/pixelPerfect';
 import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamKey } from '@/shapeFill/types';
 import { registerToolFlush } from '@/utils/toolFlushRegistry';
+import { snapPointToPixel } from '@/utils/pixelSharp';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -509,22 +511,25 @@ export const createShapeToolHandler = (
     if (secondaryColor) {
       paramsWithColor.backgroundColor = secondaryColor;
     }
+    const pixelPerfect = store.shapeFill.pixelPerfectMode;
+    const polygonPoints = getPolygonForMode(session.shape.points, pixelPerfect);
     const previewResult = strategy.apply(session.shape, paramsWithColor);
+    const renderedResult = pixelPerfect ? toPixelPerfectFill(previewResult) : previewResult;
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    if (secondaryColor && session.shape.points.length >= 3) {
-      fillShapeArea(drawCtx, session.shape.points, secondaryColor);
+    if (secondaryColor && polygonPoints.length >= 3) {
+      fillShapeArea(drawCtx, polygonPoints, secondaryColor);
     }
-    drawCtx.lineWidth = paramsWithColor.thickness ?? 1;
+    drawCtx.lineWidth = pixelPerfect ? 1 : paramsWithColor.thickness ?? 1;
     drawCtx.strokeStyle = primaryColor;
     drawCtx.fillStyle = primaryColor;
-    renderFill(drawCtx, previewResult);
-    if (store.shapeFill.showOutline && session.shape.points.length >= 3) {
+    renderFill(drawCtx, renderedResult);
+    if (store.shapeFill.showOutline && polygonPoints.length >= 3) {
       drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
       drawCtx.beginPath();
-      drawCtx.moveTo(session.shape.points[0].x, session.shape.points[0].y);
-      for (let i = 1; i < session.shape.points.length; i += 1) {
-        const pt = session.shape.points[i];
+      drawCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+      for (let i = 1; i < polygonPoints.length; i += 1) {
+        const pt = polygonPoints[i];
         drawCtx.lineTo(pt.x, pt.y);
       }
       drawCtx.closePath();
@@ -579,24 +584,27 @@ export const createShapeToolHandler = (
     if (secondaryColor) {
       paramsWithColor.backgroundColor = secondaryColor;
     }
+    const pixelPerfect = store.shapeFill.pixelPerfectMode;
+    const polygonPoints = getPolygonForMode(payload.shape.points, pixelPerfect);
     const finalResult = payload.strategy.apply(payload.shape, paramsWithColor);
+    const renderedResult = pixelPerfect ? toPixelPerfectFill(finalResult) : finalResult;
     payload.params = paramsWithColor;
-    payload.result = finalResult;
+    payload.result = renderedResult;
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    if (secondaryColor && payload.shape.points.length >= 3) {
-      fillShapeArea(drawCtx, payload.shape.points, secondaryColor);
+    if (secondaryColor && polygonPoints.length >= 3) {
+      fillShapeArea(drawCtx, polygonPoints, secondaryColor);
     }
-    drawCtx.lineWidth = paramsWithColor.thickness ?? 1;
+    drawCtx.lineWidth = pixelPerfect ? 1 : paramsWithColor.thickness ?? 1;
     drawCtx.strokeStyle = primaryColor;
     drawCtx.fillStyle = primaryColor;
-    renderFill(drawCtx, finalResult);
-    if (store.shapeFill.showOutline && payload.shape.points.length >= 3) {
+    renderFill(drawCtx, renderedResult);
+    if (store.shapeFill.showOutline && polygonPoints.length >= 3) {
       drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
       drawCtx.beginPath();
-      drawCtx.moveTo(payload.shape.points[0].x, payload.shape.points[0].y);
-      for (let i = 1; i < payload.shape.points.length; i += 1) {
-        const pt = payload.shape.points[i];
+      drawCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+      for (let i = 1; i < polygonPoints.length; i += 1) {
+        const pt = polygonPoints[i];
         drawCtx.lineTo(pt.x, pt.y);
       }
       drawCtx.closePath();
@@ -1370,6 +1378,19 @@ export const createShapeToolHandler = (
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = previousFill;
+  };
+
+  const getPolygonForMode = (
+    points: Array<{ x: number; y: number }>,
+    pixelPerfect: boolean
+  ): Array<{ x: number; y: number }> => {
+    if (!pixelPerfect) {
+      return points;
+    }
+    return points.map(point => {
+      const snapped = snapPointToPixel(point, { strategy: 'nearest' });
+      return { x: snapped.x, y: snapped.y };
+    });
   };
 
   const getPrimaryColor = (colors: ShapeFillColors): string => {

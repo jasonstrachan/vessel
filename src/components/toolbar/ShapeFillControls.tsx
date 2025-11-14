@@ -17,11 +17,13 @@ const ShapeFillControls: React.FC = () => {
   const showOutline = useAppStore(state => state.shapeFill.showOutline);
   const sampleUnderShape = useAppStore(state => state.shapeFill.sampleUnderShape);
   const useBackgroundColor = useAppStore(state => state.shapeFill.useBackgroundColor);
+  const pixelPerfectMode = useAppStore(state => state.shapeFill.pixelPerfectMode);
   const setActiveFill = useAppStore(state => state.setShapeFillActiveFill);
   const setParamValue = useAppStore(state => state.setShapeFillParamValue);
   const setShowOutline = useAppStore(state => state.setShapeFillShowOutline);
   const setSampleUnderShape = useAppStore(state => state.setShapeFillSampleUnderShape);
   const setUseBackgroundColor = useAppStore(state => state.setShapeFillUseBackground);
+  const setPixelPerfect = useAppStore(state => state.setShapeFillPixelPerfect);
 
   const activeStrategy =
     SHAPE_FILL_STRATEGIES.find(strategy => strategy.id === activeFillId) ??
@@ -80,6 +82,14 @@ const ShapeFillControls: React.FC = () => {
             checked={useBackgroundColor}
             onChange={checked => setUseBackgroundColor(checked)}
             aria-label="Background fill"
+          />
+        </div>
+        <div className="flex items-center gap-3 text-xs text-[#CCCCCC]">
+          <span className="w-24">Pixel perfect</span>
+          <CustomSwitch
+            checked={pixelPerfectMode}
+            onChange={checked => setPixelPerfect(checked)}
+            aria-label="Pixel-perfect rendering"
           />
         </div>
 

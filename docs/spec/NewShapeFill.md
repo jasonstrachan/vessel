@@ -154,6 +154,12 @@ export function drawAdjustmentPreview(
 - `contour`: render lightweight concentric contour bands previewing current spacing/variance.  
 - `stipple`: scatter a representative subset of dots, modulated by `variance`, inside the shape bounds.  
 - Additional fills may register their own preview handlers; defaulting to spacing/rotation visuals should be an explicit choice, not an omission.
+
+### Pixel-Perfect Mode
+
+- Shape Fill controls expose a **Pixel perfect** toggle (persisted in `shapeFillSlice`).  
+- When enabled, stroke outputs are rasterized into 1×1 square `dotInstances`, polygons/clip paths are snapped to integer coordinates, and both preview + final render paths use the quantized data.  
+- The mode is strategy-agnostic and sits downstream of each fill, so new strategies inherit crisp edges automatically without custom code.
 🪶 Hatch Fill (fillStrategies/hatch.ts)
 Adjustable parameters: spacing (px) and rotation (deg)
 
