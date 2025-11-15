@@ -1,6 +1,9 @@
 import type { StoreApi } from 'zustand';
 import historyManager from '@/history/historyService';
-import { isLegacySnapshotDelta } from '@/history/legacyCanvasSnapshot';
+import {
+  isLegacySnapshotDelta,
+  type LegacySnapshotDeltaHandle,
+} from '@/history/legacyCanvasSnapshot';
 import type { HistoryEntry } from '@/history/actionTypes';
 import {
   captureColorCycleBrushState,
@@ -11,6 +14,8 @@ import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { waitForFinalizeQueueIdle, waitForPendingColorCycleSaves } from '../pendingColorCycleSaves';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { syncCCRuntimes } from '@/stores/ccRuntime';
 
 type AppState = import('../useAppStore').AppState;
 type CCReason = import('../useAppStore').CCReason;
@@ -86,10 +91,14 @@ const cloneLayerForHistory = (
     : layer.imageData;
 
   const { colorCycleData: existingColorCycleData, ...layerWithoutCC } = layer;
+  const framebufferImageData =
+    !clonedImageData && layerWithoutCC.framebuffer
+      ? captureCanvasImageData(layerWithoutCC.framebuffer)
+      : undefined;
   const layerCopy: LayerHistorySnapshot = {
     ...layerWithoutCC,
     layerType: layer.layerType,
-    imageData: clonedImageData ?? null,
+    imageData: clonedImageData ?? framebufferImageData ?? null,
     alignment: cloneLayerAlignment(layer.alignment),
   };
 
@@ -349,11 +358,140 @@ export interface HistoryService {
   clearHistory: () => void;
 }
 
+const extractLegacySnapshots = (
+  entry: HistoryEntry,
+): { forward: CanvasSnapshot | null; backward: CanvasSnapshot | null } => {
+  const delta = entry.deltas.find((candidate): candidate is LegacySnapshotDeltaHandle =>
+    isLegacySnapshotDelta(candidate),
+  );
+  if (!delta) {
+    return { forward: null, backward: null };
+  }
+  return {
+    forward: delta.getSnapshot('forward'),
+    backward: delta.getSnapshot('backward'),
+  };
+};
+
 export const createHistoryService = ({
   set,
   get,
   runWithColorCycleSuspended,
 }: HistoryServiceOptions): HistoryService => {
+  const rehydrateColorCycleLayersFromStore = (): void => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const manager = getColorCycleBrushManager();
+    const stateSnapshot = get();
+    const colorCycleLayers = stateSnapshot.layers.filter(
+      (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData
+    );
+
+    if (!colorCycleLayers.length) {
+      return;
+    }
+
+    const fallbackWidth = stateSnapshot.project?.width ?? stateSnapshot.canvas?.canvasWidth ?? 1;
+    const fallbackHeight = stateSnapshot.project?.height ?? stateSnapshot.canvas?.canvasHeight ?? 1;
+    let touchedAnyLayer = false;
+    let mutatedSurface = false;
+
+    for (const layer of colorCycleLayers) {
+      const colorData = layer.colorCycleData!;
+      const width = Math.max(
+        1,
+        colorData.canvas?.width ?? colorData.canvasWidth ?? layer.imageData?.width ?? fallbackWidth
+      );
+      const height = Math.max(
+        1,
+        colorData.canvas?.height ?? colorData.canvasHeight ?? layer.imageData?.height ?? fallbackHeight
+      );
+
+      try {
+        get().initColorCycleForLayer(layer.id, width, height);
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[history] Failed to init color cycle layer during rehydrate', {
+            layerId: layer.id,
+            error,
+          });
+        }
+        continue;
+      }
+
+      const refreshedState = get();
+      const refreshedLayer = refreshedState.layers.find((candidate) => candidate.id === layer.id);
+      const liveColorData = refreshedLayer?.colorCycleData;
+      if (!liveColorData || !liveColorData.canvas) {
+        continue;
+      }
+
+      touchedAnyLayer = true;
+
+      if (colorData.canvasImageData) {
+        try {
+          const ctx = liveColorData.canvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          ctx?.putImageData(colorData.canvasImageData, 0, 0);
+          mutatedSurface = true;
+        } catch {
+          // best-effort canvas hydration
+        }
+      }
+
+      if (liveColorData.eraseMask && colorData.eraseMaskImageData) {
+        try {
+          const maskCtx = liveColorData.eraseMask.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          maskCtx?.putImageData(colorData.eraseMaskImageData, 0, 0);
+          mutatedSurface = true;
+        } catch {
+          // ignore erase mask hydration failures
+        }
+      }
+
+      const brush = manager.getBrush(layer.id);
+      const serializedState = (colorData.brushState ?? null) as ColorCycleSerializedState | null;
+      if (brush && serializedState) {
+        const runtimeBrush = brush as typeof brush & {
+          restoreFullState?: (state: ColorCycleSerializedState) => void;
+          updateColorCycleTexture?: () => void;
+          render?: (ping?: boolean) => void;
+        };
+        try {
+          runtimeBrush.restoreFullState?.(serializedState);
+          runtimeBrush.updateColorCycleTexture?.();
+          if (colorData.hasContent) {
+            runtimeBrush.render?.(false);
+          }
+        } catch {
+          // brush restore best-effort
+        }
+      }
+    }
+
+    if (touchedAnyLayer) {
+      const latestLayers = get().layers.filter((layer) => layer.layerType === 'color-cycle');
+      if (latestLayers.length) {
+        try {
+          syncCCRuntimes(latestLayers as Layer[], 'history-rehydrate');
+        } catch {
+          // runtime sync best-effort
+        }
+      }
+    }
+
+    if (touchedAnyLayer || mutatedSurface) {
+      get().setLayersNeedRecomposition(true);
+    }
+  };
+
   const undo = async (): Promise<CanvasSnapshot | null> => {
     return runWithColorCycleSuspended('history-apply', async () => {
       await flushPendingToolWork();
@@ -363,22 +501,11 @@ export const createHistoryService = ({
         return null;
       }
 
-      const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+      const legacySnapshots = extractLegacySnapshots(pendingEntry);
+      const hasLegacySnapshot = Boolean(legacySnapshots.forward && legacySnapshots.backward);
       const requiresComposite = entryRequiresComposite(pendingEntry);
-      let currentSnapshot: CanvasSnapshot | null = null;
-      let previousSnapshot: CanvasSnapshot | null = null;
-
-      if (hasLegacySnapshot) {
-        const snapshotState = get();
-        if (snapshotState.history.undoStack.length <= 1) {
-          return null;
-        }
-
-        currentSnapshot =
-          snapshotState.history.undoStack[snapshotState.history.undoStack.length - 1] ?? null;
-        previousSnapshot =
-          snapshotState.history.undoStack[snapshotState.history.undoStack.length - 2] ?? null;
-      }
+      const currentSnapshot: CanvasSnapshot | null = legacySnapshots.forward;
+      const previousSnapshot: CanvasSnapshot | null = legacySnapshots.backward;
 
       const pendingLayerId =
         typeof pendingEntry.meta?.['layerId'] === 'string'
@@ -414,6 +541,8 @@ export const createHistoryService = ({
         get().setLayersNeedRecomposition(true);
       }
 
+      rehydrateColorCycleLayersFromStore();
+
       return previousSnapshot;
     });
   };
@@ -427,17 +556,10 @@ export const createHistoryService = ({
         return null;
       }
 
-      const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+      const legacySnapshots = extractLegacySnapshots(pendingEntry);
+      const hasLegacySnapshot = Boolean(legacySnapshots.forward && legacySnapshots.backward);
       const requiresComposite = entryRequiresComposite(pendingEntry);
-      let stateToRestore: CanvasSnapshot | null = null;
-
-      if (hasLegacySnapshot) {
-        const snapshotState = get();
-        if (snapshotState.history.redoStack.length === 0) {
-          return null;
-        }
-        stateToRestore = snapshotState.history.redoStack[0] ?? null;
-      }
+      const stateToRestore: CanvasSnapshot | null = legacySnapshots.forward;
 
       const pendingLayerId =
         typeof pendingEntry.meta?.['layerId'] === 'string'
@@ -472,6 +594,8 @@ export const createHistoryService = ({
       if (requiresComposite) {
         get().setLayersNeedRecomposition(true);
       }
+
+      rehydrateColorCycleLayersFromStore();
 
       return stateToRestore;
     });

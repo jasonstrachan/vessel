@@ -249,4 +249,224 @@ describe('history integration', () => {
     await historyManager.redo();
     expect(useAppStore.getState().layers.map((l) => l.id)).toEqual(['layer-B', 'layer-C', 'layer-A']);
   });
+
+  it('undo/redo via store restores removed layers', async () => {
+    const makeImage = (value: number): ImageData =>
+      new ImageData(new Uint8ClampedArray([value, value, value, 255]), 1, 1);
+
+    const layerA = createLayer('layer-A', makeImage(0));
+    const layerB = createLayer('layer-B', makeImage(255));
+
+    useAppStore.setState(() => ({
+      layers: [layerA, layerB],
+      activeLayerId: layerB.id,
+      selectedLayerIds: [layerB.id],
+      project: {
+        id: 'proj-layer-remove',
+        name: 'Layer Remove',
+        width: 8,
+        height: 8,
+        layers: [layerA, layerB],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const store = useAppStore.getState();
+    store.removeLayer(layerB.id);
+    expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A']);
+
+    await store.undo();
+    expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A', 'layer-B']);
+    expect(useAppStore.getState().activeLayerId).toBe(layerB.id);
+
+    await store.redo();
+    expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A']);
+  });
+
+  it('preserves restored pixels when drawing after undoing layer removal', async () => {
+    const size = 4;
+    const makeSolidImage = (r: number, g: number, b: number): ImageData => {
+      const data = new Uint8ClampedArray(size * size * 4);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = r;
+        data[i + 1] = g;
+        data[i + 2] = b;
+        data[i + 3] = 255;
+      }
+      return new ImageData(data, size, size);
+    };
+
+    const layer = createLayer('layer-solid', makeSolidImage(10, 20, 30));
+    layer.imageData = null; // mimic runtime layers that rely on framebuffer only
+
+    useAppStore.setState(() => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectedLayerIds: [layer.id],
+      project: {
+        id: 'proj-undo-draw',
+        name: 'Undo Draw',
+        width: size,
+        height: size,
+        layers: [layer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const store = useAppStore.getState();
+    store.removeLayer(layer.id);
+    await store.undo();
+
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = size;
+    sourceCanvas.height = size;
+    const ctx = sourceCanvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    ctx!.clearRect(0, 0, size, size);
+    ctx!.fillStyle = '#ff0000';
+    ctx!.fillRect(0, 0, 1, 1);
+
+    await store.captureCanvasToActiveLayer(sourceCanvas, { x: 0, y: 0, width: 1, height: 1 });
+
+    const finalImageData = useAppStore.getState().layers[0].imageData;
+    expect(finalImageData).not.toBeNull();
+    const pixel = (x: number, y: number): [number, number, number, number] => {
+      const idx = (y * size + x) * 4;
+      return [
+        finalImageData!.data[idx],
+        finalImageData!.data[idx + 1],
+        finalImageData!.data[idx + 2],
+        finalImageData!.data[idx + 3],
+      ];
+    };
+
+    expect(pixel(0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(2, 2)).toEqual([10, 20, 30, 255]);
+  });
+
+  it('keeps restored pixels when captureCanvasToActiveLayer runs without ROI', async () => {
+    const size = 4;
+    const backgroundImage = new ImageData(
+      new Uint8ClampedArray([
+        10, 20, 30, 255,
+        10, 20, 30, 255,
+        10, 20, 30, 255,
+        10, 20, 30, 255,
+      ]),
+      2,
+      2
+    );
+
+    const layer = createLayer('layer-full', backgroundImage);
+
+    useAppStore.setState(() => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectedLayerIds: [layer.id],
+      project: {
+        id: 'proj-undo-full',
+        name: 'Undo Full',
+        width: size,
+        height: size,
+        layers: [layer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const store = useAppStore.getState();
+    store.removeLayer(layer.id);
+    await store.undo();
+
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = size;
+    sourceCanvas.height = size;
+    const ctx = sourceCanvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    ctx!.clearRect(0, 0, size, size);
+    ctx!.fillStyle = '#ff0000';
+    ctx!.fillRect(0, 0, 1, 1);
+
+    await store.captureCanvasToActiveLayer(sourceCanvas);
+
+    const finalImageData = useAppStore.getState().layers[0].imageData;
+    expect(finalImageData).not.toBeNull();
+    const pixel = (x: number, y: number): [number, number, number, number] => {
+      const idx = (y * size + x) * 4;
+      return [
+        finalImageData!.data[idx],
+        finalImageData!.data[idx + 1],
+        finalImageData!.data[idx + 2],
+        finalImageData!.data[idx + 3],
+      ];
+    };
+
+    expect(pixel(0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(1, 1)).toEqual([10, 20, 30, 255]);
+  });
+
+  it('skips raster capture when the active layer is color-cycle', async () => {
+    const size = 4;
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = size;
+    framebuffer.height = size;
+    const ctx = framebuffer.getContext('2d');
+    ctx?.fillRect(0, 0, size, size);
+
+    const ccLayer: Layer = {
+      id: 'cc-layer',
+      name: 'CC Layer',
+      order: 0,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      layerType: 'color-cycle',
+      imageData: null,
+      framebuffer,
+      alignment: createDefaultLayerAlignment(),
+      colorCycleData: {
+        mode: 'brush',
+        gradient: [],
+        hasContent: true,
+        canvas: framebuffer,
+      },
+    } as Layer;
+
+    useAppStore.setState(() => ({
+      layers: [ccLayer],
+      activeLayerId: ccLayer.id,
+      selectedLayerIds: [ccLayer.id],
+      project: {
+        id: 'proj-cc',
+        name: 'CC Project',
+        width: size,
+        height: size,
+        layers: [ccLayer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = size;
+    sourceCanvas.height = size;
+
+    const store = useAppStore.getState();
+    await store.captureCanvasToActiveLayer(sourceCanvas);
+
+    const afterState = useAppStore.getState();
+    expect(afterState.layers[0].imageData).toBeNull();
+    expect(afterState.layersNeedRecomposition).toBe(true);
+  });
 });

@@ -67,7 +67,7 @@ const normalizeCaptureROI = (
   return { x, y, width, height };
 };
 
-const mergeImageDataRegion = (
+const alphaCompositeImageDataRegion = (
   base: ImageData | null,
   region: ImageData,
   offsetX: number,
@@ -75,32 +75,99 @@ const mergeImageDataRegion = (
   fullWidth: number,
   fullHeight: number
 ): ImageData => {
-  const targetWidth = fullWidth;
-  const targetHeight = fullHeight;
-  const baseMatches =
-    base && base.width === targetWidth && base.height === targetHeight;
-  const writeRegion = (target: Uint8ClampedArray): void => {
-    const src = region.data;
-    const rowStride = region.width * 4;
-    for (let row = 0; row < region.height; row++) {
-      const srcStart = row * rowStride;
-      const destStart = ((offsetY + row) * targetWidth + offsetX) * 4;
-      target.set(src.subarray(srcStart, srcStart + rowStride), destStart);
-    }
-  };
+  const targetWidth = Math.max(1, fullWidth);
+  const targetHeight = Math.max(1, fullHeight);
+  const outData = new Uint8ClampedArray(targetWidth * targetHeight * 4);
 
-  if (baseMatches && base) {
-    writeRegion(base.data);
-    return base;
+  if (base) {
+    const src = base.data;
+    const copyWidth = Math.min(base.width, targetWidth);
+    const copyHeight = Math.min(base.height, targetHeight);
+    const srcStride = base.width * 4;
+    const dstStride = targetWidth * 4;
+
+    for (let row = 0; row < copyHeight; row += 1) {
+      const srcRowStart = row * srcStride;
+      const dstRowStart = row * dstStride;
+      const rowLength = copyWidth * 4;
+      outData.set(src.subarray(srcRowStart, srcRowStart + rowLength), dstRowStart);
+    }
   }
 
-  const mergedData = base
-    ? new Uint8ClampedArray(base.data)
-    : new Uint8ClampedArray(targetWidth * targetHeight * 4);
+  const src = region.data;
+  const srcStride = region.width * 4;
 
-  writeRegion(mergedData);
+  for (let row = 0; row < region.height; row += 1) {
+    const dstRow = offsetY + row;
+    if (dstRow < 0 || dstRow >= targetHeight) {
+      continue;
+    }
 
-  return new ImageData(mergedData, targetWidth, targetHeight);
+    for (let col = 0; col < region.width; col += 1) {
+      const dstCol = offsetX + col;
+      if (dstCol < 0 || dstCol >= targetWidth) {
+        continue;
+      }
+
+      const srcIndex = row * srcStride + col * 4;
+      const srcAlpha8 = src[srcIndex + 3];
+      if (srcAlpha8 === 0) {
+        continue;
+      }
+
+      const dstIndex = (dstRow * targetWidth + dstCol) * 4;
+
+      const srcAlpha = srcAlpha8 / 255;
+      const invSrcAlpha = 1 - srcAlpha;
+
+      const dstAlpha = outData[dstIndex + 3] / 255;
+      const outAlpha = srcAlpha + dstAlpha * invSrcAlpha;
+
+      const dstR = outData[dstIndex];
+      const dstG = outData[dstIndex + 1];
+      const dstB = outData[dstIndex + 2];
+
+      const srcR = src[srcIndex];
+      const srcG = src[srcIndex + 1];
+      const srcB = src[srcIndex + 2];
+
+      const outR = srcR * srcAlpha + dstR * invSrcAlpha;
+      const outG = srcG * srcAlpha + dstG * invSrcAlpha;
+      const outB = srcB * srcAlpha + dstB * invSrcAlpha;
+
+      outData[dstIndex] = Math.round(outR);
+      outData[dstIndex + 1] = Math.round(outG);
+      outData[dstIndex + 2] = Math.round(outB);
+      outData[dstIndex + 3] = Math.round(outAlpha * 255);
+    }
+  }
+  return new ImageData(outData, targetWidth, targetHeight);
+};
+
+const normalizeImageDataDimensions = (
+  imageData: ImageData,
+  width: number,
+  height: number
+): ImageData => {
+  if (imageData.width === width && imageData.height === height) {
+    return imageData;
+  }
+
+  const normalized = new ImageData(width, height);
+  const target = normalized.data;
+  const source = imageData.data;
+  const copyWidth = Math.min(width, imageData.width);
+  const copyHeight = Math.min(height, imageData.height);
+  const sourceStride = imageData.width * 4;
+  const targetStride = width * 4;
+
+  for (let row = 0; row < copyHeight; row += 1) {
+    const srcStart = row * sourceStride;
+    const destStart = row * targetStride;
+    target.set(source.subarray(srcStart, srcStart + copyWidth * 4), destStart);
+  }
+
+  return normalized;
 };
 
 const snapshotFramebufferRegion = (
@@ -403,6 +470,17 @@ export const createLayersSlice = (
       return layerCanvas;
     };
 
+    const hasValidFramebuffer = (
+      framebuffer: HTMLCanvasElement | OffscreenCanvas | null | undefined,
+    ): framebuffer is HTMLCanvasElement | OffscreenCanvas =>
+      Boolean(
+        framebuffer &&
+          Number.isFinite(framebuffer.width) &&
+          framebuffer.width > 0 &&
+          Number.isFinite(framebuffer.height) &&
+          framebuffer.height > 0,
+      );
+
     const drawStaticLayers = (
       ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       sortedLayers: Layer[],
@@ -588,13 +666,44 @@ export const createLayersSlice = (
 
           trackLayerChanges('setLayers', normalized);
           const syncedLayers = syncPercentOffsetsFromPixels(normalized, state.project ?? null);
+          const hydratedLayers = syncedLayers.map((layer) => {
+            if (layer.layerType === 'color-cycle') {
+              return layer;
+            }
+
+            if (hasValidFramebuffer(layer.framebuffer)) {
+              return layer;
+            }
+
+            const sourceImage = layer.imageData ?? null;
+            const fallbackWidth = sourceImage?.width ?? state.project?.width ?? 1;
+            const fallbackHeight = sourceImage?.height ?? state.project?.height ?? 1;
+            const nextFramebuffer = createLayerTransferCanvas(fallbackWidth, fallbackHeight);
+
+            if (nextFramebuffer && sourceImage) {
+              const fbCtx = nextFramebuffer.getContext(
+                '2d',
+                { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+              ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+              try {
+                fbCtx?.putImageData(sourceImage, 0, 0);
+              } catch {
+                // ignore hydration failures; merged imageData will still draw correctly
+              }
+            }
+
+            return {
+              ...layer,
+              framebuffer: nextFramebuffer ?? layer.framebuffer ?? null,
+            };
+          });
           const validLayerIds = new Set(syncedLayers.map((layer) => layer.id));
           const nextReferenceLayerId = state.referenceLayerId && validLayerIds.has(state.referenceLayerId)
             ? state.referenceLayerId
             : null;
 
           return {
-            layers: syncedLayers,
+            layers: hydratedLayers,
             referenceLayerId: nextReferenceLayerId,
           };
         });
@@ -2060,29 +2169,20 @@ export const createLayersSlice = (
         return;
       }
 
+      const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
+      if (!activeLayer) {
+        return;
+      }
+
+      if (activeLayer.layerType === 'color-cycle') {
+        get().setLayersNeedRecomposition(true);
+        return;
+      }
+
       set((currentState) => {
         const updatedLayers = currentState.layers.map((layer) => {
           if (layer.id !== activeLayerId) {
             return layer;
-          }
-
-          const fb = layer.framebuffer;
-          if (fb.width !== captureWidth || fb.height !== captureHeight) {
-            fb.width = captureWidth;
-            fb.height = captureHeight;
-          }
-
-          const framebufferCtx = fb.getContext(
-            '2d',
-            { willReadFrequently: true } as CanvasRenderingContext2DSettings
-          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          if (framebufferCtx) {
-            if (normalizedRoi) {
-              framebufferCtx.putImageData(capturedImageData, captureX, captureY);
-            } else {
-              framebufferCtx.clearRect(0, 0, fb.width, fb.height);
-              framebufferCtx.putImageData(capturedImageData, 0, 0);
-            }
           }
 
           const matchedImageData =
@@ -2091,19 +2191,48 @@ export const createLayersSlice = (
             layer.imageData.height === captureHeight
               ? layer.imageData
               : null;
-          const baseImageData =
-            matchedImageData ?? snapshotFramebufferRegion(layer.framebuffer, captureWidth, captureHeight);
+          const framebufferInitial = hasValidFramebuffer(layer.framebuffer)
+            ? layer.framebuffer
+            : createLayerTransferCanvas(captureWidth, captureHeight) ?? null;
 
-          const mergedImageData = normalizedRoi
-            ? mergeImageDataRegion(
-                baseImageData,
-                capturedImageData,
-                captureX,
-                captureY,
-                captureWidth,
-                captureHeight
-              )
-            : capturedImageData;
+          const baseImageDataRaw =
+            matchedImageData ?? snapshotFramebufferRegion(framebufferInitial, captureWidth, captureHeight);
+
+          const baseImageData =
+            baseImageDataRaw &&
+            (baseImageDataRaw.width !== captureWidth || baseImageDataRaw.height !== captureHeight)
+              ? normalizeImageDataDimensions(baseImageDataRaw, captureWidth, captureHeight)
+              : baseImageDataRaw;
+
+          const targetWidth = baseImageData?.width ?? captureWidth;
+          const targetHeight = baseImageData?.height ?? captureHeight;
+
+          const mergedImageData = alphaCompositeImageDataRegion(
+            baseImageData,
+            capturedImageData,
+            captureX,
+            captureY,
+            targetWidth,
+            targetHeight
+          );
+
+          let framebuffer = framebufferInitial;
+          if (!framebuffer) {
+            framebuffer = createLayerTransferCanvas(mergedImageData.width, mergedImageData.height) ?? null;
+          }
+
+          if (framebuffer) {
+            if (framebuffer.width !== targetWidth || framebuffer.height !== targetHeight) {
+              framebuffer.width = targetWidth;
+              framebuffer.height = targetHeight;
+            }
+
+            const framebufferCtx = framebuffer.getContext(
+              '2d',
+              { willReadFrequently: true } as CanvasRenderingContext2DSettings
+            ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+            framebufferCtx?.putImageData(mergedImageData, 0, 0);
+          }
 
           let nextAlignment = layer.alignment;
           const project = currentState.project;
@@ -2137,6 +2266,7 @@ export const createLayersSlice = (
           const updatedLayer: Layer = {
             ...layer,
             imageData: mergedImageData,
+            framebuffer: framebuffer ?? layer.framebuffer,
             alignment: nextAlignment,
             version: (layer.version || 0) + 1,
           };
@@ -2160,20 +2290,6 @@ export const createLayersSlice = (
       });
 
       get().setLayersNeedRecomposition(true);
-
-      const nextState = get();
-      const activeLayer = nextState.layers.find((layer) => layer.id === activeLayerId);
-      if (activeLayer && activeLayer.layerType === 'color-cycle') {
-        try {
-          nextState.updateLayer(activeLayerId, {
-            colorCycleData: {
-              ...(activeLayer.colorCycleData ?? {}),
-            },
-          });
-        } catch (error) {
-          console.warn('[captureCanvasToActiveLayer] Failed to flag CC framebuffer update', error);
-        }
-      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
         console.warn('[captureCanvasToActiveLayer] Canvas capture blocked by CORS/security policy');
