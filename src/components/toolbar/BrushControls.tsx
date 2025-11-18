@@ -458,6 +458,9 @@ const BrushControls = () => {
 
   // Show special controls for Color Cycle brushes (both stroke and shape variants)
   if (isColorCycleBrush(activeSettings.brushShape)) {
+    if (typeof window !== 'undefined') {
+      console.log('[BrushControls] ColorCycle branch', activeSettings.brushShape);
+    }
     return (
       <div className="p-4">
         {/* Color Cycle variant switcher (Stroke vs Triangle vs Shape) */}
@@ -770,6 +773,21 @@ const BrushControls = () => {
                 />
               </div>
             )}
+            <div className="flex items-center gap-2 mt-2 opacity-100">
+              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                Sprd
+              </label>
+              <ProgressSlider
+                value={activeSettings.ditherPaletteSpread ?? 0}
+                min={0}
+                max={100}
+                step={1}
+                disabled={!activeSettings.ditherEnabled}
+                onChange={(value) => setActiveSettings({ ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value))) })}
+                aria-label="Dither Palette Spread"
+                className="flex-1"
+              />
+            </div>
           </div>
         )}
 
@@ -930,6 +948,9 @@ const BrushControls = () => {
 
   // Show special controls for Spam brush
   if (activeSettings.brushShape === BrushShape.SPAM_TEXT) {
+    if (typeof window !== 'undefined') {
+      console.log('[BrushControls] Spam branch');
+    }
     // Define spam text presets
     const spamPresets: Record<string, string> = {
       mixed: 'WINNER!!! TO THE MOON!!! DEAR BENEFICIARY!!! CHEAP MEDS!!! ACT NOW!!! HODL!!! BANK OF NIGERIA!!! FDA APPROVED!!! FREE FREE FREE!!! DIAMOND HANDS!!! MILLION DOLLARS!!! SPECIAL PRICE!!! 100% GUARANTEED!!! PUMP IT!!! URGENT!!! ',
@@ -1136,6 +1157,9 @@ const BrushControls = () => {
 
   // Show special controls for Resampler brush
   if (activeSettings.brushShape === BrushShape.RESAMPLER) {
+    if (typeof window !== 'undefined') {
+      console.log('[BrushControls] Resampler branch');
+    }
     return (
       <div className="p-4">
         {/* Continuous Sampling Toggle */}
@@ -1465,6 +1489,9 @@ const BrushControls = () => {
 
   // Show special controls for Polygon brush
   if (activeSettings.brushShape === BrushShape.POLYGON) {
+    if (typeof window !== 'undefined') {
+      console.log('[BrushControls] Polygon branch');
+    }
     return (
       <div className="p-4">
         {/* Polygon Sides */}
@@ -1575,6 +1602,9 @@ const BrushControls = () => {
     activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ||
     activeSettings.brushShape === BrushShape.POLYGON_GRADIENT
   ) {
+    if (typeof window !== 'undefined') {
+      console.log('[BrushControls] Gradient branch', activeSettings.brushShape);
+    }
     return (
       <div className="p-4">
         {/* Gradient Source (Rectangle only): None = sample canvas, Presets = fixed list */}
@@ -1727,25 +1757,43 @@ const BrushControls = () => {
                   setActiveSettings({ ditherEnabled: checked })
                 }
               />
-              {/* Fill Res - only show when dithering is enabled */}
-              {activeSettings.ditherEnabled && (
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-[#D9D9D9] text-xs">
-                    Res
-                  </span>
-                  <ProgressSlider
-                    value={activeSettings.fillResolution || 1}
-                    min={1}
-                    max={16}
-                    step={1}
-                    onChange={(value) =>
-                      setActiveSettings({ fillResolution: Math.round(value) })
-                    }
-                    aria-label="Dither Resolution"
-                    className="flex-1"
-                  />
-                </div>
-              )}
+              {/* Fill Res */}
+              <div className="flex items-center gap-2 flex-1">
+                <span className="text-[#D9D9D9] text-xs">
+                  Res
+                </span>
+                <ProgressSlider
+                  value={activeSettings.fillResolution || 1}
+                  min={1}
+                  max={16}
+                  step={1}
+                  disabled={!activeSettings.ditherEnabled}
+                  onChange={(value) =>
+                    setActiveSettings({ fillResolution: Math.round(value) })
+                  }
+                  aria-label="Dither Resolution"
+                  className="flex-1"
+                />
+              </div>
+              <div className="flex items-center gap-2 flex-1 mt-2">
+                <span className="text-[#D9D9D9] text-xs">
+                  Sprd
+                </span>
+                <ProgressSlider
+                  value={activeSettings.ditherPaletteSpread ?? 0}
+                  min={0}
+                  max={100}
+                  step={1}
+                  disabled={!activeSettings.ditherEnabled}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value)))
+                    })
+                  }
+                  aria-label="Dither Palette Spread"
+                  className="flex-1"
+                />
+              </div>
             </div>
           </div>
           
@@ -1807,6 +1855,9 @@ const BrushControls = () => {
   }
 
   if (isShapeFillBrush) {
+    if (typeof window !== 'undefined') {
+      console.log('[BrushControls] ShapeFill branch');
+    }
     return (
       <div className="flex flex-col gap-4">
         <div className="px-4">
@@ -1952,9 +2003,13 @@ const BrushControls = () => {
             checked={Boolean(activeSettings.ditherEnabled)}
             onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
           />
-          {activeSettings.ditherEnabled && (
-            <div className="flex items-center gap-2 flex-1">
-              <span className="text-[#D9D9D9] text-xs">Res</span>
+        </div>
+        {activeSettings.ditherEnabled && (
+          <>
+            <div className="flex items-center gap-2 mt-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                Res
+              </label>
               <ProgressSlider
                 value={activeSettings.fillResolution || 1}
                 min={1}
@@ -1967,8 +2022,26 @@ const BrushControls = () => {
                 className="flex-1"
               />
             </div>
-          )}
-        </div>
+            <div className="flex items-center gap-2 mt-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                Sprd
+              </label>
+              <ProgressSlider
+                value={activeSettings.ditherPaletteSpread ?? 0}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(value) =>
+                  setActiveSettings({
+                    ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value)))
+                  })
+                }
+                aria-label="Dither Palette Spread"
+                className="flex-1"
+              />
+            </div>
+          </>
+        )}
       </div>
 
 

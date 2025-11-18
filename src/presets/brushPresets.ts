@@ -106,6 +106,7 @@ export const defaultBrushSettings: BrushSettings = {
   risographIntensity: 0,
   risographOutline: false, // Default: no rough outline effect
   ditherEnabled: false,
+  ditherPaletteSpread: 0,
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherClears: false,

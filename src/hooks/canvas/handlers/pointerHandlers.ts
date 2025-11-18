@@ -1369,13 +1369,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     void selectionEnd;
     void isDraggingFloatingPaste;
 
-    // Track that pointer is down
-    isMouseDownRef.current = true;
-    
     const contourLinesStateForBusyCheck = contourLinesStateRef.current;
     const allowAdjustmentWhileBusy =
       contourLinesStateForBusyCheck.stage === 'awaitingAnchorA' ||
-      contourLinesStateForBusyCheck.stage === 'awaitingAngle';
+        contourLinesStateForBusyCheck.stage === 'awaitingAngle';
 
     // If the app is busy, ignore pointer events unless we're adjusting contour spacing
     if (isBusyRef.current && !allowAdjustmentWhileBusy) {
@@ -1452,19 +1449,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     );
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
 
-    // If the pointer was pressed outside the canvas and dragged in, start the stroke
-    // as soon as it enters so the first in-bounds move produces paint.
+    // If press starts outside the project, leave mouse-down false so move can bootstrap later.
     if (
-      !isMouseDownRef.current &&
-      pointerInsideCanvas &&
-      (event.buttons & 1) === 1 && // primary button held
-      !pan.panState.isPanning &&
-      !isSpacePressedRef.current
+      project &&
+      (worldPos.x < 0 || worldPos.x > project.width ||
+       worldPos.y < 0 || worldPos.y > project.height)
     ) {
-      handlePointerDown(event as unknown as React.PointerEvent<HTMLCanvasElement>);
+      isMouseDownRef.current = false;
       return;
     }
-    // Intentionally quiet
+
+    // Track that pointer is down only after passing bounds checks
+    isMouseDownRef.current = true;
 
     if (tools.currentTool === 'color-picker') {
       applyColorPickerSample(worldPos);

@@ -110,6 +110,105 @@ const clampColorCycleBandSpacing = (value?: number) => {
   return Math.max(2, Math.min(256, Math.round(value)));
 };
 
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+const wrapHue = (h: number): number => {
+  const v = h % 360;
+  return v < 0 ? v + 360 : v;
+};
+
+const rgbToHsl = (r: number, g: number, b: number): { h: number; s: number; l: number } => {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d !== 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case rn:
+        h = (gn - bn) / d + (gn < bn ? 6 : 0);
+        break;
+      case gn:
+        h = (bn - rn) / d + 2;
+        break;
+      default:
+        h = (rn - gn) / d + 4;
+        break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+};
+
+const hslToRgb = (h: number, s: number, l: number): [number, number, number] => {
+  const C = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = ((h % 360) + 360) % 360 / 60;
+  const X = C * (1 - Math.abs((hp % 2) - 1));
+  let r1 = 0;
+  let g1 = 0;
+  let b1 = 0;
+  if (hp >= 0 && hp < 1) {
+    r1 = C; g1 = X; b1 = 0;
+  } else if (hp >= 1 && hp < 2) {
+    r1 = X; g1 = C; b1 = 0;
+  } else if (hp >= 2 && hp < 3) {
+    r1 = 0; g1 = C; b1 = X;
+  } else if (hp >= 3 && hp < 4) {
+    r1 = 0; g1 = X; b1 = C;
+  } else if (hp >= 4 && hp < 5) {
+    r1 = X; g1 = 0; b1 = C;
+  } else {
+    r1 = C; g1 = 0; b1 = X;
+  }
+  const m = l - C / 2;
+  return [
+    Math.round((r1 + m) * 255),
+    Math.round((g1 + m) * 255),
+    Math.round((b1 + m) * 255)
+  ];
+};
+
+const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] => {
+  const [r, g, b] = parseColor(baseHex || '#000');
+  const { h, s, l } = rgbToHsl(r, g, b);
+
+  const spread = clamp01((spreadPercent ?? 0) / 100);
+
+  // Very low spread: minimal but visible dither (simple dark/light pair)
+  if (spread <= 0.01) {
+    const darker = (channel: number) => clamp(Math.round(channel * 0.6), 0, 255);
+    const lighter = (channel: number) => clamp(Math.round(channel * 1.35), 0, 255);
+    return [
+      `rgb(${darker(r)}, ${darker(g)}, ${darker(b)})`,
+      `rgb(${lighter(r)}, ${lighter(g)}, ${lighter(b)})`
+    ];
+  }
+
+  // Build a small, high-contrast palette (4 inks) to force visible dithering
+  const hueSwing = 60 + 120 * spread; // 60°..180°
+  const sBoost = 1.1 + 0.4 * spread;  // more chroma at higher spread
+  const lDark = clamp01(l * 0.2 + 0.05);       // push dark toward 0
+  const lLight = clamp01(1 - (1 - l) * 0.2 - 0.05); // push light toward 1
+
+  const inks: Array<[number, number, number]> = [
+    [wrapHue(h - hueSwing), clamp01(s * sBoost), lDark],   // base hue dark
+    [wrapHue(h + hueSwing), clamp01(s * sBoost), lLight],  // base hue light
+    [wrapHue(h + 180 - hueSwing), clamp01(s * sBoost), lDark],  // complement dark
+    [wrapHue(h + 180 + hueSwing), clamp01(s * sBoost), lLight], // complement light
+  ];
+
+  return inks.map(([hh, ss, ll]) => {
+    const [rr, gg, bb] = hslToRgb(hh, ss, ll);
+    return `rgb(${rr}, ${gg}, ${bb})`;
+  });
+};
+
+
 const normalizePressureSettings = (settings: BrushSettings) => {
   const range = resolveBrushPressureRange(settings);
   return {
@@ -1202,23 +1301,21 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.brushShape, tools.brushSettings.ditherEnabled]);
 
   const strokeDitherPalette = useMemo(() => {
-    const [r, g, b] = parseColor(tools.brushSettings.color || '#000');
-    const darker = (channel: number) => clamp(Math.round(channel * 0.6), 0, 255);
-    const lighter = (channel: number) => clamp(Math.round(channel * 1.35), 0, 255);
-    return [
-      `rgb(${darker(r)}, ${darker(g)}, ${darker(b)})`,
-      `rgb(${lighter(r)}, ${lighter(g)}, ${lighter(b)})`
-    ];
-  }, [tools.brushSettings.color]);
+    return buildDitherPalette(
+      tools.brushSettings.color || '#000',
+      tools.brushSettings.ditherPaletteSpread ?? 0
+    );
+  }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread]);
 
-  const strokeDitherPixelSize = useMemo(
-    () => Math.max(1, Math.round(tools.brushSettings.fillResolution || 1)),
-    [tools.brushSettings.fillResolution]
-  );
+  const strokeDitherPixelSize = useMemo(() => {
+    const raw = tools.brushSettings.fillResolution || 1;
+    return Math.max(1, Math.min(16, Math.round(raw)));
+  }, [tools.brushSettings.fillResolution]);
 
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
-    bounds: Rect | null
+    bounds: Rect | null,
+    sampleCtx?: CanvasRenderingContext2D
   ) => {
     if (!shouldApplyStrokeDither || !ctx || !bounds) {
       return;
@@ -1227,33 +1324,29 @@ export const useBrushEngineSimplified = () => {
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
 
-    // Anchor dithering grid to the canvas, not to each stroke segment, so tiles stay stable.
-    const pixel = Math.max(1, strokeDitherPixelSize);
-    const x0 = Math.max(0, Math.floor(region.x / pixel) * pixel);
-    const y0 = Math.max(0, Math.floor(region.y / pixel) * pixel);
-    const x1 = Math.min(canvasWidth, Math.ceil((region.x + region.width) / pixel) * pixel);
-    const y1 = Math.min(canvasHeight, Math.ceil((region.y + region.height) / pixel) * pixel);
-    const x = x0;
-    const y = y0;
-    const w = Math.max(0, x1 - x0);
-    const h = Math.max(0, y1 - y0);
+    const tileSize = Math.max(1, strokeDitherPixelSize | 0);
+
+    const x = region.x | 0;
+    const y = region.y | 0;
+    const w = region.width | 0;
+    const h = region.height | 0;
 
     if (w <= 0 || h <= 0) {
       return;
     }
 
-    let afterData: ImageData;
+    const sourceCtx = sampleCtx ?? ctx;
+    let src: ImageData;
     try {
-      afterData = ctx.getImageData(x, y, w, h);
+      src = sourceCtx.getImageData(x, y, w, h);
     } catch (error) {
       console.warn('[Dither] Failed to sample stroke region for dithering:', error);
       return;
     }
 
-    const srcData = afterData.data;
+    const srcData = src.data;
 
-    // 1) Build coverage from the stroke alpha (this is your inherent stroke mask)
-    //    and also capture a representative base color from the first covered pixel.
+    // 1) Build coverage mask + base colour
     const coverage = new Uint8Array(w * h);
     let baseR = 0;
     let baseG = 0;
@@ -1262,10 +1355,9 @@ export const useBrushEngineSimplified = () => {
 
     for (let i = 0, a = 3; a < srcData.length; i++, a += 4) {
       const alpha = srcData[a];
-      coverage[i] = alpha; // 0..255, preserves soft edges / brush behaviour
+      coverage[i] = alpha;
 
       if (!hasBase && alpha > 0) {
-        // Take the first non-transparent pixel as the base color
         baseR = srcData[a - 3];
         baseG = srcData[a - 2];
         baseB = srcData[a - 1];
@@ -1274,55 +1366,62 @@ export const useBrushEngineSimplified = () => {
     }
 
     if (!hasBase) {
-      // Nothing was drawn in this region
       return;
     }
 
-    // 2) Build a completely uniform color field for dithering.
-    //    IMPORTANT: this ignores the stroke shape; the ditherer now sees NO silhouette.
-    const flat = ctx.createImageData(w, h);
-    const flatData = flat.data;
+    // 2) Build a flat colour field in a COARSE grid
+    const coarseW = Math.max(1, Math.ceil(w / tileSize));
+    const coarseH = Math.max(1, Math.ceil(h / tileSize));
+    const coarse = new ImageData(coarseW, coarseH);
+    const coarseData = coarse.data;
 
-    for (let i = 0, a = 0; a < flatData.length; i++, a += 4) {
-      flatData[a]     = baseR;
-      flatData[a + 1] = baseG;
-      flatData[a + 2] = baseB;
-      flatData[a + 3] = 255;   // fully opaque for dithering purposes
+    for (let i = 0, a = 0; a < coarseData.length; i++, a += 4) {
+      coarseData[a]     = baseR;
+      coarseData[a + 1] = baseG;
+      coarseData[a + 2] = baseB;
+      coarseData[a + 3] = 255;
     }
 
-    // 3) Dither the flat field with your coarse pixel size.
-    const dithered = applyDitheringWithFillResolution(
-      flat,
+    // 3) Run standard Sierra-lite on the coarse image
+    const ditheredCoarse = applyDitheringImport(
+      coarse,
       strokeDitherPalette.length,
-      strokeDitherPixelSize,
       'sierra-lite',
       undefined,
       strokeDitherPalette
     );
 
-    // 4) Composite: apply the stroke mask AFTER dithering.
-    //    This is where the shape/AA/pressure are preserved.
-    const out = dithered.data;
-    for (let i = 0, a = 0; a < out.length; i++, a += 4) {
-      const alpha = coverage[i];
+    const ditheredCoarseData = ditheredCoarse.data;
 
-      if (alpha === 0) {
-        // Outside stroke: clear completely
-        out[a] = 0;
-        out[a + 1] = 0;
-        out[a + 2] = 0;
-        out[a + 3] = 0;
-        continue;
+    // 4) Upsample coarse result back to stroke resolution, then apply coverage mask
+    const out = ctx.createImageData(w, h);
+    const outData = out.data;
+
+    for (let py = 0; py < h; py++) {
+      const cy = Math.min(coarseH - 1, Math.floor(py / tileSize));
+      for (let px = 0; px < w; px++) {
+        const cx = Math.min(coarseW - 1, Math.floor(px / tileSize));
+
+        const coarseIndex = (cy * coarseW + cx) * 4;
+        const outIndex = (py * w + px) * 4;
+        const cov = coverage[py * w + px];
+
+        if (cov === 0) {
+          outData[outIndex]     = 0;
+          outData[outIndex + 1] = 0;
+          outData[outIndex + 2] = 0;
+          outData[outIndex + 3] = 0;
+        } else {
+          outData[outIndex]     = ditheredCoarseData[coarseIndex];
+          outData[outIndex + 1] = ditheredCoarseData[coarseIndex + 1];
+          outData[outIndex + 2] = ditheredCoarseData[coarseIndex + 2];
+          outData[outIndex + 3] = cov;
+        }
       }
-
-      // Inside stroke:
-      // - keep dithered RGB
-      // - restore original alpha so the brush edge stays exactly as rendered.
-      out[a + 3] = alpha;
     }
 
     try {
-      ctx.putImageData(dithered, x, y);
+      ctx.putImageData(out, x, y);
     } catch (error) {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
@@ -1365,7 +1464,7 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
-    applyStrokeDither(ditherCtx, region);
+    applyStrokeDither(ditherCtx, region, rawCtx || undefined);
 
     withAlphaLock(visibleCtx, (targetCtx) => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
@@ -1520,7 +1619,7 @@ export const useBrushEngineSimplified = () => {
 
       ditherCtx.clearRect(x, y, width, height);
       ditherCtx.putImageData(src, x, y);
-      applyStrokeDither(ditherCtx, strokeBounds);
+      applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
 
       withAlphaLock(ctx, (targetCtx) => {
         targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);

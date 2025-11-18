@@ -497,6 +497,7 @@ export interface BrushSettings {
   risographOutline: boolean; // true = add rough outline effect, false = clean edges (default: false)
   // Dither effect for gradients using Sierra Lite algorithm
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
+  ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
   ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
   // Color Cycle stamp dithering

@@ -10,6 +10,7 @@ interface ProgressSliderProps {
   onChange: (value: number) => void;
   'aria-label'?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 const ProgressSlider: React.FC<ProgressSliderProps> = ({
@@ -18,6 +19,7 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
   max,
   step = 1,
   onChange,
+  disabled = false,
   'aria-label': ariaLabel,
   className = ''
 }) => {
@@ -50,8 +52,9 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
       <div
         className="absolute inset-0 flex items-center justify-center text-xs font-medium z-20 pointer-events-none"
         style={{
-          color: 'white',
-          mixBlendMode: 'difference'
+          color: disabled ? '#888' : 'white',
+          mixBlendMode: 'difference',
+          opacity: disabled ? 0.6 : 1
         }}
       >
         {displayValue}
@@ -64,6 +67,7 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         aria-label={ariaLabel}
       />

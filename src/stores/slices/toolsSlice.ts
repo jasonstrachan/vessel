@@ -139,6 +139,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorJitter: settings.colorJitter,
   risographIntensity: settings.risographIntensity,
   ditherEnabled: settings.ditherEnabled,
+  ditherPaletteSpread: settings.ditherPaletteSpread,
   fillResolution: settings.fillResolution,
   rotationEnabled: settings.rotationEnabled,
   dashedEnabled: settings.dashedEnabled,
