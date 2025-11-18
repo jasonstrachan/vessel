@@ -178,12 +178,35 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
   const { h, s, l } = rgbToHsl(r, g, b);
 
   const spread = clamp01((spreadPercent ?? 0) / 100);
+  const baseUnit = [r, g, b].map((v) => v / 255);
+
+  const alignToBase = (units: number[][], strength = 0.85) => {
+    const avg = units.reduce(
+      (acc, cur) => [acc[0] + cur[0], acc[1] + cur[1], acc[2] + cur[2]],
+      [0, 0, 0]
+    ).map((v) => v / units.length);
+    const delta = [
+      (baseUnit[0] - avg[0]) * strength,
+      (baseUnit[1] - avg[1]) * strength,
+      (baseUnit[2] - avg[2]) * strength,
+    ];
+    return units.map((c) => [
+      clamp01(c[0] + delta[0]),
+      clamp01(c[1] + delta[1]),
+      clamp01(c[2] + delta[2]),
+    ]);
+  };
+
+  const toRgbString = (unit: number[]) => {
+    const rr = clamp(Math.round(unit[0] * 255), 0, 255);
+    const gg = clamp(Math.round(unit[1] * 255), 0, 255);
+    const bb = clamp(Math.round(unit[2] * 255), 0, 255);
+    return `rgb(${rr}, ${gg}, ${bb})`;
+  };
 
   // Max spread: keep 3 high-contrast inks, but solve so their average mixes back to the
   // selected colour. This keeps the final dither faithful while still visually distinct.
   if (spread >= 0.95) {
-    const baseUnit = [r, g, b].map((v) => v / 255);
-
     const c1 = hslToRgb(wrapHue(h + 150), 0.9, 0.35).map((v) => v / 255);
     const c2 = hslToRgb(wrapHue(h - 150), 0.95, 0.65).map((v) => v / 255);
 
@@ -193,14 +216,7 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
       clamp01(baseUnit[2] * 3 - c1[2] - c2[2]),
     ];
 
-    const toRgbString = (unit: number[]) => {
-      const rr = clamp(Math.round(unit[0] * 255), 0, 255);
-      const gg = clamp(Math.round(unit[1] * 255), 0, 255);
-      const bb = clamp(Math.round(unit[2] * 255), 0, 255);
-      return `rgb(${rr}, ${gg}, ${bb})`;
-    };
-
-    return [c1, c2, c3].map(toRgbString);
+    return alignToBase([c1, c2, c3]).map(toRgbString);
   }
 
   // Very low spread: minimal but visible dither (simple dark/light pair)
@@ -226,10 +242,12 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
     [wrapHue(h + 180 + hueSwing), clamp01(s * sBoost), lLight], // complement light
   ];
 
-  return inks.map(([hh, ss, ll]) => {
+  const paletteUnits = inks.map(([hh, ss, ll]) => {
     const [rr, gg, bb] = hslToRgb(hh, ss, ll);
-    return `rgb(${rr}, ${gg}, ${bb})`;
+    return [rr / 255, gg / 255, bb / 255];
   });
+
+  return alignToBase(paletteUnits, 0.9).map(toRgbString);
 };
 
 
