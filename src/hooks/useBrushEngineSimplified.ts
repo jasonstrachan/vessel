@@ -179,6 +179,30 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
 
   const spread = clamp01((spreadPercent ?? 0) / 100);
 
+  // Max spread: keep 3 high-contrast inks, but solve so their average mixes back to the
+  // selected colour. This keeps the final dither faithful while still visually distinct.
+  if (spread >= 0.95) {
+    const baseUnit = [r, g, b].map((v) => v / 255);
+
+    const c1 = hslToRgb(wrapHue(h + 150), 0.9, 0.35).map((v) => v / 255);
+    const c2 = hslToRgb(wrapHue(h - 150), 0.95, 0.65).map((v) => v / 255);
+
+    const c3 = [
+      clamp01(baseUnit[0] * 3 - c1[0] - c2[0]),
+      clamp01(baseUnit[1] * 3 - c1[1] - c2[1]),
+      clamp01(baseUnit[2] * 3 - c1[2] - c2[2]),
+    ];
+
+    const toRgbString = (unit: number[]) => {
+      const rr = clamp(Math.round(unit[0] * 255), 0, 255);
+      const gg = clamp(Math.round(unit[1] * 255), 0, 255);
+      const bb = clamp(Math.round(unit[2] * 255), 0, 255);
+      return `rgb(${rr}, ${gg}, ${bb})`;
+    };
+
+    return [c1, c2, c3].map(toRgbString);
+  }
+
   // Very low spread: minimal but visible dither (simple dark/light pair)
   if (spread <= 0.01) {
     const darker = (channel: number) => clamp(Math.round(channel * 0.6), 0, 255);
