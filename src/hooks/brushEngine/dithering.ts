@@ -498,11 +498,11 @@ export const applySierraLiteDither = (imageData: ImageData, numColors: number, c
       data[idx + 2] = newB;
       
       // Distribute error using Sierra Lite weights
-      // Pre-calculate noise values for better performance
-      const noiseAmount = 2; // Small noise to break up patterns
-      const noise1 = (Math.random() - 0.5) * noiseAmount;
-      const noise2 = (Math.random() - 0.5) * noiseAmount;
-      const noise3 = (Math.random() - 0.5) * noiseAmount;
+      // Keep noise deterministic during live preview to avoid flicker
+      const noiseAmount = 0;
+      const noise1 = 0;
+      const noise2 = 0;
+      const noise3 = 0;
       
       // Right pixel (2/4 of error)
       if (x < width - 1) {

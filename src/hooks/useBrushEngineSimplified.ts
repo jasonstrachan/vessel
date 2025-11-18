@@ -501,6 +501,57 @@ export const useBrushEngineSimplified = () => {
   });
   const alphaProbeCanvasRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const strokeBoundsRef = useRef<Rect | null>(null);
+  const liveStrokeRawRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
+  const liveStrokeDitherRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
+  const liveStrokeBoundsRef = useRef<Rect | null>(null);
+  const liveRenderScheduledRef = useRef(false);
+
+  const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
+    if (typeof document === 'undefined') {
+      return false;
+    }
+    const width = ctx.canvas?.width ?? 0;
+    const height = ctx.canvas?.height ?? 0;
+    if (!width || !height) {
+      return false;
+    }
+
+    const ensureCanvas = (ref: { current: HTMLCanvasElement | OffscreenCanvas | null }) => {
+      const existing = ref.current as HTMLCanvasElement | null;
+      if (!existing) {
+        const c = document.createElement('canvas');
+        c.width = width;
+        c.height = height;
+        ref.current = c;
+        return;
+      }
+      if (existing.width !== width || existing.height !== height) {
+        existing.width = width;
+        existing.height = height;
+        const bufferCtx = pick2D(existing);
+        bufferCtx?.clearRect(0, 0, width, height);
+      }
+    };
+
+    ensureCanvas(liveStrokeRawRef);
+    ensureCanvas(liveStrokeDitherRef);
+    return Boolean(liveStrokeRawRef.current && liveStrokeDitherRef.current);
+  }, []);
+
+  const clearLiveStrokeBuffers = useCallback(() => {
+    const raw = liveStrokeRawRef.current;
+    const dither = liveStrokeDitherRef.current;
+    if (raw) {
+      const rawCtx = pick2D(raw);
+      rawCtx?.clearRect(0, 0, (raw as { width?: number }).width ?? 0, (raw as { height?: number }).height ?? 0);
+    }
+    if (dither) {
+      const ditherCtx = pick2D(dither);
+      ditherCtx?.clearRect(0, 0, (dither as { width?: number }).width ?? 0, (dither as { height?: number }).height ?? 0);
+    }
+    liveStrokeBoundsRef.current = null;
+    liveRenderScheduledRef.current = false;
+  }, []);
 
   const layerHasAnyAlpha = useCallback(() => {
     const mask = getActiveLayerBitmapCanvas();
@@ -1277,6 +1328,63 @@ export const useBrushEngineSimplified = () => {
     }
   }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize]);
 
+  const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
+    liveRenderScheduledRef.current = false;
+    const rawCanvas = liveStrokeRawRef.current;
+    const ditherCanvas = liveStrokeDitherRef.current;
+    const strokeBounds = liveStrokeBoundsRef.current ?? strokeBoundsRef.current;
+    if (!rawCanvas || !ditherCanvas || !strokeBounds) {
+      return;
+    }
+
+    const canvasWidth = visibleCtx.canvas?.width ?? 0;
+    const canvasHeight = visibleCtx.canvas?.height ?? 0;
+    const region = normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight);
+    const { x, y, width, height } = region;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    const rawCtx = pick2D(rawCanvas) as CanvasRenderingContext2D | null;
+    const ditherCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
+    if (!rawCtx || !ditherCtx) {
+      return;
+    }
+
+    let src: ImageData;
+    try {
+      src = rawCtx.getImageData(x, y, width, height);
+    } catch {
+      return;
+    }
+
+    ditherCtx.clearRect(x, y, width, height);
+    try {
+      ditherCtx.putImageData(src, x, y);
+    } catch {
+      return;
+    }
+
+    applyStrokeDither(ditherCtx, region);
+
+    withAlphaLock(visibleCtx, (targetCtx) => {
+      targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+    }, strokeBounds);
+  }, [applyStrokeDither, withAlphaLock]);
+
+  const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
+    if (liveRenderScheduledRef.current) {
+      return;
+    }
+    liveRenderScheduledRef.current = true;
+    const cb = () => renderLiveStrokePreview(visibleCtx);
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(cb);
+    } else {
+      setTimeout(cb, 16);
+    }
+  }, [renderLiveStrokePreview]);
+
   /**
    * Main drawing function - simplified interface
    */
@@ -1315,6 +1423,13 @@ export const useBrushEngineSimplified = () => {
     if (typeof window !== 'undefined') {
       window.__AL_sample = { x: to.x, y: to.y, tag: 'drawBrush' };
     }
+    if (!ensureLiveStrokeBuffers(ctx)) {
+      return;
+    }
+    const rawCtx = pick2D(liveStrokeRawRef.current) as CanvasRenderingContext2D | null;
+    if (!rawCtx) {
+      return;
+    }
     const segmentBounds = estimateStrokeBounds(
       from,
       to,
@@ -1322,12 +1437,12 @@ export const useBrushEngineSimplified = () => {
       cursor.customBrushData
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
+    liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
 
-    withAlphaLock(ctx, (targetCtx) => {
-      brushEngine.renderBrushStroke(targetCtx, strokeParams);
-    }, segmentBounds);
-    // Dithering is applied once in finalizeStroke
-  }, [brushEngine, withAlphaLock, estimateStrokeBounds]);
+    brushEngine.renderBrushStroke(rawCtx, strokeParams);
+    scheduleLiveStrokeRender(ctx);
+    // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
 
   /**
    * Draw a single stamp at a position
@@ -1355,30 +1470,67 @@ export const useBrushEngineSimplified = () => {
       strokeParams.pressure
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
+    liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
 
-    withAlphaLock(ctx, (targetCtx) => {
-      brushEngine.renderBrushStroke(targetCtx, strokeParams);
-    }, segmentBounds);
-    // Dithering is applied once in finalizeStroke
-  }, [brushEngine, withAlphaLock, estimateStrokeBounds]);
+    if (!ensureLiveStrokeBuffers(ctx)) {
+      return;
+    }
+    const rawCtx = pick2D(liveStrokeRawRef.current) as CanvasRenderingContext2D | null;
+    if (!rawCtx) {
+      return;
+    }
+
+    brushEngine.renderBrushStroke(rawCtx, strokeParams);
+    scheduleLiveStrokeRender(ctx);
+    // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
    */
   const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D): Rect | null => {
-    const strokeBounds = strokeBoundsRef.current ?? null;
-    withAlphaLock(ctx, (targetCtx) => {
-      brushEngine.finalizeStroke(targetCtx);
-    }, strokeBounds ?? undefined);
+    const strokeBounds = strokeBoundsRef.current ?? liveStrokeBoundsRef.current ?? null;
+    const rawCanvas = liveStrokeRawRef.current;
+    const ditherCanvas = liveStrokeDitherRef.current;
+    const canvasWidth = ctx.canvas?.width ?? 0;
+    const canvasHeight = ctx.canvas?.height ?? 0;
+    const region = strokeBounds ? normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight) : null;
 
-    // Apply dithering ONCE over the full stroke envelope for stability
-    if (strokeBounds) {
-      applyStrokeDither(ctx, strokeBounds);
+    const rawCtx = rawCanvas ? (pick2D(rawCanvas) as CanvasRenderingContext2D | null) : null;
+    const ditherCtx = ditherCanvas ? (pick2D(ditherCanvas) as CanvasRenderingContext2D | null) : null;
+
+    if (rawCtx) {
+      brushEngine.finalizeStroke(rawCtx);
+    } else {
+      withAlphaLock(ctx, (targetCtx) => {
+        brushEngine.finalizeStroke(targetCtx);
+      }, strokeBounds ?? undefined);
     }
 
+    if (strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
+      const { x, y, width, height } = region;
+      let src: ImageData;
+      try {
+        src = rawCtx.getImageData(x, y, width, height);
+      } catch {
+        clearLiveStrokeBuffers();
+        strokeBoundsRef.current = null;
+        return strokeBounds ? { ...strokeBounds } : null;
+      }
+
+      ditherCtx.clearRect(x, y, width, height);
+      ditherCtx.putImageData(src, x, y);
+      applyStrokeDither(ditherCtx, strokeBounds);
+
+      withAlphaLock(ctx, (targetCtx) => {
+        targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+      }, strokeBounds);
+    }
+
+    clearLiveStrokeBuffers();
     strokeBoundsRef.current = null;
     return strokeBounds ? { ...strokeBounds } : null;
-  }, [applyStrokeDither, brushEngine, withAlphaLock]);
+  }, [applyStrokeDither, brushEngine, clearLiveStrokeBuffers, withAlphaLock]);
 
   /**
    * Reset for new stroke
@@ -1386,7 +1538,8 @@ export const useBrushEngineSimplified = () => {
   const resetStroke = useCallback(() => {
     brushEngine.resetStroke();
     strokeBoundsRef.current = null;
-  }, [brushEngine]);
+    clearLiveStrokeBuffers();
+  }, [brushEngine, clearLiveStrokeBuffers]);
 
   /**
    * Apply dithering effect
