@@ -7,27 +7,67 @@
  * Parse a color string to RGB values
  */
 export const parseColor = (color: string): [number, number, number] => {
-  // Create a temporary canvas context for color parsing
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d')!;
-  
-  ctx.fillStyle = '#000'; // Clear previous state
-  ctx.fillStyle = color;
-  const computedColor = ctx.fillStyle;
-
-  if (computedColor.startsWith('#')) {
-    const hex = computedColor.slice(1);
+  // Manual parsing first to stay SSR-safe
+  const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (hex.length === 3) {
+      return [
+        parseInt(hex[0] + hex[0], 16),
+        parseInt(hex[1] + hex[1], 16),
+        parseInt(hex[2] + hex[2], 16)
+      ];
+    }
     return [
-      parseInt(hex.slice(0, 2), 16), 
-      parseInt(hex.slice(2, 4), 16), 
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
       parseInt(hex.slice(4, 6), 16)
     ];
   }
-  if (computedColor.startsWith('rgb')) {
-    const matches = computedColor.match(/\d+/g);
-    if (!matches) return [0, 0, 0];
-    return [parseInt(matches[0]), parseInt(matches[1]), parseInt(matches[2])];
+
+  const rgbMatch = color.match(/^rgba?\(([^)]+)\)/i);
+  if (rgbMatch) {
+    const parts = rgbMatch[1].split(',').map((p) => p.trim());
+    if (parts.length >= 3) {
+      return [
+        parseInt(parts[0], 10) || 0,
+        parseInt(parts[1], 10) || 0,
+        parseInt(parts[2], 10) || 0
+      ];
+    }
   }
+
+  // Browser-only fallback for named colors
+  if (typeof document !== 'undefined') {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#000';
+        ctx.fillStyle = color;
+        const computed = ctx.fillStyle;
+        if (computed.startsWith('#')) {
+          const hex = computed.slice(1);
+          return [
+            parseInt(hex.slice(0, 2), 16),
+            parseInt(hex.slice(2, 4), 16),
+            parseInt(hex.slice(4, 6), 16)
+          ];
+        }
+        const matches = computed.match(/\d+/g);
+        if (matches && matches.length >= 3) {
+          return [
+            parseInt(matches[0], 10) || 0,
+            parseInt(matches[1], 10) || 0,
+            parseInt(matches[2], 10) || 0
+          ];
+        }
+      }
+    } catch {
+      // ignore parse failures in non-DOM environments
+    }
+  }
+
   return [0, 0, 0];
 };
 

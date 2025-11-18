@@ -101,8 +101,9 @@ export const normalizeAlignment = (
   alignment?: Partial<LayerAlignmentSettings> | null
 ): LayerAlignmentSettings => {
   const desiredFit = alignment?.fit;
-  const defaultHorizontal = desiredFit === 'tile' ? 'center' : 'left';
-  const defaultVertical = desiredFit === 'tile' ? 'center' : 'top';
+  // Default to centered placement so layers without explicit anchors remain centered in the viewport.
+  const defaultHorizontal = 'center';
+  const defaultVertical = 'center';
   const horizontal = alignment?.horizontal ?? defaultHorizontal;
   const vertical = alignment?.vertical ?? defaultVertical;
   const normalized: LayerAlignmentSettings = {
@@ -142,9 +143,20 @@ const resolvePaintedBounds = (bounds?: Rect | null, fallback?: Size2D): Rect => 
 // - By default we respect the full document bounds, but once painted bounds exist we
 //   scale against the visible pixels so AUTO/ANCHOR don't drift from the user's crop.
 // - Anchor never scales; it just positions the raw painted rectangle inside the viewport.
-const getBasisSize = (document: Size2D, paintedBounds?: Rect | null): { w: number; h: number } => {
-  const w = clampDimension(paintedBounds?.width ?? document.width);
-  const h = clampDimension(paintedBounds?.height ?? document.height);
+const getBasisSize = (
+  document: Size2D,
+  paintedBounds: Rect | null,
+  alignment: LayerAlignmentSettings
+): { w: number; h: number } => {
+  const usePaintedBounds = alignment.positioning === 'anchor' || alignment.fit === 'tile';
+
+  const w = usePaintedBounds
+    ? clampDimension(paintedBounds?.width ?? document.width)
+    : clampDimension(document.width);
+  const h = usePaintedBounds
+    ? clampDimension(paintedBounds?.height ?? document.height)
+    : clampDimension(document.height);
+
   return { w, h };
 };
 
@@ -168,7 +180,7 @@ export const computeLayerTransform = (
   const percentX = normalized.offsetPercent?.x ?? 0;
   const percentY = normalized.offsetPercent?.y ?? 0;
 
-  const { w: basisWidth, h: basisHeight } = getBasisSize(safeDocument, painted);
+  const { w: basisWidth, h: basisHeight } = getBasisSize(safeDocument, painted, normalized);
   const viewportWidth = safeViewport.width;
   const viewportHeight = safeViewport.height;
   const isAnchor = normalized.positioning === 'anchor';
@@ -264,8 +276,9 @@ export const computeLayerDestination = (
   const normalized = normalizeAlignment(input.alignment);
   const painted = resolvePaintedBounds(input.paintedBounds, safeDocument);
 
-  const basisWidth = Math.max(MIN_DIMENSION, painted.width);
-  const basisHeight = Math.max(MIN_DIMENSION, painted.height);
+  const usePaintedBounds = normalized.positioning === 'anchor' || normalized.fit === 'tile';
+  const basisWidth = usePaintedBounds ? Math.max(MIN_DIMENSION, painted.width) : safeDocument.width;
+  const basisHeight = usePaintedBounds ? Math.max(MIN_DIMENSION, painted.height) : safeDocument.height;
 
   let width: number;
   let height: number;

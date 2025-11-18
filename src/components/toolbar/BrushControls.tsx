@@ -1809,6 +1809,33 @@ const BrushControls = () => {
   if (isShapeFillBrush) {
     return (
       <div className="flex flex-col gap-4">
+        <div className="px-4">
+          <div className="flex items-center gap-2 mb-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Dither
+            </label>
+            <CustomSwitch
+              checked={Boolean(activeSettings.ditherEnabled)}
+              onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
+            />
+            {activeSettings.ditherEnabled && (
+              <div className="flex items-center gap-2 flex-1">
+                <span className="text-[#D9D9D9] text-xs">Res</span>
+                <ProgressSlider
+                  value={activeSettings.fillResolution || 1}
+                  min={1}
+                  max={16}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ fillResolution: Math.max(1, Math.round(value)) })
+                  }
+                  aria-label="Dither Resolution"
+                  className="flex-1"
+                />
+              </div>
+            )}
+          </div>
+        </div>
         <ShapeFillControls />
       </div>
     );
@@ -1912,6 +1939,35 @@ const BrushControls = () => {
             aria-label="Spacing"
             className="flex-1"
           />
+        </div>
+      </div>
+
+      {/* Dither */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            Dither
+          </label>
+          <CustomSwitch
+            checked={Boolean(activeSettings.ditherEnabled)}
+            onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
+          />
+          {activeSettings.ditherEnabled && (
+            <div className="flex items-center gap-2 flex-1">
+              <span className="text-[#D9D9D9] text-xs">Res</span>
+              <ProgressSlider
+                value={activeSettings.fillResolution || 1}
+                min={1}
+                max={16}
+                step={1}
+                onChange={(value) =>
+                  setActiveSettings({ fillResolution: Math.max(1, Math.round(value)) })
+                }
+                aria-label="Dither Resolution"
+                className="flex-1"
+              />
+            </div>
+          )}
         </div>
       </div>
 

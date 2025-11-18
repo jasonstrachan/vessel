@@ -56,8 +56,8 @@ const normalizeFit = (fit) => {
 export const normalizeAlignment = (alignment) => {
     var _a, _b, _c;
     const desiredFit = alignment === null || alignment === void 0 ? void 0 : alignment.fit;
-    const defaultHorizontal = desiredFit === 'tile' ? 'center' : 'left';
-    const defaultVertical = desiredFit === 'tile' ? 'center' : 'top';
+    const defaultHorizontal = 'center';
+    const defaultVertical = 'center';
     const horizontal = (_a = alignment === null || alignment === void 0 ? void 0 : alignment.horizontal) !== null && _a !== void 0 ? _a : defaultHorizontal;
     const vertical = (_b = alignment === null || alignment === void 0 ? void 0 : alignment.vertical) !== null && _b !== void 0 ? _b : defaultVertical;
     const normalized = {
@@ -92,10 +92,15 @@ const resolvePaintedBounds = (bounds, fallback) => {
 // - By default we respect the full document bounds, but once painted bounds exist we
 //   scale against the visible pixels so AUTO/ANCHOR don't drift from the user's crop.
 // - Anchor never scales; it just positions the raw painted rectangle inside the viewport.
-const getBasisSize = (document, paintedBounds) => {
-    var _a, _b;
-    const w = clampDimension((_a = paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.width) !== null && _a !== void 0 ? _a : document.width);
-    const h = clampDimension((_b = paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.height) !== null && _b !== void 0 ? _b : document.height);
+const getBasisSize = (document, paintedBounds, alignment) => {
+    var _a, _b, _c, _d;
+    const usePaintedBounds = alignment.positioning === 'anchor' || alignment.fit === 'tile';
+    const w = usePaintedBounds
+        ? clampDimension((_a = paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.width) !== null && _a !== void 0 ? _a : document.width)
+        : clampDimension((_b = document.width) !== null && _b !== void 0 ? _b : MIN_DIMENSION);
+    const h = usePaintedBounds
+        ? clampDimension((_c = paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.height) !== null && _c !== void 0 ? _c : document.height)
+        : clampDimension((_d = document.height) !== null && _d !== void 0 ? _d : MIN_DIMENSION);
     return { w, h };
 };
 export const computeLayerTransform = (document, viewport, alignment, _options = {}) => {
@@ -108,7 +113,7 @@ export const computeLayerTransform = (document, viewport, alignment, _options = 
         : null;
     const percentX = (_b = (_a = normalized.offsetPercent) === null || _a === void 0 ? void 0 : _a.x) !== null && _b !== void 0 ? _b : 0;
     const percentY = (_d = (_c = normalized.offsetPercent) === null || _c === void 0 ? void 0 : _c.y) !== null && _d !== void 0 ? _d : 0;
-    const { w: basisWidth, h: basisHeight } = getBasisSize(safeDocument, painted);
+    const { w: basisWidth, h: basisHeight } = getBasisSize(safeDocument, painted, normalized);
     const viewportWidth = safeViewport.width;
     const viewportHeight = safeViewport.height;
     const isAnchor = normalized.positioning === 'anchor';
@@ -190,8 +195,9 @@ export const computeLayerDestination = (input) => {
     const safeViewport = resolveViewport(input.viewport);
     const normalized = normalizeAlignment(input.alignment);
     const painted = resolvePaintedBounds(input.paintedBounds, safeDocument);
-    const basisWidth = Math.max(MIN_DIMENSION, painted.width);
-    const basisHeight = Math.max(MIN_DIMENSION, painted.height);
+    const usePaintedBounds = normalized.positioning === 'anchor' || normalized.fit === 'tile';
+    const basisWidth = usePaintedBounds ? Math.max(MIN_DIMENSION, painted.width) : safeDocument.width;
+    const basisHeight = usePaintedBounds ? Math.max(MIN_DIMENSION, painted.height) : safeDocument.height;
     let width;
     let height;
     switch (normalized.fit) {

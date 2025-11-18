@@ -1386,8 +1386,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Always prevent default to avoid browser drag behavior
     event.preventDefault();
     
-    // Capture pointer for consistent events even when pointer moves outside canvas
-    (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
+    // Capture pointer for consistent events even when pointer moves outside canvas.
+    // On synthesized starts (e.g., when we trigger from pointermove after entering),
+    // setPointerCapture may throw because no prior pointerdown occurred; guard it.
+    try {
+      (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
+    } catch {
+      // best effort; continue without capture
+    }
 
     pointerInsideCanvas = true;
     const shouldAlignCursor = shouldPixelAlignCursor(tools.brushSettings);
@@ -1445,6 +1451,19 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       shouldAlignCursor
     );
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
+
+    // If the pointer was pressed outside the canvas and dragged in, start the stroke
+    // as soon as it enters so the first in-bounds move produces paint.
+    if (
+      !isMouseDownRef.current &&
+      pointerInsideCanvas &&
+      (event.buttons & 1) === 1 && // primary button held
+      !pan.panState.isPanning &&
+      !isSpacePressedRef.current
+    ) {
+      handlePointerDown(event as unknown as React.PointerEvent<HTMLCanvasElement>);
+      return;
+    }
     // Intentionally quiet
 
     if (tools.currentTool === 'color-picker') {
@@ -2251,6 +2270,80 @@ function cssColorToHex(color: string): string {
     );
 
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
+
+    // Fallback: if the pointer was pressed outside the canvas and enters while the primary
+    // button is still held, bootstrap a stroke so drawing begins immediately.
+    if (
+      !interaction.state.isDrawing &&
+      (event.buttons & 1) === 1 && // primary button held
+      !isMouseDownRef.current &&
+      !pan.panState.isPanning &&
+      !isSpacePressedRef.current &&
+      !tools.shapeMode &&
+      (tools.currentTool === 'brush' || tools.currentTool === 'eraser')
+    ) {
+      // Recompute pressure similarly to pointerdown
+      let pressure = event.pressure ?? 0.5;
+      if (event.pointerType === 'mouse') {
+        pressure = tools.brushSettings.pressureEnabled ? 1 : 0.5;
+      }
+
+      // Respect layer/brush compatibility
+      if (tools.currentTool !== 'eraser') {
+        const compat = checkLayerBrushCompatibility();
+        if (!compat.ok) {
+          deps.feedback?.(compat.message);
+          // Do not start stroke; let cursor keep updating
+        } else {
+          const brushPresetId = getDynamicDeps().currentBrushPresetId;
+          const activeLayerId = getDynamicDeps().activeLayerId ?? null;
+          strokeStartWorldPosRef.current = worldPos;
+          lastBrushSampleWorldPosRef.current = worldPos;
+          shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
+          isMouseDownRef.current = true;
+          stateMachine.dispatch({
+            type: 'MOUSE_DOWN',
+            button: 0,
+            position: currentPointerPos,
+            tool: tools.currentTool,
+            pressure,
+          });
+          drawingHandlers.beginStrokeSession({
+            pointerId: event.pointerId,
+            layerId: activeLayerId,
+            tool: tools.currentTool,
+            brushId: brushPresetId ?? undefined,
+          });
+          interaction.dispatch({ type: 'DRAWING_START', pressure });
+          drawingHandlers.startDrawing(worldPos, pressure);
+          return; // Stroke started; ignore the rest of this move handler
+        }
+      } else {
+        // Eraser is always allowed on any layer
+        const brushPresetId = getDynamicDeps().currentBrushPresetId;
+        const activeLayerId = getDynamicDeps().activeLayerId ?? null;
+        strokeStartWorldPosRef.current = worldPos;
+        lastBrushSampleWorldPosRef.current = worldPos;
+        shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
+        isMouseDownRef.current = true;
+        stateMachine.dispatch({
+          type: 'MOUSE_DOWN',
+          button: 0,
+          position: currentPointerPos,
+          tool: tools.currentTool,
+          pressure,
+        });
+        drawingHandlers.beginStrokeSession({
+          pointerId: event.pointerId,
+          layerId: activeLayerId,
+          tool: tools.currentTool,
+          brushId: brushPresetId ?? undefined,
+        });
+        interaction.dispatch({ type: 'DRAWING_START', pressure });
+        drawingHandlers.startDrawing(worldPos, pressure);
+        return;
+      }
+    }
 
     if (
       freehandCaptureState.active &&

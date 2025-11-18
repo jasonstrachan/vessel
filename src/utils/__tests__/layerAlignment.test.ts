@@ -9,6 +9,14 @@ describe('normalizeAlignment', () => {
     expect(normalized.vertical).toBe('center');
   });
 
+  test('defaults unspecified axes to centered placement', () => {
+    const normalized = normalizeAlignment({});
+    expect(normalized.horizontal).toBe('center');
+    expect(normalized.vertical).toBe('center');
+    expect(normalized.offsetPercent?.x).toBe(50);
+    expect(normalized.offsetPercent?.y).toBe(50);
+  });
+
   test('coerces legacy uniform fits to contain', () => {
     const normalized = normalizeAlignment({ fit: 'uniform' } as unknown as LayerAlignmentSettings);
     expect(normalized.fit).toBe('contain');
@@ -88,6 +96,32 @@ describe('computeLayerTransform', () => {
     const leftoverY = viewport.height - renderedHeight;
     expectClose(transform.translateX, leftoverX * 0.2);
     expectClose(transform.translateY, leftoverY * 0.4);
+  });
+
+  test('auto positioning centers full-bleed layers when viewport is larger', () => {
+    const alignment: LayerAlignmentSettings = {
+      fit: 'contain',
+      horizontal: 'center',
+      vertical: 'center',
+      positioning: 'auto',
+      offsetPercent: { x: 50, y: 50 }
+    };
+
+    const documentSize = { width: 100, height: 100 };
+    const viewport = { width: 250, height: 200 };
+
+    const transform = computeLayerTransform(documentSize, viewport, alignment);
+
+    const expectedScale = Math.min(viewport.width / documentSize.width, viewport.height / documentSize.height);
+    const renderedWidth = documentSize.width * expectedScale;
+    const renderedHeight = documentSize.height * expectedScale;
+    const leftoverX = viewport.width - renderedWidth;
+    const leftoverY = viewport.height - renderedHeight;
+
+    expectClose(transform.scaleX, expectedScale);
+    expectClose(transform.scaleY, expectedScale);
+    expectClose(transform.translateX, leftoverX / 2);
+    expectClose(transform.translateY, leftoverY / 2);
   });
 
   test('tile fit leaves scale at 1 while translating by percent offsets', () => {

@@ -47,11 +47,11 @@ const normalizeVerticalAxis = (value?: string): LayerVerticalAlignment => {
  */
 export const createDefaultLayerAlignment = (): LayerAlignmentSettings => ({
   fit: 'contain',
-  horizontal: 'left',
-  vertical: 'top',
+  horizontal: 'center',
+  vertical: 'center',
   positioning: 'auto',
   offsetPx: { x: 0, y: 0 },
-  offsetPercent: { x: 0, y: 0 }
+  offsetPercent: { x: 50, y: 50 }
 });
 
 export const cloneLayerAlignment = (alignment?: LayerAlignmentSettings): LayerAlignmentSettings => {

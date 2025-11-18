@@ -9,11 +9,13 @@ import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams
 import { BrushShape, type Layer, type BrushSettings } from '../types';
 import { getRisographPattern, getRisographEffectSettings } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
+import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { isColorCycleBrush } from '@/utils/colorCycleGradients';
 
 declare global {
   interface Window {
@@ -1137,6 +1139,144 @@ export const useBrushEngineSimplified = () => {
     }
   }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
 
+  const shouldApplyStrokeDither = useMemo(() => {
+    const shape = tools.brushSettings.brushShape;
+    if (isColorCycleBrush(shape)) {
+      return false;
+    }
+    if (shape === BrushShape.RECTANGLE_GRADIENT || shape === BrushShape.POLYGON_GRADIENT) {
+      return false;
+    }
+    return Boolean(tools.brushSettings.ditherEnabled);
+  }, [tools.brushSettings.brushShape, tools.brushSettings.ditherEnabled]);
+
+  const strokeDitherPalette = useMemo(() => {
+    const [r, g, b] = parseColor(tools.brushSettings.color || '#000');
+    const darker = (channel: number) => clamp(Math.round(channel * 0.6), 0, 255);
+    const lighter = (channel: number) => clamp(Math.round(channel * 1.35), 0, 255);
+    return [
+      `rgb(${darker(r)}, ${darker(g)}, ${darker(b)})`,
+      `rgb(${lighter(r)}, ${lighter(g)}, ${lighter(b)})`
+    ];
+  }, [tools.brushSettings.color]);
+
+  const strokeDitherPixelSize = useMemo(
+    () => Math.max(1, Math.round(tools.brushSettings.fillResolution || 1)),
+    [tools.brushSettings.fillResolution]
+  );
+
+  const applyStrokeDither = useCallback((
+    ctx: CanvasRenderingContext2D,
+    bounds: Rect | null
+  ) => {
+    if (!shouldApplyStrokeDither || !ctx || !bounds) {
+      return;
+    }
+
+    const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
+    const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
+
+    // Anchor dithering grid to the canvas, not to each stroke segment, so tiles stay stable.
+    const pixel = Math.max(1, strokeDitherPixelSize);
+    const x0 = Math.max(0, Math.floor(region.x / pixel) * pixel);
+    const y0 = Math.max(0, Math.floor(region.y / pixel) * pixel);
+    const x1 = Math.min(canvasWidth, Math.ceil((region.x + region.width) / pixel) * pixel);
+    const y1 = Math.min(canvasHeight, Math.ceil((region.y + region.height) / pixel) * pixel);
+    const x = x0;
+    const y = y0;
+    const w = Math.max(0, x1 - x0);
+    const h = Math.max(0, y1 - y0);
+
+    if (w <= 0 || h <= 0) {
+      return;
+    }
+
+    let afterData: ImageData;
+    try {
+      afterData = ctx.getImageData(x, y, w, h);
+    } catch (error) {
+      console.warn('[Dither] Failed to sample stroke region for dithering:', error);
+      return;
+    }
+
+    const srcData = afterData.data;
+
+    // 1) Build coverage from the stroke alpha (this is your inherent stroke mask)
+    //    and also capture a representative base color from the first covered pixel.
+    const coverage = new Uint8Array(w * h);
+    let baseR = 0;
+    let baseG = 0;
+    let baseB = 0;
+    let hasBase = false;
+
+    for (let i = 0, a = 3; a < srcData.length; i++, a += 4) {
+      const alpha = srcData[a];
+      coverage[i] = alpha; // 0..255, preserves soft edges / brush behaviour
+
+      if (!hasBase && alpha > 0) {
+        // Take the first non-transparent pixel as the base color
+        baseR = srcData[a - 3];
+        baseG = srcData[a - 2];
+        baseB = srcData[a - 1];
+        hasBase = true;
+      }
+    }
+
+    if (!hasBase) {
+      // Nothing was drawn in this region
+      return;
+    }
+
+    // 2) Build a completely uniform color field for dithering.
+    //    IMPORTANT: this ignores the stroke shape; the ditherer now sees NO silhouette.
+    const flat = ctx.createImageData(w, h);
+    const flatData = flat.data;
+
+    for (let i = 0, a = 0; a < flatData.length; i++, a += 4) {
+      flatData[a]     = baseR;
+      flatData[a + 1] = baseG;
+      flatData[a + 2] = baseB;
+      flatData[a + 3] = 255;   // fully opaque for dithering purposes
+    }
+
+    // 3) Dither the flat field with your coarse pixel size.
+    const dithered = applyDitheringWithFillResolution(
+      flat,
+      strokeDitherPalette.length,
+      strokeDitherPixelSize,
+      'sierra-lite',
+      undefined,
+      strokeDitherPalette
+    );
+
+    // 4) Composite: apply the stroke mask AFTER dithering.
+    //    This is where the shape/AA/pressure are preserved.
+    const out = dithered.data;
+    for (let i = 0, a = 0; a < out.length; i++, a += 4) {
+      const alpha = coverage[i];
+
+      if (alpha === 0) {
+        // Outside stroke: clear completely
+        out[a] = 0;
+        out[a + 1] = 0;
+        out[a + 2] = 0;
+        out[a + 3] = 0;
+        continue;
+      }
+
+      // Inside stroke:
+      // - keep dithered RGB
+      // - restore original alpha so the brush edge stays exactly as rendered.
+      out[a + 3] = alpha;
+    }
+
+    try {
+      ctx.putImageData(dithered, x, y);
+    } catch (error) {
+      console.warn('[Dither] Failed to write dithered stroke region:', error);
+    }
+  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize]);
+
   /**
    * Main drawing function - simplified interface
    */
@@ -1186,6 +1326,7 @@ export const useBrushEngineSimplified = () => {
     withAlphaLock(ctx, (targetCtx) => {
       brushEngine.renderBrushStroke(targetCtx, strokeParams);
     }, segmentBounds);
+    // Dithering is applied once in finalizeStroke
   }, [brushEngine, withAlphaLock, estimateStrokeBounds]);
 
   /**
@@ -1218,6 +1359,7 @@ export const useBrushEngineSimplified = () => {
     withAlphaLock(ctx, (targetCtx) => {
       brushEngine.renderBrushStroke(targetCtx, strokeParams);
     }, segmentBounds);
+    // Dithering is applied once in finalizeStroke
   }, [brushEngine, withAlphaLock, estimateStrokeBounds]);
 
   /**
@@ -1228,9 +1370,15 @@ export const useBrushEngineSimplified = () => {
     withAlphaLock(ctx, (targetCtx) => {
       brushEngine.finalizeStroke(targetCtx);
     }, strokeBounds ?? undefined);
+
+    // Apply dithering ONCE over the full stroke envelope for stability
+    if (strokeBounds) {
+      applyStrokeDither(ctx, strokeBounds);
+    }
+
     strokeBoundsRef.current = null;
     return strokeBounds ? { ...strokeBounds } : null;
-  }, [brushEngine, withAlphaLock]);
+  }, [applyStrokeDither, brushEngine, withAlphaLock]);
 
   /**
    * Reset for new stroke
