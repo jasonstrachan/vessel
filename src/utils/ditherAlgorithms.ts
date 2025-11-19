@@ -454,6 +454,160 @@ export const applySierraLitePressureDither = (
 };
 
 /**
+ * Generate an edge mask that breaks up stroke boundaries using Sierra Lite dithering.
+ * `coverage` is the alpha channel (0-255) for a stroke region.
+ * Returns a per-pixel keep mask (0-255) to be multiplied with the existing alpha.
+ */
+export const applySierraLiteLostEdgeMask = (
+  coverage: Uint8Array,
+  width: number,
+  height: number,
+  lostEdge: number,
+  tileSize: number = 4
+): Uint8ClampedArray => {
+  const intensity = Math.max(0, Math.min(1, lostEdge / 100));
+  const pixelCount = width * height;
+
+  const tile = Math.max(2, Math.min(8, Math.round(tileSize)));
+  const coarseW = Math.max(1, Math.ceil(width / tile));
+  const coarseH = Math.max(1, Math.ceil(height / tile));
+  const coarsePixelCount = coarseW * coarseH;
+
+  const keepMask = new Uint8ClampedArray(pixelCount);
+  const keepMaskCoarse = new Uint8ClampedArray(coarsePixelCount);
+  const interiorMaskCoarse = new Uint8Array(coarsePixelCount);
+
+  if (intensity <= 0 || pixelCount === 0 || coverage.length < pixelCount) {
+    keepMask.fill(255);
+    return keepMask;
+  }
+
+  // Downsample coverage into a coarse grid to reduce per-pixel work.
+  const coarseCoverage = new Uint8Array(coarseW * coarseH);
+  for (let cy = 0; cy < coarseH; cy++) {
+    for (let cx = 0; cx < coarseW; cx++) {
+      let maxAlpha = 0;
+      const startY = cy * tile;
+      const startX = cx * tile;
+      const endY = Math.min(height, startY + tile);
+      const endX = Math.min(width, startX + tile);
+      for (let y = startY; y < endY; y++) {
+        const rowOffset = y * width;
+        for (let x = startX; x < endX; x++) {
+          const alpha = coverage[rowOffset + x];
+          if (alpha > maxAlpha) maxAlpha = alpha;
+        }
+      }
+      coarseCoverage[cy * coarseW + cx] = maxAlpha;
+    }
+  }
+
+  // Edge band grows with intensity; clamp to avoid large kernels.
+  // edgeBand is the thickness of the fade zone; bandRadius is search distance for edges.
+  // Edge band target: up to ~100px at max for a dramatic lost edge (in source pixels).
+  const edgeBandPx = Math.max(2, Math.min(100, Math.round(2 + intensity * 98))); // 2px @0 → ~100px @1
+  const edgeBand = Math.max(1, Math.round(edgeBandPx / tile));
+  // Search radius slightly larger than the band to find nearby transparency.
+  const bandRadius = Math.max(edgeBand, Math.min(140, Math.round(edgeBand * 1.2)));
+  const fadeZone = Math.max(1, Math.round(edgeBand * 0.6));
+  const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) / 2)));
+
+  const edgeField = new ImageData(coarseW, coarseH);
+  const edgeData = edgeField.data;
+
+  for (let y = 0; y < coarseH; y++) {
+    for (let x = 0; x < coarseW; x++) {
+      const idx = y * coarseW + x;
+      const alpha = coarseCoverage[idx];
+      const rgbaIndex = idx * 4;
+
+      if (alpha === 0) {
+        // Background
+        edgeData[rgbaIndex] = 0;
+        edgeData[rgbaIndex + 1] = 0;
+        edgeData[rgbaIndex + 2] = 0;
+        edgeData[rgbaIndex + 3] = 255;
+        continue;
+      }
+
+      let minDist = bandRadius + 1;
+
+      if (alpha < 255) {
+        // Already an edge pixel
+        minDist = 0;
+      } else {
+        // Search for nearest transparent pixel within band
+        for (let dy = -bandRadius; dy <= bandRadius; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= coarseH) continue;
+          const rowOffset = ny * coarseW;
+          for (let dx = -bandRadius; dx <= bandRadius; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= coarseW) continue;
+            if (Math.abs(dx) + Math.abs(dy) > bandRadius) continue;
+
+            const neighborAlpha = coarseCoverage[rowOffset + nx];
+            if (neighborAlpha === 0) {
+              const dist = Math.abs(dx) + Math.abs(dy);
+              if (dist < minDist) {
+                minDist = dist;
+                if (minDist === 0) break;
+              }
+            }
+          }
+          if (minDist === 0) break;
+        }
+      }
+
+      if (minDist < effectiveFadeZone) {
+        const fade = Math.min(1, Math.max(0, minDist / effectiveFadeZone));
+        const value = Math.max(0, Math.min(255, Math.round(255 * fade)));
+        edgeData[rgbaIndex] = value;
+        edgeData[rgbaIndex + 1] = value;
+        edgeData[rgbaIndex + 2] = value;
+        edgeData[rgbaIndex + 3] = 255;
+      } else {
+        edgeData[rgbaIndex] = 255;
+        edgeData[rgbaIndex + 1] = 255;
+        edgeData[rgbaIndex + 2] = 255;
+        edgeData[rgbaIndex + 3] = 255;
+        interiorMaskCoarse[idx] = 1;
+      }
+    }
+  }
+
+  // Dither the edge gradient with Sierra Lite to create a patterned falloff.
+  const dithered = applySierraLitePressureDither(edgeField, {
+    algorithm: 'sierra-lite',
+    pressure: 1 - Math.min(0.9, intensity * 0.8),
+    intensity: 1,
+    bayerMatrixSize: 4,
+    palette: [
+      [0, 0, 0],
+      [255, 255, 255]
+    ]
+  });
+
+  const ditheredData = dithered.data;
+  for (let i = 0; i < coarsePixelCount; i++) {
+    keepMaskCoarse[i] = interiorMaskCoarse[i] ? 255 : ditheredData[i * 4];
+  }
+
+  // Upsample coarse mask back to source resolution using nearest-neighbor.
+  for (let y = 0; y < height; y++) {
+    const cy = Math.min(coarseH - 1, Math.floor(y / tile));
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      const cx = Math.min(coarseW - 1, Math.floor(x / tile));
+      const coarseIndex = cy * coarseW + cx;
+      keepMask[rowOffset + x] = keepMaskCoarse[coarseIndex];
+    }
+  }
+
+  return keepMask;
+};
+
+/**
  * Pattern dithering with various styles
  * Creates texture-like dithering patterns using geometric shapes
  */

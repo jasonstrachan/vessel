@@ -12,6 +12,7 @@ import { applyDithering as applyDitheringImport, applyDitheringWithFillResolutio
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
+import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
@@ -1354,6 +1355,10 @@ export const useBrushEngineSimplified = () => {
     return Math.max(1, Math.min(16, Math.round(raw)));
   }, [tools.brushSettings.fillResolution]);
 
+  const strokeLostEdgeAmount = useMemo(() => {
+    return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
+  }, [tools.brushSettings.lostEdge]);
+
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -1462,12 +1467,24 @@ export const useBrushEngineSimplified = () => {
       }
     }
 
+    if (strokeLostEdgeAmount > 0) {
+      const keepMask = applySierraLiteLostEdgeMask(coverage, w, h, strokeLostEdgeAmount);
+      for (let i = 0; i < keepMask.length; i++) {
+        const keep = keepMask[i];
+        if (keep >= 255) continue;
+        const alphaIndex = i * 4 + 3;
+        const alpha = outData[alphaIndex];
+        if (alpha === 0) continue;
+        outData[alphaIndex] = Math.max(0, Math.min(255, Math.round((alpha * keep) / 255)));
+      }
+    }
+
     try {
       ctx.putImageData(out, x, y);
     } catch (error) {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
-  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize]);
+  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;

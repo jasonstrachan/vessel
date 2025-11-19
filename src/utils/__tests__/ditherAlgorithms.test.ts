@@ -6,6 +6,7 @@ import {
   applyFloydSteinbergDither,
   applyBayerDither,
   applySierraLitePressureDither,
+  applySierraLiteLostEdgeMask,
   applyPressureDither,
   calculatePressureDitherThreshold,
   findNearestPaletteColor,
@@ -272,6 +273,36 @@ describe('Dithering Algorithms', () => {
       
       // Results should be different (though we can't easily test the exact difference)
       expect(lowPressureResult.data).not.toEqual(highPressureResult.data);
+    });
+  });
+
+  describe('applySierraLiteLostEdgeMask', () => {
+    const coverage = new Uint8Array([
+      0, 0, 0, 0, 0,
+      0, 255, 255, 255, 0,
+      0, 255, 255, 255, 0,
+      0, 255, 255, 255, 0,
+      0, 0, 0, 0, 0,
+    ]);
+
+    it('returns full mask when intensity is zero', () => {
+      const mask = applySierraLiteLostEdgeMask(coverage, 5, 5, 0);
+      expect(mask.every((v) => v === 255)).toBe(true);
+    });
+
+    it('softens edge pixels while keeping the center opaque', () => {
+      const mask = applySierraLiteLostEdgeMask(coverage, 5, 5, 100, 1);
+      const center = mask[12]; // middle of 5x5
+      const minValue = Math.min(...mask);
+
+      expect(center).toBeGreaterThan(200);
+      expect(minValue).toBeLessThan(255);
+    });
+
+    it('keeps interior opaque with coarse tiling', () => {
+      const mask = applySierraLiteLostEdgeMask(coverage, 5, 5, 80, 4);
+      const center = mask[12];
+      expect(center).toBeGreaterThan(200);
     });
   });
   
