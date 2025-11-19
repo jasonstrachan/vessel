@@ -61,7 +61,7 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
       </div>
       <input
         type="range"
-        className="slider relative z-10"
+        className="slider relative z-10 touch-none"
         style={sliderStyle}
         value={value}
         min={min}
@@ -69,6 +69,9 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         step={step}
         disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+        onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
+        onPointerCancel={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
         aria-label={ariaLabel}
       />
     </div>

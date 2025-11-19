@@ -13,6 +13,7 @@ import {
   LOST_EDGE_SEARCH_SCALE,
   LOST_EDGE_FADE_FRACTION,
   LOST_EDGE_MIN_DIM_TILE_MULTIPLIER,
+  LOST_EDGE_SOLID_SKIP_BAND_PX,
 } from './ditherConstants';
 
 // 8x8 Bayer matrix (normalized to 0-1)
@@ -506,6 +507,7 @@ export const applySierraLiteLostEdgeMask = (
   const coarseCoverage = ensureScratch('coarseCoverage', coarsePixelCount);
   keepMaskCoarse.fill(255);
   interiorMaskCoarse.fill(0);
+  coarseCoverage.fill(0);
 
   if (intensity <= 0 || pixelCount === 0 || coverage.length < pixelCount) {
     keepMask.fill(255);
@@ -513,6 +515,7 @@ export const applySierraLiteLostEdgeMask = (
   }
 
   // Downsample coverage into a coarse grid to reduce per-pixel work.
+  let minAlpha = 255;
   for (let cy = 0; cy < coarseH; cy++) {
     for (let cx = 0; cx < coarseW; cx++) {
       let maxAlpha = 0;
@@ -528,6 +531,7 @@ export const applySierraLiteLostEdgeMask = (
         }
       }
       coarseCoverage[cy * coarseW + cx] = maxAlpha;
+      if (maxAlpha < minAlpha) minAlpha = maxAlpha;
     }
   }
 
@@ -547,7 +551,7 @@ export const applySierraLiteLostEdgeMask = (
 
   // Early bailout for very small regions: lostedge becomes no-op to avoid overwork and artifacts.
   const minDimPx = Math.min(width, height);
-  if (minDimPx < tile * LOST_EDGE_MIN_DIM_TILE_MULTIPLIER) {
+  if (minDimPx < tile * LOST_EDGE_MIN_DIM_TILE_MULTIPLIER || (minAlpha === 255 && edgeBandPx <= LOST_EDGE_SOLID_SKIP_BAND_PX)) {
     keepMask.fill(255);
     return keepMask;
   }

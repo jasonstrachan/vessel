@@ -218,6 +218,7 @@ select option:active {
     background: transparent;
     outline: none;
     opacity: 1;
+    touch-action: none;
     transition: all .2s;
     cursor: pointer;
     flex: 1;
