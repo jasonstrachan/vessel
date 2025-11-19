@@ -3,6 +3,18 @@
  * Implements Floyd-Steinberg and Bayer matrix dithering with pressure control
  */
 
+import {
+  LOST_EDGE_TILE_MIN,
+  LOST_EDGE_TILE_MAX,
+  LOST_EDGE_TILE_DEFAULT,
+  LOST_EDGE_BAND_MIN_PX,
+  LOST_EDGE_BAND_MAX_PX,
+  LOST_EDGE_INTENSITY_EXP,
+  LOST_EDGE_SEARCH_SCALE,
+  LOST_EDGE_FADE_FRACTION,
+  LOST_EDGE_MIN_DIM_TILE_MULTIPLIER,
+} from './ditherConstants';
+
 // 8x8 Bayer matrix (normalized to 0-1)
 export const BAYER_8x8_MATRIX = [
   [0, 32, 8, 40, 2, 34, 10, 42],
@@ -28,6 +40,21 @@ export const BAYER_2x2_MATRIX = [
   [0, 2],
   [3, 1]
 ].map(row => row.map(v => v / 4)); // Normalize to 0-1
+
+// Scratch buffers reused by lost-edge mask to avoid per-stroke allocations
+const lostEdgeScratch = {
+  coarseCoverage: new Uint8Array(0),
+  keepCoarse: new Uint8Array(0),
+  interiorCoarse: new Uint8Array(0),
+};
+
+const ensureScratch = (key: keyof typeof lostEdgeScratch, size: number) => {
+  const buf = lostEdgeScratch[key];
+  if (buf.length >= size) return buf;
+  const next = new Uint8Array(size);
+  lostEdgeScratch[key] = next;
+  return next;
+};
 
 // Pre-computed 16x16 blue noise pattern for dithering
 // This provides organic-looking dithering without visible patterns
@@ -463,19 +490,22 @@ export const applySierraLiteLostEdgeMask = (
   width: number,
   height: number,
   lostEdge: number,
-  tileSize: number = 4
+  tileSize: number = LOST_EDGE_TILE_DEFAULT
 ): Uint8ClampedArray => {
   const intensity = Math.max(0, Math.min(1, lostEdge / 100));
   const pixelCount = width * height;
 
-  const tile = Math.max(2, Math.min(8, Math.round(tileSize)));
+  const tile = Math.max(LOST_EDGE_TILE_MIN, Math.min(LOST_EDGE_TILE_MAX, Math.round(tileSize || LOST_EDGE_TILE_DEFAULT)));
   const coarseW = Math.max(1, Math.ceil(width / tile));
   const coarseH = Math.max(1, Math.ceil(height / tile));
   const coarsePixelCount = coarseW * coarseH;
 
   const keepMask = new Uint8ClampedArray(pixelCount);
-  const keepMaskCoarse = new Uint8ClampedArray(coarsePixelCount);
-  const interiorMaskCoarse = new Uint8Array(coarsePixelCount);
+  const keepMaskCoarse = ensureScratch('keepCoarse', coarsePixelCount);
+  const interiorMaskCoarse = ensureScratch('interiorCoarse', coarsePixelCount);
+  const coarseCoverage = ensureScratch('coarseCoverage', coarsePixelCount);
+  keepMaskCoarse.fill(255);
+  interiorMaskCoarse.fill(0);
 
   if (intensity <= 0 || pixelCount === 0 || coverage.length < pixelCount) {
     keepMask.fill(255);
@@ -483,7 +513,6 @@ export const applySierraLiteLostEdgeMask = (
   }
 
   // Downsample coverage into a coarse grid to reduce per-pixel work.
-  const coarseCoverage = new Uint8Array(coarseW * coarseH);
   for (let cy = 0; cy < coarseH; cy++) {
     for (let cx = 0; cx < coarseW; cx++) {
       let maxAlpha = 0;
@@ -505,17 +534,20 @@ export const applySierraLiteLostEdgeMask = (
   // Edge band grows with intensity; clamp to avoid large kernels.
   // edgeBand is the thickness of the fade zone; bandRadius is search distance for edges.
   // Edge band target: eased mapping up to ~100px at max for dramatic edges, but with softer growth.
-  const eased = Math.pow(intensity, 0.75);
-  const edgeBandPx = Math.max(2, Math.min(100, Math.round(2 + eased * 98))); // 2px @0 → ~100px @1
+  const eased = Math.pow(intensity, LOST_EDGE_INTENSITY_EXP);
+  const edgeBandPx = Math.max(
+    LOST_EDGE_BAND_MIN_PX,
+    Math.min(LOST_EDGE_BAND_MAX_PX, Math.round(LOST_EDGE_BAND_MIN_PX + eased * (LOST_EDGE_BAND_MAX_PX - LOST_EDGE_BAND_MIN_PX)))
+  );
   const edgeBand = Math.max(1, Math.round(edgeBandPx / tile));
   // Search radius slightly larger than the band to find nearby transparency.
-  const bandRadius = Math.max(edgeBand, Math.min(140, Math.round(edgeBand * 1.1)));
-  const fadeZone = Math.max(1, Math.round(edgeBand * 0.6));
+  const bandRadius = Math.max(edgeBand, Math.min(140, Math.round(edgeBand * LOST_EDGE_SEARCH_SCALE)));
+  const fadeZone = Math.max(1, Math.round(edgeBand * LOST_EDGE_FADE_FRACTION));
   const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) / 2)));
 
   // Early bailout for very small regions: lostedge becomes no-op to avoid overwork and artifacts.
   const minDimPx = Math.min(width, height);
-  if (minDimPx < tile * 2) {
+  if (minDimPx < tile * LOST_EDGE_MIN_DIM_TILE_MULTIPLIER) {
     keepMask.fill(255);
     return keepMask;
   }

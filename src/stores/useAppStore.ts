@@ -124,18 +124,6 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
     }
 
     didChange = true;
-    if (__DEV__) {
-      console.groupCollapsed(`[alignment.percentSync] ${layer.id}`);
-      console.log('previousPercent', currentPercent);
-      console.log('nextPercent', nextPercent);
-      console.log('percentFromPx', percentFromPx);
-      console.log('percentFromFrameOrMetrics', percentFromFrameOrMetrics);
-      console.log('offsetPx', offsetPx);
-      console.log('framePx', framePx);
-      console.log('usingPxAsSource', usingPxAsSource);
-      console.log('shouldUseFrame', shouldUseFrame);
-      console.groupEnd();
-    }
     return {
       ...layer,
       alignment: {

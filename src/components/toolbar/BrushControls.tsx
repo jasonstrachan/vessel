@@ -789,7 +789,7 @@ const BrushControls = () => {
               />
             </div>
             <div className="flex items-center gap-2 mt-2 opacity-100">
-              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)">
                 Lostedge
               </label>
               <ProgressSlider
@@ -1814,7 +1814,10 @@ const BrushControls = () => {
                 />
               </div>
               <div className="flex items-center gap-2 flex-1 mt-2">
-                <span className="text-[#D9D9D9] text-xs">
+                <span
+                  className="text-[#D9D9D9] text-xs"
+                  title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
+                >
                   Lostedge
                 </span>
                 <ProgressSlider
@@ -2079,7 +2082,11 @@ const BrushControls = () => {
               />
             </div>
             <div className="flex items-center gap-2 mt-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              <label
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+                title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
+              >
                 Lostedge
               </label>
               <ProgressSlider

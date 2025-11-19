@@ -13,7 +13,6 @@ import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
-import { sharedLostEdgeWorker } from '@/lib/performance/LostEdgeWorkerManager';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
