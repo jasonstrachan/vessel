@@ -1363,12 +1363,21 @@ export const useBrushEngineSimplified = () => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
   }, [tools.brushSettings.lostEdge]);
 
+  const lostEdgePreviewCache = useRef<{
+    key: string | null;
+    mask: Uint8Array | null;
+    width: number;
+    height: number;
+  }>({ key: null, mask: null, width: 0, height: 0 });
+
   const lostEdgeTileSize = 4; // tunable; matches ditherAlgorithms default for now
+  const LOST_EDGE_CACHE_THRESHOLD = 8;
 
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
-    sampleCtx?: CanvasRenderingContext2D
+    sampleCtx?: CanvasRenderingContext2D,
+    opts?: { skipLostEdge?: boolean }
   ) => {
     if (!shouldApplyStrokeDither || !ctx || !bounds) {
       return;
@@ -1478,17 +1487,64 @@ export const useBrushEngineSimplified = () => {
       }
     }
 
-    if (strokeLostEdgeAmount > 0) {
-      // NOTE: Worker offload is async; keep sync path here to avoid awaiting in render pipeline.
-      const mask = applySierraLiteLostEdgeMask(
-        coverage,
-        w,
-        h,
-        strokeLostEdgeAmount,
-        lostEdgeTileSize
-      );
+    if (strokeLostEdgeAmount > 0 && !opts?.skipLostEdge) {
+      const regionKey = `${x}:${y}:${w}:${h}:${strokeLostEdgeAmount}`;
+      let mask: Uint8Array | null = null;
+      if (w * h > LOST_EDGE_CACHE_THRESHOLD) {
+        const cache = lostEdgePreviewCache.current;
+        if (cache.key === regionKey && cache.mask && cache.mask.length === coverage.length) {
+          mask = cache.mask;
+        }
+      }
+      if (!mask) {
+        const downsampleFactor = 1;
+        if (downsampleFactor > 1) {
+          const dsW = Math.max(1, Math.ceil(w / downsampleFactor));
+          const dsH = Math.max(1, Math.ceil(h / downsampleFactor));
+          const downsampled = new Uint8Array(dsW * dsH);
+          for (let py = 0; py < h; py++) {
+            const dy = Math.floor(py / downsampleFactor);
+            for (let px = 0; px < w; px++) {
+              const dx = Math.floor(px / downsampleFactor);
+              const idx = dy * dsW + dx;
+              const srcAlpha = coverage[py * w + px];
+              if (srcAlpha > downsampled[idx]) {
+                downsampled[idx] = srcAlpha;
+              }
+            }
+          }
+          const downsampledMask = applySierraLiteLostEdgeMask(
+            downsampled,
+            dsW,
+            dsH,
+            strokeLostEdgeAmount,
+            lostEdgeTileSize
+          );
+          mask = new Uint8Array(w * h);
+          for (let py = 0; py < h; py++) {
+            const dy = Math.min(dsH - 1, Math.floor(py / downsampleFactor));
+            for (let px = 0; px < w; px++) {
+              const dx = Math.min(dsW - 1, Math.floor(px / downsampleFactor));
+              mask[py * w + px] = downsampledMask[dy * dsW + dx];
+            }
+          }
+        } else {
+          const fullMask = applySierraLiteLostEdgeMask(
+            coverage,
+            w,
+            h,
+            strokeLostEdgeAmount,
+            lostEdgeTileSize
+          );
+          mask = new Uint8Array(fullMask.length);
+          mask.set(fullMask);
+        }
+        if (w * h > LOST_EDGE_CACHE_THRESHOLD) {
+          lostEdgePreviewCache.current = { key: regionKey, mask, width: w, height: h };
+        }
+      }
 
-      for (let i = 0; i < mask.length; i++) {
+      for (let i = 0; mask && i < mask.length; i++) {
         const keep = mask[i];
         if (keep >= 255) continue;
         const alphaIndex = i * 4 + 3;
@@ -1542,7 +1598,7 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
-    applyStrokeDither(ditherCtx, region, rawCtx || undefined);
+    applyStrokeDither(ditherCtx, region, rawCtx || undefined, { skipLostEdge: false });
 
     withAlphaLock(visibleCtx, (targetCtx) => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
@@ -1708,7 +1764,7 @@ export const useBrushEngineSimplified = () => {
 
         ditherCtx.clearRect(x, y, width, height);
         ditherCtx.putImageData(src, x, y);
-        applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
+        applyStrokeDither(ditherCtx, strokeBounds, rawCtx, { skipLostEdge: false });
 
         withAlphaLock(ctx, (targetCtx) => {
           targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);

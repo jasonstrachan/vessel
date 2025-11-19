@@ -3488,6 +3488,12 @@ export class ColorCycleBrushCanvas2D {
       strokeCounter: strokeData.strokeCounter
     };
     this.layerStrokes.set(layerId, strokeData);
+
+    // Keep animator in sync with externally supplied paint buffer so renders reflect new data.
+    try {
+      animator?.setIndexBufferFromArray(new Uint8Array(strokeData.paintBuffer));
+    } catch {}
+
     // Mark layer dirty so next render updates
     this.dirtyLayers.add(layerId);
 

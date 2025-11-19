@@ -547,7 +547,9 @@ export const applySierraLiteLostEdgeMask = (
   // Search radius slightly larger than the band to find nearby transparency.
   const bandRadius = Math.max(edgeBand, Math.min(140, Math.round(edgeBand * LOST_EDGE_SEARCH_SCALE)));
   const fadeZone = Math.max(1, Math.round(edgeBand * LOST_EDGE_FADE_FRACTION));
-  const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) / 2)));
+  // Allow the fade zone to use the full available region (not just half),
+  // so high lost-edge values actually produce a wide falloff when dithering is enabled.
+  const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) - 1)));
 
   // Early bailout for very small regions: lostedge becomes no-op to avoid overwork and artifacts.
   const minDimPx = Math.min(width, height);

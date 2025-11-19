@@ -126,7 +126,8 @@ const mutateColorCycleLayer = (
       update.colorCycleBrush = brush;
     }
 
-    if (!base.canvas && canvas) {
+    // Always persist the canvas we rendered into so composites read fresh pixels.
+    if (canvas && base.canvas !== canvas) {
       update.canvas = canvas;
     }
 
@@ -146,6 +147,11 @@ const mutateColorCycleLayer = (
     },
     { skipColorCycleSync: true }
   );
+
+  // Invalidate composites so the new CC pixels show up immediately.
+  state.setCurrentCompositeBitmap?.(null);
+  state.setLayersNeedRecomposition?.(true);
+  state.markCompositeSegmentsDirtyByLayerIds?.([layer.id]);
 
   return true;
 };

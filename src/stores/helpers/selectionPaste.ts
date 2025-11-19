@@ -178,6 +178,26 @@ export const createSelectionPasteHelpers = ({
         }
 
         if (applied) {
+          const eraseMask = activeLayer.colorCycleData?.eraseMask;
+          const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
+          if (eraseMaskCtx) {
+            eraseMaskCtx.clearRect(
+              colorCycleDestRect.x,
+              colorCycleDestRect.y,
+              colorCycleDestRect.width,
+              colorCycleDestRect.height
+            );
+            state.updateLayer(
+              activeLayer.id,
+              {
+                colorCycleData: {
+                  ...(activeLayer.colorCycleData ?? {}),
+                  eraseMask,
+                },
+              },
+              { skipColorCycleSync: true }
+            );
+          }
           state.setLayersNeedRecomposition(true);
           state.setCurrentCompositeBitmap(null);
 

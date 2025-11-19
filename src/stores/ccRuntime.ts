@@ -32,6 +32,24 @@ const speedsAreEqual = (a: number | undefined, b: number | undefined): boolean =
  */
 export function syncCCRuntimes(layers: Layer[], cause?: string): void {
   void cause; // Quiets lint when tracing cause is unnecessary
+  const layerIds = Array.isArray(layers) ? layers.map(layer => layer.id) : [];
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[ccRuntime] syncCCRuntimes', { cause, layerIds, count: layerIds.length });
+  }
+
+  try {
+    const scope = globalThis as { __TB_DEBUG?: { disableCCRuntime?: boolean } };
+    if (scope.__TB_DEBUG?.disableCCRuntime) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[ccRuntime] syncCCRuntimes disabled via __TB_DEBUG');
+      }
+      return;
+    }
+  } catch {}
+
+  // TEMP: disable CC sync entirely to test downstream subsystems.
+  // if (layerIds.includes('layer-...')) return;
+
   if (!Array.isArray(layers) || layers.length === 0) {
     return;
   }

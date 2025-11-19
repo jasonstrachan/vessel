@@ -1058,6 +1058,9 @@ export const createLayersSlice = (
   },
   updateLayer: (id, updates, options?: UpdateLayerOptions) => {
     set((state) => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[layersSlice] updateLayer args', { layerId: id, options });
+    }
     const skipColorCycleSync = options?.skipColorCycleSync ?? false;
     const originalLayer = state.layers.find(l => l.id === id);
     
@@ -1206,6 +1209,12 @@ export const createLayersSlice = (
 
     try {
       const syncedLayer = syncedLayers.find(layer => layer.id === id);
+      if (syncedLayer?.layerType === 'color-cycle' && process.env.NODE_ENV !== 'production') {
+        console.log('[layersSlice] shouldSyncCC', {
+          layerId: id,
+          skip: options?.skipColorCycleSync ?? false,
+        });
+      }
       if (
         syncedLayer?.layerType === 'color-cycle' &&
         syncedLayer.colorCycleData &&

@@ -195,21 +195,36 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
 
     floatingPaste: null,
     setFloatingPaste: (paste) =>
-      set({
-        floatingPaste: paste
-          ? {
-              active: true,
-              imageData: paste.imageData,
-              position: paste.position,
-              originalPosition: paste.originalPosition ?? paste.position,
-              width: paste.width,
-              height: paste.height,
-              displayWidth: paste.displayWidth ?? paste.width,
-              displayHeight: paste.displayHeight ?? paste.height,
-              sourceLayerId: paste.sourceLayerId ?? null,
-              colorCycleIndices: paste.colorCycleIndices ?? null,
-            }
-          : null,
+      set((state) => {
+        if (
+          process.env.NODE_ENV !== 'production' &&
+          paste &&
+          !paste.colorCycleIndices &&
+          state.layers.find((layer) => layer.id === state.activeLayerId)?.layerType === 'color-cycle'
+        ) {
+          console.warn('[floatingPaste] Missing colorCycleIndices in setFloatingPaste', {
+            activeLayerId: state.activeLayerId,
+            sourceLayerId: paste.sourceLayerId,
+            hasImageData: Boolean(paste.imageData),
+          });
+        }
+
+        return {
+          floatingPaste: paste
+            ? {
+                active: true,
+                imageData: paste.imageData,
+                position: paste.position,
+                originalPosition: paste.originalPosition ?? paste.position,
+                width: paste.width,
+                height: paste.height,
+                displayWidth: paste.displayWidth ?? paste.width,
+                displayHeight: paste.displayHeight ?? paste.height,
+                sourceLayerId: paste.sourceLayerId ?? null,
+                colorCycleIndices: paste.colorCycleIndices ?? null,
+              }
+            : null,
+        };
       }),
     updateFloatingPastePosition: (position) =>
       set((state) => ({

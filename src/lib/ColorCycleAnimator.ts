@@ -1030,6 +1030,34 @@ export class ColorCycleAnimator {
   }
   
   /**
+   * Overwrite the index buffer with external data (e.g., history/selection).
+   * Expects a flat Uint8Array of length width*height.
+   */
+  setIndexBufferFromArray(data: Uint8Array): void {
+    const { width, height } = this.indexBuffer.getDimensions();
+    const expected = width * height;
+    if (!data || data.length === 0 || expected === 0) {
+      return;
+    }
+
+    // Resize if the incoming buffer size does not match current dimensions
+    if (data.length !== expected) {
+      // Best-effort: keep existing dimensions rather than guessing; copy overlap only.
+      const dest = this.indexBuffer.getDirectData();
+      dest.fill(0);
+      dest.set(data.subarray(0, Math.min(dest.length, data.length)));
+      this.indexBuffer.markDirty();
+      this._glIndexDirty = true;
+      return;
+    }
+
+    const dest = this.indexBuffer.getDirectData();
+    dest.set(data);
+    this.indexBuffer.markDirty();
+    this._glIndexDirty = true;
+  }
+  
+  /**
    * Serialize state
    */
   serialize() {
