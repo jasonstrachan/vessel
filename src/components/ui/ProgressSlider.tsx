@@ -24,7 +24,7 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
   className = ''
 }) => {
   const percentage = ((value - min) / (max - min)) * 100;
-  
+
   // Format value for display - show decimals only if step < 1
   const displayValue = step < 1 ? value.toFixed(2) : Math.round(value).toString();
 
@@ -69,9 +69,6 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         step={step}
         disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-        onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
-        onPointerCancel={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
         aria-label={ariaLabel}
       />
     </div>
