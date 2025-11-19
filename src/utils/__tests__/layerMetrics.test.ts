@@ -131,4 +131,47 @@ describe('layerMetrics', () => {
     expectClose(percent.x, expected.x);
     expectClose(percent.y, expected.y);
   });
+
+  it('centers auto percent when content fills the document', () => {
+    const width = 128;
+    const height = 96;
+    const imageData = createImageData(width, height);
+    // Make the content fully opaque so bounds equal the document size.
+    imageData.data.fill(255);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const layer: Layer = {
+      id: 'layer-full',
+      name: 'Full Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal'
+    };
+
+    const project: Project = {
+      id: 'project-full',
+      name: 'Full Project',
+      width,
+      height,
+      layers: [layer],
+      backgroundColor: 'transparent',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      customBrushes: []
+    };
+
+    const offset = computeLayerPercentOffset(layer, project);
+
+    expectClose(offset.x, 50);
+    expectClose(offset.y, 50);
+  });
 });

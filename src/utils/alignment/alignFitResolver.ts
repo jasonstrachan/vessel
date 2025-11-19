@@ -385,13 +385,17 @@ export const deriveAutoPercentOffset = (bounds: Rect, document: Size2D): Percent
   const availableX = safeDocument.width - safeBounds.width;
   const availableY = safeDocument.height - safeBounds.height;
 
+  // When there is no free space (content already fills the document) keep the
+  // layer centered instead of snapping to the top-left. This preserves the
+  // expected visual alignment when users draw edge-to-edge and then switch to
+  // `contain` fit.
   const percentX = availableX > MIN_DIMENSION
     ? clampPercent((safeBounds.x / availableX) * HUNDRED)
-    : 0;
+    : 50;
 
   const percentY = availableY > MIN_DIMENSION
     ? clampPercent((safeBounds.y / availableY) * HUNDRED)
-    : 0;
+    : 50;
 
   return {
     x: percentX,
