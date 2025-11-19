@@ -1446,6 +1446,14 @@ export const useBrushEngineSimplified = () => {
     const out = ctx.createImageData(w, h);
     const outData = out.data;
 
+    // Prefill once to avoid repeated zeroing in the loop
+    for (let i = 0; i < outData.length; i += 4) {
+      outData[i] = baseR;
+      outData[i + 1] = baseG;
+      outData[i + 2] = baseB;
+      outData[i + 3] = 0;
+    }
+
     for (let py = 0; py < h; py++) {
       const cy = Math.min(coarseH - 1, Math.floor(py / tileSize));
       for (let px = 0; px < w; px++) {
@@ -1456,16 +1464,13 @@ export const useBrushEngineSimplified = () => {
         const cov = coverage[py * w + px];
 
         if (cov === 0) {
-          outData[outIndex]     = 0;
-          outData[outIndex + 1] = 0;
-          outData[outIndex + 2] = 0;
-          outData[outIndex + 3] = 0;
-        } else {
-          outData[outIndex]     = ditheredCoarseData[coarseIndex];
-          outData[outIndex + 1] = ditheredCoarseData[coarseIndex + 1];
-          outData[outIndex + 2] = ditheredCoarseData[coarseIndex + 2];
-          outData[outIndex + 3] = cov;
+          continue; // leave prefilled color and alpha 0
         }
+
+        outData[outIndex]     = ditheredCoarseData[coarseIndex];
+        outData[outIndex + 1] = ditheredCoarseData[coarseIndex + 1];
+        outData[outIndex + 2] = ditheredCoarseData[coarseIndex + 2];
+        outData[outIndex + 3] = cov;
       }
     }
 
