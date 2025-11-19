@@ -459,7 +459,18 @@ const BrushControls = () => {
   // Show special controls for Color Cycle brushes (both stroke and shape variants)
   if (isColorCycleBrush(activeSettings.brushShape)) {
     if (typeof window !== 'undefined') {
-      console.log('[BrushControls] ColorCycle branch', activeSettings.brushShape);
+      const logCC =
+        process.env.NODE_ENV !== 'production' &&
+        (() => {
+          try {
+            return Boolean((globalThis as { __TB_DEBUG?: { logCC?: boolean } }).__TB_DEBUG?.logCC);
+          } catch {
+            return false;
+          }
+        })();
+      if (logCC) {
+        console.log('[BrushControls] ColorCycle branch', activeSettings.brushShape);
+      }
     }
     return (
       <div className="p-4">

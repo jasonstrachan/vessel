@@ -227,4 +227,36 @@ describe('selection paste commit', () => {
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.floatingPaste).toBeNull();
   });
+
+  it('uses intrinsic CC payload size and rounded position even when display is scaled', async () => {
+    const colorCycleIndices = new Uint8Array([9, 8, 7, 6]);
+    const { helpers, state, layer } = setupHelpers(
+      {
+        colorCycleIndices,
+        width: 2,
+        height: 2,
+        displayWidth: 6, // scaled up in UI, but CC data should stay intrinsic
+        displayHeight: 5,
+        position: { x: 3.2, y: 9.9 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      { x: 3, y: 10, width: 2, height: 2 },
+      colorCycleIndices,
+      2,
+      2,
+      { offsetX: 0, offsetY: 0 }
+    );
+  });
 });

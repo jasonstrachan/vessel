@@ -496,7 +496,10 @@ export const applySierraLiteLostEdgeMask = (
   const intensity = Math.max(0, Math.min(1, lostEdge / 100));
   const pixelCount = width * height;
 
-  const tile = Math.max(LOST_EDGE_TILE_MIN, Math.min(LOST_EDGE_TILE_MAX, Math.round(tileSize || LOST_EDGE_TILE_DEFAULT)));
+  const tile = Math.max(
+    LOST_EDGE_TILE_MIN,
+    Math.min(LOST_EDGE_TILE_MAX, Math.round(tileSize || LOST_EDGE_TILE_DEFAULT))
+  );
   const coarseW = Math.max(1, Math.ceil(width / tile));
   const coarseH = Math.max(1, Math.ceil(height / tile));
   const coarsePixelCount = coarseW * coarseH;
@@ -539,9 +542,16 @@ export const applySierraLiteLostEdgeMask = (
   // edgeBand is the thickness of the fade zone; bandRadius is search distance for edges.
   // Edge band target: eased mapping up to ~100px at max for dramatic edges, but with softer growth.
   const eased = Math.pow(intensity, LOST_EDGE_INTENSITY_EXP);
+  const tileScale = Math.max(1, tile / LOST_EDGE_TILE_DEFAULT);
   const edgeBandPx = Math.max(
     LOST_EDGE_BAND_MIN_PX,
-    Math.min(LOST_EDGE_BAND_MAX_PX, Math.round(LOST_EDGE_BAND_MIN_PX + eased * (LOST_EDGE_BAND_MAX_PX - LOST_EDGE_BAND_MIN_PX)))
+    Math.min(
+      LOST_EDGE_BAND_MAX_PX,
+      Math.round(
+        // Wider fade for larger dithering tiles to create visible falloff when dither is on
+        (LOST_EDGE_BAND_MIN_PX + eased * (LOST_EDGE_BAND_MAX_PX - LOST_EDGE_BAND_MIN_PX)) * tileScale
+      )
+    )
   );
   const edgeBand = Math.max(1, Math.round(edgeBandPx / tile));
   // Search radius slightly larger than the band to find nearby transparency.

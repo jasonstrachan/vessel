@@ -1058,7 +1058,17 @@ export const createLayersSlice = (
   },
   updateLayer: (id, updates, options?: UpdateLayerOptions) => {
     set((state) => {
-    if (process.env.NODE_ENV !== 'production') {
+    const logCC =
+      process.env.NODE_ENV !== 'production' &&
+      (() => {
+        try {
+          return Boolean((globalThis as { __TB_DEBUG?: { logCC?: boolean } }).__TB_DEBUG?.logCC);
+        } catch {
+          return false;
+        }
+      })();
+
+    if (logCC) {
       console.log('[layersSlice] updateLayer args', { layerId: id, options });
     }
     const skipColorCycleSync = options?.skipColorCycleSync ?? false;
@@ -1107,7 +1117,7 @@ export const createLayersSlice = (
         
         // Special handling for colorCycleData updates
         if ('colorCycleData' in updates) {
-          if (process.env.NODE_ENV !== 'production') {
+          if (logCC) {
             console.log('[layersSlice] updateLayer colorCycleData', {
               layerId: id.substring(0, 24),
               hasCanvas: Boolean(updates.colorCycleData?.canvas),
@@ -1207,24 +1217,24 @@ export const createLayersSlice = (
     trackLayerChanges('updateLayer RETURN', updatedLayers);
     const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
 
-    try {
-      const syncedLayer = syncedLayers.find(layer => layer.id === id);
-      if (syncedLayer?.layerType === 'color-cycle' && process.env.NODE_ENV !== 'production') {
-        console.log('[layersSlice] shouldSyncCC', {
-          layerId: id,
-          skip: options?.skipColorCycleSync ?? false,
-        });
+      try {
+        const syncedLayer = syncedLayers.find(layer => layer.id === id);
+        if (syncedLayer?.layerType === 'color-cycle' && logCC) {
+          console.log('[layersSlice] shouldSyncCC', {
+            layerId: id,
+            skip: options?.skipColorCycleSync ?? false,
+          });
+        }
+        if (
+          syncedLayer?.layerType === 'color-cycle' &&
+          syncedLayer.colorCycleData &&
+          !skipColorCycleSync
+        ) {
+          syncCCRuntimes([syncedLayer], 'updateLayer');
+        }
+      } catch (error) {
+        logError('[updateLayer] Failed to sync CC runtime', error);
       }
-      if (
-        syncedLayer?.layerType === 'color-cycle' &&
-        syncedLayer.colorCycleData &&
-        !skipColorCycleSync
-      ) {
-        syncCCRuntimes([syncedLayer], 'updateLayer');
-      }
-    } catch (error) {
-      logError('[updateLayer] Failed to sync CC runtime', error);
-    }
 
       return {
         layers: syncedLayers,

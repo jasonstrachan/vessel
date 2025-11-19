@@ -16,4 +16,4 @@ Key guardrails:
 
 Regression coverage:
 - `src/stores/helpers/__tests__/colorCycleSelection.test.ts` asserts that CC paste/clear writes reach `applyLayerSnapshot`, that composites are invalidated, and that the canvas reference is preserved.
-
+- `src/stores/helpers/__tests__/selectionPaste.test.ts` includes a CC paste case (intrinsic size vs scaled display) so that `writeColorCycleRegion` receives rounded positions and intrinsic dimensions; this guards against regressions when display scaling is introduced.

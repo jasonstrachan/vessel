@@ -33,7 +33,17 @@ const speedsAreEqual = (a: number | undefined, b: number | undefined): boolean =
 export function syncCCRuntimes(layers: Layer[], cause?: string): void {
   void cause; // Quiets lint when tracing cause is unnecessary
   const layerIds = Array.isArray(layers) ? layers.map(layer => layer.id) : [];
-  if (process.env.NODE_ENV !== 'production') {
+  const logCC =
+    process.env.NODE_ENV !== 'production' &&
+    (() => {
+      try {
+        return Boolean((globalThis as { __TB_DEBUG?: { logCC?: boolean } }).__TB_DEBUG?.logCC);
+      } catch {
+        return false;
+      }
+    })();
+
+  if (logCC) {
     console.log('[ccRuntime] syncCCRuntimes', { cause, layerIds, count: layerIds.length });
   }
 
@@ -64,7 +74,7 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (logCC) {
       console.log('[ccRuntime] syncCCRuntimes', {
         cause,
         layerId: layer.id,
