@@ -6,19 +6,13 @@ import { Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 const toolShortcuts: Partial<Record<Tool, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
-  custom: { aria: 'KeyU', display: 'U' },
-  eraser: { aria: 'KeyE', display: 'E' },
-  selection: { aria: 'KeyV', display: 'V' },
-  eyedropper: { aria: 'KeyI', display: 'I' },
-  'color-picker': { aria: 'Shift+KeyC', display: 'Shift+C' },
-  fill: { aria: 'KeyG', display: 'G' },
-  'color-adjust': { aria: 'KeyK', display: 'K' },
-  crop: { aria: 'KeyC', display: 'C' },
-  'new-document': { aria: 'Control+KeyN', display: 'Ctrl+N' },
-  save: { aria: 'Control+KeyS', display: 'Ctrl+S' },
-  load: { aria: 'Control+KeyO', display: 'Ctrl+O' },
-  export: { aria: 'Control+Shift+KeyE', display: 'Ctrl+Shift+E' },
-  options: { aria: 'Control+Comma', display: 'Ctrl+,' },
+  custom: { aria: 'KeyC', display: 'C' },
+  eraser: { aria: 'KeyE', display: 'E (tap/hold)' },
+  selection: { aria: 'KeyM', display: 'M' },
+  'color-picker': { aria: 'KeyP', display: 'Hold P' },
+  fill: { aria: 'KeyF', display: 'F' },
+  save: { aria: 'Control+KeyS Meta+KeyS', display: 'Ctrl/Cmd+S' },
+  load: { aria: 'Control+KeyO Meta+KeyO', display: 'Ctrl/Cmd+O' },
 };
 
 const LeftToolbar = () => {
@@ -96,13 +90,14 @@ const LeftToolbar = () => {
           )}
           {group.map((tool, toolIndex) => {
             const isActive = toolState.currentTool === tool.id;
+            const shortcut = toolShortcuts[tool.id]?.display;
 
             return (
               <React.Fragment key={tool.id}>
                 <button
                   onClick={() => handleToolClick(tool.id)}
-                  title={tool.label}
-                  aria-label={tool.label}
+                  title={shortcut ? `${tool.label} (${shortcut})` : tool.label}
+                  aria-label={shortcut ? `${tool.label} (${shortcut})` : tool.label}
                   aria-pressed={isActive}
                   aria-keyshortcuts={toolShortcuts[tool.id]?.aria}
                   data-shortcut={toolShortcuts[tool.id]?.display}

@@ -174,7 +174,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const compositeSegmentsRef = useRef<CompositeSegment[]>([]);
   const layerMapRef = useRef<Map<string, Layer>>(new Map());
   const pendingColorCycleRefreshRef = useRef(false);
-  
+
   // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
   const layers = useAppStore(selectLayers);
@@ -464,6 +464,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const lastCompositeHashRef = useRef<string>(''); // Track last composite state
   const lastActiveLayerIdRef = useRef<string | null>(null);
   const [needsRedraw, setNeedsRedraw] = useState(0);
+  const hadSelectionRef = useRef(false);
+
   const underCompositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const overCompositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const underCompositeHasContentRef = useRef(false);
@@ -2023,6 +2025,25 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     }
   }, [draw]);
+
+  // Redraw immediately when marquee selection changes to ensure deleted pixels disappear
+  useEffect(() => {
+    const hasSelection = Boolean(selectionStart && selectionEnd);
+
+    // Marching ants + overlays rely on this to refresh promptly
+    setNeedsRedraw((prev) => prev + 1);
+
+    // When selection is cleared, force a draw using refs to avoid stale ants or pixels
+    if (hadSelectionRef.current && !hasSelection) {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+      if (ctx && drawRef.current && viewTransformRef.current) {
+        drawRef.current(ctx, viewTransformRef.current);
+      }
+    }
+
+    hadSelectionRef.current = hasSelection;
+  }, [selectionStart, selectionEnd]);
   
   // Listen for color cycle animation frame updates and trigger redraws
   useEffect(() => {

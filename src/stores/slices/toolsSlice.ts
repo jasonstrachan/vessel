@@ -849,9 +849,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       stateBeforeSwitch.tools.currentTool === 'brush' &&
       stateBeforeSwitch.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
     const toolChanged = tool !== stateBeforeSwitch.tools.currentTool;
+    const shouldClearSelection =
+      stateBeforeSwitch.tools.currentTool === 'selection' &&
+      tool !== 'selection' &&
+      toolChanged &&
+      (stateBeforeSwitch.selectionStart !== null || stateBeforeSwitch.selectionEnd !== null);
 
     if (isShapeFillActive && toolChanged) {
       stateBeforeSwitch.cancelShapeFillSession();
+    }
+
+    if (shouldClearSelection) {
+      stateBeforeSwitch.clearSelection();
     }
 
     if (tool === 'custom') {

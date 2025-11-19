@@ -292,4 +292,22 @@ describe('tools slice', () => {
 
     expect(useAppStore.getState().crop).toEqual(defaultCropState);
   });
+
+  it('clears marquee selection when switching away from the selection tool', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        currentTool: 'selection',
+      },
+      selectionStart: { x: 1, y: 2 },
+      selectionEnd: { x: 3, y: 4 },
+    }));
+
+    useAppStore.getState().setCurrentTool('brush');
+
+    const { selectionStart, selectionEnd } = useAppStore.getState();
+    expect(selectionStart).toBeNull();
+    expect(selectionEnd).toBeNull();
+  });
 });

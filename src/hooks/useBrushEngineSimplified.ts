@@ -646,6 +646,8 @@ export const useBrushEngineSimplified = () => {
   const liveStrokeRawRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeDitherRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeBoundsRef = useRef<Rect | null>(null);
+  const liveStrokeDirtyRef = useRef<Rect | null>(null);
+  const didPreviewDitherRef = useRef(false);
   const liveRenderScheduledRef = useRef(false);
 
   const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
@@ -692,6 +694,8 @@ export const useBrushEngineSimplified = () => {
       ditherCtx?.clearRect(0, 0, (dither as { width?: number }).width ?? 0, (dither as { height?: number }).height ?? 0);
     }
     liveStrokeBoundsRef.current = null;
+    liveStrokeDirtyRef.current = null;
+    didPreviewDitherRef.current = false;
     liveRenderScheduledRef.current = false;
   }, []);
 
@@ -1505,14 +1509,14 @@ export const useBrushEngineSimplified = () => {
     liveRenderScheduledRef.current = false;
     const rawCanvas = liveStrokeRawRef.current;
     const ditherCanvas = liveStrokeDitherRef.current;
-    const strokeBounds = liveStrokeBoundsRef.current ?? strokeBoundsRef.current;
-    if (!rawCanvas || !ditherCanvas || !strokeBounds) {
+    const dirtyBounds = liveStrokeDirtyRef.current;
+    if (!rawCanvas || !ditherCanvas || !dirtyBounds) {
       return;
     }
 
     const canvasWidth = visibleCtx.canvas?.width ?? 0;
     const canvasHeight = visibleCtx.canvas?.height ?? 0;
-    const region = normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight);
+    const region = normalizeRectForCanvas(dirtyBounds, canvasWidth, canvasHeight);
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) {
       return;
@@ -1542,7 +1546,10 @@ export const useBrushEngineSimplified = () => {
 
     withAlphaLock(visibleCtx, (targetCtx) => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
-    }, strokeBounds);
+    }, dirtyBounds);
+
+    liveStrokeDirtyRef.current = null;
+    didPreviewDitherRef.current = true;
   }, [applyStrokeDither, withAlphaLock]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
@@ -1611,6 +1618,7 @@ export const useBrushEngineSimplified = () => {
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
+    liveStrokeDirtyRef.current = mergeRectBounds(liveStrokeDirtyRef.current, segmentBounds);
 
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
     scheduleLiveStrokeRender(ctx);
@@ -1644,6 +1652,7 @@ export const useBrushEngineSimplified = () => {
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
+    liveStrokeDirtyRef.current = mergeRectBounds(liveStrokeDirtyRef.current, segmentBounds);
 
     if (!ensureLiveStrokeBuffers(ctx)) {
       return;
@@ -1680,24 +1689,31 @@ export const useBrushEngineSimplified = () => {
       }, strokeBounds ?? undefined);
     }
 
-    if (strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
+    if (strokeBounds && region && region.width > 0 && region.height > 0 && ditherCanvas) {
       const { x, y, width, height } = region;
-      let src: ImageData;
-      try {
-        src = rawCtx.getImageData(x, y, width, height);
-      } catch {
-        clearLiveStrokeBuffers();
-        strokeBoundsRef.current = null;
-        return strokeBounds ? { ...strokeBounds } : null;
+      const canReusePreview = didPreviewDitherRef.current && pick2D(ditherCanvas);
+      if (canReusePreview) {
+        withAlphaLock(ctx, (targetCtx) => {
+          targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+        }, strokeBounds);
+      } else if (rawCtx && ditherCtx) {
+        let src: ImageData;
+        try {
+          src = rawCtx.getImageData(x, y, width, height);
+        } catch {
+          clearLiveStrokeBuffers();
+          strokeBoundsRef.current = null;
+          return strokeBounds ? { ...strokeBounds } : null;
+        }
+
+        ditherCtx.clearRect(x, y, width, height);
+        ditherCtx.putImageData(src, x, y);
+        applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
+
+        withAlphaLock(ctx, (targetCtx) => {
+          targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+        }, strokeBounds);
       }
-
-      ditherCtx.clearRect(x, y, width, height);
-      ditherCtx.putImageData(src, x, y);
-      applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
-
-      withAlphaLock(ctx, (targetCtx) => {
-        targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
-      }, strokeBounds);
     }
 
     clearLiveStrokeBuffers();

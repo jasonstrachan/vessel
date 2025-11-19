@@ -145,7 +145,7 @@ export default function ColorPicker({
             const gridY = gridRow * cellHeight;
 
             let hex;
-            
+
             // Special cases for specific grid cells
             if (gridCol === 0 && gridRow === 0) {
               // Top-left cell: pure white
@@ -183,23 +183,8 @@ export default function ColorPicker({
       }
 
       ctx.putImageData(imageData, 0, 0);
-
-      // Draw selection indicator - square matching grid cell size
-      const cellWidth = width / GRID_COLS;
-      const cellHeight = height / GRID_ROWS;
-
-      const x = (currentHsv.s / 100) * width;
-      const y = ((100 - currentHsv.v) / 100) * height;
-
-      // Snap selection to grid
-      const gridX = Math.floor(x / cellWidth) * cellWidth;
-      const gridY = Math.floor(y / cellHeight) * cellHeight;
-
-      ctx.strokeStyle = currentHsv.v > 50 ? "#000" : "#fff";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(gridX + 0.5, gridY + 0.5, cellWidth - 1, cellHeight - 1);
     },
-    [currentHsv.s, currentHsv.v],
+    [svSize],
   );
 
   const drawHueCanvas = useCallback(() => {
@@ -517,6 +502,13 @@ export default function ColorPicker({
     setIsDraggingHue(false);
   }, []);
 
+  // Geometry for selection overlay (avoid per-move canvas redraws)
+  const cellWidth = svSize / GRID_COLS;
+  const cellHeight = svSize / GRID_ROWS;
+  const indicatorX = Math.floor(((currentHsv.s / 100) * svSize) / cellWidth) * cellWidth;
+  const indicatorY = Math.floor((((100 - currentHsv.v) / 100) * svSize) / cellHeight) * cellHeight;
+  const indicatorStroke = currentHsv.v > 50 ? "#000" : "#fff";
+
   const hueWidth = 28;
 
   return (
@@ -525,16 +517,28 @@ export default function ColorPicker({
       className={`flex w-full flex-col gap-2 ${className}`}
     >
       <div className="flex w-full items-start justify-start gap-0">
-        <canvas
-          ref={svCanvasRef}
-          width={svSize}
-          height={svSize}
-          className="cursor-crosshair"
-          onPointerDown={handleSVPointerDown}
-          onPointerMove={handleSVPointerMove}
-          onPointerUp={handleSVPointerUp}
-          style={{ touchAction: "none", display: 'block' }}
-        />
+        <div className="relative" style={{ width: svSize, height: svSize }}>
+          <canvas
+            ref={svCanvasRef}
+            width={svSize}
+            height={svSize}
+            className="cursor-crosshair"
+            onPointerDown={handleSVPointerDown}
+            onPointerMove={handleSVPointerMove}
+            onPointerUp={handleSVPointerUp}
+            style={{ touchAction: "none", display: "block" }}
+          />
+          <div
+            className="pointer-events-none absolute left-0 top-0"
+            style={{
+              transform: `translate(${indicatorX}px, ${indicatorY}px)`,
+              width: `${cellWidth}px`,
+              height: `${cellHeight}px`,
+              border: `1px solid ${indicatorStroke}`,
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
         <canvas
           ref={hueCanvasRef}
           width={hueWidth}
