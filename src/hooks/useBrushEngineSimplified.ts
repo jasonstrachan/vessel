@@ -1428,7 +1428,7 @@ export const useBrushEngineSimplified = () => {
     const coarse = new ImageData(coarseW, coarseH);
     const coarseData = coarse.data;
 
-    for (let i = 0, a = 0; a < coarseData.length; i++, a += 4) {
+    for (let a = 0; a < coarseData.length; a += 4) {
       coarseData[a]     = baseR;
       coarseData[a + 1] = baseG;
       coarseData[a + 2] = baseB;
@@ -3268,6 +3268,8 @@ export const useBrushEngineSimplified = () => {
     }
   }, [tools.brushSettings.fillResolution, activeLayerId, getActiveLayerColorCycleBrush]);
 
+  const colorCycleStampDitherPixelSize = tools.brushSettings.colorCycleStampDitherPixelSize;
+
   // Update stamp dithering pixel size for color-cycle strokes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
@@ -3275,13 +3277,13 @@ export const useBrushEngineSimplified = () => {
       try {
         const resolution = Math.max(
           1,
-          Math.floor(tools.brushSettings.colorCycleStampDitherPixelSize ?? 1)
+          Math.floor(colorCycleStampDitherPixelSize ?? 1)
         );
         colorCycleBrush.setStampDitherPixelSize(resolution);
       } catch {}
     }
   }, [
-    tools.brushSettings.colorCycleStampDitherPixelSize,
+    colorCycleStampDitherPixelSize,
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);
@@ -3310,6 +3312,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.minPressure,
     tools.brushSettings.maxPressure,
     tools.brushSettings.brushShape,
+    tools.brushSettings,
     applyPendingBrushSizing,
     activeLayerId,
   ]);

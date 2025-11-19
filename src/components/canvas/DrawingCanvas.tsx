@@ -239,7 +239,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const cancelFloatingPaste = useAppStore((state) => state.cancelFloatingPaste);
   const setCurrentOffscreenCanvas = useAppStore((state) => state.setCurrentOffscreenCanvas);
   const renderStaticComposite = useAppStore((state) => state.renderStaticComposite);
-  const renderColorCycleOverlay = useAppStore((state) => state.renderColorCycleOverlay);
   const setCanvasDimensions = useAppStore((state) => state.setCanvasDimensions);
   const setZoom = useAppStore((state) => state.setZoom);
   const setCanvasOffset = useAppStore((state) => state.setCanvasOffset);
@@ -2053,7 +2052,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     if (ctx && drawFunc && viewTransformRef.current) {
       drawFunc(ctx, viewTransformRef.current);
     }
-  }, [layersNeedRecomposition]);
+  }, [
+    layersNeedRecomposition,
+    rebuildStaticComposite,
+    renderSplitComposites,
+    layersHash,
+    activeLayerId,
+    setLayersNeedRecomposition
+  ]);
 
   // Redraw immediately when marquee selection changes to ensure deleted pixels disappear
   useEffect(() => {

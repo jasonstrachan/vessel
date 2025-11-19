@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { Layer, Project, Rectangle } from '@/types';
+import type { Rectangle } from '@/types';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';

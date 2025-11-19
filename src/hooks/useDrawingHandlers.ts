@@ -124,7 +124,6 @@ const START_CC_TRACE_THROTTLE_MS = 2000;
 const SYNTHETIC_STOP_THROTTLE_MS = 200;
 const START_CC_COOLDOWN_MS = 200;
 const SKIP_CC_LOG_THROTTLE_MS = 1000;
-type IdleHandle = { id: number; kind: 'idle' | 'timeout' } | null;
 const HISTORY_FINALIZE_LANE = '__history__';
 
 const ROTATION_DISTANCE_EPSILON = 1e-3;
@@ -3882,7 +3881,8 @@ export function useDrawingHandlers({
     computeAutoSampleStops,
     getDesiredColorCyclePlaying,
     storeRef,
-    endMaskHealingStroke
+    endMaskHealingStroke,
+    scheduleHistoryCommit
   ]);
 
   const finalizeStroke = useCallback(() => {

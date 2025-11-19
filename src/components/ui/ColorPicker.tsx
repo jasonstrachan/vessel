@@ -112,7 +112,7 @@ export default function ColorPicker({
   const lastOpaqueHexRef = useRef<string>(isColorTransparent ? safeHex : safeHex);
 
   // Cache for SV gradient
-  const svImageDataCache = useRef<Map<number, ImageData>>(new Map());
+  const svImageDataCache = useRef<Map<string, ImageData>>(new Map());
 
   const drawSVCanvas = useCallback(
     (hue: number) => {
@@ -126,7 +126,7 @@ export default function ColorPicker({
       const height = canvas.height;
 
       // Check cache first
-      const cacheKey = Math.round(hue);
+      const cacheKey = `${Math.round(hue)}:${svSize}`;
       let imageData = svImageDataCache.current.get(cacheKey);
 
       if (!imageData) {

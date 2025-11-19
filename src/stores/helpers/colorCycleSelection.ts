@@ -118,15 +118,34 @@ const mutateColorCycleLayer = (
     ctx?.getImageData(0, 0, canvas.width, canvas.height) ?? layer.colorCycleData?.canvasImageData ?? undefined;
   const resolvedImageData = syncedImage ?? layer.imageData ?? undefined;
 
-  state.updateLayer(layer.id, {
-    imageData: resolvedImageData,
-    colorCycleData: {
-      ...(layer.colorCycleData ?? {}),
-      canvas,
-      canvasImageData: syncedImage ?? layer.colorCycleData?.canvasImageData ?? undefined,
-      colorCycleBrush: layer.colorCycleData?.colorCycleBrush ?? brush,
+  const nextColorCycleData: NonNullable<Layer['colorCycleData']> | undefined = (() => {
+    const base = layer.colorCycleData ?? {};
+    const update: Partial<NonNullable<Layer['colorCycleData']>> = {};
+
+    if (base.colorCycleBrush !== brush) {
+      update.colorCycleBrush = brush;
+    }
+
+    if (!base.canvas && canvas) {
+      update.canvas = canvas;
+    }
+
+    if (syncedImage) {
+      update.canvasImageData = syncedImage;
+    }
+
+    const hasUpdates = Object.keys(update).length > 0;
+    return hasUpdates ? { ...base, ...update } : base;
+  })();
+
+  state.updateLayer(
+    layer.id,
+    {
+      imageData: resolvedImageData,
+      colorCycleData: nextColorCycleData,
     },
-  });
+    { skipColorCycleSync: true }
+  );
 
   return true;
 };

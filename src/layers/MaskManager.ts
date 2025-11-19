@@ -3,9 +3,11 @@ import { perfMark, perfMeasure } from '@/utils/perf/ccPerfProbe';
 
 export type MaskDimensions = { width: number; height: number };
 
+type LayerUpdateOptions = { skipColorCycleSync?: boolean };
+
 export interface MaskManagerDeps {
   getLayer: (layerId: string) => Layer | undefined;
-  updateLayer: (layerId: string, patch: Partial<Layer>) => void;
+  updateLayer: (layerId: string, patch: Partial<Layer>, options?: LayerUpdateOptions) => void;
   getProjectSize: () => MaskDimensions | null;
 }
 

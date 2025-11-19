@@ -404,7 +404,7 @@ export interface LayersSlice {
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   duplicateLayer: (layerId: string) => string | null;
   removeLayer: (id: string) => void;
-  updateLayer: (id: string, updates: Partial<Layer>) => void;
+  updateLayer: (id: string, updates: Partial<Layer>, options?: { skipColorCycleSync?: boolean }) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   setActiveLayer: (id: string) => void;
   setReferenceLayer: (id: string | null) => void;
@@ -1052,7 +1052,7 @@ export const createLayersSlice = (
     });
     get().markAllCompositeSegmentsDirty();
   },
-  updateLayer: (id, updates) => {
+  updateLayer: (id, updates, options) => {
     set((state) => {
     const originalLayer = state.layers.find(l => l.id === id);
     
@@ -1099,6 +1099,17 @@ export const createLayersSlice = (
         
         // Special handling for colorCycleData updates
         if ('colorCycleData' in updates) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('[layersSlice] updateLayer colorCycleData', {
+              layerId: id.substring(0, 24),
+              hasCanvas: Boolean(updates.colorCycleData?.canvas),
+              hasCanvasImageData: Boolean(updates.colorCycleData?.canvasImageData),
+              hasEraseMask: Boolean(updates.colorCycleData?.eraseMask),
+              hasBrushState: Boolean(updates.colorCycleData?.brushState),
+              isAnimating: updates.colorCycleData?.isAnimating,
+              stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
+            });
+          }
           if (updates.colorCycleData) {
             // CRITICAL: Only allow colorCycleData updates on color-cycle layers
             if (layer.layerType !== 'color-cycle') {
@@ -1189,7 +1200,11 @@ export const createLayersSlice = (
 
     try {
       const syncedLayer = syncedLayers.find(layer => layer.id === id);
-      if (syncedLayer?.layerType === 'color-cycle' && syncedLayer.colorCycleData) {
+      if (
+        syncedLayer?.layerType === 'color-cycle' &&
+        syncedLayer.colorCycleData &&
+        !options?.skipColorCycleSync
+      ) {
         syncCCRuntimes([syncedLayer], 'updateLayer');
       }
     } catch (error) {

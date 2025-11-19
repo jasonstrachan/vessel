@@ -216,8 +216,8 @@ import type {
   ColorAdjustState,
   ColorAdjustParams,
   PaletteState,
-  BrushShape,
 } from '@/types';
+import { BrushShape } from '@/types';
 import { createCustomBrushPersistence } from '@/stores/helpers/customBrushPersistence';
 import {
   DEFAULT_RECTANGLE_BRUSH_STATE,
@@ -235,7 +235,7 @@ import { createColorAdjustSlice } from '@/stores/slices/colorAdjustSlice';
 import { createCropSlice } from '@/stores/slices/cropSlice';
 import { createVesselStore } from '@/stores/createVesselStore';
 // import { memoryManager } from '../utils/memoryCleanup';
-import { logError, __DEV__ } from '../utils/debug';
+import { logError } from '../utils/debug';
 import { createDefaultPalette } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
 import { setActiveHistoryDocument } from '@/history/historyService';
@@ -531,7 +531,7 @@ export interface AppState {
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   duplicateLayer: (id: string) => string | null;
   removeLayer: (id: string) => void;
-  updateLayer: (id: string, updates: Partial<Layer>) => void;
+  updateLayer: (id: string, updates: Partial<Layer>, options?: { skipColorCycleSync?: boolean }) => void;
   setActiveLayer: (id: string) => void;
   setLayers: (layers: Layer[]) => void;
   setReferenceLayer: (id: string | null) => void;
@@ -1010,8 +1010,8 @@ configureMaskManager({
     const state = useAppStore.getState();
     return state.layers.find((layer) => layer.id === layerId);
   },
-  updateLayer: (layerId, patch) => {
-    useAppStore.getState().updateLayer(layerId, patch);
+  updateLayer: (layerId, patch, options) => {
+    useAppStore.getState().updateLayer(layerId, patch, options);
   },
   getProjectSize: () => {
     const project = useAppStore.getState().project;
@@ -1110,13 +1110,11 @@ const hydrateGlobalBrushSettings = (): void => {
       if (activeId) {
         const overrides = storedMap[activeId];
         if (overrides) {
-          const {
-            size: _size,
-            pressureEnabled: _pressureEnabled,
-            minPressure: _minPressure,
-            maxPressure: _maxPressure,
-            ...rest
-          } = overrides;
+          const rest = { ...overrides };
+          delete rest.size;
+          delete rest.pressureEnabled;
+          delete rest.minPressure;
+          delete rest.maxPressure;
           if (Object.keys(rest).length > 0) {
             nextTools = {
               ...nextTools,
@@ -1193,7 +1191,7 @@ subscribeToGlobalBrushPersistence();
     if (origUpdateLayer.__ccTraceWrapped) {
       return;
     }
-    const wrapped: typeof current.updateLayer & { __ccTraceWrapped?: boolean } = (id, patch) => {
+    const wrapped: typeof current.updateLayer & { __ccTraceWrapped?: boolean } = (id, patch, options) => {
       const before = useAppStore.getState().layers.find((l) => l.id === id);
       const prev = before?.colorCycleData?.isAnimating;
       const next = patch?.colorCycleData?.isAnimating;
@@ -1204,7 +1202,7 @@ subscribeToGlobalBrushPersistence();
         console.groupEnd();
         // debugger;
       }
-      return origUpdateLayer(id, patch);
+      return origUpdateLayer(id, patch, options);
     };
     wrapped.__ccTraceWrapped = true;
     origUpdateLayer.__ccTraceWrapped = true;

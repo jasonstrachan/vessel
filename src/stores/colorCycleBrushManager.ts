@@ -190,6 +190,7 @@ let ColorCycleBrushCanvas2DImpl: ColorCycleBrushCanvas2DConstructor | null = nul
 
 const getColorCycleBrushCanvas2D = (): ColorCycleBrushCanvas2DConstructor => {
   if (!ColorCycleBrushCanvas2DImpl) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic load avoids circular dependency with useAppStore
     const colorCycleModule = require('@/hooks/brushEngine/ColorCycleBrushCanvas2D') as typeof import('@/hooks/brushEngine/ColorCycleBrushCanvas2D');
     ColorCycleBrushCanvas2DImpl = colorCycleModule.ColorCycleBrushCanvas2D;
   }

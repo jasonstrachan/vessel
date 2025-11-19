@@ -138,7 +138,7 @@ export interface EventHandlerDependencies {
   setActiveColor: (color: string) => void;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
   compositeLayersToCanvas: (canvas: HTMLCanvasElement) => void;
-  updateLayer: (layerId: string, updates: Partial<Layer>) => void;
+  updateLayer: (layerId: string, updates: Partial<Layer>, options?: { skipColorCycleSync?: boolean }) => void;
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
   stopRecolorSampling: () => void;

@@ -12,7 +12,7 @@ describe('global brush persistence', () => {
     }));
   });
 
-  it('hydrates stored brush metadata on startup', () => {
+  it('hydrates stored brush metadata on startup', async () => {
     loadMock.mockReturnValue({
       globalBrushSize: 24,
       brushSpecificSettings: {
@@ -20,26 +20,21 @@ describe('global brush persistence', () => {
       },
     });
 
-    let state: import('@/stores/useAppStore').AppState;
-    jest.isolateModules(() => {
-      const { useAppStore } = require('@/stores/useAppStore');
-      state = useAppStore.getState();
-    });
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
 
     expect(loadMock).toHaveBeenCalled();
-    expect(state!.globalBrushSize).toBe(24);
-    expect(state!.brushSpecificSettings['pixel-brush']?.ditherEnabled).toBe(true);
-    expect(state!.tools.brushSettings.ditherEnabled).toBe(true);
+    expect(state.globalBrushSize).toBe(24);
+    expect(state.brushSpecificSettings['pixel-brush']?.ditherEnabled).toBe(true);
+    expect(state.tools.brushSettings.ditherEnabled).toBe(true);
   });
 
-  it('saves when brush-specific settings change', () => {
+  it('saves when brush-specific settings change', async () => {
     loadMock.mockReturnValue(null);
 
-    jest.isolateModules(() => {
-      const { useAppStore } = require('@/stores/useAppStore');
-      const store = useAppStore.getState();
-      store.saveBrushSettings('pixel-brush', { spacing: 9 });
-    });
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+    store.saveBrushSettings('pixel-brush', { spacing: 9 });
 
     expect(saveMock).toHaveBeenCalled();
   });

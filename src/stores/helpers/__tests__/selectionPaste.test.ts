@@ -9,6 +9,7 @@ jest.mock('@/stores/helpers/colorCycleSelection', () => ({
   hasColorCycleIndices: jest.fn((payload?: { colorCycleIndices?: Uint8Array | null }) =>
     Boolean(payload?.colorCycleIndices && payload.colorCycleIndices.length)
   ),
+  debugCaptureColorCycleScalarRegion: jest.fn(() => null),
 }));
 
 type WriteColorCycleRegion = typeof import('@/stores/helpers/colorCycleSelection')['writeColorCycleRegion'];

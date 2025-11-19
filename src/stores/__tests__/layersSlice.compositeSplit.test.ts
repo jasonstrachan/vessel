@@ -1,5 +1,27 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { useAppStore } from '@/stores/useAppStore';
+import type { CompositeSegment } from '@/stores/slices/layersSlice';
+
+type StaticSegment = Extract<CompositeSegment, { kind: 'static' }>;
+type ColorCycleSegment = Extract<CompositeSegment, { kind: 'color-cycle' }>;
+
+const expectStaticSegment = (segment: CompositeSegment | undefined): StaticSegment => {
+  if (!segment || segment.kind !== 'static') {
+    throw new Error('Expected static composite segment');
+  }
+  return segment;
+};
+
+const expectColorCycleSegment = (segment: CompositeSegment | undefined): ColorCycleSegment => {
+  if (!segment || segment.kind !== 'color-cycle') {
+    throw new Error('Expected color-cycle composite segment');
+  }
+  return segment;
+};
+
+const isDirtyStaticSegment = (segment: CompositeSegment): segment is StaticSegment => {
+  return segment.kind === 'static' && Boolean(segment.dirty);
+};
 
 describe('static vs animated compositor', () => {
   let previousProject = useAppStore.getState().project;
@@ -124,15 +146,17 @@ describe('static vs animated compositor', () => {
     staticCanvas.height = 2;
     expect(useAppStore.getState().renderStaticComposite(staticCanvas)).toBe(true);
 
-    const segments = useAppStore.getState().compositeSegments;
+    const segments = (useAppStore.getState().compositeSegments ?? []) as CompositeSegment[];
     expect(segments).toHaveLength(3);
-    expect(segments[0].kind).toBe('static');
-    expect(segments[1].kind).toBe('color-cycle');
-    expect(segments[2].kind).toBe('static');
-    expect((segments[0] as any).layerIds).toContain('static-bottom');
-    expect((segments[2] as any).layerIds).toContain('static-top');
-    expect((segments[1] as any).layerId).toBe('cc-layer');
-    expect((segments[1] as any).blendMode).toBe('screen');
+
+    const bottomSegment = expectStaticSegment(segments[0]);
+    const ccSegment = expectColorCycleSegment(segments[1]);
+    const topSegment = expectStaticSegment(segments[2]);
+
+    expect(bottomSegment.layerIds).toContain('static-bottom');
+    expect(topSegment.layerIds).toContain('static-top');
+    expect(ccSegment.layerId).toBe('cc-layer');
+    expect(ccSegment.blendMode).toBe('screen');
 
   });
 
@@ -243,11 +267,9 @@ describe('static vs animated compositor', () => {
     const updatedFramebuffer = makeCanvas([0, 255, 0]);
     useAppStore.getState().updateLayer('top', { framebuffer: updatedFramebuffer });
 
-    const dirtySegments = useAppStore.getState().compositeSegments.filter(
-      (segment) => segment.kind === 'static' && segment.dirty
-    );
+    const dirtySegments = (useAppStore.getState().compositeSegments ?? []).filter(isDirtyStaticSegment);
     expect(dirtySegments).toHaveLength(1);
-    expect((dirtySegments[0] as any).layerIds).toContain('top');
+    expect(dirtySegments[0].layerIds).toContain('top');
 
     expect(useAppStore.getState().renderStaticComposite(staticCanvas)).toBe(true);
     expect(useAppStore.getState().compositeSegmentsVersion).toBeGreaterThan(versionBefore);

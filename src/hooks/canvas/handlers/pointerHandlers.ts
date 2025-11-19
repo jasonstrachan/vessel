@@ -318,6 +318,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   };
 
   const CAPTURE_PADDING_PX = 2;
+  const PREVIEW_WORLD_PADDING = 2;
+  const PREVIEW_DITHER_PADDING_SCREEN = 3;
+  const PREVIEW_DITHER_BUFFER_SIZE = 512;
 
   const ensurePointRef = (
     ref: React.MutableRefObject<Point | null> | undefined
@@ -517,6 +520,17 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     canvas: null,
   };
 
+  const previewDitherBufferRef = {
+    canvas: typeof document !== 'undefined' ? document.createElement('canvas') : null,
+    ctx: null as CanvasRenderingContext2D | null,
+  };
+
+  if (previewDitherBufferRef.canvas) {
+    previewDitherBufferRef.canvas.width = PREVIEW_DITHER_BUFFER_SIZE;
+    previewDitherBufferRef.canvas.height = PREVIEW_DITHER_BUFFER_SIZE;
+    previewDitherBufferRef.ctx = previewDitherBufferRef.canvas.getContext('2d', { willReadFrequently: true });
+  }
+
   const getCustomBrushPreviewCanvas = (settings: BrushSettings): HTMLCanvasElement | null => {
     const tip = settings.currentBrushTip;
     if (typeof document === 'undefined' || !tip || !tip.imageData) {
@@ -582,6 +596,65 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     return patternCanvas;
   };
 
+  const computeOverlayDitherRegion = (
+    points: Point[],
+    overlay: HTMLCanvasElement
+  ): CaptureRegion | null => {
+    if (!points.length) {
+      return null;
+    }
+
+    const scale = Math.max(0.001, viewTransformRef.current.scale || 1);
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (let i = 0; i < points.length; i += 1) {
+      const pt = points[i];
+      if (!pt) continue;
+      const screenPos = pan.worldToScreen(pt.x, pt.y, scale);
+      if (!Number.isFinite(screenPos.x) || !Number.isFinite(screenPos.y)) {
+        continue;
+      }
+      minX = Math.min(minX, screenPos.x);
+      maxX = Math.max(maxX, screenPos.x);
+      minY = Math.min(minY, screenPos.y);
+      maxY = Math.max(maxY, screenPos.y);
+    }
+
+    if (
+      !Number.isFinite(minX) ||
+      !Number.isFinite(maxX) ||
+      !Number.isFinite(minY) ||
+      !Number.isFinite(maxY)
+    ) {
+      return null;
+    }
+
+    const pad = Math.max(
+      PREVIEW_DITHER_PADDING_SCREEN,
+      Math.ceil(PREVIEW_WORLD_PADDING * scale)
+    );
+
+    const x = Math.max(0, Math.floor(minX) - pad);
+    const y = Math.max(0, Math.floor(minY) - pad);
+    const right = Math.min(overlay.width, Math.ceil(maxX) + pad);
+    const bottom = Math.min(overlay.height, Math.ceil(maxY) + pad);
+
+    if (right <= x || bottom <= y) {
+      return null;
+    }
+
+    return {
+      x,
+      y,
+      width: Math.max(1, right - x),
+      height: Math.max(1, bottom - y),
+    };
+  };
+
   const drawSimpleShapePreviewOnOverlay = () => {
     const overlay = overlayCanvasRef.current;
     if (!overlay) {
@@ -598,82 +671,163 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    const { tools } = getDynamicDeps();
+    const { tools, layers, activeLayerId } = getDynamicDeps();
     const brushSettings = tools.brushSettings;
     const isPixelBrush =
       brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
       (brushSettings.brushShape === BrushShape.SQUARE && brushSettings.antialiasing === false);
+    const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+    const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
 
     ctx.clearRect(0, 0, overlay.width, overlay.height);
-    ctx.save();
-    ctx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
-    ctx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.imageSmoothingEnabled = !isPixelBrush;
 
     const strokeColor = brushSettings.color || '#ffffff';
     const strokeWidth = Math.max(1, brushSettings.size ?? 1);
     const activeBrushShape = brushSettings.brushShape ?? BrushShape.ROUND;
     const isColorCycleShapePreview = activeBrushShape === BrushShape.COLOR_CYCLE_SHAPE;
-    // Default/custom stroke brushes and Color Cycle shapes should preview without outlines so overlay matches final fill
     const skipOutline =
       isColorCycleShapePreview ||
       isShapeFillBrush(activeBrushShape) ||
       (isStrokeBrush(activeBrushShape) && !isColorCycleBrush(activeBrushShape));
     const isCustomBrushPreview = brushSettings.brushShape === BrushShape.CUSTOM;
 
-    ctx.beginPath();
-    const moveToPoint = (point: Point) => {
-      if (isPixelBrush) {
-        ctx.moveTo(Math.round(point.x), Math.round(point.y));
-      } else {
-        ctx.moveTo(point.x, point.y);
+    const overlayCtx = ctx;
+    const transform = deps.viewTransformRef.current;
+    const scale = Math.max(0.001, transform.scale || 1);
+
+    const bufferCanvas = previewDitherBufferRef.canvas;
+    const bufferCtx = previewDitherBufferRef.ctx;
+
+    const overlayRegion = computeOverlayDitherRegion(points, overlay);
+    if (!bufferCtx || !bufferCanvas || !overlayRegion) {
+      overlayCtx.save();
+      overlayCtx.translate(transform.offsetX, transform.offsetY);
+      overlayCtx.scale(transform.scale, transform.scale);
+      overlayCtx.lineJoin = 'round';
+      overlayCtx.lineCap = 'round';
+      overlayCtx.imageSmoothingEnabled = !isPixelBrush;
+      overlayCtx.beginPath();
+      const moveToPoint = (point: Point) => {
+        if (isPixelBrush) {
+          overlayCtx.moveTo(Math.round(point.x), Math.round(point.y));
+        } else {
+          overlayCtx.moveTo(point.x, point.y);
+        }
+      };
+      const lineToPoint = (point: Point) => {
+        if (isPixelBrush) {
+          overlayCtx.lineTo(Math.round(point.x), Math.round(point.y));
+        } else {
+          overlayCtx.lineTo(point.x, point.y);
+        }
+      };
+      moveToPoint(points[0]);
+      for (let i = 1; i < points.length; i += 1) {
+        lineToPoint(points[i]);
       }
+      overlayCtx.closePath();
+      if (!skipOutline) {
+        overlayCtx.strokeStyle = strokeColor;
+        overlayCtx.lineWidth = strokeWidth;
+        overlayCtx.globalAlpha = 1;
+        overlayCtx.stroke();
+      }
+      overlayCtx.globalAlpha = 1;
+      overlayCtx.fillStyle = strokeColor;
+      overlayCtx.fill();
+      overlayCtx.restore();
+      return;
+    }
+
+    bufferCtx.save();
+    bufferCtx.setTransform(1, 0, 0, 1, 0, 0);
+    bufferCtx.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
+    bufferCtx.lineJoin = 'round';
+    bufferCtx.lineCap = 'round';
+    bufferCtx.imageSmoothingEnabled = !isPixelBrush;
+
+    const worldWidth = overlayRegion.width / scale;
+    const worldHeight = overlayRegion.height / scale;
+    const worldMinX = (overlayRegion.x - transform.offsetX) / scale;
+    const worldMinY = (overlayRegion.y - transform.offsetY) / scale;
+
+    const scaleX = bufferCanvas.width / Math.max(worldWidth, 1e-3);
+    const scaleY = bufferCanvas.height / Math.max(worldHeight, 1e-3);
+
+    bufferCtx.translate(-worldMinX * scaleX, -worldMinY * scaleY);
+    bufferCtx.scale(scaleX, scaleY);
+
+    const moveToPoint = (point: Point) => {
+      bufferCtx.moveTo(point.x, point.y);
     };
     const lineToPoint = (point: Point) => {
-      if (isPixelBrush) {
-        ctx.lineTo(Math.round(point.x), Math.round(point.y));
-      } else {
-        ctx.lineTo(point.x, point.y);
-      }
+      bufferCtx.lineTo(point.x, point.y);
     };
+
+    bufferCtx.beginPath();
     moveToPoint(points[0]);
     for (let i = 1; i < points.length; i += 1) {
       lineToPoint(points[i]);
     }
-    ctx.closePath();
+    bufferCtx.closePath();
 
     if (!skipOutline) {
-      // Preserve outline for non-basic brushes (e.g., color cycle + shape-fill variants)
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = strokeWidth;
-      ctx.globalAlpha = 1;
-      ctx.stroke();
+      bufferCtx.strokeStyle = strokeColor;
+      bufferCtx.lineWidth = strokeWidth;
+      bufferCtx.globalAlpha = 1;
+      bufferCtx.stroke();
     }
-
-    let previewFillAlpha = 0.18;
-    let customPatternApplied = false;
 
     if (isCustomBrushPreview) {
       const patternCanvas = getCustomBrushPreviewCanvas(brushSettings);
       if (patternCanvas) {
-        const pattern = ctx.createPattern(patternCanvas, 'repeat');
+        const pattern = bufferCtx.createPattern(patternCanvas, 'repeat');
         if (pattern) {
-          ctx.imageSmoothingEnabled = false;
-          ctx.fillStyle = pattern;
-          previewFillAlpha = 0.85;
-          customPatternApplied = true;
+          bufferCtx.imageSmoothingEnabled = false;
+          bufferCtx.fillStyle = pattern;
+        } else {
+          bufferCtx.fillStyle = strokeColor;
+        }
+      } else {
+        bufferCtx.fillStyle = strokeColor;
+      }
+    } else {
+      bufferCtx.fillStyle = strokeColor;
+    }
+
+    bufferCtx.globalAlpha = 1;
+    bufferCtx.fill();
+    bufferCtx.restore();
+
+    if (!isColorCycleLayer && brushSettings.ditherEnabled && bufferCtx) {
+      try {
+        brushEngine?.applyStrokeDither(bufferCtx, {
+          x: 0,
+          y: 0,
+          width: bufferCanvas.width,
+          height: bufferCanvas.height,
+        });
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[Vessel] Preview dithering failed', error);
         }
       }
     }
 
-    if (!customPatternApplied) {
-      ctx.fillStyle = strokeColor;
-    }
-    ctx.globalAlpha = previewFillAlpha;
-    ctx.fill();
-    ctx.restore();
+    overlayCtx.save();
+    overlayCtx.imageSmoothingEnabled = false;
+    overlayCtx.drawImage(
+      bufferCanvas,
+      0,
+      0,
+      bufferCanvas.width,
+      bufferCanvas.height,
+      overlayRegion.x,
+      overlayRegion.y,
+      overlayRegion.width,
+      overlayRegion.height
+    );
+    overlayCtx.restore();
   };
 
   drawingHandlers.setSimpleShapePreviewRenderer?.(drawSimpleShapePreviewOnOverlay);

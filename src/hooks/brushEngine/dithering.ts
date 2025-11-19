@@ -499,7 +499,6 @@ export const applySierraLiteDither = (imageData: ImageData, numColors: number, c
       
       // Distribute error using Sierra Lite weights
       // Keep noise deterministic during live preview to avoid flicker
-      const noiseAmount = 0;
       const noise1 = 0;
       const noise2 = 0;
       const noise3 = 0;

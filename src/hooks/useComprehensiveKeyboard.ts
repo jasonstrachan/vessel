@@ -599,7 +599,7 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
-      switchTool, setGlobalBrushSize, setEraserSettings,
+      switchTool, setEraserSettings,
       setCustomBrushSizePercent,
       deleteSelectedPixels, selectAllActiveLayerPixels,
       copySelectionToClipboard,

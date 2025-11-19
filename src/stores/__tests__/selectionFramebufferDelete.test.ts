@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/useAppStore';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const resetStore = () => {
   useAppStore.setState((state) => ({
@@ -54,7 +55,7 @@ describe('selection delete updates framebuffer', () => {
           order: 0,
           imageData,
           framebuffer: canvas,
-          alignment: { offset: { x: 0, y: 0 }, anchor: 'top-left' },
+          alignment: createDefaultLayerAlignment(),
           layerType: 'normal',
         },
       ],
@@ -84,4 +85,3 @@ describe('selection delete updates framebuffer', () => {
     expect(state.currentCompositeBitmap).toBeNull();
   });
 });
-

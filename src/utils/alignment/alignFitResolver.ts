@@ -100,7 +100,6 @@ const normalizeFit = (fit?: string): LayerAlignmentSettings['fit'] => {
 export const normalizeAlignment = (
   alignment?: Partial<LayerAlignmentSettings> | null
 ): LayerAlignmentSettings => {
-  const desiredFit = alignment?.fit;
   // Default to centered placement so layers without explicit anchors remain centered in the viewport.
   const defaultHorizontal = 'center';
   const defaultVertical = 'center';

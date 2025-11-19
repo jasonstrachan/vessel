@@ -46,6 +46,16 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[ccRuntime] syncCCRuntimes', {
+        cause,
+        layerId: layer.id,
+        gradientStops: layer.colorCycleData.gradient?.length ?? 0,
+        brushSpeed: layer.colorCycleData.brushSpeed,
+        isAnimating: layer.colorCycleData.isAnimating,
+      });
+    }
+
     const brush = manager.getBrush(layer.id);
     if (!brush) {
       continue;

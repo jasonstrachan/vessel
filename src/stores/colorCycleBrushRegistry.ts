@@ -71,6 +71,13 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
   const activeResources = new Set<string>();
   const now = () => (deps.now ?? Date.now)();
 
+  const devLog = (message: string, payload: Record<string, unknown>): void => {
+    if (process.env.NODE_ENV === 'production') {
+      return;
+    }
+    console.log(message, payload);
+  };
+
   const getBrushSettings = (): BrushSettings => {
     return deps.getBrushSettings() ?? defaultBrushSettings;
   };
@@ -284,6 +291,13 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     initColorCycleForLayer(layerId: string, width: number, height: number, gradient?: Uint8Array) {
+      devLog('[ccBrushRegistry] initColorCycleForLayer', {
+        layerId,
+        width,
+        height,
+        gradientBytes: gradient?.length ?? 0,
+        stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
+      });
       try {
         const existingBrush = brushes.get(layerId);
         if (existingBrush) {
@@ -357,6 +371,10 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     removeColorCycleBrush(layerId: string): void {
+      devLog('[ccBrushRegistry] removeColorCycleBrush', {
+        layerId,
+        stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
+      });
       const brush = brushes.get(layerId) as BrushWithOptionalControls | undefined;
 
       if (brush) {
@@ -397,6 +415,11 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     transferColorCycleBrush(fromLayerId: string, toLayerId: string): boolean {
+      devLog('[ccBrushRegistry] transferColorCycleBrush', {
+        fromLayerId,
+        toLayerId,
+        stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
+      });
       const sourceBrush = brushes.get(fromLayerId) as BrushWithOptionalControls | undefined;
       const sourceMetadata = brushMetadata.get(fromLayerId);
 

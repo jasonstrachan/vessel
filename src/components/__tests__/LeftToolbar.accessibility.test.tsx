@@ -53,7 +53,7 @@ describe('LeftToolbar accessibility', () => {
   it('marks the active tool button as pressed and annotates shortcuts', () => {
     render(<LeftToolbar />);
 
-    const brushButton = screen.getByRole('button', { name: /^brush$/i });
+    const brushButton = screen.getByRole('button', { name: /brush \(b\)/i });
     expect(brushButton).toHaveAttribute('aria-pressed', 'true');
     expect(brushButton).toHaveAttribute('data-shortcut', 'B');
   });
