@@ -127,28 +127,40 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           ? captureColorCycleBrushState(activeLayer.id)
           : null;
 
-      const newImageData = new ImageData(
-        new Uint8ClampedArray(activeLayer.imageData.data),
-        activeLayer.imageData.width,
-        activeLayer.imageData.height
-      );
-
-      const startY = Math.max(0, Math.floor(y));
-      const endY = Math.min(newImageData.height, Math.ceil(y + height));
-      const startX = Math.max(0, Math.floor(x));
-      const endX = Math.min(newImageData.width, Math.ceil(x + width));
-
-      for (let py = startY; py < endY; py++) {
-        for (let px = startX; px < endX; px++) {
-          const index = (py * newImageData.width + px) * 4;
-          newImageData.data[index] = 0;
-          newImageData.data[index + 1] = 0;
-          newImageData.data[index + 2] = 0;
-          newImageData.data[index + 3] = 0;
+      const framebuffer = activeLayer.framebuffer;
+      if (framebuffer) {
+        const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
+        if (fbCtx) {
+          fbCtx.clearRect(x, y, width, height);
+          const syncedImage = fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
+          state.updateLayer(activeLayerId, { imageData: syncedImage });
         }
+      } else {
+        const newImageData = new ImageData(
+          new Uint8ClampedArray(activeLayer.imageData.data),
+          activeLayer.imageData.width,
+          activeLayer.imageData.height
+        );
+
+        const startY = Math.max(0, Math.floor(y));
+        const endY = Math.min(newImageData.height, Math.ceil(y + height));
+        const startX = Math.max(0, Math.floor(x));
+        const endX = Math.min(newImageData.width, Math.ceil(x + width));
+
+        for (let py = startY; py < endY; py++) {
+          for (let px = startX; px < endX; px++) {
+            const index = (py * newImageData.width + px) * 4;
+            newImageData.data[index + 3] = 0;
+            newImageData.data[index] = 0;
+            newImageData.data[index + 1] = 0;
+            newImageData.data[index + 2] = 0;
+          }
+        }
+
+        state.updateLayer(activeLayerId, { imageData: newImageData });
       }
 
-      state.updateLayer(activeLayerId, { imageData: newImageData });
+      state.setCurrentCompositeBitmap(null);
       state.setLayersNeedRecomposition(true);
       state.clearSelection();
 
@@ -243,6 +255,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
 
               state.updateLayer(activeLayerId, { imageData: capture.updatedLayerImageData });
               state.setLayersNeedRecomposition(true);
+              state.setCurrentCompositeBitmap(null);
 
               void commitLayerHistory({
                 layerId: activeLayerId,

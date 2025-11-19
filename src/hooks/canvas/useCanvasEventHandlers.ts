@@ -8,6 +8,7 @@ import type {
 } from './utils/types';
 import { createPointerHandlers, createDefaultContourLinesState } from './handlers/pointerHandlers';
 
+
 /**
  * Main orchestrator hook for canvas event handlers
  * Consolidates all event handling logic into modular, testable functions
@@ -117,6 +118,7 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
 
   const augmentedDeps = {
     ...staticDeps,
+    setLayersNeedRecomposition: staticDeps.setLayersNeedRecomposition,
     snapStrokeStartRef,
     snapShiftAnchorRef,
     snapLastBrushSampleRef,

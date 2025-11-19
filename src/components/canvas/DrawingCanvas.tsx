@@ -2026,6 +2026,31 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
   }, [draw]);
 
+  // If any code path flags recomposition, immediately invalidate composites and redraw
+  useEffect(() => {
+    if (!layersNeedRecomposition) return;
+
+    compositeCanvasDirtyRef.current = true;
+    const rebuilt = rebuildStaticComposite();
+    if (rebuilt) {
+      renderSplitComposites();
+      compositeCanvasDirtyRef.current = false;
+      lastCompositeHashRef.current = layersHash;
+      lastActiveLayerIdRef.current = activeLayerId ?? null;
+      lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null };
+      setLayersNeedRecomposition(false);
+    }
+
+    setNeedsRedraw((prev) => prev + 1);
+
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+    const drawFunc = drawRef.current;
+    if (ctx && drawFunc && viewTransformRef.current) {
+      drawFunc(ctx, viewTransformRef.current);
+    }
+  }, [layersNeedRecomposition]);
+
   // Redraw immediately when marquee selection changes to ensure deleted pixels disappear
   useEffect(() => {
     const hasSelection = Boolean(selectionStart && selectionEnd);
@@ -2527,6 +2552,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     // Drawing state management
     compositeCanvasDirtyRef,
     setNeedsRedraw,
+    setLayersNeedRecomposition,
     
     // View transform and drawing
     viewTransformRef,

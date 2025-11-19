@@ -189,6 +189,7 @@ export interface EventHandlerDependencies {
   // Drawing state management
   compositeCanvasDirtyRef: React.MutableRefObject<boolean>;
   setNeedsRedraw: React.Dispatch<React.SetStateAction<number>>;
+  setLayersNeedRecomposition?: (needs: boolean) => void;
   
   // View transform and drawing functions
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;

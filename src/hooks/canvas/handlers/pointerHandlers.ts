@@ -1,8 +1,41 @@
 'use client';
 
 import React from 'react';
+import { useAppStore } from '@/stores/useAppStore';
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
+
+const invalidateCompositeAfterSelectionMutation = ({
+  compositeCanvasDirtyRef,
+  setLayersNeedRecomposition,
+  setNeedsRedraw,
+  canvasRef,
+  viewTransformRef,
+  draw,
+}: {
+  compositeCanvasDirtyRef: React.MutableRefObject<boolean>;
+  setLayersNeedRecomposition?: (value: boolean) => void;
+  setNeedsRedraw: React.Dispatch<React.SetStateAction<number>>;
+  canvasRef: React.RefObject<HTMLCanvasElement>;
+  viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
+  draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
+}) => {
+  const store = useAppStore.getState();
+  if (store.currentCompositeBitmap) {
+    store.setCurrentCompositeBitmap(null);
+  }
+
+  setLayersNeedRecomposition?.(true);
+  compositeCanvasDirtyRef.current = true;
+
+  setNeedsRedraw((prev) => prev + 1);
+
+  const canvas = canvasRef.current;
+  const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+  if (ctx) {
+    draw(ctx, viewTransformRef.current);
+  }
+};
 
 const shouldEnableContourDebug = (): boolean => {
   if (typeof globalThis === 'undefined') return false;
@@ -123,7 +156,6 @@ const cl = {
 };
 // -----------------------------------------------------------
 import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
-import { useAppStore } from '@/stores/useAppStore';
 import { isStrokeBrush, isShapeFillBrush } from '@/utils/brushCategories';
 import { isColorCycleBrush } from '@/utils/colorCycleGradients';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
@@ -254,6 +286,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     getMousePos,
     compositeCanvasDirtyRef,
     setNeedsRedraw,
+    viewTransformRef,
+    draw,
+    setLayersNeedRecomposition,
     pauseAnimationForPan,
     resumeAnimationAfterPan,
     restartColorCycleAnimation,
@@ -910,7 +945,29 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return null;
     }
 
-    updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
+    // Sync framebuffer-first so compositing sees the cleared hole immediately
+    if (activeLayer?.framebuffer) {
+      const fbCtx = activeLayer.framebuffer.getContext('2d', { willReadFrequently: true });
+      if (fbCtx) {
+        const { x, y, width, height } = captureResult.bounds;
+        fbCtx.clearRect(x, y, width, height);
+        const refreshed = fbCtx.getImageData(0, 0, activeLayer.framebuffer.width, activeLayer.framebuffer.height);
+        updateLayer(activeLayerId, { imageData: refreshed });
+      } else {
+        updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
+      }
+    } else {
+      updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
+    }
+
+    invalidateCompositeAfterSelectionMutation({
+      compositeCanvasDirtyRef,
+      setLayersNeedRecomposition,
+      setNeedsRedraw,
+      canvasRef,
+      viewTransformRef,
+      draw,
+    });
 
     return {
       imageData: captureResult.selectionImageData,
