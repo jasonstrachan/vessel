@@ -389,6 +389,10 @@ const generateDuplicateLayerName = (name: string, layers: Layer[]): string => {
   return `${base} ${Date.now()}`;
 };
 
+export type UpdateLayerOptions = {
+  skipColorCycleSync?: boolean;
+};
+
 export interface LayersSlice {
   layers: Layer[];
   layersNeedRecomposition: boolean;
@@ -404,7 +408,7 @@ export interface LayersSlice {
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   duplicateLayer: (layerId: string) => string | null;
   removeLayer: (id: string) => void;
-  updateLayer: (id: string, updates: Partial<Layer>, options?: { skipColorCycleSync?: boolean }) => void;
+  updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   setActiveLayer: (id: string) => void;
   setReferenceLayer: (id: string | null) => void;
@@ -1052,8 +1056,9 @@ export const createLayersSlice = (
     });
     get().markAllCompositeSegmentsDirty();
   },
-  updateLayer: (id, updates, options) => {
+  updateLayer: (id, updates, options?: UpdateLayerOptions) => {
     set((state) => {
+    const skipColorCycleSync = options?.skipColorCycleSync ?? false;
     const originalLayer = state.layers.find(l => l.id === id);
     
     // CRITICAL: Detect when a color-cycle layer is being changed to normal
@@ -1107,6 +1112,7 @@ export const createLayersSlice = (
               hasEraseMask: Boolean(updates.colorCycleData?.eraseMask),
               hasBrushState: Boolean(updates.colorCycleData?.brushState),
               isAnimating: updates.colorCycleData?.isAnimating,
+              skipColorCycleSync,
               stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
             });
           }
@@ -1203,7 +1209,7 @@ export const createLayersSlice = (
       if (
         syncedLayer?.layerType === 'color-cycle' &&
         syncedLayer.colorCycleData &&
-        !options?.skipColorCycleSync
+        !skipColorCycleSync
       ) {
         syncCCRuntimes([syncedLayer], 'updateLayer');
       }

@@ -29,8 +29,16 @@ jest.mock('../colorCycleBrushManager', () => ({
   setColorCycleStoreStateGetter: jest.fn()
 }));
 
+jest.mock('../ccRuntime', () => ({
+  __esModule: true as const,
+  syncCCRuntimes: jest.fn(),
+}));
+
 // Import after mocks are in place
+import { syncCCRuntimes } from '@/stores/ccRuntime';
 import { useAppStore } from '@/stores/useAppStore';
+
+const syncCCRuntimesMock = syncCCRuntimes as jest.Mock;
 
 const cloneStops = (stops: ReadonlyArray<{ position: number; color: string }>) =>
   stops.map(stop => ({ ...stop }));
@@ -76,6 +84,8 @@ describe('useAppStore color cycle layer selection', () => {
     (Object.values(mockManager) as jest.Mock[]).forEach(mockFn => {
       mockFn.mockClear();
     });
+
+    syncCCRuntimesMock.mockClear();
 
     useAppStore.setState(state => ({
       layers: [],
@@ -161,5 +171,39 @@ describe('useAppStore color cycle layer selection', () => {
 
     const updatedLayer = useAppStore.getState().layers.find(l => l.id === layer.id);
     expect(updatedLayer?.colorCycleData?.flowMode).toBe('reverse');
+  });
+
+  it('skips runtime sync when skipColorCycleSync is true', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(makeColorCycleLayer('layer-skip-sync'));
+
+    syncCCRuntimesMock.mockClear();
+
+    store.updateLayer(
+      layerId,
+      {
+        colorCycleData: {
+          brushSpeed: 0.42,
+        },
+      },
+      { skipColorCycleSync: true }
+    );
+
+    expect(syncCCRuntimesMock).not.toHaveBeenCalled();
+  });
+
+  it('syncs runtime when skipColorCycleSync is not provided', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(makeColorCycleLayer('layer-allow-sync'));
+
+    syncCCRuntimesMock.mockClear();
+
+    store.updateLayer(layerId, {
+      colorCycleData: {
+        flowMode: 'reverse',
+      },
+    });
+
+    expect(syncCCRuntimesMock).toHaveBeenCalled();
   });
 });

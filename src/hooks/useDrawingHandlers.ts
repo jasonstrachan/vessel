@@ -101,6 +101,9 @@ type StampCmd = {
 };
 
 type CaptureRegion = { x: number; y: number; width: number; height: number };
+type ShapeBeforeSnapshot =
+  | { kind: 'full'; image: ImageData }
+  | { kind: 'region'; image: ImageData; roi: CaptureRegion };
 type RecomposeRegion = { x: number; y: number; width: number; height: number };
 
 type CommitRasterOverlayOptions = {
@@ -382,6 +385,101 @@ const snapshotLayerImageData = (layer: Layer | null | undefined): ImageData | nu
   } catch {
     return null;
   }
+};
+
+const captureLayerRegionImageData = (
+  layer: Layer | null | undefined,
+  region: CaptureRegion | null | undefined
+): ImageData | null => {
+  if (!layer || !region) {
+    return null;
+  }
+  const source = layer.imageData;
+  const width = source?.width ?? layer.framebuffer?.width ?? 0;
+  const height = source?.height ?? layer.framebuffer?.height ?? 0;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  const clampedX = Math.max(0, Math.min(region.x, width - 1));
+  const clampedY = Math.max(0, Math.min(region.y, height - 1));
+  const clampedWidth = Math.min(region.width, width - clampedX);
+  const clampedHeight = Math.min(region.height, height - clampedY);
+  if (clampedWidth <= 0 || clampedHeight <= 0) {
+    return null;
+  }
+
+  if (source) {
+    const target = new ImageData(clampedWidth, clampedHeight);
+    const srcData = source.data;
+    const targetData = target.data;
+    const srcStride = source.width * 4;
+    const tgtStride = clampedWidth * 4;
+    for (let row = 0; row < clampedHeight; row += 1) {
+      const srcOffset = ((clampedY + row) * source.width + clampedX) * 4;
+      const tgtOffset = row * tgtStride;
+      targetData.set(srcData.subarray(srcOffset, srcOffset + tgtStride), tgtOffset);
+    }
+    return target;
+  }
+
+  const framebuffer = layer.framebuffer;
+  if (!framebuffer) {
+    return null;
+  }
+  try {
+    const ctx = framebuffer.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!ctx || !('getImageData' in ctx)) {
+      return null;
+    }
+    return ctx.getImageData(clampedX, clampedY, clampedWidth, clampedHeight);
+  } catch {
+    return null;
+  }
+};
+
+const inflateShapeBeforeSnapshot = (
+  layer: Layer | null | undefined,
+  snapshot: ShapeBeforeSnapshot
+): ImageData | null => {
+  if (!snapshot) {
+    return null;
+  }
+  const targetWidth = layer?.imageData?.width ?? layer?.framebuffer?.width ?? snapshot.image.width;
+  const targetHeight = layer?.imageData?.height ?? layer?.framebuffer?.height ?? snapshot.image.height;
+  if (!Number.isFinite(targetWidth) || !Number.isFinite(targetHeight) || targetWidth <= 0 || targetHeight <= 0) {
+    return null;
+  }
+
+  if (snapshot.kind === 'full') {
+    return cloneImageData(snapshot.image);
+  }
+
+  const roi = snapshot.roi;
+  const source = snapshot.image.data;
+  const base: ImageData = cloneImageData(layer?.imageData ?? null) ?? new ImageData(targetWidth, targetHeight);
+  const baseData = base.data;
+  const roiWidth = snapshot.image.width;
+  const roiHeight = snapshot.image.height;
+  const stride = roiWidth * 4;
+  const destX = Math.max(0, roi.x);
+  const destY = Math.max(0, roi.y);
+  const offsetX = destX - roi.x;
+  const offsetY = destY - roi.y;
+  const copyWidth = Math.min(roiWidth - offsetX, targetWidth - destX);
+  const copyHeight = Math.min(roiHeight - offsetY, targetHeight - destY);
+  if (copyWidth <= 0 || copyHeight <= 0) {
+    return base;
+  }
+  for (let row = 0; row < copyHeight; row += 1) {
+    const targetY = destY + row;
+    const targetOffset = (targetY * targetWidth + destX) * 4;
+    const srcOffset = ((row + offsetY) * roiWidth + offsetX) * 4;
+    baseData.set(source.subarray(srcOffset, srcOffset + copyWidth * 4), targetOffset);
+  }
+  return base;
 };
 
 const waitForNextFrame = (): Promise<void> => {
@@ -799,7 +897,8 @@ export function useDrawingHandlers({
   const activeStrokeSessionRef = useRef<BrushStrokeSession | null>(null);
   const strokeBeforeColorStateRef = useRef<ColorCycleSerializedState | null>(null);
   const strokeBeforeImageRef = useRef<ImageData | null>(null);
-  const shapeBeforeImageRef = useRef<ImageData | null>(null);
+  const shapeBeforeImageRef = useRef<ShapeBeforeSnapshot | null>(null);
+  const shapeBeforeSnapshotCapturedRef = useRef(false);
   const renderAllCCLogTSRef = useRef(0);
   const lastRendererLogTS = useRef(0);
   const firstPaintRef = useRef(true);
@@ -3904,6 +4003,11 @@ export function useDrawingHandlers({
     resetShapeDragRefs();
   }, [endMaskHealingStroke]);
 
+  const clearShapeBeforeSnapshot = useCallback(() => {
+    shapeBeforeImageRef.current = null;
+    shapeBeforeSnapshotCapturedRef.current = false;
+  }, []);
+
   const coerceDragShapeToPolygon = useCallback((): boolean => {
     if (!shapeDragMovedRef.current || !shapeDragStartRef.current || !shapeDragLastRef.current) {
       return false;
@@ -3930,6 +4034,50 @@ export function useDrawingHandlers({
     triggerSimpleShapePreview();
     return true;
   }, [seedManualStrokeBoundingBox, storeRef, triggerSimpleShapePreview]);
+
+  const capturePendingShapeSnapshot = useCallback(() => {
+    if (shapeBeforeSnapshotCapturedRef.current) {
+      return;
+    }
+    const state = storeRef.current;
+    const activeLayer = state.layers.find((l) => l.id === state.activeLayerId);
+    if (!activeLayer || activeLayer.layerType === 'color-cycle') {
+      shapeBeforeSnapshotCapturedRef.current = true;
+      return;
+    }
+    const projectDimensions =
+      project ?? state.project ?? (activeLayer.imageData
+        ? { width: activeLayer.imageData.width, height: activeLayer.imageData.height }
+        : activeLayer.framebuffer
+          ? { width: activeLayer.framebuffer.width, height: activeLayer.framebuffer.height }
+          : null);
+    if (!projectDimensions) {
+      return;
+    }
+    const roi = captureRegionFromPoints(
+      shapePointsRef.current,
+      ROI_PADDING_PX + strokeCapturePaddingRef.current,
+      projectDimensions
+    );
+    if (!roi) {
+      return;
+    }
+    const regionData = captureLayerRegionImageData(activeLayer, roi);
+    if (!regionData) {
+      return;
+    }
+    if (
+      roi.x <= 0 &&
+      roi.y <= 0 &&
+      roi.width >= projectDimensions.width &&
+      roi.height >= projectDimensions.height
+    ) {
+      shapeBeforeImageRef.current = { kind: 'full', image: regionData };
+    } else {
+      shapeBeforeImageRef.current = { kind: 'region', image: regionData, roi };
+    }
+    shapeBeforeSnapshotCapturedRef.current = true;
+  }, [project, storeRef]);
   
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // If we're selecting direction for linear gradient, record the direction
@@ -3948,22 +4096,8 @@ export function useDrawingHandlers({
         strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
         strokeCapturePaddingRef.current = Math.max(strokeCapturePaddingRef.current, ROI_PADDING_PX);
       }
-      const state = storeRef.current;
-      const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-
       if (!isDrawingShapeRef.current) {
-        const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
-        if (activeLayer && activeLayer.layerType !== 'color-cycle') {
-          const beforeSnapshot = snapshotLayerImageData(activeLayer);
-          shapeBeforeImageRef.current = beforeSnapshot ?? null;
-        } else {
-          shapeBeforeImageRef.current = null;
-        }
-      }
-
-      if (!isCCShape) {
-        // Only pause for non-CC shape brushes
-        pauseColorCycleForNonCCInteraction();
+        clearShapeBeforeSnapshot();
       }
       // quiet
       // Avoid allocating the full-size drawing canvas at the first vertex for
@@ -4022,7 +4156,8 @@ export function useDrawingHandlers({
     updateAutoSampledGradient,
     storeRef,
     seedManualStrokeBoundingBox,
-    triggerSimpleShapePreview
+    triggerSimpleShapePreview,
+    clearShapeBeforeSnapshot
   ]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
@@ -4120,6 +4255,7 @@ export function useDrawingHandlers({
       );
       if (added > 0 || shapeDragMovedRef.current) {
         seedManualStrokeBoundingBox(shapePointsRef.current, 2);
+        capturePendingShapeSnapshot();
         triggerSimpleShapePreview();
         if (added > 0) {
           try {
@@ -4142,7 +4278,8 @@ export function useDrawingHandlers({
     initDrawingCanvas,
     storeRef,
     seedManualStrokeBoundingBox,
-    triggerSimpleShapePreview
+    triggerSimpleShapePreview,
+    capturePendingShapeSnapshot
   ]);
   
   const finalizeShapeDrawing = useCallback(async () => {
@@ -5038,15 +5175,13 @@ export function useDrawingHandlers({
               height: drawingCanvas.height,
             };
           }
-          const beforeBitmap = await ensureLayerSnapshotWithRetry(
-            currentLayer,
-            shapeBeforeImageRef.current,
-            3
-          );
+          const beforeBitmap = shapeBeforeImageRef.current
+            ? inflateShapeBeforeSnapshot(currentLayer, shapeBeforeImageRef.current)
+            : await ensureLayerSnapshotWithRetry(currentLayer, null, 3);
           const historyDescription = `Shape Fill: ${liveBrushSettings?.shapeFillMode ?? 'default'}`;
           if (!beforeBitmap) {
             logError('[shape-finalize] beforeImage missing; skipping history to avoid destructive undo.');
-            shapeBeforeImageRef.current = null;
+            clearShapeBeforeSnapshot();
             drawingCanvasHasContent.current = false;
             if (drawingCtxRef.current) {
               drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
@@ -5078,7 +5213,7 @@ export function useDrawingHandlers({
               bitmapRoi: captureRegion,
             })
           );
-          shapeBeforeImageRef.current = null;
+          clearShapeBeforeSnapshot();
           drawingCanvasHasContent.current = false;
           if (drawingCtxRef.current) {
             drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
@@ -5116,7 +5251,7 @@ export function useDrawingHandlers({
       logError('Error during shape finalization:', error);
     } finally {
       if (isBusyRef) isBusyRef.current = false;
-      shapeBeforeImageRef.current = null;
+      clearShapeBeforeSnapshot();
     }
     }); // End of FinalizeQueue.enqueue
     return;
@@ -5594,6 +5729,20 @@ export function useDrawingHandlers({
       window.removeEventListener('cc:clear-overlay', handleClearOverlay);
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    initDrawingCanvas();
+  }, [initDrawingCanvas]);
+
+  useEffect(() => {
+    if (!shapeMode) {
+      return;
+    }
+    initDrawingCanvas();
+  }, [shapeMode, initDrawingCanvas]);
 
   useEffect(() => {
     type LayerSnapshot = {

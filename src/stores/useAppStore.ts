@@ -225,7 +225,7 @@ import {
 } from '@/stores/helpers/toolsState';
 import { createHistorySlice } from '@/stores/slices/historySlice';
 import { createLayersSlice } from '@/stores/slices/layersSlice';
-import type { CompositeSegment } from '@/stores/slices/layersSlice';
+import type { CompositeSegment, UpdateLayerOptions } from '@/stores/slices/layersSlice';
 import { createProjectSlice } from '@/stores/slices/projectSlice';
 import { createUiSlice } from '@/stores/slices/uiSlice';
 import { createToolsSlice } from '@/stores/slices/toolsSlice';
@@ -531,7 +531,7 @@ export interface AppState {
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   duplicateLayer: (id: string) => string | null;
   removeLayer: (id: string) => void;
-  updateLayer: (id: string, updates: Partial<Layer>, options?: { skipColorCycleSync?: boolean }) => void;
+  updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
   setActiveLayer: (id: string) => void;
   setLayers: (layers: Layer[]) => void;
   setReferenceLayer: (id: string | null) => void;
