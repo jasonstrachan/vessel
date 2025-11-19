@@ -504,13 +504,21 @@ export const applySierraLiteLostEdgeMask = (
 
   // Edge band grows with intensity; clamp to avoid large kernels.
   // edgeBand is the thickness of the fade zone; bandRadius is search distance for edges.
-  // Edge band target: up to ~100px at max for a dramatic lost edge (in source pixels).
-  const edgeBandPx = Math.max(2, Math.min(100, Math.round(2 + intensity * 98))); // 2px @0 → ~100px @1
+  // Edge band target: eased mapping up to ~100px at max for dramatic edges, but with softer growth.
+  const eased = Math.pow(intensity, 0.75);
+  const edgeBandPx = Math.max(2, Math.min(100, Math.round(2 + eased * 98))); // 2px @0 → ~100px @1
   const edgeBand = Math.max(1, Math.round(edgeBandPx / tile));
   // Search radius slightly larger than the band to find nearby transparency.
-  const bandRadius = Math.max(edgeBand, Math.min(140, Math.round(edgeBand * 1.2)));
+  const bandRadius = Math.max(edgeBand, Math.min(140, Math.round(edgeBand * 1.1)));
   const fadeZone = Math.max(1, Math.round(edgeBand * 0.6));
   const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) / 2)));
+
+  // Early bailout for very small regions: lostedge becomes no-op to avoid overwork and artifacts.
+  const minDimPx = Math.min(width, height);
+  if (minDimPx < tile * 2) {
+    keepMask.fill(255);
+    return keepMask;
+  }
 
   const edgeField = new ImageData(coarseW, coarseH);
   const edgeData = edgeField.data;

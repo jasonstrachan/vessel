@@ -13,6 +13,7 @@ import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
+import { sharedLostEdgeWorker } from '@/lib/performance/LostEdgeWorkerManager';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
@@ -1359,6 +1360,8 @@ export const useBrushEngineSimplified = () => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
   }, [tools.brushSettings.lostEdge]);
 
+  const lostEdgeTileSize = 4; // tunable; matches ditherAlgorithms default for now
+
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -1468,9 +1471,17 @@ export const useBrushEngineSimplified = () => {
     }
 
     if (strokeLostEdgeAmount > 0) {
-      const keepMask = applySierraLiteLostEdgeMask(coverage, w, h, strokeLostEdgeAmount);
-      for (let i = 0; i < keepMask.length; i++) {
-        const keep = keepMask[i];
+      // NOTE: Worker offload is async; keep sync path here to avoid awaiting in render pipeline.
+      const mask = applySierraLiteLostEdgeMask(
+        coverage,
+        w,
+        h,
+        strokeLostEdgeAmount,
+        lostEdgeTileSize
+      );
+
+      for (let i = 0; i < mask.length; i++) {
+        const keep = mask[i];
         if (keep >= 255) continue;
         const alphaIndex = i * 4 + 3;
         const alpha = outData[alphaIndex];

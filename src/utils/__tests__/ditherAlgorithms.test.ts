@@ -277,22 +277,26 @@ describe('Dithering Algorithms', () => {
   });
 
   describe('applySierraLiteLostEdgeMask', () => {
-    const coverage = new Uint8Array([
-      0, 0, 0, 0, 0,
-      0, 255, 255, 255, 0,
-      0, 255, 255, 255, 0,
-      0, 255, 255, 255, 0,
-      0, 0, 0, 0, 0,
-    ]);
+    const buildCoverage = (w: number, h: number, fillStart: number, fillEnd: number) => {
+      const arr = new Uint8Array(w * h);
+      for (let y = fillStart; y < fillEnd; y++) {
+        for (let x = fillStart; x < fillEnd; x++) {
+          arr[y * w + x] = 255;
+        }
+      }
+      return arr;
+    };
 
     it('returns full mask when intensity is zero', () => {
+      const coverage = buildCoverage(5, 5, 1, 4);
       const mask = applySierraLiteLostEdgeMask(coverage, 5, 5, 0);
       expect(mask.every((v) => v === 255)).toBe(true);
     });
 
     it('softens edge pixels while keeping the center opaque', () => {
-      const mask = applySierraLiteLostEdgeMask(coverage, 5, 5, 100, 1);
-      const center = mask[12]; // middle of 5x5
+      const coverage = buildCoverage(16, 16, 4, 12);
+      const mask = applySierraLiteLostEdgeMask(coverage, 16, 16, 40, 4);
+      const center = mask[8 * 16 + 8]; // middle
       const minValue = Math.min(...mask);
 
       expect(center).toBeGreaterThan(200);
@@ -300,8 +304,9 @@ describe('Dithering Algorithms', () => {
     });
 
     it('keeps interior opaque with coarse tiling', () => {
-      const mask = applySierraLiteLostEdgeMask(coverage, 5, 5, 80, 4);
-      const center = mask[12];
+      const coverage = buildCoverage(16, 16, 4, 12);
+      const mask = applySierraLiteLostEdgeMask(coverage, 16, 16, 80, 4);
+      const center = mask[8 * 16 + 8];
       expect(center).toBeGreaterThan(200);
     });
   });
