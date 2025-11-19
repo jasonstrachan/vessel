@@ -6,6 +6,7 @@ class FakeImageData implements ImageData {
   data: Uint8ClampedArray;
   width: number;
   height: number;
+  readonly colorSpace = 'srgb';
   constructor(data: Uint8ClampedArray, width: number, height: number) {
     this.data = data;
     this.width = width;
@@ -25,6 +26,27 @@ const makeCanvas = (width: number, height: number, imageData: ImageData) => {
   } as unknown as HTMLCanvasElement;
 };
 
+const makeOffscreenCanvas = (width: number, height: number): OffscreenCanvas => {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+  // Minimal stub to satisfy types in non-DOM Jest environments.
+  return { width, height } as unknown as OffscreenCanvas;
+};
+
+const createProject = (): Project => ({
+  id: 'project-test',
+  name: 'test',
+  width: 4,
+  height: 4,
+  layers: [],
+  backgroundColor: 'transparent',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  customBrushes: [],
+  defaultCustomBrushId: null,
+});
+
 // Stub brush + manager so colorCycleSelection routes buffers into applyLayerSnapshot.
 const mockApplyLayerSnapshot = jest.fn();
 const mockGetLayerSnapshot = jest.fn();
@@ -43,7 +65,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => ({
 }));
 
 describe('colorCycleSelection helpers', () => {
-  const project: Project = { width: 4, height: 4, name: 'test', layers: [] } as Project;
+  const project: Project = createProject();
 
   beforeEach(() => {
     mockApplyLayerSnapshot.mockClear();
@@ -74,7 +96,7 @@ describe('colorCycleSelection helpers', () => {
       locked: false,
       order: 0,
       imageData: null,
-      framebuffer: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
       alignment: { positioning: 'auto' } as any,
       colorCycleData: { canvas },
     } as Layer;
@@ -143,7 +165,7 @@ describe('colorCycleSelection helpers', () => {
       locked: false,
       order: 0,
       imageData: null,
-      framebuffer: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
       alignment: { positioning: 'auto' } as any,
       colorCycleData: { canvas },
     } as Layer;
