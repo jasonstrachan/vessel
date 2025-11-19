@@ -1,8 +1,9 @@
 import type { StateCreator } from 'zustand';
-import type { Rectangle } from '@/types';
+import type { Layer, Project, Rectangle } from '@/types';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
+import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
 
@@ -29,6 +30,7 @@ export interface SelectionSlice {
     displayWidth: number;
     displayHeight: number;
     sourceLayerId?: string | null;
+    colorCycleIndices?: Uint8Array | null;
   } | null;
   setFloatingPaste: (paste: {
     imageData: ImageData;
@@ -39,6 +41,7 @@ export interface SelectionSlice {
     displayHeight?: number;
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
+    colorCycleIndices?: Uint8Array | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
@@ -54,6 +57,8 @@ export interface SelectionClipboardPayload {
   width: number;
   height: number;
   mode: 'copy' | 'cut';
+  colorCycleIndices?: Uint8Array | null;
+  colorCycleSourceLayerId?: string | null;
 }
 
 const computeBoundsFromSelection = (
@@ -110,7 +115,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       }
 
       const activeLayer = layers.find((layer) => layer.id === activeLayerId);
-      if (!activeLayer || !activeLayer.imageData || !activeLayerId) {
+      if (!activeLayer || !activeLayerId) {
         return;
       }
 
@@ -127,37 +132,46 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           ? captureColorCycleBrushState(activeLayer.id)
           : null;
 
-      const framebuffer = activeLayer.framebuffer;
-      if (framebuffer) {
-        const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
-        if (fbCtx) {
-          fbCtx.clearRect(x, y, width, height);
-          const syncedImage = fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
-          state.updateLayer(activeLayerId, { imageData: syncedImage });
+      if (activeLayer.layerType === 'color-cycle') {
+        const cleared = clearColorCycleRegion(state, activeLayer, project, { x, y, width, height });
+        if (cleared) {
+          const eraseMask = activeLayer.colorCycleData?.eraseMask;
+          const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
+          eraseMaskCtx?.clearRect(x, y, width, height);
         }
       } else {
-        const newImageData = new ImageData(
-          new Uint8ClampedArray(activeLayer.imageData.data),
-          activeLayer.imageData.width,
-          activeLayer.imageData.height
-        );
-
-        const startY = Math.max(0, Math.floor(y));
-        const endY = Math.min(newImageData.height, Math.ceil(y + height));
-        const startX = Math.max(0, Math.floor(x));
-        const endX = Math.min(newImageData.width, Math.ceil(x + width));
-
-        for (let py = startY; py < endY; py++) {
-          for (let px = startX; px < endX; px++) {
-            const index = (py * newImageData.width + px) * 4;
-            newImageData.data[index + 3] = 0;
-            newImageData.data[index] = 0;
-            newImageData.data[index + 1] = 0;
-            newImageData.data[index + 2] = 0;
+        const framebuffer = activeLayer.framebuffer;
+        if (framebuffer) {
+          const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
+          if (fbCtx) {
+            fbCtx.clearRect(x, y, width, height);
+            const syncedImage = fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
+            state.updateLayer(activeLayerId, { imageData: syncedImage });
           }
-        }
+        } else if (activeLayer.imageData) {
+          const newImageData = new ImageData(
+            new Uint8ClampedArray(activeLayer.imageData.data),
+            activeLayer.imageData.width,
+            activeLayer.imageData.height
+          );
 
-        state.updateLayer(activeLayerId, { imageData: newImageData });
+          const startY = Math.max(0, Math.floor(y));
+          const endY = Math.min(newImageData.height, Math.ceil(y + height));
+          const startX = Math.max(0, Math.floor(x));
+          const endX = Math.min(newImageData.width, Math.ceil(x + width));
+
+          for (let py = startY; py < endY; py++) {
+            for (let px = startX; px < endX; px++) {
+              const index = (py * newImageData.width + px) * 4;
+              newImageData.data[index + 3] = 0;
+              newImageData.data[index] = 0;
+              newImageData.data[index + 1] = 0;
+              newImageData.data[index + 2] = 0;
+            }
+          }
+
+          state.updateLayer(activeLayerId, { imageData: newImageData });
+        }
       }
 
       state.setCurrentCompositeBitmap(null);
@@ -193,6 +207,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               displayWidth: paste.displayWidth ?? paste.width,
               displayHeight: paste.displayHeight ?? paste.height,
               sourceLayerId: paste.sourceLayerId ?? null,
+              colorCycleIndices: paste.colorCycleIndices ?? null,
             }
           : null,
       }),
@@ -243,6 +258,8 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               width: capture.bounds.width,
               height: capture.bounds.height,
               mode,
+              colorCycleIndices: capture.colorCycleIndices ?? null,
+              colorCycleSourceLayerId: capture.colorCycleIndices ? activeLayerId : null,
             };
 
             if (mode === 'cut' && capture.updatedLayerImageData) {
@@ -253,7 +270,23 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   ? captureColorCycleBrushState(activeLayer.id)
                   : null;
 
-              state.updateLayer(activeLayerId, { imageData: capture.updatedLayerImageData });
+              let skipImageUpdate = false;
+              if (activeLayer.layerType === 'color-cycle' && project) {
+                skipImageUpdate = clearColorCycleRegion(state, activeLayer, project, {
+                  x: capture.bounds.x,
+                  y: capture.bounds.y,
+                  width: capture.bounds.width,
+                  height: capture.bounds.height,
+                });
+                if (skipImageUpdate) {
+                  const eraseMask = activeLayer.colorCycleData?.eraseMask;
+                  const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
+                  eraseMaskCtx?.clearRect(capture.bounds.x, capture.bounds.y, capture.bounds.width, capture.bounds.height);
+                }
+              }
+              if (!skipImageUpdate) {
+                state.updateLayer(activeLayerId, { imageData: capture.updatedLayerImageData });
+              }
               state.setLayersNeedRecomposition(true);
               state.setCurrentCompositeBitmap(null);
 
@@ -359,5 +392,9 @@ const createClipboardPayloadFromFloatingPaste = (
     width: floatingPaste.imageData.width,
     height: floatingPaste.imageData.height,
     mode,
+    colorCycleIndices: floatingPaste.colorCycleIndices
+      ? new Uint8Array(floatingPaste.colorCycleIndices)
+      : null,
+    colorCycleSourceLayerId: floatingPaste.sourceLayerId ?? null,
   };
 };

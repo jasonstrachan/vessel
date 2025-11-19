@@ -216,6 +216,7 @@ import type {
   ColorAdjustState,
   ColorAdjustParams,
   PaletteState,
+  BrushShape,
 } from '@/types';
 import { createCustomBrushPersistence } from '@/stores/helpers/customBrushPersistence';
 import {
@@ -246,6 +247,7 @@ import {
 import { createSelectionSlice } from '@/stores/slices/selectionSlice';
 import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
+import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 
 
 export type CCReason =
@@ -416,6 +418,7 @@ export interface AppState {
     displayWidth: number;
     displayHeight: number;
     sourceLayerId?: string | null;
+    colorCycleIndices?: Uint8Array | null;
   } | null;
   setFloatingPaste: (paste: {
     imageData: ImageData;
@@ -426,6 +429,7 @@ export interface AppState {
     displayHeight?: number;
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
+    colorCycleIndices?: Uint8Array | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
@@ -1077,6 +1081,108 @@ const subscribeToAutosaveDirtyTracking = (): void => {
 };
 
 subscribeToAutosaveDirtyTracking();
+
+const getActiveBrushStorageId = (state: AppState): string | null => {
+  if (state.currentBrushPreset?.id) {
+    return state.currentBrushPreset.id;
+  }
+  const settings = state.tools.brushSettings;
+  if (settings.brushShape === BrushShape.CUSTOM && settings.selectedCustomBrush) {
+    return settings.selectedCustomBrush;
+  }
+  return null;
+};
+
+const hydrateGlobalBrushSettings = (): void => {
+  const payload = loadGlobalBrushSettings();
+  if (!payload) {
+    return;
+  }
+
+  useAppStore.setState((state) => {
+    let nextTools = state.tools;
+    const partial: Partial<AppState> = {};
+
+    const storedMap = payload.brushSpecificSettings;
+    if (storedMap) {
+      partial.brushSpecificSettings = storedMap;
+      const activeId = getActiveBrushStorageId(state);
+      if (activeId) {
+        const overrides = storedMap[activeId];
+        if (overrides) {
+          const {
+            size: _size,
+            pressureEnabled: _pressureEnabled,
+            minPressure: _minPressure,
+            maxPressure: _maxPressure,
+            ...rest
+          } = overrides;
+          if (Object.keys(rest).length > 0) {
+            nextTools = {
+              ...nextTools,
+              brushSettings: {
+                ...nextTools.brushSettings,
+                ...rest,
+              },
+            };
+          }
+        }
+      }
+    }
+
+    if (typeof payload.globalBrushSize === 'number' && Number.isFinite(payload.globalBrushSize)) {
+      const nextSize = Math.max(1, Math.round(payload.globalBrushSize));
+      partial.globalBrushSize = nextSize;
+      nextTools = {
+        ...nextTools,
+        brushSettings: {
+          ...nextTools.brushSettings,
+          size: nextSize,
+        },
+        eraserSettings:
+          nextTools.eraserSettings.linkSizeToBrush !== false
+            ? { ...nextTools.eraserSettings, size: nextSize }
+            : nextTools.eraserSettings,
+      };
+    }
+
+    if (nextTools !== state.tools) {
+      partial.tools = nextTools;
+    }
+
+    return Object.keys(partial).length > 0 ? partial : state;
+  });
+};
+
+const subscribeToGlobalBrushPersistence = (): void => {
+  storeSubscribeWithSelector(
+    (state) => ({
+      brushSpecificSettings: state.brushSpecificSettings,
+      globalBrushSize: state.globalBrushSize,
+    }),
+    (next, prev) => {
+      if (
+        next.brushSpecificSettings === prev.brushSpecificSettings &&
+        next.globalBrushSize === prev.globalBrushSize
+      ) {
+        return;
+      }
+
+      saveGlobalBrushSettings({
+        globalBrushSize: next.globalBrushSize,
+        brushSpecificSettings: next.brushSpecificSettings,
+      });
+    },
+    {
+      equalityFn: (a, b) =>
+        a.brushSpecificSettings === b.brushSpecificSettings &&
+        a.globalBrushSize === b.globalBrushSize,
+    }
+  );
+};
+
+hydrateGlobalBrushSettings();
+subscribeToGlobalBrushPersistence();
 
 // DEBUG ONLY
 (() => {

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
 
@@ -925,6 +926,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     displayWidth: number;
     displayHeight: number;
     layerId: string;
+    colorCycleIndices?: Uint8Array | null;
   } | null => {
     const { project, layers, activeLayerId, selectionStart, selectionEnd } = getDynamicDeps();
 
@@ -945,13 +947,33 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return null;
     }
 
-    // Sync framebuffer-first so compositing sees the cleared hole immediately
-    if (activeLayer?.framebuffer) {
+    const store = useAppStore.getState();
+    if (activeLayer?.layerType === 'color-cycle') {
+      clearColorCycleRegion(store, activeLayer, project, {
+        x: captureResult.bounds.x,
+        y: captureResult.bounds.y,
+        width: captureResult.bounds.width,
+        height: captureResult.bounds.height,
+      });
+      const eraseMask = activeLayer.colorCycleData?.eraseMask;
+      const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
+      eraseMaskCtx?.clearRect(
+        captureResult.bounds.x,
+        captureResult.bounds.y,
+        captureResult.bounds.width,
+        captureResult.bounds.height
+      );
+    } else if (activeLayer?.framebuffer) {
       const fbCtx = activeLayer.framebuffer.getContext('2d', { willReadFrequently: true });
       if (fbCtx) {
         const { x, y, width, height } = captureResult.bounds;
         fbCtx.clearRect(x, y, width, height);
-        const refreshed = fbCtx.getImageData(0, 0, activeLayer.framebuffer.width, activeLayer.framebuffer.height);
+        const refreshed = fbCtx.getImageData(
+          0,
+          0,
+          activeLayer.framebuffer.width,
+          activeLayer.framebuffer.height
+        );
         updateLayer(activeLayerId, { imageData: refreshed });
       } else {
         updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
@@ -977,6 +999,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       displayWidth: captureResult.bounds.width,
       displayHeight: captureResult.bounds.height,
       layerId: activeLayerId,
+      colorCycleIndices: captureResult.colorCycleIndices ?? null,
     };
   };
 
@@ -1730,7 +1753,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             displayWidth: floatingData.displayWidth,
             displayHeight: floatingData.displayHeight,
             originalPosition: floatingData.position,
-            sourceLayerId: floatingData.layerId
+            sourceLayerId: floatingData.layerId,
+            colorCycleIndices: floatingData.colorCycleIndices ?? null,
           });
 
           clearSelection();

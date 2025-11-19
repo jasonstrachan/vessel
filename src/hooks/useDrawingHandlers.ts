@@ -4588,6 +4588,22 @@ export function useDrawingHandlers({
           }
           drawCtx.closePath();
           drawCtx.fill();
+
+          // Reuse stroke-mode dithering so shape fills match regular strokes
+          if (brushEngine.applyStrokeDither) {
+            try {
+              const ditherRegion = boundingBoxToCaptureRegion(
+                strokeBoundingBoxRef.current,
+                ROI_PADDING_PX,
+                project
+              );
+              if (ditherRegion) {
+                brushEngine.applyStrokeDither(drawCtx, ditherRegion);
+              }
+            } catch (error) {
+              logError('Shape dithering failed', error);
+            }
+          }
           
           // Apply risograph effect if enabled (matching monolithic implementation)
           const risographIntensity = liveBrushSettings.risographIntensity || 0;

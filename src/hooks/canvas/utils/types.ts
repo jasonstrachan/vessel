@@ -23,6 +23,7 @@ export interface FloatingPaste {
   displayWidth: number;
   displayHeight: number;
   sourceLayerId?: string | null;
+  colorCycleIndices?: Uint8Array | null;
 }
 
 export interface CanvasState {

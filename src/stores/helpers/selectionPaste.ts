@@ -1,9 +1,15 @@
 import type { StoreApi } from 'zustand';
 import type { AppState, CaptureROI } from '@/stores/useAppStore';
+import type { Rectangle } from '@/types';
 import { cloneImageDataForHistory } from '@/stores/helpers/historyLifecycle';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { logError } from '@/utils/debug';
+import {
+  debugCaptureColorCycleScalarRegion,
+  hasColorCycleIndices,
+  writeColorCycleRegion,
+} from '@/stores/helpers/colorCycleSelection';
 
 type StoreGet = StoreApi<AppState>['getState'];
 type StoreSet = StoreApi<AppState>['setState'];
@@ -97,7 +103,7 @@ export const createSelectionPasteHelpers = ({
     const state = get();
     const { floatingPaste, layers, activeLayerId, project } = state;
 
-    if (!floatingPaste || !floatingPaste.imageData || !project) {
+    if (!floatingPaste || !project) {
       return;
     }
 
@@ -119,6 +125,91 @@ export const createSelectionPasteHelpers = ({
 
     try {
       const destinationRect = getDestinationRect(floatingPaste);
+      const colorCycleDestRect: Rectangle = {
+        x: Math.round(floatingPaste.position.x),
+        y: Math.round(floatingPaste.position.y),
+        width: floatingPaste.width,
+        height: floatingPaste.height,
+      };
+
+      if (process.env.NODE_ENV !== 'production' && activeLayer.layerType === 'color-cycle') {
+        console.log('[floatingPaste] CC destRect', {
+          layerId: activeLayer.id,
+          rect: colorCycleDestRect,
+          indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
+        });
+      }
+
+      const hasColorCycleData = hasColorCycleIndices(floatingPaste);
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[floatingPaste] committing', {
+          layerId: activeLayer.id,
+          layerType: activeLayer.layerType,
+          hasIndices: hasColorCycleData,
+          indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
+        });
+      }
+
+      if (activeLayer.layerType === 'color-cycle' && hasColorCycleData) {
+        const beforeRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
+        const applied = writeColorCycleRegion(
+          state,
+          activeLayer,
+          project,
+          colorCycleDestRect,
+          floatingPaste.colorCycleIndices!,
+          floatingPaste.width,
+          floatingPaste.height,
+          { offsetX: 0, offsetY: 0 }
+        );
+        const afterRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
+
+        if (process.env.NODE_ENV !== 'production') {
+          const beforeNonZero = beforeRegion ? beforeRegion.some((value) => value !== 0) : null;
+          const afterNonZero = afterRegion ? afterRegion.some((value) => value !== 0) : null;
+          console.log('[floatingPaste] CC region diff', {
+            applied,
+            beforeNonZero,
+            afterNonZero,
+            firstBefore: beforeRegion ? beforeRegion.slice(0, 16) : null,
+            firstAfter: afterRegion ? afterRegion.slice(0, 16) : null,
+          });
+        }
+
+        if (applied) {
+          state.setLayersNeedRecomposition(true);
+          state.setCurrentCompositeBitmap(null);
+
+          await commitLayerHistory({
+            layerId: activeLayer.id,
+            beforeImage,
+            beforeColorState,
+            actionType: 'paste',
+            description: 'Committed paste',
+            tool: 'paste',
+          });
+
+          set({ floatingPaste: null });
+          return;
+        }
+
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[floatingPaste] Failed to write color-cycle paste region', {
+            layerId: activeLayer.id,
+            rect: colorCycleDestRect,
+          });
+        }
+        return;
+      }
+
+      if (!floatingPaste.imageData) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[floatingPaste] Missing bitmap data for paste operation.');
+        }
+        return;
+      }
+
       const captureArea = intersectWithProject(destinationRect, project);
       if (!captureArea) {
         set({ floatingPaste: null });
@@ -195,6 +286,36 @@ export const createSelectionPasteHelpers = ({
   const cancelFloatingPaste = (): void => {
     const state = get();
     const floatingPaste = state.floatingPaste;
+    const project = state.project;
+
+    if (
+      floatingPaste &&
+      hasColorCycleIndices(floatingPaste) &&
+      floatingPaste.sourceLayerId &&
+      project
+    ) {
+      const targetLayer = state.layers.find((layer) => layer.id === floatingPaste.sourceLayerId);
+      if (targetLayer && targetLayer.layerType === 'color-cycle') {
+        writeColorCycleRegion(
+          state,
+          targetLayer,
+          project,
+          {
+            x: floatingPaste.originalPosition.x,
+            y: floatingPaste.originalPosition.y,
+            width: floatingPaste.width,
+            height: floatingPaste.height,
+          },
+          floatingPaste.colorCycleIndices,
+          floatingPaste.width,
+          floatingPaste.height
+        );
+        state.setLayersNeedRecomposition(true);
+        state.setCurrentCompositeBitmap(null);
+        set({ floatingPaste: null });
+        return;
+      }
+    }
 
     if (floatingPaste && floatingPaste.imageData && floatingPaste.sourceLayerId) {
       const targetLayer = state.layers.find((layer) => layer.id === floatingPaste.sourceLayerId);

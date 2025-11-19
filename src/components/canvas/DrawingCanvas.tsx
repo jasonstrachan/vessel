@@ -115,6 +115,9 @@ const computeVisibleWorldRect = (
   };
 };
 
+const CANVAS_CHECKER_LIGHT = '#2a2a2e';
+const CANVAS_CHECKER_DARK = '#1c1c1f';
+
 const isColorCyclePlaybackActive = () =>
   selectEffectiveColorCyclePlaying(useAppStore.getState());
 
@@ -272,7 +275,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         displayWidth: paste.displayWidth ?? paste.width,
         displayHeight: paste.displayHeight ?? paste.height,
         originalPosition: paste.originalPosition ?? paste.position,
-        sourceLayerId: paste.sourceLayerId ?? null
+        sourceLayerId: paste.sourceLayerId ?? null,
+        colorCycleIndices: paste.colorCycleIndices ?? null,
       });
     },
     [setFloatingPaste]
@@ -905,9 +909,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         patternCanvas.height = checkerTileSize;
         const patternCtx = patternCanvas.getContext('2d');
         if (patternCtx) {
-          patternCtx.fillStyle = '#f6f6f8';
+          patternCtx.fillStyle = CANVAS_CHECKER_LIGHT;
           patternCtx.fillRect(0, 0, checkerTileSize, checkerTileSize);
-          patternCtx.fillStyle = '#e9e9ec';
+          patternCtx.fillStyle = CANVAS_CHECKER_DARK;
           patternCtx.fillRect(0, 0, checkerSize, checkerSize);
           patternCtx.fillRect(checkerSize, checkerSize, checkerSize, checkerSize);
         }
@@ -935,9 +939,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const endX = Math.min(project.width, Math.ceil((displayWidth - offsetX) / scale));
         const endY = Math.min(project.height, Math.ceil((displayHeight - offsetY) / scale));
 
-        ctx.fillStyle = '#f6f6f8';
+        ctx.fillStyle = CANVAS_CHECKER_LIGHT;
         ctx.fillRect(0, 0, project.width, project.height);
-        ctx.fillStyle = '#e9e9ec';
+        ctx.fillStyle = CANVAS_CHECKER_DARK;
 
         for (let x = startX; x < endX; x += checkerSize * 2) {
           for (let y = startY; y < endY; y += checkerSize * 2) {
@@ -2948,6 +2952,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 height: imageHeight,
                 displayWidth: imageWidth,
                 displayHeight: imageHeight,
+                sourceLayerId: null,
+                colorCycleIndices: null,
               });
 
               requestAnimationFrame(() => {
@@ -2992,6 +2998,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         height: clipboardPayload.height,
         displayWidth: clipboardPayload.width,
         displayHeight: clipboardPayload.height,
+        sourceLayerId: clipboardPayload.colorCycleSourceLayerId ?? null,
+        colorCycleIndices: clipboardPayload.colorCycleIndices ?? null,
       });
 
       requestAnimationFrame(() => {

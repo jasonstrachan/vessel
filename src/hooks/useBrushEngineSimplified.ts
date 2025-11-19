@@ -3483,6 +3483,7 @@ export const useBrushEngineSimplified = () => {
     
     // Effects
     applyDithering,
+    applyStrokeDither,
     
     // Utilities
     canDrawAt: (ctx: CanvasRenderingContext2D, x: number, y: number) => 

@@ -4,6 +4,21 @@ import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
+jest.mock('@/stores/helpers/colorCycleSelection', () => ({
+  writeColorCycleRegion: jest.fn(() => false),
+  hasColorCycleIndices: jest.fn((payload?: { colorCycleIndices?: Uint8Array | null }) =>
+    Boolean(payload?.colorCycleIndices && payload.colorCycleIndices.length)
+  ),
+}));
+
+type WriteColorCycleRegion = typeof import('@/stores/helpers/colorCycleSelection')['writeColorCycleRegion'];
+
+const { writeColorCycleRegion } = jest.requireMock('@/stores/helpers/colorCycleSelection') as {
+  writeColorCycleRegion: jest.MockedFunction<WriteColorCycleRegion>;
+};
+
+const mockWriteColorCycleRegion = writeColorCycleRegion;
+
 jest.mock('@/stores/helpers/historyLifecycle', () => ({
   cloneImageDataForHistory: jest.fn((imageData: ImageData | null) => imageData),
 }));
@@ -50,9 +65,19 @@ const createBaseLayer = (projectSize: number): Layer => {
   } as unknown as Layer;
 };
 
-const setupHelpers = (floatingOverrides: Partial<NonNullable<AppState['floatingPaste']>>) => {
+type FloatingPasteState = NonNullable<AppState['floatingPaste']> & {
+  colorCycleIndices?: Uint8Array | null;
+};
+
+const setupHelpers = (
+  floatingOverrides: Partial<FloatingPasteState>,
+  layerOverrides?: Partial<Layer>
+) => {
   const project = { width: 64, height: 64 } as unknown as NonNullable<AppState['project']>;
-  const layer = createBaseLayer(project.width);
+  const layer = {
+    ...createBaseLayer(project.width),
+    ...(layerOverrides ?? {}),
+  } as Layer;
 
   const floatingPaste: NonNullable<AppState['floatingPaste']> = {
     active: true,
@@ -73,6 +98,9 @@ const setupHelpers = (floatingOverrides: Partial<NonNullable<AppState['floatingP
     layers: [layer],
     activeLayerId: layer.id,
     project,
+    setLayersNeedRecomposition: jest.fn(),
+    setCurrentCompositeBitmap: jest.fn(),
+    updateLayer: jest.fn(),
   };
 
   const get = () => state as AppState;
@@ -97,7 +125,7 @@ const setupHelpers = (floatingOverrides: Partial<NonNullable<AppState['floatingP
     captureCanvasToActiveLayer,
   });
 
-  return { helpers, state, captureCanvasToActiveLayer };
+  return { helpers, state, captureCanvasToActiveLayer, layer };
 };
 
 describe('selection paste commit', () => {
@@ -159,6 +187,42 @@ describe('selection paste commit', () => {
 
     await helpers.commitFloatingPaste();
 
+    expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it('writes color-cycle indices directly when committing a floating paste on a color-cycle layer', async () => {
+    const colorCycleIndices = new Uint8Array([1, 2, 3, 4]);
+    const { helpers, state, captureCanvasToActiveLayer, layer } = setupHelpers(
+      {
+        colorCycleIndices,
+        width: 2,
+        height: 2,
+        position: { x: 5.4, y: 7.6 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      { x: 5, y: 8, width: 2, height: 2 },
+      colorCycleIndices,
+      2,
+      2,
+      { offsetX: 0, offsetY: 0 }
+    );
+
+    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.floatingPaste).toBeNull();
   });
