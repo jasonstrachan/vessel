@@ -1,4 +1,5 @@
 import { writeColorCycleRegion, clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
 // Minimal ImageData polyfill for Node/jest environments that lack canvas.
@@ -97,7 +98,7 @@ describe('colorCycleSelection helpers', () => {
       order: 0,
       imageData: null,
       framebuffer: makeOffscreenCanvas(4, 4),
-      alignment: { positioning: 'auto' } as any,
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
       colorCycleData: { canvas },
     } as Layer;
 
@@ -166,7 +167,7 @@ describe('colorCycleSelection helpers', () => {
       order: 0,
       imageData: null,
       framebuffer: makeOffscreenCanvas(4, 4),
-      alignment: { positioning: 'auto' } as any,
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
       colorCycleData: { canvas },
     } as Layer;
 

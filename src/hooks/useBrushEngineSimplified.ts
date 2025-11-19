@@ -1363,16 +1363,8 @@ export const useBrushEngineSimplified = () => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
   }, [tools.brushSettings.lostEdge]);
 
-  const lostEdgePreviewCache = useRef<{
-    key: string | null;
-    mask: Uint8Array | null;
-    width: number;
-    height: number;
-  }>({ key: null, mask: null, width: 0, height: 0 });
-
   // Tie lost-edge erosion scale to the dither pixel size so coarse dithering can produce a wider fade.
   const lostEdgeTileSize = Math.max(4, strokeDitherPixelSize);
-  const LOST_EDGE_CACHE_THRESHOLD = 8;
 
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -1527,7 +1519,7 @@ export const useBrushEngineSimplified = () => {
     } catch (error) {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
-  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount]);
+  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount, lostEdgeTileSize]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;

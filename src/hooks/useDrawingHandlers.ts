@@ -412,7 +412,6 @@ const captureLayerRegionImageData = (
     const target = new ImageData(clampedWidth, clampedHeight);
     const srcData = source.data;
     const targetData = target.data;
-    const srcStride = source.width * 4;
     const tgtStride = clampedWidth * 4;
     for (let row = 0; row < clampedHeight; row += 1) {
       const srcOffset = ((clampedY + row) * source.width + clampedX) * 4;
@@ -463,7 +462,6 @@ const inflateShapeBeforeSnapshot = (
   const baseData = base.data;
   const roiWidth = snapshot.image.width;
   const roiHeight = snapshot.image.height;
-  const stride = roiWidth * 4;
   const destX = Math.max(0, roi.x);
   const destY = Math.max(0, roi.y);
   const offsetX = destX - roi.x;
@@ -4152,7 +4150,6 @@ export function useDrawingHandlers({
     shapeMode,
     initDrawingCanvas,
     startDrawing,
-    pauseColorCycleForNonCCInteraction,
     updateAutoSampledGradient,
     storeRef,
     seedManualStrokeBoundingBox,
@@ -5271,7 +5268,8 @@ export function useDrawingHandlers({
     computeAutoSampleStops,
     storeRef,
     toolsRef,
-    triggerSimpleShapePreview
+    triggerSimpleShapePreview,
+    clearShapeBeforeSnapshot
   ]);
   
   // Start continuous color cycle animation (for when play button is pressed)
