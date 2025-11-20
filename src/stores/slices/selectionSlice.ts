@@ -281,7 +281,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           eraseMaskCtx?.clearRect(x, y, width, height);
         }
       } else {
-        const useMask = selectionMask && selectionMaskBounds && selectionMaskLayerId === activeLayerId;
+        const useMask = selectionMask && selectionMaskBounds;
 
         const framebuffer = activeLayer.framebuffer;
         const sourceImage = (() => {
@@ -434,7 +434,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       if (selectionStart && selectionEnd && project && activeLayerId) {
         const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
         if (activeLayer) {
-          const capture = state.selectionMask && state.selectionMaskBounds && state.selectionMaskLayerId === activeLayerId
+          const capture = state.selectionMask && state.selectionMaskBounds
             ? captureSelectionBitmapFromMask({
                 mask: state.selectionMask,
                 maskBounds: state.selectionMaskBounds,

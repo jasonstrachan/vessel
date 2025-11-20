@@ -1,6 +1,6 @@
 # Coverage gaps (2025-11-20 snapshot)
 
-Source: `coverage/coverage-final.json` from the latest Jest run. Overall statement coverage is **22.18%** (10 368 / 46 755 statements). Numbers below are based on simple hit-count parsing: total statements vs. statements executed at least once.
+Source: `coverage/coverage-final.json` from the latest Jest run. Overall statement coverage is **3.19%** (1 601 / 50 162 statements). Numbers below are based on simple hit-count parsing: total statements vs. statements executed at least once.
 
 ## Highest-untested files (by uncovered statements)
 - `src/hooks/useDrawingHandlers.ts` — 4% (121 / 2 929); pointer + gesture orchestration untouched.
@@ -63,6 +63,7 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 - Added colorAdjust slice ROI/preview coverage (`src/stores/__tests__/colorAdjustSlice.test.ts`).
 - Added shapeUtils coverage (path/bounds/pixel fill) via `src/utils/__tests__/shapeUtils.test.ts`.
 - Added BrushControls render/interaction smoke test (`src/components/toolbar/__tests__/BrushControls.test.tsx`).
+- Added Dropdown open/render smoke test (`src/components/ui/__tests__/Dropdown.test.tsx`).
 - Added canvas state machine transitions test (`src/hooks/__tests__/useCanvasStateMachine.test.tsx`).
 
 ## Near-term targets (remaining big gaps)
@@ -71,3 +72,49 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 - Export/WebGL error paths (`utils/export/webglExporter.ts`): simulate minify/diagnostics toggles and failure cleanup.
 - Thumbnail/persistence edge cases (`brushThumbnailGenerator`, `colorCycleStorage`, `projectIO` corruption cases): use small fixtures/base64 to cover error branches.
 - UI zero-coverage components still pending: `BrushEditorUI`, `GradientEditor`, `BrushControls`, `ColorPicker`, `MinimalLayerList`, `RecolorPanel`, etc. Add RTL render + primary interaction checks with mocked selectors.
+
+## Rolling checklist (mark items as coverage lands)
+
+**Input & canvas interaction**
+- [x] Pointer handler smoke path exercised (`pointerHandlers` via RTL smoke test).
+- [ ] Shape tool finalize/preview flow: down/move/up with ROI snapshots (`ShapeToolHandler`, `useDrawingHandlers` shape branches).
+- [ ] Multi-button pan vs selection gating and pointer-capture loss (`useCanvasStateMachine`, `useDrawingHandlers`).
+
+**Brush/color-cycle rendering**
+- [ ] CPU vs GPU parity for color-cycle brushes (`ColorCycleBrushCanvas2D`, `ColorCycleBrush2D/Path2D`); golden fixture for fixed seed.
+- [ ] Disposal/flush coverage for renderer/animator (`WebGLColorCycleRenderer`, `ColorCycleAnimator`).
+
+**UI panels & modals**
+- [x] Export flow happy-path render + submit (`ExportModal`).
+- [x] Load flow happy-path render + submit (`LoadProjectModal`).
+- [ ] Brush preset editing interactions (`BrushEditorUI`).
+- [ ] Gradient editing interactions (`GradientEditor`).
+- [ ] Layer visibility/reorder buttons (`MinimalLayerList`, `LayersPanel`).
+- [ ] Recolor panel sliders and preview (`RecolorPanel`).
+- [ ] Brush library filter/select (`BrushLibrary`).
+
+**Persistence & export**
+- [x] Manifest decode/round-trip (`projectIO` base cases).
+- [ ] Corrupted project import and missing texture assets under `/vessel` (`projectIO`, `colorCycleStorage`).
+- [ ] Thumbnail generation failure/cleanup (`brushThumbnailGenerator`).
+- [ ] WebGL export failure and cleanup toggles (`utils/export/webglExporter.ts`).
+
+**Store slices/selectors**
+- [x] Palette slice swaps/defaults.
+- [x] Autosave slice enable/disable debounce.
+- [x] State selectors core paths.
+- [x] Color adjust slice ROI/preview toggles.
+- [ ] Selection slice ROI merge/cancel and selection clear.
+- [ ] Canvas slice transform invariants (scale/translate clamping).
+
+**Workers & heavy utils**
+- [x] Shape util geo/path coverage (`shapeUtils`).
+- [ ] Contour line geometry edge cases (`contourLines`).
+- [ ] GIF dithering palette overflow/alpha handling (`gifDither`).
+- [ ] Gradient worker message contracts/transferables (`gradientWorker`).
+
+**UI primitives still thin**
+- [x] Dropdown render/open basics.
+- [x] ColorPicker hex input.
+- [x] BrushControls render/interaction.
+- [ ] Zero-coverage primitives: `ColorCycleBrush*` cursors/overlays, keyboard scopes.

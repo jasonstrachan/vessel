@@ -2216,6 +2216,72 @@ export const createLayersSlice = (
 
       const capturedImageData = ctx.getImageData(captureX, captureY, regionWidth, regionHeight);
 
+      // If a selection is active, zero-out pixels outside the selection before merging.
+      const { selectionMask, selectionMaskBounds, selectionStart, selectionEnd } = state;
+      if (selectionMask && selectionMaskBounds) {
+        const maskData = selectionMask.data;
+        const mb = selectionMaskBounds;
+        const stride = regionWidth * 4;
+        for (let y = 0; y < regionHeight; y += 1) {
+          const globalY = captureY + y;
+          const localY = globalY - mb.y;
+          const rowOffset = y * stride;
+          if (localY < 0 || localY >= mb.height) {
+            // Entire row is outside selection bounds.
+            for (let x = 0; x < regionWidth; x += 1) {
+              const idx = rowOffset + x * 4;
+              capturedImageData.data[idx] = 0;
+              capturedImageData.data[idx + 1] = 0;
+              capturedImageData.data[idx + 2] = 0;
+              capturedImageData.data[idx + 3] = 0;
+            }
+            continue;
+          }
+          for (let x = 0; x < regionWidth; x += 1) {
+            const globalX = captureX + x;
+            const localX = globalX - mb.x;
+            const destIdx = rowOffset + x * 4;
+            if (localX < 0 || localX >= mb.width) {
+              capturedImageData.data[destIdx] = 0;
+              capturedImageData.data[destIdx + 1] = 0;
+              capturedImageData.data[destIdx + 2] = 0;
+              capturedImageData.data[destIdx + 3] = 0;
+              continue;
+            }
+            const maskIdx = (Math.floor(localY) * mb.width + Math.floor(localX)) * 4 + 3;
+            if (maskData[maskIdx] === 0) {
+              capturedImageData.data[destIdx] = 0;
+              capturedImageData.data[destIdx + 1] = 0;
+              capturedImageData.data[destIdx + 2] = 0;
+              capturedImageData.data[destIdx + 3] = 0;
+            }
+          }
+        }
+      } else if (selectionStart && selectionEnd) {
+        const minX = Math.min(selectionStart.x, selectionEnd.x);
+        const maxX = Math.max(selectionStart.x, selectionEnd.x);
+        const minY = Math.min(selectionStart.y, selectionEnd.y);
+        const maxY = Math.max(selectionStart.y, selectionEnd.y);
+
+        const stride = regionWidth * 4;
+        for (let y = 0; y < regionHeight; y += 1) {
+          const globalY = captureY + y;
+          const rowOffset = y * stride;
+          for (let x = 0; x < regionWidth; x += 1) {
+            const globalX = captureX + x;
+            const destIdx = rowOffset + x * 4;
+            const inside =
+              globalX >= minX && globalX < maxX && globalY >= minY && globalY < maxY;
+            if (!inside) {
+              capturedImageData.data[destIdx] = 0;
+              capturedImageData.data[destIdx + 1] = 0;
+              capturedImageData.data[destIdx + 2] = 0;
+              capturedImageData.data[destIdx + 3] = 0;
+            }
+          }
+        }
+      }
+
       const activeLayerId = state.activeLayerId || state.layers[0]?.id;
       if (!activeLayerId) {
         return;
