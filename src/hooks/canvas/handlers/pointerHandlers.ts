@@ -3756,6 +3756,12 @@ function cssColorToHex(color: string): string {
 
   const handlePointerLeave = () => {
     pointerInsideCanvas = false;
+    // Drop any queued move frame so a stale in-canvas event can't re-show the cursor
+    if (scheduledMoveRAF != null) {
+      cancelAnimationFrame(scheduledMoveRAF);
+      scheduledMoveRAF = null;
+    }
+    lastMoveEvent = null;
     updateBrushCursorVisibility(false);
     const { tools } = getDynamicDeps();
     if (tools.currentTool === 'color-picker') {

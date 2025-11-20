@@ -7,6 +7,7 @@ import { useAppStore } from '../../stores/useAppStore';
 const ColorPickerPanel = React.memo(() => {
   // Use individual selectors to avoid unstable object references  
   const palette = useAppStore(state => state.palette);
+  const ditherEnabled = useAppStore(state => state.tools.brushSettings.ditherEnabled);
   const setActiveColor = useAppStore(state => state.setActiveColor);
   const setActivePaletteSlot = useAppStore(state => state.setActivePaletteSlot);
   
@@ -56,9 +57,38 @@ const ColorPickerPanel = React.memo(() => {
     setRgbValues(rgb);
   }, [activeColor, hexToRgb]);
 
-  const scheduleActiveColorUpdate = useCallback((color: string) => {
-    setActiveColor(color);
+  // Throttle color updates: when dithering is enabled and dragging, debounce to cut UI hitches.
+  const pendingColorRef = React.useRef<string | null>(null);
+  const rafRef = React.useRef<number | null>(null);
+  const debounceHandleRef = React.useRef<number | null>(null);
+
+  const flushPendingColor = useCallback(() => {
+    const color = pendingColorRef.current;
+    rafRef.current = null;
+    debounceHandleRef.current = null;
+    if (color !== null) {
+      pendingColorRef.current = null;
+      setActiveColor(color);
+    }
   }, [setActiveColor]);
+
+  const scheduleActiveColorUpdate = useCallback((color: string, isDragging: boolean) => {
+    pendingColorRef.current = color;
+
+    // When dithering is on and user is scrubbing, debounce to ~120ms to avoid engine churn.
+    if (ditherEnabled && isDragging && typeof window !== 'undefined') {
+      if (debounceHandleRef.current !== null) {
+        window.clearTimeout(debounceHandleRef.current);
+      }
+      debounceHandleRef.current = window.setTimeout(flushPendingColor, 120);
+      return;
+    }
+
+    // Otherwise, lightweight rAF throttle is enough
+    if (rafRef.current === null && typeof window !== 'undefined') {
+      rafRef.current = window.requestAnimationFrame(flushPendingColor);
+    }
+  }, [ditherEnabled, flushPendingColor]);
 
   // Cleanup RAF
   // Generic RGB value update function
@@ -66,8 +96,8 @@ const ColorPickerPanel = React.memo(() => {
     const newRgb = { ...rgbValues, [component]: value };
     setRgbValues(newRgb);
     const hexColor = rgbToHex(newRgb.r, newRgb.g, newRgb.b);
-    scheduleActiveColorUpdate(hexColor);
-  }, [rgbValues, rgbToHex, scheduleActiveColorUpdate]);
+    scheduleActiveColorUpdate(hexColor, dragState.isDragging);
+  }, [rgbValues, rgbToHex, scheduleActiveColorUpdate, dragState.isDragging]);
 
   // Handle RGB slider changes (memoized individual handlers with throttling)
   const handleRedChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -121,7 +151,8 @@ const ColorPickerPanel = React.memo(() => {
       activeSlider: null,
       pointerId: null
     });
-  }, [dragState.pointerId]);
+    flushPendingColor();
+  }, [dragState.pointerId, flushPendingColor]);
 
   // Stable color change handlers - directly call appropriate setter to avoid re-render loops
   const handleColorChange = useCallback((color: string) => {

@@ -178,7 +178,13 @@ const hslToRgb = (h: number, s: number, l: number): [number, number, number] => 
   ];
 };
 
+// Tiny cache to avoid recomputing palette during fast color scrubs
+const paletteCache = new Map<string, string[]>();
 const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] => {
+  const key = `${baseHex}|${spreadPercent ?? 0}`;
+  const cached = paletteCache.get(key);
+  if (cached) return cached;
+
   const [r, g, b] = parseColor(baseHex || '#000');
   const { h, s, l } = rgbToHsl(r, g, b);
 
@@ -252,7 +258,16 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
     return [rr / 255, gg / 255, bb / 255];
   });
 
-  return alignToBase(paletteUnits, 0.9).map(toRgbString);
+  const result = alignToBase(paletteUnits, 0.9).map(toRgbString);
+  paletteCache.set(key, result);
+  if (paletteCache.size > 24) {
+    // simple cache cap
+    const firstKey = paletteCache.keys().next().value;
+    if (firstKey !== undefined) {
+      paletteCache.delete(firstKey);
+    }
+  }
+  return result;
 };
 
 
@@ -654,7 +669,7 @@ export const useBrushEngineSimplified = () => {
   const didPreviewDitherRef = useRef(false);
   const liveRenderScheduledRef = useRef(false);
   const firstStrokeSegmentTinyRef = useRef(false);
-  const warmupStampRef = useRef<ImageData | null>(null);
+  // retained for potential future warmups (currently unused)
   const strokeDitherPhaseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const ensureLiveStrokeBuffersForSize = useCallback((width: number, height: number): boolean => {
@@ -1461,11 +1476,9 @@ export const useBrushEngineSimplified = () => {
       settings.brushShape,
       settings.selectedCustomBrush ?? 'none',
       settings.currentBrushTip?.brushId ?? 'none',
-      settings.color,
       settings.antialiasing ? 'aa' : 'px',
       settings.customBrushColorCycle ? 'ccc' : 'plain',
-      settings.useSwatchColor ? 'swatch' : 'tip',
-      settings.ditherEnabled ? 'dither' : 'nodither'
+      settings.useSwatchColor ? 'swatch' : 'tip'
     ].join('|');
   }, [tools.brushSettings]);
 
@@ -1585,8 +1598,9 @@ export const useBrushEngineSimplified = () => {
     }
 
     // 2) Build a canvas-anchored coarse buffer and dither it once (no per-stamp resets).
-    const coarseW = Math.max(1, Math.ceil(canvasWidth / tileSize));
-    const coarseH = Math.max(1, Math.ceil(canvasHeight / tileSize));
+    // Add a tile margin so pattern seams don't align on exact grid boundaries; keep an upper safety cap.
+    const coarseW = Math.max(1, Math.min(1024, Math.ceil(canvasWidth / tileSize) + 2));
+    const coarseH = Math.max(1, Math.min(1024, Math.ceil(canvasHeight / tileSize) + 2));
 
     const coarseCacheKey = `${baseR},${baseG},${baseB}|${strokeDitherPalette.join('|')}|${tileSize}|${coarseW}x${coarseH}`;
     let ditheredCoarse = strokeDitherPatternCacheRef.current.get(coarseCacheKey);
@@ -1713,77 +1727,6 @@ export const useBrushEngineSimplified = () => {
     };
   }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount, lostEdgeTileSize, strokeDitherJitter]);
 
-  const warmStrokeDitherBuffers = useCallback(() => {
-    if (!shouldApplyStrokeDither) {
-      return;
-    }
-    if (typeof document === 'undefined') {
-      return;
-    }
-
-    const width = project?.width ?? 0;
-    const height = project?.height ?? 0;
-    if (!width || !height) {
-      return;
-    }
-
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = width;
-    tempCanvas.height = height;
-    const ctx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-    if (!ctx) {
-      return;
-    }
-
-    if (!ensureLiveStrokeBuffers(ctx)) {
-      return;
-    }
-
-    const rawCtx = pick2D(liveStrokeRawRef.current) as CanvasRenderingContext2D | null;
-    const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
-    if (!rawCtx || !ditherCtx) {
-      return;
-    }
-
-    rawCtx.clearRect(0, 0, width, height);
-    ditherCtx.clearRect(0, 0, width, height);
-
-    if (!warmupStampRef.current) {
-      warmupStampRef.current = new ImageData(2, 2);
-    }
-    const stamp = warmupStampRef.current;
-    const data = stamp.data;
-    // RGBA fills for 2x2 stamp
-    const color = tools.brushSettings.color || '#000';
-    try {
-      const [r, g, b] = parseColor(color);
-      for (let i = 0; i < data.length; i += 4) {
-        data[i] = r;
-        data[i + 1] = g;
-        data[i + 2] = b;
-        data[i + 3] = 255;
-      }
-    } catch {
-      // fallback to black if parse fails
-      for (let i = 0; i < data.length; i += 4) {
-        data[i] = 0;
-        data[i + 1] = 0;
-        data[i + 2] = 0;
-        data[i + 3] = 255;
-      }
-    }
-
-    rawCtx.putImageData(stamp, 0, 0);
-
-    try {
-      applyStrokeDither(ditherCtx, { x: 0, y: 0, width: 2, height: 2 }, rawCtx, { skipLostEdge: true });
-    } catch {
-      // warm-up is best-effort; ignore failures
-    }
-
-    clearLiveStrokeBuffers();
-  }, [applyStrokeDither, clearLiveStrokeBuffers, ensureLiveStrokeBuffers, project?.height, project?.width, shouldApplyStrokeDither, tools.brushSettings.color]);
-
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;
     const rawCanvas = liveStrokeRawRef.current;
@@ -1831,10 +1774,7 @@ export const useBrushEngineSimplified = () => {
     didPreviewDitherRef.current = true;
   }, [applyStrokeDither, withAlphaLock]);
 
-  useEffect(() => {
-    const handle = scheduleDeferred(() => warmStrokeDitherBuffers(), 120);
-    return () => cancelDeferred(handle);
-  }, [warmStrokeDitherBuffers]);
+  // Warming stroke dither buffers removed to avoid main-thread hitch on color changes.
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {

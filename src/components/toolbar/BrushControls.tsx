@@ -846,15 +846,15 @@ const BrushControls = () => {
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Col Jit
             </label>
-            <ProgressSlider
-              value={activeSettings.colorJitter || 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) => setActiveSettings({ colorJitter: Math.round(value) })}
-              aria-label="Color Jitter"
-              className="flex-1"
-            />
+          <ProgressSlider
+            value={activeSettings.colorJitter || 0}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(value) => setActiveSettings({ colorJitter: Math.round(value) })}
+            aria-label="Color Jitter"
+            className="flex-1"
+          />
           </div>
         </div>
 
