@@ -206,7 +206,7 @@ export function useComprehensiveKeyboard({
           bufferedBrushSizeTimerKindRef.current = null;
           flushBufferedBrushSizeTarget();
         },
-        { timeout: 180 }
+        { timeout: 120 }
       );
       return;
     }
@@ -215,7 +215,7 @@ export function useComprehensiveKeyboard({
       bufferedBrushSizeTimerRef.current = null;
       bufferedBrushSizeTimerKindRef.current = null;
       flushBufferedBrushSizeTarget();
-    }, 120);
+    }, 80);
   }, [flushBufferedBrushSizeTarget]);
 
   const applyBufferedBrushSizeDelta = useCallback((delta: number, options: { immediate?: boolean } = {}) => {
@@ -382,14 +382,12 @@ export function useComprehensiveKeyboard({
 
     // For bracket keys, allow repeat events for continuous size adjustment
     const allowRepeat = isBracketShortcut;
-    
+
     // Prevent repeat events for other keys (but allow for bracket keys)
     if (!allowRepeat && pressedKeysRef.current.has(event.code)) {
       return;
     }
-    if (!allowRepeat) {
-      pressedKeysRef.current.add(event.code);
-    }
+    pressedKeysRef.current.add(event.code);
 
     // Handle Select All (Ctrl/Cmd + A)
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
@@ -644,7 +642,7 @@ export function useComprehensiveKeyboard({
       return;
     }
     
-    // Remove from pressed keys for other keys
+    // Always clear pressed map on keyup (even if text field prevented us earlier)
     pressedKeysRef.current.delete(event.code);
 
     if (event.key === '[' || event.key === ']') {
@@ -717,6 +715,9 @@ export function useComprehensiveKeyboard({
       };
       pressedKeysRef.current.clear();
 
+      flushBufferedBrushSizeTarget();
+      cancelBufferedBrushSizeTimer();
+
       if (isColorPickerHeldRef.current) {
         const previousTool = colorPickerPreviousToolRef.current;
         if (previousTool && previousTool !== 'color-picker') {
@@ -734,6 +735,31 @@ export function useComprehensiveKeyboard({
     return () => {
       cancelBufferedBrushSizeTimer();
       flushBufferedBrushSizeTarget();
+    };
+  }, [cancelBufferedBrushSizeTimer, flushBufferedBrushSizeTarget]);
+
+  // Safety net: clear stuck keys if the page becomes hidden or pointer leaves the window
+  useEffect(() => {
+    const clearAllKeys = () => {
+      pressedKeysRef.current.clear();
+      keyboardStateRef.current.isSpacePressed = false;
+      flushBufferedBrushSizeTarget();
+      cancelBufferedBrushSizeTimer();
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        clearAllKeys();
+      }
+    };
+
+    const handlePointerLeave = () => clearAllKeys();
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pointerleave', handlePointerLeave);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pointerleave', handlePointerLeave);
     };
   }, [cancelBufferedBrushSizeTimer, flushBufferedBrushSizeTarget]);
 

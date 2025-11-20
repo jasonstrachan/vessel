@@ -652,12 +652,10 @@ export const useBrushEngineSimplified = () => {
   const firstStrokeSegmentTinyRef = useRef(false);
   const warmupStampRef = useRef<ImageData | null>(null);
 
-  const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
+  const ensureLiveStrokeBuffersForSize = useCallback((width: number, height: number): boolean => {
     if (typeof document === 'undefined') {
       return false;
     }
-    const width = ctx.canvas?.width ?? 0;
-    const height = ctx.canvas?.height ?? 0;
     if (!width || !height) {
       return false;
     }
@@ -683,6 +681,19 @@ export const useBrushEngineSimplified = () => {
     ensureCanvas(liveStrokeDitherRef);
     return Boolean(liveStrokeRawRef.current && liveStrokeDitherRef.current);
   }, []);
+
+  const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
+    if (typeof document === 'undefined') {
+      return false;
+    }
+    const width = ctx.canvas?.width ?? 0;
+    const height = ctx.canvas?.height ?? 0;
+    if (!width || !height) {
+      return false;
+    }
+
+    return ensureLiveStrokeBuffersForSize(width, height);
+  }, [ensureLiveStrokeBuffersForSize]);
 
   const clearLiveStrokeBuffers = useCallback(() => {
     const raw = liveStrokeRawRef.current;
@@ -1083,6 +1094,57 @@ export const useBrushEngineSimplified = () => {
       console.error('[CC Effect] Failed to sync pressure settings:', error);
     }
   }, [getActiveLayerColorCycleBrush]);
+
+  const resolveWarmupCustomBrushData = useCallback((): CustomBrushStrokeData | undefined => {
+    const state = useAppStore.getState();
+    const settings = state.tools.brushSettings;
+
+    if (settings.currentBrushTip) {
+      const brushTip = settings.currentBrushTip;
+      return {
+        imageData: brushTip.imageData,
+        width: brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width,
+        height: brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height,
+        isColorizable:
+          brushTip.isColorizable ||
+          settings.useSwatchColor ||
+          Boolean(settings.customBrushColorCycle),
+        cacheKey: `tip:${brushTip.brushId ?? 'anon'}`
+      };
+    }
+
+    const selectedId = settings.selectedCustomBrush;
+    if (!selectedId) {
+      return undefined;
+    }
+
+    const tempBrush = state.temporaryCustomBrush;
+    if (tempBrush && tempBrush.id === selectedId) {
+      return {
+        imageData: tempBrush.imageData,
+        width: tempBrush.naturalWidth ?? tempBrush.width,
+        height: tempBrush.naturalHeight ?? tempBrush.height,
+        isColorizable: settings.useSwatchColor || Boolean(settings.customBrushColorCycle),
+        cacheKey: `temp:${tempBrush.id ?? 'anon'}`
+      };
+    }
+
+    const savedBrush =
+      state.getCustomBrushById?.(selectedId) ??
+      state.project?.customBrushes?.find((brush) => brush.id === selectedId);
+
+    if (savedBrush) {
+      return {
+        imageData: savedBrush.imageData,
+        width: savedBrush.naturalWidth ?? savedBrush.width,
+        height: savedBrush.naturalHeight ?? savedBrush.height,
+        isColorizable: settings.useSwatchColor || Boolean(settings.customBrushColorCycle),
+        cacheKey: `project:${savedBrush.id ?? 'anon'}`
+      };
+    }
+
+    return undefined;
+  }, []);
   
   // Performance: Cache expensive computations
   const isPixelBrush = useMemo(() => 
@@ -1259,6 +1321,16 @@ export const useBrushEngineSimplified = () => {
     }
   }, [activeLayerTransparencyLock]);
 
+  useEffect(() => {
+    const width = project?.width ?? 0;
+    const height = project?.height ?? 0;
+    if (!width || !height) {
+      return;
+    }
+    const handle = scheduleDeferred(() => ensureLiveStrokeBuffersForSize(width, height), 0);
+    return () => cancelDeferred(handle);
+  }, [ensureLiveStrokeBuffersForSize, project?.height, project?.width]);
+
   const estimateStrokeBounds = useCallback((
     from: { x: number; y: number },
     to: { x: number; y: number },
@@ -1338,6 +1410,73 @@ export const useBrushEngineSimplified = () => {
       brushEngine.initializeSpamText(contentType, customText);
     }
   }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
+
+  const warmBrushCaches = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const state = useAppStore.getState();
+    const settings = state.tools.brushSettings;
+    const customBrushData = resolveWarmupCustomBrushData();
+
+    const targetSize = clamp(Math.round((settings.size || 12) * 1.5), 32, 256);
+    const warmupCanvas = document.createElement('canvas');
+    warmupCanvas.width = targetSize;
+    warmupCanvas.height = targetSize;
+
+    const warmupCtx = warmupCanvas.getContext('2d', { colorSpace: 'srgb' });
+    if (!warmupCtx) {
+      return;
+    }
+
+    const center = targetSize / 2;
+    try {
+      brushEngine.renderBrushStroke(warmupCtx, {
+        from: { x: center - 1, y: center },
+        to: { x: center + 1, y: center + 0.25 },
+        pressure: settings.pressureEnabled ? 0.9 : 1,
+        velocity: 0,
+        timestamp: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+        customBrushData
+      });
+    } catch (error) {
+      if (typeof console !== 'undefined') {
+        console.debug('[BrushWarmup] Failed to precompute brush caches', error);
+      }
+    } finally {
+      brushEngine.resetStroke();
+      warmupCtx.clearRect(0, 0, warmupCanvas.width, warmupCanvas.height);
+    }
+  }, [brushEngine, resolveWarmupCustomBrushData]);
+
+  const brushWarmupKey = useMemo(() => {
+    const settings = tools.brushSettings;
+    return [
+      settings.brushShape,
+      settings.selectedCustomBrush ?? 'none',
+      settings.currentBrushTip?.brushId ?? 'none',
+      settings.color,
+      settings.antialiasing ? 'aa' : 'px',
+      settings.customBrushColorCycle ? 'ccc' : 'plain',
+      settings.useSwatchColor ? 'swatch' : 'tip',
+      settings.ditherEnabled ? 'dither' : 'nodither'
+    ].join('|');
+  }, [
+    tools.brushSettings.antialiasing,
+    tools.brushSettings.brushShape,
+    tools.brushSettings.color,
+    tools.brushSettings.currentBrushTip?.brushId,
+    tools.brushSettings.customBrushColorCycle,
+    tools.brushSettings.ditherEnabled,
+    tools.brushSettings.selectedCustomBrush,
+    tools.brushSettings.useSwatchColor
+  ]);
+
+  useEffect(() => {
+    const handle = scheduleDeferred(() => warmBrushCaches(), 80);
+    return () => cancelDeferred(handle);
+  }, [brushWarmupKey, warmBrushCaches]);
 
   const shouldApplyStrokeDither = useMemo(() => {
     const shape = tools.brushSettings.brushShape;
