@@ -75,7 +75,8 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
   const selectionPasteHelpers = createSelectionPasteHelpers({
     get: store.getState,
     set: store.setState,
-    captureCanvasToActiveLayer: (canvas, roi) => get().captureCanvasToActiveLayer(canvas, roi),
+    captureCanvasToActiveLayer: (canvas, roi, options) =>
+      get().captureCanvasToActiveLayer(canvas, roi, options),
   });
 
   return {

@@ -3505,9 +3505,11 @@ export function useDrawingHandlers({
             const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
             const layerCanvas = activeLayer.colorCycleData?.canvas ?? null;
 
+            const captureMode = FF.ERASER_V2 ? { mode: 'replace' as const } : undefined;
+
             if (FF.ERASER_V2 && isColorCycleLayer && layerCanvas) {
               await withTiming('cc:capture', () =>
-                captureCanvasToActiveLayer(layerCanvas, roiForEraser ?? undefined)
+                captureCanvasToActiveLayer(layerCanvas, roiForEraser ?? undefined, captureMode)
               );
               if (!skipSave) {
                 void scheduleHistoryCommit({
@@ -3526,11 +3528,19 @@ export function useDrawingHandlers({
             } else if (drawingCanvas) {
               if (skipSave) {
                 await withTiming('cc:capture', () =>
-                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? captureRoi) ?? undefined)
+                  captureCanvasToActiveLayer(
+                    drawingCanvas,
+                    (roiForEraser ?? captureRoi) ?? undefined,
+                    captureMode
+                  )
                 );
               } else {
                 await withTiming('cc:capture', () =>
-                  captureCanvasToActiveLayer(drawingCanvas, (roiForEraser ?? captureRoi) ?? undefined)
+                  captureCanvasToActiveLayer(
+                    drawingCanvas,
+                    (roiForEraser ?? captureRoi) ?? undefined,
+                    captureMode
+                  )
                 );
                 if (!layerBeforeImage) {
                   logError('[finalize] eraser beforeImage missing; skipping history to avoid destructive undo.');

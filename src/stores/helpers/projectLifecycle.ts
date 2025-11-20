@@ -45,7 +45,8 @@ export interface ProjectLifecycleOptions {
   syncPercentOffsetsFromPixels: SyncPercentOffsetsFn;
   captureCanvasToActiveLayer: (
     sourceCanvas?: HTMLCanvasElement,
-    roi?: CaptureROI
+    roi?: CaptureROI,
+    options?: { mode?: 'alpha' | 'replace' }
   ) => Promise<void>;
 }
 

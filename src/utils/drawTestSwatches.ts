@@ -1,10 +1,16 @@
+import type { CaptureROI } from '@/stores/useAppStore';
+
 // Test function to draw dither palette swatches on canvas
 // Run in console: window.drawTestSwatches()
 
 interface VesselStore {
   getState: () => {
     currentOffscreenCanvas?: HTMLCanvasElement;
-    captureCanvasToActiveLayer: (canvas: HTMLCanvasElement) => Promise<void>;
+  captureCanvasToActiveLayer: (
+    canvas: HTMLCanvasElement,
+    roi?: CaptureROI,
+    options?: { mode?: 'alpha' | 'replace' }
+  ) => Promise<void>;
   };
 }
 

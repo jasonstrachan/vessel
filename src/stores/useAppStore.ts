@@ -600,7 +600,11 @@ export interface AppState {
   exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
-  captureCanvasToActiveLayer: (sourceCanvas?: HTMLCanvasElement, roi?: CaptureROI) => Promise<void>;
+  captureCanvasToActiveLayer: (
+    sourceCanvas?: HTMLCanvasElement,
+    roi?: CaptureROI,
+    options?: { mode?: 'alpha' | 'replace' }
+  ) => Promise<void>;
   captureCanvasToLayer: (sourceCanvas: HTMLCanvasElement, targetLayerId: string | null) => Promise<void>;
   
   // Autosave State
@@ -635,8 +639,8 @@ export const useAppStore = createVesselStore<AppState>(
         persistCustomBrushes,
         getLastCustomBrushSnapshot,
         syncPercentOffsetsFromPixels,
-        captureCanvasToActiveLayer: (canvas, roi) =>
-          get().captureCanvasToActiveLayer(canvas, roi),
+        captureCanvasToActiveLayer: (canvas, roi, options) =>
+          get().captureCanvasToActiveLayer(canvas, roi, options),
       })(set, get, store);
 
       const scheduleCompositeBitmapRelease = (bitmap: ImageBitmap) => {

@@ -67,13 +67,16 @@ const normalizeCaptureROI = (
   return { x, y, width, height };
 };
 
+type CompositeMode = 'alpha' | 'replace';
+
 const alphaCompositeImageDataRegion = (
   base: ImageData | null,
   region: ImageData,
   offsetX: number,
   offsetY: number,
   fullWidth: number,
-  fullHeight: number
+  fullHeight: number,
+  mode: CompositeMode = 'alpha'
 ): ImageData => {
   const targetWidth = Math.max(1, fullWidth);
   const targetHeight = Math.max(1, fullHeight);
@@ -111,11 +114,20 @@ const alphaCompositeImageDataRegion = (
 
       const srcIndex = row * srcStride + col * 4;
       const srcAlpha8 = src[srcIndex + 3];
-      if (srcAlpha8 === 0) {
+
+      const dstIndex = (dstRow * targetWidth + dstCol) * 4;
+
+      if (mode === 'replace') {
+        outData[dstIndex] = src[srcIndex];
+        outData[dstIndex + 1] = src[srcIndex + 1];
+        outData[dstIndex + 2] = src[srcIndex + 2];
+        outData[dstIndex + 3] = srcAlpha8;
         continue;
       }
 
-      const dstIndex = (dstRow * targetWidth + dstCol) * 4;
+      if (srcAlpha8 === 0) {
+        continue;
+      }
 
       const srcAlpha = srcAlpha8 / 255;
       const invSrcAlpha = 1 - srcAlpha;
@@ -2169,7 +2181,7 @@ export const createLayersSlice = (
     return drawColorCycleLayers(ctx, sortedLayers, state.project, colorCycleBrushManager, { clear: true });
   },
 
-  captureCanvasToActiveLayer: async (sourceCanvas, roi) => {
+  captureCanvasToActiveLayer: async (sourceCanvas, roi, options?: { mode?: CompositeMode }) => {
     const state = get();
 
     if (state.history.isCapturing) {
@@ -2247,14 +2259,16 @@ export const createLayersSlice = (
           const targetWidth = baseImageData?.width ?? captureWidth;
           const targetHeight = baseImageData?.height ?? captureHeight;
 
-          const mergedImageData = alphaCompositeImageDataRegion(
-            baseImageData,
-            capturedImageData,
-            captureX,
-            captureY,
-            targetWidth,
-            targetHeight
-          );
+      const compositeMode = options?.mode ?? 'alpha';
+      const mergedImageData = alphaCompositeImageDataRegion(
+        baseImageData,
+        capturedImageData,
+        captureX,
+        captureY,
+        targetWidth,
+        targetHeight,
+        compositeMode
+      );
 
           let framebuffer = framebufferInitial;
           if (!framebuffer) {

@@ -1518,6 +1518,15 @@ export const useBrushEngineSimplified = () => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.ditherPhaseJitter ?? 0)));
   }, [tools.brushSettings.ditherPhaseJitter]);
 
+  // If the user disables dephase (slider at 0), snap the phase back to (0,0) so
+  // the dither grid re-locks to the canvas immediately instead of staying offset
+  // from earlier jitter.
+  useEffect(() => {
+    if (strokeDitherJitter === 0) {
+      strokeDitherPhaseRef.current = { x: 0, y: 0 };
+    }
+  }, [strokeDitherJitter]);
+
   // Tie lost-edge erosion scale to the dither pixel size so coarse dithering can produce a wider fade.
   const lostEdgeTileSize = Math.max(4, strokeDitherPixelSize);
 
@@ -1717,14 +1726,21 @@ export const useBrushEngineSimplified = () => {
     }
 
     // Nudge the dither phase mid-stroke so successive stamps don't align perfectly.
-    // Use a tile-sized (or half-tile) hop plus a small random wobble for visibility.
-    const hop = Math.max(1, Math.floor(tileSize * 0.5));
-    // Allow up to ~4 tiles of jitter when slider is at 100 for a clearly visible dephase.
-    const jitterPx = (strokeDitherJitter / 100) * tileSize * 4;
-    strokeDitherPhaseRef.current = {
-      x: phaseX + hop + (Math.random() - 0.5) * 2 * jitterPx,
-      y: phaseY + hop + (Math.random() - 0.5) * 2 * jitterPx
-    };
+    // Respect the user's "Dephase" slider: when set to 0, keep the pattern locked to the canvas.
+    const jitterStrength = Math.max(0, Math.min(1, strokeDitherJitter / 100));
+    if (jitterStrength > 0) {
+      // Scale hop and wobble by slider so coarse resolutions don't jump excessively when dephase is low.
+      const hop = Math.max(0, Math.floor(tileSize * 0.5 * jitterStrength));
+      // Allow up to ~4 tiles of jitter when slider is at 100 for a clearly visible dephase.
+      const jitterPx = jitterStrength * tileSize * 4;
+      strokeDitherPhaseRef.current = {
+        x: phaseX + hop + (Math.random() - 0.5) * 2 * jitterPx,
+        y: phaseY + hop + (Math.random() - 0.5) * 2 * jitterPx
+      };
+    } else {
+      // Keep the phase locked when dephase is 0.
+      strokeDitherPhaseRef.current = { x: 0, y: 0 };
+    }
   }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount, lostEdgeTileSize, strokeDitherJitter]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
