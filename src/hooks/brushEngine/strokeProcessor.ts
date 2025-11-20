@@ -13,6 +13,7 @@ import {
   type RotationConfig,
   type RotationInput
 } from './rotation';
+import { calculateBrushSpacing } from './utilities';
 
 // Performance: Pre-calculated constants
 const QUANTIZE_STEP_SIZE = 0.5;
@@ -148,23 +149,27 @@ export const shouldDrawStamp = (
     return true; // Invalid settings, default to drawing
   }
   
-  // Scale dash length and gap with brush size for consistent visual proportions
-  // Use actual render size (including pressure effects) for accurate dash scaling
+  // Scale dash length and gap using real rendered spacing so values stay linear with brush size
+  // instead of growing quadratically when spacing is percentage-based.
   const brushSize = Number(actualSize || brushSettings.size) || 4;
-  
-  let dashLen: number;
-  let dashGapLen: number;
-  
-  if (brushSize <= 2) {
-    // For very small brushes (1-2px), use original values to ensure visible dashing
-    dashLen = baseDashLen;
-    dashGapLen = baseDashGapLen;
-  } else {
-    // For larger brushes, scale proportionally
-    const sizeScaleFactor = brushSize / 4; // No minimum to allow proper scaling
-    dashLen = Math.max(1, Math.round(baseDashLen * sizeScaleFactor));
-    dashGapLen = Math.max(1, Math.round(baseDashGapLen * sizeScaleFactor));
-  }
+  const spacingPx = calculateBrushSpacing(brushSettings, brushSize);
+
+  // Convert desired physical lengths (multipliers of brush size) into stamp counts.
+  // For the dash we subtract one brush size so a value of 1 roughly paints one-brush-length
+  // instead of two due to the stamp footprint at both ends.
+  const dashDistance = baseDashLen * brushSize;
+  const dashLen = brushSize <= 2
+    ? baseDashLen
+    : Math.max(1, 1 + Math.round(Math.max(dashDistance - brushSize, 0) / spacingPx));
+
+  // For the gap we target center-to-center distance so the blank space between footprints
+  // (minus the brush diameter) matches the user input. Subtract one slot because the next
+  // dash draw happens after the gap slots are consumed.
+  const gapDistance = baseDashGapLen * brushSize;
+  const rawGapSlots = (gapDistance + brushSize) / spacingPx - 1;
+  const dashGapLen = brushSize <= 2
+    ? baseDashGapLen
+    : Math.max(1, Math.round(Math.max(rawGapSlots, 0)));
   
   // Calculate total cycle length in stamps
   const totalCycleLength = dashLen + dashGapLen;

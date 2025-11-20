@@ -123,7 +123,7 @@ export function useComprehensiveKeyboard({
   const lastKeydownTimeRef = useRef<number>(0);
 
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
-  const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
+  const bumpGlobalBrushSize = useAppStore((state) => state.bumpGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore((state) => state.setCustomBrushSizePercent);
   const setEraserSettings = useAppStore((state) => state.setEraserSettings);
   const deleteSelectedPixels = useAppStore((state) => state.deleteSelectedPixels);
@@ -132,9 +132,6 @@ export function useComprehensiveKeyboard({
   const copySelectionToClipboard = useAppStore((state) => state.copySelectionToClipboard);
   const swapPaletteColors = useAppStore((state) => state.swapPaletteColors);
   const setPaletteColor = useAppStore((state) => state.setPaletteColor);
-  const bufferedBrushSizeTargetRef = useRef<number | null>(null);
-  const bufferedBrushSizeTimerRef = useRef<number | null>(null);
-  const bufferedBrushSizeTimerKindRef = useRef<'idle' | 'timeout' | null>(null);
 
   const keyboardScopeRef = useStoreSelectorRef(selectKeyboardScope);
   const toolsRef = useStoreSelectorRef(selectToolsState);
@@ -158,90 +155,20 @@ export function useComprehensiveKeyboard({
     await flushPendingToolWork();
     setCurrentTool(tool);
   }, [setCurrentTool]);
-  const cancelBufferedBrushSizeTimer = useCallback(() => {
-    if (bufferedBrushSizeTimerRef.current === null) {
-      return;
-    }
-    if (
-      typeof window !== 'undefined' &&
-      bufferedBrushSizeTimerKindRef.current === 'idle' &&
-      'cancelIdleCallback' in window
-    ) {
-      (window as Window & { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback?.(
-        bufferedBrushSizeTimerRef.current
-      );
-    } else {
-      clearTimeout(bufferedBrushSizeTimerRef.current);
-    }
-    bufferedBrushSizeTimerRef.current = null;
-    bufferedBrushSizeTimerKindRef.current = null;
-  }, []);
-
-  const flushBufferedBrushSizeTarget = useCallback(() => {
-    cancelBufferedBrushSizeTimer();
-    const pendingSize = bufferedBrushSizeTargetRef.current;
-    if (pendingSize == null) {
-      return;
-    }
-    bufferedBrushSizeTargetRef.current = null;
-    setGlobalBrushSize(pendingSize);
-  }, [cancelBufferedBrushSizeTimer, setGlobalBrushSize]);
-
-  const scheduleBufferedBrushSizeFlush = useCallback(() => {
-    if (bufferedBrushSizeTimerRef.current !== null) {
-      return;
-    }
-    if (typeof window === 'undefined') {
-      flushBufferedBrushSizeTarget();
-      return;
-    }
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
-    };
-    if (typeof idleWindow.requestIdleCallback === 'function') {
-      bufferedBrushSizeTimerKindRef.current = 'idle';
-      bufferedBrushSizeTimerRef.current = idleWindow.requestIdleCallback(
-        () => {
-          bufferedBrushSizeTimerRef.current = null;
-          bufferedBrushSizeTimerKindRef.current = null;
-          flushBufferedBrushSizeTarget();
-        },
-        { timeout: 120 }
-      );
-      return;
-    }
-    bufferedBrushSizeTimerKindRef.current = 'timeout';
-    bufferedBrushSizeTimerRef.current = window.setTimeout(() => {
-      bufferedBrushSizeTimerRef.current = null;
-      bufferedBrushSizeTimerKindRef.current = null;
-      flushBufferedBrushSizeTarget();
-    }, 80);
-  }, [flushBufferedBrushSizeTarget]);
-
-  const applyBufferedBrushSizeDelta = useCallback((delta: number, options: { immediate?: boolean } = {}) => {
-    if (delta === 0) {
-      return;
-    }
-
-    const baseSize =
-      bufferedBrushSizeTargetRef.current ??
-      toolsRef.current.brushSettings.size ??
-      MIN_BRUSH_SIZE;
-
-    const nextSize = clampBrushSize(baseSize + delta);
-    if (nextSize === baseSize && bufferedBrushSizeTargetRef.current === null) {
-      return;
-    }
-
-    bufferedBrushSizeTargetRef.current = nextSize;
-
-    if (options.immediate) {
-      flushBufferedBrushSizeTarget();
-      return;
-    }
-
-    scheduleBufferedBrushSizeFlush();
-  }, [flushBufferedBrushSizeTarget, scheduleBufferedBrushSizeFlush, toolsRef]);
+  const applyBrushSizeDeltaImmediate = useCallback(
+    (delta: number) => {
+      if (delta === 0) {
+        return;
+      }
+      const baseSize = toolsRef.current.brushSettings.size ?? MIN_BRUSH_SIZE;
+      const nextSize = clampBrushSize(baseSize + delta);
+      if (nextSize === baseSize) {
+        return;
+      }
+      bumpGlobalBrushSize(delta);
+    },
+    [bumpGlobalBrushSize, toolsRef]
+  );
   
   // Update refs when callbacks change
   useEffect(() => {
@@ -504,7 +431,7 @@ export function useComprehensiveKeyboard({
             const newSize = Math.max(MIN_BRUSH_SIZE, currentSize - adjustment);
             setEraserSettings({ size: newSize });
           } else {
-            applyBufferedBrushSizeDelta(-adjustment, { immediate: !event.repeat });
+            applyBrushSizeDeltaImmediate(-adjustment);
           }
         }
       }
@@ -535,7 +462,7 @@ export function useComprehensiveKeyboard({
             const newSize = Math.min(MAX_BRUSH_SIZE, currentSize + adjustment);
             setEraserSettings({ size: newSize });
           } else {
-            applyBufferedBrushSizeDelta(adjustment, { immediate: !event.repeat });
+            applyBrushSizeDeltaImmediate(adjustment);
           }
         }
       }
@@ -606,7 +533,7 @@ export function useComprehensiveKeyboard({
       copySelectionToClipboard,
       setFloatingPaste, setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
-      floatingPasteRef, paletteRef, applyBufferedBrushSizeDelta]);
+      floatingPasteRef, paletteRef, applyBrushSizeDeltaImmediate]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
@@ -644,11 +571,6 @@ export function useComprehensiveKeyboard({
     
     // Always clear pressed map on keyup (even if text field prevented us earlier)
     pressedKeysRef.current.delete(event.code);
-
-    if (event.key === '[' || event.key === ']') {
-      flushBufferedBrushSizeTarget();
-      return;
-    }
 
     // Handle P key release (temporary color picker)
     if ((event.key === 'p' || event.key === 'P') && !event.ctrlKey && !event.metaKey) {
@@ -694,7 +616,7 @@ export function useComprehensiveKeyboard({
         return;
       }
     }
-  }, [enabled, allowedScopes, switchTool, keyboardScopeRef, flushBufferedBrushSizeTarget]);
+  }, [enabled, allowedScopes, switchTool, keyboardScopeRef]);
 
   // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {
@@ -715,9 +637,6 @@ export function useComprehensiveKeyboard({
       };
       pressedKeysRef.current.clear();
 
-      flushBufferedBrushSizeTarget();
-      cancelBufferedBrushSizeTimer();
-
       if (isColorPickerHeldRef.current) {
         const previousTool = colorPickerPreviousToolRef.current;
         if (previousTool && previousTool !== 'color-picker') {
@@ -726,25 +645,14 @@ export function useComprehensiveKeyboard({
         isColorPickerHeldRef.current = false;
         colorPickerPreviousToolRef.current = null;
       }
-
-      flushBufferedBrushSizeTarget();
     }
-  }, [switchTool, flushBufferedBrushSizeTarget, cancelBufferedBrushSizeTimer]);
-
-  useEffect(() => {
-    return () => {
-      cancelBufferedBrushSizeTimer();
-      flushBufferedBrushSizeTarget();
-    };
-  }, [cancelBufferedBrushSizeTimer, flushBufferedBrushSizeTarget]);
+  }, [switchTool]);
 
   // Safety net: clear stuck keys if the page becomes hidden or pointer leaves the window
   useEffect(() => {
     const clearAllKeys = () => {
       pressedKeysRef.current.clear();
       keyboardStateRef.current.isSpacePressed = false;
-      flushBufferedBrushSizeTarget();
-      cancelBufferedBrushSizeTimer();
     };
 
     const handleVisibility = () => {
@@ -761,7 +669,7 @@ export function useComprehensiveKeyboard({
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('pointerleave', handlePointerLeave);
     };
-  }, [cancelBufferedBrushSizeTimer, flushBufferedBrushSizeTarget]);
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -781,7 +689,7 @@ export function useComprehensiveKeyboard({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [enabled, handleKeyDown, handleKeyUp, handleBlur, cancelBufferedBrushSizeTimer]);
+  }, [enabled, handleKeyDown, handleKeyUp, handleBlur]);
 
   return {
     keyboardState: keyboardStateRef,

@@ -200,30 +200,68 @@ jest.mock('@/hooks/useComprehensiveKeyboard', () => ({
   useComprehensiveKeyboard: jest.fn(),
 }));
 
-const createContextStub = () => ({
-  clearRect: jest.fn(),
-  drawImage: jest.fn(),
-  getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(4) })),
-  canvas: { width: 1, height: 1 },
-  save: jest.fn(),
-  restore: jest.fn(),
-  beginPath: jest.fn(),
-  arc: jest.fn(),
-  fill: jest.fn(),
-  strokeRect: jest.fn(),
-  setLineDash: jest.fn(),
-  clip: jest.fn(),
-  translate: jest.fn(),
-  scale: jest.fn(),
-  setTransform: jest.fn(),
-  stroke: jest.fn(),
-  fillRect: jest.fn(),
-  moveTo: jest.fn(),
-  lineTo: jest.fn(),
-  rect: jest.fn(),
-  closePath: jest.fn(),
-  createPattern: jest.fn(() => ({})),
+jest.mock('@/stores/colorCycleBrushManager', () => {
+  const managerStub = {
+    isPlaying: () => false,
+    startAnimation: () => undefined,
+    stopAnimation: () => undefined,
+    cleanupInactive: () => undefined,
+    cleanupOrphanedBrushes: () => undefined,
+    setCanvasImplementation: () => undefined,
+  } as const;
+
+  let storeGetter: (() => unknown) | null = null;
+  const setColorCycleStoreStateGetter = (getter: () => unknown) => {
+    storeGetter = getter;
+  };
+
+  let layerIdGetter: (() => unknown) | null = null;
+  const setLayerIdGetter = (getter: () => unknown) => {
+    layerIdGetter = getter;
+  };
+
+  return {
+    __esModule: true,
+    getColorCycleBrushManager: () => managerStub,
+    setColorCycleStoreStateGetter,
+    setLayerIdGetter,
+    // Expose for assertions if ever needed
+    __mock: { managerStub, getStore: () => storeGetter, getLayerIds: () => layerIdGetter },
+  };
 });
+
+// Track all canvas 2d contexts created during renders so we can assert draw calls.
+const capturedContexts: any[] = [];
+
+const createContextStub = () => {
+  const ctx = {
+    clearRect: jest.fn(),
+    drawImage: jest.fn(),
+    getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(4) })),
+    canvas: { width: 1, height: 1 },
+    save: jest.fn(),
+    restore: jest.fn(),
+    beginPath: jest.fn(),
+    arc: jest.fn(),
+    fill: jest.fn(),
+    strokeRect: jest.fn(),
+    setLineDash: jest.fn(),
+    clip: jest.fn(),
+    translate: jest.fn(),
+    scale: jest.fn(),
+    setTransform: jest.fn(),
+    stroke: jest.fn(),
+    fillRect: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    rect: jest.fn(),
+    closePath: jest.fn(),
+    createPattern: jest.fn(() => ({})),
+  } as const;
+
+  capturedContexts.push(ctx);
+  return ctx;
+};
 
 beforeAll(() => {
   Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
@@ -315,6 +353,7 @@ describe('DrawingCanvas accessibility', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     baseState.layersNeedRecomposition = true;
+    capturedContexts.length = 0;
   });
 
   it('exposes an accessible workspace and drawing surface', () => {
@@ -342,5 +381,87 @@ describe('DrawingCanvas accessibility', () => {
 
     expect(selectorCalls).toContain(selectActiveLayerId);
     expect(selectorCalls).toContain(selectLayersNeedRecomposition);
+  });
+});
+
+describe('DrawingCanvas eraser overlays', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    capturedContexts.length = 0;
+
+    const fresh = createBaseState();
+    Object.assign(baseState, fresh);
+
+    const baseLayer = {
+      id: 'layer-bg',
+      name: 'Background',
+      layerType: 'normal',
+      visible: true,
+      locked: false,
+      opacity: 1,
+      blendMode: 'source-over',
+      framebuffer: 'bg-fb' as unknown,
+      imageData: null,
+      order: 0,
+    } as unknown as Layer;
+
+    const activeLayer = {
+      ...baseLayer,
+      id: 'layer-active',
+      name: 'Active',
+      framebuffer: 'active-fb' as unknown,
+      order: 1,
+    } as Layer;
+
+    const hiddenLayer = {
+      ...baseLayer,
+      id: 'layer-hidden',
+      name: 'Hidden',
+      framebuffer: 'hidden-fb' as unknown,
+      visible: false,
+      order: 2,
+    } as Layer;
+
+    baseState.layers = [baseLayer, activeLayer, hiddenLayer];
+    baseState.activeLayerId = 'layer-active';
+    baseState.tools.currentTool = 'eraser';
+    baseState.tools.brushSettings = { brushShape: BrushShape.ROUND, antialiasing: true, size: 12 } as unknown;
+    baseState.tools.eraserSettings = { size: 10 } as unknown;
+    baseState.layersNeedRecomposition = true;
+
+    interactionStub.state.isDrawing = true;
+    drawingHandlersStub.drawingCanvasHasContent.current = true;
+  });
+
+  afterEach(() => {
+    interactionStub.state.isDrawing = false;
+    drawingHandlersStub.drawingCanvasHasContent.current = false;
+  });
+
+  it('keeps other visible layers rendered while actively erasing', async () => {
+    renderCanvas();
+
+    await waitFor(() => {
+      const drewBackground = capturedContexts.some((ctx) =>
+        ctx.drawImage.mock.calls.some(([source]) => source === 'bg-fb')
+      );
+      expect(drewBackground).toBe(true);
+    });
+  });
+
+  it('ignores hidden layers while erasing', async () => {
+    renderCanvas();
+
+    await waitFor(() => {
+      const drewBackground = capturedContexts.some((ctx) =>
+        ctx.drawImage.mock.calls.some(([source]) => source === 'bg-fb')
+      );
+      expect(drewBackground).toBe(true);
+    });
+
+    const drewHidden = capturedContexts.some((ctx) =>
+      ctx.drawImage.mock.calls.some(([source]) => source === 'hidden-fb')
+    );
+    expect(drewHidden).toBe(false);
   });
 });

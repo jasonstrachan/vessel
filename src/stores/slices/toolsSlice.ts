@@ -181,6 +181,7 @@ export interface ToolsSlice {
   brushEditor: BrushEditorState;
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
   setPressureSettings: (settings: Partial<PressureSettings>) => void;
+  bumpGlobalBrushSize: (delta: number) => void;
   setGlobalBrushSize: (size: number) => void;
   setCustomBrushSizePercent: (percent: number) => void;
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
@@ -242,6 +243,44 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       return {
         pressureSettings: nextPressure,
         tools: applyPressureToTools(state.tools, nextPressure),
+      };
+    });
+  },
+
+  bumpGlobalBrushSize: (delta) => {
+    set((state) => {
+      const baseSize = state.globalBrushSize ?? 1;
+      const unclamped = Math.round(baseSize + delta);
+      const nextSize = Math.min(Math.max(unclamped, 1), 500);
+
+      const brushSettings: BrushSettings = {
+        ...state.tools.brushSettings,
+        size: nextSize,
+      };
+
+      if (brushSettings.brushShape === BrushShape.CUSTOM) {
+        const derivedPercent = percentFromPixelSize(nextSize, state, brushSettings);
+        if (derivedPercent !== null) {
+          brushSettings.customBrushSizePercent = quantizeCustomBrushPercent(derivedPercent);
+        } else if (brushSettings.customBrushSizePercent === undefined) {
+          brushSettings.customBrushSizePercent = 100;
+        }
+      } else {
+        brushSettings.customBrushSizePercent = undefined;
+      }
+
+      const shouldSyncEraser = state.tools.eraserSettings.linkSizeToBrush !== false;
+      const eraserSettings = shouldSyncEraser
+        ? { ...state.tools.eraserSettings, size: nextSize }
+        : state.tools.eraserSettings;
+
+      return {
+        globalBrushSize: nextSize,
+        tools: {
+          ...state.tools,
+          brushSettings,
+          eraserSettings,
+        },
       };
     });
   },

@@ -1530,6 +1530,15 @@ export const useBrushEngineSimplified = () => {
   // Tie lost-edge erosion scale to the dither pixel size so coarse dithering can produce a wider fade.
   const lostEdgeTileSize = Math.max(4, strokeDitherPixelSize);
 
+  // Gradient brushes previously short-circuited dithering entirely, which also disabled Lostedge.
+  // Keep dithering off for gradients (so we don't quantize the fill to a single colour) but allow
+  // applying the Lostedge mask when requested.
+  const shouldApplyLostEdgeOnly = useMemo(() => {
+    const shape = tools.brushSettings.brushShape;
+    const isGradientShape = shape === BrushShape.RECTANGLE_GRADIENT || shape === BrushShape.POLYGON_GRADIENT;
+    return isGradientShape && Boolean(tools.brushSettings.ditherEnabled) && strokeLostEdgeAmount > 0;
+  }, [tools.brushSettings.brushShape, tools.brushSettings.ditherEnabled, strokeLostEdgeAmount]);
+
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -1607,9 +1616,16 @@ export const useBrushEngineSimplified = () => {
     }
 
     // 2) Build a canvas-anchored coarse buffer and dither it once (no per-stamp resets).
-    // Add a tile margin so pattern seams don't align on exact grid boundaries; keep an upper safety cap.
-    const coarseW = Math.max(1, Math.min(1024, Math.ceil(canvasWidth / tileSize) + 2));
-    const coarseH = Math.max(1, Math.min(1024, Math.ceil(canvasHeight / tileSize) + 2));
+    // Add a generous tile margin and avoid wrapping so diffusion edges never seam when phase drifts.
+    const coarseMarginTiles = 8;
+    const coarseW = Math.max(
+      1,
+      Math.min(2048, Math.ceil(canvasWidth / tileSize) + coarseMarginTiles * 2)
+    );
+    const coarseH = Math.max(
+      1,
+      Math.min(2048, Math.ceil(canvasHeight / tileSize) + coarseMarginTiles * 2)
+    );
 
     const coarseCacheKey = `${baseR},${baseG},${baseB}|${strokeDitherPalette.join('|')}|${tileSize}|${coarseW}x${coarseH}`;
     let ditheredCoarse = strokeDitherPatternCacheRef.current.get(coarseCacheKey);
@@ -1651,11 +1667,14 @@ export const useBrushEngineSimplified = () => {
           continue; // leave prefilled color and alpha 0
         }
 
-        const coarseX = Math.floor((x + px + phaseX) / tileSize);
-        const coarseY = Math.floor((y + py + phaseY) / tileSize);
-        const patternX = ((coarseX % coarseW) + coarseW) % coarseW;
-        const patternY = ((coarseY % coarseH) + coarseH) % coarseH;
-        const coarseIndex = (patternY * coarseW + patternX) * 4;
+        const coarseX = Math.floor((x + px + phaseX) / tileSize) + coarseMarginTiles;
+        const coarseY = Math.floor((y + py + phaseY) / tileSize) + coarseMarginTiles;
+
+        if (coarseX < 0 || coarseX >= coarseW || coarseY < 0 || coarseY >= coarseH) {
+          continue; // out of padded bounds; shouldn't happen with clamped jitter
+        }
+
+        const coarseIndex = (coarseY * coarseW + coarseX) * 4;
 
         outData[outIndex]     = ditheredCoarseData[coarseIndex];
         outData[outIndex + 1] = ditheredCoarseData[coarseIndex + 1];
@@ -1733,9 +1752,17 @@ export const useBrushEngineSimplified = () => {
       const hop = Math.max(0, Math.floor(tileSize * 0.5 * jitterStrength));
       // Allow up to ~4 tiles of jitter when slider is at 100 for a clearly visible dephase.
       const jitterPx = jitterStrength * tileSize * 4;
+      const nextX = phaseX + hop + (Math.random() - 0.5) * 2 * jitterPx;
+      const nextY = phaseY + hop + (Math.random() - 0.5) * 2 * jitterPx;
+      const clampPhase = (v: number) => {
+        const limit = (coarseMarginTiles - 1) * tileSize; // stay inside padded coarse buffer
+        if (v > limit) return limit;
+        if (v < -limit) return -limit;
+        return v;
+      };
       strokeDitherPhaseRef.current = {
-        x: phaseX + hop + (Math.random() - 0.5) * 2 * jitterPx,
-        y: phaseY + hop + (Math.random() - 0.5) * 2 * jitterPx
+        x: clampPhase(nextX),
+        y: clampPhase(nextY)
       };
     } else {
       // Keep the phase locked when dephase is 0.
@@ -1980,10 +2007,65 @@ export const useBrushEngineSimplified = () => {
       }
     }
 
+    // For gradient brushes: apply Lostedge mask without running full dithering (prevents colour quantization).
+    if (!shouldApplyStrokeDither && shouldApplyLostEdgeOnly && region && region.width > 0 && region.height > 0) {
+      const { x, y, width, height } = region;
+      withAlphaLock(ctx, (targetCtx) => {
+        let src: ImageData;
+        try {
+          src = targetCtx.getImageData(x, y, width, height);
+        } catch (error) {
+          console.warn('[LostEdge] Failed to sample gradient region:', error);
+          return;
+        }
+
+        const data = src.data;
+        const basePixels = width * height;
+
+        // Pad coverage with transparent border so the mask sees background and can erode edges.
+        const virtualEdgePad = Math.min(48, Math.max(lostEdgeTileSize * 2, Math.round((strokeLostEdgeAmount / 100) * 32)));
+        const paddedW = width + virtualEdgePad * 2;
+        const paddedH = height + virtualEdgePad * 2;
+        const coverage = new Uint8Array(paddedW * paddedH);
+
+        for (let py = 0; py < height; py++) {
+          const srcRow = py * width;
+          const dstRow = (py + virtualEdgePad) * paddedW + virtualEdgePad;
+          for (let px = 0; px < width; px++) {
+            coverage[dstRow + px] = data[(srcRow + px) * 4 + 3];
+          }
+        }
+
+        const mask = applySierraLiteLostEdgeMask(
+          coverage,
+          paddedW,
+          paddedH,
+          strokeLostEdgeAmount,
+          lostEdgeTileSize
+        );
+
+        // Apply only the core (unpadded) portion back onto the gradient
+        for (let py = 0; py < height; py++) {
+          const maskRow = (py + virtualEdgePad) * paddedW + virtualEdgePad;
+          const dataRow = py * width * 4;
+          for (let px = 0; px < width; px++) {
+            const keep = mask[maskRow + px];
+            if (keep >= 255) continue;
+            const alphaIndex = dataRow + px * 4 + 3;
+            const alpha = data[alphaIndex];
+            if (alpha === 0) continue;
+            data[alphaIndex] = Math.max(0, Math.min(255, Math.round((alpha * keep) / 255)));
+          }
+        }
+
+        targetCtx.putImageData(src, x, y);
+      }, strokeBounds ?? undefined);
+    }
+
     clearLiveStrokeBuffers();
     strokeBoundsRef.current = null;
     return strokeBounds ? { ...strokeBounds } : null;
-  }, [applyStrokeDither, brushEngine, clearLiveStrokeBuffers, withAlphaLock]);
+  }, [applyStrokeDither, brushEngine, clearLiveStrokeBuffers, shouldApplyLostEdgeOnly, shouldApplyStrokeDither, strokeLostEdgeAmount, lostEdgeTileSize, withAlphaLock]);
 
   /**
    * Reset for new stroke
@@ -2658,13 +2740,57 @@ export const useBrushEngineSimplified = () => {
             tempCtx.fill();
             tempCtx.restore();
 
-            // Force binary alpha after masking so diagonal edges stay pixel-crisp
+            // Force binary alpha after masking so diagonal edges stay pixel-crisp when lostedge is off.
+            // If Lostedge is enabled, keep soft alpha and apply a dithering-based erosion mask instead.
             const maskData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
             const pixels = maskData.data;
-            for (let i = 3; i < pixels.length; i += 4) {
-              pixels[i] = pixels[i] > 0 ? 255 : 0;
+
+            if (!tools.brushSettings.ditherEnabled || (strokeLostEdgeAmount ?? 0) === 0) {
+              for (let i = 3; i < pixels.length; i += 4) {
+                pixels[i] = pixels[i] > 0 ? 255 : 0;
+              }
+              tempCtx.putImageData(maskData, 0, 0);
+            } else {
+              // Build a padded coverage map so the mask can see surrounding transparency.
+              const virtualEdgePad = Math.min(
+                48,
+                Math.max(lostEdgeTileSize * 2, Math.round((strokeLostEdgeAmount / 100) * 32))
+              );
+              const paddedW = paddedWidth + virtualEdgePad * 2;
+              const paddedH = paddedHeight + virtualEdgePad * 2;
+              const coverage = new Uint8Array(paddedW * paddedH);
+
+              for (let py = 0; py < paddedHeight; py++) {
+                const srcRow = py * paddedWidth * 4;
+                const dstRow = (py + virtualEdgePad) * paddedW + virtualEdgePad;
+                for (let px = 0; px < paddedWidth; px++) {
+                  coverage[dstRow + px] = pixels[srcRow + px * 4 + 3];
+                }
+              }
+
+              const mask = applySierraLiteLostEdgeMask(
+                coverage,
+                paddedW,
+                paddedH,
+                strokeLostEdgeAmount,
+                lostEdgeTileSize
+              );
+
+              for (let py = 0; py < paddedHeight; py++) {
+                const maskRow = (py + virtualEdgePad) * paddedW + virtualEdgePad;
+                const dataRow = py * paddedWidth * 4;
+                for (let px = 0; px < paddedWidth; px++) {
+                  const keep = mask[maskRow + px];
+                  if (keep >= 255) continue;
+                  const alphaIndex = dataRow + px * 4 + 3;
+                  const alpha = pixels[alphaIndex];
+                  if (alpha === 0) continue;
+                  pixels[alphaIndex] = Math.max(0, Math.min(255, Math.round((alpha * keep) / 255)));
+                }
+              }
+
+              tempCtx.putImageData(maskData, 0, 0);
             }
-            tempCtx.putImageData(maskData, 0, 0);
           }
 
           // Draw the already-masked dithered pattern without additional smoothing
@@ -2717,7 +2843,7 @@ export const useBrushEngineSimplified = () => {
       // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
+  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, tools.brushSettings.lostEdge, lostEdgeTileSize, strokeLostEdgeAmount, applyRisographEffect]);
 
 
   /**

@@ -330,6 +330,7 @@ export interface AppState {
   // Global brush settings
   globalBrushSize: number;
   setGlobalBrushSize: (size: number) => void;
+  bumpGlobalBrushSize: (delta: number) => void;
   setCustomBrushSizePercent: (percent: number) => void;
   pressureSettings: PressureSettings;
   setPressureSettings: (settings: Partial<PressureSettings>) => void;

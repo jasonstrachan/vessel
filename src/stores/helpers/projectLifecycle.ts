@@ -329,11 +329,26 @@ export const createProjectLifecycle = ({
         state.projectFileHandle ?? undefined
       );
 
-      set({
+      const nextFileHandle = fileHandle ?? state.projectFileHandle ?? null;
+
+      set((current) => ({
         paletteDirty: false,
         projectFilename: savedFileName ?? null,
-        projectFileHandle: fileHandle ?? null,
-      });
+        projectFileHandle: nextFileHandle,
+        autosave: nextFileHandle
+          ? {
+              ...current.autosave,
+              fileBackup: {
+                ...current.autosave.fileBackup,
+                enabled: true,
+                mode: 'single-file',
+                fileHandle: nextFileHandle,
+                directoryHandle: null,
+                backupPath: savedFileName ?? current.projectFilename ?? current.autosave.fileBackup.backupPath,
+              },
+            }
+          : current.autosave,
+      }));
 
       state.addNotification({
         type: 'success',
@@ -361,10 +376,23 @@ export const createProjectLifecycle = ({
     try {
       const { project: loadedProject, fileName, fileHandle } = await loadProjectFromFile();
       await applyLoadedProject(loadedProject);
-      set({
+      set((current) => ({
         projectFilename: fileName ?? null,
         projectFileHandle: fileHandle ?? null,
-      });
+        autosave: fileHandle
+          ? {
+              ...current.autosave,
+              fileBackup: {
+                ...current.autosave.fileBackup,
+                enabled: true,
+                mode: 'single-file',
+                fileHandle,
+                directoryHandle: null,
+                backupPath: fileName ?? current.autosave.fileBackup.backupPath,
+              },
+            }
+          : current.autosave,
+      }));
     } catch (error) {
       state.addNotification({
         type: 'error',

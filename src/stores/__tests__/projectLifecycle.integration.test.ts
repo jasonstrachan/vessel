@@ -120,6 +120,23 @@ describe('project slice lifecycle flows', () => {
       projectFilename: null,
       projectFileHandle: null,
       layers: state.layers.length ? state.layers : [],
+      autosave: {
+        ...state.autosave,
+        isEnabled: false,
+        isRunning: false,
+        hasUnsavedChanges: false,
+        lastSaveTime: null,
+        lastDirtyReason: null,
+        lastDirtyAt: null,
+        fileBackup: {
+          enabled: false,
+          mode: 'single-file',
+          fileHandle: null,
+          directoryHandle: null,
+          backupPath: null,
+          lastBackupTime: null,
+        },
+      },
     }));
   });
 
@@ -145,6 +162,14 @@ describe('project slice lifecycle flows', () => {
     expect(Array.isArray(layersArg)).toBe(true);
     expect(useAppStore.getState().projectFilename).toBe('poster.vessel');
     expect(useAppStore.getState().projectFileHandle).toEqual({ id: 'handle-1' });
+    expect(useAppStore.getState().autosave.fileBackup).toEqual({
+      enabled: true,
+      mode: 'single-file',
+      fileHandle: { id: 'handle-1' },
+      directoryHandle: null,
+      backupPath: 'poster.vessel',
+      lastBackupTime: null,
+    });
     expect(notifySpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', title: 'Project Saved' })
     );
@@ -182,6 +207,14 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.palette.foregroundColor).toBe('#ff00ff');
     expect(nextState.projectFilename).toBe('imported.vessel');
     expect(nextState.projectFileHandle).toBeNull();
+    expect(nextState.autosave.fileBackup).toEqual({
+      enabled: false,
+      mode: 'single-file',
+      fileHandle: null,
+      directoryHandle: null,
+      backupPath: null,
+      lastBackupTime: null,
+    });
     expect(mockManager.cleanupOrphanedBrushes).toHaveBeenCalled();
     const cleanupArgs = mockManager.cleanupOrphanedBrushes.mock.calls[0]?.[0];
     expect(cleanupArgs instanceof Set ? cleanupArgs.size : null).toBe(0);

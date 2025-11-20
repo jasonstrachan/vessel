@@ -1798,19 +1798,21 @@ const BrushControls = () => {
             >
               Dither
             </label>
-            <div className="flex items-center gap-2 flex-1">
-              <CustomSwitch
-                id="dither-enabled"
-                checked={activeSettings.ditherEnabled || false}
-                onChange={(checked) =>
-                  setActiveSettings({ ditherEnabled: checked })
-                }
-              />
-              {/* Fill Res */}
-              <div className="flex items-center gap-2 flex-1">
-                <span className="text-[#D9D9D9] text-xs">
-                  Res
-                </span>
+            <CustomSwitch
+              id="dither-enabled"
+              checked={activeSettings.ditherEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ ditherEnabled: checked })
+              }
+            />
+          </div>
+
+          <div className="flex flex-col gap-2 mt-2">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                Res
+              </label>
+              <div className="flex-1">
                 <ProgressSlider
                   value={activeSettings.fillResolution || 1}
                   min={1}
@@ -1821,13 +1823,16 @@ const BrushControls = () => {
                     setActiveSettings({ fillResolution: Math.round(value) })
                   }
                   aria-label="Dither Resolution"
-                  className="flex-1"
+                  className="w-full"
                 />
               </div>
-              <div className="flex items-center gap-2 flex-1 mt-2">
-                <span className="text-[#D9D9D9] text-xs">
-                  Sprd
-                </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                Sprd
+              </label>
+              <div className="flex-1">
                 <ProgressSlider
                   value={activeSettings.ditherPaletteSpread ?? 0}
                   min={0}
@@ -1840,16 +1845,20 @@ const BrushControls = () => {
                     })
                   }
                   aria-label="Dither Palette Spread"
-                  className="flex-1"
+                  className="w-full"
                 />
               </div>
-              <div className="flex items-center gap-2 flex-1 mt-2">
-                <span
-                  className="text-[#D9D9D9] text-xs"
-                  title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
-                >
-                  Lostedge
-                </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+                title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
+              >
+                Lostedge
+              </label>
+              <div className="flex-1">
                 <ProgressSlider
                   value={activeSettings.lostEdge ?? 0}
                   min={0}
@@ -1862,12 +1871,12 @@ const BrushControls = () => {
                     })
                   }
                   aria-label="Lost Edge"
-                  className="flex-1"
+                  className="w-full"
                 />
               </div>
             </div>
           </div>
-          
+
           {/* Dither Algorithm Dropdown - only show when dithering is enabled */}
           {activeSettings.ditherEnabled && (
             <>

@@ -271,4 +271,23 @@ describe('AutosaveService', () => {
       duration: 3000
     });
   });
+
+  it('writes file-backup when enabled with a file handle', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    store.autosave.fileBackup.enabled = true;
+    store.autosave.fileBackup.mode = 'single-file';
+    store.autosave.fileBackup.fileHandle = { id: 'fh-1' } as unknown as FileSystemFileHandle;
+
+    await autosaveService.triggerAutosave();
+
+    expect(fileBackupService.setFileHandle).toHaveBeenCalledWith(store.autosave.fileBackup.fileHandle);
+    expect(fileBackupService.setDirectoryHandle).not.toHaveBeenCalled();
+    expect(fileBackupService.saveProjectBackup).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'test-project', palette: store.palette }),
+      store.layers,
+      'single-file'
+    );
+    expect(store.updateFileBackupTime).toHaveBeenCalled();
+  });
 });

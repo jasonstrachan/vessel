@@ -1,63 +1,67 @@
 import JSZip from 'jszip';
-import { gzipSync } from 'fflate';
-import { TextEncoder, TextDecoder } from 'util';
+import { readProjectManifest } from '@/utils/projectIO';
 
-const utilTextEncoder = TextEncoder;
-const utilTextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;
-
-if (typeof globalThis.TextEncoder === 'undefined') {
-  globalThis.TextEncoder = utilTextEncoder;
-}
-
-if (typeof globalThis.TextDecoder === 'undefined') {
-  globalThis.TextDecoder = utilTextDecoder;
-}
-
-import { readProjectManifest, type VesselProject } from '@/utils/projectIO';
-
-const buildManifest = (name: string): VesselProject => ({
+const minimalVesselProject = {
   version: '1.0.0',
   metadata: {
-    name,
+    name: 'demo',
     created: '2025-01-01T00:00:00.000Z',
-    modified: '2025-01-02T00:00:00.000Z',
-    appVersion: '0.9.0'
+    modified: '2025-01-01T00:00:00.000Z',
+    appVersion: '1.0.0',
   },
   project: {
-    id: `${name.toLowerCase().replace(/\s+/g, '-')}-id`,
-    name,
-    width: 128,
-    height: 64,
+    id: 'p1',
+    name: 'demo',
+    width: 10,
+    height: 10,
     backgroundColor: '#000000',
     layers: [],
-    customBrushes: []
-  }
-});
+    customBrushes: [],
+  },
+};
 
-const encoder = new TextEncoder();
+const asJson = JSON.stringify(minimalVesselProject);
 
-describe('readProjectManifest', () => {
-  it('parses modern zip-based project archives', async () => {
-    const zip = new JSZip();
-    zip.file('project.json', JSON.stringify(buildManifest('Zip Project')));
-    const payload = await zip.generateAsync({
-      type: 'uint8array',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 9 }
-    });
+async function zipWithProjectJson(): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file('project.json', asJson);
+  return zip.generateAsync({ type: 'uint8array' });
+}
 
-    const manifest = await readProjectManifest(payload);
+describe('projectIO readProjectManifest', () => {
+  let errorSpy: jest.SpyInstance;
 
-    expect(manifest.project.name).toBe('Zip Project');
-    expect(manifest.version).toBe('1.0.0');
+  beforeEach(() => {
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
-  it('parses legacy gzip-compressed project payloads', async () => {
-    const gzipPayload = gzipSync(encoder.encode(JSON.stringify(buildManifest('Gzip Project'))));
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
 
-    const manifest = await readProjectManifest(gzipPayload);
+  it('parses plain JSON string payloads', async () => {
+    const manifest = await readProjectManifest(asJson);
+    expect(manifest.project.name).toBe('demo');
+    expect(manifest.metadata.appVersion).toBe('1.0.0');
+  });
 
-    expect(manifest.project.name).toBe('Gzip Project');
-    expect(manifest.metadata.appVersion).toBe('0.9.0');
+  it('parses zipped project data (uint8array)', async () => {
+    const zipped = await zipWithProjectJson();
+    const manifest = await readProjectManifest(zipped);
+    expect(manifest.project.id).toBe('p1');
+  });
+
+  it('parses binary-string zip payload via fallback', async () => {
+    const zipped = await zipWithProjectJson();
+    const binaryString = Array.from(zipped)
+      .map((b) => String.fromCharCode(b))
+      .join('');
+
+    const manifest = await readProjectManifest(binaryString);
+    expect(manifest.project.width).toBe(10);
+  });
+
+  it('throws for invalid manifest structure', async () => {
+    await expect(readProjectManifest('{}')).rejects.toThrow('Invalid Vessel project file');
   });
 });

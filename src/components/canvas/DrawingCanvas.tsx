@@ -863,6 +863,99 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
     return rendered;
   }, [ensureStaticCompositeCanvas, renderStaticComposite, setCurrentOffscreenCanvas]);
+
+  const drawNonActiveVisibleLayers = useCallback(
+    (ctx: CanvasRenderingContext2D) => {
+      if (!project) return;
+
+      const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
+      const activeId = activeLayerId;
+      const shouldSmooth = !(tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+        (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing));
+
+      ctx.save();
+      ctx.imageSmoothingEnabled = shouldSmooth;
+
+      if (project.backgroundColor && project.backgroundColor !== 'transparent') {
+        ctx.fillStyle = project.backgroundColor;
+        ctx.fillRect(0, 0, project.width, project.height);
+      }
+
+      for (const layer of sortedLayers) {
+        if (!layer.visible || layer.id === activeId) {
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalCompositeOperation = layer.blendMode;
+        ctx.globalAlpha = layer.opacity;
+
+        if (
+          layer.layerType === 'color-cycle' &&
+          layer.colorCycleData?.canvas &&
+          layer.colorCycleData.mode !== 'recolor'
+        ) {
+          try {
+            ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          } catch {
+            // ignore transient color cycle draw errors
+          }
+        } else if (
+          layer.layerType === 'color-cycle' &&
+          layer.colorCycleData?.mode === 'recolor' &&
+          layer.colorCycleData.canvas
+        ) {
+          try {
+            ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          } catch {
+            // ignore transient color cycle draw errors
+          }
+        } else if (layer.framebuffer) {
+          try {
+            ctx.drawImage(layer.framebuffer as CanvasImageSource, 0, 0);
+          } catch {
+            // ignore transient draw errors
+          }
+        } else if (layer.imageData) {
+          let transferCanvas = layerTransferCacheRef.current.get(layer.id);
+          if (!transferCanvas) {
+            const canvas = document.createElement('canvas');
+            canvas.width = layer.imageData.width;
+            canvas.height = layer.imageData.height;
+            transferCanvas = canvas;
+            layerTransferCacheRef.current.set(layer.id, transferCanvas);
+          }
+          if (
+            transferCanvas.width !== layer.imageData.width ||
+            transferCanvas.height !== layer.imageData.height
+          ) {
+            transferCanvas.width = layer.imageData.width;
+            transferCanvas.height = layer.imageData.height;
+          }
+
+          const transferCtx = transferCanvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          ) as CanvasRenderingContext2D | null;
+
+          if (transferCtx) {
+            transferCtx.clearRect(0, 0, transferCanvas.width, transferCanvas.height);
+            transferCtx.putImageData(layer.imageData, 0, 0);
+            try {
+              ctx.drawImage(transferCanvas, 0, 0);
+            } catch {
+              // ignore transient draw errors
+            }
+          }
+        }
+
+        ctx.restore();
+      }
+
+      ctx.restore();
+    },
+    [project, layers, activeLayerId, tools.brushSettings.brushShape, tools.brushSettings.antialiasing]
+  );
   
   // Drawing function - base implementation without hooks
   const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null, devicePixelRatio = 1) => {
@@ -1009,7 +1102,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               width,
               height
             );
-          } else if (!isActivelyErasing) {
+          } else if (isActivelyErasing) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, width, height);
+            ctx.clip();
+            drawNonActiveVisibleLayers(ctx);
+            ctx.restore();
+          } else {
             const segments = compositeSegmentsRef.current;
             let compositeDrawn = false;
             if (segments.length > 0) {
@@ -1120,7 +1220,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           layer.colorCycleData?.mode !== 'recolor' &&
           Boolean(layer.colorCycleData?.isAnimating)
         ));
-        const isManagerPlaying = colorCycleManagerRef.current?.isPlaying() || false;
+        const manager = colorCycleManagerRef.current;
+        const isManagerPlaying = manager && typeof manager.isPlaying === 'function'
+          ? manager.isPlaying()
+          : false;
 
         const activelyDrawing = Boolean(isDrawing);
         const overlayBlockedByAnimation = anyCCAnimating || isManagerPlaying;
@@ -1320,7 +1423,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     floatingPaste,
     compositeBitmap,
     activeLayerId,
-    renderSplitComposites
+    renderSplitComposites,
+    drawNonActiveVisibleLayers
   ]);
   
   // Use custom hooks
