@@ -111,6 +111,10 @@ const clampColorCycleBandSpacing = (value?: number) => {
   return Math.max(2, Math.min(256, Math.round(value)));
 };
 
+const DEBUG_LOSTEDGE =
+  typeof process !== 'undefined' &&
+  process.env?.NEXT_PUBLIC_DEBUG_LOSTEDGE === 'true';
+
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
 const wrapHue = (h: number): number => {
@@ -651,6 +655,7 @@ export const useBrushEngineSimplified = () => {
   const liveRenderScheduledRef = useRef(false);
   const firstStrokeSegmentTinyRef = useRef(false);
   const warmupStampRef = useRef<ImageData | null>(null);
+  const strokeDitherPhaseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const ensureLiveStrokeBuffersForSize = useCallback((width: number, height: number): boolean => {
     if (typeof document === 'undefined') {
@@ -1505,6 +1510,10 @@ export const useBrushEngineSimplified = () => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
   }, [tools.brushSettings.lostEdge]);
 
+  const strokeDitherJitter = useMemo(() => {
+    return Math.max(0, Math.min(100, Math.round(tools.brushSettings.ditherPhaseJitter ?? 0)));
+  }, [tools.brushSettings.ditherPhaseJitter]);
+
   // Tie lost-edge erosion scale to the dither pixel size so coarse dithering can produce a wider fade.
   const lostEdgeTileSize = Math.max(4, strokeDitherPixelSize);
 
@@ -1522,6 +1531,9 @@ export const useBrushEngineSimplified = () => {
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
 
     const tileSize = Math.max(1, strokeDitherPixelSize | 0);
+    // Keep phase unbounded so it can accumulate across stamps; only the division cares.
+    const phaseX = strokeDitherPhaseRef.current.x;
+    const phaseY = strokeDitherPhaseRef.current.y;
 
     // Cache a stable dither tile so repeated stamps re-use the same pattern instead of re-diffusing.
     const x = region.x | 0;
@@ -1625,8 +1637,8 @@ export const useBrushEngineSimplified = () => {
           continue; // leave prefilled color and alpha 0
         }
 
-        const coarseX = Math.floor((x + px) / tileSize);
-        const coarseY = Math.floor((y + py) / tileSize);
+        const coarseX = Math.floor((x + px + phaseX) / tileSize);
+        const coarseY = Math.floor((y + py + phaseY) / tileSize);
         const patternX = ((coarseX % coarseW) + coarseW) % coarseW;
         const patternY = ((coarseY % coarseH) + coarseH) % coarseH;
         const coarseIndex = (patternY * coarseW + patternX) * 4;
@@ -1646,6 +1658,28 @@ export const useBrushEngineSimplified = () => {
         strokeLostEdgeAmount,
         lostEdgeTileSize
       );
+
+      if (DEBUG_LOSTEDGE) {
+        let minMask = 255;
+        let sum = 0;
+        for (let i = 0; i < mask.length; i++) {
+          const v = mask[i];
+          if (v < minMask) minMask = v;
+          sum += v;
+        }
+        const avgMask = sum / mask.length;
+        console.debug('[LostEdge]', {
+          strokeLostEdgeAmount,
+          strokeDitherPixelSize,
+          phase: { x: phaseX, y: phaseY },
+          virtualEdgePad,
+          lostEdgeTileSize,
+          maskMin: minMask,
+          maskAvg: Math.round(avgMask),
+          region: { w, h },
+          ditherEnabled: shouldApplyStrokeDither
+        });
+      }
 
       // Preserve a minimum amount of alpha in the fade zone so dithering texture remains visible
       // instead of stamping a fully transparent band.
@@ -1676,7 +1710,17 @@ export const useBrushEngineSimplified = () => {
     } catch (error) {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
-  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount, lostEdgeTileSize]);
+
+    // Nudge the dither phase mid-stroke so successive stamps don't align perfectly.
+    // Use a tile-sized (or half-tile) hop plus a small random wobble for visibility.
+    const hop = Math.max(1, Math.floor(tileSize * 0.5));
+    // Allow up to ~2 tiles of jitter when slider is at 100 for a clearly visible dephase.
+    const jitterPx = (strokeDitherJitter / 100) * tileSize * 2;
+    strokeDitherPhaseRef.current = {
+      x: phaseX + hop + (Math.random() - 0.5) * 2 * jitterPx,
+      y: phaseY + hop + (Math.random() - 0.5) * 2 * jitterPx
+    };
+  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount, lostEdgeTileSize, strokeDitherJitter]);
 
   const warmStrokeDitherBuffers = useCallback(() => {
     if (!shouldApplyStrokeDither) {
@@ -2002,6 +2046,15 @@ export const useBrushEngineSimplified = () => {
     strokeBoundsRef.current = null;
     clearLiveStrokeBuffers();
     firstStrokeSegmentTinyRef.current = true;
+    // Randomize dither phase per stroke to avoid identical tile alignment
+    if (strokeDitherJitter > 0) {
+      strokeDitherPhaseRef.current = {
+        x: (Math.random() - 0.5) * strokeDitherJitter * 0.1 * strokeDitherPixelSize,
+        y: (Math.random() - 0.5) * strokeDitherJitter * 0.1 * strokeDitherPixelSize
+      };
+    } else {
+      strokeDitherPhaseRef.current = { x: 0, y: 0 };
+    }
   }, [brushEngine, clearLiveStrokeBuffers]);
 
   /**

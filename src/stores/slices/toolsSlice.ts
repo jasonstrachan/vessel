@@ -139,6 +139,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorJitter: settings.colorJitter,
   risographIntensity: settings.risographIntensity,
   ditherEnabled: settings.ditherEnabled,
+  ditherPhaseJitter: settings.ditherPhaseJitter,
   ditherPaletteSpread: settings.ditherPaletteSpread,
   lostEdge: settings.lostEdge,
   fillResolution: settings.fillResolution,
@@ -495,6 +496,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
       if (settings.risographIntensity !== undefined) settingsToSave.risographIntensity = newSettings.risographIntensity;
       if (settings.ditherEnabled !== undefined) settingsToSave.ditherEnabled = newSettings.ditherEnabled;
+      if (settings.ditherPhaseJitter !== undefined) {
+        settingsToSave.ditherPhaseJitter = newSettings.ditherPhaseJitter;
+      }
+      if (settings.ditherPaletteSpread !== undefined) {
+        settingsToSave.ditherPaletteSpread = newSettings.ditherPaletteSpread;
+      }
+      if (settings.lostEdge !== undefined) {
+        settingsToSave.lostEdge = newSettings.lostEdge;
+      }
       if (settings.colorCycleStampDitherEnabled !== undefined) {
         settingsToSave.colorCycleStampDitherEnabled = newSettings.colorCycleStampDitherEnabled;
       }

@@ -800,6 +800,25 @@ const BrushControls = () => {
               />
             </div>
             <div className="flex items-center gap-2 mt-2 opacity-100">
+              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Dephase: offsets dither tiles between stamps so strokes don’t align perfectly">
+                Dephase
+              </label>
+              <ProgressSlider
+                value={activeSettings.ditherPhaseJitter ?? 0}
+                min={0}
+                max={100}
+                step={1}
+                disabled={!activeSettings.ditherEnabled}
+                onChange={(value) =>
+                  setActiveSettings({
+                    ditherPhaseJitter: Math.max(0, Math.min(100, Math.round(value)))
+                  })
+                }
+                aria-label="Dither Dephase"
+                className="flex-1"
+              />
+            </div>
+            <div className="flex items-center gap-2 mt-2 opacity-100">
               <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)">
                 Lostedge
               </label>
@@ -2089,6 +2108,28 @@ const BrushControls = () => {
                   })
                 }
                 aria-label="Dither Palette Spread"
+                className="flex-1"
+              />
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <label
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+                title="Dephase: offset dither tiles between stamps so strokes stay visible"
+              >
+                Dephase
+              </label>
+              <ProgressSlider
+                value={activeSettings.ditherPhaseJitter ?? 0}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(value) =>
+                  setActiveSettings({
+                    ditherPhaseJitter: Math.max(0, Math.min(100, Math.round(value)))
+                  })
+                }
+                aria-label="Dither Dephase"
                 className="flex-1"
               />
             </div>

@@ -500,6 +500,7 @@ export interface BrushSettings {
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
   ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+  ditherPhaseJitter?: number; // 0-100: how much to dephase dither tiles between stamps
   // Lost Edge: apply Sierra Lite dither to break up stroke boundaries
   lostEdge?: number; // 0-100: 0 = off, 100 = strongest edge breakup
   // Color Cycle stamp dithering
