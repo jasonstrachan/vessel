@@ -18,6 +18,12 @@ import {
 import { srgbToLinear } from './colorUtils';
 import { DITHER_PALETTE, DITHER_COLOR_NAMES } from './constants';
 
+// Lookup table to avoid pow() per pixel in hot dithering paths
+const SRGB_TO_LINEAR_LUT: Float32Array = new Float32Array(256);
+for (let i = 0; i < 256; i++) {
+  SRGB_TO_LINEAR_LUT[i] = srgbToLinear(i);
+}
+
 /**
  * Select a diverse palette of colors for dithering
  */
@@ -433,6 +439,14 @@ export const applySierraLiteDither = (imageData: ImageData, numColors: number, c
   const height = imageData.height;
   
   const palette = customPalette || selectDynamicPalette(imageData, numColors);
+  const paletteLinear = new Float32Array(palette.length * 3);
+  for (let i = 0; i < palette.length; i++) {
+    const [r, g, b] = palette[i];
+    const base = i * 3;
+    paletteLinear[base] = SRGB_TO_LINEAR_LUT[r];
+    paletteLinear[base + 1] = SRGB_TO_LINEAR_LUT[g];
+    paletteLinear[base + 2] = SRGB_TO_LINEAR_LUT[b];
+  }
   
   // Find nearest palette color using linear color space for accurate comparison
   const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
@@ -440,17 +454,17 @@ export const applySierraLiteDither = (imageData: ImageData, numColors: number, c
     let minDiff = Infinity;
 
     // Convert the source pixel color to linear space once
-    const lr = srgbToLinear(r);
-    const lg = srgbToLinear(g);
-    const lb = srgbToLinear(b);
+    const lr = SRGB_TO_LINEAR_LUT[r];
+    const lg = SRGB_TO_LINEAR_LUT[g];
+    const lb = SRGB_TO_LINEAR_LUT[b];
     
     for (let i = 0; i < palette.length; i++) {
       const color = palette[i];
-      
-      // Convert the palette color to linear space for comparison
-      const plr = srgbToLinear(color[0]);
-      const plg = srgbToLinear(color[1]);
-      const plb = srgbToLinear(color[2]);
+      const base = i * 3;
+      // Palette already in linear space
+      const plr = paletteLinear[base];
+      const plg = paletteLinear[base + 1];
+      const plb = paletteLinear[base + 2];
 
       // Compare distance in linear space for gamma-correct matching
       const dr = lr - plr;
@@ -480,9 +494,9 @@ export const applySierraLiteDither = (imageData: ImageData, numColors: number, c
       const idx = (y * width + x) * 4;
       
       // Get current RGB values (with accumulated error)
-      const oldR = Math.max(0, Math.min(255, workingData[idx]));
-      const oldG = Math.max(0, Math.min(255, workingData[idx + 1]));
-      const oldB = Math.max(0, Math.min(255, workingData[idx + 2]));
+      const oldR = workingData[idx] < 0 ? 0 : workingData[idx] > 255 ? 255 : workingData[idx];
+      const oldG = workingData[idx + 1] < 0 ? 0 : workingData[idx + 1] > 255 ? 255 : workingData[idx + 1];
+      const oldB = workingData[idx + 2] < 0 ? 0 : workingData[idx + 2] > 255 ? 255 : workingData[idx + 2];
       
       // Find nearest color in selected palette
       const [newR, newG, newB] = findNearestColor(oldR, oldG, oldB);

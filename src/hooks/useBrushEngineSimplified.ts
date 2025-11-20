@@ -649,6 +649,8 @@ export const useBrushEngineSimplified = () => {
   const liveStrokeDirtyRef = useRef<Rect | null>(null);
   const didPreviewDitherRef = useRef(false);
   const liveRenderScheduledRef = useRef(false);
+  const firstStrokeSegmentTinyRef = useRef(false);
+  const warmupStampRef = useRef<ImageData | null>(null);
 
   const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
     if (typeof document === 'undefined') {
@@ -1053,6 +1055,7 @@ export const useBrushEngineSimplified = () => {
   
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
+  const strokeDitherPatternCacheRef = useRef(new Map<string, ImageData>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
@@ -1381,6 +1384,7 @@ export const useBrushEngineSimplified = () => {
 
     const tileSize = Math.max(1, strokeDitherPixelSize | 0);
 
+    // Cache a stable dither tile so repeated stamps re-use the same pattern instead of re-diffusing.
     const x = region.x | 0;
     const y = region.y | 0;
     const w = region.width | 0;
@@ -1410,6 +1414,8 @@ export const useBrushEngineSimplified = () => {
     const coverageW = w + virtualEdgePad * 2;
     const coverageH = h + virtualEdgePad * 2;
     const coverage = new Uint8Array(coverageW * coverageH);
+    // Keep a core (unpadded) view for dithering so tile alignment stays consistent
+    const coverageCore = virtualEdgePad === 0 ? coverage : new Uint8Array(w * h);
     let baseR = 0;
     let baseG = 0;
     let baseB = 0;
@@ -1421,6 +1427,7 @@ export const useBrushEngineSimplified = () => {
         const alpha = srcData[srcIndex + 3];
         const covIndex = (py + virtualEdgePad) * coverageW + (px + virtualEdgePad);
         coverage[covIndex] = alpha;
+        coverageCore[py * w + px] = alpha;
 
         if (!hasBase && alpha > 0) {
           baseR = srcData[srcIndex];
@@ -1435,54 +1442,55 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
-    // 2) Build a flat colour field in a COARSE grid
-    const coarseW = Math.max(1, Math.ceil(w / tileSize));
-    const coarseH = Math.max(1, Math.ceil(h / tileSize));
-    const coarse = new ImageData(coarseW, coarseH);
-    const coarseData = coarse.data;
+    // 2) Build a canvas-anchored coarse buffer and dither it once (no per-stamp resets).
+    const coarseW = Math.max(1, Math.ceil(canvasWidth / tileSize));
+    const coarseH = Math.max(1, Math.ceil(canvasHeight / tileSize));
 
-    for (let a = 0; a < coarseData.length; a += 4) {
-      coarseData[a]     = baseR;
-      coarseData[a + 1] = baseG;
-      coarseData[a + 2] = baseB;
-      coarseData[a + 3] = 255;
+    const coarseCacheKey = `${baseR},${baseG},${baseB}|${strokeDitherPalette.join('|')}|${tileSize}|${coarseW}x${coarseH}`;
+    let ditheredCoarse = strokeDitherPatternCacheRef.current.get(coarseCacheKey);
+
+    if (!ditheredCoarse) {
+      const coarse = new ImageData(coarseW, coarseH);
+      const coarseData = coarse.data;
+      for (let i = 0; i < coarseData.length; i += 4) {
+        coarseData[i] = baseR;
+        coarseData[i + 1] = baseG;
+        coarseData[i + 2] = baseB;
+        coarseData[i + 3] = 255;
+      }
+
+      ditheredCoarse = applyDitheringImport(
+        coarse,
+        strokeDitherPalette.length,
+        'sierra-lite',
+        undefined,
+        strokeDitherPalette
+      );
+
+      strokeDitherPatternCacheRef.current.set(coarseCacheKey, ditheredCoarse);
     }
-
-    // 3) Run standard Sierra-lite on the coarse image
-    const ditheredCoarse = applyDitheringImport(
-      coarse,
-      strokeDitherPalette.length,
-      'sierra-lite',
-      undefined,
-      strokeDitherPalette
-    );
 
     const ditheredCoarseData = ditheredCoarse.data;
 
-    // 4) Upsample coarse result back to stroke resolution, then apply coverage mask
+    // 3) Apply coverage mask using the stable dither pattern
     const out = ctx.createImageData(w, h);
     const outData = out.data;
 
-    // Prefill once to avoid repeated zeroing in the loop
-    for (let i = 0; i < outData.length; i += 4) {
-      outData[i] = baseR;
-      outData[i + 1] = baseG;
-      outData[i + 2] = baseB;
-      outData[i + 3] = 0;
-    }
-
     for (let py = 0; py < h; py++) {
-      const cy = Math.min(coarseH - 1, Math.floor(py / tileSize));
       for (let px = 0; px < w; px++) {
-        const cx = Math.min(coarseW - 1, Math.floor(px / tileSize));
-
-        const coarseIndex = (cy * coarseW + cx) * 4;
         const outIndex = (py * w + px) * 4;
-        const cov = coverage[py * w + px];
+        // Use the unpadded coverage for dithering to keep the Bayer/Sierra grid aligned with stroke pixels.
+        const cov = coverageCore[py * w + px];
 
         if (cov === 0) {
           continue; // leave prefilled color and alpha 0
         }
+
+        const coarseX = Math.floor((x + px) / tileSize);
+        const coarseY = Math.floor((y + py) / tileSize);
+        const patternX = ((coarseX % coarseW) + coarseW) % coarseW;
+        const patternY = ((coarseY % coarseH) + coarseH) % coarseH;
+        const coarseIndex = (patternY * coarseW + patternX) * 4;
 
         outData[outIndex]     = ditheredCoarseData[coarseIndex];
         outData[outIndex + 1] = ditheredCoarseData[coarseIndex + 1];
@@ -1500,11 +1508,21 @@ export const useBrushEngineSimplified = () => {
         lostEdgeTileSize
       );
 
+      // Preserve a minimum amount of alpha in the fade zone so dithering texture remains visible
+      // instead of stamping a fully transparent band.
+      // Let the mask fully control transparency; removing the floor avoids lingering half‑transparency.
+      const edgeKeepFloor = 0;
+
       for (let py = 0; py < h; py++) {
         const maskRowOffset = (py + virtualEdgePad) * coverageW + virtualEdgePad;
         const outRowOffset = py * w * 4;
         for (let px = 0; px < w; px++) {
-          const keep = mask[maskRowOffset + px];
+          const keepRaw = mask[maskRowOffset + px];
+          if (keepRaw === 0 && coverage[maskRowOffset + px] === 0) {
+            continue; // background
+          }
+
+          const keep = keepRaw >= 255 ? 255 : Math.max(keepRaw, edgeKeepFloor);
           if (keep >= 255) continue;
           const alphaIndex = outRowOffset + px * 4 + 3;
           const alpha = outData[alphaIndex];
@@ -1520,6 +1538,77 @@ export const useBrushEngineSimplified = () => {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
   }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount, lostEdgeTileSize]);
+
+  const warmStrokeDitherBuffers = useCallback(() => {
+    if (!shouldApplyStrokeDither) {
+      return;
+    }
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const width = project?.width ?? 0;
+    const height = project?.height ?? 0;
+    if (!width || !height) {
+      return;
+    }
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const ctx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+    if (!ctx) {
+      return;
+    }
+
+    if (!ensureLiveStrokeBuffers(ctx)) {
+      return;
+    }
+
+    const rawCtx = pick2D(liveStrokeRawRef.current) as CanvasRenderingContext2D | null;
+    const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
+    if (!rawCtx || !ditherCtx) {
+      return;
+    }
+
+    rawCtx.clearRect(0, 0, width, height);
+    ditherCtx.clearRect(0, 0, width, height);
+
+    if (!warmupStampRef.current) {
+      warmupStampRef.current = new ImageData(2, 2);
+    }
+    const stamp = warmupStampRef.current;
+    const data = stamp.data;
+    // RGBA fills for 2x2 stamp
+    const color = tools.brushSettings.color || '#000';
+    try {
+      const [r, g, b] = parseColor(color);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = r;
+        data[i + 1] = g;
+        data[i + 2] = b;
+        data[i + 3] = 255;
+      }
+    } catch {
+      // fallback to black if parse fails
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = 0;
+        data[i + 1] = 0;
+        data[i + 2] = 0;
+        data[i + 3] = 255;
+      }
+    }
+
+    rawCtx.putImageData(stamp, 0, 0);
+
+    try {
+      applyStrokeDither(ditherCtx, { x: 0, y: 0, width: 2, height: 2 }, rawCtx, { skipLostEdge: true });
+    } catch {
+      // warm-up is best-effort; ignore failures
+    }
+
+    clearLiveStrokeBuffers();
+  }, [applyStrokeDither, clearLiveStrokeBuffers, ensureLiveStrokeBuffers, project?.height, project?.width, shouldApplyStrokeDither, tools.brushSettings.color]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;
@@ -1567,6 +1656,11 @@ export const useBrushEngineSimplified = () => {
     liveStrokeDirtyRef.current = null;
     didPreviewDitherRef.current = true;
   }, [applyStrokeDither, withAlphaLock]);
+
+  useEffect(() => {
+    const handle = scheduleDeferred(() => warmStrokeDitherBuffers(), 120);
+    return () => cancelDeferred(handle);
+  }, [warmStrokeDitherBuffers]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -1632,6 +1726,18 @@ export const useBrushEngineSimplified = () => {
       strokeParams.pressure,
       cursor.customBrushData
     );
+
+    if (firstStrokeSegmentTinyRef.current) {
+      const tinySize = 16;
+      const centerX = segmentBounds.x + segmentBounds.width / 2;
+      const centerY = segmentBounds.y + segmentBounds.height / 2;
+      segmentBounds.x = Math.floor(centerX - tinySize / 2);
+      segmentBounds.y = Math.floor(centerY - tinySize / 2);
+      segmentBounds.width = tinySize;
+      segmentBounds.height = tinySize;
+      firstStrokeSegmentTinyRef.current = false;
+    }
+
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
     liveStrokeDirtyRef.current = mergeRectBounds(liveStrokeDirtyRef.current, segmentBounds);
@@ -1666,6 +1772,18 @@ export const useBrushEngineSimplified = () => {
       { x, y },
       strokeParams.pressure
     );
+
+    if (firstStrokeSegmentTinyRef.current) {
+      const tinySize = 16;
+      const centerX = segmentBounds.x + segmentBounds.width / 2;
+      const centerY = segmentBounds.y + segmentBounds.height / 2;
+      segmentBounds.x = Math.floor(centerX - tinySize / 2);
+      segmentBounds.y = Math.floor(centerY - tinySize / 2);
+      segmentBounds.width = tinySize;
+      segmentBounds.height = tinySize;
+      firstStrokeSegmentTinyRef.current = false;
+    }
+
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
     liveStrokeDirtyRef.current = mergeRectBounds(liveStrokeDirtyRef.current, segmentBounds);
@@ -1744,6 +1862,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.resetStroke();
     strokeBoundsRef.current = null;
     clearLiveStrokeBuffers();
+    firstStrokeSegmentTinyRef.current = true;
   }, [brushEngine, clearLiveStrokeBuffers]);
 
   /**

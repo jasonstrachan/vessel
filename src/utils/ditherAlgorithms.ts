@@ -47,6 +47,7 @@ const lostEdgeScratch = {
   coarseCoverage: new Uint8Array(0),
   keepCoarse: new Uint8Array(0),
   interiorCoarse: new Uint8Array(0),
+  interiorMask: new Uint8Array(0),
 };
 
 const ensureScratch = (key: keyof typeof lostEdgeScratch, size: number) => {
@@ -561,6 +562,52 @@ export const applySierraLiteLostEdgeMask = (
   // so high lost-edge values actually produce a wide falloff when dithering is enabled.
   const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) - 1)));
 
+  // Build an interior mask in coarse space and guarantee at least one solid core tile
+  const interiorMask = ensureScratch('interiorMask', coarsePixelCount);
+  interiorMask.fill(0);
+  let hasCore = false;
+  for (let cy = 0; cy < coarseH; cy++) {
+    for (let cx = 0; cx < coarseW; cx++) {
+      const idx = cy * coarseW + cx;
+      const alpha = coarseCoverage[idx];
+      if (alpha >= 250) {
+        interiorMask[idx] = 255;
+        hasCore = true;
+        continue;
+      }
+      if (alpha >= 64) {
+        let maxNeighbour = alpha;
+        for (let oy = -edgeBand; oy <= edgeBand; oy++) {
+          const ny = cy + oy;
+          if (ny < 0 || ny >= coarseH) continue;
+          for (let ox = -edgeBand; ox <= edgeBand; ox++) {
+            const nx = cx + ox;
+            if (nx < 0 || nx >= coarseW) continue;
+            const neighbour = coarseCoverage[ny * coarseW + nx];
+            if (neighbour > maxNeighbour) maxNeighbour = neighbour;
+          }
+        }
+        if (maxNeighbour >= 200) {
+          interiorMask[idx] = 255;
+          hasCore = true;
+        }
+      }
+    }
+  }
+
+  if (!hasCore) {
+    let maxAlpha = -1;
+    let maxIdx = 0;
+    for (let i = 0; i < coarsePixelCount; i++) {
+      const a = coarseCoverage[i];
+      if (a > maxAlpha) {
+        maxAlpha = a;
+        maxIdx = i;
+      }
+    }
+    interiorMask[maxIdx] = 255;
+  }
+
   // Early bailout for very small regions: lostedge becomes no-op to avoid overwork and artifacts.
   const minDimPx = Math.min(width, height);
   if (minDimPx < tile * LOST_EDGE_MIN_DIM_TILE_MULTIPLIER || (minAlpha === 255 && edgeBandPx <= LOST_EDGE_SOLID_SKIP_BAND_PX)) {
@@ -578,7 +625,6 @@ export const applySierraLiteLostEdgeMask = (
       const rgbaIndex = idx * 4;
 
       if (alpha === 0) {
-        // Background
         edgeData[rgbaIndex] = 0;
         edgeData[rgbaIndex + 1] = 0;
         edgeData[rgbaIndex + 2] = 0;
@@ -588,11 +634,11 @@ export const applySierraLiteLostEdgeMask = (
 
       let minDist = bandRadius + 1;
 
-      if (alpha < 255) {
-        // Already an edge pixel
-        minDist = 0;
+      if (interiorMask[idx] === 255) {
+        minDist = bandRadius + 1; // Core stays solid
+      } else if (alpha < 255) {
+        minDist = 0; // Already edge
       } else {
-        // Search for nearest transparent pixel within band
         for (let dy = -bandRadius; dy <= bandRadius; dy++) {
           const ny = y + dy;
           if (ny < 0 || ny >= coarseH) continue;

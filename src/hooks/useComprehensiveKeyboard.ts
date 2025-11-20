@@ -120,6 +120,7 @@ export function useComprehensiveKeyboard({
   const eraserPressTimeRef = useRef<number>(0);
   const colorPickerPreviousToolRef = useRef<Tool | null>(null);
   const isColorPickerHeldRef = useRef(false);
+  const lastKeydownTimeRef = useRef<number>(0);
 
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
@@ -257,6 +258,8 @@ export function useComprehensiveKeyboard({
 
   const handleKeyDown = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
+
+    lastKeydownTimeRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
     const isBracketShortcut = event.key === '[' || event.key === ']';
     const currentScope: KeyboardScope = keyboardScopeRef.current ?? 'canvas';
