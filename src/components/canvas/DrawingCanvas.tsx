@@ -74,6 +74,33 @@ const rgbToHex = (r: number, g: number, b: number): string => {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
 
+const buildMaskEdgePath = (mask: ImageData, bounds: { x: number; y: number }): Path2D => {
+  const path = new Path2D();
+  const { data, width, height } = mask;
+
+  const alphaAt = (x: number, y: number): number => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return 0;
+    return data[(y * width + x) * 4 + 3];
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (alphaAt(x, y) === 0) continue;
+      const hasBackgroundNeighbor =
+        alphaAt(x - 1, y) === 0 ||
+        alphaAt(x + 1, y) === 0 ||
+        alphaAt(x, y - 1) === 0 ||
+        alphaAt(x, y + 1) === 0;
+
+      if (hasBackgroundNeighbor) {
+        path.rect(bounds.x + x, bounds.y + y, 1, 1);
+      }
+    }
+  }
+
+  return path;
+};
+
 interface VisibleWorldRect {
   x: number;
   y: number;
@@ -233,6 +260,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   const setSelectionBounds = useAppStore((state) => state.setSelectionBounds);
   const clearSelection = useAppStore((state) => state.clearSelection);
+  const selectionMask = useAppStore((state) => state.selectionMask);
+  const selectionMaskBounds = useAppStore((state) => state.selectionMaskBounds);
   const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
   const updateFloatingPastePosition = useAppStore((state) => state.updateFloatingPastePosition);
   const commitFloatingPaste = useAppStore((state) => state.commitFloatingPaste);
@@ -1379,6 +1408,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
 
       // Draw selection
+      const hasMask = Boolean(selectionMask && selectionMaskBounds);
       if ((selectionStart && selectionEnd) || (isSelecting && selectionStartRef)) {
         ctx.save();
         ctx.translate(offsetX, offsetY);
@@ -1387,7 +1417,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const start = selectionStart || selectionStartRef;
         const end = selectionEnd || { x: 0, y: 0 };
 
-        if (start) {
+        if (start && !hasMask) {
           const x = Math.min(start.x, end.x);
           const y = Math.min(start.y, end.y);
           const width = Math.abs(end.x - start.x);
@@ -1406,6 +1436,24 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           ctx.strokeRect(x, y, width, height);
         }
 
+        if (hasMask) {
+          const { x: mx, y: my, width: mw, height: mh } = selectionMaskBounds;
+          // Marching ants along mask outline
+          const outlinePath = buildMaskEdgePath(selectionMask, selectionMaskBounds);
+          const dash = 5 / scale;
+
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1 / scale;
+          ctx.setLineDash([]);
+          ctx.stroke(outlinePath);
+
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 1 / scale;
+          ctx.setLineDash([dash, dash]);
+          ctx.lineDashOffset = -marchingAntsOffset / scale;
+          ctx.stroke(outlinePath);
+        }
+
         ctx.restore();
       }
 
@@ -1419,6 +1467,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     tools.currentTool,
     selectionStart,
     selectionEnd,
+    selectionMask,
+    selectionMaskBounds,
     marchingAntsOffset,
     floatingPaste,
     compositeBitmap,

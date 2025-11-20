@@ -29,6 +29,8 @@ type EventHandlerDependenciesInput = Omit<
   | 'activeLayerId'
   | 'selectionStart'
   | 'selectionEnd'
+  | 'selectionMask'
+  | 'selectionMaskBounds'
   | 'floatingPaste'
 > & {
   project: EventHandlerDynamicDeps['project'];
@@ -38,6 +40,8 @@ type EventHandlerDependenciesInput = Omit<
   activeLayerId: EventHandlerDynamicDeps['activeLayerId'];
   selectionStart: EventHandlerDynamicDeps['selectionStart'];
   selectionEnd: EventHandlerDynamicDeps['selectionEnd'];
+  selectionMask: EventHandlerDynamicDeps['selectionMask'];
+  selectionMaskBounds: EventHandlerDynamicDeps['selectionMaskBounds'];
   floatingPaste: EventHandlerDynamicDeps['floatingPaste'];
   isDraggingFloatingPaste: EventHandlerDynamicDeps['isDraggingFloatingPaste'];
   palette: EventHandlerDynamicDeps['palette'];
@@ -55,6 +59,8 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     activeLayerId,
     selectionStart,
     selectionEnd,
+    selectionMask,
+    selectionMaskBounds,
     floatingPaste,
     isDraggingFloatingPaste,
     palette,
@@ -92,6 +98,8 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     activeLayerId,
     selectionStart,
     selectionEnd,
+    selectionMask,
+    selectionMaskBounds,
     floatingPaste,
     isDraggingFloatingPaste,
     palette,
@@ -108,6 +116,8 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     activeLayerId,
     selectionStart,
     selectionEnd,
+    selectionMask,
+    selectionMaskBounds,
     floatingPaste,
     isDraggingFloatingPaste,
     palette,
@@ -152,6 +162,12 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     },
     selectionEnd: {
       get: () => dynamicDepsRef.current.selectionEnd,
+    },
+    selectionMask: {
+      get: () => dynamicDepsRef.current.selectionMask,
+    },
+    selectionMaskBounds: {
+      get: () => dynamicDepsRef.current.selectionMaskBounds,
     },
     floatingPaste: {
       get: () => dynamicDepsRef.current.floatingPaste,

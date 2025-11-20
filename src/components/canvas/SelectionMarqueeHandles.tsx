@@ -37,11 +37,15 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
   projectHeight,
 }) => {
   const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
+  const selectionMask = useAppStore((state) => state.selectionMask);
   const floatingPaste = useAppStore(selectFloatingPaste);
   const setSelectionBounds = useAppStore((state) => state.setSelectionBounds);
   const currentTool = useAppStore(selectCurrentTool);
 
   const selectionRect = useMemo(() => {
+    if (selectionMask) {
+      return null; // mask-driven selection hides rectangular handles
+    }
     if (!selectionStart || !selectionEnd) {
       return null;
     }

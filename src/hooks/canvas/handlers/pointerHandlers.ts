@@ -1593,6 +1593,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       activeLayerId,
       selectionStart,
       selectionEnd,
+      selectionMask,
+      selectionMaskBounds,
       floatingPaste,
       isDraggingFloatingPaste,
     } = getDynamicDeps();
@@ -1682,6 +1684,30 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       shouldAlignCursor
     );
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
+
+    const hasSelection = Boolean(selectionMask || (selectionStart && selectionEnd));
+    if (event.button === 0 && hasSelection && !floatingPaste) {
+      let hit = false;
+      if (selectionMask && selectionMaskBounds) {
+        const localX = worldPos.x - selectionMaskBounds.x;
+        const localY = worldPos.y - selectionMaskBounds.y;
+        if (localX >= 0 && localY >= 0 && localX < selectionMask.width && localY < selectionMask.height) {
+          const idx = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
+          hit = selectionMask.data[idx] > 0;
+        }
+      } else if (selectionStart && selectionEnd) {
+        hit = worldPos.x >= Math.min(selectionStart.x, selectionEnd.x) &&
+          worldPos.x <= Math.max(selectionStart.x, selectionEnd.x) &&
+          worldPos.y >= Math.min(selectionStart.y, selectionEnd.y) &&
+          worldPos.y <= Math.max(selectionStart.y, selectionEnd.y);
+      }
+
+      if (!hit) {
+        clearSelection();
+        isMouseDownRef.current = false;
+        return;
+      }
+    }
 
     // If press starts outside the project, leave mouse-down false so move can bootstrap later.
     if (

@@ -5,7 +5,11 @@ import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layer
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
-import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
+import {
+  captureSelectionBitmap,
+  captureSelectionBitmapFromMask,
+  resolveLayerImageData,
+} from '@/stores/helpers/selectionCapture';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -13,12 +17,16 @@ export interface SelectionSlice {
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
   selectionClipboard: SelectionClipboardPayload | null;
+  selectionMask: ImageData | null;
+  selectionMaskBounds: Rectangle | null;
+  selectionMaskLayerId: string | null;
   setSelectionBounds: (
     start: { x: number; y: number } | null,
     end: { x: number; y: number } | null
   ) => void;
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
+  selectLayerAlpha: (layerId?: string | null) => void;
   deleteSelectedPixels: () => void;
   floatingPaste: {
     active: boolean;
@@ -71,6 +79,38 @@ const computeBoundsFromSelection = (
   height: Math.abs(end.y - start.y),
 });
 
+const findOpaquePixelBounds = (imageData: ImageData): Rectangle | null => {
+  const { width, height, data } = imageData;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    const rowOffset = y * width * 4;
+    for (let x = 0; x < width; x += 1) {
+      const alphaIndex = rowOffset + x * 4 + 3;
+      if (data[alphaIndex] > 0) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX === -1 || maxY === -1) {
+    return null;
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  };
+};
+
 export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice> = (set, get, store) => {
   const selectionPasteHelpers = createSelectionPasteHelpers({
     get: store.getState,
@@ -83,8 +123,25 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
     selectionStart: null,
     selectionEnd: null,
     selectionClipboard: null,
-    setSelectionBounds: (start, end) => set({ selectionStart: start, selectionEnd: end }),
-    clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
+    selectionMask: null,
+    selectionMaskBounds: null,
+    selectionMaskLayerId: null,
+    setSelectionBounds: (start, end) =>
+      set({
+        selectionStart: start,
+        selectionEnd: end,
+        selectionMask: null,
+        selectionMaskBounds: null,
+        selectionMaskLayerId: null,
+      }),
+    clearSelection: () =>
+      set({
+        selectionStart: null,
+        selectionEnd: null,
+        selectionMask: null,
+        selectionMaskBounds: null,
+        selectionMaskLayerId: null,
+      }),
     selectAllActiveLayerPixels: () => {
       const state = get();
       const { project, layers, activeLayerId } = state;
@@ -105,11 +162,94 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       set({
         selectionStart: { x: 0, y: 0 },
         selectionEnd: { x: width, y: height },
+        selectionMask: null,
+        selectionMaskBounds: null,
+        selectionMaskLayerId: null,
+      });
+    },
+    selectLayerAlpha: (layerId) => {
+      const state = get();
+      const targetLayerId = layerId ?? state.activeLayerId;
+      if (!targetLayerId) {
+        return;
+      }
+
+      const layer = state.layers.find((l) => l.id === targetLayerId) ?? null;
+      if (!layer) {
+        return;
+      }
+
+      const imageData = resolveLayerImageData(layer);
+      if (!imageData) {
+        return;
+      }
+
+      const bounds = findOpaquePixelBounds(imageData);
+      if (!bounds) {
+        set({
+          selectionStart: null,
+          selectionEnd: null,
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+        });
+        return;
+      }
+
+      const maxWidth = state.project?.width ?? imageData.width;
+      const maxHeight = state.project?.height ?? imageData.height;
+
+      const clampedX = Math.max(0, Math.min(maxWidth, bounds.x));
+      const clampedY = Math.max(0, Math.min(maxHeight, bounds.y));
+      const clampedWidth = Math.max(0, Math.min(bounds.width, maxWidth - clampedX));
+      const clampedHeight = Math.max(0, Math.min(bounds.height, maxHeight - clampedY));
+
+      if (clampedWidth <= 0 || clampedHeight <= 0) {
+        set({ selectionStart: null, selectionEnd: null, selectionMask: null, selectionMaskBounds: null, selectionMaskLayerId: null });
+        return;
+      }
+
+      const maskData = new ImageData(clampedWidth, clampedHeight);
+      const maskBuffer = maskData.data;
+
+      for (let y = 0; y < clampedHeight; y += 1) {
+        const sourceY = clampedY + y;
+        const srcRow = sourceY * imageData.width * 4;
+        const destRow = y * clampedWidth * 4;
+        for (let x = 0; x < clampedWidth; x += 1) {
+          const sourceX = clampedX + x;
+          const srcIdx = srcRow + sourceX * 4;
+          const destIdx = destRow + x * 4;
+          const alpha = imageData.data[srcIdx + 3];
+          if (alpha > 0) {
+            maskBuffer[destIdx] = 255;
+            maskBuffer[destIdx + 1] = 255;
+            maskBuffer[destIdx + 2] = 255;
+            maskBuffer[destIdx + 3] = 255;
+          }
+        }
+      }
+
+      set({
+        selectionStart: { x: clampedX, y: clampedY },
+        selectionEnd: { x: clampedX + clampedWidth, y: clampedY + clampedHeight },
+        selectionMask: maskData,
+        selectionMaskBounds: { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight },
+        selectionMaskLayerId: targetLayerId,
       });
     },
     deleteSelectedPixels: () => {
       const state = get();
-      const { selectionStart, selectionEnd, layers, activeLayerId, project } = state;
+      const {
+        selectionStart,
+        selectionEnd,
+        selectionMask,
+        selectionMaskBounds,
+        selectionMaskLayerId,
+        layers,
+        activeLayerId,
+        project,
+      } = state;
 
       if (!selectionStart || !selectionEnd || !project) {
         return;
@@ -141,21 +281,51 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           eraseMaskCtx?.clearRect(x, y, width, height);
         }
       } else {
-        const framebuffer = activeLayer.framebuffer;
-        if (framebuffer) {
-          const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
-          if (fbCtx) {
-            fbCtx.clearRect(x, y, width, height);
-            const syncedImage = fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
-            state.updateLayer(activeLayerId, { imageData: syncedImage });
-          }
-        } else if (activeLayer.imageData) {
-          const newImageData = new ImageData(
-            new Uint8ClampedArray(activeLayer.imageData.data),
-            activeLayer.imageData.width,
-            activeLayer.imageData.height
-          );
+        const useMask = selectionMask && selectionMaskBounds && selectionMaskLayerId === activeLayerId;
 
+        const framebuffer = activeLayer.framebuffer;
+        const sourceImage = (() => {
+          if (framebuffer) {
+            const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
+            try {
+              if (fbCtx) {
+                return fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
+              }
+            } catch {
+              return null;
+            }
+          }
+          return activeLayer.imageData ? cloneLayerImageData(activeLayer.imageData) : null;
+        })();
+
+        if (!sourceImage) {
+          return;
+        }
+
+        const newImageData = cloneLayerImageData(sourceImage);
+
+        if (useMask) {
+          const { x: mx, y: my, width: mw, height: mh } = selectionMaskBounds!;
+          const maskBuffer = selectionMask!.data;
+          for (let py = 0; py < mh; py += 1) {
+            const maskRow = py * mw * 4;
+            const targetY = my + py;
+            if (targetY < 0 || targetY >= newImageData.height) continue;
+            for (let px = 0; px < mw; px += 1) {
+              const alphaIdx = maskRow + px * 4 + 3;
+              if (maskBuffer[alphaIdx] === 0) {
+                continue;
+              }
+              const targetX = mx + px;
+              if (targetX < 0 || targetX >= newImageData.width) continue;
+              const destIdx = (targetY * newImageData.width + targetX) * 4;
+              newImageData.data[destIdx] = 0;
+              newImageData.data[destIdx + 1] = 0;
+              newImageData.data[destIdx + 2] = 0;
+              newImageData.data[destIdx + 3] = 0;
+            }
+          }
+        } else {
           const startY = Math.max(0, Math.floor(y));
           const endY = Math.min(newImageData.height, Math.ceil(y + height));
           const startX = Math.max(0, Math.floor(x));
@@ -170,9 +340,14 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               newImageData.data[index + 2] = 0;
             }
           }
-
-          state.updateLayer(activeLayerId, { imageData: newImageData });
         }
+
+        if (framebuffer) {
+          const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
+          fbCtx?.putImageData(newImageData, 0, 0);
+        }
+
+        state.updateLayer(activeLayerId, { imageData: newImageData });
       }
 
       state.setCurrentCompositeBitmap(null);
@@ -259,13 +434,21 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       if (selectionStart && selectionEnd && project && activeLayerId) {
         const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
         if (activeLayer) {
-          const capture = captureSelectionBitmap({
-            selectionStart,
-            selectionEnd,
-            project,
-            layer: activeLayer,
-            clearSource: mode === 'cut',
-          });
+          const capture = state.selectionMask && state.selectionMaskBounds && state.selectionMaskLayerId === activeLayerId
+            ? captureSelectionBitmapFromMask({
+                mask: state.selectionMask,
+                maskBounds: state.selectionMaskBounds,
+                project,
+                layer: activeLayer,
+                clearSource: mode === 'cut',
+              })
+            : captureSelectionBitmap({
+                selectionStart,
+                selectionEnd,
+                project,
+                layer: activeLayer,
+                clearSource: mode === 'cut',
+              });
 
           if (capture) {
             clipboardPayload = {

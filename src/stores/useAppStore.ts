@@ -385,9 +385,13 @@ export interface AppState {
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
   selectionClipboard: SelectionClipboardPayload | null;
+  selectionMask: ImageData | null;
+  selectionMaskBounds: Rectangle | null;
+  selectionMaskLayerId: string | null;
   setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
+  selectLayerAlpha: (layerId?: string | null) => void;
   deleteSelectedPixels: () => void;
   copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
   clearSelectionClipboard: () => void;
@@ -798,6 +802,7 @@ export const useAppStore = createVesselStore<AppState>(
         ...toolsSlice,
         ...shapeFillSlice,
         ...colorAdjustSlice,
+        selectLayerAlpha: selectionSlice.selectLayerAlpha,
         paletteDirty: false,
         palette: initialPalette,
       colorCyclePlayback: {

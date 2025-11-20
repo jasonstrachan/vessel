@@ -93,6 +93,8 @@ export interface EventHandlerDynamicDeps {
   activeLayerId: string | null;
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
+  selectionMask: ImageData | null;
+  selectionMaskBounds: { x: number; y: number; width: number; height: number } | null;
   floatingPaste: FloatingPaste | null;
   isDraggingFloatingPaste: boolean;
   palette: PaletteState;

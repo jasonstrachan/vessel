@@ -120,7 +120,7 @@ const captureColorCycleIndices = (
   return copyScalarRegion(incoming, canvasWidth, canvasHeight, rect);
 };
 
-const resolveLayerImageData = (layer: Layer | null): ImageData | null => {
+export const resolveLayerImageData = (layer: Layer | null): ImageData | null => {
   if (!layer) {
     return null;
   }

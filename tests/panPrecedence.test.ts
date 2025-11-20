@@ -43,6 +43,8 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     activeLayerId: null,
     selectionStart: null,
     selectionEnd: null,
+    selectionMask: null,
+    selectionMaskBounds: null,
     floatingPaste: null,
     isDraggingFloatingPaste: false,
   };

@@ -31,6 +31,7 @@ const LayersPanel: React.FC = () => {
   const setActiveLayer = useAppStore((state) => state.setActiveLayer);
   const reorderLayers = useAppStore((state) => state.reorderLayers);
   const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
+  const selectLayerAlpha = useAppStore((state) => state.selectLayerAlpha);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
   const setReferenceLayer = useAppStore((state) => state.setReferenceLayer);
   const referenceLayerId = useAppStore((state) => state.referenceLayerId);
@@ -437,6 +438,19 @@ const LayersPanel: React.FC = () => {
                         title={layer.transparencyLocked ? 'Unlock transparent pixels' : 'Lock transparent pixels'}
                       >
                         <span>{layer.transparencyLocked ? 'Unlock transparency' : 'Lock transparency'}</span>
+                      </button>
+                      <button
+                        onClick={event => {
+                          event.stopPropagation();
+                          selectLayerAlpha(layer.id);
+                          setActiveLayer(layer.id);
+                          setSelectedLayerIds([layer.id]);
+                          setLayerMenuState(null);
+                        }}
+                        className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A] transition-colors"
+                        title="Select all non-transparent pixels on this layer"
+                      >
+                        <span>Select alpha</span>
                       </button>
                       <button
                         onClick={event => {
