@@ -62,6 +62,7 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 - Added ColorPicker hex-input test with canvas stubs (`src/components/ui/__tests__/ColorPicker.test.tsx`).
 - Added colorAdjust slice ROI/preview coverage (`src/stores/__tests__/colorAdjustSlice.test.ts`).
 - Added shapeUtils coverage (path/bounds/pixel fill) via `src/utils/__tests__/shapeUtils.test.ts`.
+- Added BrushControls render/interaction smoke test (`src/components/toolbar/__tests__/BrushControls.test.tsx`).
 
 ## Near-term targets (remaining big gaps)
 - Shape tool finalize/preview flows (`ShapeToolHandler`, `useDrawingHandlers` shape branches): add down/move/up integration with shape snapshots and ROI capture assertions.
