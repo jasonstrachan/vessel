@@ -1467,16 +1467,7 @@ export const useBrushEngineSimplified = () => {
       settings.useSwatchColor ? 'swatch' : 'tip',
       settings.ditherEnabled ? 'dither' : 'nodither'
     ].join('|');
-  }, [
-    tools.brushSettings.antialiasing,
-    tools.brushSettings.brushShape,
-    tools.brushSettings.color,
-    tools.brushSettings.currentBrushTip?.brushId,
-    tools.brushSettings.customBrushColorCycle,
-    tools.brushSettings.ditherEnabled,
-    tools.brushSettings.selectedCustomBrush,
-    tools.brushSettings.useSwatchColor
-  ]);
+  }, [tools.brushSettings]);
 
   useEffect(() => {
     const handle = scheduleDeferred(() => warmBrushCaches(), 80);
@@ -1714,8 +1705,8 @@ export const useBrushEngineSimplified = () => {
     // Nudge the dither phase mid-stroke so successive stamps don't align perfectly.
     // Use a tile-sized (or half-tile) hop plus a small random wobble for visibility.
     const hop = Math.max(1, Math.floor(tileSize * 0.5));
-    // Allow up to ~2 tiles of jitter when slider is at 100 for a clearly visible dephase.
-    const jitterPx = (strokeDitherJitter / 100) * tileSize * 2;
+    // Allow up to ~4 tiles of jitter when slider is at 100 for a clearly visible dephase.
+    const jitterPx = (strokeDitherJitter / 100) * tileSize * 4;
     strokeDitherPhaseRef.current = {
       x: phaseX + hop + (Math.random() - 0.5) * 2 * jitterPx,
       y: phaseY + hop + (Math.random() - 0.5) * 2 * jitterPx
@@ -2049,13 +2040,13 @@ export const useBrushEngineSimplified = () => {
     // Randomize dither phase per stroke to avoid identical tile alignment
     if (strokeDitherJitter > 0) {
       strokeDitherPhaseRef.current = {
-        x: (Math.random() - 0.5) * strokeDitherJitter * 0.1 * strokeDitherPixelSize,
-        y: (Math.random() - 0.5) * strokeDitherJitter * 0.1 * strokeDitherPixelSize
+        x: (Math.random() - 0.5) * strokeDitherJitter * 0.2 * strokeDitherPixelSize,
+        y: (Math.random() - 0.5) * strokeDitherJitter * 0.2 * strokeDitherPixelSize
       };
     } else {
       strokeDitherPhaseRef.current = { x: 0, y: 0 };
     }
-  }, [brushEngine, clearLiveStrokeBuffers]);
+  }, [brushEngine, clearLiveStrokeBuffers, strokeDitherJitter, strokeDitherPixelSize]);
 
   /**
    * Apply dithering effect

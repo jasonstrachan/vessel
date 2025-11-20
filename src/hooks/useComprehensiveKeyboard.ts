@@ -729,7 +729,7 @@ export function useComprehensiveKeyboard({
 
       flushBufferedBrushSizeTarget();
     }
-  }, [switchTool, flushBufferedBrushSizeTarget]);
+  }, [switchTool, flushBufferedBrushSizeTarget, cancelBufferedBrushSizeTimer]);
 
   useEffect(() => {
     return () => {
@@ -781,7 +781,7 @@ export function useComprehensiveKeyboard({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [enabled, handleKeyDown, handleKeyUp, handleBlur]);
+  }, [enabled, handleKeyDown, handleKeyUp, handleBlur, cancelBufferedBrushSizeTimer]);
 
   return {
     keyboardState: keyboardStateRef,
