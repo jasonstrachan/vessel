@@ -64,4 +64,17 @@ describe('projectIO readProjectManifest', () => {
   it('throws for invalid manifest structure', async () => {
     await expect(readProjectManifest('{}')).rejects.toThrow('Invalid Vessel project file');
   });
+
+  it('throws when zip payload lacks project.json', async () => {
+    const zip = new JSZip();
+    zip.file('other.txt', 'no project here');
+    const payload = await zip.generateAsync({ type: 'uint8array' });
+
+    await expect(readProjectManifest(payload)).rejects.toThrow('Invalid Vessel project file');
+  });
+
+  it('rejects corrupted binary payloads', async () => {
+    const garbage = new Uint8Array([1, 2, 3, 4, 5]);
+    await expect(readProjectManifest(garbage)).rejects.toThrow('Invalid Vessel project file');
+  });
 });

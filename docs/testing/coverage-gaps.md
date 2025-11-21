@@ -53,7 +53,7 @@ Source: `coverage/coverage-final.json` from the latest Jest run. Overall stateme
 
 Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 
-## Progress (2025-11-20)
+## Progress (2025-11-21)
 - Added unit coverage for palette and autosave slices plus selectors (`src/stores/__tests__/paletteSlice.unit.test.ts`, `autosaveSlice.unit.test.ts`, `stateSelectors.test.ts`).
 - Added manifest decoding tests for project IO (`src/utils/__tests__/projectIO.test.ts`).
 - Added RTL smoke tests for export/load modals (`src/components/modals/__tests__/ExportModal.test.tsx`, `LoadProjectModal.test.tsx`) to lift 0% coverage on those components.
@@ -65,6 +65,20 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 - Added BrushControls render/interaction smoke test (`src/components/toolbar/__tests__/BrushControls.test.tsx`).
 - Added Dropdown open/render smoke test (`src/components/ui/__tests__/Dropdown.test.tsx`).
 - Added canvas state machine transitions test (`src/hooks/__tests__/useCanvasStateMachine.test.tsx`).
+- Added selection slice bounds/clear coverage for select-all + mask reset (`src/stores/__tests__/selectionSlice.bounds.test.ts`).
+- Added contourLines geometry spacing/slack coverage (`src/utils/__tests__/contourLines.test.ts`).
+- Added canvas slice invariant coverage (zoom clamp, offset/viewport idempotence, ruler/FPS toggles) (`src/stores/__tests__/canvasSlice.test.ts`).
+- Added GIF dithering edge coverage for transparent handling and strength clamps (`src/utils/__tests__/gifDither.test.ts`).
+- Added gradient worker message/transfer contract coverage (`src/workers/__tests__/gradientWorker.test.ts`).
+- Added colorCycle storage deltas/gradient pool coverage (`src/utils/__tests__/colorCycleStorage.test.ts`).
+- Added MinimalLayerList visibility toggle coverage for single vs multi-selection (`src/components/__tests__/MinimalLayerList.test.tsx`).
+- Added brush editor slider actions coverage (hue/lightness/saturation mirroring to settings) (`src/components/__tests__/BrushEditorUI.test.tsx`).
+- Added WebGL exporter failure/minify packing coverage (`src/utils/__tests__/webglExporter.test.ts`).
+- Added brush thumbnail generator fallbacks (no document/context/toDataURL failure) coverage (`src/utils/__tests__/brushThumbnailGenerator.test.ts`).
+- Added ShapeToolHandler flush preview clearance coverage (`src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`).
+- Added BrushLibrary preset click/selection smoke coverage (`src/components/__tests__/BrushLibrary.test.tsx`).
+- Added useBrushEngineSimplified facade availability smoke test (`src/hooks/__tests__/useBrushEngineSimplified.test.ts`).
+- Added RecolorPanel error/empty-state smoke coverage (`src/components/colorCycle/__tests__/RecolorPanel.test.tsx`).
 
 ## Near-term targets (remaining big gaps)
 - Shape tool finalize/preview flows (`ShapeToolHandler`, `useDrawingHandlers` shape branches): add down/move/up integration with shape snapshots and ROI capture assertions.
@@ -83,35 +97,39 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 **Brush/color-cycle rendering**
 - [ ] CPU vs GPU parity for color-cycle brushes (`ColorCycleBrushCanvas2D`, `ColorCycleBrush2D/Path2D`); golden fixture for fixed seed.
 - [ ] Disposal/flush coverage for renderer/animator (`WebGLColorCycleRenderer`, `ColorCycleAnimator`).
+- [x] Brush engine facade smoke coverage (`useBrushEngineSimplified`).
 
 **UI panels & modals**
 - [x] Export flow happy-path render + submit (`ExportModal`).
 - [x] Load flow happy-path render + submit (`LoadProjectModal`).
 - [ ] Brush preset editing interactions (`BrushEditorUI`).
 - [ ] Gradient editing interactions (`GradientEditor`).
-- [ ] Layer visibility/reorder buttons (`MinimalLayerList`, `LayersPanel`).
-- [ ] Recolor panel sliders and preview (`RecolorPanel`).
+- [x] Layer visibility toggle multi/single selection (`MinimalLayerList`).
+- [ ] Layer reorder buttons (`MinimalLayerList`, `LayersPanel`).
+- [x] Recolor panel empty/error states (`RecolorPanel`).
 - [ ] Brush library filter/select (`BrushLibrary`).
 
 **Persistence & export**
 - [x] Manifest decode/round-trip (`projectIO` base cases).
-- [ ] Corrupted project import and missing texture assets under `/vessel` (`projectIO`, `colorCycleStorage`).
-- [ ] Thumbnail generation failure/cleanup (`brushThumbnailGenerator`).
-- [ ] WebGL export failure and cleanup toggles (`utils/export/webglExporter.ts`).
+- [x] Corrupted project import rejection (`projectIO`); missing texture assets still pending (`colorCycleStorage`).
+- [x] Thumbnail generation fallbacks (`brushThumbnailGenerator`).
+- [x] WebGL export failure/minify packing (`utils/export/webglExporter.ts` happy-path still thin).
 
 **Store slices/selectors**
 - [x] Palette slice swaps/defaults.
 - [x] Autosave slice enable/disable debounce.
 - [x] State selectors core paths.
 - [x] Color adjust slice ROI/preview toggles.
-- [ ] Selection slice ROI merge/cancel and selection clear.
-- [ ] Canvas slice transform invariants (scale/translate clamping).
+- [x] Selection clear + select-all bounds (`selectionSlice`).
+- [ ] Selection ROI merge/cut/cancel flows.
+- [x] Canvas slice transform invariants (zoom clamps, offset/viewport idempotence).
 
 **Workers & heavy utils**
 - [x] Shape util geo/path coverage (`shapeUtils`).
-- [ ] Contour line geometry edge cases (`contourLines`).
-- [ ] GIF dithering palette overflow/alpha handling (`gifDither`).
-- [ ] Gradient worker message contracts/transferables (`gradientWorker`).
+- [x] Contour line geometry edge cases (`contourLines`).
+- [x] GIF dithering palette overflow/alpha handling (`gifDither`).
+- [x] Gradient worker message contracts/transferables (`gradientWorker`).
+- [x] Color cycle storage delta/gradient pooling (`colorCycleStorage`).
 
 **UI primitives still thin**
 - [x] Dropdown render/open basics.
