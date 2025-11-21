@@ -4,6 +4,7 @@ import Input from "./Input";
 interface ColorPickerProps {
   color: string;
   onChange: (color: string) => void;
+  onCommit?: () => void;
   className?: string;
   showHexInput?: boolean;
   allowTransparent?: boolean;
@@ -90,6 +91,7 @@ function hsvToHex(h: number, s: number, v: number): string {
 export default function ColorPicker({
   color,
   onChange,
+  onCommit,
   className = "",
   showHexInput = false,
   allowTransparent = false,
@@ -296,8 +298,9 @@ export default function ColorPicker({
       setHexValue(normalized);
       lastOpaqueHexRef.current = normalized;
       onChange(normalized);
+      onCommit?.();
     },
-    [onChange],
+    [onChange, onCommit],
   );
 
   const handleTransparentToggle = useCallback(
@@ -309,6 +312,7 @@ export default function ColorPicker({
         setIsTransparent(true);
         setHexValue("TRANSPARENT");
         onChange("transparent");
+        onCommit?.();
         return;
       }
 
@@ -318,8 +322,9 @@ export default function ColorPicker({
       setHexValue(fallback);
       lastOpaqueHexRef.current = fallback;
       onChange(fallback);
+      onCommit?.();
     },
-    [allowTransparent, onChange],
+    [allowTransparent, onChange, onCommit],
   );
 
   const sanitizeHexInput = (value: string) => {
@@ -360,8 +365,9 @@ export default function ColorPicker({
     if (!/^#[0-9A-F]{6}$/.test(hexValue)) {
       const fallback = lastOpaqueHexRef.current || fallbackHex;
       setHexValue(fallback);
+      onCommit?.();
     }
-  }, [hexValue, isTransparent]);
+  }, [hexValue, isTransparent, onCommit]);
 
   const handleHexInputKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -372,6 +378,7 @@ export default function ColorPicker({
         } else {
           applyHex(hexValue);
         }
+        onCommit?.();
       } else if (event.key === "Escape") {
         event.preventDefault();
         if (isTransparent) {
@@ -383,7 +390,7 @@ export default function ColorPicker({
         (event.currentTarget as HTMLInputElement).blur();
       }
     },
-    [applyHex, hexValue, isTransparent, onChange],
+    [applyHex, hexValue, isTransparent, onChange, onCommit],
   );
 
   const handleSVPointerDown = useCallback(
@@ -459,7 +466,8 @@ export default function ColorPicker({
 
     canvas.releasePointerCapture(e.pointerId);
     setIsPointerDown(false);
-  }, []);
+    onCommit?.();
+  }, [onCommit]);
 
   const handleHuePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -500,7 +508,8 @@ export default function ColorPicker({
 
     canvas.releasePointerCapture(e.pointerId);
     setIsDraggingHue(false);
-  }, []);
+    onCommit?.();
+  }, [onCommit]);
 
   // Geometry for selection overlay (avoid per-move canvas redraws)
   const cellWidth = svSize / GRID_COLS;

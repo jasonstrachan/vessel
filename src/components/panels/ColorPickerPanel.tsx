@@ -90,6 +90,11 @@ const ColorPickerPanel = React.memo(() => {
     }
   }, [ditherEnabled, flushPendingColor]);
 
+  const requestDitherWarmup = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('vessel:dither-warmup-request'));
+  }, []);
+
   // Cleanup RAF
   // Generic RGB value update function
   const updateRgbValue = useCallback((component: 'r' | 'g' | 'b', value: number) => {
@@ -152,7 +157,8 @@ const ColorPickerPanel = React.memo(() => {
       pointerId: null
     });
     flushPendingColor();
-  }, [dragState.pointerId, flushPendingColor]);
+    requestDitherWarmup();
+  }, [dragState.pointerId, flushPendingColor, requestDitherWarmup]);
 
   // Stable color change handlers - directly call appropriate setter to avoid re-render loops
   const handleColorChange = useCallback((color: string) => {
@@ -162,7 +168,8 @@ const ColorPickerPanel = React.memo(() => {
   // Stable color select handler for ColorSwatches
   const handleColorSelect = useCallback((color: string) => {
     setActiveColor(color);
-  }, [setActiveColor]);
+    requestDitherWarmup();
+  }, [requestDitherWarmup, setActiveColor]);
 
   return (
     <div className="h-full overflow-y-auto bg-[#1A1A1A]">
@@ -171,6 +178,7 @@ const ColorPickerPanel = React.memo(() => {
         <ColorPicker
           color={activeColor}
           onChange={handleColorChange}
+          onCommit={requestDitherWarmup}
           className="w-full"
         />
       </div>

@@ -1087,6 +1087,7 @@ export const useBrushEngineSimplified = () => {
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const strokeDitherPatternCacheRef = useRef(new Map<string, ImageData>());
+  const strokeDitherWarmupHandleRef = useRef<IdleHandle>(null);
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
@@ -1509,6 +1510,76 @@ export const useBrushEngineSimplified = () => {
     const raw = tools.brushSettings.fillResolution || 1;
     return Math.max(1, Math.min(16, Math.round(raw)));
   }, [tools.brushSettings.fillResolution]);
+
+  const warmStrokeDitherPattern = useCallback(() => {
+    if (!shouldApplyStrokeDither) {
+      return;
+    }
+
+    const state = useAppStore.getState();
+    const canvasWidth = state.canvas?.canvasWidth ?? 0;
+    const canvasHeight = state.canvas?.canvasHeight ?? 0;
+
+    if (!canvasWidth || !canvasHeight) {
+      return;
+    }
+
+    const tileSize = Math.max(1, strokeDitherPixelSize | 0);
+    const coarseMarginTiles = 8;
+    const coarseW = Math.max(1, Math.min(2048, Math.ceil(canvasWidth / tileSize) + coarseMarginTiles * 2));
+    const coarseH = Math.max(1, Math.min(2048, Math.ceil(canvasHeight / tileSize) + coarseMarginTiles * 2));
+
+    const [baseR, baseG, baseB] = parseColor(tools.brushSettings.color || '#000');
+
+    const coarseCacheKey = `${baseR},${baseG},${baseB}|${strokeDitherPalette.join('|')}|${tileSize}|${coarseW}x${coarseH}`;
+    if (strokeDitherPatternCacheRef.current.has(coarseCacheKey)) {
+      return;
+    }
+
+    const coarse = new ImageData(coarseW, coarseH);
+    const coarseData = coarse.data;
+    for (let i = 0; i < coarseData.length; i += 4) {
+      coarseData[i] = baseR;
+      coarseData[i + 1] = baseG;
+      coarseData[i + 2] = baseB;
+      coarseData[i + 3] = 255;
+    }
+
+    const dithered = applyDitheringImport(
+      coarse,
+      strokeDitherPalette.length,
+      'sierra-lite',
+      undefined,
+    strokeDitherPalette
+    );
+
+    strokeDitherPatternCacheRef.current.set(coarseCacheKey, dithered);
+  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, tools.brushSettings.color]);
+
+  const scheduleWarmStrokeDitherPattern = useCallback(() => {
+    if (strokeDitherWarmupHandleRef.current) {
+      cancelDeferred(strokeDitherWarmupHandleRef.current);
+    }
+    strokeDitherWarmupHandleRef.current = scheduleDeferred(() => {
+      strokeDitherWarmupHandleRef.current = null;
+      warmStrokeDitherPattern();
+    }, 160);
+  }, [warmStrokeDitherPattern]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleWarmupRequest = () => scheduleWarmStrokeDitherPattern();
+    window.addEventListener('vessel:dither-warmup-request', handleWarmupRequest);
+    return () => {
+      window.removeEventListener('vessel:dither-warmup-request', handleWarmupRequest);
+      if (strokeDitherWarmupHandleRef.current) {
+        cancelDeferred(strokeDitherWarmupHandleRef.current);
+      }
+    };
+  }, [scheduleWarmStrokeDitherPattern]);
 
   const strokeLostEdgeAmount = useMemo(() => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));

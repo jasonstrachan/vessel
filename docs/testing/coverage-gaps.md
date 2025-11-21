@@ -79,6 +79,7 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 - Added BrushLibrary preset click/selection smoke coverage (`src/components/__tests__/BrushLibrary.test.tsx`).
 - Added useBrushEngineSimplified facade availability smoke test (`src/hooks/__tests__/useBrushEngineSimplified.test.ts`).
 - Added RecolorPanel error/empty-state smoke coverage (`src/components/colorCycle/__tests__/RecolorPanel.test.tsx`).
+- Added layers reorder coverage (order indices + recomposition flag) (`src/stores/__tests__/layersReorder.test.ts`).
 
 ## Near-term targets (remaining big gaps)
 - Shape tool finalize/preview flows (`ShapeToolHandler`, `useDrawingHandlers` shape branches): add down/move/up integration with shape snapshots and ROI capture assertions.
@@ -105,9 +106,9 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 - [ ] Brush preset editing interactions (`BrushEditorUI`).
 - [ ] Gradient editing interactions (`GradientEditor`).
 - [x] Layer visibility toggle multi/single selection (`MinimalLayerList`).
-- [ ] Layer reorder buttons (`MinimalLayerList`, `LayersPanel`).
+- [x] Layer reorder store path (`layersSlice.reorderLayers`); UI drag still pending (`MinimalLayerList`, `LayersPanel`).
 - [x] Recolor panel empty/error states (`RecolorPanel`).
-- [ ] Brush library filter/select (`BrushLibrary`).
+- [x] Brush library filter/select (`BrushLibrary`).
 
 **Persistence & export**
 - [x] Manifest decode/round-trip (`projectIO` base cases).

@@ -389,6 +389,11 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     openColorPicker(index);
   }, [openColorPicker]);
 
+  const requestDitherWarmup = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('vessel:dither-warmup-request'));
+  }, []);
+
   const handleColorPickerChange = useCallback((nextColor: string) => {
     const raw = nextColor.trim();
     const lower = raw.toLowerCase();
@@ -892,6 +897,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
           <ColorPicker
             color={stops[activeColorPickerIndex].color}
             onChange={handleColorPickerChange}
+            onCommit={requestDitherWarmup}
             showHexInput
             allowTransparent
             className="w-full"
