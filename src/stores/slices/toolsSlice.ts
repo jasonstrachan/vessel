@@ -41,6 +41,10 @@ import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
 import { debugLog } from '@/utils/debug';
 import { createDefaultColorAdjustState } from '@/stores/slices/colorAdjustSlice';
 
+const DEBUG_LOSTEDGE =
+  typeof process !== 'undefined' &&
+  process.env?.NEXT_PUBLIC_DEBUG_LOSTEDGE === 'true';
+
 type AppState = import('../useAppStore').AppState;
 type RecolorSamplingState = AppState['recolorSampling'];
 
@@ -420,6 +424,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
     const currentSettings = state.tools.brushSettings;
     let newSettings = { ...currentSettings, ...settings };
+
+    if (DEBUG_LOSTEDGE && Object.prototype.hasOwnProperty.call(settings, 'lostEdge')) {
+      console.debug('[LE:slider->store]', {
+        incoming: settings.lostEdge,
+        previous: currentSettings.lostEdge,
+        next: newSettings.lostEdge
+      });
+    }
 
     const nextBrushShape = settings.brushShape ?? currentSettings.brushShape;
     if (nextBrushShape === BrushShape.CUSTOM) {

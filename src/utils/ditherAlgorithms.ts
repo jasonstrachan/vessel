@@ -47,7 +47,6 @@ const lostEdgeScratch = {
   coarseCoverage: new Uint8Array(0),
   keepCoarse: new Uint8Array(0),
   interiorCoarse: new Uint8Array(0),
-  interiorMask: new Uint8Array(0),
 };
 
 const ensureScratch = (key: keyof typeof lostEdgeScratch, size: number) => {
@@ -492,16 +491,12 @@ export const applySierraLiteLostEdgeMask = (
   width: number,
   height: number,
   lostEdge: number,
-  tileSize: number = LOST_EDGE_TILE_DEFAULT,
-  mode: 'inset' | 'outset' = 'outset'
+  tileSize: number = LOST_EDGE_TILE_DEFAULT
 ): Uint8ClampedArray => {
   const intensity = Math.max(0, Math.min(1, lostEdge / 100));
   const pixelCount = width * height;
 
-  const tile = Math.max(
-    LOST_EDGE_TILE_MIN,
-    Math.min(LOST_EDGE_TILE_MAX, Math.round(tileSize || LOST_EDGE_TILE_DEFAULT))
-  );
+  const tile = Math.max(LOST_EDGE_TILE_MIN, Math.min(LOST_EDGE_TILE_MAX, Math.round(tileSize || LOST_EDGE_TILE_DEFAULT)));
   const coarseW = Math.max(1, Math.ceil(width / tile));
   const coarseH = Math.max(1, Math.ceil(height / tile));
   const coarsePixelCount = coarseW * coarseH;
@@ -540,44 +535,23 @@ export const applySierraLiteLostEdgeMask = (
     }
   }
 
-  // Region-aware clamp: don't let the fade be wider than the painted region.
-  const minDimPx = Math.min(width, height);
-
   // Edge band grows with intensity; clamp to avoid large kernels.
   // edgeBand is the thickness of the fade zone; bandRadius is search distance for edges.
   // Edge band target: eased mapping up to ~100px at max for dramatic edges, but with softer growth.
   const eased = Math.pow(intensity, LOST_EDGE_INTENSITY_EXP);
-  const tileScale = mode === 'outset' ? 1 : Math.max(1, tile / LOST_EDGE_TILE_DEFAULT);
-  const edgeBandPxBase = Math.max(
+  const edgeBandPx = Math.max(
     LOST_EDGE_BAND_MIN_PX,
-    Math.min(
-      LOST_EDGE_BAND_MAX_PX,
-      Math.round(
-        // Wider fade for larger dithering tiles to create visible falloff when dither is on
-        (LOST_EDGE_BAND_MIN_PX + eased * (LOST_EDGE_BAND_MAX_PX - LOST_EDGE_BAND_MIN_PX)) * tileScale
-      )
-    )
+    Math.min(LOST_EDGE_BAND_MAX_PX, Math.round(LOST_EDGE_BAND_MIN_PX + eased * (LOST_EDGE_BAND_MAX_PX - LOST_EDGE_BAND_MIN_PX)))
   );
-  const maxBandPxByRegion = Math.max(1, Math.floor(minDimPx * 0.5));
-  const edgeBandPx = mode === 'outset'
-    ? Math.min(maxBandPxByRegion, Math.max(2, Math.round(2 + eased * 20)))
-    : Math.min(edgeBandPxBase, maxBandPxByRegion);
-
   const edgeBand = Math.max(1, Math.round(edgeBandPx / tile));
   // Search radius slightly larger than the band to find nearby transparency.
   const bandRadius = Math.max(edgeBand, Math.min(140, Math.round(edgeBand * LOST_EDGE_SEARCH_SCALE)));
-  let fadeZone = Math.max(1, Math.round(edgeBand * LOST_EDGE_FADE_FRACTION));
-  fadeZone = Math.min(fadeZone, Math.max(1, Math.round(maxBandPxByRegion / Math.max(1, tile))));
-  // Allow the fade zone to use the full available region (not just half),
-  // so high lost-edge values actually produce a wide falloff when dithering is enabled.
-  let effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) - 1)));
-  if (mode === 'outset') {
-    // Slim fade for a thin halo; dithering still provides texture.
-    effectiveFadeZone = Math.max(1, Math.round(effectiveFadeZone * 0.55));
-  }
+  const fadeZone = Math.max(1, Math.round(edgeBand * LOST_EDGE_FADE_FRACTION));
+  const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) / 2)));
 
   // Early bailout for very small regions: lostedge becomes no-op to avoid overwork and artifacts.
-  if (minDimPx < tile * LOST_EDGE_MIN_DIM_TILE_MULTIPLIER || (mode === 'inset' && minAlpha === 255 && edgeBandPx <= LOST_EDGE_SOLID_SKIP_BAND_PX)) {
+  const minDimPx = Math.min(width, height);
+  if (minDimPx < tile * LOST_EDGE_MIN_DIM_TILE_MULTIPLIER || (minAlpha === 255 && edgeBandPx <= LOST_EDGE_SOLID_SKIP_BAND_PX)) {
     keepMask.fill(255);
     return keepMask;
   }
@@ -591,70 +565,22 @@ export const applySierraLiteLostEdgeMask = (
       const alpha = coarseCoverage[idx];
       const rgbaIndex = idx * 4;
 
-      if (mode === 'inset') {
-        // Original behaviour: erode inside the stroke.
-        if (alpha === 0) {
-          edgeData[rgbaIndex] = 0;
-          edgeData[rgbaIndex + 1] = 0;
-          edgeData[rgbaIndex + 2] = 0;
-          edgeData[rgbaIndex + 3] = 255;
-          continue;
-        }
+      if (alpha === 0) {
+        // Background
+        edgeData[rgbaIndex] = 0;
+        edgeData[rgbaIndex + 1] = 0;
+        edgeData[rgbaIndex + 2] = 0;
+        edgeData[rgbaIndex + 3] = 255;
+        continue;
+      }
 
-        let minDist = bandRadius + 1;
+      let minDist = bandRadius + 1;
 
-        if (alpha < 255) {
-          minDist = 0;
-        } else {
-          for (let dy = -bandRadius; dy <= bandRadius; dy++) {
-            const ny = y + dy;
-            if (ny < 0 || ny >= coarseH) continue;
-            const rowOffset = ny * coarseW;
-            for (let dx = -bandRadius; dx <= bandRadius; dx++) {
-              const nx = x + dx;
-              if (nx < 0 || nx >= coarseW) continue;
-              if (Math.abs(dx) + Math.abs(dy) > bandRadius) continue;
-
-              const neighborAlpha = coarseCoverage[rowOffset + nx];
-              if (neighborAlpha === 0) {
-                const dist = Math.abs(dx) + Math.abs(dy);
-                if (dist < minDist) {
-                  minDist = dist;
-                  if (minDist === 0) break;
-                }
-              }
-            }
-            if (minDist === 0) break;
-          }
-        }
-
-        if (minDist < effectiveFadeZone) {
-          const fade = Math.min(1, Math.max(0, minDist / effectiveFadeZone));
-          const value = Math.max(0, Math.min(255, Math.round(255 * fade)));
-          edgeData[rgbaIndex] = value;
-          edgeData[rgbaIndex + 1] = value;
-          edgeData[rgbaIndex + 2] = value;
-          edgeData[rgbaIndex + 3] = 255;
-        } else {
-          edgeData[rgbaIndex] = 255;
-          edgeData[rgbaIndex + 1] = 255;
-          edgeData[rgbaIndex + 2] = 255;
-          edgeData[rgbaIndex + 3] = 255;
-          interiorMaskCoarse[idx] = 1;
-        }
+      if (alpha < 255) {
+        // Already an edge pixel
+        minDist = 0;
       } else {
-        // Outset: grow a halo outward while leaving stroke interior intact.
-        if (alpha > 0) {
-          // Keep full value inside; we only fade outward.
-          edgeData[rgbaIndex] = 255;
-          edgeData[rgbaIndex + 1] = 255;
-          edgeData[rgbaIndex + 2] = 255;
-          edgeData[rgbaIndex + 3] = 255;
-          interiorMaskCoarse[idx] = 1;
-          continue;
-        }
-
-        let minDistToInk = bandRadius + 1;
+        // Search for nearest transparent pixel within band
         for (let dy = -bandRadius; dy <= bandRadius; dy++) {
           const ny = y + dy;
           if (ny < 0 || ny >= coarseH) continue;
@@ -663,33 +589,33 @@ export const applySierraLiteLostEdgeMask = (
             const nx = x + dx;
             if (nx < 0 || nx >= coarseW) continue;
             if (Math.abs(dx) + Math.abs(dy) > bandRadius) continue;
+
             const neighborAlpha = coarseCoverage[rowOffset + nx];
-            if (neighborAlpha > 0) {
+            if (neighborAlpha === 0) {
               const dist = Math.abs(dx) + Math.abs(dy);
-              if (dist < minDistToInk) {
-                minDistToInk = dist;
-                if (minDistToInk === 0) break;
+              if (dist < minDist) {
+                minDist = dist;
+                if (minDist === 0) break;
               }
             }
           }
-          if (minDistToInk === 0) break;
+          if (minDist === 0) break;
         }
+      }
 
-        if (minDistToInk <= effectiveFadeZone) {
-          // Start the fade immediately at the edge with a sharp drop-off for a thin halo.
-          const normalized = (minDistToInk + 0.1) / (effectiveFadeZone + 0.1);
-          const eased = 1 - Math.pow(Math.min(1, Math.max(0, normalized)), 2.1);
-          const value = Math.max(0, Math.min(255, Math.round(255 * eased)));
-          edgeData[rgbaIndex] = value;
-          edgeData[rgbaIndex + 1] = value;
-          edgeData[rgbaIndex + 2] = value;
-          edgeData[rgbaIndex + 3] = 255;
-        } else {
-          edgeData[rgbaIndex] = 0;
-          edgeData[rgbaIndex + 1] = 0;
-          edgeData[rgbaIndex + 2] = 0;
-          edgeData[rgbaIndex + 3] = 255;
-        }
+      if (minDist < effectiveFadeZone) {
+        const fade = Math.min(1, Math.max(0, minDist / effectiveFadeZone));
+        const value = Math.max(0, Math.min(255, Math.round(255 * fade)));
+        edgeData[rgbaIndex] = value;
+        edgeData[rgbaIndex + 1] = value;
+        edgeData[rgbaIndex + 2] = value;
+        edgeData[rgbaIndex + 3] = 255;
+      } else {
+        edgeData[rgbaIndex] = 255;
+        edgeData[rgbaIndex + 1] = 255;
+        edgeData[rgbaIndex + 2] = 255;
+        edgeData[rgbaIndex + 3] = 255;
+        interiorMaskCoarse[idx] = 1;
       }
     }
   }
@@ -708,75 +634,17 @@ export const applySierraLiteLostEdgeMask = (
 
   const ditheredData = dithered.data;
   for (let i = 0; i < coarsePixelCount; i++) {
-    if (mode === 'outset' && !interiorMaskCoarse[i]) {
-      // Outside the original stroke: use the dithered fade value (may be 0).
-      keepMaskCoarse[i] = ditheredData[i * 4];
-    } else if (interiorMaskCoarse[i]) {
-      keepMaskCoarse[i] = 255;
-    } else {
-      keepMaskCoarse[i] = ditheredData[i * 4];
-    }
+    keepMaskCoarse[i] = interiorMaskCoarse[i] ? 255 : ditheredData[i * 4];
   }
 
-  // Upsample coarse mask back to source resolution. For outset, bilinear then Sierra Lite dither to keep binary edges.
-  if (mode === 'outset') {
-    const maskField = new ImageData(width, height);
-    const maskData = maskField.data;
-
-    for (let y = 0; y < height; y++) {
-      const fy = y / tile;
-      const y0 = Math.floor(fy);
-      const y1 = Math.min(coarseH - 1, y0 + 1);
-      const wy = fy - y0;
-
-      for (let x = 0; x < width; x++) {
-        const fx = x / tile;
-        const x0 = Math.floor(fx);
-        const x1 = Math.min(coarseW - 1, x0 + 1);
-        const wx = fx - x0;
-
-        const i00 = keepMaskCoarse[y0 * coarseW + x0];
-        const i10 = keepMaskCoarse[y0 * coarseW + x1];
-        const i01 = keepMaskCoarse[y1 * coarseW + x0];
-        const i11 = keepMaskCoarse[y1 * coarseW + x1];
-
-        const top = i00 * (1 - wx) + i10 * wx;
-        const bot = i01 * (1 - wx) + i11 * wx;
-        const v = top * (1 - wy) + bot * wy;
-
-        const idx = (y * width + x) * 4;
-        const clamped = Math.max(0, Math.min(255, Math.round(v)));
-        maskData[idx] = clamped;
-        maskData[idx + 1] = clamped;
-        maskData[idx + 2] = clamped;
-        maskData[idx + 3] = 255;
-      }
-    }
-
-    const ditheredMask = applySierraLitePressureDither(maskField, {
-      algorithm: 'sierra-lite',
-      pressure: 1,
-      intensity: 1,
-      bayerMatrixSize: 4,
-      palette: [
-        [0, 0, 0],
-        [255, 255, 255]
-      ]
-    });
-
-    const ditheredData = ditheredMask.data;
-    for (let i = 0; i < pixelCount; i++) {
-      keepMask[i] = ditheredData[i * 4];
-    }
-  } else {
-    for (let y = 0; y < height; y++) {
-      const cy = Math.min(coarseH - 1, Math.floor(y / tile));
-      const rowOffset = y * width;
-      for (let x = 0; x < width; x++) {
-        const cx = Math.min(coarseW - 1, Math.floor(x / tile));
-        const coarseIndex = cy * coarseW + cx;
-        keepMask[rowOffset + x] = keepMaskCoarse[coarseIndex];
-      }
+  // Upsample coarse mask back to source resolution using nearest-neighbor.
+  for (let y = 0; y < height; y++) {
+    const cy = Math.min(coarseH - 1, Math.floor(y / tile));
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      const cx = Math.min(coarseW - 1, Math.floor(x / tile));
+      const coarseIndex = cy * coarseW + cx;
+      keepMask[rowOffset + x] = keepMaskCoarse[coarseIndex];
     }
   }
 

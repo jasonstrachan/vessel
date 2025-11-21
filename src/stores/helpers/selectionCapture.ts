@@ -274,3 +274,113 @@ export const captureSelectionBitmap = (
     colorCycleIndices,
   };
 };
+
+export interface SelectionMaskCaptureRequest {
+  mask: ImageData;
+  maskBounds: { x: number; y: number; width: number; height: number };
+  project: Project | null;
+  layer: Layer | null;
+  clearSource?: boolean;
+}
+
+export const captureSelectionBitmapFromMask = (
+  request: SelectionMaskCaptureRequest
+): SelectionCaptureResult | null => {
+  const { mask, maskBounds, project, layer, clearSource = false } = request;
+  if (!project || !layer) return null;
+  const layerImageData = resolveLayerImageData(layer);
+  if (!layerImageData) return null;
+
+  const { x, y, width, height } = maskBounds;
+  const layerWidth = layerImageData.width;
+  const layerHeight = layerImageData.height;
+
+  // Clamp mask bounds to project and layer
+  const clampedX = Math.max(0, Math.min(project.width, x));
+  const clampedY = Math.max(0, Math.min(project.height, y));
+  const maxWidth = Math.min(
+    width,
+    project.width - clampedX,
+    layerWidth - clampedX
+  );
+  const maxHeight = Math.min(
+    height,
+    project.height - clampedY,
+    layerHeight - clampedY
+  );
+
+  const safeWidth = Math.max(0, Math.min(maxWidth, mask.width));
+  const safeHeight = Math.max(0, Math.min(maxHeight, mask.height));
+
+  if (safeWidth <= 0 || safeHeight <= 0) {
+    return null;
+  }
+
+  const selectionBuffer = new Uint8ClampedArray(safeWidth * safeHeight * 4);
+  const updatedLayerBuffer = clearSource ? new Uint8ClampedArray(layerImageData.data) : null;
+
+  for (let sy = 0; sy < safeHeight; sy += 1) {
+    const globalY = clampedY + sy;
+    const maskRow = sy * mask.width;
+    for (let sx = 0; sx < safeWidth; sx += 1) {
+      const globalX = clampedX + sx;
+      const maskAlpha = mask.data[(maskRow + sx) * 4 + 3];
+      if (maskAlpha === 0) {
+        continue;
+      }
+
+      const srcIndex = (globalY * layerWidth + globalX) * 4;
+      const destIndex = (sy * safeWidth + sx) * 4;
+
+      selectionBuffer[destIndex] = layerImageData.data[srcIndex];
+      selectionBuffer[destIndex + 1] = layerImageData.data[srcIndex + 1];
+      selectionBuffer[destIndex + 2] = layerImageData.data[srcIndex + 2];
+      // Preserve source alpha scaled by mask alpha to respect feathered masks.
+      selectionBuffer[destIndex + 3] = Math.round(
+        (layerImageData.data[srcIndex + 3] * maskAlpha) / 255
+      );
+
+      if (updatedLayerBuffer) {
+        updatedLayerBuffer[srcIndex] = 0;
+        updatedLayerBuffer[srcIndex + 1] = 0;
+        updatedLayerBuffer[srcIndex + 2] = 0;
+        updatedLayerBuffer[srcIndex + 3] = 0;
+      }
+    }
+  }
+
+  const selectionImageData = new ImageData(selectionBuffer, safeWidth, safeHeight);
+  const updatedLayerImageData = updatedLayerBuffer
+    ? new ImageData(updatedLayerBuffer, layerWidth, layerHeight)
+    : undefined;
+
+  let colorCycleIndices: Uint8Array | undefined;
+  if (layer.layerType === 'color-cycle') {
+    const indices = captureColorCycleIndices(layer, {
+      x: clampedX,
+      y: clampedY,
+      width: safeWidth,
+      height: safeHeight,
+    });
+    if (indices) {
+      colorCycleIndices = new Uint8Array(indices.length);
+      for (let i = 0; i < indices.length; i += 1) {
+        // Map mask alpha to indices so only masked pixels are retained.
+        const alpha = selectionBuffer[(i * 4) + 3];
+        colorCycleIndices[i] = alpha > 0 ? indices[i] : 0;
+      }
+    }
+  }
+
+  return {
+    bounds: {
+      x: clampedX,
+      y: clampedY,
+      width: safeWidth,
+      height: safeHeight,
+    },
+    selectionImageData,
+    updatedLayerImageData,
+    colorCycleIndices,
+  };
+};

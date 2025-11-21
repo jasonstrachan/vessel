@@ -106,7 +106,7 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 - [ ] Brush preset editing interactions (`BrushEditorUI`).
 - [ ] Gradient editing interactions (`GradientEditor`).
 - [x] Layer visibility toggle multi/single selection (`MinimalLayerList`).
-- [x] Layer reorder store path (`layersSlice.reorderLayers`); UI drag still pending (`MinimalLayerList`, `LayersPanel`).
+- [ ] Layer reorder buttons (`MinimalLayerList`, `LayersPanel`).
 - [x] Recolor panel empty/error states (`RecolorPanel`).
 - [x] Brush library filter/select (`BrushLibrary`).
 
