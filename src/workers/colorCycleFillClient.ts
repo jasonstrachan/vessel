@@ -10,10 +10,24 @@ import type {
 let workerPromise: Promise<Worker> | null = null;
 let jobCounter = 0;
 
+const resolveWorkerUrl = () => {
+  try {
+    // Avoid import.meta syntax errors under CommonJS (Jest)
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(
+      'return (typeof import !== "undefined" && import.meta && import.meta.url) ? new URL("./colorCycleFill.worker.ts", import.meta.url) : null;'
+    );
+    return fn();
+  } catch {
+    return null;
+  }
+};
+
 const getWorker = () => {
   if (!workerPromise) {
+    const url = resolveWorkerUrl();
     workerPromise = Promise.resolve(
-      new Worker(new URL('./colorCycleFill.worker.ts', import.meta.url), { type: 'module' })
+      url ? new Worker(url, { type: 'module' }) : new Worker('./colorCycleFill.worker.ts')
     );
   }
   return workerPromise;

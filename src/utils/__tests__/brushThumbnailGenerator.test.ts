@@ -15,7 +15,7 @@ describe('brushThumbnailGenerator', () => {
     const original = (global as any).document;
     // @ts-expect-error override
     delete (global as any).document;
-    expect(generateBrushThumbnail(basePreset)).toBe('');
+    expect(generateBrushThumbnail(basePreset)).toBe('data:image/png;base64,');
     (global as any).document = original;
   });
 

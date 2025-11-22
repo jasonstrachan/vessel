@@ -5,8 +5,26 @@ import type {
   ColorCycleCompositorResponse,
 } from './colorCycleCompositorTypes';
 
-const createWorker = () =>
-  new Worker(new URL('./colorCycleCompositor.worker.ts', import.meta.url), { type: 'module' });
+const resolveWorkerUrl = () => {
+  try {
+    // Avoid import.meta syntax errors under CommonJS (Jest)
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(
+      'return (typeof import !== "undefined" && import.meta && import.meta.url) ? new URL("./colorCycleCompositor.worker.ts", import.meta.url) : null;'
+    );
+    return fn();
+  } catch {
+    return null;
+  }
+};
+
+const createWorker = () => {
+  const url = resolveWorkerUrl();
+  // Fallback: rely on runtime worker resolution (tests or legacy bundlers)
+  return url
+    ? new Worker(url, { type: 'module' })
+    : new Worker('./colorCycleCompositor.worker.ts');
+};
 
 type PendingRequest = {
   resolve: (value: unknown) => void;

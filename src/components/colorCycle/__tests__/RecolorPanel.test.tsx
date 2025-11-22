@@ -50,8 +50,14 @@ const makeLayer = (): Layer => ({
   colorCycleData: {
     mode: 'recolor',
     gradient: [],
-    recolorSettings: { gradient: [] as any },
-    animation: { cycleOffset: 0, speed: 1, fps: 60, isPaused: false },
+    recolorSettings: {
+      gradient: [] as any,
+      animation: { cycleOffset: 0, speed: 1, fps: 60, flowDirection: 'reverse', isPaused: false },
+      cycleColors: 8,
+      mappingMode: 'banded',
+      flowMapping: 'palette',
+    },
+    animation: { cycleOffset: 0, speed: 1, fps: 60, isPaused: false, flowDirection: 'reverse' },
   },
 });
 

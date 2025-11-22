@@ -2,6 +2,8 @@ import { renderHook, act } from '@testing-library/react';
 import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
+  setColorCycleStoreStateGetter: jest.fn(),
+  setLayerIdGetter: jest.fn(),
   getColorCycleBrushManager: () => ({
     attachPreviewCanvas: jest.fn(),
     resetForNewStroke: jest.fn(),
@@ -12,6 +14,7 @@ jest.mock('@/hooks/brushEngine/BrushEngineFacade', () => ({
   createBrushEngineFacade: () => ({
     drawBrush: jest.fn(),
     resetStroke: jest.fn(),
+    updateConfig: jest.fn(),
   }),
 }));
 

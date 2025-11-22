@@ -3850,3 +3850,8 @@ function cssColorToHex(color: string): string {
     handlePointerCancel
   };
 };
+
+export const __TESTING__ = {
+  shouldEnableContourDebug,
+  isAdvancedShapeBrush,
+};

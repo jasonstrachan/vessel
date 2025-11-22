@@ -178,6 +178,11 @@ export class DeltaCompressor {
       // No changes
       return new Uint8Array(base);
     }
+
+    // Guard against truncated delta buffers
+    if (delta.byteLength < 4) {
+      return new Uint8Array(base);
+    }
     
     const view = new DataView(delta);
     const changeCount = view.getUint32(0, true);
@@ -195,6 +200,9 @@ export class DeltaCompressor {
     // Read and apply changes
     const changes = [];
     for (let i = 0; i < changeCount; i++) {
+      if (offset + 8 > delta.byteLength) {
+        return new Uint8Array(base);
+      }
       const changeOffset = view.getUint32(offset, true);
       offset += 4;
       const changeLength = view.getUint32(offset, true);

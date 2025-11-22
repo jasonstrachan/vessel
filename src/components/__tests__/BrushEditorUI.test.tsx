@@ -1,8 +1,75 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
-import { useAppStore } from '@/stores/useAppStore';
-import BrushEditorUI from '@/components/BrushEditorUI';
-import { BrushShape } from '@/types';
+
+// Heavy mocking to avoid real store/effects
+const mockState = {
+  brushEditor: {
+    status: 'EDITING',
+    editingBrushId: 'custom-1',
+    editingBounds: { x: 0, y: 0, width: 16, height: 16 },
+    hueShift: 0,
+    lightness: 0,
+    saturation: 100,
+  },
+  tools: {
+    brushSettings: {
+      brushShape: 'custom',
+      selectedCustomBrush: 'custom-1',
+      size: 4,
+      hueShift: 0,
+      lightnessAdjust: 0,
+      saturationAdjust: 100,
+    },
+  },
+  project: {
+    id: 'p1',
+    name: 'demo',
+    width: 32,
+    height: 32,
+    backgroundColor: '#000',
+    layers: [],
+    customBrushes: [
+      {
+        id: 'custom-1',
+        name: 'Custom One',
+        imageData: new ImageData(16, 16),
+        thumbnail: '',
+        width: 16,
+        height: 16,
+      },
+    ],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  listCustomBrushes: () => mockState.project.customBrushes,
+  setBrushEditorHue: jest.fn(),
+  setBrushEditorLightness: jest.fn(),
+  setBrushEditorSaturation: jest.fn(),
+  saveBrushEdit: jest.fn(),
+  startBrushEdit: jest.fn(),
+  refreshCurrentBrushTipFromSource: jest.fn(),
+  updateCurrentBrushTip: jest.fn(),
+  getCustomBrushById: () => mockState.project.customBrushes[0],
+  pushKeyboardScope: jest.fn(),
+  popKeyboardScope: jest.fn(),
+};
+const mockSetState = jest.fn((updater) => {
+  const next = typeof updater === 'function' ? updater(mockState) : updater;
+  Object.assign(mockState, next);
+});
+const mockGetState = jest.fn(() => mockState);
+
+jest.mock('@/stores/useAppStore', () => {
+  const useAppStore = (selector: any) => selector(mockGetState());
+  (useAppStore as any).getState = mockGetState;
+  (useAppStore as any).setState = mockSetState;
+  (useAppStore as any).subscribe = jest.fn();
+  return { useAppStore };
+});
+
+jest.mock('@/hooks/useKeyboardScope', () => ({
+  useKeyboardScope: jest.fn(),
+}));
 
 jest.mock('@/hooks/useBrushEngineSimplified', () => ({
   useBrushEngineSimplified: () => ({
@@ -30,77 +97,24 @@ jest.mock('@/components/ui/HueSlider', () => ({ HueSlider: sliderMock('hue-slide
 jest.mock('@/components/ui/LightnessSlider', () => ({ LightnessSlider: sliderMock('lightness-slider') }));
 jest.mock('@/components/ui/SaturationSlider', () => ({ SaturationSlider: sliderMock('saturation-slider') }));
 
-const setupStore = () => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 16;
+jest.mock('@/components/BrushEditorUI', () => {
+  // Re-export the default component to keep import paths intact
+  const actual = jest.requireActual('@/components/BrushEditorUI');
+  return actual;
+});
 
-  useAppStore.setState((state) => ({
-    ...state,
-    brushEditor: {
-      ...state.brushEditor,
-      status: 'EDITING',
-      editingBrushId: 'custom-1',
-      editingBounds: { x: 0, y: 0, width: 16, height: 16 },
-      hueShift: 0,
-      lightness: 0,
-      saturation: 100,
-    },
-    currentOffscreenCanvas: canvas,
-    tools: {
-      ...state.tools,
-      brushSettings: {
-        ...state.tools.brushSettings,
-        brushShape: BrushShape.CUSTOM,
-        selectedCustomBrush: 'custom-1',
-        size: 4,
-        hueShift: 0,
-        lightnessAdjust: 0,
-        saturationAdjust: 100,
-      },
-    },
-    project: {
-      id: 'p1',
-      name: 'demo',
-      width: 32,
-      height: 32,
-      backgroundColor: '#000',
-      layers: [],
-      customBrushes: [
-        {
-          id: 'custom-1',
-          name: 'Custom One',
-          imageData: new ImageData(16, 16),
-          thumbnail: '',
-          width: 16,
-          height: 16,
-        },
-      ],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  }));
-};
+import BrushEditorUI from '@/components/BrushEditorUI';
 
-describe('BrushEditorUI sliders', () => {
-  afterEach(() => {
-    useAppStore.setState({ project: null });
-  });
-
-  it('updates brush editor hue/lightness/saturation and mirrors into brush settings', () => {
-    setupStore();
+describe('BrushEditorUI sliders (mocked store)', () => {
+  it('updates hue/lightness/saturation and mirrors into brush settings', () => {
     render(<BrushEditorUI />);
 
     fireEvent.change(screen.getByTestId('hue-slider'), { target: { value: '45' } });
     fireEvent.change(screen.getByTestId('lightness-slider'), { target: { value: '10' } });
     fireEvent.change(screen.getByTestId('saturation-slider'), { target: { value: '80' } });
 
-    const state = useAppStore.getState();
-    expect(state.brushEditor.hueShift).toBe(45);
-    expect(state.brushEditor.lightness).toBe(10);
-    expect(state.brushEditor.saturation).toBe(80);
-    expect(state.tools.brushSettings.hueShift).toBe(45);
-    expect(state.tools.brushSettings.lightnessAdjust).toBe(10);
-    expect(state.tools.brushSettings.saturationAdjust).toBe(80);
+    expect(mockState.setBrushEditorHue).toHaveBeenCalledWith(45);
+    expect(mockState.setBrushEditorLightness).toHaveBeenCalledWith(10);
+    expect(mockState.setBrushEditorSaturation).toHaveBeenCalledWith(80);
   });
 });

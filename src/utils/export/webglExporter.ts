@@ -3582,3 +3582,10 @@ export const exportProjectAsWebGL = async (
     gobletDiagnosticsActive = previousDiagnostics;
   }
 };
+
+// Expose a few pure helpers for focused tests
+export const __TESTING__ = {
+  resolveDimensionFromCandidates,
+  resolveRecolorSurfaceSize,
+  clampBoundsToSurface,
+};

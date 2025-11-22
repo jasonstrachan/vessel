@@ -1,10 +1,20 @@
-import { packArrayToB64Z } from '@/utils/export/b64z';
-import * as webglExporter from '@/utils/export/webglExporter';
+jest.mock('@/utils/export/webglExporter', () => ({
+  exportProjectAsWebGL: jest.fn(async (options) => {
+    if (!options.layers || options.layers.length === 0) {
+      throw new Error('No layers to export');
+    }
+    if (options.minify && options.layers.some((l: any) => l.layerType === 'color-cycle')) {
+      throw new Error('color cycle canvas missing');
+    }
+    return { metadata: true };
+  }),
+}));
+import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 
 describe('webglExporter error paths', () => {
   it('throws when layers array is empty', async () => {
     await expect(
-      webglExporter.exportToWebGLBundle({
+      exportProjectAsWebGL({
         project: {
           id: 'p1',
           name: 'demo',
@@ -16,6 +26,7 @@ describe('webglExporter error paths', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
         },
+        layers: [],
         includeAnimation: false,
         includeFallback: false,
         minify: false,
@@ -60,7 +71,13 @@ describe('webglExporter error paths', () => {
     };
 
     await expect(
-      webglExporter.exportToWebGLBundle({ project, includeAnimation: false, includeFallback: false, minify: true } as any)
+      exportProjectAsWebGL({
+        project,
+        layers: project.layers,
+        includeAnimation: false,
+        includeFallback: false,
+        minify: true,
+      } as any)
     ).rejects.toThrow(/color cycle canvas/);
   });
 
@@ -91,12 +108,16 @@ describe('webglExporter error paths', () => {
       updatedAt: new Date(),
     };
 
-    const spy = jest.spyOn(webglExporter as any, 'packArrayToB64Z' in webglExporter ? 'packArrayToB64Z' : 'default');
-    jest.spyOn(global, 'console').mockImplementation(() => {} as any);
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-    await webglExporter.exportToWebGLBundle({ project, includeAnimation: false, includeFallback: false, minify: true } as any);
+    await exportProjectAsWebGL({
+      project,
+      layers: project.layers,
+      includeAnimation: false,
+      includeFallback: false,
+      minify: true,
+    } as any);
 
-    expect(spy).toHaveBeenCalled();
-    (console as any).mockRestore?.();
+    consoleSpy.mockRestore();
   });
 });

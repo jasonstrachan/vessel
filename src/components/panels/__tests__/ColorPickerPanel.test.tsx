@@ -24,27 +24,28 @@ const createCtx = () => {
 
 describe('ColorPickerPanel', () => {
   const originalGetContext = HTMLCanvasElement.prototype.getContext;
-  const originalSetPointerCapture = HTMLCanvasElement.prototype.setPointerCapture;
-  const originalReleasePointerCapture = HTMLCanvasElement.prototype.releasePointerCapture;
+  const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
+  const originalReleasePointerCapture = HTMLElement.prototype.releasePointerCapture;
 
   beforeEach(() => {
     HTMLCanvasElement.prototype.getContext = function getContext(kind: string) {
       if (kind === '2d') return createCtx();
       return null;
     };
-    HTMLCanvasElement.prototype.setPointerCapture = jest.fn();
-    HTMLCanvasElement.prototype.releasePointerCapture = jest.fn();
+    HTMLElement.prototype.setPointerCapture = jest.fn();
+    HTMLElement.prototype.releasePointerCapture = jest.fn();
   });
 
   afterEach(() => {
     HTMLCanvasElement.prototype.getContext = originalGetContext;
-    HTMLCanvasElement.prototype.setPointerCapture = originalSetPointerCapture;
-    HTMLCanvasElement.prototype.releasePointerCapture = originalReleasePointerCapture;
+    HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
+    HTMLElement.prototype.releasePointerCapture = originalReleasePointerCapture;
     jest.restoreAllMocks();
   });
 
   it('dispatches dither warmup on color slider release', () => {
-    const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+    const eventSpy = jest.fn();
+    window.addEventListener('vessel:dither-warmup-request', eventSpy);
     const { getAllByRole } = render(<ColorPickerPanel />);
 
     // First range is the red slider
@@ -54,6 +55,7 @@ describe('ColorPickerPanel', () => {
     fireEvent.pointerDown(redSlider, { clientX: 0, clientY: 0, pointerId: 1 });
     fireEvent.pointerUp(redSlider, { clientX: 10, clientY: 0, pointerId: 1 });
 
-    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'vessel:dither-warmup-request' }));
+    expect(eventSpy).toHaveBeenCalledTimes(1);
+    expect(eventSpy.mock.calls[0]?.[0]?.type).toBe('vessel:dither-warmup-request');
   });
 });

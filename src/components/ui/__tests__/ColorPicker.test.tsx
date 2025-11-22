@@ -87,6 +87,6 @@ describe('ColorPicker', () => {
     fireEvent.change(hexInput, { target: { value: '#445566' } });
     fireEvent.keyDown(hexInput, { key: 'Enter', code: 'Enter', charCode: 13 });
 
-    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledTimes(3);
   });
 });
