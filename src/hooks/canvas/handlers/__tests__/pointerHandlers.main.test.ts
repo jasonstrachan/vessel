@@ -387,6 +387,43 @@ describe('pointerHandlers main flows', () => {
     expect(ctx.clearRect).toHaveBeenCalled();
   });
 
+  it('handles contour spacing adjust session routing', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      polygonGradientState: { drawingState: 'adjustingSpacing' } as any,
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: { ...baseDynamic.tools.brushSettings, brushShape: BrushShape.CONTOUR_LINES2 },
+      },
+    });
+
+    dynamicDepsRef.current.polygonGradientState = { drawingState: 'adjustingSpacing' } as any;
+    deps.polygonGradientState = dynamicDepsRef.current.polygonGradientState;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 5, clientY: 5 }));
+
+    expect(deps.toolStateMachine.handleRectangleGradientMouseDown).not.toHaveBeenCalled();
+  });
+
+  it('clears selection when mask hit test fails', () => {
+    const mask = new ImageData(2, 2);
+    mask.data.fill(0);
+    const maskBounds = { x: 0, y: 0, width: 2, height: 2 };
+
+    const { deps, dynamicDepsRef } = createDeps({
+      selectionMask: mask,
+      selectionMaskBounds: maskBounds as any,
+    });
+    dynamicDepsRef.current.selectionMask = mask as any;
+    dynamicDepsRef.current.selectionMaskBounds = maskBounds as any;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
+
+    expect(deps.clearSelection).toHaveBeenCalled();
+    expect(deps.isMouseDownRef.current).toBe(false);
+  });
+
   it('updates pan offsets while panning on move', () => {
     const { deps } = createDeps();
     deps.isMouseDownRef.current = true;

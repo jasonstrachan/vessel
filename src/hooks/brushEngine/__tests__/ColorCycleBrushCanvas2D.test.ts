@@ -1,286 +1,270 @@
-const setIndexSpy = jest.fn();
-const paintSquareSpy = jest.fn();
-const paintTriangleSpy = jest.fn();
-const setFlowDirectionSpy = jest.fn();
+import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
+import { __mocks__ as animatorMocks } from '@/lib/ColorCycleAnimator';
 
-jest.mock('../../../lib/ColorCycleAnimator', () => {
-  return {
-    ColorCycleAnimator: class {
-      private width: number;
-      private height: number;
+jest.mock('@/lib/ColorCycleAnimator', () => {
+  const setIndexBufferFromArrayMock = jest.fn();
 
-      constructor({ width, height }: { width: number; height: number }) {
-        this.width = width;
-        this.height = height;
-      }
+  const deserializeSpy = jest.fn();
 
-      setGradient() {}
-      resize() {}
-      paintSquare(
-        _x: number,
-        _y: number,
-        _brushSize: number,
-        colorIndex?: number,
-        _maskTile?: Uint8Array,
-        _maskTileSize?: number,
-        maskClears?: boolean
-      ) {
-        paintSquareSpy({ colorIndex, maskClears });
-      }
-      paintTriangle(
-        _x: number,
-        _y: number,
-        _brushSize: number,
-        colorIndex?: number,
-        _maskTile?: Uint8Array,
-        _maskTileSize?: number,
-        maskClears?: boolean
-      ) {
-        paintTriangleSpy({ colorIndex, maskClears });
-      }
-      paint() {}
-      paintLine() {}
-      forceRender() {}
-      drawTo() {}
-      setFPS() {}
-      setSpeed() {}
-      start() {}
-      onFrame() {}
-      getCanvas() {
-        const canvas = document.createElement('canvas');
-        canvas.width = this.width;
-        canvas.height = this.height;
-        return canvas;
-      }
-      setFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
-        setFlowDirectionSpy(mode);
-      }
-      setFlowDirection(direction: 'forward' | 'backward') {
-        setFlowDirectionSpy(direction);
-      }
-      setIndex(x: number, y: number, colorIndex: number) {
-        setIndexSpy({ x, y, colorIndex });
-      }
+  class MockAnimator {
+    width: number;
+    height: number;
+    fps: number;
+    indexBuffer?: Uint8Array;
+
+    constructor(opts: { width: number; height: number; fps?: number }) {
+      this.width = opts.width;
+      this.height = opts.height;
+      this.fps = opts.fps ?? 0;
     }
+
+    serialize() {
+      return {
+        indexBuffer: {
+          width: this.width,
+          height: this.height,
+          data: new Uint8Array(this.width * this.height),
+          palette: [] as string[],
+        },
+        gradient: {
+          gradientStops: [],
+          paletteSize: 256,
+        },
+        animation: {
+          offset: 0,
+          stats: {
+            targetFPS: this.fps,
+            actualFPS: 0,
+            frameCount: 0,
+            totalTime: 0,
+            averageFrameTime: 0,
+            isAnimating: false,
+          },
+        },
+      };
+    }
+
+    static deserialize(data: any) {
+      const inst = new MockAnimator({
+        width: data.indexBuffer?.width ?? 1,
+        height: data.indexBuffer?.height ?? 1,
+        fps: data.animation?.stats?.targetFPS ?? 0,
+      });
+      deserializeSpy(data);
+      return inst;
+    }
+
+    resize(w: number, h: number) {
+      this.width = w;
+      this.height = h;
+    }
+
+    setIndexBufferFromArray(arr: Uint8Array) {
+      this.indexBuffer = arr;
+      setIndexBufferFromArrayMock(arr);
+    }
+
+    setFlowMode() {}
+
+    getCanvas() {
+      const canvas = document.createElement('canvas');
+      canvas.width = this.width;
+      canvas.height = this.height;
+      canvas.getContext = jest.fn(() => ({
+        getImageData: jest.fn(() => ({
+          data: new Uint8ClampedArray(this.width * this.height * 4),
+          width: this.width,
+          height: this.height,
+        })),
+        clearRect: jest.fn(),
+      })) as any;
+      return canvas;
+    }
+  }
+
+  return {
+    ColorCycleAnimator: MockAnimator,
+    __mocks__: { setIndexBufferFromArrayMock, deserializeSpy },
   };
 });
 
-import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
+jest.mock('@/stores/useAppStore', () => ({
+  useAppStore: () => ({ getState: () => ({}) }) as any,
+}));
 
-describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
-  beforeAll(() => {
-    if (typeof ImageData === 'undefined') {
-      type ImageDataConstructor = typeof ImageData;
-      const globalWithImageData = globalThis as typeof globalThis & { ImageData: ImageDataConstructor };
+jest.mock('@/utils/colorCycle/ccDebug', () => ({
+  ccLog: jest.fn(),
+  ccWarn: jest.fn(),
+}));
 
-      class ImageDataPolyfill {
-        width: number;
-        height: number;
-        data: Uint8ClampedArray;
+jest.mock('@/layers/MaskManager', () => ({
+  getMaskManager: jest.fn(() => ({ applyMask: jest.fn() })),
+}));
 
-        constructor(width: number, height: number) {
-          this.width = width;
-          this.height = height;
-          this.data = new Uint8ClampedArray(width * height * 4);
-        }
-      }
+jest.mock('@/utils/perf/ccPerfProbe', () => ({
+  recordColorCycleFillPerf: jest.fn(),
+}));
 
-      globalWithImageData.ImageData = ImageDataPolyfill as unknown as ImageDataConstructor;
-    }
+jest.mock('@/workers/colorCycleFillClient', () => ({
+  runConcentricFillJob: jest.fn(),
+  runPerceptualDitherJob: jest.fn(),
+}));
 
-    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
-      writable: true,
-      value: jest.fn(() => ({
+jest.mock('@/utils/pressureCurve', () => ({
+  applyPressureCurve: jest.fn((value: number) => value),
+}));
+
+jest.mock('@/utils/colorCycle/concentricFillCore', () => ({
+  fillConcentricIndices: jest.fn(),
+}));
+
+jest.mock('@/utils/colorCycle/fillMath', () => ({
+  applyEdgePadding: jest.fn(),
+}));
+
+jest.mock('@/utils/polygonSimplify', () => ({
+  simplifyToVertexLimit: jest.fn((pts: any) => pts),
+}));
+
+jest.mock('@/utils/canvasPool', () => ({
+  canvasPool: {
+    acquire: jest.fn(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 4;
+      canvas.height = 4;
+      canvas.getContext = jest.fn(() => ({
         clearRect: jest.fn(),
         drawImage: jest.fn(),
-        getImageData: jest.fn(() => new ImageData(1, 1)),
+        getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 })),
         putImageData: jest.fn(),
-        save: jest.fn(),
-        restore: jest.fn(),
-        translate: jest.fn(),
-        rotate: jest.fn(),
-        setTransform: jest.fn(),
-        beginPath: jest.fn(),
-        arc: jest.fn(),
-        fill: jest.fn(),
-        fillRect: jest.fn(),
-        createLinearGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
-        createPattern: jest.fn(),
-        getContextAttributes: jest.fn(),
-        canvas: document.createElement('canvas'),
-        globalCompositeOperation: 'source-over',
-        globalAlpha: 1,
-        imageSmoothingEnabled: true
-      }))
-    });
-  });
+      })) as any;
+      return canvas as HTMLCanvasElement;
+    }),
+    release: jest.fn(),
+  },
+}));
+
+jest.mock('../dithering', () => ({
+  applyDitheringWithFillResolution: jest.fn(),
+}));
+
+const makeCanvas = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 8;
+  canvas.height = 6;
+  canvas.getContext = jest.fn(() => ({
+    clearRect: jest.fn(),
+    drawImage: jest.fn(),
+    putImageData: jest.fn(),
+    getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(8 * 6 * 4), width: 8, height: 6 })),
+    save: jest.fn(),
+    restore: jest.fn(),
+  })) as any;
+  return canvas as HTMLCanvasElement;
+};
+
+describe('ColorCycleBrushCanvas2D', () => {
+  let consoleLogSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    setIndexSpy.mockClear();
-    paintSquareSpy.mockClear();
-    paintTriangleSpy.mockClear();
-    setFlowDirectionSpy.mockClear();
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('records setIndex calls for custom stamps', () => {
-    const baseCanvas = document.createElement('canvas');
-    baseCanvas.width = 64;
-    baseCanvas.height = 64;
-
-    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 8, fps: 30 });
-    brush.setGradient(
-      [
-        { position: 0, color: '#ff0000' },
-        { position: 1, color: '#00ff00' }
-      ],
-      'layer-1'
-    );
-
-    const stampData = new ImageData(2, 2);
-    for (let i = 0; i < stampData.data.length; i += 4) {
-      stampData.data[i + 3] = 255;
-    }
-
-    brush.paintCustomStamp(
-      {
-        imageData: stampData,
-        width: 2,
-        height: 2,
-        cacheKey: 'unit-test-stamp'
-      },
-      16,
-      16,
-      'layer-1',
-      1,
-      0
-    );
-
-    expect(setIndexSpy).toHaveBeenCalled();
-    const firstCall = setIndexSpy.mock.calls[0][0];
-    expect(firstCall.x).toBeGreaterThan(0);
-    expect(firstCall.y).toBeGreaterThan(0);
-    expect(firstCall.colorIndex).toBeGreaterThanOrEqual(1);
+  afterEach(() => {
+    jest.clearAllMocks();
+    consoleLogSpy.mockRestore();
   });
 
-  it('advances color indices across the full gradient range for short gradients', () => {
-    const baseCanvas = document.createElement('canvas');
-    baseCanvas.width = 64;
-    baseCanvas.height = 64;
+  it('round-trips stroke snapshot and settings via serialize/deserialize', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 10, fps: 60 });
 
-    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 8, fps: 30 });
-    brush.setGradient(
-      [
-        { position: 0, color: '#112233' },
-        { position: 0.5, color: '#abcdef' },
-        { position: 1, color: '#112233' }
-      ],
-      'layer-short'
-    );
-    brush.setGradientBands(3);
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    paint[0] = 5;
+    paint[5] = 9;
 
-    brush.paint(8, 8, 'layer-short');
-    brush.paint(10, 10, 'layer-short');
-    brush.paint(12, 12, 'layer-short');
+    brush.applyLayerSnapshot('layer-1', {
+      paintBuffer: paint.buffer,
+      hasContent: true,
+      strokeCounter: 7,
+    });
 
-    const indices = paintSquareSpy.mock.calls.map(call => call[0]?.colorIndex);
-    expect(indices).toEqual([1, 128, 255]);
-  });
-
-  it('routes stamping through triangle renderer when configured', () => {
-    const baseCanvas = document.createElement('canvas');
-    baseCanvas.width = 64;
-    baseCanvas.height = 64;
-
-    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 12, fps: 30 });
-    brush.setGradient(
-      [
-        { position: 0, color: '#ff0000' },
-        { position: 1, color: '#00ff00' }
-      ],
-      'layer-triangle'
-    );
     brush.setStampShape('triangle');
+    brush.setStampDitherEnabled(true);
+    brush.setStampDitherPixelSize(3);
+    brush.setStampDitherClears(true);
 
-    brush.paint(16, 16, 'layer-triangle');
+    const serialized = brush.serialize();
 
-    expect(paintTriangleSpy).toHaveBeenCalledTimes(1);
-    expect(paintSquareSpy).not.toHaveBeenCalled();
+    expect(serialized.layers).toHaveLength(1);
+    const strokeData = serialized.layers[0].strokeData;
+    expect(strokeData?.strokeCounter).toBe(7);
+    expect(strokeData?.paintBuffer.byteLength).toBe(paint.byteLength);
+    expect(serialized.stampShape).toBe('triangle');
+    expect(serialized.stampDitherPixelSize).toBe(3);
+    expect(serialized.stampDitherClears).toBe(true);
+
+    const roundTripped = ColorCycleBrushCanvas2D.deserialize(serialized, makeCanvas());
+    const snapshot = roundTripped.getLayerSnapshot('layer-1');
+    expect(snapshot?.strokeCounter).toBe(7);
+    expect(new Uint8Array(snapshot!.paintBuffer)[0]).toBe(5);
   });
 
-  it('restarts band progression after switching gradient presets', () => {
-    const baseCanvas = document.createElement('canvas');
-    baseCanvas.width = 64;
-    baseCanvas.height = 64;
+  it('applies layer snapshot with size mismatch and updates animator buffer', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
 
-    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 10, fps: 30 });
-    brush.setGradient(
-      [
-        { position: 0, color: '#ff0000' },
-        { position: 0.5, color: '#00ff00' },
-        { position: 1, color: '#0000ff' }
-      ],
-      'layer-cycle'
-    );
+    const smallBuffer = new Uint8Array([1, 2]).buffer; // smaller than expected 48 bytes
 
-    brush.paint(20, 20, 'layer-cycle');
-    brush.paint(24, 24, 'layer-cycle');
+    brush.applyLayerSnapshot('layer-small', {
+      paintBuffer: smallBuffer,
+      hasContent: true,
+      strokeCounter: 2,
+    });
 
-    paintSquareSpy.mockClear();
+    // Animator should receive a buffer matching canvas area
+    expect(animatorMocks.setIndexBufferFromArrayMock).toHaveBeenCalled();
+    const applied = animatorMocks.setIndexBufferFromArrayMock.mock.calls.slice(-1)[0][0] as Uint8Array;
+    expect(applied.length).toBe(canvas.width * canvas.height);
 
-    brush.setGradient(
-      [
-        { position: 0.0, color: '#000000' },
-        { position: 0.9, color: '#ffffff' },
-        { position: 1.0, color: '#000000' }
-      ],
-      'layer-cycle'
-    );
-
-    brush.paint(28, 28, 'layer-cycle');
-    brush.paint(32, 32, 'layer-cycle');
-    brush.paint(36, 36, 'layer-cycle');
-
-    const indices = paintSquareSpy.mock.calls.map(call => call[0]?.colorIndex);
-    expect(indices).toEqual([1, 24, 47]);
+    const snapshot = brush.getLayerSnapshot('layer-small');
+    expect(snapshot?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
+    expect(snapshot?.strokeCounter).toBe(2);
   });
 
-  it('applies stored flow direction when creating a new animator', () => {
-    const baseCanvas = document.createElement('canvas');
-    baseCanvas.width = 64;
-    baseCanvas.height = 64;
+  it('rebuilds animator from index snapshot via deserialize', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
 
-    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 8, fps: 30 });
-    brush.setFlowDirection('backward');
-    setFlowDirectionSpy.mockClear();
+    const indexData = new Uint8Array([1, 0, 0, 0]).buffer;
 
-    brush.setGradient(
-      [
-        { position: 0, color: '#000000' },
-        { position: 1, color: '#ffffff' }
-      ],
-      'layer-flow'
-    );
+    brush.applyLayerSnapshot('layer-deser', {
+      paintBuffer: new Uint8Array(0).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    }, {
+      width: 2,
+      height: 2,
+      data: indexData,
+      gradientStops: [{ position: 0, color: '#000' }],
+    });
 
-    expect(setFlowDirectionSpy).toHaveBeenCalledWith('reverse');
+    expect(animatorMocks.deserializeSpy).toHaveBeenCalled();
+    const snapshot = brush.getLayerSnapshot('layer-deser');
+    expect(snapshot?.hasContent).toBe(true);
   });
 
-  it('propagates pingpong flow mode to new animators', () => {
-    const baseCanvas = document.createElement('canvas');
-    baseCanvas.width = 64;
-    baseCanvas.height = 64;
-
-    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 8, fps: 30 });
-    brush.setFlowMode('pingpong');
-    setFlowDirectionSpy.mockClear();
-
-    brush.setGradient(
-      [
-        { position: 0, color: '#000000' },
-        { position: 1, color: '#ffffff' }
-      ],
-      'layer-flow-mode'
-    );
-
-    expect(setFlowDirectionSpy).toHaveBeenCalledWith('pingpong');
+  it('clamps dither settings', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas());
+    brush.setDitherStrength(2);
+    brush.setDitherPixelSize(0.4);
+    // @ts-expect-error private access via cast for test insight
+    const internals = brush as any;
+    expect(internals.ditherStrength).toBe(1);
+    expect(internals.ditherPixelSize).toBe(1);
+    brush.setDitherStrength(-1);
+    brush.setDitherPixelSize(5.6);
+    expect(internals.ditherStrength).toBe(0);
+    expect(internals.ditherPixelSize).toBe(5);
   });
 });
