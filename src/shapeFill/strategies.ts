@@ -306,7 +306,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       seed: 0,
     },
     apply: sierraFill,
-    adjustOrder: [],
+    adjustOrder: ['sierraDensity'],
     ui: [
       {
         key: 'sierraDensity',

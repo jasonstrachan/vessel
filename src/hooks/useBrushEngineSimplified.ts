@@ -3437,7 +3437,7 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.clear();
       }
     },
-    
+
     ensureColorCycleBrush: () => {
       // CRITICAL: Only ensure brush for color-cycle layers
       const state = useAppStore.getState();
@@ -3459,8 +3459,9 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.endStroke(layerId);
       }
     },
-    
+
     // Effects
+    applyStrokeDither,
     applyDithering,
     
     // Utilities

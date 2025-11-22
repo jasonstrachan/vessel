@@ -49,11 +49,23 @@ const lostEdgeScratch = {
   interiorCoarse: new Uint8Array(0),
 };
 
+const lostEdgeScratchU16 = {
+  distCoarse: new Uint16Array(0),
+};
+
 const ensureScratch = (key: keyof typeof lostEdgeScratch, size: number) => {
   const buf = lostEdgeScratch[key];
   if (buf.length >= size) return buf;
   const next = new Uint8Array(size);
   lostEdgeScratch[key] = next;
+  return next;
+};
+
+const ensureScratchU16 = (key: keyof typeof lostEdgeScratchU16, size: number) => {
+  const buf = lostEdgeScratchU16[key];
+  if (buf.length >= size) return buf;
+  const next = new Uint16Array(size);
+  lostEdgeScratchU16[key] = next;
   return next;
 };
 
@@ -505,9 +517,11 @@ export const applySierraLiteLostEdgeMask = (
   const keepMaskCoarse = ensureScratch('keepCoarse', coarsePixelCount);
   const interiorMaskCoarse = ensureScratch('interiorCoarse', coarsePixelCount);
   const coarseCoverage = ensureScratch('coarseCoverage', coarsePixelCount);
+  const distCoarse = ensureScratchU16('distCoarse', coarsePixelCount);
   keepMaskCoarse.fill(255);
   interiorMaskCoarse.fill(0);
   coarseCoverage.fill(0);
+  distCoarse.fill(0);
 
   if (intensity <= 0 || pixelCount === 0 || coverage.length < pixelCount) {
     keepMask.fill(255);
@@ -556,17 +570,50 @@ export const applySierraLiteLostEdgeMask = (
     return keepMask;
   }
 
+  // Manhattan distance transform to nearest transparent/partial cell (O(N)).
+  const INF = 0x3fff; // generous but fits in uint16
+  for (let i = 0; i < coarsePixelCount; i++) {
+    const alpha = coarseCoverage[i];
+    distCoarse[i] = alpha === 0 || alpha < 255 ? 0 : INF;
+  }
+
+  // Forward pass
+  for (let y = 0; y < coarseH; y++) {
+    const rowOffset = y * coarseW;
+    for (let x = 0; x < coarseW; x++) {
+      const idx = rowOffset + x;
+      let d = distCoarse[idx];
+      if (d === 0) continue;
+      if (x > 0) d = Math.min(d, distCoarse[idx - 1] + 1);
+      if (y > 0) d = Math.min(d, distCoarse[rowOffset - coarseW + x] + 1);
+      distCoarse[idx] = d;
+    }
+  }
+
+  // Backward pass
+  for (let y = coarseH - 1; y >= 0; y--) {
+    const rowOffset = y * coarseW;
+    for (let x = coarseW - 1; x >= 0; x--) {
+      const idx = rowOffset + x;
+      let d = distCoarse[idx];
+      if (d === 0) continue;
+      if (x + 1 < coarseW) d = Math.min(d, distCoarse[idx + 1] + 1);
+      if (y + 1 < coarseH) d = Math.min(d, distCoarse[rowOffset + coarseW + x] + 1);
+      distCoarse[idx] = d;
+    }
+  }
+
   const edgeField = new ImageData(coarseW, coarseH);
   const edgeData = edgeField.data;
 
   for (let y = 0; y < coarseH; y++) {
+    const rowOffset = y * coarseW;
     for (let x = 0; x < coarseW; x++) {
-      const idx = y * coarseW + x;
+      const idx = rowOffset + x;
       const alpha = coarseCoverage[idx];
       const rgbaIndex = idx * 4;
 
       if (alpha === 0) {
-        // Background
         edgeData[rgbaIndex] = 0;
         edgeData[rgbaIndex + 1] = 0;
         edgeData[rgbaIndex + 2] = 0;
@@ -574,37 +621,10 @@ export const applySierraLiteLostEdgeMask = (
         continue;
       }
 
-      let minDist = bandRadius + 1;
+      const dist = Math.min(distCoarse[idx], bandRadius);
 
-      if (alpha < 255) {
-        // Already an edge pixel
-        minDist = 0;
-      } else {
-        // Search for nearest transparent pixel within band
-        for (let dy = -bandRadius; dy <= bandRadius; dy++) {
-          const ny = y + dy;
-          if (ny < 0 || ny >= coarseH) continue;
-          const rowOffset = ny * coarseW;
-          for (let dx = -bandRadius; dx <= bandRadius; dx++) {
-            const nx = x + dx;
-            if (nx < 0 || nx >= coarseW) continue;
-            if (Math.abs(dx) + Math.abs(dy) > bandRadius) continue;
-
-            const neighborAlpha = coarseCoverage[rowOffset + nx];
-            if (neighborAlpha === 0) {
-              const dist = Math.abs(dx) + Math.abs(dy);
-              if (dist < minDist) {
-                minDist = dist;
-                if (minDist === 0) break;
-              }
-            }
-          }
-          if (minDist === 0) break;
-        }
-      }
-
-      if (minDist < effectiveFadeZone) {
-        const fade = Math.min(1, Math.max(0, minDist / effectiveFadeZone));
+      if (dist < effectiveFadeZone) {
+        const fade = Math.min(1, Math.max(0, dist / effectiveFadeZone));
         const value = Math.max(0, Math.min(255, Math.round(255 * fade)));
         edgeData[rgbaIndex] = value;
         edgeData[rgbaIndex + 1] = value;
