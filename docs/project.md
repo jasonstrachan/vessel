@@ -586,3 +586,35 @@ The current architecture supports potential enhancements:
 - Incremental rendering for very large canvases
 - Tile-based rendering for infinite canvas
 - GPU-accelerated filters and effects
+## Shape fill / lost-edge pipeline
+
+Source of truth (code paths)
+- Primary finalize path: `src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts` (used in production flow).
+- App Router mirror: `src/components/canvas/DrawingCanvas.tsx` (kept in sync).
+
+What happens on finalize
+1) Resolve `lostEdge` (0–100) from UI/session/per-fill.
+2) Render the shape fill cleanly to `drawingCanvas` via `drawFillToContext` (includes primary/secondary colors and the active fill strategy result).
+3) If `lostEdge <= 0`, commit as-is.
+4) If `lostEdge > 0`:
+   - Compute an ROI around the shape bounds with padding (thickness/spacing-aware).
+   - Build a binary silhouette mask (polygon) in ROI coordinates on a temp canvas.
+   - Run `applySierraLiteLostEdgeMask(maskAlpha, width, height, lostEdge, LOST_EDGE_TILE_SIZE)` with `LOST_EDGE_TILE_SIZE = 4` to get a dithered keep mask.
+   - Modulate the rendered fill alpha in the ROI: `alpha = alpha * keep / 255` (keeps interior intact, breaks up edges).
+   - Write the ROI back to `drawingCanvas`.
+5) Commit `drawingCanvas` to the active raster layer via `commitRasterOverlay`; clear overlay, finalize state machine, and trigger recomposite/redraw.
+
+Key files
+- Erosion logic (authoritative): `src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts`.
+- Mirror for App Router: `src/components/canvas/DrawingCanvas.tsx`.
+- Dither util: `src/utils/ditherAlgorithms.ts` (`applySierraLiteLostEdgeMask`).
+
+Tuning knobs
+- Coarser dithering: increase `LOST_EDGE_TILE_SIZE`.
+- Stronger/weaker response: change mapping of `lostEdge` before calling the mask (currently passed 0–100 as-is).
+- Wider band: inflate the silhouette mask before dithering (not currently done).
+
+Gotchas avoided
+- No band-heuristic edge scanning; erosion is mask-based (matches brush path semantics).
+- ROI-scoped `get/putImageData` keeps work bounded.
+- Only this finalize path should redraw shape fill; avoid duplicating erosion in other finalize hooks.

@@ -43,7 +43,8 @@ export type ShapeFillParamKey =
   | 'noiseThreshold'
   | 'noiseOctaves'
   | 'noiseRandomness'
-  | 'delaunayVariation';
+  | 'delaunayVariation'
+  | 'lostEdge';
 
 export interface FillParams {
   spacing: number;
@@ -79,6 +80,7 @@ export interface FillParams {
   spacingWobble?: number;
   fillColor?: string;
   backgroundColor?: string;
+  lostEdge?: number;
 }
 
 export interface FillResult {

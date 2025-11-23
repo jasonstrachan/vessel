@@ -54,6 +54,7 @@ import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from '@/constants/canvas';
 import { viewPerformanceTracker } from '@/utils/viewPerformanceTracker';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
 import { getColorCycleCompositorClient } from '@/workers/colorCycleCompositorClient';
+import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 
 type GradientStop = { position: number; color: string };
 
@@ -73,6 +74,8 @@ const rgbToHex = (r: number, g: number, b: number): string => {
   const toHex = (value: number) => value.toString(16).padStart(2, '0');
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
+
+const LOST_EDGE_TILE_SIZE = 4;
 
 const buildMaskEdgePath = (mask: ImageData, bounds: { x: number; y: number }): Path2D => {
   const path = new Path2D();
@@ -1436,7 +1439,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           ctx.strokeRect(x, y, width, height);
         }
 
-        if (hasMask) {
+        if (selectionMask && selectionMaskBounds) {
           const { x: mx, y: my, width: mw, height: mh } = selectionMaskBounds;
           // Marching ants along mask outline
           const outlinePath = buildMaskEdgePath(selectionMask, selectionMaskBounds);
@@ -1850,29 +1853,66 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               delete (payload.params as { backgroundColor?: string }).backgroundColor;
             }
 
-            ctx.save();
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
             const renderPolygon = pixelPerfect
               ? payload.shape.points.map(point => snapPointToPixel(point, { strategy: 'nearest' }))
               : payload.shape.points;
             const renderResult = pixelPerfect ? toPixelPerfectFill(payload.result) : payload.result;
-            ctx.lineWidth = pixelPerfect ? 1 : payload.params.thickness ?? 1;
-            if (secondaryColor && renderPolygon.length >= 3) {
-              ctx.fillStyle = secondaryColor;
-              ctx.beginPath();
-              ctx.moveTo(renderPolygon[0].x, renderPolygon[0].y);
-              for (let i = 1; i < renderPolygon.length; i += 1) {
-                const pt = renderPolygon[i];
-                ctx.lineTo(pt.x, pt.y);
-              }
-              ctx.closePath();
-              ctx.fill();
+            const strokeWidth = pixelPerfect ? 1 : payload.params.thickness ?? 1;
+            const byFill = (storeSnapshot.shapeFill.paramsByFill as Record<string, Partial<typeof payload.params>>)[
+              payload.fillId
+            ] ?? {};
+
+            const sessionParams = storeSnapshot.shapeFill.session?.params ?? {};
+            const uiLostEdge = sessionParams.lostEdge ?? byFill.lostEdge;
+            const perFillEdge = byFill.lostEdge;
+            const payloadEdge = payload.params.lostEdge;
+
+            const rawLostEdge = uiLostEdge ?? perFillEdge ?? payloadEdge ?? 0;
+            const lostEdge = Math.max(0, Math.min(100, rawLostEdge));
+
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('[shapeFill] lostEdge', {
+                uiLostEdge,
+                perFillEdge,
+                payloadEdge,
+                rawLostEdge,
+                lostEdge,
+              });
             }
-            ctx.strokeStyle = primaryColor;
-            ctx.fillStyle = primaryColor;
-            renderFill(ctx, renderResult);
-            ctx.restore();
-            payload.result = renderResult;
+
+            const drawFillToContext = (
+              targetCtx: CanvasRenderingContext2D,
+              offset: { x: number; y: number }
+            ) => {
+              targetCtx.save();
+              targetCtx.translate(offset.x, offset.y);
+              targetCtx.lineWidth = strokeWidth;
+              if (secondaryColor && renderPolygon.length >= 3) {
+                targetCtx.fillStyle = secondaryColor;
+                targetCtx.beginPath();
+                targetCtx.moveTo(renderPolygon[0].x, renderPolygon[0].y);
+                for (let i = 1; i < renderPolygon.length; i += 1) {
+                  const pt = renderPolygon[i];
+                  targetCtx.lineTo(pt.x, pt.y);
+                }
+                targetCtx.closePath();
+                targetCtx.fill();
+              }
+              targetCtx.strokeStyle = primaryColor;
+              targetCtx.fillStyle = primaryColor;
+              renderFill(targetCtx, renderResult);
+              targetCtx.restore();
+            };
+
+            if (lostEdge > 0) {
+              const bounds = payload.shape.bounds;
+              const padding = Math.max(
+                4,
+                Math.ceil((payload.params.thickness ?? 1) * 2 + (payload.params.spacing ?? 0))
+              );
+
+              applyLostEdgeErosionToContext(ctx, renderPolygon, bounds, padding, lostEdge, LOST_EDGE_TILE_SIZE);
+            }
 
             drawingHandlers.drawingCanvasHasContent.current = true;
             await drawingHandlers.finalizeDrawing(false);
@@ -2651,6 +2691,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       scale: canvasZoom || 1,
       zoom: canvasZoom || 1
     },
+    selectionMask,
+    selectionMaskBounds,
     tools: {
       currentTool: tools.currentTool,
       brushSettings: tools.brushSettings,

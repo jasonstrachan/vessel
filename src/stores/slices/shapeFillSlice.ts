@@ -137,6 +137,7 @@ const VALID_FILL_PARAM_KEYS: (keyof FillParams)[] = [
   'noiseThreshold',
   'noiseOctaves',
   'noiseRandomness',
+  'lostEdge',
 ];
 
 const VALID_FILL_PARAM_KEY_SET = new Set<keyof FillParams>(VALID_FILL_PARAM_KEYS);

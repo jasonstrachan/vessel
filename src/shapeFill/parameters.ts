@@ -119,6 +119,13 @@ const PARAM_DEFINITIONS: Record<ShapeFillParamKey, ShapeFillParameterDefinition>
     default: 420,
     scale: 2,
   },
+  lostEdge: {
+    key: 'lostEdge',
+    min: 0,
+    max: 100,
+    default: 0,
+    scale: 1,
+  },
   sierraDensity: {
     key: 'sierraDensity',
     min: 0,

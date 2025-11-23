@@ -24,6 +24,23 @@ const evaluateSupport = (): ColorCycleWorkerSupport => {
     return { supported: false, reason: 'createImageBitmap-unavailable' };
   }
 
+  // Some browsers (or embedded webviews) expose the above APIs but still
+  // lack module worker support. Attempt a tiny module worker spin-up to
+  // confirm the environment can actually load our compositor worker before
+  // we claim support.
+  try {
+    const blob = new Blob(['export default 0;'], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const worker = new Worker(url, { type: 'module' });
+    worker.terminate();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    return {
+      supported: false,
+      reason: 'module-worker-unavailable',
+    };
+  }
+
   if (typeof document === 'undefined') {
     return { supported: false, reason: 'document-unavailable' };
   }
@@ -47,4 +64,8 @@ export const detectColorCycleWorkerSupport = (forceRefresh = false): ColorCycleW
 
 export const supportsColorCycleWorker = (forceRefresh = false): boolean => {
   return detectColorCycleWorkerSupport(forceRefresh).supported;
+};
+
+export const markColorCycleWorkerUnsupported = (reason: string) => {
+  cachedSupport = { supported: false, reason };
 };

@@ -15,6 +15,7 @@ import { toPixelPerfectFill } from '@/shapeFill/pixelPerfect';
 import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamKey } from '@/shapeFill/types';
 import { registerToolFlush } from '@/utils/toolFlushRegistry';
 import { snapPointToPixel } from '@/utils/pixelSharp';
+import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -92,7 +93,10 @@ class ShapeAdjustHelper {
   }
 }
 
-const getShapeFillScheduler = (): ShapeFillScheduler | null => null;
+  const getShapeFillScheduler = (): ShapeFillScheduler | null => null;
+
+  const LOST_EDGE_TILE_SIZE = 4;
+
 
 const CONTOUR_DEBUG_STORAGE_KEY = 'vessel.debug.contour';
 
@@ -588,39 +592,109 @@ export const createShapeToolHandler = (
     }
     const pixelPerfect = store.shapeFill.pixelPerfectMode;
     const polygonPoints = getPolygonForMode(payload.shape.points, pixelPerfect);
+    const renderBounds = (() => {
+      if (!polygonPoints.length) {
+        return payload.shape.bounds;
+      }
+      if (!pixelPerfect) {
+        return payload.shape.bounds;
+      }
+      let minX = polygonPoints[0].x;
+      let maxX = polygonPoints[0].x;
+      let minY = polygonPoints[0].y;
+      let maxY = polygonPoints[0].y;
+      for (let i = 1; i < polygonPoints.length; i += 1) {
+        const pt = polygonPoints[i];
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+      return { minX, maxX, minY, maxY };
+    })();
     const finalResult = payload.strategy.apply(payload.shape, paramsWithColor);
     const renderedResult = pixelPerfect ? toPixelPerfectFill(finalResult) : finalResult;
     payload.params = paramsWithColor;
     payload.result = renderedResult;
+
+    const storeSnapshot = useAppStore.getState();
+    const byFill = (storeSnapshot.shapeFill.paramsByFill as Record<string, Partial<FillParams>>)[
+      payload.fillId
+    ] ?? {};
+    const sessionParams = storeSnapshot.shapeFill.session?.params ?? {};
+    const uiLostEdge = sessionParams.lostEdge ?? byFill.lostEdge;
+    const perFillEdge = byFill.lostEdge;
+    const payloadEdge = payload.params.lostEdge;
+    const rawLostEdge = uiLostEdge ?? perFillEdge ?? payloadEdge ?? 0;
+    const lostEdge = Math.max(0, Math.min(100, rawLostEdge));
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[shapeFill] lostEdge', {
+        uiLostEdge,
+        perFillEdge,
+        payloadEdge,
+        rawLostEdge,
+        lostEdge,
+      });
+    }
+
+    const drawFillToContext = (
+      targetCtx: CanvasRenderingContext2D,
+      offset: { x: number; y: number }
+    ) => {
+      targetCtx.save();
+      targetCtx.translate(offset.x, offset.y);
+      targetCtx.globalAlpha = store.tools.brushSettings.opacity ?? 1;
+      targetCtx.globalCompositeOperation = 'source-over';
+      if (secondaryColor && polygonPoints.length >= 3) {
+        fillShapeArea(targetCtx, polygonPoints, secondaryColor);
+      }
+      targetCtx.lineWidth = pixelPerfect ? 1 : paramsWithColor.thickness ?? 1;
+      targetCtx.strokeStyle = primaryColor;
+      targetCtx.fillStyle = primaryColor;
+      renderFill(targetCtx, renderedResult);
+      if (store.shapeFill.showOutline && polygonPoints.length >= 3) {
+        targetCtx.strokeStyle = 'rgba(0,0,0,0.35)';
+        targetCtx.beginPath();
+        targetCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+        for (let i = 1; i < polygonPoints.length; i += 1) {
+          const pt = polygonPoints[i];
+          targetCtx.lineTo(pt.x, pt.y);
+        }
+        targetCtx.closePath();
+        targetCtx.stroke();
+      }
+      targetCtx.restore();
+    };
+    // Always draw clean fill first
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    drawCtx.globalAlpha = store.tools.brushSettings.opacity ?? 1;
-    drawCtx.globalCompositeOperation = 'source-over';
-    if (secondaryColor && polygonPoints.length >= 3) {
-      fillShapeArea(drawCtx, polygonPoints, secondaryColor);
-    }
-    drawCtx.lineWidth = pixelPerfect ? 1 : paramsWithColor.thickness ?? 1;
-    drawCtx.strokeStyle = primaryColor;
-    drawCtx.fillStyle = primaryColor;
-    renderFill(drawCtx, renderedResult);
-    if (store.shapeFill.showOutline && polygonPoints.length >= 3) {
-      drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
-      drawCtx.beginPath();
-      drawCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-      for (let i = 1; i < polygonPoints.length; i += 1) {
-        const pt = polygonPoints[i];
-        drawCtx.lineTo(pt.x, pt.y);
-      }
-      drawCtx.closePath();
-      drawCtx.stroke();
-    }
+    drawCtx.imageSmoothingEnabled = !pixelPerfect;
+    drawFillToContext(drawCtx, { x: 0, y: 0 });
     drawCtx.restore();
+
+    if (lostEdge > 0) {
+      const bounds = renderBounds;
+      const padding = Math.max(
+        4,
+        Math.ceil((paramsWithColor.thickness ?? 1) * 2 + (paramsWithColor.spacing ?? 0))
+      );
+
+      applyLostEdgeErosionToContext(drawCtx, polygonPoints, bounds, padding, lostEdge, LOST_EDGE_TILE_SIZE);
+    }
     drawingHandlers.drawingCanvasHasContent.current = true;
 
     const activeSnapshot = useAppStore.getState();
     const activeLayer = activeSnapshot.layers.find(layer => layer.id === activeSnapshot.activeLayerId);
     const projectSnapshot = activeSnapshot.project ?? project ?? null;
     const historyDescription = `Shape Fill: ${payload.strategy.label ?? payload.fillId}`;
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[shapeFill] finalize target layer', {
+        layerId: activeLayer?.id,
+        layerType: activeLayer?.layerType,
+      });
+    }
 
     const fallbackFinalize = async () => {
       // Close the shape session now so its history transaction completes before layer history begins.

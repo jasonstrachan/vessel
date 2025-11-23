@@ -14,6 +14,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'hatch',
     label: 'Hatch',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: getParameterDefault('spacing'),
       rotation: 0,
       thickness: getParameterDefault('thickness'),
@@ -77,6 +78,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'delaunay',
     label: 'Delaunay',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: 22,
       rotation: 0,
       thickness: 1.1,
@@ -139,6 +141,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'contour',
     label: 'Contour',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: 12,
       rotation: 0,
       thickness: 1,
@@ -190,6 +193,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'stipple',
     label: 'Stipple',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: 12,
       rotation: 0,
       thickness: 1,
@@ -232,6 +236,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'noise',
     label: 'Noise',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: 0.5,
       rotation: 0,
       thickness: 1,
@@ -297,6 +302,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'sierra',
     label: 'Sierra',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: getParameterDefault('spacing'),
       rotation: getParameterDefault('rotation'),
       thickness: getParameterDefault('thickness'),
@@ -332,6 +338,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'dashes',
     label: 'Dashes',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: 10,
       rotation: 12,
       thickness: 3.5,
@@ -463,6 +470,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
     id: 'flow',
     label: 'Flow',
     defaults: {
+      lostEdge: getParameterDefault('lostEdge'),
       spacing: getParameterDefault('spacing'),
       rotation: 0,
       thickness: 1,

@@ -7,6 +7,7 @@ import type { FillParams, ShapeFillId } from '@/shapeFill/types';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import CustomSwitch from '@/components/ui/CustomSwitch';
 import ButtonGroup from '@/components/ui/ButtonGroup';
+import { getParameterDefault } from '@/shapeFill/parameters';
 
 const SHAPE_FILL_STRATEGIES = listFillStrategies();
 
@@ -90,6 +91,28 @@ const ShapeFillControls: React.FC = () => {
             checked={pixelPerfectMode}
             onChange={checked => setPixelPerfect(checked)}
             aria-label="Pixel-perfect rendering"
+          />
+        </div>
+
+        <div className="flex items-center gap-3 text-xs text-[#CCCCCC]">
+          <span className="w-24" title="Lostedge: break up edges with Sierra Lite dithering (higher = wider, coarser fade)">
+            Lostedge
+          </span>
+          <ProgressSlider
+            value={
+              typeof activeParams.lostEdge === 'number'
+                ? activeParams.lostEdge
+                : getParameterDefault('lostEdge')
+            }
+            min={0}
+            max={100}
+            step={1}
+            onChange={value => {
+              const raw = typeof value === 'number' ? value : Number(value);
+              setParamValue(activeStrategy.id, 'lostEdge', Math.max(0, Math.min(100, Math.round(raw))));
+            }}
+            aria-label="Lostedge"
+            className="flex-1"
           />
         </div>
 

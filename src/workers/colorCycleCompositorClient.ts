@@ -1,4 +1,7 @@
-import { detectColorCycleWorkerSupport } from '@/utils/colorCycleWorkerSupport';
+import {
+  detectColorCycleWorkerSupport,
+  markColorCycleWorkerUnsupported,
+} from '@/utils/colorCycleWorkerSupport';
 import type {
   ColorCycleCompositorLayerFrame,
   ColorCycleCompositorMessage,
@@ -18,12 +21,24 @@ const resolveWorkerUrl = () => {
   }
 };
 
-const createWorker = () => {
+const createWorker = (preferModule = true) => {
   const url = resolveWorkerUrl();
-  // Fallback: rely on runtime worker resolution (tests or legacy bundlers)
-  return url
-    ? new Worker(url, { type: 'module' })
-    : new Worker('./colorCycleCompositor.worker.ts');
+  // Prefer module workers; fall back to classic workers when the environment
+  // refuses module type (some embedded webviews) so we fail gracefully instead
+  // of emitting opaque "worker error undefined" logs.
+  if (!url) {
+    return new Worker('./colorCycleCompositor.worker.ts');
+  }
+  if (!preferModule) {
+    return new Worker(url);
+  }
+  try {
+    return new Worker(url, { type: 'module' });
+  } catch (error) {
+    // Classic fallback keeps us functional on older browsers; the worker code
+    // is simple enough to run in either mode.
+    return new Worker(url);
+  }
 };
 
 type PendingRequest = {
@@ -78,11 +93,18 @@ export class ColorCycleCompositorClient {
   };
 
   private handleWorkerError = (event: ErrorEvent) => {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('[ColorCycleWorker] worker error', event.message);
-    }
-    this.pending.forEach(({ reject }) => reject(event.error || new Error(event.message)));
+    const rawDetails =
+      event.message || (event.error instanceof Error ? event.error.message : undefined) ||
+      `${event.filename || 'worker'}:${event.lineno ?? '?'}:${event.colno ?? '?'}`;
+    const details = rawDetails && rawDetails !== 'worker:?:?' ? rawDetails : 'worker runtime error';
+    // Suppress noisy worker-runtime warnings; fallback paths will handle rendering.
+    hasLoggedWorkerRuntimeFailure = true;
+    const fallbackError = new Error(`ColorCycle compositor worker error (${details})`);
+    const error = event.error instanceof Error ? event.error : fallbackError;
+    this.pending.forEach(({ reject }) => reject(error));
     this.pending.clear();
+    cachedClientPromise = null;
+    markColorCycleWorkerUnsupported('worker-runtime-error');
   };
 
   private resolvePending(requestId: number | undefined, value: unknown) {
@@ -165,31 +187,59 @@ export class ColorCycleCompositorClient {
 }
 
 let cachedClientPromise: Promise<ColorCycleCompositorClient> | null = null;
+let hasLoggedWorkerRuntimeFailure = false;
 
 export const getColorCycleCompositorClient = (): Promise<ColorCycleCompositorClient> => {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('ColorCycle compositor worker unavailable on server'));
   }
   if (!cachedClientPromise) {
+    const attemptClient = (preferModule: boolean) => {
+      const worker = createWorker(preferModule);
+      const client = new ColorCycleCompositorClient(worker);
+      return client.ping().then(
+        () => client,
+        (error) => {
+          client.dispose();
+          throw error;
+        }
+      );
+    };
+
     cachedClientPromise = new Promise((resolve, reject) => {
       const support = detectColorCycleWorkerSupport();
       if (!support.supported) {
         reject(new Error(`ColorCycle compositor worker unsupported (${support.reason})`));
         return;
       }
-      try {
-        const worker = createWorker();
-        const client = new ColorCycleCompositorClient(worker);
-        client
-          .ping()
-          .then(() => resolve(client))
+
+      const attempts: Array<() => Promise<ColorCycleCompositorClient>> = [
+        () => attemptClient(true),
+        () => attemptClient(false),
+      ];
+
+      const runNext = (index: number, lastError?: unknown) => {
+        if (index >= attempts.length) {
+          const errorToThrow = lastError instanceof Error ? lastError : new Error(String(lastError));
+          reject(errorToThrow);
+          return;
+        }
+
+        attempts[index]()
+          .then(resolve)
           .catch((error) => {
-            client.dispose();
-            reject(error);
+            runNext(index + 1, error);
           });
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
+      };
+
+      runNext(0);
+    }).catch((error) => {
+      // Allow future retries instead of permanently caching a rejected promise
+      cachedClientPromise = null;
+      markColorCycleWorkerUnsupported(
+        error instanceof Error ? `worker-load-failed: ${error.message}` : 'worker-load-failed'
+      );
+      throw error;
     });
   }
   return cachedClientPromise;
