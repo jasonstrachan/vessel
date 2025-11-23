@@ -870,6 +870,14 @@ export function useDrawingHandlers({
   const captureCanvasToActiveLayer = useAppStore((state) => state.captureCanvasToActiveLayer);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const shapeMode = useAppStore(selectShapeMode);
+  const activeLayerWidth = useAppStore((state) => {
+    const layer = state.layers.find((l) => l.id === state.activeLayerId);
+    return layer?.imageData?.width ?? layer?.framebuffer?.width ?? null;
+  });
+  const activeLayerHeight = useAppStore((state) => {
+    const layer = state.layers.find((l) => l.id === state.activeLayerId);
+    return layer?.imageData?.height ?? layer?.framebuffer?.height ?? null;
+  });
   const toolsRef = useStoreSelectorRef(selectToolsState);
   
   // Feedback message state
@@ -1725,6 +1733,12 @@ export function useDrawingHandlers({
       return;
     }
 
+    const isPlaying = getEffectiveColorCyclePlaying();
+    if (!isPlaying && !recolorWasAnimatingRef.current) {
+      // Nothing to pause; skip store work.
+      return;
+    }
+
     const state = storeRef.current;
     const shape = state.tools.brushSettings.brushShape;
     const isCCBrush =
@@ -1738,7 +1752,7 @@ export function useDrawingHandlers({
       return;
     }
 
-    const wasPlaying = getEffectiveColorCyclePlaying();
+    const wasPlaying = isPlaying;
     ccLog('pauseColorCycleForNonCCInteraction', { wasPlaying, reason });
     const pausedAny = pauseAllBrushCCAnimationsNow();
     ccLog('pauseColorCycleForNonCCInteraction -> pauseAllBrush', { pausedAny });
@@ -2223,15 +2237,65 @@ export function useDrawingHandlers({
   }, [project, storeRef]);
 
   const ensureOverlayInitialized = useCallback(() => {
-    if (!drawingCtxRef.current || !drawingCanvasRef.current) {
+    if (!drawingCanvasRef.current || !drawingCtxRef.current) {
       initDrawingCanvas();
+      return Boolean(drawingCtxRef.current && drawingCanvasRef.current);
     }
+
+    const targetW = project?.width ?? activeLayerWidth ?? drawingCanvasRef.current.width;
+    const targetH = project?.height ?? activeLayerHeight ?? drawingCanvasRef.current.height;
+
+    if (
+      targetW &&
+      targetH &&
+      (drawingCanvasRef.current.width !== targetW || drawingCanvasRef.current.height !== targetH)
+    ) {
+      drawingCanvasRef.current.width = targetW;
+      drawingCanvasRef.current.height = targetH;
+      drawingCtxRef.current = drawingCanvasRef.current.getContext('2d', {
+        willReadFrequently: true,
+        alpha: true,
+        desynchronized: true
+      });
+      drawingCanvasHasContent.current = false;
+    }
+
     return Boolean(drawingCtxRef.current && drawingCanvasRef.current);
-  }, [initDrawingCanvas]);
+  }, [initDrawingCanvas, project?.width, project?.height, activeLayerWidth, activeLayerHeight]);
 
   useEffect(() => {
     ensureOverlayInitialized();
   }, [ensureOverlayInitialized]);
+
+  // Pre-size the overlay canvas when project or active layer dimensions change
+  useEffect(() => {
+    const projWidth = project?.width ?? null;
+    const projHeight = project?.height ?? null;
+
+    const targetWidth = projWidth || activeLayerWidth;
+    const targetHeight = projHeight || activeLayerHeight;
+    if (!targetWidth || !targetHeight) {
+      return;
+    }
+
+    if (!drawingCanvasRef.current) {
+      drawingCanvasRef.current = document.createElement('canvas');
+    }
+
+    if (
+      drawingCanvasRef.current.width !== targetWidth ||
+      drawingCanvasRef.current.height !== targetHeight
+    ) {
+      drawingCanvasRef.current.width = targetWidth;
+      drawingCanvasRef.current.height = targetHeight;
+      drawingCtxRef.current = drawingCanvasRef.current.getContext('2d', {
+        willReadFrequently: true,
+        alpha: true,
+        desynchronized: true
+      });
+      drawingCanvasHasContent.current = false;
+    }
+  }, [project?.width, project?.height, activeLayerWidth, activeLayerHeight]);
 
   // OPTIMIZATION: Helper function to draw an eraser segment. Using a stroked
   // line is often faster than stamping multiple circles.
@@ -2433,11 +2497,8 @@ export function useDrawingHandlers({
       FF.CC_HISTORY_NO_BITMAP &&
       activeLayerForCapture?.layerType === 'color-cycle' &&
       ccFlags.isAny;
-    if (shouldSkipStrokeBitmapClone) {
-      strokeBeforeImageRef.current = null;
-    } else {
-      strokeBeforeImageRef.current = snapshotLayerImageData(activeLayerForCapture);
-    }
+    // Defer expensive snapshots until finalize; capture ROI-based snapshots there.
+    strokeBeforeImageRef.current = null;
 
     // Ensure CC brush exists before capturing state
     if (activeLayerForCapture?.layerType === 'color-cycle') {
@@ -2533,7 +2594,7 @@ export function useDrawingHandlers({
       brushId: currentBrushId ?? null,
     });
 
-    initDrawingCanvas();
+    ensureOverlayInitialized();
 
     // Initialize auto-sampling for color cycle stroke
     try {
@@ -2597,7 +2658,10 @@ export function useDrawingHandlers({
     const drawCtx = drawingCtxRef.current;
     if (!drawCtx || !drawingCanvasRef.current) return;
       
-    drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+    if (drawingCanvasHasContent.current) {
+      // Avoid clearing a large overlay if it's already empty; this save a full-surface fill on stroke start.
+      drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+    }
     drawingCanvasHasContent.current = !(ccFlags.isAny && colorCyclePlayingAtStrokeStart);
     lastDrawPosRef.current = worldPos;
 
@@ -3514,7 +3578,7 @@ export function useDrawingHandlers({
         if (activeLayer) {
           const activeLayerIdString = activeLayer.id;
           const drawingCanvas = drawingCanvasRef.current;
-          // Use "before" state captured at stroke start, not at finalization
+          // Try to capture the minimal "before" state; prefer ROI-based snapshot at finalize.
           let layerBeforeImage = strokeBeforeImageRef.current;
           const layerBeforeColorState = strokeBeforeColorStateRef.current;
           const strokeSession = activeStrokeSessionRef.current;
@@ -3565,6 +3629,10 @@ export function useDrawingHandlers({
               width: drawingCanvas.width,
               height: drawingCanvas.height,
             };
+          }
+
+          if (!layerBeforeImage && captureRoi && activeLayer.layerType !== 'color-cycle') {
+            layerBeforeImage = captureLayerRegionImageData(activeLayer, captureRoi);
           }
 
           if (!skipSave && activeLayer.layerType !== 'color-cycle' && !layerBeforeImage) {

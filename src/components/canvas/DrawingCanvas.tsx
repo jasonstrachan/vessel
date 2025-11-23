@@ -555,6 +555,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       const cx = Math.max(0, Math.min(cw - 1, Math.floor(x)));
       const cy = Math.max(0, Math.min(ch - 1, Math.floor(y)));
 
+      const sx0 = Math.max(0, cx - radius);
+      const sy0 = Math.max(0, cy - radius);
+      const sx1 = Math.min(cw - 1, cx + radius);
+      const sy1 = Math.min(ch - 1, cy + radius);
+      const boxW = sx1 - sx0 + 1;
+      const boxH = sy1 - sy0 + 1;
+
+      const image = ctx.getImageData(sx0, sy0, boxW, boxH).data;
+
       let solidAlpha = -1;
       let solidR = 255;
       let solidG = 255;
@@ -565,19 +574,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       let accB = 0;
       let samples = 0;
 
-      for (let dy = -radius; dy <= radius; dy += 1) {
-        for (let dx = -radius; dx <= radius; dx += 1) {
-          const sx = cx + dx;
-          const sy = cy + dy;
-          if (sx < 0 || sy < 0 || sx >= cw || sy >= ch) {
-            continue;
-          }
-
-          const data = ctx.getImageData(sx, sy, 1, 1).data;
-          const alpha = data[3] / 255;
-          const r = data[0];
-          const g = data[1];
-          const b = data[2];
+      for (let iy = 0; iy < boxH; iy += 1) {
+        for (let ix = 0; ix < boxW; ix += 1) {
+          const offset = (iy * boxW + ix) * 4;
+          const r = image[offset];
+          const g = image[offset + 1];
+          const b = image[offset + 2];
+          const alpha = image[offset + 3] / 255;
 
           if (preferSolid && alpha > solidAlpha) {
             solidAlpha = alpha;

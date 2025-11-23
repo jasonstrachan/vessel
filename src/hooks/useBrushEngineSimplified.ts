@@ -1519,6 +1519,15 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
+    // Fast path: when dither is disabled, draw raw buffer directly and skip per-pixel copy.
+    if (!shouldApplyStrokeDither) {
+      withAlphaLock(visibleCtx, (targetCtx) => {
+        targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+      }, strokeBounds);
+      return;
+    }
+
+    // Dither path: blit via dither canvas to preserve alpha locking and reuse buffers.
     let src: ImageData;
     try {
       src = rawCtx.getImageData(x, y, width, height);
@@ -1538,7 +1547,7 @@ export const useBrushEngineSimplified = () => {
     withAlphaLock(visibleCtx, (targetCtx) => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
     }, strokeBounds);
-  }, [applyStrokeDither, withAlphaLock]);
+  }, [applyStrokeDither, withAlphaLock, shouldApplyStrokeDither]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
