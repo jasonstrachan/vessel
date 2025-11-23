@@ -7,7 +7,7 @@ import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '.
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling, ensurePolygonFromDrag } from '../utils/shapeMaker';
-import { logError, debugWarn } from '../utils/debug';
+import { logError, debugWarn, debugLog } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { FF } from '@/config/ccFeatureFlags';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
@@ -38,6 +38,7 @@ import { EraserTool } from '@/tools/EraserTool';
 import { unwrapAngle } from '@/utils/angles';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
 import { captureBrushFromCanvas } from '@/utils/customBrushCapture';
+import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -45,6 +46,7 @@ interface UseDrawingHandlersProps {
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
   canvasRef: React.RefObject<HTMLCanvasElement>;
   isBusyRef?: React.MutableRefObject<boolean>;
+  sampleColorAt?: (x: number, y: number) => string;
 }
 
 type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
@@ -857,7 +859,11 @@ function clipLineSegment(
 
 export function useDrawingHandlers({
   project,
+  screenToWorld,
+  viewTransformRef,
+  canvasRef,
   isBusyRef,
+  sampleColorAt,
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngineSimplified();
   const userBrushEngine = useUserBrushEngine();
@@ -1459,6 +1465,11 @@ export function useDrawingHandlers({
           return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
         }
       }
+      debugLog('auto-sample', {
+        phase: 'fallback',
+        reason: 'no-offscreen',
+        hasComp: Boolean(comp),
+      });
 
       // Fallback: if offscreen composite is unavailable, try overlay as a last resort
       const overlay = drawingCanvasRef.current;
@@ -1473,6 +1484,15 @@ export function useDrawingHandlers({
           if (a > 10) {
             if (r <= 30 && g <= 30 && b <= 30) { r = 0; g = 0; b = 0; }
             if (r >= 225 && g >= 225 && b >= 225) { r = 255; g = 255; b = 255; }
+            debugLog('auto-sample', {
+              phase: 'overlay',
+              x: clampedX,
+              y: clampedY,
+              r,
+              g,
+              b,
+              a
+            });
             return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
           }
         }
@@ -1822,7 +1842,7 @@ export function useDrawingHandlers({
 
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx?: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
-    const currentState = storeRef.current;
+    let currentState = storeRef.current;
     let hasRendered = false;
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -2260,14 +2280,56 @@ export function useDrawingHandlers({
   
   const startDrawing = useCallback((rawWorldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // removed debug log
-    const currentState = storeRef.current;
+    let currentState = storeRef.current;
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
-    const brushSettings = currentState.tools.brushSettings;
+    let brushSettings = currentState.tools.brushSettings;
     const alignPixelStrokes = shouldPixelAlignBrush(brushSettings);
     const ccFlags = getColorCycleBrushFlags(brushSettings);
     const worldPos = alignPointToPixel(rawWorldPos, alignPixelStrokes);
     let runtimeProject = project ?? currentState.project ?? null;
+
+    // Auto-pick brush color from canvas/reference layer for regular brushes
+    if (
+      currentTool === 'brush' &&
+      !ccFlags.isAny &&
+      brushSettings.brushShape !== BrushShape.RESAMPLER &&
+      brushSettings.autoSampleColor
+    ) {
+      try {
+        const sampler = typeof sampleColorAt === 'function' ? sampleColorAt : sampleHexAt;
+        const sampledColor = sampler(worldPos.x, worldPos.y) ?? brushSettings.color;
+        debugLog('auto-sample', {
+          phase: 'start',
+          brushId: currentBrushId ?? 'unknown',
+          tool: currentTool,
+          brushShape: brushSettings.brushShape,
+          beforeColor: brushSettings.color,
+          sampledColor,
+          sampler: typeof sampleColorAt === 'function' ? 'reference-aware' : 'composite-fallback',
+          hasOffscreen: Boolean(storeRef.current.currentOffscreenCanvas)
+        });
+        if (sampledColor && sampledColor !== brushSettings.color) {
+          const updatedBrushSettings = { ...brushSettings, color: sampledColor, useSwatchColor: true };
+          currentState.setBrushSettings(updatedBrushSettings);
+          // Keep local settings and engine config in sync for this stroke
+          brushSettings = updatedBrushSettings;
+          // Refresh local state snapshot so downstream logic uses the new color immediately
+          const refreshed = useAppStore.getState();
+          currentState = refreshed;
+          brushSettings = refreshed.tools.brushSettings;
+          if (brushEngine.engine && typeof brushEngine.engine.updateConfig === 'function') {
+            brushEngine.engine.updateConfig({ brushSettings: updatedBrushSettings });
+          }
+          debugLog('auto-sample', {
+            phase: 'applied',
+            appliedColor: updatedBrushSettings.color,
+            useSwatchColor: updatedBrushSettings.useSwatchColor,
+            brushId: currentBrushId ?? 'unknown'
+          });
+        }
+      } catch {}
+    }
 
     if (currentTool === 'brush') {
       strokeBoundingBoxRef.current = createBoundingBox(worldPos);
@@ -2541,7 +2603,19 @@ export function useDrawingHandlers({
 
     if (currentState.palette.activeSlot === 'foreground') {
       const paletteColor = currentState.palette.foregroundColor;
-      if (currentTool === 'brush') {
+      const isAutoSampleBrush =
+        currentTool === 'brush' &&
+        currentState.tools.brushSettings.autoSampleColor &&
+        !ccFlags.isAny &&
+        currentState.tools.brushSettings.brushShape !== BrushShape.RESAMPLER;
+
+      if (isAutoSampleBrush) {
+        // When auto-sampling, keep the sampled color intact and sync the swatch instead.
+        const sampledColor = currentState.tools.brushSettings.color;
+        if (sampledColor && sampledColor !== paletteColor) {
+          currentState.setPaletteColor('foreground', sampledColor);
+        }
+      } else if (currentTool === 'brush') {
         currentState.setBrushSettings({ color: paletteColor });
       } else if (currentTool === 'eraser') {
         currentState.setEraserSettings({ color: paletteColor });
@@ -2861,7 +2935,9 @@ export function useDrawingHandlers({
     getEffectiveColorCyclePlaying,
     getBrushHalfSize,
     storeRef,
-    beginMaskHealingStroke
+    beginMaskHealingStroke,
+    sampleHexAt,
+    sampleColorAt
   ]);
 
   // Process batched stroke points
@@ -3715,6 +3791,44 @@ export function useDrawingHandlers({
             let deferredLayerCanvas: HTMLCanvasElement | null = null;
             let strokeCaptureRoi: CaptureRegion | undefined;
 
+            // Polygon Gradient lost-edge (raster layers, before overlay commit)
+            if (
+              !isColorCycleLayer &&
+              activeSettings.brushShape === BrushShape.POLYGON_GRADIENT &&
+              drawingCanvasRef.current &&
+              drawingCtxRef.current
+            ) {
+              const polyState = storeRef.current.polygonGradientState;
+              const pts = (polyState.vertices && polyState.vertices.length ? polyState.vertices : polyState.points) ?? shapePointsRef.current;
+              const lostEdge = Math.max(0, Math.min(100, activeSettings.lostEdge ?? 0));
+              if (pts && pts.length >= 3 && lostEdge > 0) {
+                let minX = pts[0].x;
+                let maxX = pts[0].x;
+                let minY = pts[0].y;
+                let maxY = pts[0].y;
+                for (let i = 1; i < pts.length; i += 1) {
+                  const p = pts[i];
+                  if (p.x < minX) minX = p.x;
+                  if (p.x > maxX) maxX = p.x;
+                  if (p.y < minY) minY = p.y;
+                  if (p.y > maxY) maxY = p.y;
+                }
+                const bounds = { minX, maxX, minY, maxY };
+                const padding = Math.max(
+                  4,
+                  Math.ceil((activeSettings.thickness ?? 1) * 2 + (activeSettings.spacing ?? 0))
+                );
+
+                applyLostEdgeErosionToContext(
+                  drawingCtxRef.current,
+                  pts,
+                  bounds,
+                  padding,
+                  lostEdge
+                );
+              }
+            }
+
             if (isColorCycleLayer && isAnyColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
               // Color-cycle brush on CC layer: render/commit directly into the layer canvas,
               // then schedule deferred state serialization instead of raster capture.
@@ -3800,6 +3914,70 @@ export function useDrawingHandlers({
                 logError('[finalize] brush beforeImage missing; skipping history to avoid destructive undo.');
                 historyHandled = true;
               } else {
+                // Polygon Gradient lost-edge: erode overlay before committing
+                // polygon gradient lost-edge (non-CC layers)
+                if (
+                  !isColorCycleLayer &&
+                  activeSettings.brushShape === BrushShape.POLYGON_GRADIENT &&
+                  drawingCanvasRef.current &&
+                  drawingCtxRef.current
+                ) {
+                  const polyState = storeRef.current.polygonGradientState;
+                  const pts = (polyState.vertices && polyState.vertices.length ? polyState.vertices : polyState.points) ?? shapePointsRef.current;
+                  const lostEdge = Math.max(0, Math.min(100, activeSettings.lostEdge ?? 0));
+                  if (pts && pts.length >= 3 && lostEdge > 0) {
+                    let minX = pts[0].x;
+                    let maxX = pts[0].x;
+                    let minY = pts[0].y;
+                    let maxY = pts[0].y;
+                    for (let i = 1; i < pts.length; i += 1) {
+                      const p = pts[i];
+                      if (p.x < minX) minX = p.x;
+                      if (p.x > maxX) maxX = p.x;
+                      if (p.y < minY) minY = p.y;
+                      if (p.y > maxY) maxY = p.y;
+                    }
+                    const bounds = { minX, maxX, minY, maxY };
+                    const padding = Math.max(
+                      4,
+                      Math.ceil((activeSettings.thickness ?? 1) * 2 + (activeSettings.spacing ?? 0))
+                    );
+
+                    // Dev-only: check alpha before/after erosion
+                    let preAlpha = 0;
+                    if (process.env.NODE_ENV !== 'production') {
+                      const preRegion = drawingCtxRef.current.getImageData(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+                      for (let i = 3; i < preRegion.data.length; i += 4) {
+                        if (preRegion.data[i] !== 0) preAlpha += 1;
+                      }
+                    }
+
+                    applyLostEdgeErosionToContext(
+                      drawingCtxRef.current,
+                      pts,
+                      bounds,
+                      padding,
+                      lostEdge
+                    );
+
+                    if (process.env.NODE_ENV !== 'production') {
+                      let postAlpha = 0;
+                      const postRegion = drawingCtxRef.current.getImageData(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+                      for (let i = 3; i < postRegion.data.length; i += 4) {
+                        if (postRegion.data[i] !== 0) postAlpha += 1;
+                      }
+                      console.log('[polygonGradient] erosion', {
+                        lostEdge,
+                        padding,
+                        preAlpha,
+                        postAlpha,
+                        points: pts.length,
+                        bounds,
+                      });
+                    }
+                  }
+                }
+
                 await commitRasterOverlay({
                   layer: activeLayer,
                   overlayCanvas: drawingCanvasRef.current ?? null,
@@ -4732,6 +4910,39 @@ export function useDrawingHandlers({
           }
           drawCtx.closePath();
           drawCtx.fill();
+
+          // Apply lost-edge erosion for polygon gradient shapes on raster layers
+          if (liveBrushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+            const polyState = storeRef.current.polygonGradientState;
+            const pts =
+              (polyState.vertices && polyState.vertices.length
+                ? polyState.vertices
+                : polyState.points) ?? [...shapePointsRef.current];
+            const lostEdge = Math.max(0, Math.min(100, liveBrushSettings.lostEdge ?? 0));
+
+            if (pts.length >= 3 && lostEdge > 0) {
+              let minX = pts[0].x;
+              let maxX = pts[0].x;
+              let minY = pts[0].y;
+              let maxY = pts[0].y;
+
+              for (let i = 1; i < pts.length; i += 1) {
+                const p = pts[i];
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+              }
+
+              const bounds = { minX, maxX, minY, maxY };
+              const padding = Math.max(
+                4,
+                Math.ceil((liveBrushSettings.thickness ?? 1) * 2 + (liveBrushSettings.spacing ?? 0))
+              );
+
+              applyLostEdgeErosionToContext(drawCtx, pts, bounds, padding, lostEdge);
+            }
+          }
 
           // Reuse stroke-mode dithering so shape fills match regular strokes
           if (brushEngine.applyStrokeDither) {

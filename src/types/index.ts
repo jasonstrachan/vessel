@@ -503,6 +503,8 @@ export interface BrushSettings {
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
   // Lost Edge: apply Sierra Lite dither to break up stroke boundaries
   lostEdge?: number; // 0-100: 0 = off, 100 = strongest edge breakup
+  // Stroke/shape thickness hint (used by certain shape/erosion routines)
+  thickness?: number;
   // Color Cycle stamp dithering
   colorCycleStampDitherEnabled?: boolean;
   colorCycleStampDitherPixelSize?: number;
@@ -510,6 +512,8 @@ export interface BrushSettings {
   // Resampler brush settings
   continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5
+  // Auto color sampling for regular brushes
+  autoSampleColor?: boolean; // true = pick brush color from canvas/reference at stroke start
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

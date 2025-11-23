@@ -161,6 +161,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorCycleFlowMode: settings.colorCycleFlowMode,
   gradientBands: settings.gradientBands,
   colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
+  autoSampleColor: settings.autoSampleColor,
 });
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';

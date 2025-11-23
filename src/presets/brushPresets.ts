@@ -115,6 +115,7 @@ export const defaultBrushSettings: BrushSettings = {
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherClears: false,
   customBrushColorCycle: false,
+  autoSampleColor: false,
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,
   colorCycleGradientVersion: 0,

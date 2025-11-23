@@ -64,6 +64,13 @@ describe('tools slice', () => {
     expect(nextState.palette.foregroundColor).toBe('#112233');
   });
 
+  it('toggles auto-sample color on brush settings', () => {
+    const store = useAppStore.getState();
+    expect(store.tools.brushSettings.autoSampleColor).toBeFalsy();
+    store.setBrushSettings({ autoSampleColor: true });
+    expect(useAppStore.getState().tools.brushSettings.autoSampleColor).toBe(true);
+  });
+
   it('keeps eraser size in sync when linking to brush size', () => {
     const store = useAppStore.getState();
     store.setGlobalBrushSize(18);

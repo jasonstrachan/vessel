@@ -101,6 +101,10 @@ const BrushControls = () => {
     currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
 
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
+  const isRegularBrush =
+    currentTool === 'brush' &&
+    !isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) &&
+    activeSettings.brushShape !== BrushShape.RESAMPLER;
   const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
   const eraserLinkSize = eraserSettings.linkSizeToBrush !== false;
 
@@ -1134,6 +1138,26 @@ const BrushControls = () => {
           </div>
         </div>
 
+        {isRegularBrush && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="auto-sample-color"
+                className={CONTROL_LABEL_CLASS}
+                style={CONTROL_LABEL_STYLE}
+                title="Pick brush color from the pixel under the cursor (prefers reference layer)"
+              >
+                Auto Pick
+              </label>
+              <CustomSwitch
+                id="auto-sample-color"
+                checked={Boolean(activeSettings.autoSampleColor)}
+                onChange={(checked) => setActiveSettings({ autoSampleColor: checked })}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Pressure */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -1651,9 +1675,6 @@ const BrushControls = () => {
     activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ||
     activeSettings.brushShape === BrushShape.POLYGON_GRADIENT
   ) {
-    if (typeof window !== 'undefined') {
-      console.log('[BrushControls] Gradient branch', activeSettings.brushShape);
-    }
     return (
       <div className="p-4">
         {/* Gradient Source (Rectangle only): None = sample canvas, Presets = fixed list */}
@@ -1864,7 +1885,7 @@ const BrushControls = () => {
                   min={0}
                   max={100}
                   step={1}
-                  disabled={!activeSettings.ditherEnabled}
+                  disabled={false}
                   onChange={(value) =>
                     setActiveSettings({
                       lostEdge: Math.max(0, Math.min(100, Math.round(value)))
@@ -2072,6 +2093,26 @@ const BrushControls = () => {
           />
         </div>
       </div>
+
+      {isRegularBrush && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="auto-sample-color"
+              className={CONTROL_LABEL_CLASS}
+              style={CONTROL_LABEL_STYLE}
+              title="Pick brush color from the pixel under the cursor (prefers reference layer)"
+            >
+              Sample
+            </label>
+            <CustomSwitch
+              id="auto-sample-color"
+              checked={Boolean(activeSettings.autoSampleColor)}
+              onChange={(checked) => setActiveSettings({ autoSampleColor: checked })}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Dither */}
       <div className="mb-2">

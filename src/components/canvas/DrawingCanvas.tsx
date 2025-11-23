@@ -1612,6 +1612,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     viewTransformRef,
     canvasRef: canvasRef as React.RefObject<HTMLCanvasElement>,
     isBusyRef, // Pass the lock ref
+    sampleColorAt: sampleColorAtPosition,
   });
   const clearDrawingCanvas = drawingHandlers.clearDrawingCanvas;
   const shapePointsRef = drawingHandlers.shapePointsRef;

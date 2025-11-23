@@ -628,15 +628,7 @@ export const createShapeToolHandler = (
     const rawLostEdge = uiLostEdge ?? perFillEdge ?? payloadEdge ?? 0;
     const lostEdge = Math.max(0, Math.min(100, rawLostEdge));
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[shapeFill] lostEdge', {
-        uiLostEdge,
-        perFillEdge,
-        payloadEdge,
-        rawLostEdge,
-        lostEdge,
-      });
-    }
+    // lostEdge is used for both shape fill and polygon gradient paths below
 
     const drawFillToContext = (
       targetCtx: CanvasRenderingContext2D,
