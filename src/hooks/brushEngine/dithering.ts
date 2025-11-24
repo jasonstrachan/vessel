@@ -490,7 +490,13 @@ export const applySierraLiteDither = (imageData: ImageData, numColors: number, c
   
   // Apply Sierra Lite dithering
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+    // Serpentine scan to avoid vertical banding artifacts
+    const leftToRight = (y & 1) === 0;
+    const xStart = leftToRight ? 0 : width - 1;
+    const xEnd = leftToRight ? width : -1;
+    const xStep = leftToRight ? 1 : -1;
+
+    for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
       
       // Get current RGB values (with accumulated error)
@@ -510,29 +516,47 @@ export const applySierraLiteDither = (imageData: ImageData, numColors: number, c
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
-      
+
       // Distribute error using Sierra Lite weights
       // Keep noise deterministic during live preview to avoid flicker
       const noise1 = 0;
       const noise2 = 0;
       const noise3 = 0;
       
-      // Right pixel (2/4 of error)
-      if (x < width - 1) {
-        const rightIdx = (y * width + (x + 1)) * 4;
-        workingData[rightIdx] += errorR * 0.5 + noise1;
-        workingData[rightIdx + 1] += errorG * 0.5 + noise1;
-        workingData[rightIdx + 2] += errorB * 0.5 + noise1;
+      if (leftToRight) {
+        // Right pixel (2/4 of error)
+        if (x < width - 1) {
+          const rightIdx = (y * width + (x + 1)) * 4;
+          workingData[rightIdx] += errorR * 0.5 + noise1;
+          workingData[rightIdx + 1] += errorG * 0.5 + noise1;
+          workingData[rightIdx + 2] += errorB * 0.5 + noise1;
+        }
+
+        // Bottom-left pixel (1/4 of error)
+        if (y < height - 1 && x > 0) {
+          const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
+          workingData[bottomLeftIdx] += errorR * 0.25 + noise2;
+          workingData[bottomLeftIdx + 1] += errorG * 0.25 + noise2;
+          workingData[bottomLeftIdx + 2] += errorB * 0.25 + noise2;
+        }
+      } else {
+        // Left pixel (2/4 of error) when scanning right-to-left
+        if (x > 0) {
+          const leftIdx = (y * width + (x - 1)) * 4;
+          workingData[leftIdx] += errorR * 0.5 + noise1;
+          workingData[leftIdx + 1] += errorG * 0.5 + noise1;
+          workingData[leftIdx + 2] += errorB * 0.5 + noise1;
+        }
+
+        // Bottom-right pixel (1/4 of error)
+        if (y < height - 1 && x < width - 1) {
+          const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
+          workingData[bottomRightIdx] += errorR * 0.25 + noise2;
+          workingData[bottomRightIdx + 1] += errorG * 0.25 + noise2;
+          workingData[bottomRightIdx + 2] += errorB * 0.25 + noise2;
+        }
       }
-      
-      // Bottom-left pixel (1/4 of error)
-      if (y < height - 1 && x > 0) {
-        const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-        workingData[bottomLeftIdx] += errorR * 0.25 + noise2;
-        workingData[bottomLeftIdx + 1] += errorG * 0.25 + noise2;
-        workingData[bottomLeftIdx + 2] += errorB * 0.25 + noise2;
-      }
-      
+
       // Bottom pixel (1/4 of error)  
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;

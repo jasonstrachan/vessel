@@ -171,7 +171,7 @@ export const applyFloydSteinbergDither = (
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
-      
+
       const oldR = data[idx];
       const oldG = data[idx + 1];
       const oldB = data[idx + 2];
@@ -260,7 +260,12 @@ export const applyBayerDither = (
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
   
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+    const leftToRight = (y & 1) === 0;
+    const xStart = leftToRight ? 0 : width - 1;
+    const xEnd = leftToRight ? width : -1;
+    const xStep = leftToRight ? 1 : -1;
+
+    for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
       
       // Get Bayer threshold for this position
@@ -305,7 +310,12 @@ export const applyAtkinsonDither = (
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity) * 0.75;
   
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+    const leftToRight = (y & 1) === 0;
+    const xStart = leftToRight ? 0 : width - 1;
+    const xEnd = leftToRight ? width : -1;
+    const xStep = leftToRight ? 1 : -1;
+
+    for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
       
       const oldR = data[idx];
@@ -401,7 +411,12 @@ export const applyBlueNoiseDither = (
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
   
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+    const leftToRight = (y & 1) === 0;
+    const xStart = leftToRight ? 0 : width - 1;
+    const xEnd = leftToRight ? width : -1;
+    const xStep = leftToRight ? 1 : -1;
+
+    for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
       
       // Get blue noise threshold for this position
@@ -431,8 +446,9 @@ export const applyBlueNoiseDither = (
  * 1/4 1/4
  */
 export const applySierraLitePressureDither = (
-  imageData: ImageData, 
-  settings: DitherSettings
+  imageData: ImageData,
+  settings: DitherSettings,
+  serpentine: boolean = true
 ): ImageData => {
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
@@ -443,7 +459,12 @@ export const applySierraLitePressureDither = (
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
   
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+    const leftToRight = serpentine ? (y & 1) === 0 : true;
+    const xStart = leftToRight ? 0 : width - 1;
+    const xEnd = leftToRight ? width : -1;
+    const xStep = leftToRight ? 1 : -1;
+
+    for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
       
       const oldR = data[idx];
@@ -462,30 +483,48 @@ export const applySierraLitePressureDither = (
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
-      
-      // Distribute error using Sierra Lite weights
-      // Right pixel (2/4)
-      if (x < width - 1) {
-        const rightIdx = (y * width + (x + 1)) * 4;
-        data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + errorR * 2 / 4));
-        data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + errorG * 2 / 4));
-        data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + errorB * 2 / 4));
+
+      // Distribute error using Sierra Lite weights (mirrored on odd rows)
+      if (leftToRight) {
+        // Right pixel (2/4)
+        if (x < width - 1) {
+          const rightIdx = (y * width + (x + 1)) * 4;
+          data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + (errorR * 2) / 4));
+          data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + (errorG * 2) / 4));
+          data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + (errorB * 2) / 4));
+        }
+
+        // Bottom-left pixel (1/4)
+        if (y < height - 1 && x > 0) {
+          const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
+          data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR / 4));
+          data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG / 4));
+          data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB / 4));
+        }
+      } else {
+        // Left pixel (2/4) when scanning right-to-left
+        if (x > 0) {
+          const leftIdx = (y * width + (x - 1)) * 4;
+          data[leftIdx] = Math.max(0, Math.min(255, data[leftIdx] + (errorR * 2) / 4));
+          data[leftIdx + 1] = Math.max(0, Math.min(255, data[leftIdx + 1] + (errorG * 2) / 4));
+          data[leftIdx + 2] = Math.max(0, Math.min(255, data[leftIdx + 2] + (errorB * 2) / 4));
+        }
+
+        // Bottom-right pixel (1/4)
+        if (y < height - 1 && x < width - 1) {
+          const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
+          data[bottomRightIdx] = Math.max(0, Math.min(255, data[bottomRightIdx] + errorR / 4));
+          data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG / 4));
+          data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB / 4));
+        }
       }
-      
-      // Bottom-left pixel (1/4)
-      if (y < height - 1 && x > 0) {
-        const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-        data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR * 1 / 4));
-        data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * 1 / 4));
-        data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * 1 / 4));
-      }
-      
-      // Bottom pixel (1/4)
+
+      // Bottom pixel (1/4) – direction independent
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;
-        data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR * 1 / 4));
-        data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * 1 / 4));
-        data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * 1 / 4));
+        data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR / 4));
+        data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG / 4));
+        data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB / 4));
       }
     }
   }
@@ -641,16 +680,20 @@ export const applySierraLiteLostEdgeMask = (
   }
 
   // Dither the edge gradient with Sierra Lite to create a patterned falloff.
-  const dithered = applySierraLitePressureDither(edgeField, {
-    algorithm: 'sierra-lite',
-    pressure: 1 - Math.min(0.9, intensity * 0.8),
-    intensity: 1,
-    bayerMatrixSize: 4,
-    palette: [
-      [0, 0, 0],
-      [255, 255, 255]
-    ]
-  });
+  const dithered = applySierraLitePressureDither(
+    edgeField,
+    {
+      algorithm: 'sierra-lite',
+      pressure: 1 - Math.min(0.9, intensity * 0.8),
+      intensity: 1,
+      bayerMatrixSize: 4,
+      palette: [
+        [0, 0, 0],
+        [255, 255, 255]
+      ]
+    },
+    false // keep directional diffusion for predictable edge masks
+  );
 
   const ditheredData = dithered.data;
   for (let i = 0; i < coarsePixelCount; i++) {

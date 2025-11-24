@@ -297,6 +297,28 @@ describe('Dithering Algorithms', () => {
       expect(result.width).toBe(8);
       expect(result.height).toBe(8);
     });
+
+    it('should quantize colors to the provided palette', () => {
+      const imageData = createTestImageData(6, 6);
+      const palette = createGrayscalePalette(2);
+      const paletteValues = new Set(palette.map((c) => c[0]));
+
+      const result = applySierraLitePressureDither(imageData, {
+        ...testSettings,
+        palette,
+        pressure: 0.5,
+        intensity: 1,
+      });
+
+      for (let i = 0; i < result.data.length; i += 4) {
+        const r = result.data[i];
+        const g = result.data[i + 1];
+        const b = result.data[i + 2];
+        expect(paletteValues.has(r)).toBe(true);
+        expect(r).toBe(g);
+        expect(g).toBe(b);
+      }
+    });
     
     it('should respect pressure settings', () => {
       const imageData = createTestImageData(4, 4);
