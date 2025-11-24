@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import DrawingCanvas from '../DrawingCanvas';
 import type { AppState } from '@/stores/useAppStore';
-import type { Layer } from '@/types';
+import type { Layer, BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import { selectActiveLayerId, selectLayersNeedRecomposition } from '@/stores/selectors/layersSelectors';
 
@@ -425,8 +425,35 @@ describe('DrawingCanvas eraser overlays', () => {
     baseState.layers = [baseLayer, activeLayer, hiddenLayer];
     baseState.activeLayerId = 'layer-active';
     baseState.tools.currentTool = 'eraser';
-    baseState.tools.brushSettings = { brushShape: BrushShape.ROUND, antialiasing: true, size: 12 } as unknown;
-    baseState.tools.eraserSettings = { size: 10 } as unknown;
+    const makeBrushSettings = (): BrushSettings => ({
+      size: 12,
+      opacity: 1,
+      color: '#000000',
+      blendMode: 'source-over',
+      spacing: 1,
+      pressure: 1,
+      rotation: 0,
+      antialiasing: true,
+      brushShape: BrushShape.ROUND,
+      pressureEnabled: false,
+      minPressure: 1,
+      maxPressure: 1000,
+      rotationEnabled: false,
+      dashedEnabled: false,
+      dashLength: 1,
+      dashGap: 0,
+      useSwatchColor: true,
+      gridSnapEnabled: false,
+      shapeEnabled: false,
+      colorJitter: 0,
+      risographIntensity: 0,
+      risographOutline: false,
+      ditherEnabled: false,
+      flow: 1,
+    });
+
+    baseState.tools.brushSettings = makeBrushSettings();
+    baseState.tools.eraserSettings = { ...makeBrushSettings(), size: 10, brushShape: BrushShape.ROUND };
     baseState.layersNeedRecomposition = true;
 
     interactionStub.state.isDrawing = true;
@@ -443,7 +470,7 @@ describe('DrawingCanvas eraser overlays', () => {
 
     await waitFor(() => {
       const drewBackground = capturedContexts.some((ctx) =>
-        ctx.drawImage.mock.calls.some(([source]) => source === 'bg-fb')
+        ctx.drawImage.mock.calls.some(([source]: [any]) => source === 'bg-fb')
       );
       expect(drewBackground).toBe(true);
     });
@@ -454,13 +481,13 @@ describe('DrawingCanvas eraser overlays', () => {
 
     await waitFor(() => {
       const drewBackground = capturedContexts.some((ctx) =>
-        ctx.drawImage.mock.calls.some(([source]) => source === 'bg-fb')
+        ctx.drawImage.mock.calls.some(([source]: [any]) => source === 'bg-fb')
       );
       expect(drewBackground).toBe(true);
     });
 
     const drewHidden = capturedContexts.some((ctx) =>
-      ctx.drawImage.mock.calls.some(([source]) => source === 'hidden-fb')
+      ctx.drawImage.mock.calls.some(([source]: [any]) => source === 'hidden-fb')
     );
     expect(drewHidden).toBe(false);
   });

@@ -12,10 +12,10 @@ const CanvasHost: React.FC<{
 }> = ({ handlers }) => (
   <canvas
     data-testid="canvas"
-    onPointerDown={handlers.onPointerDown}
-    onPointerMove={handlers.onPointerMove}
-    onPointerUp={handlers.onPointerUp}
-    onPointerCancel={handlers.onPointerCancel}
+    onPointerDown={handlers.handlePointerDown}
+    onPointerMove={handlers.handlePointerMove}
+    onPointerUp={handlers.handlePointerUp}
+    onPointerCancel={handlers.handlePointerCancel}
   />
 );
 

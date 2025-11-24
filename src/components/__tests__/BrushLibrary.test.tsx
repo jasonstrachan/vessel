@@ -3,10 +3,30 @@ import { render, fireEvent, screen } from '@testing-library/react';
 import BrushLibrary from '@/components/BrushLibrary';
 import { BrushShape } from '@/types';
 
+type MockState = {
+  currentBrushPreset: unknown;
+  brushPresets: unknown[];
+  project: any;
+  tools: { brushSettings: { brushShape: BrushShape; selectedCustomBrush: string | null } };
+  brushEditor: { status: string };
+  currentOffscreenCanvas: unknown;
+  temporaryCustomBrush: unknown;
+  listCustomBrushes: () => any[];
+  getCustomBrushById: () => any;
+  setBrushPreset: (preset: unknown) => void;
+  setDefaultCustomBrush: jest.Mock;
+  removeCustomBrush: jest.Mock;
+  saveCustomBrushAsPreset: jest.Mock;
+  removeBrushPreset: jest.Mock;
+  setBrushSettings: jest.Mock;
+  cancelBrushEdit: jest.Mock;
+  setCurrentTool: jest.Mock;
+  markAutosaveDirty: jest.Mock;
+};
+
 jest.mock('@/stores/useAppStore', () => {
-  const { BrushShape } = require('@/types');
-  const listeners = new Set<(s: any) => void>();
-  const state: any = {
+  const listeners = new Set<(s: MockState) => void>();
+  const state: MockState = {
     currentBrushPreset: null,
     brushPresets: [],
     project: null,
@@ -16,7 +36,7 @@ jest.mock('@/stores/useAppStore', () => {
     temporaryCustomBrush: null,
     listCustomBrushes: () => state.project?.customBrushes ?? [],
     getCustomBrushById: () => null,
-    setBrushPreset: (preset: any) => {
+    setBrushPreset: (preset: unknown) => {
       state.currentBrushPreset = preset;
       listeners.forEach((l) => l(state));
     },
@@ -29,15 +49,15 @@ jest.mock('@/stores/useAppStore', () => {
     setCurrentTool: jest.fn(),
     markAutosaveDirty: jest.fn(),
   };
-  const useAppStore = ((selector?: (s: any) => any) =>
+  const useAppStore = ((selector?: (s: MockState) => unknown) =>
     selector ? selector(state) : state) as any;
   useAppStore.getState = () => state;
-  useAppStore.setState = (updater: any) => {
+  useAppStore.setState = (updater: Partial<MockState> | ((s: MockState) => Partial<MockState>)) => {
     const next = typeof updater === 'function' ? updater(state) : updater;
     Object.assign(state, next);
     listeners.forEach((l) => l(state));
   };
-  useAppStore.subscribe = (listener: (s: any) => void) => {
+  useAppStore.subscribe = (listener: (s: MockState) => void) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
@@ -45,9 +65,13 @@ jest.mock('@/stores/useAppStore', () => {
 });
 import { useAppStore } from '@/stores/useAppStore';
 
-jest.mock('@/components/ui/PlusButton', () => (props: any) => (
-  <button data-testid="plus-button" onClick={props.onClick}>+</button>
-));
+jest.mock('@/components/ui/PlusButton', () => {
+  const MockPlusButton = ({ onClick }: { onClick: () => void }) => (
+    <button data-testid="plus-button" onClick={onClick}>+</button>
+  );
+  MockPlusButton.displayName = 'MockPlusButton';
+  return { __esModule: true, default: MockPlusButton };
+});
 
 jest.mock('@/utils/brushThumbnailGenerator', () => ({
   generateBrushThumbnail: () => 'data:image/png;base64,thumb',

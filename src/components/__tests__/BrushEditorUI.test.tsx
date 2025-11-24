@@ -78,9 +78,16 @@ jest.mock('@/hooks/useBrushEngineSimplified', () => ({
   }),
 }));
 
-const sliderMock = (testId: string) => (props: any) => {
-  const { value = [0], onValueChange, min = -180, max = 180, step = 1 } = props;
-  return (
+type SliderMockProps = {
+  value?: number[];
+  onValueChange?: (value: number[]) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+};
+
+const sliderMock = (testId: string) => {
+  const SliderMock = ({ value = [0], onValueChange, min = -180, max = 180, step = 1 }: SliderMockProps) => (
     <input
       data-testid={testId}
       type="range"
@@ -91,6 +98,8 @@ const sliderMock = (testId: string) => (props: any) => {
       onChange={(e) => onValueChange?.([Number(e.target.value)])}
     />
   );
+  SliderMock.displayName = `${testId}-mock`;
+  return SliderMock;
 };
 
 jest.mock('@/components/ui/HueSlider', () => ({ HueSlider: sliderMock('hue-slider') }));

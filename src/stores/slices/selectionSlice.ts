@@ -303,6 +303,9 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         }
 
         const newImageData = cloneLayerImageData(sourceImage);
+        if (!newImageData) {
+          return;
+        }
 
         if (useMask) {
           const { x: mx, y: my, width: mw, height: mh } = selectionMaskBounds!;

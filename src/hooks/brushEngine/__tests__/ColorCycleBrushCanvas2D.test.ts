@@ -1,5 +1,8 @@
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
-import { __mocks__ as animatorMocks } from '@/lib/ColorCycleAnimator';
+const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as {
+  setIndexBufferFromArrayMock: jest.Mock;
+  deserializeSpy: jest.Mock;
+};
 
 jest.mock('@/lib/ColorCycleAnimator', () => {
   const setIndexBufferFromArrayMock = jest.fn();
@@ -258,7 +261,6 @@ describe('ColorCycleBrushCanvas2D', () => {
     const brush = new ColorCycleBrushCanvas2D(makeCanvas());
     brush.setDitherStrength(2);
     brush.setDitherPixelSize(0.4);
-    // @ts-expect-error private access via cast for test insight
     const internals = brush as any;
     expect(internals.ditherStrength).toBe(1);
     expect(internals.ditherPixelSize).toBe(1);

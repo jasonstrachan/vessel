@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPointerHandlers } from '../pointerHandlers';
-import { BrushShape } from '@/types';
+import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import type { EventHandlerDynamicDeps, EventHandlerDependencies } from '../../utils/types';
 
@@ -39,8 +39,21 @@ const createCanvas = () => {
   return canvas;
 };
 
+const mockProject: Project = {
+  id: 'proj-1',
+  name: 'demo',
+  width: 100,
+  height: 100,
+  layers: [],
+  backgroundColor: '#000000',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  customBrushes: [],
+  palette: { foregroundColor: '#000000', backgroundColor: '#ffffff', activeSlot: 'foreground' },
+};
+
 const baseDynamic: EventHandlerDynamicDeps = {
-  project: { width: 100, height: 100 },
+  project: mockProject,
   canvas: { width: 100, height: 100, scale: 1, zoom: 1 },
   tools: {
     currentTool: 'brush',
@@ -69,22 +82,24 @@ const baseDynamic: EventHandlerDynamicDeps = {
 };
 
 const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: PartialDeps = {}) => {
+  const project: Project = { ...mockProject, ...(dynamicOverrides.project as Partial<Project>) };
+  const canvasState = { ...baseDynamic.canvas, ...dynamicOverrides.canvas } as any;
   const dynamic: EventHandlerDynamicDeps = {
     ...baseDynamic,
     ...dynamicOverrides,
     tools: { ...baseDynamic.tools, ...dynamicOverrides.tools },
     palette: { ...baseDynamic.palette, ...dynamicOverrides.palette },
-    canvas: { ...baseDynamic.canvas, ...dynamicOverrides.canvas },
-    project: { ...baseDynamic.project, ...dynamicOverrides.project },
+    canvas: canvasState,
+    project,
   };
 
   const dynamicDepsRef = { current: dynamic };
-  const canvas = createCanvas();
+  const canvasEl = createCanvas();
   const overlay = createCanvas();
   const composite = createCanvas();
 
   const deps: EventHandlerDependencies = {
-    canvasRef: { current: canvas },
+    canvasRef: { current: canvasEl },
     wrapperRef: { current: document.createElement('div') },
     overlayCanvasRef: { current: overlay },
     compositeCanvasRef: { current: composite },
@@ -232,7 +247,7 @@ const makePointerEvent = (overrides: Partial<React.PointerEvent<HTMLCanvasElemen
     hasPointerCapture: jest.fn().mockReturnValue(true),
   },
   persist: jest.fn(),
-  nativeEvent: {},
+  nativeEvent: { getCoalescedEvents: () => [] as any[] } as any,
   ...overrides,
 } as unknown as React.PointerEvent<HTMLCanvasElement>);
 
@@ -428,10 +443,10 @@ describe('pointerHandlers main flows', () => {
     const { deps } = createDeps();
     deps.isMouseDownRef.current = true;
     deps.isSpacePressedRef.current = true;
-    deps.pan.panState.isPanning = true;
+    (deps.pan.panState as any).isPanning = true;
     deps.pan.updatePan = jest.fn((x: number, y: number) => {
-      deps.pan.panState.offsetX = x;
-      deps.pan.panState.offsetY = y;
+      (deps.pan.panState as any).offsetX = x;
+      (deps.pan.panState as any).offsetY = y;
     }) as any;
 
     const handlers = createPointerHandlers(deps);
@@ -467,7 +482,7 @@ describe('pointerHandlers main flows', () => {
     deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
     deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
 
-    const coalescedEvents = [
+    const coalescedEvents: any[] = [
       { clientX: 20, clientY: 25, shiftKey: true, pressure: 0.8 },
       { clientX: 22, clientY: 28, shiftKey: true, pressure: 0.9 },
     ];
@@ -477,7 +492,7 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerMove(makePointerEvent({
       clientX: 22,
       clientY: 28,
-      nativeEvent: { getCoalescedEvents: () => coalescedEvents },
+      nativeEvent: { getCoalescedEvents: () => coalescedEvents as unknown as PointerEvent[] } as any,
     }));
 
     expect(deps.drawingHandlers.continueDrawing).toHaveBeenCalled();
@@ -485,7 +500,7 @@ describe('pointerHandlers main flows', () => {
 
   it('ends pan and restores cursor on pointer up', () => {
     const { deps } = createDeps();
-    deps.pan.panState.isPanning = true;
+    (deps.pan.panState as any).isPanning = true;
     deps.isSpacePressedRef.current = false;
 
     const handlers = createPointerHandlers(deps);
@@ -538,7 +553,7 @@ describe('pointerHandlers main flows', () => {
 
   it('cancels stroke cleanly on pointer cancel', () => {
     const { deps } = createDeps();
-    deps.pan.panState.isPanning = true;
+    (deps.pan.panState as any).isPanning = true;
 
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerCancel(makePointerEvent({ clientX: 7, clientY: 8 }));
@@ -555,7 +570,7 @@ describe('pointerHandlers main flows', () => {
     });
 
     const { deps } = createDeps({
-      project: { width: 100, height: 100 },
+      project: { ...mockProject, width: 100, height: 100 },
       canvas: { width: 100, height: 100, scale: 1, zoom: 1 },
     }, {
       compositeCanvasRef: { current: compositeCanvas },
@@ -583,7 +598,7 @@ describe('pointerHandlers main flows', () => {
         shapeMode: true,
         brushSettings: { ...baseDynamic.tools.brushSettings, brushShape: BrushShape.ROUND },
       },
-      project: { width: 50, height: 50 },
+      project: { ...mockProject, width: 50, height: 50 },
     });
 
     deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;

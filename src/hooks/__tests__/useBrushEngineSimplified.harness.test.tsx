@@ -9,7 +9,7 @@ const mockGetBrush = jest.fn(() => ({
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => ({
     getBrush: (...args: any[]) => {
-      mockGetBrush(...args);
+      mockGetBrush(...(args as unknown as any[]));
       return {
         setTargetCanvas: jest.fn(),
         getCanvas: jest.fn(),

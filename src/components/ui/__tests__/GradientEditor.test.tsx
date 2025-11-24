@@ -24,23 +24,30 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
   useKeyboardScope: jest.fn(),
 }));
 
+type DropdownProps = { onAction?: (action: string) => void };
+type ColorPickerProps = { onChange?: (value: string) => void; onCommit?: () => void };
+
 jest.mock('@/components/ui/Dropdown', () => {
-  return ({ onAction }: any) => (
+  const DropdownMock = ({ onAction }: DropdownProps) => (
     <div>
       <button data-testid="action-add" onClick={() => onAction?.('add')}>add</button>
       <button data-testid="action-sample" onClick={() => onAction?.('sample')}>sample</button>
       <button data-testid="action-toggle" onClick={() => onAction?.('toggle-sampled')}>toggle</button>
     </div>
   );
+  DropdownMock.displayName = 'DropdownMock';
+  return { __esModule: true, Dropdown: DropdownMock };
 });
 
 jest.mock('@/components/ui/ColorPicker', () => {
-  return ({ onChange, onCommit }: any) => (
+  const ColorPickerMock = ({ onChange, onCommit }: ColorPickerProps) => (
     <div>
       <button data-testid="color-change" onClick={() => onChange?.('#00FF00')}>change</button>
       <button data-testid="color-commit" onClick={() => onCommit?.()}>commit</button>
     </div>
   );
+  ColorPickerMock.displayName = 'ColorPickerMock';
+  return { __esModule: true, ColorPicker: ColorPickerMock };
 });
 
 const raf = (cb: FrameRequestCallback) => {

@@ -1856,7 +1856,7 @@ export function useDrawingHandlers({
 
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx?: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
-    let currentState = storeRef.current;
+    const currentState = storeRef.current;
     let hasRendered = false;
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();

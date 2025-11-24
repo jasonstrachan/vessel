@@ -18,12 +18,10 @@ describe('shapeUtils', () => {
     const originalPath2D = global.Path2D;
 
     beforeEach(() => {
-      // @ts-expect-error override for test
       global.Path2D = MockPath2D as unknown as typeof Path2D;
     });
 
     afterEach(() => {
-      // @ts-expect-error restore
       global.Path2D = originalPath2D;
     });
 

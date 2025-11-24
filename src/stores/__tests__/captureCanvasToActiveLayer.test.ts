@@ -48,11 +48,13 @@ const installProjectWithLayer = (layer: Layer) => {
           width: layer.imageData?.width ?? 2,
           height: layer.imageData?.height ?? 2,
           layers: [layer],
+          backgroundColor: '#000000',
           createdAt: new Date(),
           updatedAt: new Date(),
           palette: useAppStore.getState().palette,
           metadata: {},
           autosaveEnabled: false,
+          customBrushes: [],
         },
   }));
 };

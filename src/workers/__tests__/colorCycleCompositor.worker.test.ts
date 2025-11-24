@@ -1,5 +1,5 @@
 describe('colorCycleCompositor.worker', () => {
-  it('responds to ping and rejects unsupported commands', () => {
+  it('responds to ping and rejects unsupported commands', async () => {
     const messages: any[] = [];
 
     // Minimal worker-like global
@@ -12,8 +12,7 @@ describe('colorCycleCompositor.worker', () => {
     } as any;
 
     // Import after stubbing self so the listener registers
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('../colorCycleCompositor.worker');
+    await import('../colorCycleCompositor.worker');
 
     // Dispatch a ping
     listeners.forEach((handler) => handler({ data: { type: 'ping', requestId: 1 } } as any));

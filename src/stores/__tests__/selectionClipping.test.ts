@@ -146,12 +146,12 @@ describe('selection-based clipping', () => {
     for (let y = 0; y < 3; y += 1) {
       for (let x = 0; x < 3; x += 1) {
         const idx = (y * 3 + x) * 4 + 3;
-        layer.imageData.data[idx] = 255;
+        layer.imageData!.data[idx] = 255;
       }
     }
     // Keep framebuffer in sync so deleteSelectedPixels reads the opaque data.
     const fbCtx = layer.framebuffer?.getContext('2d');
-    fbCtx?.putImageData(layer.imageData, 0, 0);
+    fbCtx?.putImageData(layer.imageData!, 0, 0);
 
     const mask = new ImageData(3, 3);
     const idx = (1 * 3 + 1) * 4 + 3;

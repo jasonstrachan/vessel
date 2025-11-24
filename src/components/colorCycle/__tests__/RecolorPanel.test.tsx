@@ -44,20 +44,40 @@ const makeLayer = (): Layer => ({
   locked: false,
   order: 0,
   imageData: new ImageData(2, 2),
-  framebuffer: undefined,
-  alignment: { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+  framebuffer: (() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+    return canvas;
+  })(),
+  alignment: {
+    fit: 'contain',
+    horizontal: 'center',
+    vertical: 'center',
+    positioning: 'anchor',
+    offsetPx: { x: 0, y: 0 },
+  },
   layerType: 'color-cycle',
   colorCycleData: {
     mode: 'recolor',
     gradient: [],
     recolorSettings: {
       gradient: [] as any,
-      animation: { cycleOffset: 0, speed: 1, fps: 60, flowDirection: 'reverse', isPaused: false },
+      quantizationMode: 'rgb332',
+      ditherMode: 'off',
+      currentLOD: 'full',
+      animation: {
+        speed: 1,
+        fps: 60,
+        ticksPerFrame: 1,
+        isPlaying: true,
+        currentTick: 0,
+        flowDirection: 'reverse',
+      },
       cycleColors: 8,
       mappingMode: 'banded',
       flowMapping: 'palette',
     },
-    animation: { cycleOffset: 0, speed: 1, fps: 60, isPaused: false, flowDirection: 'reverse' },
   },
 });
 

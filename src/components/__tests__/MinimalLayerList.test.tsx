@@ -21,7 +21,7 @@ jest.mock('@/stores/useAppStore', () => {
       listeners.forEach((l) => l(state));
     },
     updateLayer: (id: string, updates: Partial<Layer>) => {
-      state.layers = state.layers.map((l) => (l.id === id ? { ...l, ...updates } : l));
+      state.layers = state.layers.map((l: Layer) => (l.id === id ? { ...l, ...updates } : l));
       listeners.forEach((l) => l(state));
     },
     reorderLayers: (ids: string[]) => {
@@ -71,9 +71,16 @@ jest.mock('@/utils/colorAnalyzer', () => ({
   })),
 }));
 
-jest.mock('@/components/ui/ProgressSlider', () => (props: any) => {
-  const { value, onChange, min = 0, max = 1, step = 1 } = props;
-  return (
+type ProgressSliderProps = {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+};
+
+jest.mock('@/components/ui/ProgressSlider', () => {
+  const ProgressSliderMock = ({ value, onChange, min = 0, max = 1, step = 1 }: ProgressSliderProps) => (
     <input
       data-testid="progress-slider"
       type="range"
@@ -84,6 +91,8 @@ jest.mock('@/components/ui/ProgressSlider', () => (props: any) => {
       onChange={(e) => onChange(Number(e.target.value))}
     />
   );
+  ProgressSliderMock.displayName = 'ProgressSliderMock';
+  return { __esModule: true, default: ProgressSliderMock };
 });
 
 const createLayer = (id: string, order: number, visible = true): Layer => {
@@ -101,7 +110,13 @@ const createLayer = (id: string, order: number, visible = true): Layer => {
     layerType: 'normal',
     framebuffer: canvas,
     imageData: new ImageData(4, 4),
-    alignment: { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    alignment: {
+      fit: 'contain',
+      horizontal: 'center',
+      vertical: 'center',
+      positioning: 'anchor',
+      offsetPx: { x: 0, y: 0 },
+    },
   };
 };
 
@@ -129,7 +144,10 @@ describe('MinimalLayerList visibility toggling', () => {
         layers,
         activeLayerId: 'layer-1',
         selectedLayerIds: ['layer-1', 'layer-2'],
-        brushSettings: { ...state.brushSettings, brushShape: BrushShape.ROUND },
+        tools: {
+          ...state.tools,
+          brushSettings: { ...state.tools.brushSettings, brushShape: BrushShape.ROUND },
+        },
       }));
     });
   });

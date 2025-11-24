@@ -206,7 +206,7 @@ export const getColorCycleCompositorClient = (): Promise<ColorCycleCompositorCli
       );
     };
 
-    cachedClientPromise = new Promise((resolve, reject) => {
+    cachedClientPromise = new Promise<ColorCycleCompositorClient>((resolve, reject) => {
       const support = detectColorCycleWorkerSupport();
       if (!support.supported) {
         reject(new Error(`ColorCycle compositor worker unsupported (${support.reason})`));
@@ -242,5 +242,5 @@ export const getColorCycleCompositorClient = (): Promise<ColorCycleCompositorCli
       throw error;
     });
   }
-  return cachedClientPromise;
+  return cachedClientPromise as Promise<ColorCycleCompositorClient>;
 };

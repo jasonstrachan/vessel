@@ -176,7 +176,6 @@ describe('DrawingCanvas smoke', () => {
   const resizeObserverMock = jest.fn(() => ({ observe: jest.fn(), unobserve: jest.fn(), disconnect: jest.fn() }));
 
   beforeAll(() => {
-    // @ts-expect-error test env polyfill
     global.ResizeObserver = resizeObserverMock as any;
   });
 

@@ -6,7 +6,9 @@ const mockUpdateLayer = jest.fn();
 const mockPlayAll = jest.fn();
 const mockStop = jest.fn();
 const mockSetFPS = jest.fn();
-const mockGetLayers = jest.fn(() => []);
+import type { Layer } from '@/types';
+
+const mockGetLayers: jest.Mock<Layer[], []> = jest.fn(() => []);
 const mockSetLayerSpeed = jest.fn();
 const mockOnFrame = jest.fn();
 
@@ -113,7 +115,7 @@ describe('RecolorManager (mocked)', () => {
 
   it('updates mapping mode and gradient', async () => {
     const manager = RecolorManager.getInstance();
-    mockGetLayers.mockReturnValue([{ layer }]);
+    mockGetLayers.mockReturnValue([{ layer } as any]);
     const ok = manager.setLayerMappingMode(layer.id, 'banded');
     expect(ok).toBe(true);
     const ccLayer = { ...layer, layerType: 'color-cycle', colorCycleData: { mode: 'recolor' } } as any;

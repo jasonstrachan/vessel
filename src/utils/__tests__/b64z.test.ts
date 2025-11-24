@@ -1,4 +1,5 @@
 import { packArrayToB64Z, isB64ZString, B64Z_HEADER_PREFIX } from '@/utils/export/b64z';
+import * as fflate from 'fflate';
 
 describe('b64z utilities', () => {
   it('returns null when buffer is below the threshold', async () => {
@@ -15,8 +16,7 @@ describe('b64z utilities', () => {
   });
 
   it('falls back to null when compression fails', async () => {
-    const { deflateSync } = require('fflate');
-    const deflateSpy = jest.spyOn(require('fflate'), 'deflateSync').mockImplementation(() => {
+    const deflateSpy = jest.spyOn(fflate, 'deflateSync').mockImplementation(() => {
       throw new Error('boom');
     });
     const originalCompressionStream = (globalThis as any).CompressionStream;

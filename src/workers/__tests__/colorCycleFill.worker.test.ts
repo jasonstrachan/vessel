@@ -7,7 +7,7 @@ jest.mock('@/utils/colorCycle/concentricFillCore', () => ({
 }));
 
 describe('colorCycleFill.worker', () => {
-  it('handles perceptual dither job', () => {
+  it('handles perceptual dither job', async () => {
     const messages: any[] = [];
     const listeners: Array<(e: MessageEvent<any>) => void> = [];
 
@@ -16,8 +16,7 @@ describe('colorCycleFill.worker', () => {
       postMessage: (payload: any) => messages.push(payload),
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('../colorCycleFill.worker');
+    await import('../colorCycleFill.worker');
 
     const handler = (globalThis as any).self.onmessage as (e: MessageEvent<any>) => void;
 
@@ -49,10 +48,9 @@ describe('colorCycleFill.worker', () => {
       postMessage: (payload: any) => messages.push(payload),
     };
 
-    // Re-require to bind new self
+    // Re-import to bind new self
     jest.resetModules();
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('../colorCycleFill.worker');
+    await import('../colorCycleFill.worker');
     const handler = (globalThis as any).self.onmessage as (e: MessageEvent<any>) => void;
 
     await handler({
