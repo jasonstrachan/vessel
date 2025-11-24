@@ -11,7 +11,6 @@ import type {
 const resolveWorkerUrl = () => {
   try {
     // Avoid import.meta syntax errors under CommonJS (Jest)
-    // eslint-disable-next-line no-new-func
     const fn = new Function(
       'return (typeof import !== "undefined" && import.meta && import.meta.url) ? new URL("./colorCycleCompositor.worker.ts", import.meta.url) : null;'
     );
@@ -32,13 +31,13 @@ const createWorker = (preferModule = true) => {
   if (!preferModule) {
     return new Worker(url);
   }
-  try {
-    return new Worker(url, { type: 'module' });
-  } catch (error) {
-    // Classic fallback keeps us functional on older browsers; the worker code
-    // is simple enough to run in either mode.
-    return new Worker(url);
-  }
+    try {
+      return new Worker(url, { type: 'module' });
+    } catch {
+      // Classic fallback keeps us functional on older browsers; the worker code
+      // is simple enough to run in either mode.
+      return new Worker(url);
+    }
 };
 
 type PendingRequest = {
@@ -97,8 +96,6 @@ export class ColorCycleCompositorClient {
       event.message || (event.error instanceof Error ? event.error.message : undefined) ||
       `${event.filename || 'worker'}:${event.lineno ?? '?'}:${event.colno ?? '?'}`;
     const details = rawDetails && rawDetails !== 'worker:?:?' ? rawDetails : 'worker runtime error';
-    // Suppress noisy worker-runtime warnings; fallback paths will handle rendering.
-    hasLoggedWorkerRuntimeFailure = true;
     const fallbackError = new Error(`ColorCycle compositor worker error (${details})`);
     const error = event.error instanceof Error ? event.error : fallbackError;
     this.pending.forEach(({ reject }) => reject(error));
@@ -187,7 +184,6 @@ export class ColorCycleCompositorClient {
 }
 
 let cachedClientPromise: Promise<ColorCycleCompositorClient> | null = null;
-let hasLoggedWorkerRuntimeFailure = false;
 
 export const getColorCycleCompositorClient = (): Promise<ColorCycleCompositorClient> => {
   if (typeof window === 'undefined') {

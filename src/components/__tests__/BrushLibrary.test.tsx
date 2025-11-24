@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import BrushLibrary from '@/components/BrushLibrary';
@@ -25,6 +26,8 @@ type MockState = {
 };
 
 jest.mock('@/stores/useAppStore', () => {
+  // Avoid hoist-time TDZ issues by resolving types inside the factory
+  const { BrushShape } = jest.requireActual('@/types');
   const listeners = new Set<(s: MockState) => void>();
   const state: MockState = {
     currentBrushPreset: null,

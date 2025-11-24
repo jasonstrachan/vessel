@@ -1,4 +1,5 @@
-import { __TESTING__, exportProjectAsWebGL } from '../webglExporter';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { __TESTING__ } from '../webglExporter';
 
 describe('webglExporter helpers', () => {
   const { resolveDimensionFromCandidates, resolveRecolorSurfaceSize, clampBoundsToSurface } = __TESTING__;

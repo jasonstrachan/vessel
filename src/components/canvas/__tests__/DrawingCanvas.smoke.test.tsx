@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import DrawingCanvas from '../DrawingCanvas';
@@ -184,7 +185,6 @@ describe('DrawingCanvas smoke', () => {
       render(<DrawingCanvas />);
     } catch (e) {
       // Surface underlying error for debugging
-      // eslint-disable-next-line no-console
       console.error('Render error', e);
       throw e;
     }

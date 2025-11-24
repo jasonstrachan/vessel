@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { render, act } from '@testing-library/react';
 import { useCanvasStateMachine } from '@/hooks/useCanvasStateMachine';
 
@@ -7,7 +7,6 @@ describe('useCanvasStateMachine', () => {
 
   const Harness: React.FC = () => {
     smRef.current = useCanvasStateMachine();
-    const _ = smRef.current;
     return null;
   };
 

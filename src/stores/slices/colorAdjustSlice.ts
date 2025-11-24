@@ -70,8 +70,6 @@ const copyRegion = (
   bounds: { x: number; y: number; width: number; height: number }
 ): void => {
   const { x, y, width, height } = bounds;
-  const sourceStride = source.width * 4;
-  const targetStride = target.width * 4;
   for (let row = 0; row < height; row += 1) {
     const srcStart = ((y + row) * source.width + x) * 4;
     const tgtStart = ((y + row) * target.width + x) * 4;
@@ -82,19 +80,18 @@ const copyRegion = (
   }
 };
 
-const pasteRegionAt = (
-  source: ImageData,
-  target: ImageData,
-  destX: number,
-  destY: number
-): void => {
-  const srcStride = source.width * 4;
-  const tgtStride = target.width * 4;
-  for (let row = 0; row < source.height; row += 1) {
-    const srcStart = row * srcStride;
-    const tgtStart = ((destY + row) * target.width + destX) * 4;
-    target.data.set(
-      source.data.subarray(srcStart, srcStart + source.width * 4),
+  const pasteRegionAt = (
+    source: ImageData,
+    target: ImageData,
+    destX: number,
+    destY: number
+  ): void => {
+    const srcStride = source.width * 4;
+    for (let row = 0; row < source.height; row += 1) {
+      const srcStart = row * srcStride;
+      const tgtStart = ((destY + row) * target.width + destX) * 4;
+      target.data.set(
+        source.data.subarray(srcStart, srcStart + source.width * 4),
       tgtStart
     );
   }

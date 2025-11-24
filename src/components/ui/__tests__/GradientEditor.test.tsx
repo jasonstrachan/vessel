@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { GradientEditor } from '../GradientEditor';
@@ -36,7 +37,7 @@ jest.mock('@/components/ui/Dropdown', () => {
     </div>
   );
   DropdownMock.displayName = 'DropdownMock';
-  return { __esModule: true, Dropdown: DropdownMock };
+  return { __esModule: true, default: DropdownMock };
 });
 
 jest.mock('@/components/ui/ColorPicker', () => {
@@ -47,7 +48,7 @@ jest.mock('@/components/ui/ColorPicker', () => {
     </div>
   );
   ColorPickerMock.displayName = 'ColorPickerMock';
-  return { __esModule: true, ColorPicker: ColorPickerMock };
+  return { __esModule: true, default: ColorPickerMock };
 });
 
 const raf = (cb: FrameRequestCallback) => {

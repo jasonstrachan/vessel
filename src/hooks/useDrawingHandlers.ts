@@ -717,8 +717,11 @@ const applyBackdropFromSnapshot = (
   if (!tempCanvas) {
     return;
   }
-  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-  if (!tempCtx) {
+  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D
+    | null;
+  if (!tempCtx || !('putImageData' in tempCtx)) {
     return;
   }
 
@@ -859,12 +862,16 @@ function clipLineSegment(
 
 export function useDrawingHandlers({
   project,
-  screenToWorld,
-  viewTransformRef,
-  canvasRef,
+  screenToWorld: _screenToWorld,
+  viewTransformRef: _viewTransformRef,
+  canvasRef: _canvasRef,
   isBusyRef,
   sampleColorAt,
 }: UseDrawingHandlersProps) {
+  // Unused props in this harness; kept for API compatibility
+  void _screenToWorld;
+  void _viewTransformRef;
+  void _canvasRef;
   const brushEngine = useBrushEngineSimplified();
   const userBrushEngine = useUserBrushEngine();
   const captureCanvasToActiveLayer = useAppStore((state) => state.captureCanvasToActiveLayer);
@@ -2493,10 +2500,6 @@ export function useDrawingHandlers({
     
     // Capture "before" state BEFORE any stroke data is written
     const activeLayerForCapture = currentState.layers.find(l => l.id === currentState.activeLayerId);
-    const shouldSkipStrokeBitmapClone =
-      FF.CC_HISTORY_NO_BITMAP &&
-      activeLayerForCapture?.layerType === 'color-cycle' &&
-      ccFlags.isAny;
     // Defer expensive snapshots until finalize; capture ROI-based snapshots there.
     strokeBeforeImageRef.current = null;
 
@@ -2983,7 +2986,6 @@ export function useDrawingHandlers({
     
     // Initial point drawn - parent component will handle redraw
   }, [
-    initDrawingCanvas,
     brushEngine,
     userBrushEngine,
     project,
@@ -2997,6 +2999,7 @@ export function useDrawingHandlers({
     maskManager,
     renderBrushSamplingPreview,
     getEffectiveColorCyclePlaying,
+    ensureOverlayInitialized,
     getBrushHalfSize,
     storeRef,
     beginMaskHealingStroke,

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 describe('colorCycleCompositor.worker', () => {
   it('responds to ping and rejects unsupported commands', async () => {
     const messages: any[] = [];

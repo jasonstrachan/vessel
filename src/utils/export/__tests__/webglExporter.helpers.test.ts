@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { __TESTING__ } from '../webglExporter';
 
 const { resolveDimensionFromCandidates, resolveRecolorSurfaceSize, clampBoundsToSurface } = __TESTING__;

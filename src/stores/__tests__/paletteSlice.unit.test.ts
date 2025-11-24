@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createPaletteSlice } from '@/stores/slices/paletteSlice';
 import { createDefaultPalette } from '@/utils/layoutDefaults';
 

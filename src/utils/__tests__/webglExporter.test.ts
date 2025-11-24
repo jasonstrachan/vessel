@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 jest.mock('@/utils/export/webglExporter', () => ({
   exportProjectAsWebGL: jest.fn(async (options) => {
     if (!options.layers || options.layers.length === 0) {
@@ -9,6 +10,7 @@ jest.mock('@/utils/export/webglExporter', () => ({
     return { metadata: true };
   }),
 }));
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 
 describe('webglExporter error paths', () => {

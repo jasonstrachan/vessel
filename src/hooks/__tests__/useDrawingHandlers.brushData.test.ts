@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { __TESTING__ } from '../useDrawingHandlers';
 
 const { resolveActiveCustomBrushData } = __TESTING__;

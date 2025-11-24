@@ -1367,6 +1367,62 @@ export const useBrushEngineSimplified = () => {
 
   const lostEdgeTileSize = 4; // tunable; matches ditherAlgorithms default for now
 
+  const applyStrokeRisographOverlay = useCallback((
+    ctx: CanvasRenderingContext2D,
+    region: Rect | null
+  ) => {
+    const intensity = tools.brushSettings.risographIntensity || 0;
+    if (intensity <= 0 || !ctx || !region) {
+      return;
+    }
+
+    const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
+    const bounds = normalizeRectForCanvas(region, canvasWidth, canvasHeight);
+    const { x, y, width, height } = bounds;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    const pattern = getRisographPattern(ctx);
+    if (!pattern) return;
+
+    const effect = getRisographEffectSettings(intensity, { isPixelBrush });
+    if (effect.alpha <= 0) return;
+
+    const seed = hashNumbers(x, y, width, height, intensity);
+    const rng = createSeededRng(seed);
+    const misregX = isPixelBrush ? 0 : (rng() - 0.5) * effect.jitter;
+    const misregY = isPixelBrush ? 0 : (rng() - 0.5) * effect.jitter;
+    const rotation = isPixelBrush ? 0 : (rng() - 0.5) * 0.08;
+    const scale = isPixelBrush ? 1 : 1 + (rng() - 0.5) * 0.04;
+    const filter = isPixelBrush
+      ? 'none'
+      : getRisographFilter(
+          tools.brushSettings.color || '#000',
+          tools.brushSettings.risographColorShift ?? 3,
+          rng
+        );
+
+    ctx.save();
+    ctx.translate(misregX, misregY);
+    const cx = x + width / 2;
+    const cy = y + height / 2;
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation);
+    ctx.scale(scale, scale);
+    ctx.translate(-cx, -cy);
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.globalAlpha = effect.alpha;
+    ctx.filter = filter;
+    ctx.imageSmoothingEnabled = isPixelBrush ? false : ctx.imageSmoothingEnabled;
+    ctx.fillStyle = pattern;
+    ctx.fillRect(x - 2, y - 2, width + 4, height + 4);
+    ctx.restore();
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.color, tools.brushSettings.risographColorShift, isPixelBrush]);
+
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -1430,7 +1486,7 @@ export const useBrushEngineSimplified = () => {
     const coarse = new ImageData(coarseW, coarseH);
     const coarseData = coarse.data;
 
-    for (let i = 0, a = 0; a < coarseData.length; i++, a += 4) {
+    for (let a = 0; a < coarseData.length; a += 4) {
       coarseData[a]     = baseR;
       coarseData[a + 1] = baseG;
       coarseData[a + 2] = baseB;
@@ -1530,6 +1586,7 @@ export const useBrushEngineSimplified = () => {
       withAlphaLock(visibleCtx, (targetCtx) => {
         targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
       }, strokeBounds);
+      applyStrokeRisographOverlay(visibleCtx, strokeBounds);
       return;
     }
 
@@ -1553,7 +1610,9 @@ export const useBrushEngineSimplified = () => {
     withAlphaLock(visibleCtx, (targetCtx) => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
     }, strokeBounds);
-  }, [applyStrokeDither, withAlphaLock, shouldApplyStrokeDither]);
+
+    applyStrokeRisographOverlay(visibleCtx, strokeBounds);
+  }, [applyStrokeDither, withAlphaLock, shouldApplyStrokeDither, applyStrokeRisographOverlay]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -1708,12 +1767,14 @@ export const useBrushEngineSimplified = () => {
       withAlphaLock(ctx, (targetCtx) => {
         targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
       }, strokeBounds);
+
+      applyStrokeRisographOverlay(ctx, strokeBounds);
     }
 
     clearLiveStrokeBuffers();
     strokeBoundsRef.current = null;
     return strokeBounds ? { ...strokeBounds } : null;
-  }, [applyStrokeDither, brushEngine, clearLiveStrokeBuffers, withAlphaLock]);
+  }, [applyStrokeDither, applyStrokeRisographOverlay, brushEngine, clearLiveStrokeBuffers, withAlphaLock]);
 
   /**
    * Reset for new stroke
@@ -1991,7 +2052,8 @@ export const useBrushEngineSimplified = () => {
           // Apply pattern with multiply blend mode
           setMultiplyIfUnlocked(ctx);
           ctx.fillStyle = pattern;
-          ctx.globalAlpha = effect.alpha;
+          const alphaBoosted = tools.brushSettings.ditherEnabled ? Math.max(effect.alpha, 0.35) : effect.alpha;
+          ctx.globalAlpha = alphaBoosted;
           ctx.filter = filter;
           
           // Fill the clipped area with the pattern
@@ -2086,7 +2148,7 @@ export const useBrushEngineSimplified = () => {
       // Restore state
       ctx.restore();
     }
-  }, [setMultiplyIfUnlocked, isPixelBrush, tools.brushSettings.color, tools.brushSettings.risographColorShift]);
+  }, [setMultiplyIfUnlocked, isPixelBrush, tools.brushSettings.color, tools.brushSettings.risographColorShift, tools.brushSettings.ditherEnabled]);
 
   const applyColorCycleRisographOverlay = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -2114,7 +2176,8 @@ export const useBrushEngineSimplified = () => {
       return;
     }
     const normalizedIntensity = Math.max(0, Math.min(1, intensity / 100));
-    const overlayStrength = Math.min(1, outputOpacity * (0.12 + normalizedIntensity * 0.08));
+    const overlayBase = outputOpacity * (0.12 + normalizedIntensity * 0.08);
+    const overlayStrength = Math.min(1, tools.brushSettings.ditherEnabled ? Math.max(overlayBase, 0.28) : overlayBase);
     if (overlayStrength <= 0.01) {
       return;
     }
@@ -2170,7 +2233,7 @@ export const useBrushEngineSimplified = () => {
     ctx.restore();
 
     canvasPool.release(tempCanvas);
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.risographColorShift, tools.brushSettings.color]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.risographColorShift, tools.brushSettings.color, tools.brushSettings.ditherEnabled]);
 
   /**
    * Draw polygon with gradient - DEBUG VERSION
@@ -2516,7 +2579,7 @@ export const useBrushEngineSimplified = () => {
       // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, tools.brushSettings.risographColorShift, applyRisographEffect]);
+  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
 
 
   /**
@@ -3284,25 +3347,27 @@ export const useBrushEngineSimplified = () => {
     initializeColorCycleBrush,
   ]);
   
-  // Update band spacing when it changes
-  useEffect(() => {
-    const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && tools.brushSettings.spacing) {
-      const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-      const resolvedBandSpacing = clampColorCycleBandSpacing(
-        useShapeSpacing
-          ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
-          : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
-      );
-      colorCycleBrush.setBandSpacing(resolvedBandSpacing);
-    }
-  }, [
-    tools.brushSettings.spacing,
-    tools.brushSettings.colorCycleBandSpacingPx,
-    tools.brushSettings.brushShape,
-    activeLayerId,
-    getActiveLayerColorCycleBrush,
-  ]);
+// Update band spacing when it changes
+useEffect(() => {
+  const { spacing, colorCycleBandSpacingPx, brushShape } = tools.brushSettings;
+  const colorCycleBrush = getActiveLayerColorCycleBrush();
+  if (colorCycleBrush && spacing) {
+    const useShapeSpacing = brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    const resolvedBandSpacing = clampColorCycleBandSpacing(
+      useShapeSpacing
+        ? colorCycleBandSpacingPx ?? spacing ?? DEFAULT_CC_BAND_SPACING
+        : spacing ?? DEFAULT_CC_BAND_SPACING
+    );
+    colorCycleBrush.setBandSpacing(resolvedBandSpacing);
+  }
+}, [
+  tools.brushSettings,
+  tools.brushSettings.spacing,
+  tools.brushSettings.colorCycleBandSpacingPx,
+  tools.brushSettings.brushShape,
+  activeLayerId,
+  getActiveLayerColorCycleBrush,
+]);
 
   // Update dithering toggle for color-cycle shape fills
   useEffect(() => {
@@ -3378,6 +3443,7 @@ export const useBrushEngineSimplified = () => {
       brushSizeDeferredHandleRef.current = null;
     };
   }, [
+    tools.brushSettings,
     tools.brushSettings.size,
     tools.brushSettings.pressureEnabled,
     tools.brushSettings.minPressure,

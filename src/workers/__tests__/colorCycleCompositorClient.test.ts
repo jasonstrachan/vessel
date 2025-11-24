@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColorCycleCompositorClient } from '../colorCycleCompositorClient';
 
 class FakeWorker implements Worker {

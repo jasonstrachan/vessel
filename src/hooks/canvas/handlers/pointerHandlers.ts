@@ -1117,17 +1117,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         captureResult.bounds.width,
         captureResult.bounds.height
       );
-    } else if (activeLayer?.framebuffer) {
-      const fbCtx = activeLayer.framebuffer.getContext('2d', { willReadFrequently: true });
-      if (fbCtx) {
-        const { x, y, width, height } = captureResult.bounds;
-        fbCtx.clearRect(x, y, width, height);
-        const refreshed = fbCtx.getImageData(
-          0,
-          0,
-          activeLayer.framebuffer.width,
-          activeLayer.framebuffer.height
-        );
+  } else if (activeLayer?.framebuffer) {
+    const fbCtx = activeLayer.framebuffer.getContext('2d', { willReadFrequently: true });
+    const canvasCtx = fbCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (canvasCtx && 'clearRect' in canvasCtx && 'getImageData' in canvasCtx) {
+      const { x, y, width, height } = captureResult.bounds;
+      canvasCtx.clearRect(x, y, width, height);
+      const refreshed = canvasCtx.getImageData(
+        0,
+        0,
+        activeLayer.framebuffer.width,
+        activeLayer.framebuffer.height
+      );
         updateLayer(activeLayerId, { imageData: refreshed });
       } else {
         updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });

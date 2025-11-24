@@ -1,10 +1,16 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
-import { createPointerHandlers } from '@/hooks/canvas/handlers/pointerHandlers';
+import { createPointerHandlers, createDefaultContourLinesState } from '@/hooks/canvas/handlers/pointerHandlers';
+import { BrushShape } from '@/types';
 
 const noop = () => {};
+
+// JSDOM does not implement pointer capture helpers; provide no-op shims
+(HTMLCanvasElement.prototype as any).setPointerCapture = jest.fn();
+(HTMLCanvasElement.prototype as any).releasePointerCapture = jest.fn();
 
 // Minimal stub canvas component to host handlers
 const CanvasHost: React.FC<{
@@ -15,77 +21,169 @@ const CanvasHost: React.FC<{
     onPointerDown={handlers.handlePointerDown}
     onPointerMove={handlers.handlePointerMove}
     onPointerUp={handlers.handlePointerUp}
-    onPointerCancel={handlers.handlePointerCancel}
+  onPointerCancel={handlers.handlePointerCancel}
   />
 );
 
 describe('pointerHandlers smoke', () => {
-  const baseDeps = {
-    canvasRef: { current: document.createElement('canvas') } as React.RefObject<HTMLCanvasElement>,
-    overlayCanvasRef: { current: document.createElement('canvas') } as React.RefObject<HTMLCanvasElement>,
-    viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
-    compositeCanvasDirtyRef: { current: false },
-    isDrawingRef: { current: false },
-    setIsDrawing: jest.fn(),
-    setLayersNeedRecomposition: jest.fn(),
-    setNeedsRedraw: jest.fn(),
-    draw: noop,
-    selectTool: jest.fn(),
-    setActiveLayerId: jest.fn(),
-    setColorCyclePlaybackDesired: jest.fn(),
-    setStrokeInProgress: jest.fn(),
-    setStrokeBounds: jest.fn(),
-    finalizeSelection: jest.fn(),
-    clearSelection: jest.fn(),
-    setSelectionMarquee: jest.fn(),
-    setSelectionAnchor: jest.fn(),
-    setSelectionMarqueeHandles: jest.fn(),
-    setShowSelectionHandles: jest.fn(),
-    setCanvasCursor: jest.fn(),
-    setCanvasMessage: jest.fn(),
-    setCanvasScaleMessage: jest.fn(),
-    setCanvasScrollMessage: jest.fn(),
-    setCanvasZoomMessage: jest.fn(),
-    clearCanvasMessage: jest.fn(),
-    onBeginFrame: jest.fn(),
-    onEndFrame: jest.fn(),
-    contourLinesStateRef: { current: null },
-    contourLinesDefaultsCacheRef: { current: null },
-    contourLinesFinalizingRef: { current: { get: () => false, set: () => {} } },
-    dynamicDepsRef: { current: { getContourLinesBasis: () => null } },
-    drawingHandlers: {
-      setSimpleShapePreviewRenderer: jest.fn(),
-      setContourLinesPreviewRenderer: jest.fn(),
-      setContourLinesSnapRenderer: jest.fn(),
-      clearOverlay: jest.fn(),
-    },
-  } as any;
+  const createDeps = () => {
+    const panState = { isPanning: false };
+    const canvasRef = { current: document.createElement('canvas') } as React.RefObject<HTMLCanvasElement>;
+    // JSDOM does not implement pointer capture helpers; stub them for handlers
+    (canvasRef.current as any).setPointerCapture = jest.fn();
+    (canvasRef.current as any).releasePointerCapture = jest.fn();
+    const overlayCanvasRef = { current: document.createElement('canvas') } as React.RefObject<HTMLCanvasElement>;
+    const wrapperRef = { current: document.createElement('div') } as React.RefObject<HTMLDivElement>;
+    const dynamicDepsRef = {
+      current: {
+        project: { width: 10, height: 10 } as any,
+        canvas: { width: 10, height: 10, scale: 1, zoom: 1 },
+        tools: {
+          currentTool: 'brush',
+          brushSettings: {
+            brushShape: BrushShape.ROUND,
+            antialiasing: true,
+            pressureEnabled: false,
+            customBrushCapture: { active: false, mode: 'rectangle', sampleAllLayers: false },
+          },
+          fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
+          eraserSettings: {},
+          shapeMode: false,
+        },
+        layers: [],
+        activeLayerId: null,
+        selectionStart: null,
+        selectionEnd: null,
+        selectionMask: null,
+        selectionMaskBounds: null,
+        floatingPaste: null,
+        isDraggingFloatingPaste: false,
+        palette: { foregroundColor: '#000000', backgroundColor: '#ffffff', activeSlot: 'foreground' },
+        polygonGradientState: { drawingState: 'idle' },
+        recolorSampling: {},
+        currentBrushPresetId: null,
+      },
+    };
+
+    const deps: any = {
+      canvasRef,
+      wrapperRef,
+      overlayCanvasRef,
+      compositeCanvasRef: { current: null },
+      dynamicDepsRef,
+      isBusyRef: { current: false },
+      isMouseDownRef: { current: false },
+      isSpacePressedRef: { current: false },
+      drawAnimationFrameRef: { current: null },
+      pointerMoveThrottled: { current: 0 },
+      project: dynamicDepsRef.current.project,
+      canvas: dynamicDepsRef.current.canvas,
+      tools: dynamicDepsRef.current.tools,
+      layers: dynamicDepsRef.current.layers,
+      activeLayerId: dynamicDepsRef.current.activeLayerId,
+      selectionStart: dynamicDepsRef.current.selectionStart,
+      selectionEnd: dynamicDepsRef.current.selectionEnd,
+      floatingPaste: dynamicDepsRef.current.floatingPaste,
+      isDraggingFloatingPaste: dynamicDepsRef.current.isDraggingFloatingPaste,
+      palette: dynamicDepsRef.current.palette,
+      polygonGradientState: dynamicDepsRef.current.polygonGradientState,
+      recolorSampling: dynamicDepsRef.current.recolorSampling,
+      currentBrushPresetId: dynamicDepsRef.current.currentBrushPresetId,
+      setSelectionBounds: jest.fn(),
+      clearSelection: jest.fn(),
+      setCurrentTool: jest.fn(),
+      setActiveColor: jest.fn(),
+      setCurrentOffscreenCanvas: jest.fn(),
+      compositeLayersToCanvas: jest.fn(),
+      updateLayer: jest.fn(),
+      setBrushSettings: jest.fn(),
+      updateRecolorSampling: jest.fn(),
+      stopRecolorSampling: jest.fn(),
+      setRectangleBrushState: jest.fn(),
+      setCustomBrushFreehandPath: jest.fn(),
+      setFloatingPaste: jest.fn(),
+      updateFloatingPastePosition: jest.fn(),
+      commitFloatingPaste: jest.fn(),
+      cancelFloatingPaste: jest.fn(),
+      setIsDraggingFloatingPaste: jest.fn(),
+      floatingPasteDragStart: { current: null },
+      floatingPasteOriginalPos: { current: null },
+      setCursorStyle: jest.fn(),
+      setShowBrushCursor: jest.fn(),
+      setCursorPosition: jest.fn(),
+      interaction: {
+        state: {},
+        dispatch: jest.fn(),
+        refs: {
+          selectionStart: { current: null },
+          drawAnimationFrame: { current: null },
+          lastDrawPos: { current: null },
+          drawingCanvas: { current: null },
+          drawingCanvasHasContent: { current: false },
+          isCapturing: { current: false },
+        },
+      },
+      stateMachine: { dispatch: jest.fn(), state: { mode: 'IDLE' }, isAwaitingPan: false, isPanning: false, finalizationComplete: jest.fn() },
+      pan: {
+        panState,
+        startPan: jest.fn(() => { panState.isPanning = true; }),
+        updatePan: jest.fn(),
+        endPan: jest.fn(() => { panState.isPanning = false; }),
+        screenToWorld: (x: number, y: number, s: number) => ({ x: x / (s || 1), y: y / (s || 1) }),
+        worldToScreen: (x: number, y: number, s: number) => ({ x: x * (s || 1), y: y * (s || 1) }),
+      },
+      toolStateMachine: { isRectangleGradient: false, isPolygonGradient: false, isColorCycleShape: false, isContourPolygon: false },
+      drawingHandlers: {
+        isDrawingShapeRef: { current: false },
+        continueShapeDrawing: jest.fn(),
+        startShapeDrawing: jest.fn(),
+        drawingCanvasHasContent: { current: false },
+        finalizeShapeDrawing: jest.fn().mockResolvedValue(undefined),
+        beginStrokeSession: jest.fn(),
+        startDrawing: jest.fn(),
+        continueDrawing: jest.fn(),
+        endStrokeSession: jest.fn(),
+        clearStrokeSession: jest.fn(),
+        setSimpleShapePreviewRenderer: jest.fn(),
+        setContourLinesPreviewRenderer: jest.fn(),
+        setContourLinesSnapRenderer: jest.fn(),
+        clearOverlay: jest.fn(),
+      },
+      brushEngine: null,
+      sampleColorAtPosition: jest.fn(() => '#000000'),
+      sampleColorsAlongLine: jest.fn(() => ['#000000', '#ffffff']),
+      getMousePos: jest.fn((e: any) => ({ x: e.clientX, y: e.clientY })),
+      compositeCanvasDirtyRef: { current: false },
+      setNeedsRedraw: jest.fn(),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      draw: noop,
+      drawingAnimationFrameRef: { current: null },
+      previewAnimationFrameRef: { current: null },
+      defaultCursorStyle: 'none',
+      restartColorCycleAnimation: jest.fn(),
+      feedback: jest.fn(),
+      snapStrokeStartRef: { current: null },
+      snapShiftAnchorRef: { current: null },
+      snapLastBrushSampleRef: { current: null },
+      contourLinesStateRef: { current: createDefaultContourLinesState() },
+      contourLinesDefaultsCacheRef: { current: null },
+      contourLinesFinalizingRef: { current: false },
+    };
+
+    deps.previewSessionIdRef = { current: 0 };
+    deps.newPreviewSession = () => {
+      deps.previewSessionIdRef.current += 1;
+      deps.contourLinesFinalizingRef.current = false;
+      return deps.previewSessionIdRef.current;
+    };
+    deps.isCurrentPreviewSession = (sessionId: number) => sessionId === deps.previewSessionIdRef.current;
+
+    return deps;
+  };
 
   it('handles pointer down/move/up without throwing', () => {
-    // create handlers with minimal store-aware deps
-    const handlers = createPointerHandlers({
-      ...baseDeps,
-      storeApi: {
-        getState: () => ({
-          tool: 'brush',
-          currentTool: 'brush',
-          isPointerDown: false,
-          isDrawing: false,
-          project: { width: 10, height: 10 },
-          canvas: { width: 10, height: 10, scale: 1, offsetX: 0, offsetY: 0 },
-          layers: [],
-          activeLayerId: null,
-          ui: { modal: null },
-          selection: { marquee: null },
-          setIsPointerDown: jest.fn(),
-          setIsDrawing: jest.fn(),
-          setCanvasInteraction: jest.fn(),
-          setActiveLayerId: jest.fn(),
-          setStrokeInProgress: jest.fn(),
-          setStrokeBounds: jest.fn(),
-        }),
-      },
-    });
+    const deps = createDeps();
+    const handlers = createPointerHandlers(deps);
 
     const { getByTestId } = render(<CanvasHost handlers={handlers} />);
     const canvas = getByTestId('canvas');

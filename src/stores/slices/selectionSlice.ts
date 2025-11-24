@@ -245,7 +245,6 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionEnd,
         selectionMask,
         selectionMaskBounds,
-        selectionMaskLayerId,
         layers,
         activeLayerId,
         project,
@@ -286,9 +285,12 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         const framebuffer = activeLayer.framebuffer;
         const sourceImage = (() => {
           if (framebuffer) {
-            const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
+            const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true }) as
+              | CanvasRenderingContext2D
+              | OffscreenCanvasRenderingContext2D
+              | null;
             try {
-              if (fbCtx) {
+              if (fbCtx && 'getImageData' in fbCtx) {
                 return fbCtx.getImageData(0, 0, framebuffer.width, framebuffer.height);
               }
             } catch {
@@ -346,8 +348,13 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         }
 
         if (framebuffer) {
-          const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true });
-          fbCtx?.putImageData(newImageData, 0, 0);
+          const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true }) as
+            | CanvasRenderingContext2D
+            | OffscreenCanvasRenderingContext2D
+            | null;
+          if (fbCtx && 'putImageData' in fbCtx) {
+            fbCtx.putImageData(newImageData, 0, 0);
+          }
         }
 
         state.updateLayer(activeLayerId, { imageData: newImageData });

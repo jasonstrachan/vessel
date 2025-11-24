@@ -246,8 +246,8 @@ const cloneCanvasLike = <T extends HTMLCanvasElement | OffscreenCanvas | undefin
   if (!canvas) {
     return source ?? (null as T);
   }
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (ctx && 'drawImage' in ctx && 'putImageData' in ctx) {
     if (source) {
       try {
         ctx.drawImage(source as CanvasImageSource, 0, 0);

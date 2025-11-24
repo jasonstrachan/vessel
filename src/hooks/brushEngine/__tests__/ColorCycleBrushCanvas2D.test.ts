@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as {
   setIndexBufferFromArrayMock: jest.Mock;

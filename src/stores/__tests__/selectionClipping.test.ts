@@ -150,8 +150,10 @@ describe('selection-based clipping', () => {
       }
     }
     // Keep framebuffer in sync so deleteSelectedPixels reads the opaque data.
-    const fbCtx = layer.framebuffer?.getContext('2d');
-    fbCtx?.putImageData(layer.imageData!, 0, 0);
+    const fbCtx = layer.framebuffer?.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (fbCtx && 'putImageData' in fbCtx) {
+      fbCtx.putImageData(layer.imageData!, 0, 0);
+    }
 
     const mask = new ImageData(3, 3);
     const idx = (1 * 3 + 1) * 4 + 3;

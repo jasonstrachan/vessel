@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createAutosaveSlice } from '@/stores/slices/autosaveSlice';
 
 jest.mock('@/history/historyService', () => ({

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const mockPostMessage = jest.fn();
 
 // Provide a lightweight DedicatedWorkerGlobalScope stub

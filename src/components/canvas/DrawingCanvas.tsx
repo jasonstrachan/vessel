@@ -43,9 +43,7 @@ import { detectColorCycleWorkerSupport } from '@/utils/colorCycleWorkerSupport';
 import { getMaskManager } from '@/layers/MaskManager';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
-import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { computeShapeFillColors } from '@/shapeFill/colorUtils';
-import { toPixelPerfectFill } from '@/shapeFill/pixelPerfect';
 import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { FillStage } from '@/shapeFill/types';
@@ -1443,7 +1441,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
 
         if (selectionMask && selectionMaskBounds) {
-          const { x: mx, y: my, width: mw, height: mh } = selectionMaskBounds;
           // Marching ants along mask outline
           const outlinePath = buildMaskEdgePath(selectionMask, selectionMaskBounds);
           const dash = 5 / scale;
@@ -1860,8 +1857,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             const renderPolygon = pixelPerfect
               ? payload.shape.points.map(point => snapPointToPixel(point, { strategy: 'nearest' }))
               : payload.shape.points;
-            const renderResult = pixelPerfect ? toPixelPerfectFill(payload.result) : payload.result;
-            const strokeWidth = pixelPerfect ? 1 : payload.params.thickness ?? 1;
             const byFill = (storeSnapshot.shapeFill.paramsByFill as Record<string, Partial<typeof payload.params>>)[
               payload.fillId
             ] ?? {};
@@ -1883,30 +1878,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 lostEdge,
               });
             }
-
-            const drawFillToContext = (
-              targetCtx: CanvasRenderingContext2D,
-              offset: { x: number; y: number }
-            ) => {
-              targetCtx.save();
-              targetCtx.translate(offset.x, offset.y);
-              targetCtx.lineWidth = strokeWidth;
-              if (secondaryColor && renderPolygon.length >= 3) {
-                targetCtx.fillStyle = secondaryColor;
-                targetCtx.beginPath();
-                targetCtx.moveTo(renderPolygon[0].x, renderPolygon[0].y);
-                for (let i = 1; i < renderPolygon.length; i += 1) {
-                  const pt = renderPolygon[i];
-                  targetCtx.lineTo(pt.x, pt.y);
-                }
-                targetCtx.closePath();
-                targetCtx.fill();
-              }
-              targetCtx.strokeStyle = primaryColor;
-              targetCtx.fillStyle = primaryColor;
-              renderFill(targetCtx, renderResult);
-              targetCtx.restore();
-            };
 
             if (lostEdge > 0) {
               const bounds = payload.shape.bounds;

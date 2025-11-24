@@ -62,7 +62,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
       width,
       height,
     } satisfies Rectangle;
-  }, [selectionEnd, selectionStart]);
+  }, [selectionEnd, selectionMask, selectionStart]);
 
   const marqueeScreenRect = useMemo(() => {
     if (!selectionRect) {

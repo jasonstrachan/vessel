@@ -1,3 +1,8 @@
+jest.mock('fflate', () => {
+  const actual = jest.requireActual('fflate');
+  return { ...actual, deflateSync: jest.fn(actual.deflateSync) };
+});
+
 import { packArrayToB64Z, isB64ZString, B64Z_HEADER_PREFIX } from '@/utils/export/b64z';
 import * as fflate from 'fflate';
 
@@ -16,18 +21,21 @@ describe('b64z utilities', () => {
   });
 
   it('falls back to null when compression fails', async () => {
-    const deflateSpy = jest.spyOn(fflate, 'deflateSync').mockImplementation(() => {
+    const actual = jest.requireActual('fflate') as typeof import('fflate');
+    const deflateMock = fflate.deflateSync as jest.Mock;
+    deflateMock.mockImplementation(() => {
       throw new Error('boom');
     });
-    const originalCompressionStream = (globalThis as any).CompressionStream;
-    (globalThis as any).CompressionStream = undefined;
+    const globalWithCompression = globalThis as typeof globalThis & { CompressionStream?: typeof CompressionStream };
+    const originalCompressionStream = globalWithCompression.CompressionStream;
+    globalWithCompression.CompressionStream = undefined as unknown as typeof CompressionStream;
 
     const data = new Uint8Array(2048).fill(1);
     const result = await packArrayToB64Z(data, 32);
     expect(result).toBeNull();
 
-    (globalThis as any).CompressionStream = originalCompressionStream;
-    deflateSpy.mockRestore();
+    globalWithCompression.CompressionStream = originalCompressionStream;
+    deflateMock.mockImplementation(actual.deflateSync);
   });
 
   it('isB64ZString guards non-strings', () => {

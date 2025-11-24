@@ -34,7 +34,7 @@ const evaluateSupport = (): ColorCycleWorkerSupport => {
     const worker = new Worker(url, { type: 'module' });
     worker.terminate();
     URL.revokeObjectURL(url);
-  } catch (error) {
+  } catch {
     return {
       supported: false,
       reason: 'module-worker-unavailable',

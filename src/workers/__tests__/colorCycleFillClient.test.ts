@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { runPerceptualDitherJob, runConcentricFillJob } from '../colorCycleFillClient';
 
 class FakeWorker implements Worker {

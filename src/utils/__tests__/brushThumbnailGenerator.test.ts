@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { generateBrushThumbnail } from '@/utils/brushThumbnailGenerator';
 import { BrushShape } from '@/types';
 

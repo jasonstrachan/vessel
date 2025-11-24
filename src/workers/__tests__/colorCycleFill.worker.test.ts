@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 jest.mock('@/hooks/brushEngine/dithering', () => ({
   applyDitheringWithFillResolution: jest.fn((img: ImageData) => img),
 }));
@@ -9,7 +10,6 @@ jest.mock('@/utils/colorCycle/concentricFillCore', () => ({
 describe('colorCycleFill.worker', () => {
   it('handles perceptual dither job', async () => {
     const messages: any[] = [];
-    const listeners: Array<(e: MessageEvent<any>) => void> = [];
 
     (globalThis as any).self = {
       onmessage: null,

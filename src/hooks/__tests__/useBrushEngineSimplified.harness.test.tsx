@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect } from 'react';
 import { render, act } from '@testing-library/react';
 import { useBrushEngineSimplified } from '../useBrushEngineSimplified';
@@ -8,8 +9,8 @@ const mockGetBrush = jest.fn(() => ({
 }));
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => ({
-    getBrush: (...args: any[]) => {
-      mockGetBrush(...(args as unknown as any[]));
+    getBrush: (...args: Parameters<typeof mockGetBrush>) => {
+      mockGetBrush(...args);
       return {
         setTargetCanvas: jest.fn(),
         getCanvas: jest.fn(),

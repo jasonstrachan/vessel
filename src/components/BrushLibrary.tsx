@@ -2,10 +2,10 @@
 
 import React, { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useAppStore } from '../stores/useAppStore';
-import { BrushShape, BrushPreset, CustomBrush } from '../types';
+import { useAppStore } from '@/stores/useAppStore';
+import { BrushShape, BrushPreset, CustomBrush } from '@/types';
 import PlusButton from './ui/PlusButton';
-import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
+import { generateBrushThumbnail } from '@/utils/brushThumbnailGenerator';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { createCustomBrushPreset } from '@/utils/customBrushPreset';
 import {
