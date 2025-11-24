@@ -7,7 +7,13 @@ import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { selectEffectiveColorCyclePlaying, useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape, type Layer, type BrushSettings } from '../types';
-import { getRisographPattern, getRisographEffectSettings } from '../utils/risographTexture';
+import {
+  getRisographPattern,
+  getRisographEffectSettings,
+  getRisographFilter,
+  createSeededRng,
+  hashNumbers
+} from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
@@ -1933,17 +1939,52 @@ export const useBrushEngineSimplified = () => {
           // Save current state
           ctx.save();
           
-          // Add misregistration offset
-          const misregX = (Math.random() - 0.5) * effect.jitter;
-          const misregY = (Math.random() - 0.5) * effect.jitter;
+          const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+          const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+          const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+          const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+          if ((maxX - minX) * (maxY - minY) < 16) {
+            ctx.restore();
+            return;
+          }
+
+          const seed = hashNumbers(minX, minY, maxX, maxY, risographIntensity);
+          const rng = createSeededRng(seed);
+          const misregXBase = (rng() - 0.5) * effect.jitter;
+          const misregYBase = (rng() - 0.5) * effect.jitter;
+          const misregX = isPixelBrush ? 0 : misregXBase;
+          const misregY = isPixelBrush ? 0 : misregYBase;
+          const rotation = isPixelBrush ? 0 : (rng() - 0.5) * 0.08; // keep pixel edges clean
+          const scale = isPixelBrush ? 1 : 1 + (rng() - 0.5) * 0.04;
+          const filter = isPixelBrush
+            ? 'none'
+            : getRisographFilter(
+                tools.brushSettings.color || '#000',
+                tools.brushSettings.risographColorShift ?? 3,
+                rng
+              );
+
+          const cx = (minX + maxX) / 2;
+          const cy = (minY + maxY) / 2;
           ctx.translate(misregX, misregY);
-          
-          // Create clipping path for the rotated rectangle
+          ctx.translate(cx, cy);
+          ctx.rotate(rotation);
+          ctx.scale(scale, scale);
+          ctx.translate(-cx, -cy);
+
+          // Create clipping path for the rotated rectangle (transforms already applied)
           ctx.beginPath();
-          ctx.moveTo(corners[0].x, corners[0].y);
-          corners.slice(1).forEach(corner => {
-            ctx.lineTo(corner.x, corner.y);
-          });
+          if (isPixelBrush) {
+            ctx.moveTo(Math.round(corners[0].x), Math.round(corners[0].y));
+            corners.slice(1).forEach(corner => {
+              ctx.lineTo(Math.round(corner.x), Math.round(corner.y));
+            });
+          } else {
+            ctx.moveTo(corners[0].x, corners[0].y);
+            corners.slice(1).forEach(corner => {
+              ctx.lineTo(corner.x, corner.y);
+            });
+          }
           ctx.closePath();
           ctx.clip();
           
@@ -1951,12 +1992,9 @@ export const useBrushEngineSimplified = () => {
           setMultiplyIfUnlocked(ctx);
           ctx.fillStyle = pattern;
           ctx.globalAlpha = effect.alpha;
+          ctx.filter = filter;
           
           // Fill the clipped area with the pattern
-          const minX = Math.floor(Math.min(...corners.map(c => c.x)));
-          const minY = Math.floor(Math.min(...corners.map(c => c.y)));
-          const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
-          const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
           ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
           
           // Restore state
@@ -1968,7 +2006,7 @@ export const useBrushEngineSimplified = () => {
     // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, isPixelBrush]);
+  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.risographColorShift, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -1982,21 +2020,56 @@ export const useBrushEngineSimplified = () => {
       // Save current state
       ctx.save();
       
-      // Add misregistration offset
       const effect = getRisographEffectSettings(risographIntensity, { isPixelBrush });
       if (effect.alpha <= 0) {
         ctx.restore();
         return;
       }
-      const misregX = (Math.random() - 0.5) * effect.jitter;
-      const misregY = (Math.random() - 0.5) * effect.jitter;
+
+      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
+      if ((maxX - minX) * (maxY - minY) < 16) {
+        ctx.restore();
+        return;
+      }
+
+      const seed = hashNumbers(minX, minY, maxX, maxY, risographIntensity);
+      const rng = createSeededRng(seed);
+      const misregXBase = (rng() - 0.5) * effect.jitter;
+      const misregYBase = (rng() - 0.5) * effect.jitter;
+      const misregX = isPixelBrush ? Math.round(misregXBase) : misregXBase;
+      const misregY = isPixelBrush ? Math.round(misregYBase) : misregYBase;
+      const rotation = isPixelBrush ? 0 : (rng() - 0.5) * 0.08; // ~±4.5°
+      const scale = isPixelBrush ? 1 : 1 + (rng() - 0.5) * 0.04; // 0.98–1.02
+      const filter = getRisographFilter(
+        tools.brushSettings.color || '#000',
+        tools.brushSettings.risographColorShift ?? 3,
+        rng
+      );
+      const alphaScale = tools.brushSettings.ditherEnabled ? 0.65 : 1;
+
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
       ctx.translate(misregX, misregY);
-      
-      // Create clipping path for the polygon
+      ctx.translate(cx, cy);
+      ctx.rotate(rotation);
+      ctx.scale(scale, scale);
+      ctx.translate(-cx, -cy);
+
+      // Create clipping path for the polygon with transform applied
       ctx.beginPath();
-      ctx.moveTo(vertices[0].x, vertices[0].y);
-      for (let i = 1; i < vertices.length; i++) {
-        ctx.lineTo(vertices[i].x, vertices[i].y);
+      if (isPixelBrush) {
+        ctx.moveTo(Math.round(vertices[0].x), Math.round(vertices[0].y));
+        for (let i = 1; i < vertices.length; i++) {
+          ctx.lineTo(Math.round(vertices[i].x), Math.round(vertices[i].y));
+        }
+      } else {
+        ctx.moveTo(vertices[0].x, vertices[0].y);
+        for (let i = 1; i < vertices.length; i++) {
+          ctx.lineTo(vertices[i].x, vertices[i].y);
+        }
       }
       ctx.closePath();
       ctx.clip();
@@ -2004,19 +2077,16 @@ export const useBrushEngineSimplified = () => {
       // Apply texture with multiply blend mode
       setMultiplyIfUnlocked(ctx);
       ctx.fillStyle = pattern;
-      ctx.globalAlpha = effect.alpha; // Slightly stronger effect derived from helper
+      ctx.globalAlpha = effect.alpha * alphaScale; // Keep dither visible when both are on
+      ctx.filter = filter;
       
       // Fill the clipped area with the pattern
-      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
-      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
-      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
-      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
       ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
       
       // Restore state
       ctx.restore();
     }
-  }, [setMultiplyIfUnlocked, isPixelBrush]);
+  }, [setMultiplyIfUnlocked, isPixelBrush, tools.brushSettings.color, tools.brushSettings.risographColorShift]);
 
   const applyColorCycleRisographOverlay = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -2043,7 +2113,6 @@ export const useBrushEngineSimplified = () => {
     if (effect.alpha <= 0) {
       return;
     }
-
     const normalizedIntensity = Math.max(0, Math.min(1, intensity / 100));
     const overlayStrength = Math.min(1, outputOpacity * (0.12 + normalizedIntensity * 0.08));
     if (overlayStrength <= 0.01) {
@@ -2067,15 +2136,31 @@ export const useBrushEngineSimplified = () => {
     tempCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
     tempCtx.fillRect(0, 0, width, height);
 
-    const misregX = (Math.random() - 0.5) * effect.jitter;
-    const misregY = (Math.random() - 0.5) * effect.jitter;
+    const seed = hashNumbers(width, height, intensity, tools.brushSettings.risographColorShift ?? 3);
+    const rng = createSeededRng(seed);
+    const misregX = (rng() - 0.5) * effect.jitter;
+    const misregY = (rng() - 0.5) * effect.jitter;
+    const rotation = (rng() - 0.5) * 0.08;
+    const scale = 1 + (rng() - 0.5) * 0.04;
+    const filter = getRisographFilter(
+      tools.brushSettings.color || '#000',
+      tools.brushSettings.risographColorShift ?? 3,
+      rng
+    );
+
     tempCtx.translate(misregX, misregY);
     tempCtx.globalCompositeOperation = 'source-over';
     tempCtx.globalAlpha = 1;
+    tempCtx.translate(width / 2, height / 2);
+    tempCtx.rotate(rotation);
+    tempCtx.scale(scale, scale);
+    tempCtx.translate(-width / 2, -height / 2);
+    tempCtx.filter = filter;
     tempCtx.fillStyle = pattern;
     tempCtx.fillRect(-misregX, -misregY, width, height);
     tempCtx.setTransform(1, 0, 0, 1, 0, 0);
     tempCtx.globalCompositeOperation = 'source-over';
+    tempCtx.filter = 'none';
 
     ctx.save();
     ctx.globalCompositeOperation = 'soft-light';
@@ -2085,7 +2170,7 @@ export const useBrushEngineSimplified = () => {
     ctx.restore();
 
     canvasPool.release(tempCanvas);
-  }, [tools.brushSettings.risographIntensity]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.risographColorShift, tools.brushSettings.color]);
 
   /**
    * Draw polygon with gradient - DEBUG VERSION
@@ -2431,7 +2516,7 @@ export const useBrushEngineSimplified = () => {
       // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
+  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, tools.brushSettings.risographColorShift, applyRisographEffect]);
 
 
   /**

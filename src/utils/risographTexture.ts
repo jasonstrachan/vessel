@@ -1,6 +1,9 @@
+import { parseCssColor } from './color/parseCssColor';
+import { rgbToHsl } from './imageProcessing';
+
 /**
- * Shared risograph texture cache for consistent performance
- * OPTIMIZED VERSION - Maintains all original features with better performance
+ * Shared risograph texture cache for consistent performance.
+ * Generates an organic, non‑halftone grain with coarse and fine dot layers.
  */
 let cachedRisographTexture: HTMLCanvasElement | null = null;
 const cachedPatternMap = new WeakMap<CanvasRenderingContext2D, CanvasPattern>();
@@ -10,6 +13,33 @@ const clamp01 = (value: number): number => {
   if (value >= 1) return 1;
   return value;
 };
+
+// Simple seeded RNG (mulberry32) for deterministic pattern generation
+const mulberry32 = (seed: number) => {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const BASE_SEED = Math.floor(Math.random() * 0xffffffff);
+
+export const hashNumbers = (...nums: number[]): number => {
+  let hash = 2166136261;
+  for (const n of nums) {
+    hash ^= Math.imul(Math.floor(n * 1000), 16777619);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
+
+export const createSeededRng = (seed: number): (() => number) => mulberry32(seed || BASE_SEED);
 
 export interface RisographEffectSettings {
   alpha: number;
@@ -55,9 +85,8 @@ export const getRisographEffectSettings = (
 };
 
 /**
- * Creates an optimized risograph noise texture using GPU-accelerated operations.
- * Uses procedural generation with canvas operations instead of pixel manipulation
- * for better performance.
+ * Creates an organic risograph noise texture using layered coarse/fine dots.
+ * Generated once per session; uses a seeded RNG for determinism.
  */
 const getRisographTexture = (): HTMLCanvasElement => {
   if (cachedRisographTexture) {
@@ -68,31 +97,86 @@ const getRisographTexture = (): HTMLCanvasElement => {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d', { 
+  const ctx = canvas.getContext('2d', {
     willReadFrequently: false,
     desynchronized: true // Enable GPU acceleration
   });
 
   if (!ctx) return canvas;
 
-  // Use GPU-accelerated noise generation with rect drawing
+  const rng = mulberry32(BASE_SEED);
+
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, size, size);
-  
-  // Generate noise using single-pixel dots for a tighter texture
-  const dotSize = 1;
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-  
-  for (let y = 0; y < size; y += dotSize) {
-    for (let x = 0; x < size; x += dotSize) {
-      if (Math.random() > 0.38) {
-        ctx.fillRect(x, y, dotSize, dotSize);
-      }
+
+  const drawDot = (x: number, y: number, radius: number, alpha: number) => {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+    ctx.fill();
+  };
+
+  // Coarse organic dots (slightly clustered)
+  const coarseDots = Math.floor(size * size * 0.006);
+  for (let i = 0; i < coarseDots; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const radius = 0.75 + rng() * 1.6; // 0.75–2.35px
+    const alpha = 0.12 + rng() * 0.22;
+    drawDot(x, y, radius, alpha);
+
+    // Tiny cluster satellites for organic clumps
+    const satellites = 2 + Math.floor(rng() * 3); // 2-4 extras
+    for (let s = 0; s < satellites; s++) {
+      const angle = rng() * Math.PI * 2;
+      const dist = 0.4 + rng() * 1.4;
+      const sx = x + Math.cos(angle) * dist;
+      const sy = y + Math.sin(angle) * dist;
+      const sr = 0.25 + rng() * 0.5;
+      const sa = alpha * (0.3 + rng() * 0.5);
+      drawDot(sx, sy, sr, sa);
     }
   }
-  
-  // Skip blur for better performance and crisper pixels
-  // The noise pattern is already good enough without blur
+
+  // Fine paper grain (denser, very small)
+  const fineDots = Math.floor(size * size * 0.045);
+  for (let i = 0; i < fineDots; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const radius = 0.18 + rng() * 0.32; // 0.18–0.5px
+    const alpha = 0.03 + rng() * 0.08;
+    drawDot(x, y, radius, alpha);
+  }
+
+  // Micro specks for extra detail (very small, very light)
+  const microDots = Math.floor(size * size * 0.012);
+  for (let i = 0; i < microDots; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const radius = 0.08 + rng() * 0.12; // 0.08–0.2px
+    const alpha = 0.008 + rng() * 0.025;
+    drawDot(x, y, radius, alpha);
+  }
+
+  // Faint paper fibers (short strokes, very low alpha)
+  const fibers = Math.floor(size * size * 0.0006);
+  for (let i = 0; i < fibers; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const len = 2.5 + rng() * 4;
+    const angle = rng() * Math.PI * 2;
+    const ax = Math.cos(angle);
+    const ay = Math.sin(angle);
+    const steps = 6 + Math.floor(rng() * 6);
+    const alpha = 0.01 + rng() * 0.015;
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const px = x + ax * len * t;
+      const py = y + ay * len * t;
+      const radius = 0.12 + rng() * 0.14;
+      drawDot(px, py, radius, alpha);
+    }
+  }
 
   cachedRisographTexture = canvas;
   return cachedRisographTexture;
@@ -124,6 +208,42 @@ export const getRisographPattern = (ctx: CanvasRenderingContext2D): CanvasPatter
     cachedPatternMap.set(ctx, pattern);
   }
   return pattern;
+};
+
+/**
+ * Build a CSS filter string that gently nudges hue/saturation toward CMY plates.
+ * Accepts a seeded RNG for deterministic per-stroke variation.
+ */
+export const getRisographFilter = (
+  brushColor: string,
+  colorShift: number = 3,
+  rng: (() => number) | null = null
+): string => {
+  const parsed = parseCssColor(brushColor);
+  const [h] = rgbToHsl(parsed.r, parsed.g, parsed.b);
+
+  // Target hues approximating risograph plates (deg)
+  const plateHues = [190, 330, 60];
+  const nearest = plateHues.reduce((acc, val) => {
+    const diff = Math.abs(val - h);
+    return diff < acc.diff ? { hue: val, diff } : acc;
+  }, { hue: plateHues[0], diff: Infinity }).hue;
+
+  const limitedShift = clamp(colorShift ?? 0, 0, 10);
+  const rngFn = rng ?? Math.random;
+  const jitter = (rngFn() - 0.5) * (limitedShift * 1.2); // ±12deg max when shift=10
+  const baseNudge = clamp(nearest - h, -limitedShift * 2, limitedShift * 2);
+  const hueRotate = clamp(baseNudge + jitter, -12, 12);
+
+  // Slight saturation lift to keep ink feel
+  const satLift = 1 + limitedShift * 0.01 + (rngFn() - 0.5) * 0.02;
+  const satPercent = clamp(satLift * 100, 95, 112);
+
+  if (Math.abs(hueRotate) < 0.001 && Math.abs(satPercent - 100) < 0.5) {
+    return 'none';
+  }
+
+  return `hue-rotate(${hueRotate.toFixed(2)}deg) saturate(${satPercent.toFixed(1)}%)`;
 };
 
 /**

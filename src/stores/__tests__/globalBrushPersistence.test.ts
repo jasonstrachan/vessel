@@ -38,4 +38,59 @@ describe('global brush persistence', () => {
 
     expect(saveMock).toHaveBeenCalled();
   });
+
+  it('persists and restores sampling prefs for the resampler brush', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'resampler-brush': { continuousSampling: false, resampleInterval: 3 },
+      },
+    });
+
+    const { resamplerBrushPreset } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    // Hydration should keep the stored toggle values
+    expect(store.brushSpecificSettings['resampler-brush']?.continuousSampling).toBe(false);
+
+    // Selecting the brush should apply the stored values to active settings
+    store.setBrushPreset(resamplerBrushPreset);
+    const afterPreset = useAppStore.getState().tools.brushSettings;
+    expect(afterPreset.continuousSampling).toBe(false);
+    expect(afterPreset.resampleInterval).toBe(3);
+
+    // Changing the toggle should write back to persistence payload
+    store.setBrushSettings({ continuousSampling: true, resampleInterval: 2 });
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['resampler-brush']).toEqual(
+      expect.objectContaining({ continuousSampling: true, resampleInterval: 2 })
+    );
+  });
+
+  it('remembers polygon sampling toggle per brush', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'polygon-gradient-brush': { polygonSampleColors: false },
+      },
+    });
+
+    const { polygonGradientBrushPreset } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    // Hydration keeps stored toggle
+    expect(store.brushSpecificSettings['polygon-gradient-brush']?.polygonSampleColors).toBe(false);
+
+    // Selecting preset should apply stored off state
+    store.setBrushPreset(polygonGradientBrushPreset);
+    const active = useAppStore.getState().tools.brushSettings;
+    expect(active.polygonSampleColors).toBe(false);
+
+    // Changing it back on should persist
+    store.setBrushSettings({ polygonSampleColors: true });
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['polygon-gradient-brush']).toEqual(
+      expect.objectContaining({ polygonSampleColors: true })
+    );
+  });
 });

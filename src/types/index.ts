@@ -495,6 +495,7 @@ export interface BrushSettings {
   // Risograph texture effect settings
   risographIntensity: number; // 0 to 100 (0 = no effect, 100 = maximum dissolve effect)
   risographOutline: boolean; // true = add rough outline effect, false = clean edges (default: false)
+  risographColorShift?: number; // 0-10: subtle hue jitter toward CMY plates
   // Dither effect for gradients using Sierra Lite algorithm
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color

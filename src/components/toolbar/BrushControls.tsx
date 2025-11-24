@@ -48,6 +48,65 @@ const PRESSURE_MIN_BOUND = PRESSURE_MIN_PERCENT;
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
 const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
 
+type RisoControlsProps = {
+  settings: BrushSettings;
+  onChange: (updates: Partial<BrushSettings>) => void;
+  idSuffix: string;
+};
+
+const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffix }) => {
+  return (
+    <div className="mb-2">
+      <div className="flex items-center gap-2">
+        <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+          Riso
+        </label>
+        <ProgressSlider
+          value={settings.risographIntensity || 0}
+          min={0}
+          max={100}
+          step={1}
+          onChange={(value) => onChange({ risographIntensity: Math.round(value) })}
+          aria-label="Risograph Intensity"
+          className="flex-1"
+        />
+      </div>
+
+      {(settings.risographIntensity || 0) > 0 && (
+        <>
+          <div className="flex items-center gap-2 mt-1">
+            <label className={`${CONTROL_LABEL_CLASS} text-xs`}>
+              Hue Jitter
+            </label>
+            <ProgressSlider
+              value={settings.risographColorShift ?? 3}
+              min={0}
+              max={10}
+              step={1}
+              onChange={(value) => onChange({ risographColorShift: Math.round(value) })}
+              aria-label="Riso Hue Jitter"
+              className="flex-1"
+            />
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <label
+              htmlFor={`riso-outline-${idSuffix}`}
+              className={`${CONTROL_LABEL_CLASS} text-xs`}
+            >
+              Edges
+            </label>
+            <CustomSwitch
+              id={`riso-outline-${idSuffix}`}
+              checked={settings.risographOutline || false}
+              onChange={(checked) => onChange({ risographOutline: checked })}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
@@ -689,42 +748,11 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Riso */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Riso
-            </label>
-            <ProgressSlider
-              value={activeSettings.risographIntensity || 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({ risographIntensity: Math.round(value) })
-              }
-              aria-label="Risograph Intensity"
-              className="flex-1"
-            />
-          </div>
-          {(activeSettings.risographIntensity || 0) > 0 && (
-            <div className="flex items-center gap-2 mt-1">
-              <label
-                htmlFor="riso-outline-color-cycle"
-                className={`${CONTROL_LABEL_CLASS} text-xs`}
-              >
-                Edges
-              </label>
-              <CustomSwitch
-                id="riso-outline-color-cycle"
-                checked={activeSettings.risographOutline || false}
-                onChange={(checked) =>
-                  setActiveSettings({ risographOutline: checked })
-                }
-              />
-            </div>
-          )}
-        </div>
+        <RisoControls
+          settings={activeSettings}
+          onChange={setActiveSettings}
+          idSuffix="color-cycle"
+        />
 
         {/* Gradient Bands / Band Gap */}
         <div className="mb-2">
@@ -1349,43 +1377,11 @@ const BrushControls = () => {
         </div>
 
 
-        {/* Riso */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Riso
-            </label>
-            <ProgressSlider
-              value={activeSettings.risographIntensity || 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({ risographIntensity: Math.round(value) })
-              }
-              aria-label="Risograph Intensity"
-              className="flex-1"
-            />
-          </div>
-          {/* Risograph Outline Toggle - only show when risograph is enabled */}
-          {(activeSettings.risographIntensity || 0) > 0 && (
-            <div className="flex items-center gap-2 mt-1">
-              <label
-                htmlFor="riso-outline-resampler"
-                className="text-[#D9D9D9] w-16 text-xs"
-              >
-                Edges
-              </label>
-              <CustomSwitch
-                id="riso-outline-resampler"
-                checked={activeSettings.risographOutline || false}
-                onChange={(checked) =>
-                  setActiveSettings({ risographOutline: checked })
-                }
-              />
-            </div>
-          )}
-        </div>
+        <RisoControls
+          settings={activeSettings}
+          onChange={setActiveSettings}
+          idSuffix="resampler"
+        />
 
         {/* Shape Mode - Draw closed polygon shapes */}
         <div className="mb-2">
@@ -1771,43 +1767,11 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Riso */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Riso
-            </label>
-            <ProgressSlider
-              value={activeSettings.risographIntensity || 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({ risographIntensity: Math.round(value) })
-              }
-              aria-label="Risograph Intensity"
-              className="flex-1"
-            />
-          </div>
-          {/* Risograph Outline Toggle - only show when risograph is enabled */}
-          {(activeSettings.risographIntensity || 0) > 0 && (
-            <div className="flex items-center gap-2 mt-1">
-              <label
-                htmlFor="riso-outline-gradient"
-                className="text-[#D9D9D9] w-16 text-xs"
-              >
-                Edges
-              </label>
-              <CustomSwitch
-                id="riso-outline-gradient"
-                checked={activeSettings.risographOutline || false}
-                onChange={(checked) =>
-                  setActiveSettings({ risographOutline: checked })
-                }
-              />
-            </div>
-          )}
-        </div>
+        <RisoControls
+          settings={activeSettings}
+          onChange={setActiveSettings}
+          idSuffix="gradient"
+        />
 
         {/* Dither */}
         <div className="mb-2">
@@ -2210,43 +2174,11 @@ const BrushControls = () => {
       </div>
 
 
-      {/* Riso */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-            Riso
-          </label>
-          <ProgressSlider
-            value={activeSettings.risographIntensity || 0}
-            min={0}
-            max={100}
-            step={1}
-            onChange={(value) =>
-              setActiveSettings({ risographIntensity: Math.round(value) })
-            }
-            aria-label="Risograph Intensity"
-            className="flex-1"
-          />
-        </div>
-        {/* Risograph Outline Toggle - only show when risograph is enabled */}
-        {(activeSettings.risographIntensity || 0) > 0 && (
-          <div className="flex items-center gap-2 mt-1">
-            <label
-              htmlFor="riso-outline"
-              className="text-[#D9D9D9] w-16 text-xs"
-            >
-              Edges
-            </label>
-            <CustomSwitch
-              id="riso-outline"
-              checked={activeSettings.risographOutline || false}
-              onChange={(checked) =>
-                setActiveSettings({ risographOutline: checked })
-              }
-            />
-          </div>
-        )}
-      </div>
+      <RisoControls
+        settings={activeSettings}
+        onChange={setActiveSettings}
+        idSuffix="default"
+      />
 
       {/* Shape Mode - Draw closed polygon shapes */}
       <div className="mb-2">
