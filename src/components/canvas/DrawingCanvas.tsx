@@ -220,6 +220,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const canvasZoom = useAppStore((state) => state.canvas.zoom);
   const canvasOffsetX = useAppStore((state) => state.canvas.offsetX);
   const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
+  const displayMode = useAppStore((state) => state.canvas.displayMode);
   const compositeBitmap = useAppStore((state) => state.currentCompositeBitmap);
   const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
   const compositeSegmentsVersion = useAppStore((state) => state.compositeSegmentsVersion);
@@ -758,8 +759,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     const isPixelBrush =
       tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
       (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
-    underCtx.imageSmoothingEnabled = !isPixelBrush;
-    overCtx.imageSmoothingEnabled = !isPixelBrush;
+    const isPixelatedDisplay = displayMode === 'pixelated';
+    const allowSmoothing = !isPixelatedDisplay && !isPixelBrush;
+    underCtx.imageSmoothingEnabled = allowSmoothing;
+    overCtx.imageSmoothingEnabled = allowSmoothing;
 
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
     const activeLayer = activeLayerId ? sortedLayers.find((layer) => layer.id === activeLayerId) ?? null : null;
@@ -862,7 +865,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     layers,
     activeLayerId,
     tools.brushSettings.brushShape,
-    tools.brushSettings.antialiasing
+    tools.brushSettings.antialiasing,
+    displayMode
   ]);
 
   const ensureStaticCompositeCanvas = useCallback(() => {
@@ -903,7 +907,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
       const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
       const activeId = activeLayerId;
-      const shouldSmooth = !(tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+      const isPixelatedDisplay = displayMode === 'pixelated';
+      const shouldSmooth = !isPixelatedDisplay && !(tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
         (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing));
 
       ctx.save();
@@ -1086,7 +1091,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
       const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
         (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
-      ctx.imageSmoothingEnabled = !isPixelBrush && scale < 3;
+      const isPixelatedDisplay = displayMode === 'pixelated';
+      ctx.imageSmoothingEnabled = !isPixelatedDisplay && !isPixelBrush && scale < 3;
       
       
       // Check if we're actively erasing
@@ -1467,6 +1473,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     layers,
     tools.brushSettings.brushShape,
     tools.brushSettings.antialiasing,
+    displayMode,
     tools.currentTool,
     selectionStart,
     selectionEnd,
@@ -3334,6 +3341,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     )
   );
 
+  const shouldPixelateDisplay = displayMode === 'pixelated' || shouldForcePixelated;
+
   const canvasStyle: React.CSSProperties = {
     display: 'block',
     width: '100%',
@@ -3341,10 +3350,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     touchAction: 'none',
     userSelect: 'none',
     cursor: cursorStyle,
-    imageRendering: shouldForcePixelated ? 'pixelated' : 'auto'
+    imageRendering: shouldPixelateDisplay ? 'pixelated' : 'auto'
   };
 
-  if (shouldForcePixelated) {
+  if (shouldPixelateDisplay) {
     Object.assign(canvasStyle, {
       WebkitImageRendering: 'pixelated',
       MozImageRendering: 'crisp-edges',
@@ -3392,7 +3401,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           height: '100%',
           mixBlendMode: 'normal',
           pointerEvents: 'none',
-          imageRendering: (canvasZoom || 1) > 3 ? 'pixelated' : 'auto',
+          imageRendering: shouldPixelateDisplay ? 'pixelated' : 'auto',
           touchAction: 'none', // Prevent scrolling/zooming on touch devices
           userSelect: 'none', // Prevent text selection
           cursor: cursorStyle,

@@ -1380,10 +1380,22 @@ export const useBrushEngineSimplified = () => {
 
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const bounds = normalizeRectForCanvas(region, canvasWidth, canvasHeight);
-    const { x, y, width, height } = bounds;
+    let { x, y, width, height } = bounds;
     if (width <= 0 || height <= 0) {
       return;
     }
+
+    // Clamp sampling region to available mask/canvas bounds to avoid OOB reads
+    const maskW = (maskSource as { width?: number } | null)?.width ?? ctx.canvas.width;
+    const maskH = (maskSource as { height?: number } | null)?.height ?? ctx.canvas.height;
+    if (maskW <= 0 || maskH <= 0) return;
+
+    const maxW = maskW - x;
+    const maxH = maskH - y;
+    if (maxW <= 0 || maxH <= 0) return;
+    width = Math.min(width, maxW);
+    height = Math.min(height, maxH);
+    if (width <= 0 || height <= 0) return;
 
     const pattern = getRisographPattern(ctx);
     if (!pattern) return;
@@ -1434,7 +1446,7 @@ export const useBrushEngineSimplified = () => {
       return layer;
     };
 
-    // Build stroke alpha mask from source data (alpha-only), then threshold/erode for crisp edge
+    // Build stroke alpha mask from source data (alpha-only), hard-threshold to avoid fringes
     const mask = canvasPool.acquire(width, height);
     const mctx = mask.getContext('2d');
     if (!mctx) {
@@ -1446,49 +1458,9 @@ export const useBrushEngineSimplified = () => {
     const dstArr = alphaOnly.data;
     for (let i = 0, j = 3; j < srcArr.length; i++, j += 4) {
       const a = srcArr[j];
-      const hard = isPixelBrush ? (a > 0 ? 255 : 0) : a; // pixel brushes: hard edge
-      dstArr[i * 4 + 3] = hard;
+      dstArr[i * 4 + 3] = a > 0 ? 255 : 0;
     }
     mctx.putImageData(alphaOnly, 0, 0);
-
-    // Dilate then erode to kill AA fringe and shrink mask slightly (applies to all)
-    const temp = mctx.getImageData(0, 0, width, height);
-    const data = temp.data;
-    const copy = new Uint8ClampedArray(data);
-    const w = width;
-    const h = height;
-    const idx = (px: number, py: number) => (py * w + px) * 4 + 3;
-
-    // Dilate 1px
-    for (let y = 1; y < h - 1; y++) {
-      for (let x = 1; x < w - 1; x++) {
-        const i = idx(x, y);
-        if (copy[i] > 0) continue;
-        let maxN = 0;
-        maxN = Math.max(maxN, copy[idx(x + 1, y)]);
-        maxN = Math.max(maxN, copy[idx(x - 1, y)]);
-        maxN = Math.max(maxN, copy[idx(x, y + 1)]);
-        maxN = Math.max(maxN, copy[idx(x, y - 1)]);
-        if (maxN > 0) data[i] = 255;
-      }
-    }
-
-    // Erode 1px (removes fringe and keeps overlay inside stroke)
-    copy.set(data);
-    for (let y = 1; y < h - 1; y++) {
-      for (let x = 1; x < w - 1; x++) {
-        const i = idx(x, y);
-        if (copy[i] === 0) continue;
-        const left = copy[idx(x - 1, y)];
-        const right = copy[idx(x + 1, y)];
-        const up = copy[idx(x, y - 1)];
-        const down = copy[idx(x, y + 1)];
-        const minN = Math.min(left, right, up, down);
-        if (minN === 0) data[i] = 0;
-      }
-    }
-
-    mctx.putImageData(temp, 0, 0);
 
     const applyLayerWithMask = (
       layer: HTMLCanvasElement | null,
