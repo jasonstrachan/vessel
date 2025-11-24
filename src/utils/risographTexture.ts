@@ -116,50 +116,50 @@ const getRisographTexture = (): HTMLCanvasElement => {
     ctx.fill();
   };
 
-  // Coarse organic dots (slightly clustered)
-  const coarseDots = Math.floor(size * size * 0.006);
+  // Coarse organic dots (slightly clustered) — denser
+  const coarseDots = Math.floor(size * size * 0.014);
   for (let i = 0; i < coarseDots; i++) {
     const x = rng() * size;
     const y = rng() * size;
-    const radius = 0.75 + rng() * 1.6; // 0.75–2.35px
-    const alpha = 0.12 + rng() * 0.22;
+    const radius = 0.55 + rng() * 1.35; // 0.55–1.9px
+    const alpha = 0.16 + rng() * 0.26;
     drawDot(x, y, radius, alpha);
 
     // Tiny cluster satellites for organic clumps
-    const satellites = 2 + Math.floor(rng() * 3); // 2-4 extras
+    const satellites = 4 + Math.floor(rng() * 4); // 4-7 extras
     for (let s = 0; s < satellites; s++) {
       const angle = rng() * Math.PI * 2;
       const dist = 0.4 + rng() * 1.4;
       const sx = x + Math.cos(angle) * dist;
       const sy = y + Math.sin(angle) * dist;
-      const sr = 0.25 + rng() * 0.5;
-      const sa = alpha * (0.3 + rng() * 0.5);
+      const sr = 0.18 + rng() * 0.36;
+      const sa = alpha * (0.4 + rng() * 0.45);
       drawDot(sx, sy, sr, sa);
     }
   }
 
   // Fine paper grain (denser, very small)
-  const fineDots = Math.floor(size * size * 0.045);
+  const fineDots = Math.floor(size * size * 0.18);
   for (let i = 0; i < fineDots; i++) {
     const x = rng() * size;
     const y = rng() * size;
-    const radius = 0.18 + rng() * 0.32; // 0.18–0.5px
-    const alpha = 0.03 + rng() * 0.08;
+    const radius = 0.12 + rng() * 0.22; // 0.12–0.34px
+    const alpha = 0.038 + rng() * 0.08;
     drawDot(x, y, radius, alpha);
   }
 
   // Micro specks for extra detail (very small, very light)
-  const microDots = Math.floor(size * size * 0.012);
+  const microDots = Math.floor(size * size * 0.08);
   for (let i = 0; i < microDots; i++) {
     const x = rng() * size;
     const y = rng() * size;
-    const radius = 0.08 + rng() * 0.12; // 0.08–0.2px
-    const alpha = 0.008 + rng() * 0.025;
+    const radius = 0.05 + rng() * 0.07; // 0.05–0.12px
+    const alpha = 0.014 + rng() * 0.026;
     drawDot(x, y, radius, alpha);
   }
 
-  // Faint paper fibers (short strokes, very low alpha)
-  const fibers = Math.floor(size * size * 0.0006);
+  // Faint paper fibers (short strokes, very low alpha) — slightly denser
+  const fibers = Math.floor(size * size * 0.0015);
   for (let i = 0; i < fibers; i++) {
     const x = rng() * size;
     const y = rng() * size;
@@ -213,6 +213,7 @@ export const getRisographPattern = (ctx: CanvasRenderingContext2D): CanvasPatter
 /**
  * Build a CSS filter string that gently nudges hue/saturation toward CMY plates.
  * Accepts a seeded RNG for deterministic per-stroke variation.
+ * Tuned to be subtle: ≤ ±4° hue, ≤ +4% saturation.
  */
 export const getRisographFilter = (
   brushColor: string,
@@ -231,19 +232,85 @@ export const getRisographFilter = (
 
   const limitedShift = clamp(colorShift ?? 0, 0, 10);
   const rngFn = rng ?? Math.random;
-  const jitter = (rngFn() - 0.5) * (limitedShift * 1.2); // ±12deg max when shift=10
-  const baseNudge = clamp(nearest - h, -limitedShift * 2, limitedShift * 2);
-  const hueRotate = clamp(baseNudge + jitter, -12, 12);
+  const jitter = (rngFn() - 0.5) * (limitedShift * 0.6); // slight jitter
+  const baseNudge = clamp(nearest - h, -limitedShift * 1.0, limitedShift * 1.0);
+  const hueRotate = clamp(baseNudge + jitter, -6, 6);
 
   // Slight saturation lift to keep ink feel
-  const satLift = 1 + limitedShift * 0.01 + (rngFn() - 0.5) * 0.02;
-  const satPercent = clamp(satLift * 100, 95, 112);
+  const satLift = 1 + limitedShift * 0.006 + (rngFn() - 0.5) * 0.012;
+  const satPercent = clamp(satLift * 100, 96, 106);
 
   if (Math.abs(hueRotate) < 0.001 && Math.abs(satPercent - 100) < 0.5) {
     return 'none';
   }
 
   return `hue-rotate(${hueRotate.toFixed(2)}deg) saturate(${satPercent.toFixed(1)}%)`;
+};
+
+/**
+ * Create a stroke-scoped tint mask so color shifts apply only to a band of the stroke.
+ * For pixel brushes, a thin inset ring; for smooth brushes, a thicker feathered band with light noise.
+ */
+export const createRisoTintMask = (
+  width: number,
+  height: number,
+  isPixelBrush: boolean,
+  rng: () => number
+): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(width));
+  canvas.height = Math.max(1, Math.ceil(height));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'black';
+
+  if (isPixelBrush) {
+    // Slightly thicker ring + patch noise
+    const inset = 1;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(inset + 1, inset + 1, Math.max(0, canvas.width - (inset + 1) * 2), Math.max(0, canvas.height - (inset + 1) * 2));
+    const noiseCount = Math.floor(canvas.width * canvas.height * 0.08);
+    for (let i = 0; i < noiseCount; i++) {
+      const x = Math.floor(rng() * canvas.width);
+      const y = Math.floor(rng() * canvas.height);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  } else {
+    // Feathered edge band + broader noise patches to cover ~50% of area
+    const inset = Math.max(2, Math.floor(Math.min(canvas.width, canvas.height) * 0.06));
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(inset, inset, Math.max(0, canvas.width - inset * 2), Math.max(0, canvas.height - inset * 2));
+
+    // Feather toward center
+    ctx.globalAlpha = 0.45;
+    ctx.fillRect(inset * 0.5, inset * 0.5, Math.max(0, canvas.width - inset), Math.max(0, canvas.height - inset));
+    ctx.globalAlpha = 1;
+
+    // Coarse blotches
+    const blotches = Math.floor(canvas.width * canvas.height * 0.005);
+    for (let i = 0; i < blotches; i++) {
+      const bw = 4 + Math.floor(rng() * 10);
+      const bh = 4 + Math.floor(rng() * 10);
+      const x = Math.floor(rng() * Math.max(1, canvas.width - bw));
+      const y = Math.floor(rng() * Math.max(1, canvas.height - bh));
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(x, y, bw, bh);
+    }
+
+    // Fine speckle
+    const noiseCount = Math.floor(canvas.width * canvas.height * 0.02);
+    for (let i = 0; i < noiseCount; i++) {
+      const x = Math.floor(rng() * canvas.width);
+      const y = Math.floor(rng() * canvas.height);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  return canvas;
 };
 
 /**

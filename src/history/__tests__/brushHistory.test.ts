@@ -40,6 +40,14 @@ const getPixel = (image: ImageData, x: number, y: number): [number, number, numb
   ];
 };
 
+const setPixel = (image: ImageData, x: number, y: number, rgba: [number, number, number, number]): void => {
+  const index = (y * image.width + x) * 4;
+  image.data[index] = rgba[0];
+  image.data[index + 1] = rgba[1];
+  image.data[index + 2] = rgba[2];
+  image.data[index + 3] = rgba[3];
+};
+
 const createLayer = (id: string, imageData: ImageData): Layer => {
   const framebuffer = document.createElement('canvas');
   framebuffer.width = imageData.width;
@@ -352,6 +360,45 @@ describe('brush history coalescing', () => {
 
     expect(getPixel(restoredImage, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(getPixel(restoredImage, 3, 3)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('restores ROI snapshots at their original offset during undo', async () => {
+    const width = 4;
+    const height = 4;
+    const solidBlue = new Array(width * height * 4).fill(0).map((_, idx) => {
+      const channel = idx % 4;
+      return channel === 2 ? 255 : channel === 3 ? 255 : 0;
+    });
+
+    const beforeFull = createImageOfSize(width, height, solidBlue);
+    const after = cloneImage(beforeFull);
+    setPixel(after, 1, 1, [255, 0, 0, 255]);
+
+    const layer = createLayer('roi-layer', cloneImage(beforeFull));
+    installLayer(layer);
+    updateLayerImage(layer.id, cloneImage(after));
+
+    const roi = { x: 1, y: 1, width: 1, height: 1 } as const;
+    const beforeRegion = new ImageData(new Uint8ClampedArray([0, 0, 255, 255]), 1, 1);
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: beforeRegion,
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'Stroke with ROI snapshot',
+      tool: 'brush',
+      bitmapRoi: roi,
+    });
+
+    await historyManager.undo();
+
+    const restoredLayer = useAppStore.getState().layers.find((l) => l.id === layer.id);
+    expect(restoredLayer?.imageData).not.toBeNull();
+    const restored = restoredLayer?.imageData as ImageData;
+
+    expect(getPixel(restored, 1, 1)).toEqual([0, 0, 255, 255]);
+    expect(getPixel(restored, 0, 0)).toEqual([0, 0, 255, 255]);
   });
 });
 

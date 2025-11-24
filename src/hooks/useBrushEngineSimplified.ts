@@ -12,7 +12,8 @@ import {
   getRisographEffectSettings,
   getRisographFilter,
   createSeededRng,
-  hashNumbers
+  hashNumbers,
+  createRisoTintMask
 } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { parseColor } from './brushEngine/colorUtils';
@@ -1369,7 +1370,8 @@ export const useBrushEngineSimplified = () => {
 
   const applyStrokeRisographOverlay = useCallback((
     ctx: CanvasRenderingContext2D,
-    region: Rect | null
+    region: Rect | null,
+    maskSource?: HTMLCanvasElement | null
   ) => {
     const intensity = tools.brushSettings.risographIntensity || 0;
     if (intensity <= 0 || !ctx || !region) {
@@ -1389,39 +1391,164 @@ export const useBrushEngineSimplified = () => {
     const effect = getRisographEffectSettings(intensity, { isPixelBrush });
     if (effect.alpha <= 0) return;
 
-    const seed = hashNumbers(x, y, width, height, intensity);
-    const rng = createSeededRng(seed);
-    const misregX = isPixelBrush ? 0 : (rng() - 0.5) * effect.jitter;
-    const misregY = isPixelBrush ? 0 : (rng() - 0.5) * effect.jitter;
-    const rotation = isPixelBrush ? 0 : (rng() - 0.5) * 0.08;
-    const scale = isPixelBrush ? 1 : 1 + (rng() - 0.5) * 0.04;
-    const filter = isPixelBrush
-      ? 'none'
-      : getRisographFilter(
-          tools.brushSettings.color || '#000',
-          tools.brushSettings.risographColorShift ?? 3,
-          rng
-        );
+    let srcData: ImageData | null = null;
+    const maskCtx = maskSource ? maskSource.getContext('2d') : null;
+    if (maskCtx) {
+      try {
+        srcData = maskCtx.getImageData(x, y, width, height);
+      } catch {
+        srcData = null;
+      }
+    }
+    if (!srcData) {
+      try {
+        srcData = ctx.getImageData(x, y, width, height);
+      } catch {
+        return;
+      }
+    }
+    if (!srcData) return;
 
-    ctx.save();
-    ctx.translate(misregX, misregY);
-    const cx = x + width / 2;
-    const cy = y + height / 2;
-    ctx.translate(cx, cy);
-    ctx.rotate(rotation);
-    ctx.scale(scale, scale);
-    ctx.translate(-cx, -cy);
-    ctx.beginPath();
-    ctx.rect(x, y, width, height);
-    ctx.clip();
-    ctx.globalCompositeOperation = 'source-atop';
-    ctx.globalAlpha = effect.alpha;
-    ctx.filter = filter;
-    ctx.imageSmoothingEnabled = isPixelBrush ? false : ctx.imageSmoothingEnabled;
-    ctx.fillStyle = pattern;
-    ctx.fillRect(x - 2, y - 2, width + 4, height + 4);
-    ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.color, tools.brushSettings.risographColorShift, isPixelBrush]);
+    const rng = createSeededRng(hashNumbers(x, y, width, height, intensity));
+    const filter = getRisographFilter(
+      tools.brushSettings.color || '#000',
+      tools.brushSettings.risographColorShift ?? 3,
+      rng
+    );
+
+    const buildPatternLayer = (passFilter: string, alpha: number): HTMLCanvasElement | null => {
+      if (alpha <= 0) return null;
+      const layer = canvasPool.acquire(width, height);
+      const lctx = layer.getContext('2d');
+      if (!lctx) {
+        canvasPool.release(layer);
+        return null;
+      }
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      lctx.clearRect(0, 0, width, height);
+      lctx.filter = passFilter;
+      lctx.globalAlpha = alpha;
+      lctx.fillStyle = pattern;
+      lctx.fillRect(0, 0, width, height);
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      return layer;
+    };
+
+    // Build stroke alpha mask from source data (alpha-only), then threshold/erode for crisp edge
+    const mask = canvasPool.acquire(width, height);
+    const mctx = mask.getContext('2d');
+    if (!mctx) {
+      canvasPool.release(mask);
+      return;
+    }
+    const alphaOnly = mctx.createImageData(width, height);
+    const srcArr = srcData.data;
+    const dstArr = alphaOnly.data;
+    for (let i = 0, j = 3; j < srcArr.length; i++, j += 4) {
+      const a = srcArr[j];
+      const hard = isPixelBrush ? (a > 0 ? 255 : 0) : a; // pixel brushes: hard edge
+      dstArr[i * 4 + 3] = hard;
+    }
+    mctx.putImageData(alphaOnly, 0, 0);
+
+    // Dilate then erode to kill AA fringe and shrink mask slightly (applies to all)
+    const temp = mctx.getImageData(0, 0, width, height);
+    const data = temp.data;
+    const copy = new Uint8ClampedArray(data);
+    const w = width;
+    const h = height;
+    const idx = (px: number, py: number) => (py * w + px) * 4 + 3;
+
+    // Dilate 1px
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = idx(x, y);
+        if (copy[i] > 0) continue;
+        let maxN = 0;
+        maxN = Math.max(maxN, copy[idx(x + 1, y)]);
+        maxN = Math.max(maxN, copy[idx(x - 1, y)]);
+        maxN = Math.max(maxN, copy[idx(x, y + 1)]);
+        maxN = Math.max(maxN, copy[idx(x, y - 1)]);
+        if (maxN > 0) data[i] = 255;
+      }
+    }
+
+    // Erode 1px (removes fringe and keeps overlay inside stroke)
+    copy.set(data);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = idx(x, y);
+        if (copy[i] === 0) continue;
+        const left = copy[idx(x - 1, y)];
+        const right = copy[idx(x + 1, y)];
+        const up = copy[idx(x, y - 1)];
+        const down = copy[idx(x, y + 1)];
+        const minN = Math.min(left, right, up, down);
+        if (minN === 0) data[i] = 0;
+      }
+    }
+
+    mctx.putImageData(temp, 0, 0);
+
+    const applyLayerWithMask = (
+      layer: HTMLCanvasElement | null,
+      composite: GlobalCompositeOperation
+    ) => {
+      if (!layer) return;
+      const temp = canvasPool.acquire(width, height);
+      const tctx = temp.getContext('2d');
+      if (!tctx) {
+        canvasPool.release(temp);
+        return;
+      }
+      tctx.setTransform(1, 0, 0, 1, 0, 0);
+      tctx.clearRect(0, 0, width, height);
+      tctx.globalAlpha = 1;
+      tctx.globalCompositeOperation = 'source-over';
+      tctx.drawImage(layer, 0, 0);
+      tctx.globalCompositeOperation = 'destination-in';
+      tctx.drawImage(mask, 0, 0);
+
+      ctx.save();
+      ctx.globalCompositeOperation = composite;
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = isPixelBrush ? false : ctx.imageSmoothingEnabled;
+      ctx.filter = 'none';
+      ctx.drawImage(temp, x, y);
+      ctx.restore();
+
+      canvasPool.release(temp);
+    };
+
+    // Pass 1: neutral pattern everywhere stroke exists (over stroke only)
+    applyLayerWithMask(buildPatternLayer('none', effect.alpha), 'source-atop');
+    // Pass 2: subtle CMYK tint on edge/patch mask
+    const tintMask = createRisoTintMask(width, height, isPixelBrush, rng);
+    const tinted = buildPatternLayer(filter, Math.min(effect.alpha * 0.45, 0.5));
+    if (tinted && tintMask) {
+      const temp = canvasPool.acquire(width, height);
+      const tctx = temp.getContext('2d');
+      if (tctx) {
+        tctx.clearRect(0, 0, width, height);
+        tctx.globalCompositeOperation = 'source-over';
+        tctx.drawImage(tinted, 0, 0);
+        tctx.globalCompositeOperation = 'destination-in';
+        tctx.drawImage(tintMask, 0, 0);
+        // Also constrain to stroke alpha so tint never bleeds outside the stroke
+        tctx.drawImage(mask, 0, 0);
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.imageSmoothingEnabled = isPixelBrush ? false : ctx.imageSmoothingEnabled;
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+        ctx.drawImage(temp, x, y);
+        ctx.restore();
+      }
+      canvasPool.release(temp);
+    }
+
+    canvasPool.release(mask);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.color, tools.brushSettings.risographColorShift, isPixelBrush, setMultiplyIfUnlocked]);
 
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -1611,7 +1738,7 @@ export const useBrushEngineSimplified = () => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
     }, strokeBounds);
 
-    applyStrokeRisographOverlay(visibleCtx, strokeBounds);
+    applyStrokeRisographOverlay(visibleCtx, strokeBounds, shouldApplyStrokeDither ? ditherCanvas : rawCanvas);
   }, [applyStrokeDither, withAlphaLock, shouldApplyStrokeDither, applyStrokeRisographOverlay]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
@@ -1768,7 +1895,7 @@ export const useBrushEngineSimplified = () => {
         targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
       }, strokeBounds);
 
-      applyStrokeRisographOverlay(ctx, strokeBounds);
+      applyStrokeRisographOverlay(ctx, strokeBounds, ditherCanvas ?? rawCanvas ?? null);
     }
 
     clearLiveStrokeBuffers();
@@ -2049,15 +2176,50 @@ export const useBrushEngineSimplified = () => {
           ctx.closePath();
           ctx.clip();
           
-          // Apply pattern with multiply blend mode
-          setMultiplyIfUnlocked(ctx);
-          ctx.fillStyle = pattern;
-          const alphaBoosted = tools.brushSettings.ditherEnabled ? Math.max(effect.alpha, 0.35) : effect.alpha;
-          ctx.globalAlpha = alphaBoosted;
-          ctx.filter = filter;
-          
-          // Fill the clipped area with the pattern
-          ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+          const width = maxX - minX;
+          const height = maxY - minY;
+          const drawPatternPass = (
+            mask: HTMLCanvasElement | undefined,
+            alpha: number,
+            passFilter: string
+          ) => {
+            if (alpha <= 0) return;
+            if (!mask) {
+              setMultiplyIfUnlocked(ctx);
+              ctx.fillStyle = pattern;
+              ctx.globalAlpha = alpha;
+              ctx.filter = passFilter;
+              ctx.fillRect(minX, minY, width, height);
+              return;
+            }
+            const temp = canvasPool.acquire(width, height);
+            const tctx = temp.getContext('2d');
+            if (!tctx) {
+              canvasPool.release(temp);
+              return;
+            }
+            tctx.setTransform(1, 0, 0, 1, 0, 0);
+            tctx.clearRect(0, 0, width, height);
+            tctx.filter = passFilter;
+            tctx.globalAlpha = alpha;
+            tctx.fillStyle = pattern;
+            tctx.fillRect(0, 0, width, height);
+            tctx.globalCompositeOperation = 'destination-in';
+            tctx.drawImage(mask, 0, 0, width, height);
+
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+        setMultiplyIfUnlocked(ctx);
+        ctx.drawImage(temp, minX, minY, width, height);
+        canvasPool.release(temp);
+      };
+
+          // Pass 1: neutral pattern everywhere
+          drawPatternPass(undefined, effect.alpha, 'none');
+          // Pass 2: subtle CMYK tint on edge/patch mask
+          const tintMask = createRisoTintMask(width, height, isPixelBrush, rng);
+          const tintAlpha = Math.min(effect.alpha * 0.45, 0.5);
+          drawPatternPass(tintMask, tintAlpha, filter);
           
           // Restore state
           ctx.restore();
@@ -2101,16 +2263,17 @@ export const useBrushEngineSimplified = () => {
       const rng = createSeededRng(seed);
       const misregXBase = (rng() - 0.5) * effect.jitter;
       const misregYBase = (rng() - 0.5) * effect.jitter;
-      const misregX = isPixelBrush ? Math.round(misregXBase) : misregXBase;
-      const misregY = isPixelBrush ? Math.round(misregYBase) : misregYBase;
+      const misregX = isPixelBrush ? 0 : misregXBase;
+      const misregY = isPixelBrush ? 0 : misregYBase;
       const rotation = isPixelBrush ? 0 : (rng() - 0.5) * 0.08; // ~±4.5°
       const scale = isPixelBrush ? 1 : 1 + (rng() - 0.5) * 0.04; // 0.98–1.02
-      const filter = getRisographFilter(
-        tools.brushSettings.color || '#000',
-        tools.brushSettings.risographColorShift ?? 3,
-        rng
-      );
-      const alphaScale = tools.brushSettings.ditherEnabled ? 0.65 : 1;
+      const filter = isPixelBrush
+        ? 'none'
+        : getRisographFilter(
+            tools.brushSettings.color || '#000',
+            tools.brushSettings.risographColorShift ?? 3,
+            rng
+          );
 
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;
@@ -2137,13 +2300,52 @@ export const useBrushEngineSimplified = () => {
       ctx.clip();
       
       // Apply texture with multiply blend mode
-      setMultiplyIfUnlocked(ctx);
-      ctx.fillStyle = pattern;
-      ctx.globalAlpha = effect.alpha * alphaScale; // Keep dither visible when both are on
-      ctx.filter = filter;
-      
-      // Fill the clipped area with the pattern
-      ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+      const width = maxX - minX;
+      const height = maxY - minY;
+
+      const drawPatternPass = (
+        mask: HTMLCanvasElement | undefined,
+        alpha: number,
+        passFilter: string
+      ) => {
+        if (alpha <= 0) return;
+        if (!mask) {
+          setMultiplyIfUnlocked(ctx);
+          ctx.fillStyle = pattern;
+          ctx.globalAlpha = alpha;
+          ctx.filter = passFilter;
+          ctx.fillRect(minX, minY, width, height);
+          return;
+        }
+        const temp = canvasPool.acquire(width, height);
+        const tctx = temp.getContext('2d');
+        if (!tctx) {
+          canvasPool.release(temp);
+          return;
+        }
+        tctx.setTransform(1, 0, 0, 1, 0, 0);
+        tctx.clearRect(0, 0, width, height);
+        tctx.filter = passFilter;
+        tctx.globalAlpha = alpha;
+        tctx.fillStyle = pattern;
+        tctx.fillRect(0, 0, width, height);
+        tctx.globalCompositeOperation = 'destination-in';
+        tctx.drawImage(mask, 0, 0, width, height);
+
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+        setMultiplyIfUnlocked(ctx);
+        ctx.drawImage(temp, minX, minY, width, height);
+        canvasPool.release(temp);
+      };
+
+      // Pass 1: neutral pattern everywhere
+      drawPatternPass(undefined, effect.alpha, 'none');
+
+      // Pass 2: subtle CMYK tint on edge/patch mask
+      const tintMask = createRisoTintMask(width, height, isPixelBrush, rng);
+      const tintAlpha = Math.min(effect.alpha * 0.45, 0.5);
+      drawPatternPass(tintMask, tintAlpha, filter);
       
       // Restore state
       ctx.restore();

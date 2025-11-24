@@ -46,6 +46,46 @@ const normalizeImageDataSize = (imageData: ImageData, width: number, height: num
   return normalized;
 };
 
+const stitchBeforeRegionIntoLayer = (
+  beforeImage: ImageData,
+  roi: { x: number; y: number; width: number; height: number } | null | undefined,
+  target: ImageData
+): ImageData => {
+  if (!roi) {
+    return normalizeImageDataSize(beforeImage, target.width, target.height);
+  }
+
+  const roiWidth = Math.round(roi.width);
+  const roiHeight = Math.round(roi.height);
+  const matchesRoi = beforeImage.width === roiWidth && beforeImage.height === roiHeight;
+
+  // Fallback to naive normalization if shapes don't align; better slightly over-capture
+  if (!matchesRoi) {
+    return normalizeImageDataSize(beforeImage, target.width, target.height);
+  }
+
+  // Start from the current (after) image so unchanged pixels remain identical; then
+  // splice the captured before-region back into its original offset.
+  const stitched = new ImageData(new Uint8ClampedArray(target.data), target.width, target.height);
+  const dest = stitched.data;
+  const src = beforeImage.data;
+  const destStride = stitched.width * 4;
+  const srcStride = beforeImage.width * 4;
+
+  const startX = Math.max(0, Math.floor(roi.x));
+  const startY = Math.max(0, Math.floor(roi.y));
+  const copyWidth = Math.min(beforeImage.width, stitched.width - startX);
+  const copyHeight = Math.min(beforeImage.height, stitched.height - startY);
+
+  for (let row = 0; row < copyHeight; row += 1) {
+    const srcOffset = row * srcStride;
+    const destOffset = (startY + row) * destStride + startX * 4;
+    dest.set(src.subarray(srcOffset, srcOffset + copyWidth * 4), destOffset);
+  }
+
+  return stitched;
+};
+
 const markUnsavedChanges = (): void => {
   const state = useAppStore.getState();
   if (state.markAutosaveDirty) {
@@ -164,7 +204,7 @@ export const commitLayerHistory = async ({
 
       if (afterImage && !skipBitmap && !isColorCycleLayer) {
         const effectiveBeforeImage = beforeImage
-          ? normalizeImageDataSize(beforeImage, afterImage.width, afterImage.height)
+          ? stitchBeforeRegionIntoLayer(beforeImage, bitmapRoi ?? null, afterImage)
           : null;
 
         const bitmapDelta = await createBitmapTileDelta({
