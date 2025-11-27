@@ -6,6 +6,7 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
+import { buildToneCurveLut } from '@/utils/imageProcessing';
 
 // Cache for pre-rotated pixel stamps
 const rotatedStampCache = new Map<string, HTMLCanvasElement>();
@@ -213,10 +214,27 @@ export const drawShape = (
       const sampleWidth = Math.min(sampleSize, canvasWidth - sampleX);
       const sampleHeight = Math.min(sampleSize, canvasHeight - sampleY);
       
-      if (sampleWidth > 0 && sampleHeight > 0) {
+    if (sampleWidth > 0 && sampleHeight > 0) {
         try {
           // Sample the canvas content directly with optimized context
           const sampledData = ctx.getImageData(sampleX, sampleY, sampleWidth, sampleHeight);
+
+          // Apply per-brush tone curve if provided
+          const algo = settings?.brushSettings?.ditherAlgorithm || 'sierra-lite';
+          const toneCurvePoints =
+            settings?.brushSettings?.toneCurveByAlgorithm?.[algo] ||
+            settings?.brushSettings?.toneCurvePoints;
+          if (toneCurvePoints && toneCurvePoints.length > 0) {
+            const lut = buildToneCurveLut(toneCurvePoints);
+            if (lut) {
+              const data = sampledData.data;
+              for (let i = 0; i < data.length; i += 4) {
+                data[i] = lut[data[i]];
+                data[i + 1] = lut[data[i + 1]];
+                data[i + 2] = lut[data[i + 2]];
+              }
+            }
+          }
           
           // Create temporary canvas with proper configuration
           if (deps?.getPatternTempContext) {

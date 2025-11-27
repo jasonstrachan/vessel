@@ -228,7 +228,7 @@ import { createLayersSlice } from '@/stores/slices/layersSlice';
 import type { CompositeSegment, UpdateLayerOptions } from '@/stores/slices/layersSlice';
 import { createProjectSlice } from '@/stores/slices/projectSlice';
 import { createUiSlice } from '@/stores/slices/uiSlice';
-import { createToolsSlice } from '@/stores/slices/toolsSlice';
+import { createToolsSlice, defaultBrushSettingsForStore } from '@/stores/slices/toolsSlice';
 import { createShapeFillSlice } from '@/stores/slices/shapeFillSlice';
 import type { ShapeFillState } from '@/stores/slices/shapeFillSlice';
 import { createColorAdjustSlice } from '@/stores/slices/colorAdjustSlice';
@@ -248,6 +248,7 @@ import { createSelectionSlice } from '@/stores/slices/selectionSlice';
 import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
+import { applyBrushPreset } from '@/presets/brushPresets';
 
 
 export type CCReason =
@@ -1138,6 +1139,50 @@ const hydrateGlobalBrushSettings = (): void => {
       }
     }
 
+    // Restore last selected brush preset if present
+    if (payload.lastBrushPresetId) {
+      const preset = state.brushPresets.find((p) => p.id === payload.lastBrushPresetId);
+      if (preset) {
+        const overrides = storedMap?.[preset.id] ? { ...storedMap[preset.id] } : undefined;
+        if (overrides) {
+          delete overrides.size;
+          delete overrides.pressureEnabled;
+          delete overrides.minPressure;
+          delete overrides.maxPressure;
+        }
+
+        const { settings: presetDefaults, components } = applyBrushPreset(preset, overrides);
+        const currentSettings = nextTools.brushSettings;
+        const presetSuggestedSize =
+          typeof presetDefaults.size === 'number' ? presetDefaults.size : undefined;
+        const fallbackSize = presetSuggestedSize ?? defaultBrushSettingsForStore.size ?? 5;
+        const appropriateSize =
+          typeof (partial.globalBrushSize ?? state.globalBrushSize) === 'number'
+            ? (partial.globalBrushSize ?? state.globalBrushSize)
+            : fallbackSize;
+
+        const mergedBrushSettings: BrushSettings = {
+          ...defaultBrushSettingsForStore,
+          ...presetDefaults,
+          color: currentSettings.color,
+          blendMode: currentSettings.blendMode,
+          size: appropriateSize,
+          pressureEnabled: state.pressureSettings.enabled,
+          minPressure: state.pressureSettings.min,
+          maxPressure: state.pressureSettings.max,
+        };
+
+        nextTools = {
+          ...nextTools,
+          brushSettings: mergedBrushSettings,
+          shapeMode: mergedBrushSettings.brushShape === BrushShape.SHAPE_FILL ? true : nextTools.shapeMode,
+        };
+
+        partial.currentBrushPreset = preset;
+        partial.activeBrushComponents = components;
+      }
+    }
+
     if (typeof payload.globalBrushSize === 'number' && Number.isFinite(payload.globalBrushSize)) {
       const nextSize = Math.max(1, Math.round(payload.globalBrushSize));
       partial.globalBrushSize = nextSize;
@@ -1167,11 +1212,13 @@ const subscribeToGlobalBrushPersistence = (): void => {
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
       globalBrushSize: state.globalBrushSize,
+      lastBrushPresetId: state.currentBrushPreset?.id,
     }),
     (next, prev) => {
       if (
         next.brushSpecificSettings === prev.brushSpecificSettings &&
-        next.globalBrushSize === prev.globalBrushSize
+        next.globalBrushSize === prev.globalBrushSize &&
+        next.lastBrushPresetId === prev.lastBrushPresetId
       ) {
         return;
       }
@@ -1179,12 +1226,14 @@ const subscribeToGlobalBrushPersistence = (): void => {
       saveGlobalBrushSettings({
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
+        lastBrushPresetId: next.lastBrushPresetId,
       });
     },
     {
       equalityFn: (a, b) =>
         a.brushSpecificSettings === b.brushSpecificSettings &&
-        a.globalBrushSize === b.globalBrushSize,
+        a.globalBrushSize === b.globalBrushSize &&
+        a.lastBrushPresetId === b.lastBrushPresetId,
     }
   );
 };

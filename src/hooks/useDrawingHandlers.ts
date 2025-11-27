@@ -6,6 +6,7 @@ import { getRisographPattern, getRisographEffectSettings } from '../utils/risogr
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
+import { buildToneCurveLut } from '@/utils/imageProcessing';
 import { appendSegmentWithDynamicResampling, ensurePolygonFromDrag } from '../utils/shapeMaker';
 import { logError, debugWarn, debugLog } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
@@ -2956,19 +2957,36 @@ export function useDrawingHandlers({
               { generateThumbnail: false }
             );
 
-            if (captureResult) {
-              customBrushData = {
-                imageData: captureResult.imageData,
-                width: captureResult.width,
-                height: captureResult.height,
-                isColorizable: false,
-                isResampler: true,
-                cacheKey: 'resampler:single'
-              };
+          if (captureResult) {
+            customBrushData = {
+              imageData: captureResult.imageData,
+              width: captureResult.width,
+              height: captureResult.height,
+              isColorizable: false,
+              isResampler: true,
+              cacheKey: 'resampler:single'
+            };
 
-              resamplerBrushDataRef.current = customBrushData;
+            // Apply per-brush tone curve to captured pattern
+            const algo = currentState.tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+            const toneCurve =
+              currentState.tools.brushSettings.toneCurveByAlgorithm?.[algo] ||
+              currentState.tools.brushSettings.toneCurvePoints;
+            if (toneCurve && toneCurve.length > 0) {
+              const lut = buildToneCurveLut(toneCurve);
+              if (lut) {
+                const data = customBrushData.imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                  data[i] = lut[data[i]];
+                  data[i + 1] = lut[data[i + 1]];
+                  data[i + 2] = lut[data[i + 2]];
+                }
+              }
             }
+
+            resamplerBrushDataRef.current = customBrushData;
           }
+        }
         }
 
         if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {

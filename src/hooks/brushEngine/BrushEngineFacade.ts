@@ -14,6 +14,7 @@ import {
   MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 import { applyDithering } from './dithering';
+import { buildToneCurveLut } from '@/utils/imageProcessing';
 import { getGridPositionsBetween } from '@/utils/gridSnap';
 import { isStrokeBrush } from '@/utils/brushCategories';
 import {
@@ -557,7 +558,12 @@ export class BrushEngineFacade {
     patternStyle?: string,
     customPalette?: string[]
   ): ImageData {
-    return applyDithering(imageData, numColors, algorithm, patternStyle, customPalette);
+    const algo = algorithm || this.config.brushSettings.ditherAlgorithm || 'sierra-lite';
+    const toneCurvePoints =
+      this.config.brushSettings.toneCurveByAlgorithm?.[algo] ||
+      this.config.brushSettings.toneCurvePoints;
+    const toneCurveLut = buildToneCurveLut(toneCurvePoints);
+    return applyDithering(imageData, numColors, algorithm, patternStyle, customPalette, toneCurveLut);
   }
 
   /**

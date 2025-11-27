@@ -156,6 +156,7 @@ export const defaultColorAdjustParams: ColorAdjustParams = {
   red: 0,
   green: 0,
   blue: 0,
+  toneCurvePoints: [],
 };
 
 export const createDefaultColorAdjustState = (): ColorAdjustState => ({
@@ -180,7 +181,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
   colorAdjust: createDefaultColorAdjustState(),
   startColorAdjustSession: () => {
     const state = get();
-    const { activeLayerId, layers } = state;
+  const { activeLayerId, layers } = state;
     if (!activeLayerId) {
       set({ colorAdjust: createDefaultColorAdjustState() });
       return;
@@ -267,7 +268,9 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
     }
 
     const { params, selectionBounds, originalImageData, targetLayerId } = colorAdjust;
+    const hasToneCurve = (params.toneCurvePoints?.length ?? 0) > 0;
     const hasAdjustments =
+      hasToneCurve ||
       params.hue !== 0 ||
       params.saturation !== 0 ||
       params.lightness !== 0 ||

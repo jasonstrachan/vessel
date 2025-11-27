@@ -165,6 +165,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   resampleInterval: settings.resampleInterval,
   polygonSampleColors: settings.polygonSampleColors,
   autoSampleColor: settings.autoSampleColor,
+  toneCurvePoints: settings.toneCurvePoints,
 });
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';
@@ -567,6 +568,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         'polygonSampleColors',
         'continuousSampling',
         'resampleInterval',
+        'toneCurvePoints',
+        'toneCurveByAlgorithm',
         'colorCycleGradient',
         'colorCycleFlowMode',
         'colorCycleGradientVersion',

@@ -379,15 +379,57 @@ export interface ColorAdjustOptions {
   red: number;
   green: number;
   blue: number;
+  toneCurvePoints?: Array<{ x: number; y: number }>;
 }
 
+export const buildToneCurveLut = (points?: Array<{ x: number; y: number }>): Uint8ClampedArray | null => {
+  if (!points || points.length === 0) {
+    return null; // identity
+  }
+
+  const cleaned = points
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+    .map((p) => ({ x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) }))
+    .sort((a, b) => a.x - b.x);
+
+  const startCandidate = cleaned.find((p) => p.x <= 0.0001);
+  const endCandidate = [...cleaned].reverse().find((p) => p.x >= 0.9999);
+
+  const startPoint = startCandidate ? { x: 0, y: startCandidate.y } : { x: 0, y: 0 };
+  const endPoint = endCandidate ? { x: 1, y: endCandidate.y } : { x: 1, y: 1 };
+
+  const middle = cleaned.filter((p) => p.x > 0.0001 && p.x < 0.9999);
+  const sorted = [startPoint, ...middle, endPoint];
+
+  const lut = new Uint8ClampedArray(256);
+
+  let segIndex = 0;
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    while (segIndex < sorted.length - 2 && t > sorted[segIndex + 1].x) {
+      segIndex++;
+    }
+
+    const a = sorted[segIndex];
+    const b = sorted[segIndex + 1];
+    const span = Math.max(1e-6, b.x - a.x);
+    const localT = (t - a.x) / span;
+    const y = a.y + (b.y - a.y) * localT;
+    lut[i] = Math.min(255, Math.max(0, Math.round(y * 255)));
+  }
+
+  return lut;
+};
+
 export function applyColorAdjustments(imageData: ImageData, options: ColorAdjustOptions): ImageData {
-  const { hue, saturation, lightness, contrast, red, green, blue } = options;
+  const { hue, saturation, lightness, contrast, red, green, blue, toneCurvePoints } = options;
   const hasHueSatLightness = hue !== 0 || saturation !== 0 || lightness !== 0;
   const hasContrast = contrast !== 0;
   const hasChannelOffsets = red !== 0 || green !== 0 || blue !== 0;
+  const toneCurveLut = buildToneCurveLut(toneCurvePoints);
+  const hasToneCurve = toneCurveLut !== null;
 
-  if (!hasHueSatLightness && !hasContrast && !hasChannelOffsets) {
+  if (!hasHueSatLightness && !hasContrast && !hasChannelOffsets && !hasToneCurve) {
     return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
   }
 
@@ -411,6 +453,16 @@ export function applyColorAdjustments(imageData: ImageData, options: ColorAdjust
 
   if (hasChannelOffsets) {
     working = adjustRgbChannelOffsets(working, { red, green, blue });
+  }
+
+  if (hasToneCurve && toneCurveLut) {
+    const data = new Uint8ClampedArray(working.data);
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = toneCurveLut[data[i]];
+      data[i + 1] = toneCurveLut[data[i + 1]];
+      data[i + 2] = toneCurveLut[data[i + 2]];
+    }
+    working = new ImageData(data, working.width, working.height);
   }
 
   return working;

@@ -398,9 +398,20 @@ export const applyDithering = (
   numColors: number, 
   algorithm?: string,
   patternStyle?: string,
-  customPalette?: string[]  // Accept custom palette
+  customPalette?: string[],  // Accept custom palette
+  toneCurveLut?: Uint8ClampedArray | null
 ): ImageData => {
   const palette = resolveDitherPalette(imageData, numColors, customPalette);
+  
+  // Apply tone curve before quantization/dither if provided
+  if (toneCurveLut) {
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = toneCurveLut[data[i]];
+      data[i + 1] = toneCurveLut[data[i + 1]];
+      data[i + 2] = toneCurveLut[data[i + 2]];
+    }
+  }
   
   // Create dither settings
   const ditherSettings: DitherSettings = {
@@ -579,13 +590,14 @@ export const applyDitheringWithFillResolution = (
   fillResolution: number,
   algorithm?: string,
   patternStyle?: string,
-  customPalette?: string[]  // Accept custom palette
+  customPalette?: string[],  // Accept custom palette
+  toneCurveLut?: Uint8ClampedArray | null
 ): ImageData => {
   const pixelSize = Math.max(1, Math.floor(fillResolution));
   const resolvedAlgorithm = algorithm || 'sierra-lite';
 
   if (pixelSize <= 1) {
-    return applyDithering(imageData, numColors, resolvedAlgorithm, patternStyle, customPalette);
+    return applyDithering(imageData, numColors, resolvedAlgorithm, patternStyle, customPalette, toneCurveLut);
   }
 
   if (resolvedAlgorithm === 'sierra-lite') {
@@ -593,7 +605,8 @@ export const applyDitheringWithFillResolution = (
       imageData,
       numColors,
       pixelSize,
-      customPalette
+      customPalette,
+      toneCurveLut
     );
   }
 
@@ -603,7 +616,8 @@ export const applyDitheringWithFillResolution = (
     pixelSize,
     resolvedAlgorithm,
     patternStyle,
-    customPalette
+    customPalette,
+    toneCurveLut
   );
 };
 
@@ -611,7 +625,8 @@ const applySierraLiteDitherWithPixelSize = (
   imageData: ImageData,
   numColors: number,
   pixelSize: number,
-  customPalette?: string[]
+  customPalette?: string[],
+  toneCurveLut?: Uint8ClampedArray | null
 ): ImageData => {
   return downsampleDitherAndScale(
     imageData,
@@ -619,7 +634,8 @@ const applySierraLiteDitherWithPixelSize = (
     pixelSize,
     'sierra-lite',
     undefined,
-    customPalette
+    customPalette,
+    toneCurveLut
   );
 };
 
@@ -629,10 +645,11 @@ const downsampleDitherAndScale = (
   pixelSize: number,
   algorithm: string,
   patternStyle?: string,
-  customPalette?: string[]
+  customPalette?: string[],
+  toneCurveLut?: Uint8ClampedArray | null
 ): ImageData => {
   const downsampled = createDownsampledImageData(imageData, pixelSize);
-  const dithered = applyDithering(downsampled, numColors, algorithm, patternStyle, customPalette);
+  const dithered = applyDithering(downsampled, numColors, algorithm, patternStyle, customPalette, toneCurveLut);
   return expandNearestNeighbor(dithered, imageData.width, imageData.height, pixelSize);
 };
 

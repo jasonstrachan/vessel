@@ -38,6 +38,7 @@ import {
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
 import ShapeFillControls from "./ShapeFillControls";
+import ToneCurveEditor from "@/components/ui/ToneCurveEditor";
 import {
   COLOR_CYCLE_SPEED_STEP,
   MAX_BRUSH_COLOR_CYCLE_SPEED,
@@ -122,6 +123,7 @@ const BrushControls = () => {
   const setShapeMode = useAppStore(state => state.setShapeMode);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
+  const currentBrushPresetId = useAppStore((state) => state.currentBrushPreset?.id);
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -158,6 +160,41 @@ const BrushControls = () => {
   // Use the appropriate settings and setter based on current tool
   const setActiveSettings =
     currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
+
+  const activeToneCurvePoints = React.useMemo(() => {
+    const algo = activeSettings.ditherAlgorithm || 'sierra-lite';
+    if (activeSettings.toneCurveByAlgorithm) {
+      return activeSettings.toneCurveByAlgorithm[algo] ?? [];
+    }
+    return activeSettings.toneCurvePoints ?? [];
+  }, [activeSettings.ditherAlgorithm, activeSettings.toneCurveByAlgorithm, activeSettings.toneCurvePoints]);
+
+  const handleToneCurveChange = React.useCallback(
+    (points: Array<{ x: number; y: number }>) => {
+      const algo = activeSettings.ditherAlgorithm || 'sierra-lite';
+      setActiveSettings({
+        toneCurvePoints: points,
+        toneCurveByAlgorithm: {
+          ...(activeSettings.toneCurveByAlgorithm || {}),
+          [algo]: points,
+        },
+      });
+    },
+    [activeSettings.ditherAlgorithm, activeSettings.toneCurveByAlgorithm, setActiveSettings]
+  );
+
+  const handleDitherAlgorithmChange = React.useCallback(
+    (value: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern') => {
+      const nextCurve =
+        activeSettings.toneCurveByAlgorithm?.[value] ??
+        (!activeSettings.toneCurveByAlgorithm ? activeSettings.toneCurvePoints ?? [] : []);
+      setActiveSettings({
+        ditherAlgorithm: value,
+        toneCurvePoints: nextCurve,
+      });
+    },
+    [activeSettings.toneCurveByAlgorithm, activeSettings.toneCurvePoints, setActiveSettings]
+  );
 
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
   const isRegularBrush =
@@ -850,6 +887,8 @@ const BrushControls = () => {
                 className="flex-1"
               />
             </div>
+
+          {activeSettings.ditherEnabled && (
             <div className="flex items-center gap-2 mt-2 opacity-100">
               <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)">
                 Lostedge
@@ -869,13 +908,14 @@ const BrushControls = () => {
                 className="flex-1"
               />
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {/* Color Jitter */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+      {/* Color Jitter */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Col Jit
             </label>
           <ProgressSlider
@@ -1282,6 +1322,7 @@ const BrushControls = () => {
             />
           </div>
         </div>
+
         
         {/* Resample Interval Slider - always shown for resampler brush */}
         <div className="mb-2">
@@ -1635,11 +1676,11 @@ const BrushControls = () => {
                   { value: 'bayer', label: 'Bayer Matrix' },
                   { value: 'atkinson', label: 'Atkinson' },
                   { value: 'blue-noise', label: 'Blue Noise' },
-                  { value: 'pattern', label: 'Pattern' }
-                ]}
-                onChange={(value) =>
-                  setActiveSettings({
-                    ditherAlgorithm: value as
+                { value: 'pattern', label: 'Pattern' }
+              ]}
+              onChange={(value) =>
+                setActiveSettings({
+                  ditherAlgorithm: value as
                       | 'floyd-steinberg'
                       | 'bayer'
                       | 'sierra-lite'
@@ -1897,83 +1938,96 @@ const BrushControls = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <label
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
-                title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
-              >
-                Lostedge
-              </label>
-              <div className="flex-1">
-                <ProgressSlider
-                  value={activeSettings.lostEdge ?? 0}
-                  min={0}
-                  max={100}
-                  step={1}
-                  disabled={false}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-                    })
-                  }
-                  aria-label="Lost Edge"
-                  className="w-full"
-                />
+            {activeSettings.ditherEnabled && (
+              <div className="flex items-center gap-2">
+                <label
+                  className="text-[#D9D9D9] w-16"
+                  style={{ fontSize: "14px" }}
+                  title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
+                >
+                  Lostedge
+                </label>
+                <div className="flex-1">
+                  <ProgressSlider
+                    value={activeSettings.lostEdge ?? 0}
+                    min={0}
+                    max={100}
+                    step={1}
+                    disabled={!activeSettings.ditherEnabled}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                      })
+                    }
+                    aria-label="Lost Edge"
+                    className="w-full"
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Dither Algorithm Dropdown (disabled when dither is off) */}
-          <div className="flex items-center gap-2 mt-2">
-            <div className="w-16" /> {/* Empty space to align with label column */}
-            <Dropdown
-              value={activeSettings.ditherAlgorithm || 'sierra-lite'}
-              options={[
-                { value: 'sierra-lite', label: 'Sierra Lite' },
-                { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
-                { value: 'bayer', label: 'Bayer Matrix' },
-                { value: 'atkinson', label: 'Atkinson' },
-                { value: 'blue-noise', label: 'Blue Noise' },
-                { value: 'pattern', label: 'Pattern' }
-              ]}
-              onChange={(value) => setActiveSettings({ ditherAlgorithm: value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern' })}
-              className="flex-1"
-              disabled={!activeSettings.ditherEnabled}
-            />
-          </div>
-          
-          {/* Pattern Style Dropdown - only show when Pattern algorithm is selected */}
-          {activeSettings.ditherAlgorithm === 'pattern' && (
-            <div className="flex items-center gap-2 mt-2">
-              <div className="w-16" /> {/* Empty space to align with label column */}
-              <Dropdown
-                value={activeSettings.patternStyle || 'dots'}
-                options={[
-                  { value: 'dots', label: 'Dots' },
-                  { value: 'lines', label: 'Diagonal Lines' },
-                  { value: 'vertical-lines', label: 'Vertical Lines' },
-                  { value: 'horizontal-lines', label: 'Horizontal Lines' },
-                  { value: 'crosshatch', label: 'Crosshatch' },
-                  { value: 'diagonal', label: 'Diamond' },
-                  { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
-                ]}
-                onChange={(value) =>
-                  setActiveSettings({
-                    patternStyle: value as
-                      | 'dots'
-                      | 'lines'
-                      | 'vertical-lines'
-                      | 'horizontal-lines'
-                      | 'crosshatch'
-                      | 'diagonal'
-                      | 'tone-adaptive'
-                  })
-                }
-                className="flex-1"
-                disabled={!activeSettings.ditherEnabled}
-              />
-            </div>
+          {activeSettings.ditherEnabled && (
+            <>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-16" /> {/* Empty space to align with label column */}
+                <Dropdown
+                  value={activeSettings.ditherAlgorithm || 'sierra-lite'}
+                  options={[
+                    { value: 'sierra-lite', label: 'Sierra Lite' },
+                    { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+                    { value: 'bayer', label: 'Bayer Matrix' },
+                    { value: 'atkinson', label: 'Atkinson' },
+                    { value: 'blue-noise', label: 'Blue Noise' },
+                  { value: 'pattern', label: 'Pattern' }
+                  ]}
+                  onChange={(value) => handleDitherAlgorithmChange(value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern')}
+                  className="flex-1"
+                />
+              </div>
+
+              {currentBrushPresetId === 'dither-brush' && (
+                <div className="mt-3">
+                  <ToneCurveEditor
+                    points={activeToneCurvePoints}
+                    onChange={handleToneCurveChange}
+                  />
+                </div>
+              )}
+
+              {/* Pattern Style Dropdown - only show when Pattern algorithm is selected */}
+              {activeSettings.ditherAlgorithm === 'pattern' && (
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="w-16" /> {/* Empty space to align with label column */}
+                  <Dropdown
+                    value={activeSettings.patternStyle || 'dots'}
+                    options={[
+                      { value: 'dots', label: 'Dots' },
+                      { value: 'lines', label: 'Diagonal Lines' },
+                      { value: 'vertical-lines', label: 'Vertical Lines' },
+                      { value: 'horizontal-lines', label: 'Horizontal Lines' },
+                      { value: 'crosshatch', label: 'Crosshatch' },
+                      { value: 'diagonal', label: 'Diamond' },
+                      { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
+                    ]}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        patternStyle: value as
+                          | 'dots'
+                          | 'lines'
+                          | 'vertical-lines'
+                          | 'horizontal-lines'
+                          | 'crosshatch'
+                          | 'diagonal'
+                        | 'tone-adaptive'
+                      })
+                    }
+                    className="flex-1"
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -2238,18 +2292,17 @@ const BrushControls = () => {
               { value: 'pattern', label: 'Pattern' }
             ]}
             onChange={(value) =>
-              setActiveSettings({
-                ditherAlgorithm: value as
+              handleDitherAlgorithmChange(
+                value as
                   | 'floyd-steinberg'
                   | 'bayer'
                   | 'sierra-lite'
                   | 'atkinson'
                   | 'blue-noise'
                   | 'pattern'
-              })
+              )
             }
             className="flex-1"
-            disabled={!activeSettings.ditherEnabled}
           />
         </div>
 
@@ -2276,11 +2329,10 @@ const BrushControls = () => {
                     | 'horizontal-lines'
                     | 'crosshatch'
                     | 'diagonal'
-                    | 'tone-adaptive'
+                  | 'tone-adaptive'
                 })
               }
               className="flex-1"
-              disabled={!activeSettings.ditherEnabled}
             />
           </div>
         )}
@@ -2365,6 +2417,15 @@ const BrushControls = () => {
                 className="flex-1"
               />
             </div>
+
+              {currentBrushPresetId === 'dither-brush' && (
+                <div className="mt-3">
+                  <ToneCurveEditor
+                    points={activeToneCurvePoints}
+                    onChange={handleToneCurveChange}
+                  />
+                </div>
+              )}
           </>
         )}
       </div>

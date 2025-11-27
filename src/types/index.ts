@@ -595,7 +595,9 @@ export interface BrushSettings {
   colorCycleBandSpacingPx?: number; // Pixel distance between color-cycle bands for shapes
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas
-  
+  toneCurvePoints?: Array<{ x: number; y: number }>; // Per-brush tone curve for resampler/dither tuning
+  toneCurveByAlgorithm?: Record<string, Array<{ x: number; y: number }>>; // Per-dither-algorithm tone curves
+ 
   // Gradient bands/steps for both strokes and fills
   gradientBands?: number; // 2-50 (number of color steps in gradients)
   
@@ -702,6 +704,7 @@ export interface ColorAdjustParams {
   red: number;        // -100 to 100 percent channel delta
   green: number;      // -100 to 100 percent channel delta
   blue: number;       // -100 to 100 percent channel delta
+  toneCurvePoints?: Array<{ x: number; y: number }>; // normalized 0-1 control points, endpoints implied
 }
 
 export interface ColorAdjustState {

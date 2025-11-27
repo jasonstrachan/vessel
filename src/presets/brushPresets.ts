@@ -120,6 +120,7 @@ export const defaultBrushSettings: BrushSettings = {
   autoSampleColor: false,
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,
+  toneCurvePoints: [],
   colorCycleGradientVersion: 0,
   fillResolution: 1,
   colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes

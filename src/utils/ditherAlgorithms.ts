@@ -108,6 +108,7 @@ export interface DitherSettings {
   bayerMatrixSize: BayerMatrixSize;
   palette: [number, number, number][];
   patternStyle?: PatternStyle; // For pattern dithering
+  toneCurveLut?: Uint8ClampedArray | null; // Optional per-brush tone curve
 }
 
 /**
@@ -756,41 +757,63 @@ export const applyPatternDither = (
       // Get pattern threshold based on style
       let patternValue = 0;
 
+      // Luminance for tone-aware blends
+      const luminance = (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]) / 255;
+
+      // Helper: dot value reused across styles for tone blending
+      const dotSize = 4;
+      const dxDot = x % dotSize - dotSize / 2;
+      const dyDot = y % dotSize - dotSize / 2;
+      const dotDistance = Math.sqrt(dxDot * dxDot + dyDot * dyDot) / (dotSize / 2);
+      const dotValue = Math.min(1, dotDistance);
+
+      // Tone weights: midtones favor lines; shadows/highlights favor dots
+      const lineWeight = smoothstep(0.25, 0.75, luminance); // 0 at dark/bright, 1 in mids
+      const dotWeight = 1 - lineWeight;
+
       switch (patternStyle) {
         case 'dots': {
-          // Circular dot pattern
-          const dotSize = 4;
-          const dx = x % dotSize - dotSize / 2;
-          const dy = y % dotSize - dotSize / 2;
-          const distance = Math.sqrt(dx * dx + dy * dy) / (dotSize / 2);
-          patternValue = Math.min(1, distance);
+          patternValue = dotValue;
           break;
         }
         case 'lines': {
           // Diagonal line pattern
-          const lineSpacing = 4;
-          const diagonal = (x + y) % lineSpacing;
-          patternValue = diagonal / lineSpacing;
+          const baseSpacing = 4;
+          const jitterSpacing = baseSpacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
+          const phase = hash(x, y + 11) * jitterSpacing;
+          const diagonal = (x + y + phase) % jitterSpacing;
+          const lineValue = diagonal / jitterSpacing;
+          patternValue = lineValue * lineWeight + dotValue * dotWeight;
           break;
         }
         case 'vertical-lines': {
           // Vertical line pattern
-          const lineSpacing = 4;
-          patternValue = (x % lineSpacing) / lineSpacing;
+          const baseSpacing = 4;
+          const jitterSpacing = baseSpacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
+          const phase = hash(x, y + 17) * jitterSpacing;
+          const lineValue = ((x + phase) % jitterSpacing) / jitterSpacing;
+          patternValue = lineValue * lineWeight + dotValue * dotWeight;
           break;
         }
         case 'horizontal-lines': {
           // Horizontal line pattern
-          const lineSpacing = 4;
-          patternValue = (y % lineSpacing) / lineSpacing;
+          const baseSpacing = 4;
+          const jitterSpacing = baseSpacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
+          const phase = hash(x + 13, y) * jitterSpacing;
+          const lineValue = ((y + phase) % jitterSpacing) / jitterSpacing;
+          patternValue = lineValue * lineWeight + dotValue * dotWeight;
           break;
         }
         case 'crosshatch': {
           // Crosshatch pattern
           const spacing = 4;
-          const vertical = (x % spacing) / spacing;
-          const horizontal = (y % spacing) / spacing;
-          patternValue = Math.min(vertical, horizontal);
+          const jitterSpacing = spacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
+          const phaseV = hash(x, y + 23) * jitterSpacing;
+          const phaseH = hash(x + 19, y) * jitterSpacing;
+          const vertical = ((x + phaseV) % jitterSpacing) / jitterSpacing;
+          const horizontal = ((y + phaseH) % jitterSpacing) / jitterSpacing;
+          const hatch = Math.min(vertical, horizontal);
+          patternValue = hatch * lineWeight + dotValue * dotWeight;
           break;
         }
         case 'diagonal': {
@@ -798,7 +821,8 @@ export const applyPatternDither = (
           const spacing = 8;
           const dx = Math.abs((x % spacing) - spacing / 2);
           const dy = Math.abs((y % spacing) - spacing / 2);
-          patternValue = (dx + dy) / spacing;
+          const diag = (dx + dy) / spacing;
+          patternValue = diag * lineWeight + dotValue * dotWeight;
           break;
         }
         case 'tone-adaptive': {
@@ -856,6 +880,17 @@ export const applyPressureDither = (
   imageData: ImageData, 
   settings: DitherSettings
 ): ImageData => {
+  // Apply tone curve pre-process if present
+  if (settings.toneCurveLut) {
+    const lut = settings.toneCurveLut;
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = lut[data[i]];
+      data[i + 1] = lut[data[i + 1]];
+      data[i + 2] = lut[data[i + 2]];
+    }
+  }
+
   switch (settings.algorithm) {
     case 'floyd-steinberg':
       return applyFloydSteinbergDither(imageData, settings);

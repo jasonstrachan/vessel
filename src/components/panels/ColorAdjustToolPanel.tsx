@@ -6,6 +6,7 @@ import ProgressSlider from '@/components/ui/ProgressSlider';
 import type { ColorAdjustParams, Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { selectPreviousTool } from '@/stores/selectors/toolsSelectors';
+import ToneCurveEditor from '@/components/ui/ToneCurveEditor';
 
 type ParamKey = keyof ColorAdjustParams;
 
@@ -57,6 +58,13 @@ const ColorAdjustToolPanel: React.FC = () => {
     [updateParams]
   );
 
+  const handleCurveChange = useCallback(
+    (points: Array<{ x: number; y: number }>) => {
+      updateParams({ toneCurvePoints: points });
+    },
+    [updateParams]
+  );
+
   const resolveFallbackTool = useCallback(
     (candidate?: Tool | null): Tool => {
       const fallback = candidate ?? 'brush';
@@ -82,8 +90,10 @@ const ColorAdjustToolPanel: React.FC = () => {
   }, [resetColorAdjustParams]);
 
   const hasAdjustments = useMemo(() => {
-    const { hue, saturation, lightness, contrast, red, green, blue } = session.params;
+    const { hue, saturation, lightness, contrast, red, green, blue, toneCurvePoints } = session.params;
+    const hasToneCurve = (toneCurvePoints?.length ?? 0) > 0;
     return (
+      hasToneCurve ||
       hue !== 0 ||
       saturation !== 0 ||
       lightness !== 0 ||
@@ -140,6 +150,11 @@ const ColorAdjustToolPanel: React.FC = () => {
           </div>
         ))}
       </div>
+
+      <ToneCurveEditor
+        points={session.params.toneCurvePoints ?? []}
+        onChange={handleCurveChange}
+      />
 
       <div className="flex gap-2">
         <button

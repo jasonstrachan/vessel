@@ -16,6 +16,7 @@ import {
   createRisoTintMask
 } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
+import { buildToneCurveLut } from '@/utils/imageProcessing';
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -1367,6 +1368,18 @@ export const useBrushEngineSimplified = () => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
   }, [tools.brushSettings.lostEdge]);
 
+  const toneCurveSource = useMemo(() => {
+    const algo = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+    return (
+      tools.brushSettings.toneCurveByAlgorithm?.[algo] ??
+      tools.brushSettings.toneCurvePoints
+    );
+  }, [tools.brushSettings.ditherAlgorithm, tools.brushSettings.toneCurveByAlgorithm, tools.brushSettings.toneCurvePoints]);
+
+  const toneCurveLut = useMemo(() => {
+    return buildToneCurveLut(toneCurveSource);
+  }, [toneCurveSource]);
+
   const lostEdgeTileSize = 4; // tunable; matches ditherAlgorithms default for now
 
   const applyStrokeRisographOverlay = useCallback((
@@ -1599,7 +1612,8 @@ export const useBrushEngineSimplified = () => {
       strokeDitherPalette.length,
       tools.brushSettings.ditherAlgorithm || 'sierra-lite',
       tools.brushSettings.patternStyle || 'dots',
-      strokeDitherPalette
+      strokeDitherPalette,
+      toneCurveLut
     );
 
     const ditheredCoarseData = ditheredCoarse.data;
@@ -1661,6 +1675,7 @@ export const useBrushEngineSimplified = () => {
     strokeDitherPalette,
     strokeDitherPixelSize,
     strokeLostEdgeAmount,
+    toneCurveLut,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle
   ]);
@@ -2064,12 +2079,11 @@ export const useBrushEngineSimplified = () => {
           const fillResolution = tools.brushSettings.fillResolution || 1;
           const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = tools.brushSettings.patternStyle || 'dots';
-          
           // Pass the gradient colors to dithering
           const paletteColors = colors.length > 0 ? colors : [tools.brushSettings.color];
           const ditheredData = fillResolution > 1 
-            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors)
-            : applyDitheringImport(imageData, numColors, algorithm, patternStyle, paletteColors);
+            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors, toneCurveLut)
+            : applyDitheringImport(imageData, numColors, algorithm, patternStyle, paletteColors, toneCurveLut);
           
           // Put dithered data back on temp canvas
           tempCtx.putImageData(ditheredData, 0, 0);
@@ -2210,7 +2224,7 @@ export const useBrushEngineSimplified = () => {
     // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.risographColorShift, isPixelBrush]);
+  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.risographColorShift, toneCurveLut, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -2671,11 +2685,10 @@ export const useBrushEngineSimplified = () => {
           const fillResolution = tools.brushSettings.fillResolution || 1;
           const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = tools.brushSettings.patternStyle || 'dots';
-          
           // Pass the gradient colors directly to the dithering function
           const ditheredData = fillResolution > 1 
-            ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors)
-            : applyDitheringImport(gradientImageData, numColors, algorithm, patternStyle, validColors);
+            ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors, toneCurveLut)
+            : applyDitheringImport(gradientImageData, numColors, algorithm, patternStyle, validColors, toneCurveLut);
           
           // Put the dithered result back
           tempCtx.putImageData(ditheredData, 0, 0);
@@ -2761,7 +2774,7 @@ export const useBrushEngineSimplified = () => {
       // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
+  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, toneCurveLut, applyRisographEffect]);
 
 
   /**
