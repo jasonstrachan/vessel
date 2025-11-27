@@ -1623,6 +1623,68 @@ const BrushControls = () => {
           </div>
         </div>
 
+        {activeSettings.ditherEnabled && (
+          <>
+            <div className="flex items-center gap-2 mt-2">
+              <div className="w-16" />
+              <Dropdown
+                value={activeSettings.ditherAlgorithm || 'sierra-lite'}
+                options={[
+                  { value: 'sierra-lite', label: 'Sierra Lite' },
+                  { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+                  { value: 'bayer', label: 'Bayer Matrix' },
+                  { value: 'atkinson', label: 'Atkinson' },
+                  { value: 'blue-noise', label: 'Blue Noise' },
+                  { value: 'pattern', label: 'Pattern' }
+                ]}
+                onChange={(value) =>
+                  setActiveSettings({
+                    ditherAlgorithm: value as
+                      | 'floyd-steinberg'
+                      | 'bayer'
+                      | 'sierra-lite'
+                      | 'atkinson'
+                      | 'blue-noise'
+                      | 'pattern'
+                  })
+                }
+                className="flex-1"
+              />
+            </div>
+
+            {activeSettings.ditherAlgorithm === 'pattern' && (
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-16" />
+                <Dropdown
+                  value={activeSettings.patternStyle || 'dots'}
+                  options={[
+                    { value: 'dots', label: 'Dots' },
+                    { value: 'lines', label: 'Diagonal Lines' },
+                    { value: 'vertical-lines', label: 'Vertical Lines' },
+                    { value: 'horizontal-lines', label: 'Horizontal Lines' },
+                    { value: 'crosshatch', label: 'Crosshatch' },
+                    { value: 'diagonal', label: 'Diamond' },
+                    { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
+                  ]}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      patternStyle: value as
+                        | 'dots'
+                        | 'lines'
+                        | 'vertical-lines'
+                        | 'horizontal-lines'
+                        | 'crosshatch'
+                        | 'diagonal'
+                        | 'tone-adaptive'
+                    })
+                  }
+                  className="flex-1"
+                />
+              </div>
+            )}
+          </>
+        )}
+
         {/* Standard brush controls */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -1862,46 +1924,56 @@ const BrushControls = () => {
             </div>
           </div>
 
-          {/* Dither Algorithm Dropdown - only show when dithering is enabled */}
-          {activeSettings.ditherEnabled && (
-            <>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="w-16" /> {/* Empty space to align with label column */}
-                <Dropdown
-                  value={activeSettings.ditherAlgorithm || 'sierra-lite'}
-                  options={[
-                    { value: 'sierra-lite', label: 'Sierra Lite' },
-                    { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
-                    { value: 'bayer', label: 'Bayer Matrix' },
-                    { value: 'atkinson', label: 'Atkinson' },
-                    { value: 'blue-noise', label: 'Blue Noise' },
-                    { value: 'pattern', label: 'Pattern' }
-                  ]}
-                  onChange={(value) => setActiveSettings({ ditherAlgorithm: value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern' })}
-                  className="flex-1"
-                />
-              </div>
-              
-              {/* Pattern Style Dropdown - only show when Pattern algorithm is selected */}
-              {activeSettings.ditherAlgorithm === 'pattern' && (
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="w-16" /> {/* Empty space to align with label column */}
-                  <Dropdown
-                    value={activeSettings.patternStyle || 'dots'}
-                    options={[
-                      { value: 'dots', label: 'Dots' },
-                      { value: 'lines', label: 'Diagonal Lines' },
-                      { value: 'vertical-lines', label: 'Vertical Lines' },
-                      { value: 'horizontal-lines', label: 'Horizontal Lines' },
-                      { value: 'crosshatch', label: 'Crosshatch' },
-                      { value: 'diagonal', label: 'Diamond' }
-                    ]}
-                    onChange={(value) => setActiveSettings({ patternStyle: value as 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal' })}
-                    className="flex-1"
-                  />
-                </div>
-              )}
-            </>
+          {/* Dither Algorithm Dropdown (disabled when dither is off) */}
+          <div className="flex items-center gap-2 mt-2">
+            <div className="w-16" /> {/* Empty space to align with label column */}
+            <Dropdown
+              value={activeSettings.ditherAlgorithm || 'sierra-lite'}
+              options={[
+                { value: 'sierra-lite', label: 'Sierra Lite' },
+                { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+                { value: 'bayer', label: 'Bayer Matrix' },
+                { value: 'atkinson', label: 'Atkinson' },
+                { value: 'blue-noise', label: 'Blue Noise' },
+                { value: 'pattern', label: 'Pattern' }
+              ]}
+              onChange={(value) => setActiveSettings({ ditherAlgorithm: value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern' })}
+              className="flex-1"
+              disabled={!activeSettings.ditherEnabled}
+            />
+          </div>
+          
+          {/* Pattern Style Dropdown - only show when Pattern algorithm is selected */}
+          {activeSettings.ditherAlgorithm === 'pattern' && (
+            <div className="flex items-center gap-2 mt-2">
+              <div className="w-16" /> {/* Empty space to align with label column */}
+              <Dropdown
+                value={activeSettings.patternStyle || 'dots'}
+                options={[
+                  { value: 'dots', label: 'Dots' },
+                  { value: 'lines', label: 'Diagonal Lines' },
+                  { value: 'vertical-lines', label: 'Vertical Lines' },
+                  { value: 'horizontal-lines', label: 'Horizontal Lines' },
+                  { value: 'crosshatch', label: 'Crosshatch' },
+                  { value: 'diagonal', label: 'Diamond' },
+                  { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
+                ]}
+                onChange={(value) =>
+                  setActiveSettings({
+                    patternStyle: value as
+                      | 'dots'
+                      | 'lines'
+                      | 'vertical-lines'
+                      | 'horizontal-lines'
+                      | 'crosshatch'
+                      | 'diagonal'
+                      | 'tone-adaptive'
+                  })
+                }
+                className="flex-1"
+                disabled={!activeSettings.ditherEnabled}
+              />
+            </div>
           )}
         </div>
 
@@ -1951,6 +2023,68 @@ const BrushControls = () => {
               </div>
             )}
           </div>
+
+          {activeSettings.ditherEnabled && (
+            <>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-16" />
+                <Dropdown
+                  value={activeSettings.ditherAlgorithm || 'sierra-lite'}
+                  options={[
+                    { value: 'sierra-lite', label: 'Sierra Lite' },
+                    { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+                    { value: 'bayer', label: 'Bayer Matrix' },
+                    { value: 'atkinson', label: 'Atkinson' },
+                    { value: 'blue-noise', label: 'Blue Noise' },
+                    { value: 'pattern', label: 'Pattern' }
+                  ]}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      ditherAlgorithm: value as
+                        | 'floyd-steinberg'
+                        | 'bayer'
+                        | 'sierra-lite'
+                        | 'atkinson'
+                        | 'blue-noise'
+                        | 'pattern'
+                    })
+                  }
+                  className="flex-1"
+                />
+              </div>
+
+              {activeSettings.ditherAlgorithm === 'pattern' && (
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="w-16" />
+                  <Dropdown
+                    value={activeSettings.patternStyle || 'dots'}
+                    options={[
+                      { value: 'dots', label: 'Dots' },
+                      { value: 'lines', label: 'Diagonal Lines' },
+                      { value: 'vertical-lines', label: 'Vertical Lines' },
+                      { value: 'horizontal-lines', label: 'Horizontal Lines' },
+                      { value: 'crosshatch', label: 'Crosshatch' },
+                      { value: 'diagonal', label: 'Diamond' },
+                      { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
+                    ]}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        patternStyle: value as
+                          | 'dots'
+                          | 'lines'
+                          | 'vertical-lines'
+                          | 'horizontal-lines'
+                          | 'crosshatch'
+                          | 'diagonal'
+                          | 'tone-adaptive'
+                      })
+                    }
+                    className="flex-1"
+                  />
+                </div>
+              )}
+            </>
+          )}
         </div>
         <ShapeFillControls />
       </div>
@@ -2089,6 +2223,68 @@ const BrushControls = () => {
             onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
           />
         </div>
+
+        {/* Algorithm selector always visible; disabled when dither is off */}
+        <div className="flex items-center gap-2 mt-2">
+          <div className="w-16" />
+          <Dropdown
+            value={activeSettings.ditherAlgorithm || 'sierra-lite'}
+            options={[
+              { value: 'sierra-lite', label: 'Sierra Lite' },
+              { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+              { value: 'bayer', label: 'Bayer Matrix' },
+              { value: 'atkinson', label: 'Atkinson' },
+              { value: 'blue-noise', label: 'Blue Noise' },
+              { value: 'pattern', label: 'Pattern' }
+            ]}
+            onChange={(value) =>
+              setActiveSettings({
+                ditherAlgorithm: value as
+                  | 'floyd-steinberg'
+                  | 'bayer'
+                  | 'sierra-lite'
+                  | 'atkinson'
+                  | 'blue-noise'
+                  | 'pattern'
+              })
+            }
+            className="flex-1"
+            disabled={!activeSettings.ditherEnabled}
+          />
+        </div>
+
+        {activeSettings.ditherAlgorithm === 'pattern' && (
+          <div className="flex items-center gap-2 mt-2">
+            <div className="w-16" />
+            <Dropdown
+              value={activeSettings.patternStyle || 'dots'}
+              options={[
+                { value: 'dots', label: 'Dots' },
+                { value: 'lines', label: 'Diagonal Lines' },
+                { value: 'vertical-lines', label: 'Vertical Lines' },
+                { value: 'horizontal-lines', label: 'Horizontal Lines' },
+                { value: 'crosshatch', label: 'Crosshatch' },
+                { value: 'diagonal', label: 'Diamond' },
+                { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
+              ]}
+              onChange={(value) =>
+                setActiveSettings({
+                  patternStyle: value as
+                    | 'dots'
+                    | 'lines'
+                    | 'vertical-lines'
+                    | 'horizontal-lines'
+                    | 'crosshatch'
+                    | 'diagonal'
+                    | 'tone-adaptive'
+                })
+              }
+              className="flex-1"
+              disabled={!activeSettings.ditherEnabled}
+            />
+          </div>
+        )}
+
         {activeSettings.ditherEnabled && (
           <>
             <div className="flex items-center gap-2 mt-2">

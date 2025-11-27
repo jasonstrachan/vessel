@@ -92,7 +92,14 @@ const BLUE_NOISE_16x16 = [
 
 export type DitherAlgorithm = 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
 export type BayerMatrixSize = 2 | 4 | 8;
-export type PatternStyle = 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+export type PatternStyle =
+  | 'dots'
+  | 'lines'
+  | 'vertical-lines'
+  | 'horizontal-lines'
+  | 'crosshatch'
+  | 'diagonal'
+  | 'tone-adaptive';
 
 export interface DitherSettings {
   algorithm: DitherAlgorithm;
@@ -727,17 +734,28 @@ export const applyPatternDither = (
   const height = imageData.height;
   const palette = settings.palette;
   const patternStyle = settings.patternStyle || 'dots';
-  
+
   // Pressure affects pattern density
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
-  
+
+  // Small deterministic hash for lightweight jitter
+  const hash = (x: number, y: number) => {
+    const n = (x * 374761393 + y * 668265263) ^ (x << 5);
+    return ((n ^ (n >> 13)) & 0xffff) / 0xffff;
+  };
+
+  const smoothstep = (edge0: number, edge1: number, x: number) => {
+    const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+    return t * t * (3 - 2 * t);
+  };
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
       
       // Get pattern threshold based on style
       let patternValue = 0;
-      
+
       switch (patternStyle) {
         case 'dots': {
           // Circular dot pattern
@@ -783,8 +801,35 @@ export const applyPatternDither = (
           patternValue = (dx + dy) / spacing;
           break;
         }
+        case 'tone-adaptive': {
+          // Dots at shadows/highlights, softly blends to (jittered) vertical lines in mid tones
+          const luminance = (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]) / 255;
+
+          // Dot pattern (reuse dots logic)
+          const dotSize = 4;
+          const dx = x % dotSize - dotSize / 2;
+          const dy = y % dotSize - dotSize / 2;
+          const distance = Math.sqrt(dx * dx + dy * dy) / (dotSize / 2);
+          const dotValue = Math.min(1, distance);
+
+          // Jittered vertical line pattern to avoid perfect striping
+          const baseSpacing = 4;
+          const jitter = hash(x, y); // 0-1
+          const spacing = baseSpacing + Math.floor(jitter * 2 - 1); // 3–5 pixels
+          const phase = hash(x, y + 17) * spacing;
+          const lineValue = ((x + phase) % spacing) / Math.max(1, spacing);
+
+          // Weight dots at low/high luminance, lines in the mid range
+          const shadows = 1 - smoothstep(0.15, 0.35, luminance);
+          const highlights = smoothstep(0.65, 0.85, luminance);
+          const dotWeight = Math.min(1, shadows + highlights);
+          const lineWeight = 1 - dotWeight;
+
+          patternValue = dotValue * dotWeight + lineValue * lineWeight;
+          break;
+        }
       }
-      
+
       // Apply threshold with pressure sensitivity
       const threshold = (patternValue - 0.5) * thresholdMultiplier * 128;
       

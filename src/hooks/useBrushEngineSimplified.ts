@@ -1357,6 +1357,7 @@ export const useBrushEngineSimplified = () => {
     );
   }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread]);
 
+  // Respect user-selected fillResolution for stroke dithering (1-16 px blocks)
   const strokeDitherPixelSize = useMemo(() => {
     const raw = tools.brushSettings.fillResolution || 1;
     return Math.max(1, Math.min(16, Math.round(raw)));
@@ -1596,8 +1597,8 @@ export const useBrushEngineSimplified = () => {
     const ditheredCoarse = applyDitheringImport(
       coarse,
       strokeDitherPalette.length,
-      'sierra-lite',
-      undefined,
+      tools.brushSettings.ditherAlgorithm || 'sierra-lite',
+      tools.brushSettings.patternStyle || 'dots',
       strokeDitherPalette
     );
 
@@ -1655,7 +1656,14 @@ export const useBrushEngineSimplified = () => {
     } catch (error) {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
-  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount]);
+  }, [
+    shouldApplyStrokeDither,
+    strokeDitherPalette,
+    strokeDitherPixelSize,
+    strokeLostEdgeAmount,
+    tools.brushSettings.ditherAlgorithm,
+    tools.brushSettings.patternStyle
+  ]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;

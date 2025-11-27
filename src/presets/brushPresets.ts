@@ -847,26 +847,31 @@ export const resamplerBrushPreset: BrushPreset = {
   }
 };
 
-// Polygon with dither brush preset
-export const polygonDitherPreset: BrushPreset = {
-  id: 'polygon-dither',
+// New dedicated Dither brush preset (tone-adaptive pattern by default)
+export const ditherBrushPreset: BrushPreset = {
+  id: 'dither-brush',
   name: 'Dither',
-  category: 'shapes',
+  category: 'Artistic',
   components: defaultBrushComponents,
-  thumbnail: '',
-  tags: ['polygon', 'dither', 'shape'],
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['dither', 'tone', 'pattern', 'stipple'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
     ...defaultBrushSettings,
-    brushShape: BrushShape.POLYGON,
-    polygonSides: 6,
-    polygonDitherResolution: 3,
-    ditherEnabled: true,
-    size: 50,
+    size: 12,
     opacity: 100,
-    antialiasing: false
+    antialiasing: false,
+    ditherEnabled: true,
+    ditherAlgorithm: 'pattern',
+    patternStyle: 'tone-adaptive',
+    ditherPaletteSpread: 10,
+    ditherPhaseJitter: 15,
+    spacing: 1,
+    brushShape: BrushShape.SQUARE,
+    // Slightly heavier lost-edge to soften transitions
+    lostEdge: 8,
   }
 };
 
@@ -884,7 +889,7 @@ export const brushPresets: BrushPreset[] = [
   shapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset,
-  polygonDitherPreset
+  ditherBrushPreset
 ];
 
 // Helper functions
