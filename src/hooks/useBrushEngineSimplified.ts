@@ -16,7 +16,7 @@ import {
   createRisoTintMask
 } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
-import { buildToneCurveLut } from '@/utils/imageProcessing';
+import { buildToneCurveLut, resolveToneCurveForAlgorithm } from '@/utils/imageProcessing';
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -1369,12 +1369,8 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.lostEdge]);
 
   const toneCurveSource = useMemo(() => {
-    const algo = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-    return (
-      tools.brushSettings.toneCurveByAlgorithm?.[algo] ??
-      tools.brushSettings.toneCurvePoints
-    );
-  }, [tools.brushSettings.ditherAlgorithm, tools.brushSettings.toneCurveByAlgorithm, tools.brushSettings.toneCurvePoints]);
+    return resolveToneCurveForAlgorithm(tools.brushSettings, tools.brushSettings.ditherAlgorithm);
+  }, [tools.brushSettings]);
 
   const toneCurveLut = useMemo(() => {
     return buildToneCurveLut(toneCurveSource);

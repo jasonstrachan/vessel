@@ -37,6 +37,7 @@ import {
   clampPressurePercent,
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
+import { resolveToneCurveForAlgorithm } from '@/utils/imageProcessing';
 import ShapeFillControls from "./ShapeFillControls";
 import ToneCurveEditor from "@/components/ui/ToneCurveEditor";
 import {
@@ -162,11 +163,13 @@ const BrushControls = () => {
     currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
 
   const activeToneCurvePoints = React.useMemo(() => {
-    const algo = activeSettings.ditherAlgorithm || 'sierra-lite';
-    if (activeSettings.toneCurveByAlgorithm) {
-      return activeSettings.toneCurveByAlgorithm[algo] ?? [];
-    }
-    return activeSettings.toneCurvePoints ?? [];
+    return resolveToneCurveForAlgorithm(
+      {
+        toneCurveByAlgorithm: activeSettings.toneCurveByAlgorithm,
+        toneCurvePoints: activeSettings.toneCurvePoints,
+      },
+      activeSettings.ditherAlgorithm
+    ) ?? [];
   }, [activeSettings.ditherAlgorithm, activeSettings.toneCurveByAlgorithm, activeSettings.toneCurvePoints]);
 
   const handleToneCurveChange = React.useCallback(
@@ -184,7 +187,20 @@ const BrushControls = () => {
   );
 
   const handleDitherAlgorithmChange = React.useCallback(
-    (value: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern') => {
+    (
+      value:
+        | 'floyd-steinberg'
+        | 'bayer'
+        | 'sierra-lite'
+        | 'atkinson'
+        | 'blue-noise'
+        | 'pattern'
+        | 'jjn'
+        | 'stucki'
+        | 'burkes'
+        | 'clustered-halftone'
+        | 'void-cluster-blue-noise'
+    ) => {
       const nextCurve =
         activeSettings.toneCurveByAlgorithm?.[value] ??
         (!activeSettings.toneCurveByAlgorithm ? activeSettings.toneCurvePoints ?? [] : []);
@@ -1675,16 +1691,26 @@ const BrushControls = () => {
                   { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
                   { value: 'bayer', label: 'Bayer Matrix' },
                   { value: 'atkinson', label: 'Atkinson' },
+                  { value: 'jjn', label: 'Jarvis–Judice–Ninke' },
+                  { value: 'stucki', label: 'Stucki' },
+                  { value: 'burkes', label: 'Burkes' },
+                  { value: 'clustered-halftone', label: 'Clustered Halftone' },
+                  { value: 'void-cluster-blue-noise', label: 'Void-Cluster Blue Noise' },
                   { value: 'blue-noise', label: 'Blue Noise' },
-                { value: 'pattern', label: 'Pattern' }
-              ]}
-              onChange={(value) =>
-                setActiveSettings({
-                  ditherAlgorithm: value as
+                  { value: 'pattern', label: 'Pattern' }
+                ]}
+                onChange={(value) =>
+                  setActiveSettings({
+                    ditherAlgorithm: value as
                       | 'floyd-steinberg'
                       | 'bayer'
                       | 'sierra-lite'
                       | 'atkinson'
+                      | 'jjn'
+                      | 'stucki'
+                      | 'burkes'
+                      | 'clustered-halftone'
+                      | 'void-cluster-blue-noise'
                       | 'blue-noise'
                       | 'pattern'
                   })
@@ -1704,8 +1730,7 @@ const BrushControls = () => {
                     { value: 'vertical-lines', label: 'Vertical Lines' },
                     { value: 'horizontal-lines', label: 'Horizontal Lines' },
                     { value: 'crosshatch', label: 'Crosshatch' },
-                    { value: 'diagonal', label: 'Diamond' },
-                    { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
+                    { value: 'diagonal', label: 'Diamond' }
                   ]}
                   onChange={(value) =>
                     setActiveSettings({
@@ -1716,7 +1741,6 @@ const BrushControls = () => {
                         | 'horizontal-lines'
                         | 'crosshatch'
                         | 'diagonal'
-                        | 'tone-adaptive'
                     })
                   }
                   className="flex-1"
@@ -1979,10 +2003,30 @@ const BrushControls = () => {
                     { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
                     { value: 'bayer', label: 'Bayer Matrix' },
                     { value: 'atkinson', label: 'Atkinson' },
+                    { value: 'jjn', label: 'Jarvis–Judice–Ninke' },
+                    { value: 'stucki', label: 'Stucki' },
+                    { value: 'burkes', label: 'Burkes' },
+                    { value: 'clustered-halftone', label: 'Clustered Halftone' },
+                    { value: 'void-cluster-blue-noise', label: 'Void-Cluster Blue Noise' },
                     { value: 'blue-noise', label: 'Blue Noise' },
                   { value: 'pattern', label: 'Pattern' }
                   ]}
-                  onChange={(value) => handleDitherAlgorithmChange(value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern')}
+                  onChange={(value) =>
+                    handleDitherAlgorithmChange(
+                      value as
+                        | 'floyd-steinberg'
+                        | 'bayer'
+                        | 'sierra-lite'
+                        | 'atkinson'
+                        | 'jjn'
+                        | 'stucki'
+                        | 'burkes'
+                        | 'clustered-halftone'
+                        | 'void-cluster-blue-noise'
+                        | 'blue-noise'
+                        | 'pattern'
+                    )
+                  }
                   className="flex-1"
                 />
               </div>
@@ -2009,23 +2053,21 @@ const BrushControls = () => {
                       { value: 'horizontal-lines', label: 'Horizontal Lines' },
                       { value: 'crosshatch', label: 'Crosshatch' },
                       { value: 'diagonal', label: 'Diamond' },
-                      { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
-                    ]}
+                  ]}
                     onChange={(value) =>
                       setActiveSettings({
-                        patternStyle: value as
-                          | 'dots'
-                          | 'lines'
-                          | 'vertical-lines'
-                          | 'horizontal-lines'
-                          | 'crosshatch'
-                          | 'diagonal'
-                        | 'tone-adaptive'
-                      })
-                    }
-                    className="flex-1"
-                  />
-                </div>
+                      patternStyle: value as
+                        | 'dots'
+                        | 'lines'
+                        | 'vertical-lines'
+                        | 'horizontal-lines'
+                        | 'crosshatch'
+                        | 'diagonal'
+                    })
+                  }
+                  className="flex-1"
+                />
+              </div>
               )}
             </>
           )}
@@ -2089,6 +2131,11 @@ const BrushControls = () => {
                     { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
                     { value: 'bayer', label: 'Bayer Matrix' },
                     { value: 'atkinson', label: 'Atkinson' },
+                    { value: 'jjn', label: 'Jarvis–Judice–Ninke' },
+                    { value: 'stucki', label: 'Stucki' },
+                    { value: 'burkes', label: 'Burkes' },
+                    { value: 'clustered-halftone', label: 'Clustered Halftone' },
+                    { value: 'void-cluster-blue-noise', label: 'Void-Cluster Blue Noise' },
                     { value: 'blue-noise', label: 'Blue Noise' },
                     { value: 'pattern', label: 'Pattern' }
                   ]}
@@ -2099,6 +2146,11 @@ const BrushControls = () => {
                         | 'bayer'
                         | 'sierra-lite'
                         | 'atkinson'
+                        | 'jjn'
+                        | 'stucki'
+                        | 'burkes'
+                        | 'clustered-halftone'
+                        | 'void-cluster-blue-noise'
                         | 'blue-noise'
                         | 'pattern'
                     })
@@ -2112,30 +2164,28 @@ const BrushControls = () => {
                   <div className="w-16" />
                   <Dropdown
                     value={activeSettings.patternStyle || 'dots'}
-                    options={[
-                      { value: 'dots', label: 'Dots' },
-                      { value: 'lines', label: 'Diagonal Lines' },
-                      { value: 'vertical-lines', label: 'Vertical Lines' },
-                      { value: 'horizontal-lines', label: 'Horizontal Lines' },
-                      { value: 'crosshatch', label: 'Crosshatch' },
-                      { value: 'diagonal', label: 'Diamond' },
-                      { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
-                    ]}
-                    onChange={(value) =>
-                      setActiveSettings({
-                        patternStyle: value as
-                          | 'dots'
-                          | 'lines'
-                          | 'vertical-lines'
-                          | 'horizontal-lines'
-                          | 'crosshatch'
-                          | 'diagonal'
-                          | 'tone-adaptive'
-                      })
-                    }
-                    className="flex-1"
-                  />
-                </div>
+                options={[
+                  { value: 'dots', label: 'Dots' },
+                  { value: 'lines', label: 'Diagonal Lines' },
+                  { value: 'vertical-lines', label: 'Vertical Lines' },
+                  { value: 'horizontal-lines', label: 'Horizontal Lines' },
+                  { value: 'crosshatch', label: 'Crosshatch' },
+                  { value: 'diagonal', label: 'Diamond' }
+                ]}
+                onChange={(value) =>
+                  setActiveSettings({
+                    patternStyle: value as
+                      | 'dots'
+                      | 'lines'
+                      | 'vertical-lines'
+                      | 'horizontal-lines'
+                      | 'crosshatch'
+                      | 'diagonal'
+                  })
+                }
+                className="flex-1"
+              />
+            </div>
               )}
             </>
           )}
@@ -2288,6 +2338,9 @@ const BrushControls = () => {
               { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
               { value: 'bayer', label: 'Bayer Matrix' },
               { value: 'atkinson', label: 'Atkinson' },
+              { value: 'jjn', label: 'Jarvis–Judice–Ninke' },
+              { value: 'stucki', label: 'Stucki' },
+              { value: 'burkes', label: 'Burkes' },
               { value: 'blue-noise', label: 'Blue Noise' },
               { value: 'pattern', label: 'Pattern' }
             ]}
@@ -2298,6 +2351,9 @@ const BrushControls = () => {
                   | 'bayer'
                   | 'sierra-lite'
                   | 'atkinson'
+                  | 'jjn'
+                  | 'stucki'
+                  | 'burkes'
                   | 'blue-noise'
                   | 'pattern'
               )
@@ -2318,8 +2374,7 @@ const BrushControls = () => {
                 { value: 'horizontal-lines', label: 'Horizontal Lines' },
                 { value: 'crosshatch', label: 'Crosshatch' },
                 { value: 'diagonal', label: 'Diamond' },
-                { value: 'tone-adaptive', label: 'Tone Adaptive (dots at ends)' }
-              ]}
+                              ]}
               onChange={(value) =>
                 setActiveSettings({
                   patternStyle: value as
@@ -2329,8 +2384,7 @@ const BrushControls = () => {
                     | 'horizontal-lines'
                     | 'crosshatch'
                     | 'diagonal'
-                  | 'tone-adaptive'
-                })
+                    })
               }
               className="flex-1"
             />

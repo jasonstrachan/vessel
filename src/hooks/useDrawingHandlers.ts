@@ -2969,9 +2969,10 @@ export function useDrawingHandlers({
 
             // Apply per-brush tone curve to captured pattern
             const algo = currentState.tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-            const toneCurve =
-              currentState.tools.brushSettings.toneCurveByAlgorithm?.[algo] ||
-              currentState.tools.brushSettings.toneCurvePoints;
+            const toneCurve = resolveToneCurveForAlgorithm(
+              currentState.tools.brushSettings,
+              algo
+            );
             if (toneCurve && toneCurve.length > 0) {
               const lut = buildToneCurveLut(toneCurve);
               if (lut) {

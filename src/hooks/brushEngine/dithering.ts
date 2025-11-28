@@ -12,6 +12,11 @@ import {
   applyFloydSteinbergDither,
   applyBayerDither,
   applyAtkinsonDither,
+  applyJarvisJudiceNinkeDither,
+  applyStuckiDither,
+  applyBurkesDither,
+  applyClusteredHalftoneDither,
+  applyVoidClusterBlueNoiseDither,
   applyBlueNoiseDither,
   applyPatternDither
 } from '@/utils/ditherAlgorithms';
@@ -401,7 +406,37 @@ export const applyDithering = (
   customPalette?: string[],  // Accept custom palette
   toneCurveLut?: Uint8ClampedArray | null
 ): ImageData => {
-  const palette = resolveDitherPalette(imageData, numColors, customPalette);
+  const palette = (() => {
+    const base = resolveDitherPalette(imageData, numColors, customPalette);
+    if ((algorithm || 'sierra-lite') === 'atkinson') {
+      // If palette is too uniform, synthesize a darker/lighter pair to keep dithering visible.
+      let maxDiff = 0;
+      for (let i = 0; i < base.length; i++) {
+        for (let j = i + 1; j < base.length; j++) {
+          const d =
+            Math.abs(base[i][0] - base[j][0]) +
+            Math.abs(base[i][1] - base[j][1]) +
+            Math.abs(base[i][2] - base[j][2]);
+          if (d > maxDiff) maxDiff = d;
+        }
+      }
+      if (base.length < 2 || maxDiff < 40) {
+        const [r, g, b] = base[0] || [128, 128, 128];
+        const darker: [number, number, number] = [
+          Math.max(0, Math.min(255, Math.round(r * 0.5))),
+          Math.max(0, Math.min(255, Math.round(g * 0.5))),
+          Math.max(0, Math.min(255, Math.round(b * 0.5))),
+        ];
+        const lighter: [number, number, number] = [
+          Math.max(0, Math.min(255, Math.round(r * 1.35))),
+          Math.max(0, Math.min(255, Math.round(g * 1.35))),
+          Math.max(0, Math.min(255, Math.round(b * 1.35))),
+        ];
+        return [darker, lighter];
+      }
+    }
+    return base;
+  })();
   
   // Apply tone curve before quantization/dither if provided
   if (toneCurveLut) {
@@ -431,6 +466,16 @@ export const applyDithering = (
       return applyBayerDither(imageData, ditherSettings);
     case 'atkinson':
       return applyAtkinsonDither(imageData, ditherSettings);
+    case 'jjn':
+      return applyJarvisJudiceNinkeDither(imageData, ditherSettings);
+    case 'stucki':
+      return applyStuckiDither(imageData, ditherSettings);
+    case 'burkes':
+      return applyBurkesDither(imageData, ditherSettings);
+    case 'clustered-halftone':
+      return applyClusteredHalftoneDither(imageData, ditherSettings);
+    case 'void-cluster-blue-noise':
+      return applyVoidClusterBlueNoiseDither(imageData, ditherSettings);
     case 'blue-noise':
       return applyBlueNoiseDither(imageData, ditherSettings);
     case 'pattern':

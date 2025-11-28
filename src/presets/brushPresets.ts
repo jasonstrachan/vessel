@@ -848,7 +848,7 @@ export const resamplerBrushPreset: BrushPreset = {
   }
 };
 
-// New dedicated Dither brush preset (tone-adaptive pattern by default)
+// New dedicated Dither brush preset (dots pattern by default)
 export const ditherBrushPreset: BrushPreset = {
   id: 'dither-brush',
   name: 'Dither',
@@ -866,7 +866,7 @@ export const ditherBrushPreset: BrushPreset = {
     antialiasing: false,
     ditherEnabled: true,
     ditherAlgorithm: 'pattern',
-    patternStyle: 'tone-adaptive',
+    patternStyle: 'dots',
     ditherPaletteSpread: 10,
     ditherPhaseJitter: 15,
     spacing: 1,

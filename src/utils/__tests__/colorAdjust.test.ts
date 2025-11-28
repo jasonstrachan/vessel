@@ -1,4 +1,5 @@
 import { applyColorAdjustments } from '@/utils/imageProcessing';
+import { buildToneCurveLut, resolveToneCurveForAlgorithm } from '@/utils/imageProcessing';
 
 const clamp = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
 
@@ -111,5 +112,30 @@ describe('applyColorAdjustments', () => {
     expect(r).toBeLessThan(64); // lifted shadows still under identity
     expect(g).toBeGreaterThanOrEqual(128); // midtones boosted by S-curve
     expect(b).toBeGreaterThan(192); // highlights lifted
+  });
+
+  it('includes custom endpoints from user curve', () => {
+    const lut = buildToneCurveLut([
+      { x: 0, y: 0.2 },
+      { x: 0.5, y: 0.8 },
+      { x: 1, y: 0.9 },
+    ])!;
+    expect(lut[0]).toBe(51); // 0.2 * 255 ≈ 51
+    expect(lut[255]).toBe(230); // 0.9 * 255 ≈ 230
+  });
+
+  it('resolves per-algorithm curves and falls back appropriately', () => {
+    const settings = {
+      toneCurvePoints: [{ x: 0.1, y: 0.2 }],
+      toneCurveByAlgorithm: {
+        bayer: [{ x: 0.5, y: 0.75 }],
+      },
+    } as const;
+
+    expect(resolveToneCurveForAlgorithm(settings, 'bayer')).toEqual([{ x: 0.5, y: 0.75 }]);
+    expect(resolveToneCurveForAlgorithm(settings, 'sierra-lite')).toEqual([]);
+    expect(
+      resolveToneCurveForAlgorithm({ toneCurvePoints: [{ x: 0.1, y: 0.2 }] }, 'atkinson')
+    ).toEqual([{ x: 0.1, y: 0.2 }]);
   });
 });

@@ -6,7 +6,7 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
-import { buildToneCurveLut } from '@/utils/imageProcessing';
+import { buildToneCurveLut, resolveToneCurveForAlgorithm } from '@/utils/imageProcessing';
 
 // Cache for pre-rotated pixel stamps
 const rotatedStampCache = new Map<string, HTMLCanvasElement>();
@@ -221,9 +221,7 @@ export const drawShape = (
 
           // Apply per-brush tone curve if provided
           const algo = settings?.brushSettings?.ditherAlgorithm || 'sierra-lite';
-          const toneCurvePoints =
-            settings?.brushSettings?.toneCurveByAlgorithm?.[algo] ||
-            settings?.brushSettings?.toneCurvePoints;
+          const toneCurvePoints = resolveToneCurveForAlgorithm(settings?.brushSettings ?? {}, algo);
           if (toneCurvePoints && toneCurvePoints.length > 0) {
             const lut = buildToneCurveLut(toneCurvePoints);
             if (lut) {

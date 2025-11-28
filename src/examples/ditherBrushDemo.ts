@@ -250,7 +250,16 @@ export const integrateWithBrushEngine = () => {
     // Add to BrushSettings interface (if not already present):
     interface BrushSettings {
       // ... existing settings
-      ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite';
+      ditherAlgorithm?:
+        | 'floyd-steinberg'
+        | 'bayer'
+        | 'sierra-lite'
+        | 'atkinson'
+        | 'jjn'
+        | 'stucki'
+        | 'burkes'
+        | 'clustered-halftone'
+        | 'void-cluster-blue-noise';
       ditherIntensity?: number;
       pressureSensitiveDither?: boolean;
       bayerMatrixSize?: 2 | 4 | 8;

@@ -421,6 +421,21 @@ export const buildToneCurveLut = (points?: Array<{ x: number; y: number }>): Uin
   return lut;
 };
 
+export const resolveToneCurveForAlgorithm = (
+  settings: {
+    toneCurveByAlgorithm?: Record<string, Array<{ x: number; y: number }>>;
+    toneCurvePoints?: Array<{ x: number; y: number }>;
+  },
+  algorithm?: string
+): Array<{ x: number; y: number }> | undefined => {
+  const algo = algorithm || 'sierra-lite';
+  if (settings.toneCurveByAlgorithm) {
+    const curve = settings.toneCurveByAlgorithm[algo];
+    return curve ?? [];
+  }
+  return settings.toneCurvePoints ?? [];
+};
+
 export function applyColorAdjustments(imageData: ImageData, options: ColorAdjustOptions): ImageData {
   const { hue, saturation, lightness, contrast, red, green, blue, toneCurvePoints } = options;
   const hasHueSatLightness = hue !== 0 || saturation !== 0 || lightness !== 0;

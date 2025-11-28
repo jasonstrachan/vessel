@@ -500,15 +500,25 @@ export interface BrushSettings {
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps
-  ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
+  ditherAlgorithm?:
+    | 'floyd-steinberg'
+    | 'bayer'
+    | 'sierra-lite'
+    | 'atkinson'
+    | 'blue-noise'
+    | 'pattern'
+    | 'jjn'
+    | 'stucki'
+    | 'burkes'
+    | 'clustered-halftone'
+    | 'void-cluster-blue-noise';
   patternStyle?:
     | 'dots'
     | 'lines'
     | 'vertical-lines'
     | 'horizontal-lines'
     | 'crosshatch'
-    | 'diagonal'
-    | 'tone-adaptive';
+    | 'diagonal';
   // Lost Edge: apply Sierra Lite dither to break up stroke boundaries
   lostEdge?: number; // 0-100: 0 = off, 100 = strongest edge breakup
   // Stroke/shape thickness hint (used by certain shape/erosion routines)
