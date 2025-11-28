@@ -208,6 +208,39 @@ describe('Dithering Algorithms', () => {
     });
   });
 
+  describe('applyPressureDither supports extended algorithms', () => {
+    const baseSettings: Omit<DitherSettings, 'algorithm'> = {
+      pressure: 0.5,
+      intensity: 0.8,
+      bayerMatrixSize: 4,
+      palette: createGrayscalePalette(2),
+    };
+
+    const algorithms = [
+      'floyd-steinberg',
+      'jarvis-judice-ninke',
+      'stucki',
+      'burkes',
+      'sierra-3',
+      'sierra-2',
+      'sierra-lite',
+      'atkinson',
+      'bayer',
+      'blue-noise',
+      'void-and-cluster',
+      'pattern',
+    ] as const;
+
+    algorithms.forEach((algorithm) => {
+      it(`handles ${algorithm} without throwing`, () => {
+        const imageData = createTestImageData(4, 4);
+        expect(() =>
+          applyPressureDither(imageData, { ...baseSettings, algorithm })
+        ).not.toThrow();
+      });
+    });
+  });
+
   describe('applySierraLiteLostEdgeMask', () => {
     const makeCoverage = (size: number, alpha: number = 255) => {
       const coverage = new Uint8Array(size * size);

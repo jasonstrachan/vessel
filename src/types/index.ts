@@ -218,6 +218,10 @@ export interface BrushPreset {
   isDefault: boolean;
   createdAt: Date;
   modifiedAt: Date;
+  capabilities?: {
+    canDither?: boolean;
+    forceDither?: boolean;
+  };
   // Optional fields for custom brushes
   isCustomBrush?: boolean;
   customBrushData?: {
@@ -500,7 +504,19 @@ export interface BrushSettings {
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps
-  ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
+  ditherAlgorithm?:
+    | 'floyd-steinberg'
+    | 'jarvis-judice-ninke'
+    | 'stucki'
+    | 'burkes'
+    | 'sierra-3'
+    | 'sierra-2'
+    | 'sierra-lite'
+    | 'atkinson'
+    | 'bayer'
+    | 'blue-noise'
+    | 'void-and-cluster'
+    | 'pattern';
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
   // Lost Edge: apply Sierra Lite dither to break up stroke boundaries
   lostEdge?: number; // 0-100: 0 = off, 100 = strongest edge breakup

@@ -25,7 +25,7 @@ import ButtonGroup from "../ui/ButtonGroup";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 import CustomSwitch from "../ui/CustomSwitch";
-import { isStrokeBrush } from "../../utils/brushCategories";
+import { isStrokeBrush, supportsDither } from "../../utils/brushCategories";
 import {
   DEFAULT_GRADIENT_STOPS,
   getPresetOptions as getRectGradientPresetOptions,
@@ -43,6 +43,9 @@ import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
+import type { DitherAlgorithm } from '@/utils/ditherAlgorithms';
+import DitherControls from './DitherControls';
+import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
 
 const PRESSURE_MIN_BOUND = PRESSURE_MIN_PERCENT;
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
@@ -155,7 +158,15 @@ const BrushControls = () => {
     currentTool === 'eraser' ? eraserSettings : brushSettings;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
-  const isDitherPreset = currentBrushPresetId === 'polygon-dither';
+  const capability: BrushCapabilities = currentBrushPresetId
+    ? getPresetCapabilities(
+        currentBrushPresetId,
+        (useAppStore.getState().currentBrushPreset as { capabilities?: BrushCapabilities } | null) || undefined
+      )
+    : {};
+  const isDitherPreset = Boolean(capability.forceDither);
+  const canDitherForShape = (shape?: BrushShape) =>
+    capability.canDither !== undefined ? capability.canDither : supportsDither(shape ?? BrushShape.ROUND);
 
   // Use the appropriate settings and setter based on current tool
   const setActiveSettings =
@@ -183,12 +194,12 @@ const BrushControls = () => {
   React.useEffect(() => {
     if (
       currentTool === 'brush' &&
-      isDitherPreset &&
+      capability.forceDither &&
       brushSettings.ditherEnabled !== true
     ) {
       setBrushSettings({ ditherEnabled: true });
     }
-  }, [currentTool, isDitherPreset, brushSettings.ditherEnabled, setBrushSettings]);
+  }, [currentTool, capability.forceDither, brushSettings.ditherEnabled, setBrushSettings]);
 
   const updatePressureEditing = React.useCallback((key: 'min' | 'max', value: boolean) => {
     setPressureEditing((prev) => {
@@ -581,314 +592,15 @@ const BrushControls = () => {
         </div>
         {/* Fill Mode Tabs - only for Color Cycle Shape, not for Color Cycle Stroke */}
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
-          <div className="mb-3">
-            <ButtonGroup
-              options={[
-                { label: 'Concentric', value: 'concentric' },
-                { label: 'Linear', value: 'linear' },
-                { label: 'Circular', value: 'circular' }
-              ]}
-              value={activeSettings.colorCycleFillMode || 'concentric'}
-              onChange={(value) => setActiveSettings({ 
-                colorCycleFillMode: value as 'concentric' | 'linear' | 'circular' 
-              })}
-              size="sm"
-            />
-          </div>
-        )}
-
-        {/* Gradient Editor (sampling toggle moved into dropdown) */}
-        <div className="mb-4">
-          <GradientEditor
-            sampleTarget="brush"
-            stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
-            onChange={(stops) => {
-              scheduleGradientFlush(stops);
-            }}
+          <DitherControls
+            settings={activeSettings}
+            onChange={setActiveSettings}
+            canToggle
+            forceOn={Boolean(capability.forceDither)}
           />
-        </div>
-        
-        {/* Animation Speed */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Speed
-            </label>
-            <ProgressSlider
-              value={(function() {
-                // If the active layer is a CC layer in brush mode, bind to its per-layer speed
-                const layer = layers.find(l => l.id === activeLayerId);
-                const isCCBrushLayer = layer?.layerType === 'color-cycle' && layer?.colorCycleData?.mode !== 'recolor';
-                if (isCCBrushLayer) {
-                  return layer?.colorCycleData?.brushSpeed ?? 0.1;
-                }
-                return activeSettings.colorCycleSpeed || 0.1;
-              })()}
-              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
-              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-              step={COLOR_CYCLE_SPEED_STEP}
-              onChange={(value) => {
-                // Update per-layer speed when on a CC brush layer, else update global brush setting
-                const layer = layers.find(l => l.id === activeLayerId);
-                const isCCBrushLayer = layer?.layerType === 'color-cycle' && layer?.colorCycleData?.mode !== 'recolor';
-                const clampedValue = Math.max(
-                  MIN_BRUSH_COLOR_CYCLE_SPEED,
-                  Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, value)
-                );
-                if (isCCBrushLayer && activeLayerId && layer?.colorCycleData) {
-                  updateLayer(activeLayerId, {
-                    colorCycleData: {
-                      ...layer.colorCycleData,
-                      brushSpeed: clampedValue
-                    }
-                  });
-                } else {
-                  setActiveSettings({ colorCycleSpeed: clampedValue });
-                }
-              }}
-              aria-label="Animation Speed"
-              className="flex-1"
-            />
-          </div>
-        </div>
-
-        {/* FPS Control */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              FPS
-            </label>
-            <ProgressSlider
-              value={activeSettings.colorCycleFPS || 30}
-              min={15}
-              max={60}
-              step={5}
-              onChange={(value) => setActiveSettings({ colorCycleFPS: Math.round(value) })}
-              aria-label="Frames Per Second"
-              className="flex-1"
-            />
-          </div>
-        </div>
-
-        {/* Size - hide for COLOR_CYCLE_SHAPE since it uses shape size */}
-        {activeSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE && (
-          <div className="mb-2">
-            <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                Size px
-              </label>
-              <ProgressSlider
-                value={
-                  currentTool === 'eraser' && !eraserLinkSize
-                    ? eraserSettings.size ?? globalBrushSize
-                    : globalBrushSize
-                }
-                min={1}
-                max={500}
-                step={1}
-                onChange={(value) => {
-                  const next = Math.max(1, value);
-                  if (currentTool === 'eraser' && !eraserLinkSize) {
-                    setEraserSettings({ size: next });
-                    return;
-                  }
-                  setGlobalBrushSize(next);
-                  if (currentTool === 'eraser') {
-                    setEraserSettings({ size: next });
-                  }
-                }}
-                aria-label="Brush Size (px)"
-                className="flex-1"
-              />
-            </div>
-            {currentTool === 'eraser' && (
-              <div className="flex items-center gap-2 mt-2">
-                <label className="text-[#D9D9D9] w-32" style={{ fontSize: '12px' }}>
-                  Link size to brush
-                </label>
-                <CustomSwitch
-                  checked={eraserLinkSize}
-                  onChange={(checked) => {
-                    setEraserSettings({
-                      linkSizeToBrush: checked,
-                      size: checked ? globalBrushSize : eraserSettings.size ?? globalBrushSize
-                    });
-                  }}
-                />
-              </div>
-            )}
-          </div>
         )}
 
-        {/* Opacity */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Opacity
-            </label>
-            <ProgressSlider
-              value={(activeSettings.opacity ?? 1) * 100}
-              min={1}
-              max={100}
-              step={1}
-              onChange={(value) => setActiveSettings({ opacity: value / 100 })}
-              aria-label="Opacity"
-              className="flex-1"
-            />
-          </div>
-        </div>
-        {/* Spacing (Color Cycle stroke variants only) */}
-        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
-          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
-          <div className="mb-2">
-            <div className="flex items-center gap-2">
-              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                Spacing
-              </label>
-              <ProgressSlider
-                value={activeSettings.spacing ?? 2}
-                min={1}
-                max={50}
-                step={1}
-                onChange={(value) =>
-                  setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
-                }
-                aria-label="Spacing (px between stamps)"
-                className="flex-1"
-              />
-            </div>
-          </div>
-        )}
-
-        <RisoControls
-          settings={activeSettings}
-          onChange={setActiveSettings}
-          idSuffix="color-cycle"
-        />
-
-        {/* Gradient Bands / Band Gap */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
-                ? 'Band Gap'
-                : (activeSettings.ditherEnabled ? 'Colors' : 'Bands')}
-            </label>
-            <ProgressSlider
-              value={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
-                ? (activeSettings.colorCycleBandSpacingPx ?? 12)
-                : (activeSettings.gradientBands || 12)}
-              min={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE ? 4 : 2}
-              max={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE ? 96 : 128}
-              step={1}
-              onChange={(value) => {
-                if (activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
-                  setActiveSettings({ colorCycleBandSpacingPx: Math.max(4, Math.round(value)) });
-                } else {
-                  setActiveSettings({ gradientBands: Math.round(value) });
-                }
-              }}
-              aria-label={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
-                ? 'Band gap distance (px)'
-                : 'Gradient Bands (number of color steps)'}
-              className="flex-1"
-            />
-          </div>
-        </div>
-
-        {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
-          <div className="mb-2">
-            <div className="flex items-center gap-2">
-              <label
-                htmlFor="dither-enabled-color-cycle"
-                className={CONTROL_LABEL_CLASS}
-                style={CONTROL_LABEL_STYLE}
-              >
-                Dither
-              </label>
-              {!isDitherPreset ? (
-                <CustomSwitch
-                  id="dither-enabled-color-cycle"
-                  checked={activeSettings.ditherEnabled || false}
-                  onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
-                />
-              ) : (
-                <span className="text-xs text-[#D9D9D9]">Always on</span>
-              )}
-            </div>
-            {activeSettings.ditherEnabled && (
-              <div className="flex items-center gap-2 mt-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Res
-                </label>
-                <ProgressSlider
-                  value={activeSettings.fillResolution || 1}
-                  min={1}
-                  max={16}
-                  step={1}
-                  onChange={(value) => setActiveSettings({ fillResolution: Math.round(value) })}
-                  aria-label="Dither Resolution"
-                  className="flex-1"
-                />
-              </div>
-            )}
-            <div className="flex items-center gap-2 mt-2 opacity-100">
-              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                Sprd
-              </label>
-              <ProgressSlider
-                value={activeSettings.ditherPaletteSpread ?? 0}
-                min={0}
-                max={100}
-                step={1}
-                disabled={!activeSettings.ditherEnabled}
-                onChange={(value) => setActiveSettings({ ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value))) })}
-                aria-label="Dither Palette Spread"
-                className="flex-1"
-              />
-            </div>
-            <div className="flex items-center gap-2 mt-2 opacity-100">
-              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Dephase: offsets dither tiles between stamps so strokes don’t align perfectly">
-                Dephase
-              </label>
-              <ProgressSlider
-                value={activeSettings.ditherPhaseJitter ?? 0}
-                min={0}
-                max={100}
-                step={1}
-                disabled={!activeSettings.ditherEnabled}
-                onChange={(value) =>
-                  setActiveSettings({
-                    ditherPhaseJitter: Math.max(0, Math.min(100, Math.round(value)))
-                  })
-                }
-                aria-label="Dither Dephase"
-                className="flex-1"
-              />
-            </div>
-            <div className="flex items-center gap-2 mt-2 opacity-100">
-              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)">
-                Lostedge
-              </label>
-              <ProgressSlider
-                value={activeSettings.lostEdge ?? 0}
-                min={0}
-                max={100}
-                step={1}
-                disabled={!activeSettings.ditherEnabled}
-                onChange={(value) =>
-                  setActiveSettings({
-                    lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-                  })
-                }
-                aria-label="Lost Edge"
-                className="flex-1"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Color Jitter */}
+                {/* Color Jitter */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
@@ -1620,37 +1332,13 @@ const BrushControls = () => {
         </div>
 
         {/* Dither Enabled */}
-        {!isDitherPreset ? (
-          <div className="mb-2">
-            <div className="flex items-center gap-2">
-              <label
-                htmlFor="dither-enabled-polygon"
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
-              >
-                Dither
-              </label>
-              <CustomSwitch
-                id="dither-enabled-polygon"
-                checked={activeSettings.ditherEnabled || false}
-                onChange={(checked) =>
-                  setActiveSettings({ ditherEnabled: checked })
-                }
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="mb-2">
-            <div className="flex items-center gap-2">
-              <label
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
-              >
-                Dither
-              </label>
-              <span className="text-xs text-[#D9D9D9]">Always on</span>
-            </div>
-          </div>
+        {canDitherForShape(activeSettings.brushShape) && (
+          <DitherControls
+            settings={activeSettings}
+            onChange={setActiveSettings}
+            canToggle
+            forceOn={Boolean(capability.forceDither)}
+          />
         )}
 
         {/* Standard brush controls */}
@@ -1803,147 +1491,14 @@ const BrushControls = () => {
           idSuffix="gradient"
         />
 
-        {/* Dither */}
-        <div className="mb-2">
-            {!isDitherPreset && (
-              <div className="flex items-center gap-2">
-                <label
-                  htmlFor="dither-enabled"
-                  className="text-[#D9D9D9] w-16"
-                  style={{ fontSize: "14px" }}
-                >
-                  Dither
-                </label>
-                <CustomSwitch
-                  id="dither-enabled"
-                  checked={activeSettings.ditherEnabled || false}
-                  onChange={(checked) =>
-                    setActiveSettings({ ditherEnabled: checked })
-                  }
-                />
-              </div>
-            )}
-            {isDitherPreset && (
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                  Dither
-                </label>
-                <span className="text-xs text-[#D9D9D9]">Always on</span>
-              </div>
-            )}
-
-          <div className="flex flex-col gap-2 mt-2">
-            <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                Res
-              </label>
-              <div className="flex-1">
-                <ProgressSlider
-                  value={activeSettings.fillResolution || 1}
-                  min={1}
-                  max={16}
-                  step={1}
-                  disabled={!activeSettings.ditherEnabled}
-                  onChange={(value) =>
-                    setActiveSettings({ fillResolution: Math.round(value) })
-                  }
-                  aria-label="Dither Resolution"
-                  className="w-full"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                Sprd
-              </label>
-              <div className="flex-1">
-                <ProgressSlider
-                  value={activeSettings.ditherPaletteSpread ?? 0}
-                  min={0}
-                  max={100}
-                  step={1}
-                  disabled={!activeSettings.ditherEnabled}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value)))
-                    })
-                  }
-                  aria-label="Dither Palette Spread"
-                  className="w-full"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
-                title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
-              >
-                Lostedge
-              </label>
-              <div className="flex-1">
-                <ProgressSlider
-                  value={activeSettings.lostEdge ?? 0}
-                  min={0}
-                  max={100}
-                  step={1}
-                  disabled={false}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-                    })
-                  }
-                  aria-label="Lost Edge"
-                  className="w-full"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Dither Algorithm Dropdown - only show when dithering is enabled */}
-          {activeSettings.ditherEnabled && (
-            <>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="w-16" /> {/* Empty space to align with label column */}
-                <Dropdown
-                  value={activeSettings.ditherAlgorithm || 'sierra-lite'}
-                  options={[
-                    { value: 'sierra-lite', label: 'Sierra Lite' },
-                    { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
-                    { value: 'bayer', label: 'Bayer Matrix' },
-                    { value: 'atkinson', label: 'Atkinson' },
-                    { value: 'blue-noise', label: 'Blue Noise' },
-                    { value: 'pattern', label: 'Pattern' }
-                  ]}
-                  onChange={(value) => setActiveSettings({ ditherAlgorithm: value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern' })}
-                  className="flex-1"
-                />
-              </div>
-              
-              {/* Pattern Style Dropdown - only show when Pattern algorithm is selected */}
-              {activeSettings.ditherAlgorithm === 'pattern' && (
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="w-16" /> {/* Empty space to align with label column */}
-                  <Dropdown
-                    value={activeSettings.patternStyle || 'dots'}
-                    options={[
-                      { value: 'dots', label: 'Dots' },
-                      { value: 'lines', label: 'Diagonal Lines' },
-                      { value: 'vertical-lines', label: 'Vertical Lines' },
-                      { value: 'horizontal-lines', label: 'Horizontal Lines' },
-                      { value: 'crosshatch', label: 'Crosshatch' },
-                      { value: 'diagonal', label: 'Diamond' }
-                    ]}
-                    onChange={(value) => setActiveSettings({ patternStyle: value as 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal' })}
-                    className="flex-1"
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        {canDitherForShape(activeSettings.brushShape) && (
+          <DitherControls
+            settings={activeSettings}
+            onChange={setActiveSettings}
+            canToggle
+            forceOn={Boolean(capability.forceDither)}
+          />
+        )}
 
         {/* Test Swatches Button */}
         <div className="mb-2">
@@ -1966,31 +1521,16 @@ const BrushControls = () => {
     return (
       <div className="flex flex-col gap-4">
         <div className="px-4">
-          <div className="flex items-center gap-2 mb-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Dither
-            </label>
-            <CustomSwitch
-              checked={Boolean(activeSettings.ditherEnabled)}
-              onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
+          {canDitherForShape(activeSettings.brushShape) && (
+            <DitherControls
+              settings={activeSettings}
+              onChange={setActiveSettings}
+              canToggle
+              forceOn={false}
+              hideToggle={false}
+              compact
             />
-            {activeSettings.ditherEnabled && (
-              <div className="flex items-center gap-2 flex-1">
-                <span className="text-[#D9D9D9] text-xs">Res</span>
-                <ProgressSlider
-                  value={activeSettings.fillResolution || 1}
-                  min={1}
-                  max={16}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ fillResolution: Math.max(1, Math.round(value)) })
-                  }
-                  aria-label="Dither Resolution"
-                  className="flex-1"
-                />
-              </div>
-            )}
-          </div>
+          )}
         </div>
         <ShapeFillControls />
       </div>
@@ -2118,100 +1658,15 @@ const BrushControls = () => {
         </div>
       )}
 
-      {/* Dither */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-            Dither
-          </label>
-          <CustomSwitch
-            checked={Boolean(activeSettings.ditherEnabled)}
-            onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
-          />
-        </div>
-        {activeSettings.ditherEnabled && (
-          <>
-            <div className="flex items-center gap-2 mt-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                Res
-              </label>
-              <ProgressSlider
-                value={activeSettings.fillResolution || 1}
-                min={1}
-                max={16}
-                step={1}
-                onChange={(value) =>
-                  setActiveSettings({ fillResolution: Math.max(1, Math.round(value)) })
-                }
-                aria-label="Dither Resolution"
-                className="flex-1"
-              />
-            </div>
-            <div className="flex items-center gap-2 mt-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                Sprd
-              </label>
-              <ProgressSlider
-                value={activeSettings.ditherPaletteSpread ?? 0}
-                min={0}
-                max={100}
-                step={1}
-                onChange={(value) =>
-                  setActiveSettings({
-                    ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value)))
-                  })
-                }
-                aria-label="Dither Palette Spread"
-                className="flex-1"
-              />
-            </div>
-            <div className="flex items-center gap-2 mt-2">
-              <label
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
-                title="Dephase: offset dither tiles between stamps so strokes stay visible"
-              >
-                Dephase
-              </label>
-              <ProgressSlider
-                value={activeSettings.ditherPhaseJitter ?? 0}
-                min={0}
-                max={100}
-                step={1}
-                onChange={(value) =>
-                  setActiveSettings({
-                    ditherPhaseJitter: Math.max(0, Math.min(100, Math.round(value)))
-                  })
-                }
-                aria-label="Dither Dephase"
-                className="flex-1"
-              />
-            </div>
-            <div className="flex items-center gap-2 mt-2">
-              <label
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
-                title="Lostedge: break up edges with Sierra Lite dithering (higher ≈ wider, coarser fade)"
-              >
-                Lostedge
-              </label>
-              <ProgressSlider
-                value={activeSettings.lostEdge ?? 0}
-                min={0}
-                max={100}
-                step={1}
-                onChange={(value) =>
-                  setActiveSettings({
-                    lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-                  })
-                }
-                aria-label="Lost Edge"
-                className="flex-1"
-              />
-            </div>
-          </>
-        )}
-      </div>
+      {canDitherForShape(activeSettings.brushShape) && (
+        <DitherControls
+          settings={activeSettings}
+          onChange={setActiveSettings}
+          canToggle
+          forceOn={Boolean(capability.forceDither)}
+          hideToggle={Boolean(capability.forceDither)}
+        />
+      )}
 
 
       <RisoControls

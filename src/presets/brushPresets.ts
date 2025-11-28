@@ -1,6 +1,37 @@
 import { BrushPreset, BrushComponent, ComponentType, BrushSettings, BrushShape } from '../types';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
+// Legacy → canonical brush ID mappings to keep saved projects loading
+const BRUSH_ID_ALIASES: Record<string, string> = {
+  'polygon-dither': 'pixel-dither',
+};
+
+export type BrushCapabilities = {
+  canDither?: boolean;
+  forceDither?: boolean;
+};
+
+// Brush capability flags keyed by canonical preset id
+export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
+  'pixel-dither': { canDither: true, forceDither: true },
+  'color-cycle-stroke': { canDither: false },
+  'color-cycle-shape': { canDither: false },
+  'color-cycle-triangle': { canDither: false },
+};
+
+export const getPresetCapabilities = (
+  id: string,
+  preset?: Partial<{ capabilities?: BrushCapabilities }>
+): BrushCapabilities => {
+  const canonicalId = BRUSH_ID_ALIASES[id] ?? id;
+  const base = BRUSH_PRESET_CAPABILITIES[canonicalId] || {};
+  const fromPreset = preset?.capabilities || {};
+  return {
+    canDither: fromPreset.canDither ?? base.canDither,
+    forceDither: fromPreset.forceDither ?? base.forceDither,
+  };
+};
+
 // Default brush settings for pixel-perfect drawing
 export const pixelBrushSettings: BrushSettings = {
   size: 1,
@@ -849,7 +880,7 @@ export const resamplerBrushPreset: BrushPreset = {
 
 // Pixel dither brush preset – pixel brush with dithering locked on
 export const pixelDitherPreset: BrushPreset = {
-  id: 'polygon-dither',
+  id: 'pixel-dither',
   name: 'Pixel Dither',
   category: 'Pixel Art',
   components: pixelBrushComponents,
@@ -894,7 +925,8 @@ export const brushPresets: BrushPreset[] = [
 
 // Helper functions
 export const getBrushPresetById = (id: string): BrushPreset | undefined => {
-  return brushPresets.find(preset => preset.id === id);
+  const canonicalId = BRUSH_ID_ALIASES[id] ?? id;
+  return brushPresets.find(preset => preset.id === canonicalId);
 };
 
 export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {

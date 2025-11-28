@@ -50,7 +50,7 @@ type RecolorSamplingState = AppState['recolorSampling'];
 
 const initialBrushPreset = pixelBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
-const DITHER_BRUSH_ID = 'polygon-dither';
+const DITHER_BRUSH_IDS = ['pixel-dither', 'polygon-dither']; // legacy alias maintained
 
 export const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
@@ -531,7 +531,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
          : null);
 
     // The dedicated dither brush should never disable dithering
-    if (currentBrushId === DITHER_BRUSH_ID && newSettings.ditherEnabled !== true) {
+    if (DITHER_BRUSH_IDS.includes(currentBrushId ?? '') && newSettings.ditherEnabled !== true) {
       newSettings = { ...newSettings, ditherEnabled: true };
     }
          
@@ -1214,7 +1214,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     // Keep dithering always enabled for the dedicated dither brush
-    if (preset.id === DITHER_BRUSH_ID) {
+    if (DITHER_BRUSH_IDS.includes(preset.id)) {
       newBrushSettings.ditherEnabled = true;
     }
 

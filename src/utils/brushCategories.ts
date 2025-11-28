@@ -82,3 +82,19 @@ export function supportsSpacing(brushShape: BrushShape | string): boolean {
   // Shape-fill brushes don't have spacing
   return isStrokeBrush(brushShape);
 }
+
+export function supportsDither(brushShape: BrushShape | string): boolean {
+  const shape = typeof brushShape === 'string' ? brushShape : String(brushShape);
+
+  // Exclude text/resampler by default; they can opt-in via preset capabilities.
+  if (shape === BrushShape.SPAM_TEXT || shape === BrushShape.RESAMPLER) {
+    return false;
+  }
+
+  return (
+    isStrokeBrush(shape) ||
+    shape === BrushShape.RECTANGLE_GRADIENT ||
+    shape === BrushShape.POLYGON_GRADIENT ||
+    shape === BrushShape.SHAPE_FILL
+  );
+}

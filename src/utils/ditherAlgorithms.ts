@@ -90,7 +90,85 @@ const BLUE_NOISE_16x16 = [
   [0.65, 0.24, 0.61, 0.78, 0.31, 0.75, 0.08, 0.90, 0.02, 0.67, 0.98, 0.20, 0.35, 0.86, 0.45, 0.14]
 ];
 
-export type DitherAlgorithm = 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
+// 8x8 void-and-cluster threshold map (normalized 0-1)
+// Source: classic V&C mask reordered to reduce regular artifacts
+export const VOID_CLUSTER_8x8 = [
+  [ 0, 48, 12, 60,  3, 51, 15, 63],
+  [32, 16, 44, 28, 35, 19, 47, 31],
+  [ 8, 56,  4, 52, 11, 59,  7, 55],
+  [40, 24, 36, 20, 43, 27, 39, 23],
+  [ 2, 50, 14, 62,  1, 49, 13, 61],
+  [34, 18, 46, 30, 33, 17, 45, 29],
+  [10, 58,  6, 54,  9, 57,  5, 53],
+  [42, 26, 38, 22, 41, 25, 37, 21],
+].map(row => row.map(v => v / 64));
+
+type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
+
+const applyErrorDiffusionDither = (
+  imageData: ImageData,
+  settings: DitherSettings,
+  taps: ErrorDiffusionTap[],
+  divisor: number,
+  serpentine: boolean = true
+): ImageData => {
+  const data = new Uint8ClampedArray(imageData.data);
+  const { width, height } = imageData;
+  const palette = settings.palette;
+  const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
+
+  for (let y = 0; y < height; y++) {
+    const leftToRight = serpentine ? (y & 1) === 0 : true;
+    const xStart = leftToRight ? 0 : width - 1;
+    const xEnd = leftToRight ? width : -1;
+    const xStep = leftToRight ? 1 : -1;
+    const dir = leftToRight ? 1 : -1;
+
+    for (let x = xStart; x !== xEnd; x += xStep) {
+      const idx = (y * width + x) * 4;
+      const oldR = data[idx];
+      const oldG = data[idx + 1];
+      const oldB = data[idx + 2];
+
+      const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
+
+      const errR = (oldR - newR) * errorIntensity;
+      const errG = (oldG - newG) * errorIntensity;
+      const errB = (oldB - newB) * errorIntensity;
+
+      data[idx] = newR;
+      data[idx + 1] = newG;
+      data[idx + 2] = newB;
+
+      for (const tap of taps) {
+        const nx = x + tap.dx * dir;
+        const ny = y + tap.dy;
+        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+        const nIdx = (ny * width + nx) * 4;
+        const factor = tap.weight / divisor;
+        data[nIdx] = Math.max(0, Math.min(255, data[nIdx] + errR * factor));
+        data[nIdx + 1] = Math.max(0, Math.min(255, data[nIdx + 1] + errG * factor));
+        data[nIdx + 2] = Math.max(0, Math.min(255, data[nIdx + 2] + errB * factor));
+      }
+    }
+  }
+
+  return new ImageData(data, width, height);
+};
+
+export type DitherAlgorithm =
+  | 'floyd-steinberg'
+  | 'jarvis-judice-ninke'
+  | 'stucki'
+  | 'burkes'
+  | 'sierra-3'
+  | 'sierra-2'
+  | 'sierra-lite'
+  | 'atkinson'
+  | 'bayer'
+  | 'blue-noise'
+  | 'void-and-cluster'
+  | 'pattern';
 export type BayerMatrixSize = 2 | 4 | 8;
 export type PatternStyle = 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
 
@@ -225,6 +303,69 @@ export const applyFloydSteinbergDither = (
   }
   
   return new ImageData(data, width, height);
+};
+
+// Jarvis, Judice, Ninke (JJN) error diffusion
+export const applyJarvisJudiceNinkeDither = (
+  imageData: ImageData,
+  settings: DitherSettings
+): ImageData => {
+  const taps: ErrorDiffusionTap[] = [
+    { dx: 1, dy: 0, weight: 7 }, { dx: 2, dy: 0, weight: 5 },
+    { dx: -2, dy: 1, weight: 3 }, { dx: -1, dy: 1, weight: 5 }, { dx: 0, dy: 1, weight: 7 }, { dx: 1, dy: 1, weight: 5 }, { dx: 2, dy: 1, weight: 3 },
+    { dx: -2, dy: 2, weight: 1 }, { dx: -1, dy: 2, weight: 3 }, { dx: 0, dy: 2, weight: 5 }, { dx: 1, dy: 2, weight: 3 }, { dx: 2, dy: 2, weight: 1 },
+  ];
+  return applyErrorDiffusionDither(imageData, settings, taps, 48);
+};
+
+// Stucki diffusion
+export const applyStuckiDither = (
+  imageData: ImageData,
+  settings: DitherSettings
+): ImageData => {
+  const taps: ErrorDiffusionTap[] = [
+    { dx: 1, dy: 0, weight: 8 }, { dx: 2, dy: 0, weight: 4 },
+    { dx: -2, dy: 1, weight: 2 }, { dx: -1, dy: 1, weight: 4 }, { dx: 0, dy: 1, weight: 8 }, { dx: 1, dy: 1, weight: 4 }, { dx: 2, dy: 1, weight: 2 },
+    { dx: -2, dy: 2, weight: 1 }, { dx: -1, dy: 2, weight: 2 }, { dx: 0, dy: 2, weight: 4 }, { dx: 1, dy: 2, weight: 2 }, { dx: 2, dy: 2, weight: 1 },
+  ];
+  return applyErrorDiffusionDither(imageData, settings, taps, 42);
+};
+
+// Burkes diffusion
+export const applyBurkesDither = (
+  imageData: ImageData,
+  settings: DitherSettings
+): ImageData => {
+  const taps: ErrorDiffusionTap[] = [
+    { dx: 1, dy: 0, weight: 8 }, { dx: 2, dy: 0, weight: 4 },
+    { dx: -2, dy: 1, weight: 2 }, { dx: -1, dy: 1, weight: 4 }, { dx: 0, dy: 1, weight: 8 }, { dx: 1, dy: 1, weight: 4 }, { dx: 2, dy: 1, weight: 2 },
+  ];
+  return applyErrorDiffusionDither(imageData, settings, taps, 32);
+};
+
+// Sierra 3-row diffusion
+export const applySierra3Dither = (
+  imageData: ImageData,
+  settings: DitherSettings
+): ImageData => {
+  const taps: ErrorDiffusionTap[] = [
+    { dx: 1, dy: 0, weight: 5 }, { dx: 2, dy: 0, weight: 3 },
+    { dx: -2, dy: 1, weight: 2 }, { dx: -1, dy: 1, weight: 4 }, { dx: 0, dy: 1, weight: 5 }, { dx: 1, dy: 1, weight: 4 }, { dx: 2, dy: 1, weight: 2 },
+    { dx: -1, dy: 2, weight: 2 }, { dx: 0, dy: 2, weight: 3 }, { dx: 1, dy: 2, weight: 2 },
+  ];
+  return applyErrorDiffusionDither(imageData, settings, taps, 32);
+};
+
+// Sierra 2-row diffusion
+export const applySierra2Dither = (
+  imageData: ImageData,
+  settings: DitherSettings
+): ImageData => {
+  const taps: ErrorDiffusionTap[] = [
+    { dx: 1, dy: 0, weight: 4 }, { dx: 2, dy: 0, weight: 3 },
+    { dx: -2, dy: 1, weight: 1 }, { dx: -1, dy: 1, weight: 2 }, { dx: 0, dy: 1, weight: 3 }, { dx: 1, dy: 1, weight: 2 }, { dx: 2, dy: 1, weight: 1 },
+  ];
+  return applyErrorDiffusionDither(imageData, settings, taps, 32);
 };
 
 /**
@@ -436,6 +577,43 @@ export const applyBlueNoiseDither = (
     }
   }
   
+  return new ImageData(data, width, height);
+};
+
+// Void-and-cluster ordered dithering (less regular than Bayer)
+export const applyVoidAndClusterDither = (
+  imageData: ImageData,
+  settings: DitherSettings
+): ImageData => {
+  const data = new Uint8ClampedArray(imageData.data);
+  const { width, height } = imageData;
+  const palette = settings.palette;
+  const matrix = VOID_CLUSTER_8x8;
+  const matrixSize = matrix.length;
+  const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
+
+  for (let y = 0; y < height; y++) {
+    const leftToRight = (y & 1) === 0;
+    const xStart = leftToRight ? 0 : width - 1;
+    const xEnd = leftToRight ? width : -1;
+    const xStep = leftToRight ? 1 : -1;
+
+    for (let x = xStart; x !== xEnd; x += xStep) {
+      const idx = (y * width + x) * 4;
+      const vcVal = matrix[y % matrixSize][x % matrixSize];
+      const threshold = (vcVal - 0.5) * thresholdMultiplier * 128;
+
+      const r = Math.max(0, Math.min(255, data[idx] + threshold));
+      const g = Math.max(0, Math.min(255, data[idx + 1] + threshold));
+      const b = Math.max(0, Math.min(255, data[idx + 2] + threshold));
+
+      const [newR, newG, newB] = findNearestPaletteColor(r, g, b, palette);
+      data[idx] = newR;
+      data[idx + 1] = newG;
+      data[idx + 2] = newB;
+    }
+  }
+
   return new ImageData(data, width, height);
 };
 
@@ -814,6 +992,16 @@ export const applyPressureDither = (
   switch (settings.algorithm) {
     case 'floyd-steinberg':
       return applyFloydSteinbergDither(imageData, settings);
+    case 'jarvis-judice-ninke':
+      return applyJarvisJudiceNinkeDither(imageData, settings);
+    case 'stucki':
+      return applyStuckiDither(imageData, settings);
+    case 'burkes':
+      return applyBurkesDither(imageData, settings);
+    case 'sierra-3':
+      return applySierra3Dither(imageData, settings);
+    case 'sierra-2':
+      return applySierra2Dither(imageData, settings);
     case 'bayer':
       return applyBayerDither(imageData, settings);
     case 'sierra-lite':
@@ -822,6 +1010,8 @@ export const applyPressureDither = (
       return applyAtkinsonDither(imageData, settings);
     case 'blue-noise':
       return applyBlueNoiseDither(imageData, settings);
+    case 'void-and-cluster':
+      return applyVoidAndClusterDither(imageData, settings);
     case 'pattern':
       return applyPatternDither(imageData, settings);
     default:
