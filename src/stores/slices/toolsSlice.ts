@@ -50,6 +50,7 @@ type RecolorSamplingState = AppState['recolorSampling'];
 
 const initialBrushPreset = pixelBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
+const DITHER_BRUSH_ID = 'polygon-dither';
 
 export const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
@@ -528,6 +529,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       : (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush 
          ? currentSettings.selectedCustomBrush 
          : null);
+
+    // The dedicated dither brush should never disable dithering
+    if (currentBrushId === DITHER_BRUSH_ID && newSettings.ditherEnabled !== true) {
+      newSettings = { ...newSettings, ditherEnabled: true };
+    }
          
     // Store brush settings to save for later
     let brushSettingsToSave: { brushId: string; settings: Partial<BrushSettings> } | null = null;
@@ -1207,6 +1213,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     }
 
+    // Keep dithering always enabled for the dedicated dither brush
+    if (preset.id === DITHER_BRUSH_ID) {
+      newBrushSettings.ditherEnabled = true;
+    }
+
     // Handle custom brush presets specifically
     if (preset.isCustomBrush) {
       const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
@@ -1287,7 +1298,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     }
     
-    // Force antialiasing off for spam brush (disables shape mode)
+    // Force antialiasing off for Spam Text brush (disables shape mode)
     if (newBrushSettings.brushShape === BrushShape.SPAM_TEXT) {
       newBrushSettings.antialiasing = false;
     }

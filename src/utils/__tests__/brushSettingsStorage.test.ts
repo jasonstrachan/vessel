@@ -41,17 +41,18 @@ describe('brushSettingsStorage', () => {
   });
 
   it('loads stored payload', () => {
-    storage.setItem('vessel:brush-settings', JSON.stringify({ globalBrushSize: 18 }));
-    expect(loadGlobalBrushSettings()).toEqual({ globalBrushSize: 18 });
+    storage.setItem('vessel:brush-settings', JSON.stringify({ globalBrushSize: 18, lastBrushId: 'pixel-brush' }));
+    expect(loadGlobalBrushSettings()).toEqual({ globalBrushSize: 18, lastBrushId: 'pixel-brush' });
   });
 
   it('saves sanitized payload', () => {
-    saveGlobalBrushSettings({ globalBrushSize: 20, brushSpecificSettings: { demo: { spacing: 4 } } });
+    saveGlobalBrushSettings({ globalBrushSize: 20, brushSpecificSettings: { demo: { spacing: 4 } }, lastBrushId: 'pixel-brush' });
     const setCalls = (storage.setItem as jest.Mock).mock.calls;
     expect(setCalls[0][0]).toBe('vessel:brush-settings');
     expect(JSON.parse(setCalls[0][1])).toEqual({
       globalBrushSize: 20,
       brushSpecificSettings: { demo: { spacing: 4 } },
+      lastBrushId: 'pixel-brush'
     });
   });
 });

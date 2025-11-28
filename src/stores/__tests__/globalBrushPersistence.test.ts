@@ -18,6 +18,7 @@ describe('global brush persistence', () => {
       brushSpecificSettings: {
         'pixel-brush': { ditherEnabled: true },
       },
+      lastBrushId: 'pixel-brush'
     });
 
     const { useAppStore } = await import('@/stores/useAppStore');
@@ -27,6 +28,7 @@ describe('global brush persistence', () => {
     expect(state.globalBrushSize).toBe(24);
     expect(state.brushSpecificSettings['pixel-brush']?.ditherEnabled).toBe(true);
     expect(state.tools.brushSettings.ditherEnabled).toBe(true);
+    expect(state.currentBrushPreset?.id).toBe('pixel-brush');
   });
 
   it('saves when brush-specific settings change', async () => {
@@ -92,5 +94,23 @@ describe('global brush persistence', () => {
     expect(payload?.brushSpecificSettings?.['polygon-gradient-brush']).toEqual(
       expect.objectContaining({ polygonSampleColors: true })
     );
+  });
+
+  it('persists last used brush id', async () => {
+    loadMock.mockReturnValue(null);
+
+    const { pixelBrushPreset, roundSquare6Preset } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    // initial set to pixel brush (already default) then switch
+    store.setBrushPreset(roundSquare6Preset);
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.lastBrushId).toBe(roundSquare6Preset.id);
+
+    // switching back should update
+    store.setBrushPreset(pixelBrushPreset);
+    const updated = saveMock.mock.calls.at(-1)?.[0];
+    expect(updated?.lastBrushId).toBe(pixelBrushPreset.id);
   });
 });

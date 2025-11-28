@@ -54,7 +54,7 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
   readonly id = 'spam-brush';
   readonly metadata: BrushMetadata = {
     id: 'spam-brush',
-    name: 'Spam Brush',
+    name: 'Spam Text',
     description: 'Paint with spam email text in fixed-width fonts',
     author: 'Vessel Team',
     version: '1.0.0',
@@ -88,11 +88,11 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
   }
 
   onActivate(): void {
-    console.log('Spam brush activated with font:', this.currentFont);
+    console.log('Spam Text brush activated with font:', this.currentFont);
   }
 
   onDeactivate(): void {
-    console.log('Spam brush deactivated');
+    console.log('Spam Text brush deactivated');
   }
 
   private getNextSpamText(): string {
@@ -174,7 +174,7 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
 
   validateSettings(settings: BrushSettings): boolean {
     if (settings.size < 8 || settings.size > 72) {
-      console.warn('Spam brush works best with size between 8 and 72');
+      console.warn('Spam Text brush works best with size between 8 and 72');
     }
     return true;
   }

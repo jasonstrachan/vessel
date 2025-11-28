@@ -113,6 +113,7 @@ const BrushControls = () => {
   const setEraserSettings = useAppStore(state => state.setEraserSettings);
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
+  const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
   const brushSettings = useAppStore(selectBrushSettings);
   const eraserSettings = useAppStore(selectEraserSettings);
   const currentTool = useAppStore(selectCurrentTool);
@@ -154,6 +155,7 @@ const BrushControls = () => {
     currentTool === 'eraser' ? eraserSettings : brushSettings;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
+  const isDitherPreset = currentBrushPresetId === 'polygon-dither';
 
   // Use the appropriate settings and setter based on current tool
   const setActiveSettings =
@@ -177,6 +179,16 @@ const BrushControls = () => {
     min: false,
     max: false,
   });
+
+  React.useEffect(() => {
+    if (
+      currentTool === 'brush' &&
+      isDitherPreset &&
+      brushSettings.ditherEnabled !== true
+    ) {
+      setBrushSettings({ ditherEnabled: true });
+    }
+  }, [currentTool, isDitherPreset, brushSettings.ditherEnabled, setBrushSettings]);
 
   const updatePressureEditing = React.useCallback((key: 'min' | 'max', value: boolean) => {
     setPressureEditing((prev) => {
@@ -794,11 +806,15 @@ const BrushControls = () => {
               >
                 Dither
               </label>
-              <CustomSwitch
-                id="dither-enabled-color-cycle"
-                checked={activeSettings.ditherEnabled || false}
-                onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
-              />
+              {!isDitherPreset ? (
+                <CustomSwitch
+                  id="dither-enabled-color-cycle"
+                  checked={activeSettings.ditherEnabled || false}
+                  onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
+                />
+              ) : (
+                <span className="text-xs text-[#D9D9D9]">Always on</span>
+              )}
             </div>
             {activeSettings.ditherEnabled && (
               <div className="flex items-center gap-2 mt-2">
@@ -1027,7 +1043,7 @@ const BrushControls = () => {
     );
   }
 
-  // Show special controls for Spam brush
+  // Show special controls for the Spam Text brush
   if (activeSettings.brushShape === BrushShape.SPAM_TEXT) {
     if (typeof window !== 'undefined') {
       console.log('[BrushControls] Spam branch');
@@ -1604,24 +1620,38 @@ const BrushControls = () => {
         </div>
 
         {/* Dither Enabled */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="dither-enabled-polygon"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Dither
-            </label>
-            <CustomSwitch
-              id="dither-enabled-polygon"
-              checked={activeSettings.ditherEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ ditherEnabled: checked })
-              }
-            />
+        {!isDitherPreset ? (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="dither-enabled-polygon"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Dither
+              </label>
+              <CustomSwitch
+                id="dither-enabled-polygon"
+                checked={activeSettings.ditherEnabled || false}
+                onChange={(checked) =>
+                  setActiveSettings({ ditherEnabled: checked })
+                }
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Dither
+              </label>
+              <span className="text-xs text-[#D9D9D9]">Always on</span>
+            </div>
+          </div>
+        )}
 
         {/* Standard brush controls */}
         <div className="mb-2">
@@ -1775,22 +1805,32 @@ const BrushControls = () => {
 
         {/* Dither */}
         <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="dither-enabled"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Dither
-            </label>
-            <CustomSwitch
-              id="dither-enabled"
-              checked={activeSettings.ditherEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ ditherEnabled: checked })
-              }
-            />
-          </div>
+            {!isDitherPreset && (
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="dither-enabled"
+                  className="text-[#D9D9D9] w-16"
+                  style={{ fontSize: "14px" }}
+                >
+                  Dither
+                </label>
+                <CustomSwitch
+                  id="dither-enabled"
+                  checked={activeSettings.ditherEnabled || false}
+                  onChange={(checked) =>
+                    setActiveSettings({ ditherEnabled: checked })
+                  }
+                />
+              </div>
+            )}
+            {isDitherPreset && (
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                  Dither
+                </label>
+                <span className="text-xs text-[#D9D9D9]">Always on</span>
+              </div>
+            )}
 
           <div className="flex flex-col gap-2 mt-2">
             <div className="flex items-center gap-2">

@@ -1160,6 +1160,16 @@ const hydrateGlobalBrushSettings = (): void => {
 
     return Object.keys(partial).length > 0 ? partial : state;
   });
+
+  if (payload.lastBrushId) {
+    const state = useAppStore.getState();
+    const preset = state.brushPresets.find((p) => p.id === payload.lastBrushId);
+
+    if (preset) {
+      // Apply via store action so components and pressure syncing stay consistent
+      state.setBrushPreset(preset, true);
+    }
+  }
 };
 
 const subscribeToGlobalBrushPersistence = (): void => {
@@ -1167,11 +1177,13 @@ const subscribeToGlobalBrushPersistence = (): void => {
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
       globalBrushSize: state.globalBrushSize,
+      lastBrushId: getActiveBrushStorageId(state),
     }),
     (next, prev) => {
       if (
         next.brushSpecificSettings === prev.brushSpecificSettings &&
-        next.globalBrushSize === prev.globalBrushSize
+        next.globalBrushSize === prev.globalBrushSize &&
+        next.lastBrushId === prev.lastBrushId
       ) {
         return;
       }
@@ -1179,12 +1191,14 @@ const subscribeToGlobalBrushPersistence = (): void => {
       saveGlobalBrushSettings({
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
+        lastBrushId: next.lastBrushId ?? undefined,
       });
     },
     {
       equalityFn: (a, b) =>
         a.brushSpecificSettings === b.brushSpecificSettings &&
-        a.globalBrushSize === b.globalBrushSize,
+        a.globalBrushSize === b.globalBrushSize &&
+        a.lastBrushId === b.lastBrushId,
     }
   );
 };

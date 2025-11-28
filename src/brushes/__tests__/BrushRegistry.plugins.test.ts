@@ -52,7 +52,7 @@ describe('Builtin brush metadata', () => {
     "category": "Text",
     "description": "Paint with spam email text in fixed-width fonts",
     "id": "spam-brush",
-    "name": "Spam Brush",
+    "name": "Spam Text",
     "tags": [
       "spam",
       "text",

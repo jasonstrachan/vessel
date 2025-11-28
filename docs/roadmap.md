@@ -21,7 +21,7 @@
 - [Texturizer Brush](#texturizer-brush)
 - [Haywire Brush](#haywire-brush)
 - [Time Capsule Brush](#time-capsule-brush)
-- [Spam Brush](#spam-brush)
+- [Spam Text](#spam-text)
 
 ### Tools & Features
 - [Shape Tools](#shape-tools)
@@ -297,7 +297,7 @@ Convert any data into pixel patterns.
 - Save/replay specific date's text stream
 - Mix multiple dates to create temporal collages
 
-### Spam Brush
+### Spam Text
 **Concept:** Paint with fixed-spacing letters extracted from spam emails, creating chaotic text-based artwork from digital detritus.
 
 **Implementation Details:**

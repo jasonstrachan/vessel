@@ -1331,7 +1331,7 @@ export const useBrushEngineSimplified = () => {
       getRotationTempContext
     });
 
-    // Initialize spam text when spam brush is selected
+    // Initialize spam text when the Spam Text brush is selected
     if (tools.brushSettings.brushShape === BrushShape.SPAM_TEXT) {
       const contentType = tools.brushSettings.spamContentType || 'mixed';
       const customText = tools.brushSettings.spamCustomText;
@@ -1371,7 +1371,7 @@ export const useBrushEngineSimplified = () => {
   const applyStrokeRisographOverlay = useCallback((
     ctx: CanvasRenderingContext2D,
     region: Rect | null,
-    maskSource?: HTMLCanvasElement | null
+    maskSource?: HTMLCanvasElement | OffscreenCanvas | null
   ) => {
     const intensity = tools.brushSettings.risographIntensity || 0;
     if (intensity <= 0 || !ctx || !region) {

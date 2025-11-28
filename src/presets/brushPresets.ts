@@ -719,7 +719,7 @@ export const shapeFillBrushPreset: BrushPreset = {
   }
 };
 
-// Spam Brush Components
+// Spam Text brush components
 const spamBrushComponents: BrushComponent[] = [
   {
     id: 'spam-size',
@@ -847,26 +847,31 @@ export const resamplerBrushPreset: BrushPreset = {
   }
 };
 
-// Polygon with dither brush preset
-export const polygonDitherPreset: BrushPreset = {
+// Pixel dither brush preset – pixel brush with dithering locked on
+export const pixelDitherPreset: BrushPreset = {
   id: 'polygon-dither',
-  name: 'Dither',
-  category: 'shapes',
-  components: defaultBrushComponents,
-  thumbnail: '',
-  tags: ['polygon', 'dither', 'shape'],
+  name: 'Pixel Dither',
+  category: 'Pixel Art',
+  components: pixelBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['pixel', 'dither', 'pixel-art', 'retro'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    ...defaultBrushSettings,
-    brushShape: BrushShape.POLYGON,
-    polygonSides: 6,
-    polygonDitherResolution: 3,
+    ...pixelBrushSettings,
+    size: 1,
+    opacity: 1,
+    spacing: 1,
+    antialiasing: false,
+    pressureEnabled: false,
+    minPressure: 100,
+    maxPressure: 300,
     ditherEnabled: true,
-    size: 50,
-    opacity: 100,
-    antialiasing: false
+    ditherAlgorithm: 'sierra-lite',
+    ditherPaletteSpread: 0,
+    ditherPhaseJitter: 0,
+    lostEdge: 0
   }
 };
 
@@ -876,6 +881,7 @@ export const brushPresets: BrushPreset[] = [
   roundSquare6Preset,
   roundPixel4Preset,
   defaultBrushPreset,
+  pixelDitherPreset,
   colorCycleStrokeBrushPreset,
   colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,
@@ -883,8 +889,7 @@ export const brushPresets: BrushPreset[] = [
   polygonGradientBrushPreset,
   shapeFillBrushPreset,
   spamBrushPreset,
-  resamplerBrushPreset,
-  polygonDitherPreset
+  resamplerBrushPreset
 ];
 
 // Helper functions

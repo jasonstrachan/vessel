@@ -596,8 +596,8 @@ export interface BrushSettings {
   polygonSides?: number; // 3-12 (number of sides for polygon)
   polygonDitherResolution?: number; // 1-32 (dither block size for polygon fill)
   
-  // Spam brush settings
-  spamFont?: string; // Font ID for spam brush text
+  // Spam Text brush settings
+  spamFont?: string; // Font ID for the Spam Text brush
   spamContentType?: string; // Type of spam content to use
   spamCustomText?: string; // Custom text to use instead of preset content
   // Shape gradient mode settings
