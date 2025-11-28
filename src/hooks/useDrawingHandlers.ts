@@ -2356,6 +2356,7 @@ export function useDrawingHandlers({
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     let brushSettings = currentState.tools.brushSettings;
+    brushEngine?.setLivePressure?.(pressure);
     const alignPixelStrokes = shouldPixelAlignBrush(brushSettings);
     const ccFlags = getColorCycleBrushFlags(brushSettings);
     const worldPos = alignPointToPixel(rawWorldPos, alignPixelStrokes);
@@ -3059,6 +3060,7 @@ export function useDrawingHandlers({
     // Process all points in the batch
     for (let i = 0; i < batch.length; i++) {
       const { pos: worldPos, pressure } = batch[i];
+      brushEngine?.setLivePressure?.(pressure);
       const shouldAutoSample =
         ccProcessFlags.isAny && currentState.tools.brushSettings.autoSampleGradient;
       if (shouldAutoSample) {

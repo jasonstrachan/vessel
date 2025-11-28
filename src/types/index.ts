@@ -512,6 +512,8 @@ export interface BrushSettings {
     | 'burkes'
     | 'clustered-halftone'
     | 'void-cluster-blue-noise';
+  // When true, pressure maps to dither resolution (lighter pressure = finer)
+  ditherResolutionPressure?: boolean;
   patternStyle?:
     | 'dots'
     | 'lines'

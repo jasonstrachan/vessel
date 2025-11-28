@@ -1358,11 +1358,28 @@ export const useBrushEngineSimplified = () => {
     );
   }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread]);
 
-  // Respect user-selected fillResolution for stroke dithering (1-16 px blocks)
-  const strokeDitherPixelSize = useMemo(() => {
-    const raw = tools.brushSettings.fillResolution || 1;
-    return Math.max(1, Math.min(16, Math.round(raw)));
-  }, [tools.brushSettings.fillResolution]);
+  // Track latest pointer pressure without forcing Zustand subscribers to re-render.
+  const lastPressureRef = useRef<number>(0.5);
+  const updateLastPressure = useCallback((pressure?: number) => {
+    const numeric = Number(pressure);
+    const clamped = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.5;
+    lastPressureRef.current = clamped;
+  }, []);
+
+  // Resolve stroke dithering pixel size, optionally modulated by pressure
+  const resolveStrokeDitherPixelSize = useCallback(() => {
+    const base = Math.max(1, Math.min(16, Math.round(tools.brushSettings.fillResolution || 1)));
+    if (!tools.brushSettings.ditherResolutionPressure) return base;
+    // Map last known pressure inversely to pixel size (lighter press → finer)
+    const p = lastPressureRef.current;
+    const minPx = 1;
+    const maxPx = 16;
+    // Heavier pressure -> larger dither pixel size
+    const dynamic = minPx + p * (maxPx - minPx);
+    // Blend with base to avoid extreme swings: 70% dynamic, 30% base
+    const blended = base * 0.3 + dynamic * 0.7;
+    return Math.max(1, Math.min(16, Math.round(blended)));
+  }, [tools.brushSettings.fillResolution, tools.brushSettings.ditherResolutionPressure]);
 
   const strokeLostEdgeAmount = useMemo(() => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
@@ -1544,7 +1561,7 @@ export const useBrushEngineSimplified = () => {
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
 
-    const tileSize = Math.max(1, strokeDitherPixelSize | 0);
+    const tileSize = Math.max(1, resolveStrokeDitherPixelSize() | 0);
 
     const x = region.x | 0;
     const y = region.y | 0;
@@ -1669,7 +1686,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     shouldApplyStrokeDither,
     strokeDitherPalette,
-    strokeDitherPixelSize,
+    resolveStrokeDitherPixelSize,
     strokeLostEdgeAmount,
     toneCurveLut,
     tools.brushSettings.ditherAlgorithm,
@@ -1769,6 +1786,9 @@ export const useBrushEngineSimplified = () => {
     );
     const velocity = distance; // Simplified velocity calculation
 
+    // Track latest pressure for pressure-responsive effects (e.g., dither resolution)
+    updateLastPressure(cursor.pressure);
+
     // Create stroke parameters
     const strokeParams: BrushStrokeParams = {
       from,
@@ -1802,7 +1822,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, updateLastPressure]);
 
   /**
    * Draw a single stamp at a position
@@ -1813,6 +1833,8 @@ export const useBrushEngineSimplified = () => {
     y: number,
     pressure: number = 1.0
   ) => {
+    updateLastPressure(pressure);
+
     const strokeParams: BrushStrokeParams = {
       from: { x, y },
       to: { x, y },
@@ -1843,7 +1865,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, updateLastPressure]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
@@ -2072,7 +2094,14 @@ export const useBrushEngineSimplified = () => {
           const imageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
           
           const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
-          const fillResolution = tools.brushSettings.fillResolution || 1;
+          const pressure = lastPressureRef.current;
+          const baseRes = tools.brushSettings.fillResolution || 1;
+          const minPx = 1;
+          const maxPx = 16;
+          const pressureRes = minPx + pressure * (maxPx - minPx);
+          const fillResolution = tools.brushSettings.ditherResolutionPressure
+            ? Math.max(1, Math.min(16, Math.round(baseRes * 0.3 + pressureRes * 0.7)))
+            : baseRes;
           const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = tools.brushSettings.patternStyle || 'dots';
           // Pass the gradient colors to dithering
@@ -3814,6 +3843,8 @@ useEffect(() => {
     // Effects
     applyStrokeDither,
     applyDithering,
+    // Update live pressure without triggering store re-renders
+    setLivePressure: updateLastPressure,
     
     // Utilities
     canDrawAt: (ctx: CanvasRenderingContext2D, x: number, y: number) => 

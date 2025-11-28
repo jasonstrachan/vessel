@@ -125,6 +125,7 @@ const BrushControls = () => {
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPresetId = useAppStore((state) => state.currentBrushPreset?.id);
+  const isDitherPreset = currentBrushPresetId === 'dither-brush';
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -171,6 +172,13 @@ const BrushControls = () => {
       activeSettings.ditherAlgorithm
     ) ?? [];
   }, [activeSettings.ditherAlgorithm, activeSettings.toneCurveByAlgorithm, activeSettings.toneCurvePoints]);
+
+  // Ensure dither stays enabled for the dedicated dither preset
+  React.useEffect(() => {
+    if (isDitherPreset && !activeSettings.ditherEnabled) {
+      setActiveSettings({ ditherEnabled: true });
+    }
+  }, [activeSettings.ditherEnabled, isDitherPreset, setActiveSettings]);
 
   const handleToneCurveChange = React.useCallback(
     (points: Array<{ x: number; y: number }>) => {
@@ -1719,6 +1727,18 @@ const BrushControls = () => {
               />
             </div>
 
+            {activeSettings.ditherEnabled && (
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-16" />
+                <CustomSwitch
+                  id="dither-resolution-pressure"
+                  checked={Boolean(activeSettings.ditherResolutionPressure)}
+                  onChange={(checked) => setActiveSettings({ ditherResolutionPressure: checked })}
+                />
+                <span className="text-xs text-[#D9D9D9]">Pressure controls dither resolution</span>
+              </div>
+            )}
+
             {activeSettings.ditherAlgorithm === 'pattern' && (
               <div className="flex items-center gap-2 mt-2">
                 <div className="w-16" />
@@ -2155,12 +2175,24 @@ const BrushControls = () => {
                         | 'pattern'
                     })
                   }
-                  className="flex-1"
-                />
-              </div>
+                className="flex-1"
+              />
+            </div>
 
-              {activeSettings.ditherAlgorithm === 'pattern' && (
-                <div className="flex items-center gap-2 mt-2">
+            {activeSettings.ditherEnabled && (
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-16" />
+                <CustomSwitch
+                  id="dither-resolution-pressure-main"
+                  checked={Boolean(activeSettings.ditherResolutionPressure)}
+                  onChange={(checked) => setActiveSettings({ ditherResolutionPressure: checked })}
+                />
+                <span className="text-xs text-[#D9D9D9]">Pressure controls dither resolution</span>
+              </div>
+            )}
+
+            {activeSettings.ditherAlgorithm === 'pattern' && (
+              <div className="flex items-center gap-2 mt-2">
                   <div className="w-16" />
                   <Dropdown
                     value={activeSettings.patternStyle || 'dots'}
@@ -2322,10 +2354,14 @@ const BrushControls = () => {
           <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
             Dither
           </label>
-          <CustomSwitch
-            checked={Boolean(activeSettings.ditherEnabled)}
-            onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
-          />
+          {isDitherPreset ? (
+            <span className="text-xs text-[#D9D9D9]">On</span>
+          ) : (
+            <CustomSwitch
+              checked={Boolean(activeSettings.ditherEnabled)}
+              onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
+            />
+          )}
         </div>
 
         {/* Algorithm selector always visible; disabled when dither is off */}
@@ -2407,6 +2443,18 @@ const BrushControls = () => {
                 }
                 aria-label="Dither Resolution"
                 className="flex-1"
+              />
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                PresRes
+              </label>
+              <CustomSwitch
+                id="dither-resolution-pressure-default"
+                checked={Boolean(activeSettings.ditherResolutionPressure)}
+                onChange={(checked) =>
+                  setActiveSettings({ ditherResolutionPressure: checked })
+                }
               />
             </div>
             <div className="flex items-center gap-2 mt-2">

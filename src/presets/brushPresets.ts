@@ -869,6 +869,7 @@ export const ditherBrushPreset: BrushPreset = {
     patternStyle: 'dots',
     ditherPaletteSpread: 10,
     ditherPhaseJitter: 15,
+    ditherResolutionPressure: false,
     spacing: 1,
     brushShape: BrushShape.SQUARE,
     // Slightly heavier lost-edge to soften transitions
