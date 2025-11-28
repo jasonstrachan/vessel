@@ -147,7 +147,6 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherPaletteSpread: settings.ditherPaletteSpread,
   lostEdge: settings.lostEdge,
   fillResolution: settings.fillResolution,
-  ditherResolutionPressure: settings.ditherResolutionPressure,
   rotationEnabled: settings.rotationEnabled,
   dashedEnabled: settings.dashedEnabled,
   dashLength: settings.dashLength,
@@ -166,7 +165,6 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   resampleInterval: settings.resampleInterval,
   polygonSampleColors: settings.polygonSampleColors,
   autoSampleColor: settings.autoSampleColor,
-  toneCurvePoints: settings.toneCurvePoints,
 });
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';
@@ -525,76 +523,83 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     
     // Auto-save brush-specific settings when they change (excluding size)
     // Determine current brush ID (standard brush preset or custom brush)
-    const currentBrushId = state.currentBrushPreset
-      ? state.currentBrushPreset.id
-      : currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush
-        ? currentSettings.selectedCustomBrush
-        : null;
-
+    const currentBrushId = state.currentBrushPreset 
+      ? state.currentBrushPreset.id 
+      : (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush 
+         ? currentSettings.selectedCustomBrush 
+         : null);
+         
     // Store brush settings to save for later
     let brushSettingsToSave: { brushId: string; settings: Partial<BrushSettings> } | null = null;
-
+    
     if (currentBrushId) {
+      // Get existing saved settings for this brush
       const existingSavedSettings = state.brushSpecificSettings[currentBrushId] || {};
+      
+      // Merge with new settings
+      const settingsToSave: Partial<BrushSettings> = {
+        ...existingSavedSettings
+      };
 
-      // Keys that should round-trip through persistence (size/pressure are global)
-      const persistableKeys: (keyof BrushSettings)[] = [
-        'opacity',
-        'spacing',
-        'colorJitter',
-        'risographIntensity',
-        'risographColorShift',
-        'ditherEnabled',
-        'ditherPhaseJitter',
-        'ditherPaletteSpread',
-        'ditherAlgorithm',
-        'patternStyle',
-        'lostEdge',
-        'colorCycleStampDitherEnabled',
-        'colorCycleStampDitherPixelSize',
-        'colorCycleStampDitherClears',
-        'fillResolution',
-        'rotationEnabled',
-        'dashedEnabled',
-        'dashLength',
-        'dashGap',
-        'gridSnapEnabled',
-        'shapeEnabled',
-        'antialiasing',
-        'hueShift',
-        'lightnessAdjust',
-        'saturationAdjust',
-        'colors',
-        'rectGradientPresetId',
-        'polygonSampleColors',
-        'continuousSampling',
-        'resampleInterval',
-        'toneCurvePoints',
-        'toneCurveByAlgorithm',
-        'colorCycleGradient',
-        'colorCycleFlowMode',
-        'colorCycleGradientVersion',
-      ];
-
-      const settingsToSave: Partial<BrushSettings> = { ...existingSavedSettings };
       delete settingsToSave.pressureEnabled;
       delete settingsToSave.minPressure;
       delete settingsToSave.maxPressure;
-
-      let hasPersistableChange = false;
-      for (const key of persistableKeys) {
-        if (Object.prototype.hasOwnProperty.call(newSettings, key)) {
-          const nextValue = (newSettings as Record<string, unknown>)[key];
-          if ((settingsToSave as Record<string, unknown>)[key] !== nextValue) {
-            (settingsToSave as Record<string, unknown>)[key] = nextValue as never;
-            hasPersistableChange = true;
-          }
-        }
+      
+      // Update with changed settings
+      if (settings.opacity !== undefined) settingsToSave.opacity = newSettings.opacity;
+      if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
+      if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
+      if (settings.risographIntensity !== undefined) settingsToSave.risographIntensity = newSettings.risographIntensity;
+      if (settings.risographColorShift !== undefined) settingsToSave.risographColorShift = newSettings.risographColorShift;
+      if (settings.ditherEnabled !== undefined) settingsToSave.ditherEnabled = newSettings.ditherEnabled;
+      if (settings.ditherPhaseJitter !== undefined) {
+        settingsToSave.ditherPhaseJitter = newSettings.ditherPhaseJitter;
       }
-
-      if (hasPersistableChange) {
-        brushSettingsToSave = { brushId: currentBrushId, settings: settingsToSave };
+      if (settings.ditherPaletteSpread !== undefined) {
+        settingsToSave.ditherPaletteSpread = newSettings.ditherPaletteSpread;
       }
+      if (settings.lostEdge !== undefined) {
+        settingsToSave.lostEdge = newSettings.lostEdge;
+      }
+      if (settings.colorCycleStampDitherEnabled !== undefined) {
+        settingsToSave.colorCycleStampDitherEnabled = newSettings.colorCycleStampDitherEnabled;
+      }
+      if (settings.colorCycleStampDitherPixelSize !== undefined) {
+        settingsToSave.colorCycleStampDitherPixelSize = newSettings.colorCycleStampDitherPixelSize;
+      }
+      if (settings.colorCycleStampDitherClears !== undefined) {
+        settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
+      }
+      if (settings.fillResolution !== undefined) settingsToSave.fillResolution = newSettings.fillResolution;
+      if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
+      if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;
+      if (settings.dashLength !== undefined) settingsToSave.dashLength = newSettings.dashLength;
+      if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
+      if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
+      if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
+      if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
+      if (settings.hueShift !== undefined) settingsToSave.hueShift = newSettings.hueShift;
+      if (settings.lightnessAdjust !== undefined) settingsToSave.lightnessAdjust = newSettings.lightnessAdjust;
+      if (settings.saturationAdjust !== undefined) settingsToSave.saturationAdjust = newSettings.saturationAdjust;
+      if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
+      if (settings.rectGradientPresetId !== undefined) settingsToSave.rectGradientPresetId = newSettings.rectGradientPresetId;
+      if (settings.polygonSampleColors !== undefined) settingsToSave.polygonSampleColors = newSettings.polygonSampleColors;
+      if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
+      if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
+      if (settings.colorCycleGradient !== undefined) {
+        settingsToSave.colorCycleGradient = newSettings.colorCycleGradient;
+      }
+      if (settings.colorCycleFlowMode !== undefined) {
+        settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
+      }
+      if (
+        settings.colorCycleGradient !== undefined ||
+        settings.colorCycleGradientVersion !== undefined
+      ) {
+        settingsToSave.colorCycleGradientVersion = newSettings.colorCycleGradientVersion;
+      }
+      
+      brushSettingsToSave = { brushId: currentBrushId, settings: settingsToSave };
     }
     
     // Handle brush-specific resource cleanup when switching between custom and regular brushes

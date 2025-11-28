@@ -7,7 +7,6 @@ type StoredBrushMap = Record<string, Partial<BrushSettings>>;
 export interface GlobalBrushSettingsPayload {
   globalBrushSize?: number;
   brushSpecificSettings?: StoredBrushMap;
-  lastBrushPresetId?: string;
 }
 
 let storageOverride: Storage | null = null;
@@ -72,9 +71,6 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
     }
     if (payload.brushSpecificSettings && Object.keys(payload.brushSpecificSettings).length > 0) {
       sanitized.brushSpecificSettings = payload.brushSpecificSettings;
-    }
-    if (typeof payload.lastBrushPresetId === 'string' && payload.lastBrushPresetId.trim().length > 0) {
-      sanitized.lastBrushPresetId = payload.lastBrushPresetId;
     }
     storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch (error) {

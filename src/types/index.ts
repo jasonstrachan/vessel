@@ -500,27 +500,8 @@ export interface BrushSettings {
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps
-  ditherAlgorithm?:
-    | 'floyd-steinberg'
-    | 'bayer'
-    | 'sierra-lite'
-    | 'atkinson'
-    | 'blue-noise'
-    | 'pattern'
-    | 'jjn'
-    | 'stucki'
-    | 'burkes'
-    | 'clustered-halftone'
-    | 'void-cluster-blue-noise';
-  // When true, pressure maps to dither resolution (lighter pressure = finer)
-  ditherResolutionPressure?: boolean;
-  patternStyle?:
-    | 'dots'
-    | 'lines'
-    | 'vertical-lines'
-    | 'horizontal-lines'
-    | 'crosshatch'
-    | 'diagonal';
+  ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
+  patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
   // Lost Edge: apply Sierra Lite dither to break up stroke boundaries
   lostEdge?: number; // 0-100: 0 = off, 100 = strongest edge breakup
   // Stroke/shape thickness hint (used by certain shape/erosion routines)
@@ -607,9 +588,7 @@ export interface BrushSettings {
   colorCycleBandSpacingPx?: number; // Pixel distance between color-cycle bands for shapes
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas
-  toneCurvePoints?: Array<{ x: number; y: number }>; // Per-brush tone curve for resampler/dither tuning
-  toneCurveByAlgorithm?: Record<string, Array<{ x: number; y: number }>>; // Per-dither-algorithm tone curves
- 
+  
   // Gradient bands/steps for both strokes and fills
   gradientBands?: number; // 2-50 (number of color steps in gradients)
   
@@ -716,7 +695,6 @@ export interface ColorAdjustParams {
   red: number;        // -100 to 100 percent channel delta
   green: number;      // -100 to 100 percent channel delta
   blue: number;       // -100 to 100 percent channel delta
-  toneCurvePoints?: Array<{ x: number; y: number }>; // normalized 0-1 control points, endpoints implied
 }
 
 export interface ColorAdjustState {

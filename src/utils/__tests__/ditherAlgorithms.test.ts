@@ -387,46 +387,6 @@ describe('Dithering Algorithms', () => {
       const floydResult = applyPressureDither(imageData, floydSettings);
       expect(bayerResult.data).not.toEqual(floydResult.data);
     });
-
-    it('should support extended diffusion kernels', () => {
-      const imageData = createTestImageData(4, 4);
-      const baseSettings: Omit<DitherSettings, 'algorithm'> = {
-        pressure: 0.5,
-        intensity: 0.8,
-        bayerMatrixSize: 8,
-        palette: createGrayscalePalette(2)
-      };
-
-      const algorithms: DitherSettings['algorithm'][] = ['jjn', 'stucki', 'burkes'];
-
-      algorithms.forEach((algorithm) => {
-        expect(() =>
-          applyPressureDither(imageData, {
-            ...baseSettings,
-            algorithm,
-          })
-        ).not.toThrow();
-      });
-    });
-
-    it('should support ordered halftone variants', () => {
-      const imageData = createTestImageData(4, 4);
-      const baseSettings: Omit<DitherSettings, 'algorithm'> = {
-        pressure: 0.6,
-        intensity: 0.9,
-        bayerMatrixSize: 8,
-        palette: createGrayscalePalette(2)
-      };
-
-      ['clustered-halftone', 'void-cluster-blue-noise'].forEach((algorithm) => {
-        expect(() =>
-          applyPressureDither(imageData, {
-            ...baseSettings,
-            algorithm: algorithm as DitherSettings['algorithm']
-          })
-        ).not.toThrow();
-      });
-    });
     
     it('should handle unknown algorithm gracefully', () => {
       const imageData = createTestImageData(4, 4);

@@ -16,7 +16,6 @@ import {
   createRisoTintMask
 } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
-import { buildToneCurveLut, resolveToneCurveForAlgorithm } from '@/utils/imageProcessing';
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -1358,39 +1357,14 @@ export const useBrushEngineSimplified = () => {
     );
   }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread]);
 
-  // Track latest pointer pressure without forcing Zustand subscribers to re-render.
-  const lastPressureRef = useRef<number>(0.5);
-  const updateLastPressure = useCallback((pressure?: number) => {
-    const numeric = Number(pressure);
-    const clamped = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.5;
-    lastPressureRef.current = clamped;
-  }, []);
-
-  // Resolve stroke dithering pixel size, optionally modulated by pressure
-  const resolveStrokeDitherPixelSize = useCallback(() => {
-    const base = Math.max(1, Math.min(16, Math.round(tools.brushSettings.fillResolution || 1)));
-    if (!tools.brushSettings.ditherResolutionPressure) return base;
-    // Map last known pressure to pixel size (heavier pressure -> larger pixels)
-    const p = lastPressureRef.current;
-    const minPx = 1;
-    const maxPx = 16;
-    const dynamic = minPx + p * (maxPx - minPx);
-    // Blend with base to avoid extreme swings: 70% dynamic, 30% base
-    const blended = base * 0.3 + dynamic * 0.7;
-    return Math.max(1, Math.min(16, Math.round(blended)));
-  }, [tools.brushSettings.fillResolution, tools.brushSettings.ditherResolutionPressure]);
+  const strokeDitherPixelSize = useMemo(() => {
+    const raw = tools.brushSettings.fillResolution || 1;
+    return Math.max(1, Math.min(16, Math.round(raw)));
+  }, [tools.brushSettings.fillResolution]);
 
   const strokeLostEdgeAmount = useMemo(() => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
   }, [tools.brushSettings.lostEdge]);
-
-  const toneCurveSource = useMemo(() => {
-    return resolveToneCurveForAlgorithm(tools.brushSettings, tools.brushSettings.ditherAlgorithm);
-  }, [tools.brushSettings]);
-
-  const toneCurveLut = useMemo(() => {
-    return buildToneCurveLut(toneCurveSource);
-  }, [toneCurveSource]);
 
   const lostEdgeTileSize = 4; // tunable; matches ditherAlgorithms default for now
 
@@ -1551,17 +1525,17 @@ export const useBrushEngineSimplified = () => {
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
-    sampleCtx?: CanvasRenderingContext2D,
-    options?: { live?: boolean }
+    sampleCtx?: CanvasRenderingContext2D
   ) => {
     if (!shouldApplyStrokeDither || !ctx || !bounds) {
       return;
     }
 
-    const isLive = options?.live === true;
-
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
+
+    const tileSize = Math.max(1, strokeDitherPixelSize | 0);
+
     const x = region.x | 0;
     const y = region.y | 0;
     const w = region.width | 0;
@@ -1570,8 +1544,6 @@ export const useBrushEngineSimplified = () => {
     if (w <= 0 || h <= 0) {
       return;
     }
-
-    const tileSize = Math.max(1, resolveStrokeDitherPixelSize() | 0);
 
     const sourceCtx = sampleCtx ?? ctx;
     let src: ImageData;
@@ -1620,17 +1592,13 @@ export const useBrushEngineSimplified = () => {
       coarseData[a + 3] = 255;
     }
 
-    // 3) Run dithering on the coarse image. Live preview uses ordered Bayer to avoid popping;
-    // final stroke respects the configured algorithm.
-    const algorithmForPreview = 'bayer';
-    const algorithmFinal = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+    // 3) Run standard Sierra-lite on the coarse image
     const ditheredCoarse = applyDitheringImport(
       coarse,
       strokeDitherPalette.length,
-      isLive ? algorithmForPreview : algorithmFinal,
-      tools.brushSettings.patternStyle || 'dots',
-      strokeDitherPalette,
-      toneCurveLut
+      'sierra-lite',
+      undefined,
+      strokeDitherPalette
     );
 
     const ditheredCoarseData = ditheredCoarse.data;
@@ -1687,15 +1655,7 @@ export const useBrushEngineSimplified = () => {
     } catch (error) {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
-  }, [
-    shouldApplyStrokeDither,
-    strokeDitherPalette,
-    resolveStrokeDitherPixelSize,
-    strokeLostEdgeAmount,
-    toneCurveLut,
-    tools.brushSettings.ditherAlgorithm,
-    tools.brushSettings.patternStyle
-  ]);
+  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;
@@ -1744,7 +1704,7 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
-    applyStrokeDither(ditherCtx, region, rawCtx || undefined, { live: true });
+    applyStrokeDither(ditherCtx, region, rawCtx || undefined);
 
     withAlphaLock(visibleCtx, (targetCtx) => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
@@ -1823,7 +1783,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, updateLastPressure]);
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
 
   /**
    * Draw a single stamp at a position
@@ -1864,7 +1824,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, updateLastPressure]);
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
@@ -1901,7 +1861,7 @@ export const useBrushEngineSimplified = () => {
 
       ditherCtx.clearRect(x, y, width, height);
       ditherCtx.putImageData(src, x, y);
-      applyStrokeDither(ditherCtx, strokeBounds, rawCtx, { live: false });
+      applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
 
       withAlphaLock(ctx, (targetCtx) => {
         targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
@@ -2093,21 +2053,15 @@ export const useBrushEngineSimplified = () => {
           const imageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
           
           const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
-          const pressure = lastPressureRef.current;
-          const baseRes = tools.brushSettings.fillResolution || 1;
-          const minPx = 1;
-          const maxPx = 16;
-          const pressureRes = minPx + pressure * (maxPx - minPx);
-          const fillResolution = tools.brushSettings.ditherResolutionPressure
-            ? Math.max(1, Math.min(16, Math.round(baseRes * 0.3 + pressureRes * 0.7)))
-            : baseRes;
+          const fillResolution = tools.brushSettings.fillResolution || 1;
           const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = tools.brushSettings.patternStyle || 'dots';
+          
           // Pass the gradient colors to dithering
           const paletteColors = colors.length > 0 ? colors : [tools.brushSettings.color];
           const ditheredData = fillResolution > 1 
-            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors, toneCurveLut)
-            : applyDitheringImport(imageData, numColors, algorithm, patternStyle, paletteColors, toneCurveLut);
+            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors)
+            : applyDitheringImport(imageData, numColors, algorithm, patternStyle, paletteColors);
           
           // Put dithered data back on temp canvas
           tempCtx.putImageData(ditheredData, 0, 0);
@@ -2248,7 +2202,7 @@ export const useBrushEngineSimplified = () => {
     // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.risographColorShift, toneCurveLut, isPixelBrush]);
+  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.risographColorShift, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -2709,10 +2663,11 @@ export const useBrushEngineSimplified = () => {
           const fillResolution = tools.brushSettings.fillResolution || 1;
           const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = tools.brushSettings.patternStyle || 'dots';
+          
           // Pass the gradient colors directly to the dithering function
           const ditheredData = fillResolution > 1 
-            ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors, toneCurveLut)
-            : applyDitheringImport(gradientImageData, numColors, algorithm, patternStyle, validColors, toneCurveLut);
+            ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors)
+            : applyDitheringImport(gradientImageData, numColors, algorithm, patternStyle, validColors);
           
           // Put the dithered result back
           tempCtx.putImageData(ditheredData, 0, 0);
@@ -2798,7 +2753,7 @@ export const useBrushEngineSimplified = () => {
       // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, toneCurveLut, applyRisographEffect]);
+  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
 
 
   /**
@@ -3842,8 +3797,6 @@ useEffect(() => {
     // Effects
     applyStrokeDither,
     applyDithering,
-    // Update live pressure without triggering store re-renders
-    setLivePressure: updateLastPressure,
     
     // Utilities
     canDrawAt: (ctx: CanvasRenderingContext2D, x: number, y: number) => 

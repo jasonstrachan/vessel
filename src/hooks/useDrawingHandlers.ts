@@ -6,7 +6,6 @@ import { getRisographPattern, getRisographEffectSettings } from '../utils/risogr
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
-import { buildToneCurveLut } from '@/utils/imageProcessing';
 import { appendSegmentWithDynamicResampling, ensurePolygonFromDrag } from '../utils/shapeMaker';
 import { logError, debugWarn, debugLog } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
@@ -2356,11 +2355,9 @@ export function useDrawingHandlers({
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     let brushSettings = currentState.tools.brushSettings;
-    brushEngine?.setLivePressure?.(pressure);
     const alignPixelStrokes = shouldPixelAlignBrush(brushSettings);
     const ccFlags = getColorCycleBrushFlags(brushSettings);
     const worldPos = alignPointToPixel(rawWorldPos, alignPixelStrokes);
-    
     let runtimeProject = project ?? currentState.project ?? null;
 
     // Auto-pick brush color from canvas/reference layer for regular brushes
@@ -2959,37 +2956,19 @@ export function useDrawingHandlers({
               { generateThumbnail: false }
             );
 
-          if (captureResult) {
-            customBrushData = {
-              imageData: captureResult.imageData,
-              width: captureResult.width,
-              height: captureResult.height,
-              isColorizable: false,
-              isResampler: true,
-              cacheKey: 'resampler:single'
-            };
+            if (captureResult) {
+              customBrushData = {
+                imageData: captureResult.imageData,
+                width: captureResult.width,
+                height: captureResult.height,
+                isColorizable: false,
+                isResampler: true,
+                cacheKey: 'resampler:single'
+              };
 
-            // Apply per-brush tone curve to captured pattern
-            const algo = currentState.tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-            const toneCurve = resolveToneCurveForAlgorithm(
-              currentState.tools.brushSettings,
-              algo
-            );
-            if (toneCurve && toneCurve.length > 0) {
-              const lut = buildToneCurveLut(toneCurve);
-              if (lut) {
-                const data = customBrushData.imageData.data;
-                for (let i = 0; i < data.length; i += 4) {
-                  data[i] = lut[data[i]];
-                  data[i + 1] = lut[data[i + 1]];
-                  data[i + 2] = lut[data[i + 2]];
-                }
-              }
+              resamplerBrushDataRef.current = customBrushData;
             }
-
-            resamplerBrushDataRef.current = customBrushData;
           }
-        }
         }
 
         if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
@@ -3061,7 +3040,6 @@ export function useDrawingHandlers({
     // Process all points in the batch
     for (let i = 0; i < batch.length; i++) {
       const { pos: worldPos, pressure } = batch[i];
-      brushEngine?.setLivePressure?.(pressure);
       const shouldAutoSample =
         ccProcessFlags.isAny && currentState.tools.brushSettings.autoSampleGradient;
       if (shouldAutoSample) {

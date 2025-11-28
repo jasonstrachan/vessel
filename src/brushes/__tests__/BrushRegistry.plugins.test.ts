@@ -1,5 +1,5 @@
 import { BrushRegistry } from '@/brushes/BrushRegistry';
-import { ParticleBrushPlugin, SpamBrushPlugin } from '@/brushes/plugins';
+import { DitherBrushPlugin, ParticleBrushPlugin, SpamBrushPlugin } from '@/brushes/plugins';
 
 const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -12,12 +12,27 @@ afterAll(() => {
 describe('Builtin brush metadata', () => {
   it('remains stable for default plugins', () => {
     const metadata = [
+      new DitherBrushPlugin().metadata,
       new ParticleBrushPlugin().metadata,
       new SpamBrushPlugin().metadata,
     ];
 
     expect(metadata).toMatchInlineSnapshot(`
 [
+  {
+    "author": "Vessel Team",
+    "category": "Artistic",
+    "description": "Creates retro dithered drawing effects with various algorithms",
+    "id": "dither-brush",
+    "name": "Dither Brush",
+    "tags": [
+      "dither",
+      "retro",
+      "pixel",
+      "artistic",
+    ],
+    "version": "1.0.0",
+  },
   {
     "author": "Vessel Team",
     "category": "Artistic",
@@ -62,6 +77,7 @@ describe('BrushRegistry', () => {
       .sort();
 
     expect(registeredIds).toEqual([
+      'dither-brush',
       'particle-brush',
       'spam-brush',
     ]);

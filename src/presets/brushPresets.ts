@@ -120,7 +120,6 @@ export const defaultBrushSettings: BrushSettings = {
   autoSampleColor: false,
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,
-  toneCurvePoints: [],
   colorCycleGradientVersion: 0,
   fillResolution: 1,
   colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes
@@ -848,32 +847,26 @@ export const resamplerBrushPreset: BrushPreset = {
   }
 };
 
-// New dedicated Dither brush preset (dots pattern by default)
-export const ditherBrushPreset: BrushPreset = {
-  id: 'dither-brush',
+// Polygon with dither brush preset
+export const polygonDitherPreset: BrushPreset = {
+  id: 'polygon-dither',
   name: 'Dither',
-  category: 'Artistic',
+  category: 'shapes',
   components: defaultBrushComponents,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['dither', 'tone', 'pattern', 'stipple'],
+  thumbnail: '',
+  tags: ['polygon', 'dither', 'shape'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
     ...defaultBrushSettings,
-    size: 12,
-    opacity: 100,
-    antialiasing: false,
+    brushShape: BrushShape.POLYGON,
+    polygonSides: 6,
+    polygonDitherResolution: 3,
     ditherEnabled: true,
-    ditherAlgorithm: 'pattern',
-    patternStyle: 'dots',
-    ditherPaletteSpread: 10,
-    ditherPhaseJitter: 15,
-    ditherResolutionPressure: false,
-    spacing: 1,
-    brushShape: BrushShape.SQUARE,
-    // Slightly heavier lost-edge to soften transitions
-    lostEdge: 8,
+    size: 50,
+    opacity: 100,
+    antialiasing: false
   }
 };
 
@@ -891,7 +884,7 @@ export const brushPresets: BrushPreset[] = [
   shapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset,
-  ditherBrushPreset
+  polygonDitherPreset
 ];
 
 // Helper functions

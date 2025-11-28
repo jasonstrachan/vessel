@@ -1,5 +1,4 @@
 import { applyColorAdjustments } from '@/utils/imageProcessing';
-import { buildToneCurveLut, resolveToneCurveForAlgorithm } from '@/utils/imageProcessing';
 
 const clamp = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
 
@@ -18,7 +17,6 @@ describe('applyColorAdjustments', () => {
       red: 0,
       green: 0,
       blue: 0,
-      toneCurvePoints: [],
     });
 
     expect(result).not.toBe(original);
@@ -35,7 +33,6 @@ describe('applyColorAdjustments', () => {
       red: 0,
       green: 0,
       blue: 0,
-      toneCurvePoints: [],
     });
 
     const [r, g, b, a] = result.data;
@@ -58,7 +55,6 @@ describe('applyColorAdjustments', () => {
       red: 0,
       green: 0,
       blue: 0,
-      toneCurvePoints: [],
     });
 
     const contrastValue = Math.max(-255, Math.min(255, Math.round(contrast * 2.55)));
@@ -82,60 +78,11 @@ describe('applyColorAdjustments', () => {
       red: 10,
       green: -10,
       blue: 25,
-      toneCurvePoints: [],
     });
 
     const [r, g, b] = result.data;
     expect(r).toBeGreaterThan(original.data[0]);
     expect(g).toBeLessThan(original.data[1]);
     expect(b).toBeGreaterThan(original.data[2]);
-  });
-
-  it('applies tone curve LUT when points are provided', () => {
-    const original = createImageData([64, 128, 192, 255], 1, 1);
-    const result = applyColorAdjustments(original, {
-      hue: 0,
-      saturation: 0,
-      lightness: 0,
-      contrast: 0,
-      red: 0,
-      green: 0,
-      blue: 0,
-      toneCurvePoints: [
-        { x: 0.25, y: 0.15 },
-        { x: 0.5, y: 0.55 },
-        { x: 0.75, y: 0.9 },
-      ],
-    });
-
-    const [r, g, b] = result.data;
-    expect(r).toBeLessThan(64); // lifted shadows still under identity
-    expect(g).toBeGreaterThanOrEqual(128); // midtones boosted by S-curve
-    expect(b).toBeGreaterThan(192); // highlights lifted
-  });
-
-  it('includes custom endpoints from user curve', () => {
-    const lut = buildToneCurveLut([
-      { x: 0, y: 0.2 },
-      { x: 0.5, y: 0.8 },
-      { x: 1, y: 0.9 },
-    ])!;
-    expect(lut[0]).toBe(51); // 0.2 * 255 ≈ 51
-    expect(lut[255]).toBe(230); // 0.9 * 255 ≈ 230
-  });
-
-  it('resolves per-algorithm curves and falls back appropriately', () => {
-    const settings = {
-      toneCurvePoints: [{ x: 0.1, y: 0.2 }],
-      toneCurveByAlgorithm: {
-        bayer: [{ x: 0.5, y: 0.75 }],
-      },
-    } as const;
-
-    expect(resolveToneCurveForAlgorithm(settings, 'bayer')).toEqual([{ x: 0.5, y: 0.75 }]);
-    expect(resolveToneCurveForAlgorithm(settings, 'sierra-lite')).toEqual([]);
-    expect(
-      resolveToneCurveForAlgorithm({ toneCurvePoints: [{ x: 0.1, y: 0.2 }] }, 'atkinson')
-    ).toEqual([{ x: 0.1, y: 0.2 }]);
   });
 });

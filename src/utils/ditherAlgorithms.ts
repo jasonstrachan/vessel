@@ -90,116 +90,9 @@ const BLUE_NOISE_16x16 = [
   [0.65, 0.24, 0.61, 0.78, 0.31, 0.75, 0.08, 0.90, 0.02, 0.67, 0.98, 0.20, 0.35, 0.86, 0.45, 0.14]
 ];
 
-// 8x8 clustered-dot halftone threshold map (normalized 0-1)
-export const CLUSTERED_DOT_8x8 = [
-  [24, 10, 12, 26, 35, 47, 49, 37],
-  [8, 0, 2, 14, 45, 59, 61, 51],
-  [22, 6, 4, 16, 43, 57, 63, 53],
-  [30, 20, 18, 28, 33, 41, 55, 39],
-  [34, 46, 48, 36, 25, 11, 13, 27],
-  [44, 58, 60, 50, 9, 1, 3, 15],
-  [42, 56, 62, 52, 23, 7, 5, 17],
-  [32, 40, 54, 38, 31, 19, 21, 29]
-].map((row) => row.map((v) => v / 64));
-
-// Lightweight void-and-cluster blue-noise mask (64x64) generated at module load
-const buildVoidClusterMask = (size: number = 64): number[][] => {
-  const total = size * size;
-  const filled = new Uint8Array(total);
-  const queue = new Uint32Array(total);
-  const dist = new Uint16Array(total);
-  const order = new Uint32Array(total);
-
-  let filledCount = 0;
-  const seedIdx = Math.floor(size / 2) * size + Math.floor(size / 2);
-  filled[seedIdx] = 1;
-  order[total - 1] = seedIdx;
-  filledCount = 1;
-
-  const visitNeighbors = (idx: number, cb: (nIdx: number) => void) => {
-    const x = idx % size;
-    const y = Math.floor(idx / size);
-    if (x + 1 < size) cb(idx + 1);
-    if (x - 1 >= 0) cb(idx - 1);
-    if (y + 1 < size) cb(idx + size);
-    if (y - 1 >= 0) cb(idx - size);
-  };
-
-  while (filledCount < total) {
-    dist.fill(0xffff);
-    let head = 0;
-    let tail = 0;
-    for (let i = 0; i < total; i++) {
-      if (filled[i]) {
-        dist[i] = 0;
-        queue[tail++] = i;
-      }
-    }
-
-    while (head < tail) {
-      const idx = queue[head++];
-      const nextDist = dist[idx] + 1;
-      visitNeighbors(idx, (nIdx) => {
-        if (nextDist < dist[nIdx]) {
-          dist[nIdx] = nextDist;
-          queue[tail++] = nIdx;
-        }
-      });
-    }
-
-    let bestIdx = -1;
-    let bestDist = -1;
-    for (let i = 0; i < total; i++) {
-      if (!filled[i] && dist[i] > bestDist) {
-        bestDist = dist[i];
-        bestIdx = i;
-      }
-    }
-
-    filled[bestIdx] = 1;
-    order[total - 1 - filledCount] = bestIdx;
-    filledCount++;
-  }
-
-  const rank = new Uint32Array(total);
-  for (let i = 0; i < total; i++) {
-    rank[order[i]] = i;
-  }
-
-  const map: number[][] = [];
-  for (let y = 0; y < size; y++) {
-    const row: number[] = [];
-    for (let x = 0; x < size; x++) {
-      const idx = y * size + x;
-      row.push(rank[idx] / (total - 1));
-    }
-    map.push(row);
-  }
-  return map;
-};
-
-export const VOID_CLUSTER_64x64 = buildVoidClusterMask(64);
-
-export type DitherAlgorithm =
-  | 'floyd-steinberg'
-  | 'bayer'
-  | 'sierra-lite'
-  | 'atkinson'
-  | 'blue-noise'
-  | 'pattern'
-  | 'jjn'
-  | 'stucki'
-  | 'burkes'
-  | 'clustered-halftone'
-  | 'void-cluster-blue-noise';
+export type DitherAlgorithm = 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
 export type BayerMatrixSize = 2 | 4 | 8;
-export type PatternStyle =
-  | 'dots'
-  | 'lines'
-  | 'vertical-lines'
-  | 'horizontal-lines'
-  | 'crosshatch'
-  | 'diagonal';
+export type PatternStyle = 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
 
 export interface DitherSettings {
   algorithm: DitherAlgorithm;
@@ -208,7 +101,6 @@ export interface DitherSettings {
   bayerMatrixSize: BayerMatrixSize;
   palette: [number, number, number][];
   patternStyle?: PatternStyle; // For pattern dithering
-  toneCurveLut?: Uint8ClampedArray | null; // Optional per-brush tone curve
 }
 
 /**
@@ -413,17 +305,9 @@ export const applyAtkinsonDither = (
   const width = imageData.width;
   const height = imageData.height;
   const palette = settings.palette;
-  const jitterAmount = 1; // tiny, stable noise to break tiling without washing contrast
-
-  const hash = (x: number, y: number) => {
-    const n = (x * 374761393 + y * 668265263) ^ (x << 5);
-    return ((n ^ (n >> 13)) & 0xffff) / 0xffff;
-  };
   
-  // Pressure → diffusion: low pressure = strong dither, high pressure = classic Atkinson
-  const p = Math.min(1, Math.max(0, settings.pressure));
-  // Spread 75–125% of the error; p=1 → 0.75x, p=0 → 1.25x
-  const errorIntensity = 0.75 + (1 - p) * 0.5;
+  // Pressure affects error diffusion intensity (75% max for Atkinson)
+  const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity) * 0.75;
   
   for (let y = 0; y < height; y++) {
     const leftToRight = (y & 1) === 0;
@@ -437,15 +321,9 @@ export const applyAtkinsonDither = (
       const oldR = data[idx];
       const oldG = data[idx + 1];
       const oldB = data[idx + 2];
-
-      // Add tiny deterministic jitter to reduce visible repetition
-      const jitter = (hash(x + 17, y + 23) - 0.5) * jitterAmount;
-      const jitteredR = Math.max(0, Math.min(255, oldR + jitter));
-      const jitteredG = Math.max(0, Math.min(255, oldG + jitter));
-      const jitteredB = Math.max(0, Math.min(255, oldB + jitter));
       
       // Quantize to nearest palette color
-      const [newR, newG, newB] = findNearestPaletteColor(jitteredR, jitteredG, jitteredB, palette);
+      const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
       
       // Calculate quantization error (only 75% is distributed)
       const errorR = (oldR - newR) * errorIntensity;
@@ -514,212 +392,6 @@ export const applyAtkinsonDither = (
 };
 
 /**
- * Jarvis–Judice–Ninke dithering with pressure sensitivity
- * Wide 5x3 kernel for creamy, low-noise gradients
- * Weights sum to 48:
- *        7  5
- *  3  5  7  5  3
- *  1  3  5  3  1
- */
-export const applyJarvisJudiceNinkeDither = (
-  imageData: ImageData,
-  settings: DitherSettings
-): ImageData => {
-  const data = new Uint8ClampedArray(imageData.data);
-  const { width, height } = imageData;
-  const palette = settings.palette;
-  const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
-
-  const kernel = [
-    { dx: 1, dy: 0, weight: 7 },
-    { dx: 2, dy: 0, weight: 5 },
-    { dx: -2, dy: 1, weight: 3 },
-    { dx: -1, dy: 1, weight: 5 },
-    { dx: 0, dy: 1, weight: 7 },
-    { dx: 1, dy: 1, weight: 5 },
-    { dx: 2, dy: 1, weight: 3 },
-    { dx: -2, dy: 2, weight: 1 },
-    { dx: -1, dy: 2, weight: 3 },
-    { dx: 0, dy: 2, weight: 5 },
-    { dx: 1, dy: 2, weight: 3 },
-    { dx: 2, dy: 2, weight: 1 },
-  ];
-  const denom = 48;
-
-  const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
-
-  for (let y = 0; y < height; y++) {
-    const leftToRight = (y & 1) === 0;
-    const dir = leftToRight ? 1 : -1;
-    const xStart = leftToRight ? 0 : width - 1;
-    const xEnd = leftToRight ? width : -1;
-
-    for (let x = xStart; x !== xEnd; x += dir) {
-      const idx = (y * width + x) * 4;
-      const oldR = data[idx];
-      const oldG = data[idx + 1];
-      const oldB = data[idx + 2];
-
-      const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
-      const errR = (oldR - newR) * errorIntensity;
-      const errG = (oldG - newG) * errorIntensity;
-      const errB = (oldB - newB) * errorIntensity;
-
-      data[idx] = newR;
-      data[idx + 1] = newG;
-      data[idx + 2] = newB;
-
-      for (const { dx, dy, weight } of kernel) {
-        const tx = x + dx * dir;
-        const ty = y + dy;
-        if (tx < 0 || tx >= width || ty < 0 || ty >= height) continue;
-        const tIdx = (ty * width + tx) * 4;
-        const factor = weight / denom;
-        data[tIdx] = clamp(data[tIdx] + errR * factor);
-        data[tIdx + 1] = clamp(data[tIdx + 1] + errG * factor);
-        data[tIdx + 2] = clamp(data[tIdx + 2] + errB * factor);
-      }
-    }
-  }
-
-  return new ImageData(data, width, height);
-};
-
-/**
- * Stucki dithering with pressure sensitivity
- * Similar footprint to JJN but slightly sharper. Weights sum to 42:
- *        8  4
- *  2  4  8  4  2
- *  1  2  4  2  1
- */
-export const applyStuckiDither = (
-  imageData: ImageData,
-  settings: DitherSettings
-): ImageData => {
-  const data = new Uint8ClampedArray(imageData.data);
-  const { width, height } = imageData;
-  const palette = settings.palette;
-  const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
-
-  const kernel = [
-    { dx: 1, dy: 0, weight: 8 },
-    { dx: 2, dy: 0, weight: 4 },
-    { dx: -2, dy: 1, weight: 2 },
-    { dx: -1, dy: 1, weight: 4 },
-    { dx: 0, dy: 1, weight: 8 },
-    { dx: 1, dy: 1, weight: 4 },
-    { dx: 2, dy: 1, weight: 2 },
-    { dx: -2, dy: 2, weight: 1 },
-    { dx: -1, dy: 2, weight: 2 },
-    { dx: 0, dy: 2, weight: 4 },
-    { dx: 1, dy: 2, weight: 2 },
-    { dx: 2, dy: 2, weight: 1 },
-  ];
-  const denom = 42;
-  const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
-
-  for (let y = 0; y < height; y++) {
-    const leftToRight = (y & 1) === 0;
-    const dir = leftToRight ? 1 : -1;
-    const xStart = leftToRight ? 0 : width - 1;
-    const xEnd = leftToRight ? width : -1;
-
-    for (let x = xStart; x !== xEnd; x += dir) {
-      const idx = (y * width + x) * 4;
-      const oldR = data[idx];
-      const oldG = data[idx + 1];
-      const oldB = data[idx + 2];
-
-      const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
-      const errR = (oldR - newR) * errorIntensity;
-      const errG = (oldG - newG) * errorIntensity;
-      const errB = (oldB - newB) * errorIntensity;
-
-      data[idx] = newR;
-      data[idx + 1] = newG;
-      data[idx + 2] = newB;
-
-      for (const { dx, dy, weight } of kernel) {
-        const tx = x + dx * dir;
-        const ty = y + dy;
-        if (tx < 0 || tx >= width || ty < 0 || ty >= height) continue;
-        const tIdx = (ty * width + tx) * 4;
-        const factor = weight / denom;
-        data[tIdx] = clamp(data[tIdx] + errR * factor);
-        data[tIdx + 1] = clamp(data[tIdx + 1] + errG * factor);
-        data[tIdx + 2] = clamp(data[tIdx + 2] + errB * factor);
-      }
-    }
-  }
-
-  return new ImageData(data, width, height);
-};
-
-/**
- * Burkes dithering with pressure sensitivity
- * Two-row, lighter-weight kernel (sum = 32):
- *        8  4
- *  2  4  8  4  2
- */
-export const applyBurkesDither = (
-  imageData: ImageData,
-  settings: DitherSettings
-): ImageData => {
-  const data = new Uint8ClampedArray(imageData.data);
-  const { width, height } = imageData;
-  const palette = settings.palette;
-  const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
-
-  const kernel = [
-    { dx: 1, dy: 0, weight: 8 },
-    { dx: 2, dy: 0, weight: 4 },
-    { dx: -2, dy: 1, weight: 2 },
-    { dx: -1, dy: 1, weight: 4 },
-    { dx: 0, dy: 1, weight: 8 },
-    { dx: 1, dy: 1, weight: 4 },
-    { dx: 2, dy: 1, weight: 2 },
-  ];
-  const denom = 32;
-  const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
-
-  for (let y = 0; y < height; y++) {
-    const leftToRight = (y & 1) === 0;
-    const dir = leftToRight ? 1 : -1;
-    const xStart = leftToRight ? 0 : width - 1;
-    const xEnd = leftToRight ? width : -1;
-
-    for (let x = xStart; x !== xEnd; x += dir) {
-      const idx = (y * width + x) * 4;
-      const oldR = data[idx];
-      const oldG = data[idx + 1];
-      const oldB = data[idx + 2];
-
-      const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
-      const errR = (oldR - newR) * errorIntensity;
-      const errG = (oldG - newG) * errorIntensity;
-      const errB = (oldB - newB) * errorIntensity;
-
-      data[idx] = newR;
-      data[idx + 1] = newG;
-      data[idx + 2] = newB;
-
-      for (const { dx, dy, weight } of kernel) {
-        const tx = x + dx * dir;
-        const ty = y + dy;
-        if (tx < 0 || tx >= width || ty < 0 || ty >= height) continue;
-        const tIdx = (ty * width + tx) * 4;
-        const factor = weight / denom;
-        data[tIdx] = clamp(data[tIdx] + errR * factor);
-        data[tIdx + 1] = clamp(data[tIdx + 1] + errG * factor);
-        data[tIdx + 2] = clamp(data[tIdx + 2] + errB * factor);
-      }
-    }
-  }
-
-  return new ImageData(data, width, height);
-};
-
-/**
  * Blue Noise dithering with pressure sensitivity
  * Uses a pre-computed blue noise pattern for organic-looking results
  * No directional artifacts, excellent for smooth gradients
@@ -764,75 +436,6 @@ export const applyBlueNoiseDither = (
     }
   }
   
-  return new ImageData(data, width, height);
-};
-
-/**
- * Clustered-dot halftone (ordered) with pressure sensitivity
- * Uses an 8x8 clustered threshold map to grow circular dots with tone.
- */
-export const applyClusteredHalftoneDither = (
-  imageData: ImageData,
-  settings: DitherSettings
-): ImageData => {
-  const data = new Uint8ClampedArray(imageData.data);
-  const { width, height } = imageData;
-  const palette = settings.palette;
-  const matrix = CLUSTERED_DOT_8x8;
-  const size = matrix.length;
-
-  const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.25, 1.1);
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const t = (matrix[y % size][x % size] - 0.5) * thresholdMultiplier * 255;
-
-      const r = Math.max(0, Math.min(255, data[idx] + t));
-      const g = Math.max(0, Math.min(255, data[idx + 1] + t));
-      const b = Math.max(0, Math.min(255, data[idx + 2] + t));
-
-      const [nr, ng, nb] = findNearestPaletteColor(r, g, b, palette);
-      data[idx] = nr;
-      data[idx + 1] = ng;
-      data[idx + 2] = nb;
-    }
-  }
-
-  return new ImageData(data, width, height);
-};
-
-/**
- * Void-and-cluster blue-noise ordered dither (64x64 mask)
- * High-quality, low-directionality thresholds; no diffusion step.
- */
-export const applyVoidClusterBlueNoiseDither = (
-  imageData: ImageData,
-  settings: DitherSettings
-): ImageData => {
-  const data = new Uint8ClampedArray(imageData.data);
-  const { width, height } = imageData;
-  const palette = settings.palette;
-  const matrix = VOID_CLUSTER_64x64;
-  const size = matrix.length;
-  const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const t = (matrix[y % size][x % size] - 0.5) * thresholdMultiplier * 255;
-
-      const r = Math.max(0, Math.min(255, data[idx] + t));
-      const g = Math.max(0, Math.min(255, data[idx + 1] + t));
-      const b = Math.max(0, Math.min(255, data[idx + 2] + t));
-
-      const [nr, ng, nb] = findNearestPaletteColor(r, g, b, palette);
-      data[idx] = nr;
-      data[idx + 1] = ng;
-      data[idx + 2] = nb;
-    }
-  }
-
   return new ImageData(data, width, height);
 };
 
@@ -1124,85 +727,52 @@ export const applyPatternDither = (
   const height = imageData.height;
   const palette = settings.palette;
   const patternStyle = settings.patternStyle || 'dots';
-
+  
   // Pressure affects pattern density
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
-
-  // Small deterministic hash for lightweight jitter
-  const hash = (x: number, y: number) => {
-    const n = (x * 374761393 + y * 668265263) ^ (x << 5);
-    return ((n ^ (n >> 13)) & 0xffff) / 0xffff;
-  };
-
-  const smoothstep = (edge0: number, edge1: number, x: number) => {
-    const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
-    return t * t * (3 - 2 * t);
-  };
-
+  
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
       
       // Get pattern threshold based on style
       let patternValue = 0;
-
-      // Luminance for tone-aware blends
-      const luminance = (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]) / 255;
-
-      // Helper: dot value reused across styles for tone blending
-      const dotSize = 4;
-      const dxDot = x % dotSize - dotSize / 2;
-      const dyDot = y % dotSize - dotSize / 2;
-      const dotDistance = Math.sqrt(dxDot * dxDot + dyDot * dyDot) / (dotSize / 2);
-      const dotValue = Math.min(1, dotDistance);
-
-      // Tone weights: midtones favor lines; shadows/highlights favor dots
-      const lineWeight = smoothstep(0.25, 0.75, luminance); // 0 at dark/bright, 1 in mids
-      const dotWeight = 1 - lineWeight;
-
+      
       switch (patternStyle) {
         case 'dots': {
-          patternValue = dotValue;
+          // Circular dot pattern
+          const dotSize = 4;
+          const dx = x % dotSize - dotSize / 2;
+          const dy = y % dotSize - dotSize / 2;
+          const distance = Math.sqrt(dx * dx + dy * dy) / (dotSize / 2);
+          patternValue = Math.min(1, distance);
           break;
         }
         case 'lines': {
           // Diagonal line pattern
-          const baseSpacing = 4;
-          const jitterSpacing = baseSpacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
-          const phase = hash(x, y + 11) * jitterSpacing;
-          const diagonal = (x + y + phase) % jitterSpacing;
-          const lineValue = diagonal / jitterSpacing;
-          patternValue = lineValue * lineWeight + dotValue * dotWeight;
+          const lineSpacing = 4;
+          const diagonal = (x + y) % lineSpacing;
+          patternValue = diagonal / lineSpacing;
           break;
         }
         case 'vertical-lines': {
           // Vertical line pattern
-          const baseSpacing = 4;
-          const jitterSpacing = baseSpacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
-          const phase = hash(x, y + 17) * jitterSpacing;
-          const lineValue = ((x + phase) % jitterSpacing) / jitterSpacing;
-          patternValue = lineValue * lineWeight + dotValue * dotWeight;
+          const lineSpacing = 4;
+          patternValue = (x % lineSpacing) / lineSpacing;
           break;
         }
         case 'horizontal-lines': {
           // Horizontal line pattern
-          const baseSpacing = 4;
-          const jitterSpacing = baseSpacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
-          const phase = hash(x + 13, y) * jitterSpacing;
-          const lineValue = ((y + phase) % jitterSpacing) / jitterSpacing;
-          patternValue = lineValue * lineWeight + dotValue * dotWeight;
+          const lineSpacing = 4;
+          patternValue = (y % lineSpacing) / lineSpacing;
           break;
         }
         case 'crosshatch': {
           // Crosshatch pattern
           const spacing = 4;
-          const jitterSpacing = spacing + Math.max(0, Math.round(hash(x, y) * 1.5 - 0.75));
-          const phaseV = hash(x, y + 23) * jitterSpacing;
-          const phaseH = hash(x + 19, y) * jitterSpacing;
-          const vertical = ((x + phaseV) % jitterSpacing) / jitterSpacing;
-          const horizontal = ((y + phaseH) % jitterSpacing) / jitterSpacing;
-          const hatch = Math.min(vertical, horizontal);
-          patternValue = hatch * lineWeight + dotValue * dotWeight;
+          const vertical = (x % spacing) / spacing;
+          const horizontal = (y % spacing) / spacing;
+          patternValue = Math.min(vertical, horizontal);
           break;
         }
         case 'diagonal': {
@@ -1210,12 +780,11 @@ export const applyPatternDither = (
           const spacing = 8;
           const dx = Math.abs((x % spacing) - spacing / 2);
           const dy = Math.abs((y % spacing) - spacing / 2);
-          const diag = (dx + dy) / spacing;
-          patternValue = diag * lineWeight + dotValue * dotWeight;
+          patternValue = (dx + dy) / spacing;
           break;
         }
       }
-
+      
       // Apply threshold with pressure sensitivity
       const threshold = (patternValue - 0.5) * thresholdMultiplier * 128;
       
@@ -1242,17 +811,6 @@ export const applyPressureDither = (
   imageData: ImageData, 
   settings: DitherSettings
 ): ImageData => {
-  // Apply tone curve pre-process if present
-  if (settings.toneCurveLut) {
-    const lut = settings.toneCurveLut;
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = lut[data[i]];
-      data[i + 1] = lut[data[i + 1]];
-      data[i + 2] = lut[data[i + 2]];
-    }
-  }
-
   switch (settings.algorithm) {
     case 'floyd-steinberg':
       return applyFloydSteinbergDither(imageData, settings);
@@ -1262,18 +820,8 @@ export const applyPressureDither = (
       return applySierraLitePressureDither(imageData, settings);
     case 'atkinson':
       return applyAtkinsonDither(imageData, settings);
-    case 'jjn':
-      return applyJarvisJudiceNinkeDither(imageData, settings);
-    case 'stucki':
-      return applyStuckiDither(imageData, settings);
-    case 'burkes':
-      return applyBurkesDither(imageData, settings);
     case 'blue-noise':
       return applyBlueNoiseDither(imageData, settings);
-    case 'clustered-halftone':
-      return applyClusteredHalftoneDither(imageData, settings);
-    case 'void-cluster-blue-noise':
-      return applyVoidClusterBlueNoiseDither(imageData, settings);
     case 'pattern':
       return applyPatternDither(imageData, settings);
     default:
