@@ -1551,11 +1551,14 @@ export const useBrushEngineSimplified = () => {
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
-    sampleCtx?: CanvasRenderingContext2D
+    sampleCtx?: CanvasRenderingContext2D,
+    options?: { live?: boolean }
   ) => {
     if (!shouldApplyStrokeDither || !ctx || !bounds) {
       return;
     }
+
+    const isLive = options?.live === true;
 
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
@@ -1617,11 +1620,14 @@ export const useBrushEngineSimplified = () => {
       coarseData[a + 3] = 255;
     }
 
-    // 3) Run standard Sierra-lite on the coarse image
+    // 3) Run dithering on the coarse image. Live preview uses ordered Bayer to avoid popping;
+    // final stroke respects the configured algorithm.
+    const algorithmForPreview = 'bayer';
+    const algorithmFinal = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
     const ditheredCoarse = applyDitheringImport(
       coarse,
       strokeDitherPalette.length,
-      tools.brushSettings.ditherAlgorithm || 'sierra-lite',
+      isLive ? algorithmForPreview : algorithmFinal,
       tools.brushSettings.patternStyle || 'dots',
       strokeDitherPalette,
       toneCurveLut
@@ -1738,7 +1744,7 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
-    applyStrokeDither(ditherCtx, region, rawCtx || undefined);
+    applyStrokeDither(ditherCtx, region, rawCtx || undefined, { live: true });
 
     withAlphaLock(visibleCtx, (targetCtx) => {
       targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
@@ -1895,7 +1901,7 @@ export const useBrushEngineSimplified = () => {
 
       ditherCtx.clearRect(x, y, width, height);
       ditherCtx.putImageData(src, x, y);
-      applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
+      applyStrokeDither(ditherCtx, strokeBounds, rawCtx, { live: false });
 
       withAlphaLock(ctx, (targetCtx) => {
         targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
