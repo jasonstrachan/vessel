@@ -2360,6 +2360,7 @@ export function useDrawingHandlers({
     const alignPixelStrokes = shouldPixelAlignBrush(brushSettings);
     const ccFlags = getColorCycleBrushFlags(brushSettings);
     const worldPos = alignPointToPixel(rawWorldPos, alignPixelStrokes);
+    
     let runtimeProject = project ?? currentState.project ?? null;
 
     // Auto-pick brush color from canvas/reference layer for regular brushes

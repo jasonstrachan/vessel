@@ -1370,11 +1370,10 @@ export const useBrushEngineSimplified = () => {
   const resolveStrokeDitherPixelSize = useCallback(() => {
     const base = Math.max(1, Math.min(16, Math.round(tools.brushSettings.fillResolution || 1)));
     if (!tools.brushSettings.ditherResolutionPressure) return base;
-    // Map last known pressure inversely to pixel size (lighter press → finer)
+    // Map last known pressure to pixel size (heavier pressure -> larger pixels)
     const p = lastPressureRef.current;
     const minPx = 1;
     const maxPx = 16;
-    // Heavier pressure -> larger dither pixel size
     const dynamic = minPx + p * (maxPx - minPx);
     // Blend with base to avoid extreme swings: 70% dynamic, 30% base
     const blended = base * 0.3 + dynamic * 0.7;
@@ -1560,9 +1559,6 @@ export const useBrushEngineSimplified = () => {
 
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
-
-    const tileSize = Math.max(1, resolveStrokeDitherPixelSize() | 0);
-
     const x = region.x | 0;
     const y = region.y | 0;
     const w = region.width | 0;
@@ -1571,6 +1567,8 @@ export const useBrushEngineSimplified = () => {
     if (w <= 0 || h <= 0) {
       return;
     }
+
+    const tileSize = Math.max(1, resolveStrokeDitherPixelSize() | 0);
 
     const sourceCtx = sampleCtx ?? ctx;
     let src: ImageData;
@@ -1786,9 +1784,6 @@ export const useBrushEngineSimplified = () => {
     );
     const velocity = distance; // Simplified velocity calculation
 
-    // Track latest pressure for pressure-responsive effects (e.g., dither resolution)
-    updateLastPressure(cursor.pressure);
-
     // Create stroke parameters
     const strokeParams: BrushStrokeParams = {
       from,
@@ -1833,8 +1828,6 @@ export const useBrushEngineSimplified = () => {
     y: number,
     pressure: number = 1.0
   ) => {
-    updateLastPressure(pressure);
-
     const strokeParams: BrushStrokeParams = {
       from: { x, y },
       to: { x, y },
