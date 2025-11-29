@@ -24,7 +24,7 @@ const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label
 ];
 
 const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
-  { value: 'sierra-lite', label: 'Sierra Lite (fast)' },
+  { value: 'sierra-lite', label: 'Sierra Lite' },
   { value: 'sierra-2', label: 'Sierra 2-row' },
   { value: 'sierra-3', label: 'Sierra 3-row' },
   { value: 'floyd-steinberg', label: 'Floyd–Steinberg' },
@@ -54,21 +54,23 @@ export const DitherControls: React.FC<Props> = ({
 
   return (
     <div className="mb-2">
-      <div className="flex items-center gap-2">
-        <label className={labelWidth} style={labelStyle}>
-          Dither
-        </label>
-        {forceOn ? (
-          hideToggle ? null : <span className="text-xs text-[#D9D9D9]">Always on</span>
-        ) : canToggle ? (
-          <CustomSwitch
-            checked={ditherEnabled}
-            onChange={(checked) => onChange({ ditherEnabled: checked })}
-          />
-        ) : (
-          <span className="text-xs text-[#D9D9D9]">On</span>
-        )}
-      </div>
+      {!(forceOn && hideToggle) && (
+        <div className="flex items-center gap-2">
+          <label className={labelWidth} style={labelStyle}>
+            Dither
+          </label>
+          {forceOn ? (
+            hideToggle ? null : <span className="text-xs text-[#D9D9D9]">Always on</span>
+          ) : canToggle ? (
+            <CustomSwitch
+              checked={ditherEnabled}
+              onChange={(checked) => onChange({ ditherEnabled: checked })}
+            />
+          ) : (
+            <span className="text-xs text-[#D9D9D9]">On</span>
+          )}
+        </div>
+      )}
 
       {ditherEnabled && (
         <>

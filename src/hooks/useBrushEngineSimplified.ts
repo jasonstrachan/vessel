@@ -1380,7 +1380,8 @@ export const useBrushEngineSimplified = () => {
 
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const bounds = normalizeRectForCanvas(region, canvasWidth, canvasHeight);
-    let { x, y, width, height } = bounds;
+    const { x, y } = bounds;
+    let { width, height } = bounds;
     if (width <= 0 || height <= 0) {
       return;
     }
@@ -1520,7 +1521,7 @@ export const useBrushEngineSimplified = () => {
     }
 
     canvasPool.release(mask);
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.color, tools.brushSettings.risographColorShift, isPixelBrush, setMultiplyIfUnlocked]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.color, tools.brushSettings.risographColorShift, isPixelBrush]);
 
   const applyStrokeDither = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -1592,12 +1593,15 @@ export const useBrushEngineSimplified = () => {
       coarseData[a + 3] = 255;
     }
 
-    // 3) Run standard Sierra-lite on the coarse image
+    // 3) Run selected dither on the coarse image (defaults to Sierra-lite)
+    const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+    const patternStyle = tools.brushSettings.patternStyle;
+
     const ditheredCoarse = applyDitheringImport(
       coarse,
       strokeDitherPalette.length,
-      'sierra-lite',
-      undefined,
+      algorithm,
+      patternStyle,
       strokeDitherPalette
     );
 
@@ -1655,7 +1659,14 @@ export const useBrushEngineSimplified = () => {
     } catch (error) {
       console.warn('[Dither] Failed to write dithered stroke region:', error);
     }
-  }, [shouldApplyStrokeDither, strokeDitherPalette, strokeDitherPixelSize, strokeLostEdgeAmount]);
+  }, [
+    shouldApplyStrokeDither,
+    strokeDitherPalette,
+    strokeDitherPixelSize,
+    strokeLostEdgeAmount,
+    tools.brushSettings.ditherAlgorithm,
+    tools.brushSettings.patternStyle
+  ]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;
@@ -2322,7 +2333,7 @@ export const useBrushEngineSimplified = () => {
       // Restore state
       ctx.restore();
     }
-  }, [setMultiplyIfUnlocked, isPixelBrush, tools.brushSettings.color, tools.brushSettings.risographColorShift, tools.brushSettings.ditherEnabled]);
+  }, [setMultiplyIfUnlocked, isPixelBrush, tools.brushSettings.color, tools.brushSettings.risographColorShift]);
 
   const applyColorCycleRisographOverlay = useCallback((
     ctx: CanvasRenderingContext2D,

@@ -116,7 +116,7 @@ const ToneCurveEditor: React.FC<ToneCurveEditorProps> = ({
 
     const payload = [nextStart, ...nextMiddle, nextEnd];
     onChange(payload);
-  }, [dragTarget, innerWidth, innerHeight, middlePoints, startPoint, endPoint, onChange]);
+  }, [dragTarget, innerWidth, innerHeight, middlePoints, startPoint, endPoint, onChange, height, width]);
 
   const handlePointerUp = useCallback(() => setDragTarget(null), []);
 

@@ -3,20 +3,15 @@
  * Extracted from useBrushEngine for better modularity
  */
 
-import type { 
-  DitherSettings, 
+import type {
+  DitherSettings,
   DitherAlgorithm as DitherAlgorithmType,
-  PatternStyle 
+  PatternStyle
 } from '@/utils/ditherAlgorithms';
-import { 
-  applyFloydSteinbergDither,
-  applyBayerDither,
-  applyAtkinsonDither,
-  applyBlueNoiseDither,
-  applyPatternDither
-} from '@/utils/ditherAlgorithms';
-import { srgbToLinear } from './colorUtils';
+import { applyPressureDither } from '@/utils/ditherAlgorithms';
 import { DITHER_PALETTE, DITHER_COLOR_NAMES } from './constants';
+import { debugLog } from '@/utils/debug';
+import { srgbToLinear } from './colorUtils';
 
 // Lookup table to avoid pow() per pixel in hot dithering paths
 const SRGB_TO_LINEAR_LUT: Float32Array = new Float32Array(256);
@@ -123,7 +118,12 @@ export const findDitherColors = (targetR: number, targetG: number, targetB: numb
   const usedColorIndices = new Set<number>();
   
   // Find the two closest colors in the palette to the target color
-  const colorDistances = DITHER_PALETTE.map(([r, g, b], index) => {
+  const colorDistances: Array<{
+    index: number;
+    distance: number;
+    color: [number, number, number];
+    name: string;
+  }> = DITHER_PALETTE.map(([r, g, b], index) => {
     // Use weighted Euclidean distance for better perceptual accuracy
     // Human eyes are more sensitive to green, then red, then blue
     const dr = targetR - r;
@@ -401,33 +401,17 @@ export const applyDithering = (
   customPalette?: string[]  // Accept custom palette
 ): ImageData => {
   const palette = resolveDitherPalette(imageData, numColors, customPalette);
-  
-  // Create dither settings
+
   const ditherSettings: DitherSettings = {
     algorithm: (algorithm as DitherAlgorithmType) || 'sierra-lite',
     pressure: 0.5,
     intensity: 1.0,
     bayerMatrixSize: 8,
-    palette: palette,
+    palette,
     patternStyle: (patternStyle as PatternStyle) || 'dots'
   };
-  
-  // Route to the appropriate algorithm
-  switch (algorithm) {
-    case 'floyd-steinberg':
-      return applyFloydSteinbergDither(imageData, ditherSettings);
-    case 'bayer':
-      return applyBayerDither(imageData, ditherSettings);
-    case 'atkinson':
-      return applyAtkinsonDither(imageData, ditherSettings);
-    case 'blue-noise':
-      return applyBlueNoiseDither(imageData, ditherSettings);
-    case 'pattern':
-      return applyPatternDither(imageData, ditherSettings);
-    case 'sierra-lite':
-    default:
-      return applySierraLiteDither(imageData, numColors, palette);
-  }
+
+  return applyPressureDither(imageData, ditherSettings);
 };
 
 /**
@@ -720,4 +704,3 @@ const expandNearestNeighbor = (
 
   return output;
 };
-import { debugLog } from '@/utils/debug';

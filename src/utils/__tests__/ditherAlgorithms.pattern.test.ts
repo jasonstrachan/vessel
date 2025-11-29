@@ -1,4 +1,4 @@
-import { applyPatternDither, type DitherSettings } from '@/utils/ditherAlgorithms';
+import { applyPatternDither, type DitherSettings, type PatternStyle } from '@/utils/ditherAlgorithms';
 
 describe('applyPatternDither tone-adaptive', () => {
   const palette: [number, number, number][] = [
@@ -37,7 +37,7 @@ describe('applyPatternDither tone-adaptive', () => {
     intensity: 1,
     bayerMatrixSize: 8,
     palette,
-    patternStyle: 'tone-adaptive'
+    patternStyle: 'tone-adaptive' as PatternStyle
   };
 
   it('produces different column patterns for shadows vs mids', () => {

@@ -38,12 +38,6 @@ import {
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
 import ShapeFillControls from "./ShapeFillControls";
-import {
-  COLOR_CYCLE_SPEED_STEP,
-  MAX_BRUSH_COLOR_CYCLE_SPEED,
-  MIN_BRUSH_COLOR_CYCLE_SPEED,
-} from '@/constants/colorCycle';
-import type { DitherAlgorithm } from '@/utils/ditherAlgorithms';
 import DitherControls from './DitherControls';
 import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
 
@@ -164,7 +158,6 @@ const BrushControls = () => {
         (useAppStore.getState().currentBrushPreset as { capabilities?: BrushCapabilities } | null) || undefined
       )
     : {};
-  const isDitherPreset = Boolean(capability.forceDither);
   const canDitherForShape = (shape?: BrushShape) =>
     capability.canDither !== undefined ? capability.canDither : supportsDither(shape ?? BrushShape.ROUND);
 
@@ -178,7 +171,6 @@ const BrushControls = () => {
     !isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) &&
     activeSettings.brushShape !== BrushShape.RESAMPLER;
   const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
-  const eraserLinkSize = eraserSettings.linkSizeToBrush !== false;
 
   const [pressureDraft, setPressureDraft] = React.useState(() => ({
     min: (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString(),

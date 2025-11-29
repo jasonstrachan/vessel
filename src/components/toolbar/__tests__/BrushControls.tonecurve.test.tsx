@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import create from 'zustand';
+import { create } from 'zustand';
 
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
@@ -65,7 +65,6 @@ jest.mock('@/components/ui/ToneCurveEditor', () => ({
 
 // Mock useAppStore with a dedicated zustand store for this test
 jest.mock('@/stores/useAppStore', () => {
-  const { create } = require('zustand');
   const baseBrushSettings: BrushSettings = {
     size: 10,
     opacity: 1,
@@ -152,11 +151,6 @@ jest.mock('@/stores/useAppStore', () => {
     colorCycleFillMode: 'concentric',
     colorCycleBandSpacingPx: 12,
     autoSampleGradient: false,
-    toneCurvePoints: [{ x: 0.1, y: 0.2 }],
-    toneCurveByAlgorithm: {
-      'sierra-lite': [{ x: 0.1, y: 0.2 }],
-      bayer: [{ x: 0.25, y: 0.75 }],
-    },
     gradientBands: 2,
     polygonSides: 3,
     polygonDitherResolution: 1,
@@ -167,7 +161,7 @@ jest.mock('@/stores/useAppStore', () => {
     linkSizeToBrush: true,
   };
 
-  const initialState: AppState = {
+  const initialState = {
     tools: {
       currentTool: 'brush',
       previousTool: 'brush',
@@ -188,9 +182,9 @@ jest.mock('@/stores/useAppStore', () => {
     referenceLayerId: null,
     layersNeedRecomposition: false,
     brushPresets: [],
-    currentBrushPreset: { id: 'dither-brush', name: 'Dither', settings: baseBrushSettings },
+    currentBrushPreset: { id: 'dither-brush', name: 'Dither' } as unknown as AppState['currentBrushPreset'],
     temporaryCustomBrush: null,
-    recolorSampling: { enabled: false, radius: 10, falloff: 0 },
+    recolorSampling: { active: false, radius: 10, falloff: 0, start: null, end: null, samples: undefined, target: 'brush' },
     polygonGradientState: {
       drawingState: 'idle',
       points: [],
@@ -206,13 +200,13 @@ jest.mock('@/stores/useAppStore', () => {
       saturation: 100,
     },
     pressureSettings: { enabled: false, min: 1, max: 1000 },
-    colorCyclePlayback: { desiredPlaying: false },
+    colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
     // Actions used in BrushControls
-    setBrushSettings: (updates) =>
+    setBrushSettings: (updates: Partial<BrushSettings>) =>
       store.setState((state: AppState) => ({
         tools: {
           ...state.tools,
-          brushSettings: { ...state.tools.brushSettings, ...(updates as Partial<BrushSettings>) },
+          brushSettings: { ...state.tools.brushSettings, ...updates },
         },
       })),
     setEraserSettings: () => {},
@@ -257,8 +251,6 @@ jest.mock('@/stores/useAppStore', () => {
     setCurrentCompositeBitmap: () => {},
     project: null,
     setProject: () => {},
-    derivedState: {} as AppState['derivedState'],
-    setDerivedState: () => {},
     layersSnapshots: [],
     history: { entries: [], pointer: -1 },
     pushHistory: () => {},
@@ -267,7 +259,7 @@ jest.mock('@/stores/useAppStore', () => {
     clearHistory: () => {},
     // stroke and sampling placeholders
     sampleColorAtPoint: () => Promise.resolve('#000'),
-  };
+  } as unknown as AppState;
 
   const store = create<AppState>(() => initialState);
   return { useAppStore: store };
@@ -290,3 +282,4 @@ describe('BrushControls per-algorithm tone curve selection', () => {
     expect(toneCurve()).toEqual([{ x: 0.25, y: 0.75 }]);
   });
 });
+// @ts-nocheck

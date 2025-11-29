@@ -992,7 +992,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
       ctx.restore();
     },
-    [project, layers, activeLayerId, tools.brushSettings.brushShape, tools.brushSettings.antialiasing]
+    [project, layers, activeLayerId, tools.brushSettings.brushShape, tools.brushSettings.antialiasing, displayMode]
   );
   
   // Drawing function - base implementation without hooks
