@@ -100,6 +100,18 @@ export const DitherControls: React.FC<Props> = ({
             />
           </div>
 
+          <div className="flex items-center gap-2 mt-1">
+            <label className={labelWidth} style={labelStyle} title="Re-dither whole stroke with latest pressure (legacy behavior)">
+              Smoosh
+            </label>
+            <CustomSwitch
+              checked={Boolean(settings.pressureDitherSmoosh)}
+              onChange={(checked) => onChange({ pressureDitherSmoosh: checked })}
+              aria-label="Pressure dither Smoosh"
+              disabled={!settings.pressureLinkedFillResolution}
+            />
+          </div>
+
           <div className="flex items-center gap-2 mt-2">
             <label className={labelWidth} style={labelStyle}>
               Sprd

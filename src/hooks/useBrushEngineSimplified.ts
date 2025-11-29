@@ -653,6 +653,7 @@ export const useBrushEngineSimplified = () => {
   const liveStrokeRawRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeDitherRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeBoundsRef = useRef<Rect | null>(null);
+  const liveDirtyRectRef = useRef<Rect | null>(null);
   const liveRenderScheduledRef = useRef(false);
 
   const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
@@ -1612,7 +1613,8 @@ export const useBrushEngineSimplified = () => {
     bounds: Rect | null,
     sampleCtx?: CanvasRenderingContext2D
   ) => {
-    if (!shouldApplyStrokeDither || tools.brushSettings.pressureLinkedFillResolution || !ctx || !bounds) {
+    const smoosh = Boolean(tools.brushSettings.pressureDitherSmoosh && tools.brushSettings.pressureLinkedFillResolution);
+    if (!shouldApplyStrokeDither || (!smoosh && tools.brushSettings.pressureLinkedFillResolution) || !ctx || !bounds) {
       return;
     }
 
@@ -1750,7 +1752,8 @@ export const useBrushEngineSimplified = () => {
     strokeLostEdgeAmount,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
-    tools.brushSettings.pressureLinkedFillResolution
+    tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.pressureDitherSmoosh
   ]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
@@ -1764,9 +1767,16 @@ export const useBrushEngineSimplified = () => {
 
     const canvasWidth = visibleCtx.canvas?.width ?? 0;
     const canvasHeight = visibleCtx.canvas?.height ?? 0;
-    const region = normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight);
+
+    // Use the smallest dirty rect when in per-stamp mode; otherwise use full stroke bounds
+    const baseRegion = tools.brushSettings.pressureLinkedFillResolution && !tools.brushSettings.pressureDitherSmoosh
+      ? liveDirtyRectRef.current ?? strokeBounds
+      : strokeBounds;
+
+    const region = normalizeRectForCanvas(baseRegion, canvasWidth, canvasHeight);
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) {
+      liveDirtyRectRef.current = null;
       return;
     }
 
@@ -1776,12 +1786,25 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
+    const smoosh = Boolean(tools.brushSettings.pressureDitherSmoosh && tools.brushSettings.pressureLinkedFillResolution);
+
     // Fast path: when dither is disabled, draw raw buffer directly and skip per-pixel copy.
     if (!shouldApplyStrokeDither) {
       withAlphaLock(visibleCtx, (targetCtx) => {
         targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
       }, strokeBounds);
       applyStrokeRisographOverlay(visibleCtx, strokeBounds);
+      return;
+    }
+
+    // Pressure-linked per-stamp: reuse raw canvas and avoid full-stroke re-dither
+    if (tools.brushSettings.pressureLinkedFillResolution && !smoosh) {
+      // Blit only the latest dirty region (liveStrokeBoundsRef already merged with stamp regions)
+      withAlphaLock(visibleCtx, (targetCtx) => {
+        targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+      }, strokeBounds);
+      applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawCanvas);
+      liveDirtyRectRef.current = null;
       return;
     }
 
@@ -1807,7 +1830,7 @@ export const useBrushEngineSimplified = () => {
     }, strokeBounds);
 
     applyStrokeRisographOverlay(visibleCtx, strokeBounds, shouldApplyStrokeDither ? ditherCanvas : rawCanvas);
-  }, [applyStrokeDither, withAlphaLock, shouldApplyStrokeDither, applyStrokeRisographOverlay]);
+  }, [applyStrokeDither, withAlphaLock, shouldApplyStrokeDither, applyStrokeRisographOverlay, tools.brushSettings.pressureLinkedFillResolution, tools.brushSettings.pressureDitherSmoosh]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -1886,18 +1909,19 @@ export const useBrushEngineSimplified = () => {
 
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
 
-    // Pressure-linked dither: immediately dither just this segment so earlier pixels keep their own resolution
+    // Pressure-linked dither: immediately dither a tight dirty rect around this segment only
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
-      const { x: sx, y: sy, width: sw, height: sh } = segmentBounds;
-      if (sw > 0 && sh > 0) {
-        const region = {
-          x: Math.max(0, Math.floor(sx)),
-          y: Math.max(0, Math.floor(sy)),
-          width: Math.max(1, Math.ceil(sw)),
-          height: Math.max(1, Math.ceil(sh))
-        };
-        ditherRegionWithCurrentPressure(rawCtx, region);
-      }
+      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (strokeParams.pressure || 1)));
+      const region = {
+        x: Math.max(0, Math.floor(Math.min(from.x, to.x) - size)),
+        y: Math.max(0, Math.floor(Math.min(from.y, to.y) - size)),
+        width: Math.max(1, Math.ceil(Math.abs(to.x - from.x) + size * 2)),
+        height: Math.max(1, Math.ceil(Math.abs(to.y - from.y) + size * 2))
+      };
+      ditherRegionWithCurrentPressure(rawCtx, region);
+      // Track dirty rect for preview blit
+      liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
+      liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
     }
 
     scheduleLiveStrokeRender(ctx);
@@ -1910,7 +1934,8 @@ export const useBrushEngineSimplified = () => {
     computePressureScaledResolution,
     tools.brushSettings.pressureLinkedFillResolution,
     shouldApplyStrokeDither,
-    ditherRegionWithCurrentPressure
+    ditherRegionWithCurrentPressure,
+    tools.brushSettings.size
   ]);
 
   /**
@@ -1960,13 +1985,16 @@ export const useBrushEngineSimplified = () => {
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
 
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
+      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (strokeParams.pressure || 1)));
       const region = {
-        x: Math.max(0, Math.floor(x - 2)),
-        y: Math.max(0, Math.floor(y - 2)),
-        width: 4,
-        height: 4
+        x: Math.max(0, Math.floor(x - size)),
+        y: Math.max(0, Math.floor(y - size)),
+        width: Math.max(1, Math.ceil(size * 2)),
+        height: Math.max(1, Math.ceil(size * 2))
       };
       ditherRegionWithCurrentPressure(rawCtx, region);
+      liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
+      liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
     }
 
     scheduleLiveStrokeRender(ctx);
@@ -1979,7 +2007,8 @@ export const useBrushEngineSimplified = () => {
     computePressureScaledResolution,
     tools.brushSettings.pressureLinkedFillResolution,
     shouldApplyStrokeDither,
-    ditherRegionWithCurrentPressure
+    ditherRegionWithCurrentPressure,
+    tools.brushSettings.size
   ]);
 
   /**

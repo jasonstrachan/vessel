@@ -7,13 +7,15 @@ interface CustomSwitchProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   'aria-label'?: string;
+  disabled?: boolean;
 }
 
 const CustomSwitch: React.FC<CustomSwitchProps> = ({
   id,
   checked,
   onChange,
-  'aria-label': ariaLabel
+  'aria-label': ariaLabel,
+  disabled
 }) => {
   return (
     <label className="switch" htmlFor={id}>
@@ -21,6 +23,7 @@ const CustomSwitch: React.FC<CustomSwitchProps> = ({
         type="checkbox"
         id={id}
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         aria-label={ariaLabel}
       />

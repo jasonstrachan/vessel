@@ -506,6 +506,8 @@ export interface BrushSettings {
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps
   /** Link dither resolution/pixel size to input pressure */
   pressureLinkedFillResolution?: boolean;
+  /** Use legacy whole-stroke re-dither behavior when pressure-linking resolution */
+  pressureDitherSmoosh?: boolean;
   ditherAlgorithm?:
     | 'floyd-steinberg'
     | 'jarvis-judice-ninke'
