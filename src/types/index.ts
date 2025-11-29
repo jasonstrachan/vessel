@@ -504,6 +504,8 @@ export interface BrushSettings {
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps
+  /** Link dither resolution/pixel size to input pressure */
+  pressureLinkedFillResolution?: boolean;
   ditherAlgorithm?:
     | 'floyd-steinberg'
     | 'jarvis-judice-ninke'

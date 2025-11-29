@@ -1060,6 +1060,9 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
   const brushPressurePendingRef = useRef(normalizePressureSettings(tools.brushSettings));
+  const strokePressureRef = useRef<{ last: number; lastNonZero: number }>({ last: 1, lastNonZero: 1 });
+  const strokeDitherPixelSizeRef = useRef<number | null>(null);
+  const PRESSURE_EPS = 0.05;
   const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
 
   // Get color cycle brush from active layer instead of single instance
@@ -1357,10 +1360,31 @@ export const useBrushEngineSimplified = () => {
     );
   }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread]);
 
-  const strokeDitherPixelSize = useMemo(() => {
-    const raw = tools.brushSettings.fillResolution || 1;
-    return Math.max(1, Math.min(16, Math.round(raw)));
-  }, [tools.brushSettings.fillResolution]);
+  const computePressureScaledResolution = useCallback((pressure: number) => {
+    const base = tools.brushSettings.fillResolution || 1;
+    const clampedBase = Math.max(1, Math.min(16, Math.round(base)));
+    if (!tools.brushSettings.pressureLinkedFillResolution) {
+      return clampedBase;
+    }
+    const effectivePressure = Math.max(0, Math.min(1, pressure));
+    const minFactor = 0.25; // low pressure = quarter of base resolution
+    const maxFactor = 2.0;  // high pressure = double base resolution
+    const factor = minFactor + (maxFactor - minFactor) * effectivePressure;
+    return Math.max(1, Math.min(16, Math.round(clampedBase * factor)));
+  }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
+
+  const getStrokeDitherPixelSize = useCallback(() => {
+    if (strokeDitherPixelSizeRef.current != null) {
+      return strokeDitherPixelSizeRef.current;
+    }
+    const effectivePressure = Math.max(
+      0,
+      Math.min(1, strokePressureRef.current.lastNonZero || strokePressureRef.current.last || 0)
+    );
+    const resolved = computePressureScaledResolution(effectivePressure);
+    strokeDitherPixelSizeRef.current = resolved;
+    return resolved;
+  }, [computePressureScaledResolution]);
 
   const strokeLostEdgeAmount = useMemo(() => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
@@ -1535,7 +1559,7 @@ export const useBrushEngineSimplified = () => {
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
 
-    const tileSize = Math.max(1, strokeDitherPixelSize | 0);
+    const tileSize = Math.max(1, getStrokeDitherPixelSize() | 0);
 
     const x = region.x | 0;
     const y = region.y | 0;
@@ -1662,7 +1686,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     shouldApplyStrokeDither,
     strokeDitherPalette,
-    strokeDitherPixelSize,
+    getStrokeDitherPixelSize,
     strokeLostEdgeAmount,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle
@@ -1770,6 +1794,14 @@ export const useBrushEngineSimplified = () => {
       timestamp: Date.now(),
       customBrushData: cursor.customBrushData
     };
+    const pressureSample = strokeParams.pressure || 0;
+    if (pressureSample >= PRESSURE_EPS) {
+      strokePressureRef.current = {
+        last: pressureSample,
+        lastNonZero: pressureSample
+      };
+      strokeDitherPixelSizeRef.current = computePressureScaledResolution(pressureSample);
+    }
 
     // Render the stroke
     if (typeof window !== 'undefined') {
@@ -1794,7 +1826,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, computePressureScaledResolution]);
 
   /**
    * Draw a single stamp at a position
@@ -1812,6 +1844,14 @@ export const useBrushEngineSimplified = () => {
       velocity: 0,
       timestamp: Date.now()
     };
+    const pressureSample = pressure || 0;
+    if (pressureSample >= PRESSURE_EPS) {
+      strokePressureRef.current = {
+        last: pressureSample,
+        lastNonZero: pressureSample
+      };
+      strokeDitherPixelSizeRef.current = computePressureScaledResolution(pressureSample);
+    }
 
     if (typeof window !== 'undefined') {
       window.__AL_sample = { x, y, tag: 'drawStamp' };
@@ -1835,7 +1875,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender]);
+  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, computePressureScaledResolution]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
@@ -1893,6 +1933,8 @@ export const useBrushEngineSimplified = () => {
     brushEngine.resetStroke();
     strokeBoundsRef.current = null;
     clearLiveStrokeBuffers();
+    strokePressureRef.current = { last: 1, lastNonZero: 1 };
+    strokeDitherPixelSizeRef.current = null;
   }, [brushEngine, clearLiveStrokeBuffers]);
 
   /**

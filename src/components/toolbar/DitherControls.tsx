@@ -74,18 +74,29 @@ export const DitherControls: React.FC<Props> = ({
 
       {ditherEnabled && (
         <>
-          <div className="flex items-center gap-2 mt-2">
-            <label className={labelWidth} style={labelStyle}>
-              Res
-            </label>
-            <ProgressSlider
+        <div className="flex items-center gap-2 mt-2">
+          <label className={labelWidth} style={labelStyle}>
+            Res
+          </label>
+          <ProgressSlider
               value={settings.fillResolution || 1}
               min={1}
               max={16}
               step={1}
               onChange={(value) => onChange({ fillResolution: Math.max(1, Math.round(value)) })}
-              aria-label="Dither Resolution"
-              className="flex-1"
+            aria-label="Dither Resolution"
+            className="flex-1"
+          />
+        </div>
+
+          <div className="flex items-center gap-2 mt-1">
+            <label className={labelWidth} style={labelStyle}>
+              PresRes
+            </label>
+            <CustomSwitch
+              checked={Boolean(settings.pressureLinkedFillResolution)}
+              onChange={(checked) => onChange({ pressureLinkedFillResolution: checked })}
+              aria-label="Pressure-linked Resolution"
             />
           </div>
 

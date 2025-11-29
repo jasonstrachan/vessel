@@ -21,6 +21,7 @@ const baseSettings: BrushSettings = {
   risographIntensity: 0,
   risographOutline: false,
   ditherEnabled: true,
+  pressureLinkedFillResolution: false,
   pressureEnabled: false,
   minPressure: 1,
   maxPressure: 1000,
