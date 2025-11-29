@@ -1386,6 +1386,66 @@ export const useBrushEngineSimplified = () => {
     return resolved;
   }, [computePressureScaledResolution]);
 
+  const ditherRegionWithCurrentPressure = useCallback((
+    ctx: CanvasRenderingContext2D,
+    region: { x: number; y: number; width: number; height: number }
+  ) => {
+    const { x, y, width, height } = region;
+    if (width <= 0 || height <= 0) return;
+
+    let src: ImageData;
+    try {
+      src = ctx.getImageData(x, y, width, height);
+    } catch (err) {
+      console.warn('[Dither] Failed to sample region for pressure dither:', err);
+      return;
+    }
+
+    // Preserve alpha so dithering only affects color channels
+    const alpha = new Uint8ClampedArray((width * height));
+    for (let i = 0, a = 3; a < src.data.length; i++, a += 4) {
+      alpha[i] = src.data[a];
+    }
+
+    const pixelSize = getStrokeDitherPixelSize();
+    const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+    const patternStyle = tools.brushSettings.patternStyle || 'dots';
+
+    const dithered =
+      pixelSize > 1
+        ? applyDitheringWithFillResolution(
+            src,
+            strokeDitherPalette.length,
+            pixelSize,
+            algorithm,
+            patternStyle,
+            strokeDitherPalette
+          )
+        : applyDitheringImport(
+            src,
+            strokeDitherPalette.length,
+            algorithm,
+            patternStyle,
+            strokeDitherPalette
+          );
+
+    // Restore alpha
+    for (let i = 0, a = 3; a < dithered.data.length; i++, a += 4) {
+      dithered.data[a] = alpha[i];
+    }
+
+    try {
+      ctx.putImageData(dithered, x, y);
+    } catch (err) {
+      console.warn('[Dither] Failed to write pressure dither region:', err);
+    }
+  }, [
+    getStrokeDitherPixelSize,
+    strokeDitherPalette,
+    tools.brushSettings.ditherAlgorithm,
+    tools.brushSettings.patternStyle
+  ]);
+
   const strokeLostEdgeAmount = useMemo(() => {
     return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
   }, [tools.brushSettings.lostEdge]);
@@ -1552,7 +1612,7 @@ export const useBrushEngineSimplified = () => {
     bounds: Rect | null,
     sampleCtx?: CanvasRenderingContext2D
   ) => {
-    if (!shouldApplyStrokeDither || !ctx || !bounds) {
+    if (!shouldApplyStrokeDither || tools.brushSettings.pressureLinkedFillResolution || !ctx || !bounds) {
       return;
     }
 
@@ -1689,7 +1749,8 @@ export const useBrushEngineSimplified = () => {
     getStrokeDitherPixelSize,
     strokeLostEdgeAmount,
     tools.brushSettings.ditherAlgorithm,
-    tools.brushSettings.patternStyle
+    tools.brushSettings.patternStyle,
+    tools.brushSettings.pressureLinkedFillResolution
   ]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
@@ -1824,9 +1885,33 @@ export const useBrushEngineSimplified = () => {
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
 
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
+
+    // Pressure-linked dither: immediately dither just this segment so earlier pixels keep their own resolution
+    if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
+      const { x: sx, y: sy, width: sw, height: sh } = segmentBounds;
+      if (sw > 0 && sh > 0) {
+        const region = {
+          x: Math.max(0, Math.floor(sx)),
+          y: Math.max(0, Math.floor(sy)),
+          width: Math.max(1, Math.ceil(sw)),
+          height: Math.max(1, Math.ceil(sh))
+        };
+        ditherRegionWithCurrentPressure(rawCtx, region);
+      }
+    }
+
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, computePressureScaledResolution]);
+  }, [
+    brushEngine,
+    ensureLiveStrokeBuffers,
+    estimateStrokeBounds,
+    scheduleLiveStrokeRender,
+    computePressureScaledResolution,
+    tools.brushSettings.pressureLinkedFillResolution,
+    shouldApplyStrokeDither,
+    ditherRegionWithCurrentPressure
+  ]);
 
   /**
    * Draw a single stamp at a position
@@ -1873,9 +1958,29 @@ export const useBrushEngineSimplified = () => {
     }
 
     brushEngine.renderBrushStroke(rawCtx, strokeParams);
+
+    if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
+      const region = {
+        x: Math.max(0, Math.floor(x - 2)),
+        y: Math.max(0, Math.floor(y - 2)),
+        width: 4,
+        height: 4
+      };
+      ditherRegionWithCurrentPressure(rawCtx, region);
+    }
+
     scheduleLiveStrokeRender(ctx);
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
-  }, [brushEngine, ensureLiveStrokeBuffers, estimateStrokeBounds, scheduleLiveStrokeRender, computePressureScaledResolution]);
+  }, [
+    brushEngine,
+    ensureLiveStrokeBuffers,
+    estimateStrokeBounds,
+    scheduleLiveStrokeRender,
+    computePressureScaledResolution,
+    tools.brushSettings.pressureLinkedFillResolution,
+    shouldApplyStrokeDither,
+    ditherRegionWithCurrentPressure
+  ]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
@@ -1899,7 +2004,7 @@ export const useBrushEngineSimplified = () => {
       }, strokeBounds ?? undefined);
     }
 
-    if (strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
+    if (!tools.brushSettings.pressureLinkedFillResolution && strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
       const { x, y, width, height } = region;
       let src: ImageData;
       try {
@@ -1924,7 +2029,7 @@ export const useBrushEngineSimplified = () => {
     clearLiveStrokeBuffers();
     strokeBoundsRef.current = null;
     return strokeBounds ? { ...strokeBounds } : null;
-  }, [applyStrokeDither, applyStrokeRisographOverlay, brushEngine, clearLiveStrokeBuffers, withAlphaLock]);
+  }, [applyStrokeDither, applyStrokeRisographOverlay, brushEngine, clearLiveStrokeBuffers, withAlphaLock, tools.brushSettings.pressureLinkedFillResolution]);
 
   /**
    * Reset for new stroke
