@@ -1369,13 +1369,13 @@ export const useBrushEngineSimplified = () => {
   }, [currentBrushPreset]);
 
   const computePressureScaledResolution = useCallback((pressure: number) => {
-    const effectivePressure = Math.max(0, Math.min(1, pressure));
+    const p = Math.max(0, Math.min(1, pressure));
 
-    // Special handling: dither preset with pressure-linked resolution ignores user slider
+    // Dither preset: widen the range so pressure clearly changes the pattern period.
     if (tools.brushSettings.pressureLinkedFillResolution && isDitherPreset) {
-      const minRes = 2;
-      const maxRes = 32; // broadened range for stronger effect
-      const eased = Math.pow(effectivePressure, 0.85);
+      const minRes = 1;
+      const maxRes = 28;
+      const eased = Math.pow(p, 0.85);
       return Math.max(1, Math.round(minRes + (maxRes - minRes) * eased));
     }
 
@@ -1384,10 +1384,11 @@ export const useBrushEngineSimplified = () => {
     if (!tools.brushSettings.pressureLinkedFillResolution) {
       return clampedBase;
     }
-    const minFactor = 0.25; // low pressure = quarter of base resolution
-    const maxFactor = 2.0;  // high pressure = double base resolution
-    const factor = minFactor + (maxFactor - minFactor) * effectivePressure;
-    return Math.max(1, Math.min(16, Math.round(clampedBase * factor)));
+
+    const minFactor = 0.4; // retain detail at low pressure
+    const maxFactor = 1.8; // noticeable enlargement at high pressure
+    const factor = minFactor + (maxFactor - minFactor) * p;
+    return Math.max(1, Math.round(clampedBase * factor));
   }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution, isDitherPreset]);
 
   const getStrokeDitherPixelSize = useCallback(() => {
@@ -1405,31 +1406,28 @@ export const useBrushEngineSimplified = () => {
 
   const ditherRegionWithCurrentPressure = useCallback((
     ctx: CanvasRenderingContext2D,
-    region: { x: number; y: number; width: number; height: number }
+    region: { x: number; y: number; width: number; height: number },
+    sampleCtx?: CanvasRenderingContext2D
   ) => {
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) return;
 
     let src: ImageData;
     try {
-      src = ctx.getImageData(x, y, width, height);
+      const sourceCtx = sampleCtx ?? ctx;
+      src = sourceCtx.getImageData(x, y, width, height);
     } catch (err) {
       console.warn('[Dither] Failed to sample region for pressure dither:', err);
       return;
     }
 
-    // Preserve alpha so dithering only affects color channels
-    const alpha = new Uint8ClampedArray((width * height));
-    for (let i = 0, a = 3; a < src.data.length; i++, a += 4) {
-      alpha[i] = src.data[a];
-    }
+    // Branch: classic dithering when PresRes is off.
+    if (!tools.brushSettings.pressureLinkedFillResolution) {
+      const pixelSize = Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
+      const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+      const patternStyle = tools.brushSettings.patternStyle || 'dots';
 
-    const pixelSize = getStrokeDitherPixelSize();
-    const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-    const patternStyle = tools.brushSettings.patternStyle || 'dots';
-
-    const dithered =
-      pixelSize > 1
+      const dithered = pixelSize > 1
         ? applyDitheringWithFillResolution(
             src,
             strokeDitherPalette.length,
@@ -1446,407 +1444,175 @@ export const useBrushEngineSimplified = () => {
             strokeDitherPalette
           );
 
-    // Restore alpha
-    for (let i = 0, a = 3; a < dithered.data.length; i++, a += 4) {
-      dithered.data[a] = alpha[i];
-    }
+      // Preserve original alpha
+      for (let i = 3; i < dithered.data.length; i += 4) {
+        dithered.data[i] = src.data[i];
+      }
 
-    try {
-      ctx.putImageData(dithered, x, y);
-    } catch (err) {
-      console.warn('[Dither] Failed to write pressure dither region:', err);
-    }
-  }, [
-    getStrokeDitherPixelSize,
-    strokeDitherPalette,
-    tools.brushSettings.ditherAlgorithm,
-    tools.brushSettings.patternStyle
-  ]);
-
-  const strokeLostEdgeAmount = useMemo(() => {
-    return Math.max(0, Math.min(100, Math.round(tools.brushSettings.lostEdge ?? 0)));
-  }, [tools.brushSettings.lostEdge]);
-
-  const lostEdgeTileSize = 4; // tunable; matches ditherAlgorithms default for now
-
-  const applyStrokeRisographOverlay = useCallback((
-    ctx: CanvasRenderingContext2D,
-    region: Rect | null,
-    maskSource?: HTMLCanvasElement | OffscreenCanvas | null
-  ) => {
-    const intensity = tools.brushSettings.risographIntensity || 0;
-    if (intensity <= 0 || !ctx || !region) {
-      return;
-    }
-
-    const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
-    const bounds = normalizeRectForCanvas(region, canvasWidth, canvasHeight);
-    const { x, y } = bounds;
-    let { width, height } = bounds;
-    if (width <= 0 || height <= 0) {
-      return;
-    }
-
-    // Clamp sampling region to available mask/canvas bounds to avoid OOB reads
-    const maskW = (maskSource as { width?: number } | null)?.width ?? ctx.canvas.width;
-    const maskH = (maskSource as { height?: number } | null)?.height ?? ctx.canvas.height;
-    if (maskW <= 0 || maskH <= 0) return;
-
-    const maxW = maskW - x;
-    const maxH = maskH - y;
-    if (maxW <= 0 || maxH <= 0) return;
-    width = Math.min(width, maxW);
-    height = Math.min(height, maxH);
-    if (width <= 0 || height <= 0) return;
-
-    const pattern = getRisographPattern(ctx);
-    if (!pattern) return;
-
-    const effect = getRisographEffectSettings(intensity, { isPixelBrush });
-    if (effect.alpha <= 0) return;
-
-    let srcData: ImageData | null = null;
-    const maskCtx = maskSource ? maskSource.getContext('2d') : null;
-    if (maskCtx) {
+      const prev = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
       try {
-        srcData = maskCtx.getImageData(x, y, width, height);
-      } catch {
-        srcData = null;
+        ctx.putImageData(dithered, x, y);
+      } catch (err) {
+        console.warn('[Dither] Failed to write dithered region:', err);
+      } finally {
+        ctx.imageSmoothingEnabled = prev;
       }
-    }
-    if (!srcData) {
-      try {
-        srcData = ctx.getImageData(x, y, width, height);
-      } catch {
-        return;
-      }
-    }
-    if (!srcData) return;
-
-    const rng = createSeededRng(hashNumbers(x, y, width, height, intensity));
-    const filter = getRisographFilter(
-      tools.brushSettings.color || '#000',
-      tools.brushSettings.risographColorShift ?? 3,
-      rng
-    );
-
-    const buildPatternLayer = (passFilter: string, alpha: number): HTMLCanvasElement | null => {
-      if (alpha <= 0) return null;
-      const layer = canvasPool.acquire(width, height);
-      const lctx = layer.getContext('2d');
-      if (!lctx) {
-        canvasPool.release(layer);
-        return null;
-      }
-      lctx.setTransform(1, 0, 0, 1, 0, 0);
-      lctx.clearRect(0, 0, width, height);
-      lctx.filter = passFilter;
-      lctx.globalAlpha = alpha;
-      lctx.fillStyle = pattern;
-      lctx.fillRect(0, 0, width, height);
-      lctx.setTransform(1, 0, 0, 1, 0, 0);
-      return layer;
-    };
-
-    // Build stroke alpha mask from source data (alpha-only), hard-threshold to avoid fringes
-    const mask = canvasPool.acquire(width, height);
-    const mctx = mask.getContext('2d');
-    if (!mctx) {
-      canvasPool.release(mask);
-      return;
-    }
-    const alphaOnly = mctx.createImageData(width, height);
-    const srcArr = srcData.data;
-    const dstArr = alphaOnly.data;
-    for (let i = 0, j = 3; j < srcArr.length; i++, j += 4) {
-      const a = srcArr[j];
-      dstArr[i * 4 + 3] = a > 0 ? 255 : 0;
-    }
-    mctx.putImageData(alphaOnly, 0, 0);
-
-    const applyLayerWithMask = (
-      layer: HTMLCanvasElement | null,
-      composite: GlobalCompositeOperation
-    ) => {
-      if (!layer) return;
-      const temp = canvasPool.acquire(width, height);
-      const tctx = temp.getContext('2d');
-      if (!tctx) {
-        canvasPool.release(temp);
-        return;
-      }
-      tctx.setTransform(1, 0, 0, 1, 0, 0);
-      tctx.clearRect(0, 0, width, height);
-      tctx.globalAlpha = 1;
-      tctx.globalCompositeOperation = 'source-over';
-      tctx.drawImage(layer, 0, 0);
-      tctx.globalCompositeOperation = 'destination-in';
-      tctx.drawImage(mask, 0, 0);
-
-      ctx.save();
-      ctx.globalCompositeOperation = composite;
-      ctx.globalAlpha = 1;
-      ctx.imageSmoothingEnabled = isPixelBrush ? false : ctx.imageSmoothingEnabled;
-      ctx.filter = 'none';
-      ctx.drawImage(temp, x, y);
-      ctx.restore();
-
-      canvasPool.release(temp);
-    };
-
-    // Pass 1: neutral pattern everywhere stroke exists (over stroke only)
-    applyLayerWithMask(buildPatternLayer('none', effect.alpha), 'source-atop');
-    // Pass 2: subtle CMYK tint on edge/patch mask
-    const tintMask = createRisoTintMask(width, height, isPixelBrush, rng);
-    const tinted = buildPatternLayer(filter, Math.min(effect.alpha * 0.45, 0.5));
-    if (tinted && tintMask) {
-      const temp = canvasPool.acquire(width, height);
-      const tctx = temp.getContext('2d');
-      if (tctx) {
-        tctx.clearRect(0, 0, width, height);
-        tctx.globalCompositeOperation = 'source-over';
-        tctx.drawImage(tinted, 0, 0);
-        tctx.globalCompositeOperation = 'destination-in';
-        tctx.drawImage(tintMask, 0, 0);
-        // Also constrain to stroke alpha so tint never bleeds outside the stroke
-        tctx.drawImage(mask, 0, 0);
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-atop';
-        ctx.imageSmoothingEnabled = isPixelBrush ? false : ctx.imageSmoothingEnabled;
-        ctx.filter = 'none';
-        ctx.globalAlpha = 1;
-        ctx.drawImage(temp, x, y);
-        ctx.restore();
-      }
-      canvasPool.release(temp);
-    }
-
-    canvasPool.release(mask);
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.color, tools.brushSettings.risographColorShift, isPixelBrush]);
-
-  const applyStrokeDither = useCallback((
-    ctx: CanvasRenderingContext2D,
-    bounds: Rect | null,
-    sampleCtx?: CanvasRenderingContext2D
-  ) => {
-    const smoosh = Boolean(tools.brushSettings.pressureDitherSmoosh && tools.brushSettings.pressureLinkedFillResolution);
-    if (!shouldApplyStrokeDither || (!smoosh && tools.brushSettings.pressureLinkedFillResolution) || !ctx || !bounds) {
       return;
     }
 
-    const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
-    const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
+    // Pressure-linked path: ordered dither whose period follows pressure.
+    const srcData = src.data;
+    const dest = new ImageData(width, height);
+    const destData = dest.data;
 
     const tileSize = Math.max(1, getStrokeDitherPixelSize() | 0);
+    const lostEdge = tools.brushSettings.lostEdge ?? 0;
+    // Keep pattern stable while moving: no random phase in pressure mode
+    const phaseX = 0;
+    const phaseY = 0;
+    const paletteSpread = 0;
 
-    const x = region.x | 0;
-    const y = region.y | 0;
-    const w = region.width | 0;
-    const h = region.height | 0;
+    const BAYER_4 = [
+      0,  8,  2, 10,
+      12, 4, 14, 6,
+      3, 11, 1,  9,
+      15, 7, 13, 5
+    ];
+    const thresholdAt = (ix: number, iy: number) => {
+      const bx = ((ix + phaseX) % 4 + 4) % 4;
+      const by = ((iy + phaseY) % 4 + 4) % 4;
+      return ((BAYER_4[by * 4 + bx] + 0.5) / 16) * 255;
+    };
 
-    if (w <= 0 || h <= 0) {
-      return;
-    }
-
-    const sourceCtx = sampleCtx ?? ctx;
-    let src: ImageData;
-    try {
-      src = sourceCtx.getImageData(x, y, w, h);
-    } catch (error) {
-      console.warn('[Dither] Failed to sample stroke region for dithering:', error);
-      return;
-    }
-
-    const srcData = src.data;
-
-    // 1) Build coverage mask + base colour
-    const coverage = new Uint8Array(w * h);
-    let baseR = 0;
-    let baseG = 0;
-    let baseB = 0;
-    let hasBase = false;
-
-    for (let i = 0, a = 3; a < srcData.length; i++, a += 4) {
-      const alpha = srcData[a];
-      coverage[i] = alpha;
-
-      if (!hasBase && alpha > 0) {
-        baseR = srcData[a - 3];
-        baseG = srcData[a - 2];
-        baseB = srcData[a - 1];
-        hasBase = true;
-      }
-    }
-
-    if (!hasBase) {
-      return;
-    }
-
-    // 2) Build a flat colour field in a COARSE grid
-    const coarseW = Math.max(1, Math.ceil(w / tileSize));
-    const coarseH = Math.max(1, Math.ceil(h / tileSize));
-    const coarse = new ImageData(coarseW, coarseH);
-    const coarseData = coarse.data;
-
-    for (let a = 0; a < coarseData.length; a += 4) {
-      coarseData[a]     = baseR;
-      coarseData[a + 1] = baseG;
-      coarseData[a + 2] = baseB;
-      coarseData[a + 3] = 255;
-    }
-
-    // 3) Run selected dither on the coarse image (defaults to Sierra-lite)
-    const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-    const patternStyle = tools.brushSettings.patternStyle;
-
-    const ditheredCoarse = applyDitheringImport(
-      coarse,
-      strokeDitherPalette.length,
-      algorithm,
-      patternStyle,
-      strokeDitherPalette
-    );
-
-    const ditheredCoarseData = ditheredCoarse.data;
-
-    // 4) Upsample coarse result back to stroke resolution, then apply coverage mask
-    const out = ctx.createImageData(w, h);
-    const outData = out.data;
-
-    for (let py = 0; py < h; py++) {
-      const cy = Math.min(coarseH - 1, Math.floor(py / tileSize));
-      for (let px = 0; px < w; px++) {
-        const cx = Math.min(coarseW - 1, Math.floor(px / tileSize));
-
-        const coarseIndex = (cy * coarseW + cx) * 4;
-        const outIndex = (py * w + px) * 4;
-        const cov = coverage[py * w + px];
-
-        if (cov === 0) {
-          outData[outIndex]     = 0;
-          outData[outIndex + 1] = 0;
-          outData[outIndex + 2] = 0;
-          outData[outIndex + 3] = 0;
-        } else {
-          outData[outIndex]     = ditheredCoarseData[coarseIndex];
-          outData[outIndex + 1] = ditheredCoarseData[coarseIndex + 1];
-          outData[outIndex + 2] = ditheredCoarseData[coarseIndex + 2];
-          outData[outIndex + 3] = cov;
+    for (let dy = 0; dy < height; dy++) {
+      for (let dx = 0; dx < width; dx++) {
+        const si = (dy * width + dx) * 4;
+        const a = srcData[si + 3];
+        if (a === 0) {
+          destData[si] = 0;
+          destData[si + 1] = 0;
+          destData[si + 2] = 0;
+          destData[si + 3] = 0;
+          continue;
         }
+
+        const sIdx = si; // use original pixel (no tile snap) to avoid footprint growth
+        const r = srcData[sIdx];
+        const g = srcData[sIdx + 1];
+        const b = srcData[sIdx + 2];
+
+        const jitter = paletteSpread > 0 ? (Math.random() * 2 - 1) * paletteSpread : 0;
+        const avg = (r + g + b) / 3 + jitter;
+        const threshold = thresholdAt(Math.floor((dx + x) / tileSize), Math.floor((dy + y) / tileSize));
+        const on = avg >= threshold;
+
+        destData[si] = on ? r : 0;
+        destData[si + 1] = on ? g : 0;
+        destData[si + 2] = on ? b : 0;
+        destData[si + 3] = on ? a : 0;
       }
     }
 
-    if (strokeLostEdgeAmount > 0) {
-      // NOTE: Worker offload is async; keep sync path here to avoid awaiting in render pipeline.
-      const mask = applySierraLiteLostEdgeMask(
-        coverage,
-        w,
-        h,
-        strokeLostEdgeAmount,
-        lostEdgeTileSize
-      );
-
-      for (let i = 0; i < mask.length; i++) {
-        const keep = mask[i];
-        if (keep >= 255) continue;
-        const alphaIndex = i * 4 + 3;
-        const alpha = outData[alphaIndex];
-        if (alpha === 0) continue;
-        outData[alphaIndex] = Math.max(0, Math.min(255, Math.round((alpha * keep) / 255)));
+    if (lostEdge > 0) {
+      const fade = Math.min(1, lostEdge / 100);
+      for (let i = 3; i < destData.length; i += 4) {
+        destData[i] = Math.round(destData[i] * (1 - fade));
       }
     }
 
+    const prev = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
     try {
-      ctx.putImageData(out, x, y);
-    } catch (error) {
-      console.warn('[Dither] Failed to write dithered stroke region:', error);
+      ctx.putImageData(dest, x, y);
+    } catch (err) {
+      console.warn('[Dither] Failed to write pressure dither region:', err);
+    } finally {
+      ctx.imageSmoothingEnabled = prev;
     }
   }, [
-    shouldApplyStrokeDither,
-    strokeDitherPalette,
     getStrokeDitherPixelSize,
-    strokeLostEdgeAmount,
+    tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.fillResolution,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
-    tools.brushSettings.pressureLinkedFillResolution,
-    tools.brushSettings.pressureDitherSmoosh
+    tools.brushSettings.lostEdge,
+    tools.brushSettings.ditherPhaseJitter,
+    tools.brushSettings.ditherPaletteSpread,
+    strokeDitherPalette
   ]);
+
+  const applyStrokeDither = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, sampleCtx?: CanvasRenderingContext2D) => {
+    if (!shouldApplyStrokeDither || !ctx || !bounds) return;
+    const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
+    const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
+    ditherRegionWithCurrentPressure(ctx, region, sampleCtx);
+  }, [ditherRegionWithCurrentPressure, shouldApplyStrokeDither]);
+
+  const applyStrokeRisographOverlay = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, source?: HTMLCanvasElement | null) => {
+    const intensity = tools.brushSettings.risographIntensity || 0;
+    if (!bounds || !ctx || intensity <= 0) {
+      return;
+    }
+    const { x, y, width, height } = bounds;
+    const prevOp = ctx.globalCompositeOperation;
+    const prevAlpha = ctx.globalAlpha;
+    try {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = Math.min(1, Math.max(0, intensity / 100));
+      if (source) {
+        ctx.drawImage(source, x, y, width, height, x, y, width, height);
+      }
+    } catch {
+      // best-effort overlay; ignore failures
+    } finally {
+      ctx.globalCompositeOperation = prevOp;
+      ctx.globalAlpha = prevAlpha;
+    }
+  }, [tools.brushSettings.risographIntensity]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;
+
     const rawCanvas = liveStrokeRawRef.current;
     const ditherCanvas = liveStrokeDitherRef.current;
     const strokeBounds = liveStrokeBoundsRef.current ?? strokeBoundsRef.current;
-    if (!rawCanvas || !ditherCanvas || !strokeBounds) {
+    if (!rawCanvas || !strokeBounds) {
       return;
     }
 
     const canvasWidth = visibleCtx.canvas?.width ?? 0;
     const canvasHeight = visibleCtx.canvas?.height ?? 0;
-
-    // Use the smallest dirty rect when in per-stamp mode; otherwise use full stroke bounds
-    const baseRegion = tools.brushSettings.pressureLinkedFillResolution && !tools.brushSettings.pressureDitherSmoosh
-      ? liveDirtyRectRef.current ?? strokeBounds
-      : strokeBounds;
-
-    const region = normalizeRectForCanvas(baseRegion, canvasWidth, canvasHeight);
+    const region = normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight);
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) {
-      liveDirtyRectRef.current = null;
       return;
     }
 
     const rawCtx = pick2D(rawCanvas) as CanvasRenderingContext2D | null;
-    const ditherCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
-    if (!rawCtx || !ditherCtx) {
+    if (!rawCtx) {
       return;
     }
 
-    const smoosh = Boolean(tools.brushSettings.pressureDitherSmoosh && tools.brushSettings.pressureLinkedFillResolution);
-
-    // Fast path: when dither is disabled, draw raw buffer directly and skip per-pixel copy.
-    if (!shouldApplyStrokeDither) {
-      withAlphaLock(visibleCtx, (targetCtx) => {
-        targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
-      }, strokeBounds);
-      applyStrokeRisographOverlay(visibleCtx, strokeBounds);
-      return;
+    if (shouldApplyStrokeDither && ditherCanvas) {
+      const dCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
+      if (dCtx) {
+        dCtx.clearRect(x, y, width, height);
+        dCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+        applyStrokeDither(dCtx, strokeBounds, rawCtx);
+        withAlphaLock(visibleCtx, (targetCtx) => {
+          targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+        }, strokeBounds);
+        applyStrokeRisographOverlay(visibleCtx, strokeBounds, ditherCanvas ?? rawCanvas ?? null);
+        return;
+      }
     }
-
-    // Pressure-linked per-stamp: reuse raw canvas and avoid full-stroke re-dither
-    if (tools.brushSettings.pressureLinkedFillResolution && !smoosh) {
-      // Blit only the latest dirty region (liveStrokeBoundsRef already merged with stamp regions)
-      withAlphaLock(visibleCtx, (targetCtx) => {
-        targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
-      }, strokeBounds);
-      applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawCanvas);
-      liveDirtyRectRef.current = null;
-      return;
-    }
-
-    // Dither path: blit via dither canvas to preserve alpha locking and reuse buffers.
-    let src: ImageData;
-    try {
-      src = rawCtx.getImageData(x, y, width, height);
-    } catch {
-      return;
-    }
-
-    ditherCtx.clearRect(x, y, width, height);
-    try {
-      ditherCtx.putImageData(src, x, y);
-    } catch {
-      return;
-    }
-
-    applyStrokeDither(ditherCtx, region, rawCtx || undefined);
 
     withAlphaLock(visibleCtx, (targetCtx) => {
-      targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+      targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
     }, strokeBounds);
-
-    applyStrokeRisographOverlay(visibleCtx, strokeBounds, shouldApplyStrokeDither ? ditherCanvas : rawCanvas);
-  }, [applyStrokeDither, withAlphaLock, shouldApplyStrokeDither, applyStrokeRisographOverlay, tools.brushSettings.pressureLinkedFillResolution, tools.brushSettings.pressureDitherSmoosh]);
+    applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawCanvas ?? null);
+  }, [applyStrokeDither, applyStrokeRisographOverlay, shouldApplyStrokeDither, withAlphaLock]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -1934,7 +1700,10 @@ export const useBrushEngineSimplified = () => {
         width: Math.max(1, Math.ceil(Math.abs(to.x - from.x) + size * 2)),
         height: Math.max(1, Math.ceil(Math.abs(to.y - from.y) + size * 2))
       };
-      ditherRegionWithCurrentPressure(rawCtx, region);
+      const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
+      if (ditherCtx) {
+        ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+      }
       // Track dirty rect for preview blit
       liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
       liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
@@ -2008,7 +1777,10 @@ export const useBrushEngineSimplified = () => {
         width: Math.max(1, Math.ceil(size * 2)),
         height: Math.max(1, Math.ceil(size * 2))
       };
-      ditherRegionWithCurrentPressure(rawCtx, region);
+      const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
+      if (ditherCtx) {
+        ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+      }
       liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
       liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
     }

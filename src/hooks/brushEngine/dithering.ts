@@ -627,39 +627,36 @@ const createDownsampledImageData = (imageData: ImageData, blockSize: number): Im
   const blockData = new Uint8ClampedArray(blockWidth * blockHeight * 4);
   const source = imageData.data;
 
+  // Preserve crisp color by sampling the highest-alpha pixel in each block (falls back to first pixel).
   for (let by = 0; by < blockHeight; by++) {
     const startY = by * blockSize;
     const endY = Math.min(startY + blockSize, height);
     for (let bx = 0; bx < blockWidth; bx++) {
       const startX = bx * blockSize;
       const endX = Math.min(startX + blockSize, width);
-      let sumR = 0;
-      let sumG = 0;
-      let sumB = 0;
-      let sumA = 0;
-      let count = 0;
+
+      let bestA = -1;
+      let r = 0, g = 0, b = 0, a = 0;
+
       for (let y = startY; y < endY; y++) {
         for (let x = startX; x < endX; x++) {
           const idx = (y * width + x) * 4;
-          sumR += source[idx];
-          sumG += source[idx + 1];
-          sumB += source[idx + 2];
-          sumA += source[idx + 3];
-          count++;
+          const alpha = source[idx + 3];
+          if (alpha > bestA) {
+            bestA = alpha;
+            r = source[idx];
+            g = source[idx + 1];
+            b = source[idx + 2];
+            a = alpha;
+          }
         }
       }
+
       const target = (by * blockWidth + bx) * 4;
-      if (count === 0) {
-        blockData[target] = 0;
-        blockData[target + 1] = 0;
-        blockData[target + 2] = 0;
-        blockData[target + 3] = 0;
-      } else {
-        blockData[target] = Math.round(sumR / count);
-        blockData[target + 1] = Math.round(sumG / count);
-        blockData[target + 2] = Math.round(sumB / count);
-        blockData[target + 3] = Math.round(sumA / count);
-      }
+      blockData[target] = r;
+      blockData[target + 1] = g;
+      blockData[target + 2] = b;
+      blockData[target + 3] = a;
     }
   }
 
