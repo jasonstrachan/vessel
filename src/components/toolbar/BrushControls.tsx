@@ -104,6 +104,86 @@ const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffi
   );
 };
 
+type PigmentLiftControlsProps = {
+  settings: BrushSettings;
+  onChange: (updates: Partial<BrushSettings>) => void;
+  idSuffix: string;
+};
+
+const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onChange, idSuffix }) => {
+  const strength = settings.pigmentLiftStrength ?? 0.18;
+  const feather = settings.pigmentLiftFeather ?? 3;
+  const noise = settings.pigmentLiftNoise ?? 0.4;
+
+  return (
+    <div className="mb-2">
+      <div className="flex items-center gap-2">
+        <label
+          htmlFor={`pigment-lift-${idSuffix}`}
+          className={CONTROL_LABEL_CLASS}
+          style={CONTROL_LABEL_STYLE}
+        >
+          PigLift
+        </label>
+        <CustomSwitch
+          id={`pigment-lift-${idSuffix}`}
+          checked={!!settings.pigmentLiftEnabled}
+          onChange={(checked) => onChange({ pigmentLiftEnabled: checked })}
+        />
+      </div>
+
+      {settings.pigmentLiftEnabled && (
+        <>
+          <div className="flex items-center gap-2 mt-1">
+            <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
+              Strength
+            </label>
+            <ProgressSlider
+              value={strength}
+              min={0}
+              max={1}
+              step={0.02}
+              onChange={(value) => onChange({ pigmentLiftStrength: Math.max(0, Math.min(1, value)) })}
+              aria-label="Pigment Lift Strength"
+              className="flex-1"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 mt-1">
+            <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
+              Feather
+            </label>
+            <ProgressSlider
+              value={feather}
+              min={0}
+              max={12}
+              step={0.5}
+              onChange={(value) => onChange({ pigmentLiftFeather: Math.max(0, value) })}
+              aria-label="Pigment Lift Feather"
+              className="flex-1"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 mt-1">
+            <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
+              Texture
+            </label>
+            <ProgressSlider
+              value={noise}
+              min={0}
+              max={1}
+              step={0.02}
+              onChange={(value) => onChange({ pigmentLiftNoise: Math.max(0, Math.min(1, value)) })}
+              aria-label="Pigment Lift Texture"
+              className="flex-1"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
@@ -120,6 +200,7 @@ const BrushControls = () => {
   const setShapeMode = useAppStore(state => state.setShapeMode);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
+  const isDitherPreset = currentBrushPresetId === 'pixel-dither' || currentBrushPresetId === 'polygon-dither';
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -589,6 +670,7 @@ const BrushControls = () => {
             onChange={setActiveSettings}
             canToggle
             forceOn={Boolean(capability.forceDither)}
+            isDitherPreset={isDitherPreset}
           />
         )}
 
@@ -1096,7 +1178,22 @@ const BrushControls = () => {
           </div>
         </div>
 
-
+        {canDitherForShape(activeSettings.brushShape) && (
+          <DitherControls
+            settings={activeSettings}
+            onChange={setActiveSettings}
+            canToggle
+            forceOn={Boolean(capability.forceDither)}
+            isDitherPreset={isDitherPreset}
+            afterPresRes={
+              <PigmentLiftControls
+                settings={activeSettings}
+                onChange={setActiveSettings}
+                idSuffix="resampler"
+              />
+            }
+          />
+        )}
         <RisoControls
           settings={activeSettings}
           onChange={setActiveSettings}
@@ -1330,6 +1427,14 @@ const BrushControls = () => {
             onChange={setActiveSettings}
             canToggle
             forceOn={Boolean(capability.forceDither)}
+            isDitherPreset={isDitherPreset}
+            afterPresRes={
+              <PigmentLiftControls
+                settings={activeSettings}
+                onChange={setActiveSettings}
+                idSuffix="polygon"
+              />
+            }
           />
         )}
 
@@ -1477,20 +1582,28 @@ const BrushControls = () => {
           </div>
         )}
 
-        <RisoControls
-          settings={activeSettings}
-          onChange={setActiveSettings}
-          idSuffix="gradient"
-        />
-
         {canDitherForShape(activeSettings.brushShape) && (
           <DitherControls
             settings={activeSettings}
             onChange={setActiveSettings}
             canToggle
             forceOn={Boolean(capability.forceDither)}
+            isDitherPreset={isDitherPreset}
+            afterPresRes={
+              <PigmentLiftControls
+                settings={activeSettings}
+                onChange={setActiveSettings}
+                idSuffix="gradient"
+              />
+            }
           />
         )}
+
+        <RisoControls
+          settings={activeSettings}
+          onChange={setActiveSettings}
+          idSuffix="gradient"
+        />
 
         {/* Test Swatches Button */}
         <div className="mb-2">
@@ -1657,9 +1770,16 @@ const BrushControls = () => {
           canToggle
           forceOn={Boolean(capability.forceDither)}
           hideToggle={Boolean(capability.forceDither)}
+          isDitherPreset={isDitherPreset}
+          afterPresRes={
+            <PigmentLiftControls
+              settings={activeSettings}
+              onChange={setActiveSettings}
+              idSuffix="default"
+            />
+          }
         />
       )}
-
 
       <RisoControls
         settings={activeSettings}

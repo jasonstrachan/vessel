@@ -16,6 +16,7 @@ export const getDefaultMaxPressurePercent = (shape?: BrushShape): number => {
     case BrushShape.RESAMPLER:
     case BrushShape.SPAM_TEXT:
     case BrushShape.PIXEL_ROUND:
+    case BrushShape.PIXEL_DITHER:
       return 200;
     default:
       return 100;

@@ -148,6 +148,10 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherPaletteSpread: settings.ditherPaletteSpread,
   ditherAlgorithm: settings.ditherAlgorithm,
   patternStyle: settings.patternStyle,
+  pigmentLiftEnabled: settings.pigmentLiftEnabled,
+  pigmentLiftStrength: settings.pigmentLiftStrength,
+  pigmentLiftFeather: settings.pigmentLiftFeather,
+  pigmentLiftNoise: settings.pigmentLiftNoise,
   lostEdge: settings.lostEdge,
   fillResolution: settings.fillResolution,
   rotationEnabled: settings.rotationEnabled,
@@ -571,6 +575,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.patternStyle !== undefined) {
         settingsToSave.patternStyle = newSettings.patternStyle;
+      }
+      if (settings.pigmentLiftEnabled !== undefined) {
+        settingsToSave.pigmentLiftEnabled = newSettings.pigmentLiftEnabled;
+      }
+      if (settings.pigmentLiftStrength !== undefined) {
+        settingsToSave.pigmentLiftStrength = newSettings.pigmentLiftStrength;
+      }
+      if (settings.pigmentLiftFeather !== undefined) {
+        settingsToSave.pigmentLiftFeather = newSettings.pigmentLiftFeather;
+      }
+      if (settings.pigmentLiftNoise !== undefined) {
+        settingsToSave.pigmentLiftNoise = newSettings.pigmentLiftNoise;
       }
       if (settings.lostEdge !== undefined) {
         settingsToSave.lostEdge = newSettings.lostEdge;

@@ -12,6 +12,8 @@ type Props = {
   forceOn?: boolean;
   hideToggle?: boolean; // hides the switch entirely; useful when always-on
   compact?: boolean;
+  isDitherPreset?: boolean;
+  afterPresRes?: React.ReactNode; // rendered directly after PresRes toggle
 };
 
 const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label: string }[] = [
@@ -47,7 +49,9 @@ export const DitherControls: React.FC<Props> = ({
   canToggle = true,
   forceOn = false,
   hideToggle = false,
-  compact = false
+  compact = false,
+  isDitherPreset = false,
+  afterPresRes
 }) => {
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
@@ -74,20 +78,31 @@ export const DitherControls: React.FC<Props> = ({
 
       {ditherEnabled && (
         <>
-        <div className="flex items-center gap-2 mt-2">
-          <label className={labelWidth} style={labelStyle}>
-            Res
-          </label>
-          <ProgressSlider
+          <div className="flex items-center gap-2 mt-2">
+            <div className={labelWidth} /> {/* spacer to align with labels */}
+            <Dropdown
+              value={settings.ditherAlgorithm || 'sierra-lite'}
+              options={DITHER_OPTIONS}
+              onChange={(value) => onChange({ ditherAlgorithm: value as DitherAlgorithm })}
+              className="flex-1"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 mt-2">
+            <label className={labelWidth} style={labelStyle}>
+              Res
+            </label>
+            <ProgressSlider
               value={settings.fillResolution || 1}
               min={1}
               max={16}
               step={1}
               onChange={(value) => onChange({ fillResolution: Math.max(1, Math.round(value)) })}
-            aria-label="Dither Resolution"
-            className="flex-1"
-          />
-        </div>
+              disabled={Boolean(settings.pressureLinkedFillResolution && isDitherPreset)}
+              aria-label="Dither Resolution"
+              className="flex-1"
+            />
+          </div>
 
           <div className="flex items-center gap-2 mt-1">
             <label className={labelWidth} style={labelStyle}>
@@ -99,6 +114,8 @@ export const DitherControls: React.FC<Props> = ({
               aria-label="Pressure-linked Resolution"
             />
           </div>
+
+          {afterPresRes ? <div className="mt-2">{afterPresRes}</div> : null}
 
           <div className="flex items-center gap-2 mt-1">
             <label className={labelWidth} style={labelStyle} title="Re-dither whole stroke with latest pressure (legacy behavior)">
@@ -169,16 +186,6 @@ export const DitherControls: React.FC<Props> = ({
                 })
               }
               aria-label="Lost Edge"
-              className="flex-1"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 mt-2">
-            <div className={labelWidth} /> {/* spacer to align with labels */}
-            <Dropdown
-              value={settings.ditherAlgorithm || 'sierra-lite'}
-              options={DITHER_OPTIONS}
-              onChange={(value) => onChange({ ditherAlgorithm: value as DitherAlgorithm })}
               className="flex-1"
             />
           </div>

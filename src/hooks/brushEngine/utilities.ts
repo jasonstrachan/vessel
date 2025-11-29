@@ -133,6 +133,17 @@ export const checkTransparencyLock = (
 };
 
 /**
+ * Determine if pigment lift should be skipped for this point when transparency lock is enabled.
+ * We reuse the same sampling as checkTransparencyLock to avoid erasing fully transparent pixels.
+ */
+export const shouldSkipPigmentLiftWithTransparencyLock = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  transparencyLockEnabled?: boolean
+): boolean => checkTransparencyLock(ctx, x, y, transparencyLockEnabled);
+
+/**
  * Factory to create utility functions with injected settings
  */
 export const createBrushUtilities = (getSettings: () => BrushSettings) => {

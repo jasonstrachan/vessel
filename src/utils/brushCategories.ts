@@ -12,6 +12,7 @@ export const STROKE_BRUSHES: BrushShape[] = [
   BrushShape.ROUND,
   BrushShape.SQUARE,
   BrushShape.PIXEL_ROUND,
+  BrushShape.PIXEL_DITHER,
   BrushShape.CUSTOM,
   BrushShape.RESAMPLER,
   BrushShape.COLOR_CYCLE,

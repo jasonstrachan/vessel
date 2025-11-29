@@ -256,6 +256,7 @@ export enum ComponentType {
 export enum BrushShape {
   ROUND = 'round',
   PIXEL_ROUND = 'pixel_round',
+  PIXEL_DITHER = 'pixel_dither',
   SQUARE = 'square',
   TRIANGLE = 'triangle',
   POLYGON = 'polygon',
@@ -522,6 +523,14 @@ export interface BrushSettings {
     | 'void-and-cluster'
     | 'pattern';
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+  // Pigment lift mask: erode existing pigment before applying a new stamp
+  pigmentLiftEnabled?: boolean;
+  /** Strength of lift (0-1). 0 = no lift, 1 = full removal within mask. */
+  pigmentLiftStrength?: number;
+  /** Feather radius in px around stamp for softer lift edges. */
+  pigmentLiftFeather?: number;
+  /** Noise amount (0-1) to break up lift mask. */
+  pigmentLiftNoise?: number;
   // Lost Edge: apply Sierra Lite dither to break up stroke boundaries
   lostEdge?: number; // 0-100: 0 = off, 100 = strongest edge breakup
   // Stroke/shape thickness hint (used by certain shape/erosion routines)

@@ -147,6 +147,10 @@ export const defaultBrushSettings: BrushSettings = {
   ditherPaletteSpread: 0,
   pressureLinkedFillResolution: false,
   pressureDitherSmoosh: false,
+  pigmentLiftEnabled: false,
+  pigmentLiftStrength: 0.6,
+  pigmentLiftFeather: 1,
+  pigmentLiftNoise: 0.35,
   lostEdge: 0,
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
@@ -895,6 +899,7 @@ export const pixelDitherPreset: BrushPreset = {
   modifiedAt: new Date(),
   preferredSettings: {
     ...pixelBrushSettings,
+    brushShape: BrushShape.PIXEL_DITHER,
     size: 1,
     opacity: 1,
     spacing: 1,

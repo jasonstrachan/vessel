@@ -17,6 +17,7 @@ export interface PixelQueue {
   spacingCounter: number;
   lastStrokePosition: { x: number; y: number };
   accumulatedDistance: number;
+  lastLiftPosition?: { x: number; y: number } | null;
   stampedGridPositions: Set<string>;
   dashStampCounter: number;
   drawnPixels: Set<string>; // Track drawn pixels for pixel-perfect brushes

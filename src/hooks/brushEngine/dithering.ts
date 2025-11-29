@@ -10,7 +10,6 @@ import type {
 } from '@/utils/ditherAlgorithms';
 import { applyPressureDither } from '@/utils/ditherAlgorithms';
 import { DITHER_PALETTE, DITHER_COLOR_NAMES } from './constants';
-import { debugLog } from '@/utils/debug';
 import { srgbToLinear } from './colorUtils';
 
 // Lookup table to avoid pow() per pixel in hot dithering paths
@@ -704,3 +703,4 @@ const expandNearestNeighbor = (
 
   return output;
 };
+import { debugLog } from '@/utils/debug';

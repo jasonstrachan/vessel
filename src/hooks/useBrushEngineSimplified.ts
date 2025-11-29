@@ -1361,18 +1361,34 @@ export const useBrushEngineSimplified = () => {
     );
   }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread]);
 
+  const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
+  const isDitherPreset = useMemo(() => {
+    const id = currentBrushPreset?.id;
+    if (!id) return false;
+    return id === 'pixel-dither' || id === 'polygon-dither';
+  }, [currentBrushPreset]);
+
   const computePressureScaledResolution = useCallback((pressure: number) => {
+    const effectivePressure = Math.max(0, Math.min(1, pressure));
+
+    // Special handling: dither preset with pressure-linked resolution ignores user slider
+    if (tools.brushSettings.pressureLinkedFillResolution && isDitherPreset) {
+      const minRes = 2;
+      const maxRes = 32; // broadened range for stronger effect
+      const eased = Math.pow(effectivePressure, 0.85);
+      return Math.max(1, Math.round(minRes + (maxRes - minRes) * eased));
+    }
+
     const base = tools.brushSettings.fillResolution || 1;
     const clampedBase = Math.max(1, Math.min(16, Math.round(base)));
     if (!tools.brushSettings.pressureLinkedFillResolution) {
       return clampedBase;
     }
-    const effectivePressure = Math.max(0, Math.min(1, pressure));
     const minFactor = 0.25; // low pressure = quarter of base resolution
     const maxFactor = 2.0;  // high pressure = double base resolution
     const factor = minFactor + (maxFactor - minFactor) * effectivePressure;
     return Math.max(1, Math.min(16, Math.round(clampedBase * factor)));
-  }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
+  }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution, isDitherPreset]);
 
   const getStrokeDitherPixelSize = useCallback(() => {
     if (strokeDitherPixelSizeRef.current != null) {

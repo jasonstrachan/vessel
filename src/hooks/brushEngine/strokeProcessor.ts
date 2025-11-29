@@ -7,6 +7,7 @@
 import { BrushShape } from '@/types';
 import type { BrushSettings } from '@/types';
 import type { PixelQueue, RenderSettings } from './types';
+import { shouldSkipPigmentLiftWithTransparencyLock } from './utilities';
 import {
   calculateRotation,
   createDirectionState,
@@ -394,6 +395,7 @@ export function createPixelQueue(): PixelQueue {
     spacingCounter: 0,
     lastStrokePosition: { x: 0, y: 0 },
     accumulatedDistance: 0,
+    lastLiftPosition: null,
     stampedGridPositions: new Set<string>(),
     dashStampCounter: 0,
     drawnPixels: new Set<string>(),
@@ -417,6 +419,7 @@ export const resetPixelQueue = (queue: PixelQueue): void => {
   queue.spacingCounter = 0;
   queue.lastStrokePosition = { x: 0, y: 0 };
   queue.accumulatedDistance = 0;
+  queue.lastLiftPosition = null;
   queue.stampedGridPositions.clear();
   queue.dashStampCounter = 0;
   queue.drawnPixels.clear();
@@ -430,6 +433,127 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
   const velocityHistory: number[] = [];
   const directionHistory: number[] = [];
   let lastDirection = 0;
+  let pigmentLiftMask: HTMLCanvasElement | null = null;
+  let pigmentLiftMaskKey = '';
+
+  const buildPigmentLiftMask = (
+    size: number,
+    feather: number,
+    noise: number
+  ): HTMLCanvasElement | null => {
+    if (typeof document === 'undefined') {
+      return null;
+    }
+
+    const radius = Math.max(1, size / 2);
+    const featherAmount = Math.max(0, feather);
+    const maskSize = Math.max(2, Math.round(radius * 2 + featherAmount * 2));
+    const key = `${maskSize}-${Math.round(featherAmount * 10)}-${Math.round(noise * 100)}`;
+
+    if (pigmentLiftMask && pigmentLiftMaskKey === key) {
+      return pigmentLiftMask;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = maskSize;
+    canvas.height = maskSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return null;
+    }
+
+    const imageData = ctx.createImageData(maskSize, maskSize);
+    const data = imageData.data;
+    const cx = maskSize / 2;
+    const cy = maskSize / 2;
+    const maxDistance = radius + featherAmount;
+    const noiseAmount = Math.min(1, Math.max(0, noise));
+
+    for (let y = 0; y < maskSize; y += 1) {
+      for (let x = 0; x < maskSize; x += 1) {
+        const dx = x + 0.5 - cx;
+        const dy = y + 0.5 - cy;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const inCore = distance <= radius;
+        let falloff = 0;
+        if (!inCore && featherAmount > 0) {
+          const over = distance - radius;
+          falloff = Math.max(0, 1 - over / featherAmount);
+        } else if (inCore) {
+          falloff = 1;
+        }
+
+        if (falloff <= 0) {
+          continue;
+        }
+
+        const noiseCut = noiseAmount > 0 ? noiseAmount * Math.random() : 0;
+        // Amplify noise to open up more texture; occasional full holes
+        const fullHole = noiseAmount > 0 && Math.random() < noiseAmount * 0.5;
+        const alpha = fullHole
+          ? 0
+          : Math.max(0, Math.min(1, falloff * (1 - noiseCut * 1.6)));
+        if (alpha <= 0) {
+          continue;
+        }
+
+        const idx = (y * maskSize + x) * 4;
+        data[idx] = 255;
+        data[idx + 1] = 255;
+        data[idx + 2] = 255;
+        data[idx + 3] = Math.round(alpha * 255);
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    pigmentLiftMask = canvas;
+    pigmentLiftMaskKey = key;
+    return canvas;
+  };
+
+  const applyPigmentLift = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    settings: RenderSettings,
+    brushSettings: BrushSettings
+  ) => {
+    const strength = Math.max(0, Math.min(1, brushSettings.pigmentLiftStrength ?? 0));
+    if (
+      !brushSettings.pigmentLiftEnabled ||
+      strength <= 0 ||
+      brushSettings.blendMode === 'destination-out'
+    ) {
+      return;
+    }
+
+    if (shouldSkipPigmentLiftWithTransparencyLock(ctx, x, y, brushSettings.transparencyLockEnabled)) {
+      return;
+    }
+
+    const effectiveNoise = Math.min(1.2, (brushSettings.pigmentLiftNoise ?? 0) * 1.8);
+    const mask = buildPigmentLiftMask(
+      settings.size,
+      brushSettings.pigmentLiftFeather ?? 0,
+      effectiveNoise
+    );
+
+    if (!mask) {
+      return;
+    }
+
+    const prevComposite = ctx.globalCompositeOperation;
+    const prevAlpha = ctx.globalAlpha;
+
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalAlpha = strength;
+    const drawX = x - mask.width / 2;
+    const drawY = y - mask.height / 2;
+    ctx.drawImage(mask, drawX, drawY);
+
+    ctx.globalCompositeOperation = prevComposite;
+    ctx.globalAlpha = prevAlpha;
+  };
   
   /**
    * Perfect pixel placement for pixel art
@@ -452,6 +576,17 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
     const spacingThreshold = usePixelSpacing
       ? Math.max(1, Math.round(settings.spacing || 1))
       : Math.max(settings.spacing, 0.0001);
+
+    // Apply lift at its own cadence so fast strokes still show breakup
+    const liftSpacing = Math.max(1, Math.min(settings.size, settings.size * 0.35));
+    const lastLift = queue.lastLiftPosition;
+    const distSinceLift = lastLift
+      ? Math.max(Math.abs(roundedX - lastLift.x), Math.abs(roundedY - lastLift.y))
+      : Infinity;
+    if (distSinceLift >= liftSpacing) {
+      applyPigmentLift(ctx, roundedX, roundedY, settings, brushSettings);
+      queue.lastLiftPosition = { x: roundedX, y: roundedY };
+    }
     
     if (!queue.initialized) {
       // First pixel - initialize queue
@@ -466,6 +601,7 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
       
       // Draw the first pixel
       if (shouldDrawStamp(brushSettings, queue, settings.size, false)) {
+        applyPigmentLift(ctx, roundedX, roundedY, settings, brushSettings);
         const jitteredColor = deps.applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
         ctx.fillStyle = jitteredColor;
         deps.drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
@@ -493,6 +629,7 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
       if (queue.accumulatedDistance >= spacingThreshold) {
         // Check if we should draw this stamp (cursor-speed independent)
         if (shouldDrawStamp(brushSettings, queue, settings.size, false)) {
+          applyPigmentLift(ctx, queue.waitingPixelX, queue.waitingPixelY, settings, brushSettings);
           const jitteredColor = deps.applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
           deps.drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
@@ -595,6 +732,8 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
       velocityHistory.length = 0;
       directionHistory.length = 0;
       lastDirection = 0;
+      pigmentLiftMask = null;
+      pigmentLiftMaskKey = '';
     }
   };
 };

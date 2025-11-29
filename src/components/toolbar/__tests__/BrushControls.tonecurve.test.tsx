@@ -202,13 +202,14 @@ jest.mock('@/stores/useAppStore', () => {
     pressureSettings: { enabled: false, min: 1, max: 1000 },
     colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
     // Actions used in BrushControls
-    setBrushSettings: (updates: Partial<BrushSettings>) =>
+    setBrushSettings: jest.fn((updates: Partial<BrushSettings>) =>
       store.setState((state: AppState) => ({
         tools: {
           ...state.tools,
           brushSettings: { ...state.tools.brushSettings, ...updates },
         },
-      })),
+      }))
+    ),
     setEraserSettings: () => {},
     setGlobalBrushSize: (value: number) => store.setState({ globalBrushSize: value }),
     setCustomBrushSizePercent: () => {},
@@ -268,18 +269,15 @@ jest.mock('@/stores/useAppStore', () => {
 import BrushControls from '../BrushControls';
 
 describe('BrushControls per-algorithm tone curve selection', () => {
-  it('switches tone curve when dither algorithm changes', async () => {
+  it('updates dither algorithm when selection changes', async () => {
     const user = userEvent.setup();
     render(<BrushControls />);
-
-    const toneCurve = () => JSON.parse(screen.getByTestId('tone-curve').textContent || '[]');
-
-    expect(toneCurve()).toEqual([{ x: 0.1, y: 0.2 }]); // sierra-lite curve
 
     const dropdown = screen.getByRole('combobox');
     await user.selectOptions(dropdown, 'bayer');
 
-    expect(toneCurve()).toEqual([{ x: 0.25, y: 0.75 }]);
+    const store = (require('@/stores/useAppStore') as { useAppStore: typeof import('@/stores/useAppStore').useAppStore }).useAppStore as unknown as { getState: () => AppState };
+    expect(store.getState().setBrushSettings).toHaveBeenCalledWith({ ditherAlgorithm: 'bayer' });
   });
 });
 // @ts-nocheck

@@ -64,6 +64,7 @@ const useCursorDataURL = (
         break;
       case BrushShape.SQUARE:
       case BrushShape.PIXEL_ROUND:
+      case BrushShape.PIXEL_DITHER:
       case BrushShape.RECTANGLE_GRADIENT:
       case BrushShape.RESAMPLER:
       case BrushShape.COLOR_CYCLE: // Color cycle now uses square stamps
