@@ -1061,7 +1061,10 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
   const brushPressurePendingRef = useRef(normalizePressureSettings(tools.brushSettings));
-  const strokePressureRef = useRef<{ last: number; lastNonZero: number }>({ last: 1, lastNonZero: 1 });
+  const strokePressureRef = useRef<{ last: number; lastNonZero: number }>({
+    last: 0,
+    lastNonZero: 0
+  });
   const strokeDitherPixelSizeRef = useRef<number | null>(null);
   const PRESSURE_EPS = 0.05;
   const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
@@ -1373,8 +1376,8 @@ export const useBrushEngineSimplified = () => {
 
     // Dither preset: widen the range so pressure clearly changes the pattern period.
     if (tools.brushSettings.pressureLinkedFillResolution && isDitherPreset) {
-      const minRes = 1;
-      const maxRes = 28;
+      const minRes = 1;   // low pressure → fine pattern
+      const maxRes = 28;  // high pressure → coarse pattern
       const eased = Math.pow(p, 0.85);
       return Math.max(1, Math.round(minRes + (maxRes - minRes) * eased));
     }
@@ -1385,8 +1388,9 @@ export const useBrushEngineSimplified = () => {
       return clampedBase;
     }
 
-    const minFactor = 0.4; // retain detail at low pressure
-    const maxFactor = 1.8; // noticeable enlargement at high pressure
+    // Low pressure → smaller period; high pressure → larger period
+    const minFactor = 0.6;
+    const maxFactor = 1.8;
     const factor = minFactor + (maxFactor - minFactor) * p;
     return Math.max(1, Math.round(clampedBase * factor));
   }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution, isDitherPreset]);
@@ -1594,6 +1598,27 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
+    // Pressure-linked path: only blit the newly dithered region; do NOT re-dither old stamps.
+    if (shouldApplyStrokeDither && tools.brushSettings.pressureLinkedFillResolution && ditherCanvas) {
+      const region = liveDirtyRectRef.current ?? strokeBounds;
+      liveDirtyRectRef.current = null;
+      if (region) {
+        const dCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
+        if (dCtx) {
+          const { x, y, width: w, height: h } = normalizeRectForCanvas(
+            region,
+            dCtx.canvas?.width ?? 0,
+            dCtx.canvas?.height ?? 0
+          );
+          withAlphaLock(visibleCtx, (targetCtx) => {
+            targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, w, h, x, y, w, h);
+          }, strokeBounds);
+          applyStrokeRisographOverlay(visibleCtx, strokeBounds, ditherCanvas);
+        }
+      }
+      return;
+    }
+
     if (shouldApplyStrokeDither && ditherCanvas) {
       const dCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
       if (dCtx) {
@@ -1689,11 +1714,15 @@ export const useBrushEngineSimplified = () => {
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
 
-    brushEngine.renderBrushStroke(rawCtx, strokeParams);
+    const decoupleSize = tools.brushSettings.pressureLinkedFillResolution && isDitherPreset;
+    const sizePressure = decoupleSize ? 1 : strokeParams.pressure ?? 1;
+    const adjustedStrokeParams = { ...strokeParams, pressure: sizePressure };
+
+    brushEngine.renderBrushStroke(rawCtx, adjustedStrokeParams);
 
     // Pressure-linked dither: immediately dither a tight dirty rect around this segment only
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
-      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (strokeParams.pressure || 1)));
+      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (sizePressure || 1)));
       const region = {
         x: Math.max(0, Math.floor(Math.min(from.x, to.x) - size)),
         y: Math.max(0, Math.floor(Math.min(from.y, to.y) - size)),
@@ -1732,10 +1761,13 @@ export const useBrushEngineSimplified = () => {
     y: number,
     pressure: number = 1.0
   ) => {
+    const decoupleSize = tools.brushSettings.pressureLinkedFillResolution && isDitherPreset;
+    const sizePressure = decoupleSize ? 1 : pressure;
+
     const strokeParams: BrushStrokeParams = {
       from: { x, y },
       to: { x, y },
-      pressure,
+      pressure: sizePressure,
       velocity: 0,
       timestamp: Date.now()
     };
@@ -1754,7 +1786,7 @@ export const useBrushEngineSimplified = () => {
     const segmentBounds = estimateStrokeBounds(
       { x, y },
       { x, y },
-      strokeParams.pressure
+      sizePressure
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
@@ -1767,10 +1799,10 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
-    brushEngine.renderBrushStroke(rawCtx, strokeParams);
+    brushEngine.renderBrushStroke(rawCtx, { ...strokeParams, pressure: sizePressure });
 
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
-      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (strokeParams.pressure || 1)));
+      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (sizePressure || 1)));
       const region = {
         x: Math.max(0, Math.floor(x - size)),
         y: Math.max(0, Math.floor(y - size)),
@@ -1821,6 +1853,17 @@ export const useBrushEngineSimplified = () => {
       }, strokeBounds ?? undefined);
     }
 
+    if (tools.brushSettings.pressureLinkedFillResolution && strokeBounds && ditherCanvas && region) {
+      const { x, y, width, height } = region;
+      withAlphaLock(ctx, (targetCtx) => {
+        targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+      }, strokeBounds);
+      applyStrokeRisographOverlay(ctx, strokeBounds, ditherCanvas);
+      clearLiveStrokeBuffers();
+      strokeBoundsRef.current = null;
+      return strokeBounds ? { ...strokeBounds } : null;
+    }
+
     if (!tools.brushSettings.pressureLinkedFillResolution && strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
       const { x, y, width, height } = region;
       let src: ImageData;
@@ -1855,7 +1898,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine.resetStroke();
     strokeBoundsRef.current = null;
     clearLiveStrokeBuffers();
-    strokePressureRef.current = { last: 1, lastNonZero: 1 };
+    strokePressureRef.current = { last: 0, lastNonZero: 0 };
     strokeDitherPixelSizeRef.current = null;
   }, [brushEngine, clearLiveStrokeBuffers]);
 
