@@ -108,6 +108,35 @@ const AL = (step: string, obj: Record<string, unknown>) => {
   }
 };
 
+const getDitherDebugLevel = () => {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+  const lvl = Number((window as { __ditherDebugLevel?: unknown }).__ditherDebugLevel ?? 0);
+  return Number.isFinite(lvl) ? lvl : 0;
+};
+
+const DD = (step: string, obj: Record<string, unknown>) => {
+  const level = typeof window !== 'undefined'
+    ? (window as { __ditherDebugLevel?: number }).__ditherDebugLevel ?? 0
+    : 0;
+  if (level > 0) {
+    try {
+      console.log(`[DITHER] ${step} ${JSON.stringify(obj)}`);
+    } catch {
+      console.log('[DITHER]', step, obj);
+    }
+  }
+};
+
+const getDitherProbe = () => {
+  if (typeof window === 'undefined') {
+    return null as null | { x: number; y: number; tag?: string };
+  }
+  const probe = (window as { __DITHER_probe?: { x: number; y: number; tag?: string } }).__DITHER_probe;
+  return probe ?? null;
+};
+
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const MAX_ALPHA_PROBE_SIZE = 256;
 const DEFAULT_CC_BAND_SPACING = 12;
@@ -536,6 +565,7 @@ const renderBrushToLayerCanvas = (
 
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
+  const layers = useAppStore((state) => state.layers);
   // Track per-layer CC brush speed for the active layer
   const activeLayerBrushSpeed = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
@@ -654,7 +684,16 @@ export const useBrushEngineSimplified = () => {
   const liveStrokeDitherRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeBoundsRef = useRef<Rect | null>(null);
   const liveDirtyRectRef = useRef<Rect | null>(null);
+  const lastSegmentBoundsRef = useRef<Rect | null>(null);
   const liveRenderScheduledRef = useRef(false);
+  const ditherCoverageMapRef = useRef<Map<string, {
+    canvas: HTMLCanvasElement | OffscreenCanvas;
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  }>>(new Map());
+
+  const clearCoverageMaps = useCallback(() => {
+    ditherCoverageMapRef.current.clear();
+  }, []);
 
   const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
     if (typeof document === 'undefined') {
@@ -700,8 +739,188 @@ export const useBrushEngineSimplified = () => {
       ditherCtx?.clearRect(0, 0, (dither as { width?: number }).width ?? 0, (dither as { height?: number }).height ?? 0);
     }
     liveStrokeBoundsRef.current = null;
+    lastSegmentBoundsRef.current = null;
     liveRenderScheduledRef.current = false;
   }, []);
+
+  const createCoverageCanvas = useCallback((width: number, height: number): HTMLCanvasElement | OffscreenCanvas | null => {
+    const globalAny = globalThis as unknown as { OffscreenCanvas?: { new (w: number, h: number): OffscreenCanvas } };
+    if (typeof globalAny.OffscreenCanvas === 'function') {
+      return new globalAny.OffscreenCanvas(width, height);
+    }
+    if (typeof document === 'undefined') {
+      return null;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }, []);
+
+  const ensureCoverageEntry = useCallback((
+    layerId: string | null,
+    layerCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+  ): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } | null => {
+    if (!layerId) return null;
+    const canvasWidth = layerCtx.canvas?.width ?? 0;
+    const canvasHeight = layerCtx.canvas?.height ?? 0;
+    if (!canvasWidth || !canvasHeight) return null;
+
+    let entry = ditherCoverageMapRef.current.get(layerId) ?? null;
+    if (!entry) {
+      const canvas = createCoverageCanvas(canvasWidth, canvasHeight);
+      if (!canvas) return null;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+      if (!ctx) return null;
+      entry = { canvas, ctx };
+      ditherCoverageMapRef.current.set(layerId, entry);
+      return entry;
+    }
+
+    if (entry.canvas.width !== canvasWidth || entry.canvas.height !== canvasHeight) {
+      entry.canvas.width = canvasWidth;
+      entry.canvas.height = canvasHeight;
+      entry.ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    }
+
+    return entry;
+  }, [createCoverageCanvas]);
+
+  const applyCoverageMaskToDither = useCallback((
+    layerCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    ditherCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    rawCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null,
+    region: Rect,
+    layerId: string | null,
+    layerVersion?: number
+  ) => {
+    if (!layerId) return;
+    const { x, y, width, height } = region;
+    if (width <= 0 || height <= 0) return;
+
+    const probe = getDitherProbe();
+    DD('coverage-enter', { layerId, layerVersion, region: { x, y, width, height } });
+
+    const entry = ensureCoverageEntry(layerId, layerCtx);
+    if (!entry) return;
+
+    let coverPatch: ImageData;
+    let layerPatch: ImageData;
+    let ditherPatch: ImageData;
+    let strokePatch: ImageData | null = null;
+    try {
+      coverPatch = entry.ctx.getImageData(x, y, width, height);
+      layerPatch = layerCtx.getImageData(x, y, width, height);
+      ditherPatch = ditherCtx.getImageData(x, y, width, height);
+      if (rawCtx) {
+        strokePatch = rawCtx.getImageData(x, y, width, height);
+      }
+    } catch (error) {
+      console.warn('[Dither] Failed to sample coverage merge region', error);
+      return;
+    }
+
+    const cd = coverPatch.data;
+    const ld = layerPatch.data;
+    const dd = ditherPatch.data;
+    const sd = strokePatch?.data ?? null;
+
+    let countHole = 0;
+    let countCover = 0;
+    let countLayerAlpha = 0;
+    let countStrokeAlpha = 0;
+
+    for (let i = 0; i < dd.length; i += 4) {
+      const coverA = cd[i + 3];
+      const layerA = ld[i + 3];
+      const strokeA = sd ? sd[i + 3] : dd[i + 3];
+      if (coverA > 0) countCover++;
+      if (layerA > 0) countLayerAlpha++;
+      if (strokeA > 0) countStrokeAlpha++;
+      if (coverA > 0 && layerA === 0) countHole++;
+    }
+
+    DD('coverage-pre', {
+      layerId,
+      region: { x, y, width, height },
+      coverPixels: countCover,
+      layerAlphaPixels: countLayerAlpha,
+      strokePixels: countStrokeAlpha,
+      holePixels: countHole
+    });
+
+    const probePoint = probe ?? {
+      x: x + Math.floor(width / 2),
+      y: y + Math.floor(height / 2),
+      tag: 'coverage-center'
+    };
+
+    const probeInRegion =
+      probePoint &&
+      probePoint.x >= x && probePoint.x < x + width &&
+      probePoint.y >= y && probePoint.y < y + height;
+
+    if (probeInRegion) {
+      const px = probePoint.x - x;
+      const py = probePoint.y - y;
+      const idx = (py * width + px) * 4;
+      DD('coverage-probe-pre', {
+        tag: probePoint.tag,
+        canvasXY: { x: probePoint.x, y: probePoint.y },
+        coverA: cd[idx + 3],
+        layerA: ld[idx + 3],
+        strokeA: sd ? sd[idx + 3] : dd[idx + 3],
+        ditherA: dd[idx + 3],
+        isHoleFromPriorStamp: cd[idx + 3] > 0 && ld[idx + 3] === 0
+      });
+    }
+
+    for (let i = 0; i < dd.length; i += 4) {
+      const coverA = cd[i + 3];
+      const layerA = ld[i + 3];
+      const strokeA = sd ? sd[i + 3] : dd[i + 3];
+      const isHoleFromPriorStamp = coverA > 0 && layerA === 0;
+
+      if (isHoleFromPriorStamp) {
+        dd[i + 3] = 0;
+        continue;
+      }
+
+      if (strokeA > 0) {
+        cd[i] = 0;
+        cd[i + 1] = 0;
+        cd[i + 2] = 0;
+        cd[i + 3] = 255;
+      }
+    }
+
+    if (probeInRegion) {
+      const px = probePoint!.x - x;
+      const py = probePoint!.y - y;
+      const idx = (py * width + px) * 4;
+      DD('coverage-probe-post', {
+        tag: probePoint!.tag,
+        canvasXY: { x: probePoint!.x, y: probePoint!.y },
+        coverA: cd[idx + 3],
+        layerA: ld[idx + 3],
+        strokeA: sd ? sd[idx + 3] : dd[idx + 3],
+        ditherA: dd[idx + 3]
+      });
+    }
+
+    entry.ctx.putImageData(coverPatch, x, y);
+    ditherCtx.putImageData(ditherPatch, x, y);
+  }, [ensureCoverageEntry]);
+
+  useEffect(() => {
+    const ids = new Set(layers.map((layer) => layer.id));
+    const map = ditherCoverageMapRef.current;
+    for (const key of Array.from(map.keys())) {
+      if (!ids.has(key)) {
+        map.delete(key);
+      }
+    }
+  }, [layers]);
 
   const layerHasAnyAlpha = useCallback(() => {
     const mask = getActiveLayerBitmapCanvas();
@@ -1423,6 +1642,17 @@ export const useBrushEngineSimplified = () => {
       const [r, g, b] = parseColor(candidate);
       return [r, g, b] as [number, number, number];
     })();
+    const [offR, offG, offB] = (() => {
+      const base = strokeDitherPalette[0] ?? tools.brushSettings.color ?? '#000';
+      const [r, g, b] = parseColor(base);
+      return [r, g, b] as [number, number, number];
+    })();
+    const offBrightness = (offR + offG + offB) / 3;
+    const onBrightness = (() => {
+      const ref = strokeDitherPalette[1] ?? strokeDitherPalette[0] ?? tools.brushSettings.color ?? '#000';
+      const [r, g, b] = parseColor(ref);
+      return (r + g + b) / 3;
+    })();
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) return;
 
@@ -1434,6 +1664,15 @@ export const useBrushEngineSimplified = () => {
       console.warn('[Dither] Failed to sample region for pressure dither:', err);
       return;
     }
+
+    const probe = getDitherProbe();
+    DD('region-enter', {
+      fillBackground,
+      algorithm: tools.brushSettings.ditherAlgorithm || 'sierra-lite',
+      patternStyle: tools.brushSettings.patternStyle || 'dots',
+      region: { x, y, width, height },
+      pixelSize: Math.max(1, Math.round(tools.brushSettings.fillResolution || 1))
+    });
 
     // Branch: classic dithering when PresRes is off.
     if (!tools.brushSettings.pressureLinkedFillResolution) {
@@ -1458,16 +1697,20 @@ export const useBrushEngineSimplified = () => {
             strokeDitherPalette
           );
 
-      // Preserve original alpha
-      if (fillBackground) {
-        for (let i = 3; i < dithered.data.length; i += 4) {
-          dithered.data[i] = src.data[i];
-        }
+      const data = dithered.data;
+      const srcData = src.data;
+      const zeroOff = Math.abs(offBrightness - onBrightness) > 5;
+      const isOffColor = (idx: number) =>
+        data[idx] === offR &&
+        data[idx + 1] === offG &&
+        data[idx + 2] === offB;
+
+      // First pass: default alpha = source alpha so fresh strokes are visible
+      for (let i = 0; i < data.length; i += 4) {
+        data[i + 3] = srcData[i + 3];
       }
 
       if (fillBackground) {
-        const data = dithered.data;
-        const srcData = src.data;
         for (let i = 0; i < data.length; i += 4) {
           const alpha = data[i + 3];
           if (alpha === 0 && srcData[i + 3] !== 0) {
@@ -1477,13 +1720,114 @@ export const useBrushEngineSimplified = () => {
             data[i + 3] = srcData[i + 3];
           }
         }
-      }
-      if (!fillBackground) {
-        const data = dithered.data;
-        for (let i = 0; i < data.length; i += 4) {
-          if (data[i] === bgR && data[i + 1] === bgG && data[i + 2] === bgB) {
-            data[i + 3] = 0;
+      } else {
+        // BG fill OFF: per-pixel logic without region-level gating
+        const prev = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = false;
+        try {
+          let existing: ImageData | null = null;
+          try {
+            existing = ctx.getImageData(x, y, width, height);
+          } catch {
+            existing = null;
           }
+
+          if (existing && zeroOff) {
+            const e = existing.data;
+
+            let countExistingAlpha = 0;
+            let countStrokeAlpha = 0;
+            let countOffColor = 0;
+            for (let i = 0; i < data.length; i += 4) {
+              if (e[i + 3] > 0) countExistingAlpha++;
+              if (srcData[i + 3] > 0) countStrokeAlpha++;
+              if (isOffColor(i)) countOffColor++;
+            }
+
+            DD('region-before-merge', {
+              region: { x, y, width, height },
+              existingAlphaPixels: countExistingAlpha,
+              strokeAlphaPixels: countStrokeAlpha,
+              offColorPixels: countOffColor
+            });
+
+            const probePoint = probe ?? {
+              x: x + Math.floor(width / 2),
+              y: y + Math.floor(height / 2),
+              tag: 'region-center'
+            };
+
+            if (
+              probePoint &&
+              probePoint.x >= x && probePoint.x < x + width &&
+              probePoint.y >= y && probePoint.y < y + height
+            ) {
+              const px = probePoint.x - x;
+              const py = probePoint.y - y;
+              const idx = (py * width + px) * 4;
+
+              DD('probe-pre-merge', {
+                tag: probePoint.tag,
+                canvasXY: { x: probePoint.x, y: probePoint.y },
+                idx,
+                existingRGBA: { r: e[idx], g: e[idx + 1], b: e[idx + 2], a: e[idx + 3] },
+                srcRGBA: { r: srcData[idx], g: srcData[idx + 1], b: srcData[idx + 2], a: srcData[idx + 3] },
+                ditherRGBA: { r: data[idx], g: data[idx + 1], b: data[idx + 2], a: data[idx + 3] },
+                isOff: isOffColor(idx)
+              });
+            }
+
+            for (let i = 0; i < data.length; i += 4) {
+              const ea = e[i + 3];       // existing alpha
+              const srcA = srcData[i + 3]; // stroke coverage
+              const isOff = isOffColor(i);
+
+              if (ea === 0) {
+                // Blank pixel: first-stamp rules
+                data[i + 3] = isOff ? 0 : srcA;
+                continue;
+              }
+
+              // Overlay on painted pixel
+              if (isOff) {
+                // Off ink over paint: preserve existing pattern
+                data[i] = e[i];
+                data[i + 1] = e[i + 1];
+                data[i + 2] = e[i + 2];
+                data[i + 3] = ea;
+                continue;
+              }
+
+              // On ink over paint: conservative alpha blend, keep existing colour
+              const na = Math.min(ea, srcA);
+              data[i] = e[i];
+              data[i + 1] = e[i + 1];
+              data[i + 2] = e[i + 2];
+              data[i + 3] = na;
+            }
+          } else {
+            // No existing data: treat as first stamp per pixel
+            for (let i = 0; i < data.length; i += 4) {
+              data[i + 3] = isOffColor(i) ? 0 : srcData[i + 3];
+            }
+          }
+
+          if (
+            probe &&
+            probe.x >= x && probe.x < x + width &&
+            probe.y >= y && probe.y < y + height
+          ) {
+            const px = probe.x - x;
+            const py = probe.y - y;
+            const idx = (py * width + px) * 4;
+            DD('probe-post-merge', {
+              tag: probe.tag,
+              canvasXY: { x: probe.x, y: probe.y },
+              finalDitherRGBA: { r: data[idx], g: data[idx + 1], b: data[idx + 2], a: data[idx + 3] }
+            });
+          }
+        } finally {
+          ctx.imageSmoothingEnabled = prev;
         }
       }
 
@@ -1646,20 +1990,21 @@ export const useBrushEngineSimplified = () => {
 
     // Pressure-linked path: only blit the newly dithered region; do NOT re-dither old stamps.
     if (shouldApplyStrokeDither && tools.brushSettings.pressureLinkedFillResolution && ditherCanvas) {
-      const region = liveDirtyRectRef.current ?? strokeBounds;
+      const regionToBlit = liveDirtyRectRef.current ?? strokeBounds;
       liveDirtyRectRef.current = null;
-      if (region) {
+      if (regionToBlit) {
         const dCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
         if (dCtx) {
-          const { x, y, width: w, height: h } = normalizeRectForCanvas(
-            region,
+          const { x: bx, y: by, width: bw, height: bh } = normalizeRectForCanvas(
+            regionToBlit,
             dCtx.canvas?.width ?? 0,
             dCtx.canvas?.height ?? 0
           );
+          const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
           withAlphaLock(visibleCtx, (targetCtx) => {
-            targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, w, h, x, y, w, h);
+            targetCtx.drawImage(ditherCanvas as CanvasImageSource, bx, by, bw, bh, bx, by, bw, bh);
           }, strokeBounds);
-          applyStrokeRisographOverlay(visibleCtx, strokeBounds, ditherCanvas);
+          applyStrokeRisographOverlay(visibleCtx, strokeBounds, ditherSource);
         }
       }
       return;
@@ -1668,22 +2013,68 @@ export const useBrushEngineSimplified = () => {
     if (shouldApplyStrokeDither && ditherCanvas) {
       const dCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
       if (dCtx) {
-        dCtx.clearRect(x, y, width, height);
-        dCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
-        applyStrokeDither(dCtx, strokeBounds, rawCtx);
+        const fullDirty = liveDirtyRectRef.current ?? strokeBounds;
+        liveDirtyRectRef.current = null;
+
+        const ditherRegion = tools.brushSettings.ditherBackgroundFill !== false
+          ? fullDirty
+          : (lastSegmentBoundsRef.current ?? fullDirty);
+
+        const { x: dx, y: dy, width: dw, height: dh } = normalizeRectForCanvas(
+          ditherRegion,
+          dCtx.canvas?.width ?? 0,
+          dCtx.canvas?.height ?? 0
+        );
+
+        if (tools.brushSettings.ditherBackgroundFill !== false) {
+          // BG fill on: redraw raw patch then dither full dirty rect
+          dCtx.drawImage(rawCanvas as CanvasImageSource, dx, dy, dw, dh, dx, dy, dw, dh);
+          applyStrokeDither(dCtx, ditherRegion, rawCtx);
+        } else {
+          // BG fill off: only dither the latest segment; keep previous dither intact
+          applyStrokeDither(dCtx, ditherRegion, rawCtx);
+
+          // Apply coverage mask live to preserve old holes during the same stroke
+          const state = useAppStore.getState();
+          const layer = state.layers.find((l) => l.id === state.activeLayerId);
+          const layerFb = layer?.framebuffer ?? null;
+          const layerCtxForCoverage = layerFb ? pick2D(layerFb) : null;
+          if (layerCtxForCoverage && layer?.id) {
+            applyCoverageMaskToDither(
+              layerCtxForCoverage,
+              dCtx,
+              rawCtx,
+              normalizeRectForCanvas(ditherRegion, dCtx.canvas?.width ?? 0, dCtx.canvas?.height ?? 0),
+              layer.id
+            );
+          }
+        }
+
+        const blitRect = normalizeRectForCanvas(
+          fullDirty,
+          dCtx.canvas?.width ?? 0,
+          dCtx.canvas?.height ?? 0
+        );
+
+        const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
         withAlphaLock(visibleCtx, (targetCtx) => {
-          targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
-        }, strokeBounds);
-        applyStrokeRisographOverlay(visibleCtx, strokeBounds, ditherCanvas ?? rawCanvas ?? null);
+          targetCtx.drawImage(
+            ditherCanvas as CanvasImageSource,
+            blitRect.x, blitRect.y, blitRect.width, blitRect.height,
+            blitRect.x, blitRect.y, blitRect.width, blitRect.height
+          );
+        }, fullDirty);
+        applyStrokeRisographOverlay(visibleCtx, fullDirty, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
         return;
       }
     }
 
+    const rawSource = rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null;
     withAlphaLock(visibleCtx, (targetCtx) => {
-      targetCtx.drawImage(rawCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+      targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
     }, strokeBounds);
-    applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawCanvas ?? null);
-  }, [applyStrokeDither, applyStrokeRisographOverlay, shouldApplyStrokeDither, withAlphaLock]);
+    applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawSource);
+  }, [applyCoverageMaskToDither, applyStrokeDither, applyStrokeRisographOverlay, shouldApplyStrokeDither, withAlphaLock]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -1759,6 +2150,7 @@ export const useBrushEngineSimplified = () => {
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
+    lastSegmentBoundsRef.current = segmentBounds;
 
     const decoupleSize = tools.brushSettings.pressureLinkedFillResolution && isDitherPreset;
     const sizePressure = decoupleSize ? 1 : strokeParams.pressure ?? 1;
@@ -1836,6 +2228,7 @@ export const useBrushEngineSimplified = () => {
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
+    lastSegmentBoundsRef.current = segmentBounds;
 
     if (!ensureLiveStrokeBuffers(ctx)) {
       return;
@@ -1881,6 +2274,27 @@ export const useBrushEngineSimplified = () => {
    * Finalize the current stroke (draw any waiting pixels)
    */
   const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D): Rect | null => {
+    const state = useAppStore.getState();
+    const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+    const activeLayerIdSafe = activeLayer?.id ?? null;
+    const layerFramebuffer = activeLayer?.framebuffer ?? null;
+    let layerCtxForCoverage: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+
+    if (layerFramebuffer) {
+      layerCtxForCoverage = pick2D(layerFramebuffer);
+    } else if (activeLayer?.imageData) {
+      const tempCanvas = createCoverageCanvas(activeLayer.imageData.width, activeLayer.imageData.height);
+      const tempCtx = pick2D(tempCanvas as HTMLCanvasElement | OffscreenCanvas | null);
+      if (tempCanvas && tempCtx) {
+        try {
+          tempCtx.putImageData(activeLayer.imageData, 0, 0);
+          layerCtxForCoverage = tempCtx;
+        } catch {
+          // best-effort; if this fails we skip coverage masking
+        }
+      }
+    }
+
     const strokeBounds = strokeBoundsRef.current ?? liveStrokeBoundsRef.current ?? null;
     const rawCanvas = liveStrokeRawRef.current;
     const ditherCanvas = liveStrokeDitherRef.current;
@@ -1901,41 +2315,76 @@ export const useBrushEngineSimplified = () => {
 
     if (tools.brushSettings.pressureLinkedFillResolution && strokeBounds && ditherCanvas && region) {
       const { x, y, width, height } = region;
+      const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
+      if (
+        tools.brushSettings.ditherBackgroundFill === false &&
+        ditherCtx &&
+        rawCtx &&
+        layerCtxForCoverage &&
+        activeLayerIdSafe
+      ) {
+        applyCoverageMaskToDither(layerCtxForCoverage, ditherCtx, rawCtx, region, activeLayerIdSafe);
+      }
       withAlphaLock(ctx, (targetCtx) => {
-        targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
+        targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
       }, strokeBounds);
-      applyStrokeRisographOverlay(ctx, strokeBounds, ditherCanvas);
+      applyStrokeRisographOverlay(ctx, strokeBounds, ditherSource);
       clearLiveStrokeBuffers();
+      clearCoverageMaps();
       strokeBoundsRef.current = null;
       return strokeBounds ? { ...strokeBounds } : null;
     }
 
     if (!tools.brushSettings.pressureLinkedFillResolution && strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
       const { x, y, width, height } = region;
-      let src: ImageData;
-      try {
-        src = rawCtx.getImageData(x, y, width, height);
-      } catch {
-        clearLiveStrokeBuffers();
-        strokeBoundsRef.current = null;
-        return strokeBounds ? { ...strokeBounds } : null;
+      if (tools.brushSettings.ditherBackgroundFill === false) {
+        // Do NOT re-dither the whole stroke; use accumulated dither buffer and mask holes
+        if (layerCtxForCoverage && activeLayerIdSafe) {
+          applyCoverageMaskToDither(layerCtxForCoverage, ditherCtx, rawCtx, region, activeLayerIdSafe);
+        }
+        const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
+        withAlphaLock(ctx, (targetCtx) => {
+          targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+        }, strokeBounds);
+        applyStrokeRisographOverlay(ctx, strokeBounds, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
+      } else {
+        let src: ImageData;
+        try {
+          src = rawCtx.getImageData(x, y, width, height);
+        } catch {
+          clearLiveStrokeBuffers();
+          strokeBoundsRef.current = null;
+          return strokeBounds ? { ...strokeBounds } : null;
+        }
+
+        ditherCtx.clearRect(x, y, width, height);
+        ditherCtx.putImageData(src, x, y);
+        applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
+
+        const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
+        withAlphaLock(ctx, (targetCtx) => {
+          targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+        }, strokeBounds);
+
+        applyStrokeRisographOverlay(ctx, strokeBounds, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
       }
-
-      ditherCtx.clearRect(x, y, width, height);
-      ditherCtx.putImageData(src, x, y);
-      applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
-
-      withAlphaLock(ctx, (targetCtx) => {
-        targetCtx.drawImage(ditherCanvas as HTMLCanvasElement, x, y, width, height, x, y, width, height);
-      }, strokeBounds);
-
-      applyStrokeRisographOverlay(ctx, strokeBounds, ditherCanvas ?? rawCanvas ?? null);
     }
 
     clearLiveStrokeBuffers();
+    clearCoverageMaps();
     strokeBoundsRef.current = null;
     return strokeBounds ? { ...strokeBounds } : null;
-  }, [applyStrokeDither, applyStrokeRisographOverlay, brushEngine, clearLiveStrokeBuffers, withAlphaLock, tools.brushSettings.pressureLinkedFillResolution]);
+  }, [
+    applyCoverageMaskToDither,
+    applyStrokeDither,
+    applyStrokeRisographOverlay,
+    brushEngine,
+    clearLiveStrokeBuffers,
+    clearCoverageMaps,
+    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.pressureLinkedFillResolution,
+    withAlphaLock
+  ]);
 
   /**
    * Reset for new stroke
@@ -1944,9 +2393,10 @@ export const useBrushEngineSimplified = () => {
     brushEngine.resetStroke();
     strokeBoundsRef.current = null;
     clearLiveStrokeBuffers();
+    clearCoverageMaps();
     strokePressureRef.current = { last: 0, lastNonZero: 0 };
     strokeDitherPixelSizeRef.current = null;
-  }, [brushEngine, clearLiveStrokeBuffers]);
+  }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
 
   /**
    * Apply dithering effect

@@ -491,6 +491,8 @@ export interface BrushSettings {
   gridSnapEnabled: boolean;
   // Shape brush settings
   shapeEnabled: boolean;
+  /** Global transparency lock flag mirrored into brush engine for masking */
+  transparencyLockEnabled?: boolean;
   // Hue and saturation adjustments for custom brushes
   hueShift?: number; // -180 to 180 degrees
   lightnessAdjust?: number; // -100 to 100 percent
