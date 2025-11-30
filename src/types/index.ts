@@ -509,6 +509,8 @@ export interface BrushSettings {
   pressureLinkedFillResolution?: boolean;
   /** Use legacy whole-stroke re-dither behavior when pressure-linking resolution */
   pressureDitherSmoosh?: boolean;
+  /** Keep a solid background under dithered strokes (prevents transparent holes) */
+  ditherBackgroundFill?: boolean;
   ditherAlgorithm?:
     | 'floyd-steinberg'
     | 'jarvis-judice-ninke'

@@ -55,6 +55,7 @@ export const DitherControls: React.FC<Props> = ({
 }) => {
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
+  const backgroundFillEnabled = settings.ditherBackgroundFill !== false;
 
   return (
     <div className="mb-2">
@@ -85,6 +86,17 @@ export const DitherControls: React.FC<Props> = ({
               options={DITHER_OPTIONS}
               onChange={(value) => onChange({ ditherAlgorithm: value as DitherAlgorithm })}
               className="flex-1"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 mt-2">
+            <label className={labelWidth} style={labelStyle} title="Keep a solid fill behind dither dots/lines">
+              BG Fill
+            </label>
+            <CustomSwitch
+              checked={backgroundFillEnabled}
+              onChange={(checked) => onChange({ ditherBackgroundFill: checked })}
+              aria-label="Dither Background Fill"
             />
           </div>
 

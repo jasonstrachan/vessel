@@ -1413,6 +1413,16 @@ export const useBrushEngineSimplified = () => {
     region: { x: number; y: number; width: number; height: number },
     sampleCtx?: CanvasRenderingContext2D
   ) => {
+    const fillBackground = tools.brushSettings.ditherBackgroundFill !== false;
+    const [bgR, bgG, bgB] = (() => {
+      const candidate =
+        strokeDitherPalette[1] ??
+        strokeDitherPalette[0] ??
+        tools.brushSettings.color ??
+        '#000';
+      const [r, g, b] = parseColor(candidate);
+      return [r, g, b] as [number, number, number];
+    })();
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) return;
 
@@ -1449,8 +1459,32 @@ export const useBrushEngineSimplified = () => {
           );
 
       // Preserve original alpha
-      for (let i = 3; i < dithered.data.length; i += 4) {
-        dithered.data[i] = src.data[i];
+      if (fillBackground) {
+        for (let i = 3; i < dithered.data.length; i += 4) {
+          dithered.data[i] = src.data[i];
+        }
+      }
+
+      if (fillBackground) {
+        const data = dithered.data;
+        const srcData = src.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const alpha = data[i + 3];
+          if (alpha === 0 && srcData[i + 3] !== 0) {
+            data[i] = bgR;
+            data[i + 1] = bgG;
+            data[i + 2] = bgB;
+            data[i + 3] = srcData[i + 3];
+          }
+        }
+      }
+      if (!fillBackground) {
+        const data = dithered.data;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] === bgR && data[i + 1] === bgG && data[i + 2] === bgB) {
+            data[i + 3] = 0;
+          }
+        }
       }
 
       const prev = ctx.imageSmoothingEnabled;
@@ -1511,10 +1545,21 @@ export const useBrushEngineSimplified = () => {
         const threshold = thresholdAt(Math.floor((dx + x) / tileSize), Math.floor((dy + y) / tileSize));
         const on = avg >= threshold;
 
-        destData[si] = on ? r : 0;
-        destData[si + 1] = on ? g : 0;
-        destData[si + 2] = on ? b : 0;
-        destData[si + 3] = on ? a : 0;
+        destData[si] = on ? r : bgR;
+        destData[si + 1] = on ? g : bgG;
+        destData[si + 2] = on ? b : bgB;
+        destData[si + 3] = on ? a : (fillBackground ? a : 0);
+      }
+    }
+
+    if (fillBackground) {
+      for (let si = 0; si < destData.length; si += 4) {
+        if (destData[si + 3] === 0 && srcData[si + 3] !== 0) {
+          destData[si] = srcData[si];
+          destData[si + 1] = srcData[si + 1];
+          destData[si + 2] = srcData[si + 2];
+          destData[si + 3] = srcData[si + 3];
+        }
       }
     }
 
@@ -1543,6 +1588,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.lostEdge,
     tools.brushSettings.ditherPhaseJitter,
     tools.brushSettings.ditherPaletteSpread,
+    tools.brushSettings.ditherBackgroundFill,
     strokeDitherPalette
   ]);
 

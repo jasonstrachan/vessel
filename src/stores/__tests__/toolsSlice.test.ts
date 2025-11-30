@@ -71,6 +71,13 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.brushSettings.autoSampleColor).toBe(true);
   });
 
+  it('enables dither background fill by default', () => {
+    const store = useAppStore.getState();
+    expect(store.tools.brushSettings.ditherBackgroundFill).not.toBe(false);
+    store.setBrushSettings({ ditherBackgroundFill: false });
+    expect(useAppStore.getState().tools.brushSettings.ditherBackgroundFill).toBe(false);
+  });
+
   it('keeps eraser size in sync when linking to brush size', () => {
     const store = useAppStore.getState();
     store.setGlobalBrushSize(18);
