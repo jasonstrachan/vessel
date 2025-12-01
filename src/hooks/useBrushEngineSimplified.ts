@@ -792,7 +792,8 @@ export const useBrushEngineSimplified = () => {
     rawCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null,
     region: Rect,
     layerId: string | null,
-    layerVersion?: number
+    layerVersion?: number,
+    lostEdgePercent?: number
   ) => {
     if (!layerId) return;
     const { x, y, width, height } = region;
@@ -824,6 +825,23 @@ export const useBrushEngineSimplified = () => {
     const ld = layerPatch.data;
     const dd = ditherPatch.data;
     const sd = strokePatch?.data ?? null;
+
+    const fade = lostEdgePercent ? Math.min(1, Math.max(0, lostEdgePercent / 100)) : 0;
+    let lostEdgeMask: Uint8ClampedArray | null = null;
+    if (lostEdgePercent && lostEdgePercent > 0) {
+      // Build coverage array from stroke alpha if available; fallback to dither alpha
+      const coverage = new Uint8Array((width ?? 0) * (height ?? 0));
+      for (let i = 0, p = 0; i < dd.length; i += 4, p++) {
+        const strokeA = sd ? sd[i + 3] : dd[i + 3];
+        coverage[p] = strokeA;
+      }
+      try {
+        lostEdgeMask = applySierraLiteLostEdgeMask(coverage, width, height, lostEdgePercent);
+      } catch (error) {
+        console.warn('[Dither] Lost-edge mask failed', error);
+        lostEdgeMask = null;
+      }
+    }
 
     let countHole = 0;
     let countCover = 0;
@@ -880,6 +898,13 @@ export const useBrushEngineSimplified = () => {
       const layerA = ld[i + 3];
       const strokeA = sd ? sd[i + 3] : dd[i + 3];
       const isHoleFromPriorStamp = coverA > 0 && layerA === 0;
+
+      if (lostEdgeMask) {
+        const maskVal = lostEdgeMask[(i / 4) | 0];
+        dd[i + 3] = Math.round(dd[i + 3] * (maskVal / 255));
+      } else if (fade > 0) {
+        dd[i + 3] = Math.round(dd[i + 3] * (1 - fade));
+      }
 
       if (isHoleFromPriorStamp) {
         dd[i + 3] = 0;
@@ -1627,6 +1652,41 @@ export const useBrushEngineSimplified = () => {
     return resolved;
   }, [computePressureScaledResolution]);
 
+  // Erode stroke alpha before dithering to keep the pattern intact.
+  const applyLostEdgeToStrokeAlpha = (
+    data: Uint8ClampedArray,
+    width: number,
+    height: number,
+    lostEdgePercent?: number
+  ) => {
+    const p = lostEdgePercent ?? 0;
+    if (!p || p <= 0) return;
+
+    const clamped = Math.max(0, Math.min(100, p));
+    const totalPixels = width * height;
+    if (!totalPixels) return;
+
+    const coverage = new Uint8Array(totalPixels);
+    // Build coverage purely from stroke alpha
+    for (let i = 3, idx = 0; i < data.length; i += 4, idx++) {
+      coverage[idx] = data[i];
+    }
+
+    let mask: Uint8ClampedArray;
+    try {
+      mask = applySierraLiteLostEdgeMask(coverage, width, height, clamped);
+    } catch (error) {
+      console.warn('[Dither] Lost-edge mask failed (pre-dither):', error);
+      return;
+    }
+
+    // Modulate the stroke alpha by the mask; leave RGB alone.
+    for (let i = 3, idx = 0; i < data.length; i += 4, idx++) {
+      const mv = mask[idx];
+      data[i] = Math.round(data[i] * (mv / 255));
+    }
+  };
+
   const ditherRegionWithCurrentPressure = useCallback((
     ctx: CanvasRenderingContext2D,
     region: { x: number; y: number; width: number; height: number },
@@ -1673,6 +1733,16 @@ export const useBrushEngineSimplified = () => {
       region: { x, y, width, height },
       pixelSize: Math.max(1, Math.round(tools.brushSettings.fillResolution || 1))
     });
+
+    // Erode stroke coverage before dithering so the pattern stays clean.
+    if (tools.brushSettings.lostEdge && tools.brushSettings.lostEdge > 0) {
+      applyLostEdgeToStrokeAlpha(
+        src.data,
+        width,
+        height,
+        tools.brushSettings.lostEdge
+      );
+    }
 
     // Branch: classic dithering when PresRes is off.
     if (!tools.brushSettings.pressureLinkedFillResolution) {
@@ -1849,7 +1919,6 @@ export const useBrushEngineSimplified = () => {
     const destData = dest.data;
 
     const tileSize = Math.max(1, getStrokeDitherPixelSize() | 0);
-    const lostEdge = tools.brushSettings.lostEdge ?? 0;
     // Keep pattern stable while moving: no random phase in pressure mode
     const phaseX = 0;
     const phaseY = 0;
@@ -1904,13 +1973,6 @@ export const useBrushEngineSimplified = () => {
           destData[si + 2] = srcData[si + 2];
           destData[si + 3] = srcData[si + 3];
         }
-      }
-    }
-
-    if (lostEdge > 0) {
-      const fade = Math.min(1, lostEdge / 100);
-      for (let i = 3; i < destData.length; i += 4) {
-        destData[i] = Math.round(destData[i] * (1 - fade));
       }
     }
 
@@ -2034,18 +2096,25 @@ export const useBrushEngineSimplified = () => {
           // BG fill off: only dither the latest segment; keep previous dither intact
           applyStrokeDither(dCtx, ditherRegion, rawCtx);
 
-          // Apply coverage mask live to preserve old holes during the same stroke
+          // Apply coverage mask live to preserve old holes during the same stroke; include lost-edge fade
           const state = useAppStore.getState();
           const layer = state.layers.find((l) => l.id === state.activeLayerId);
           const layerFb = layer?.framebuffer ?? null;
           const layerCtxForCoverage = layerFb ? pick2D(layerFb) : null;
           if (layerCtxForCoverage && layer?.id) {
+            const normRegion = normalizeRectForCanvas(
+              ditherRegion,
+              dCtx.canvas?.width ?? 0,
+              dCtx.canvas?.height ?? 0
+            );
             applyCoverageMaskToDither(
               layerCtxForCoverage,
               dCtx,
               rawCtx,
-              normalizeRectForCanvas(ditherRegion, dCtx.canvas?.width ?? 0, dCtx.canvas?.height ?? 0),
-              layer.id
+              normRegion,
+              layer.id,
+              undefined,
+              0
             );
           }
         }
@@ -2074,7 +2143,7 @@ export const useBrushEngineSimplified = () => {
       targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
     }, strokeBounds);
     applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawSource);
-  }, [applyCoverageMaskToDither, applyStrokeDither, applyStrokeRisographOverlay, shouldApplyStrokeDither, withAlphaLock]);
+  }, [applyCoverageMaskToDither, applyStrokeDither, applyStrokeRisographOverlay, shouldApplyStrokeDither, tools.brushSettings.lostEdge, withAlphaLock]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -2323,7 +2392,7 @@ export const useBrushEngineSimplified = () => {
         layerCtxForCoverage &&
         activeLayerIdSafe
       ) {
-        applyCoverageMaskToDither(layerCtxForCoverage, ditherCtx, rawCtx, region, activeLayerIdSafe);
+        applyCoverageMaskToDither(layerCtxForCoverage, ditherCtx, rawCtx, region, activeLayerIdSafe, undefined, 0);
       }
       withAlphaLock(ctx, (targetCtx) => {
         targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
@@ -2340,7 +2409,15 @@ export const useBrushEngineSimplified = () => {
       if (tools.brushSettings.ditherBackgroundFill === false) {
         // Do NOT re-dither the whole stroke; use accumulated dither buffer and mask holes
         if (layerCtxForCoverage && activeLayerIdSafe) {
-          applyCoverageMaskToDither(layerCtxForCoverage, ditherCtx, rawCtx, region, activeLayerIdSafe);
+          applyCoverageMaskToDither(
+            layerCtxForCoverage,
+            ditherCtx,
+            rawCtx,
+            region,
+            activeLayerIdSafe,
+            undefined,
+            0
+          );
         }
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
         withAlphaLock(ctx, (targetCtx) => {
@@ -2382,6 +2459,7 @@ export const useBrushEngineSimplified = () => {
     clearLiveStrokeBuffers,
     clearCoverageMaps,
     tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.lostEdge,
     tools.brushSettings.pressureLinkedFillResolution,
     withAlphaLock
   ]);
