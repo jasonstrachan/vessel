@@ -1615,6 +1615,14 @@ export const useBrushEngineSimplified = () => {
     return id === 'pixel-dither' || id === 'polygon-dither';
   }, [currentBrushPreset]);
 
+  const isPixelDitherNoBg = useMemo(() => {
+    return (
+      isDitherPreset &&
+      shouldApplyStrokeDither &&
+      tools.brushSettings.ditherBackgroundFill === false
+    );
+  }, [isDitherPreset, shouldApplyStrokeDither, tools.brushSettings.ditherBackgroundFill]);
+
   const computePressureScaledResolution = useCallback((pressure: number) => {
     const p = Math.max(0, Math.min(1, pressure));
 
@@ -1707,12 +1715,6 @@ export const useBrushEngineSimplified = () => {
       const [r, g, b] = parseColor(base);
       return [r, g, b] as [number, number, number];
     })();
-    const offBrightness = (offR + offG + offB) / 3;
-    const onBrightness = (() => {
-      const ref = strokeDitherPalette[1] ?? strokeDitherPalette[0] ?? tools.brushSettings.color ?? '#000';
-      const [r, g, b] = parseColor(ref);
-      return (r + g + b) / 3;
-    })();
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) return;
 
@@ -1769,7 +1771,7 @@ export const useBrushEngineSimplified = () => {
 
       const data = dithered.data;
       const srcData = src.data;
-      const zeroOff = Math.abs(offBrightness - onBrightness) > 5;
+      const zeroOff = true;
       const isOffColor = (idx: number) =>
         data[idx] === offR &&
         data[idx + 1] === offG &&
@@ -1791,7 +1793,7 @@ export const useBrushEngineSimplified = () => {
           }
         }
       } else {
-        // BG fill OFF: per-pixel logic without region-level gating
+        // BG fill OFF: per-pixel logic without region-level gating (original behavior)
         const prev = ctx.imageSmoothingEnabled;
         ctx.imageSmoothingEnabled = false;
         try {
@@ -2063,9 +2065,17 @@ export const useBrushEngineSimplified = () => {
             dCtx.canvas?.height ?? 0
           );
           const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-          withAlphaLock(visibleCtx, (targetCtx) => {
-            targetCtx.drawImage(ditherCanvas as CanvasImageSource, bx, by, bw, bh, bx, by, bw, bh);
-          }, strokeBounds);
+          if (isPixelDitherNoBg) {
+            visibleCtx.drawImage(
+              ditherCanvas as CanvasImageSource,
+              bx, by, bw, bh,
+              bx, by, bw, bh
+            );
+          } else {
+            withAlphaLock(visibleCtx, (targetCtx) => {
+              targetCtx.drawImage(ditherCanvas as CanvasImageSource, bx, by, bw, bh, bx, by, bw, bh);
+            }, strokeBounds);
+          }
           applyStrokeRisographOverlay(visibleCtx, strokeBounds, ditherSource);
         }
       }
@@ -2126,24 +2136,36 @@ export const useBrushEngineSimplified = () => {
         );
 
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-        withAlphaLock(visibleCtx, (targetCtx) => {
-          targetCtx.drawImage(
+        if (isPixelDitherNoBg) {
+          visibleCtx.drawImage(
             ditherCanvas as CanvasImageSource,
             blitRect.x, blitRect.y, blitRect.width, blitRect.height,
             blitRect.x, blitRect.y, blitRect.width, blitRect.height
           );
-        }, fullDirty);
+        } else {
+          withAlphaLock(visibleCtx, (targetCtx) => {
+            targetCtx.drawImage(
+              ditherCanvas as CanvasImageSource,
+              blitRect.x, blitRect.y, blitRect.width, blitRect.height,
+              blitRect.x, blitRect.y, blitRect.width, blitRect.height
+            );
+          }, fullDirty);
+        }
         applyStrokeRisographOverlay(visibleCtx, fullDirty, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
         return;
       }
     }
 
     const rawSource = rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null;
-    withAlphaLock(visibleCtx, (targetCtx) => {
-      targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-    }, strokeBounds);
+    if (isPixelDitherNoBg) {
+      visibleCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+    } else {
+      withAlphaLock(visibleCtx, (targetCtx) => {
+        targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+      }, strokeBounds);
+    }
     applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawSource);
-  }, [applyCoverageMaskToDither, applyStrokeDither, applyStrokeRisographOverlay, shouldApplyStrokeDither, tools.brushSettings.lostEdge, withAlphaLock]);
+  }, [applyCoverageMaskToDither, applyStrokeDither, applyStrokeRisographOverlay, isPixelDitherNoBg, shouldApplyStrokeDither, tools.brushSettings.lostEdge, withAlphaLock]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -2394,9 +2416,13 @@ export const useBrushEngineSimplified = () => {
       ) {
         applyCoverageMaskToDither(layerCtxForCoverage, ditherCtx, rawCtx, region, activeLayerIdSafe, undefined, 0);
       }
-      withAlphaLock(ctx, (targetCtx) => {
-        targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-      }, strokeBounds);
+      if (isPixelDitherNoBg) {
+        ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+      } else {
+        withAlphaLock(ctx, (targetCtx) => {
+          targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+        }, strokeBounds);
+      }
       applyStrokeRisographOverlay(ctx, strokeBounds, ditherSource);
       clearLiveStrokeBuffers();
       clearCoverageMaps();
@@ -2420,9 +2446,13 @@ export const useBrushEngineSimplified = () => {
           );
         }
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-        withAlphaLock(ctx, (targetCtx) => {
-          targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-        }, strokeBounds);
+        if (isPixelDitherNoBg) {
+          ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+        } else {
+          withAlphaLock(ctx, (targetCtx) => {
+            targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+          }, strokeBounds);
+        }
         applyStrokeRisographOverlay(ctx, strokeBounds, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
       } else {
         let src: ImageData;
@@ -2439,9 +2469,13 @@ export const useBrushEngineSimplified = () => {
         applyStrokeDither(ditherCtx, strokeBounds, rawCtx);
 
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-        withAlphaLock(ctx, (targetCtx) => {
-          targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-        }, strokeBounds);
+        if (isPixelDitherNoBg) {
+          ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+        } else {
+          withAlphaLock(ctx, (targetCtx) => {
+            targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+          }, strokeBounds);
+        }
 
         applyStrokeRisographOverlay(ctx, strokeBounds, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
       }
@@ -2458,6 +2492,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine,
     clearLiveStrokeBuffers,
     clearCoverageMaps,
+    isPixelDitherNoBg,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.lostEdge,
     tools.brushSettings.pressureLinkedFillResolution,
