@@ -822,6 +822,28 @@ const BrushControls = () => {
           </div>
         )}
 
+        {/* Lost Edge (edge fade) */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Lostedge
+            </label>
+            <ProgressSlider
+              value={activeSettings.lostEdge ?? 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                })
+              }
+              aria-label="Lost Edge"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
         {/* Dashed removed for Color Cycle brushes */}
 
         {/* Grid Snap removed for Color Cycle brushes */}
@@ -963,6 +985,28 @@ const BrushControls = () => {
                 setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
               }
               aria-label="Spacing"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Lost Edge (edge fade) */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Lostedge
+            </label>
+            <ProgressSlider
+              value={activeSettings.lostEdge ?? 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                })
+              }
+              aria-label="Lost Edge"
               className="flex-1"
             />
           </div>
@@ -1477,6 +1521,28 @@ const BrushControls = () => {
             />
           </div>
         </div>
+
+        {/* Lost Edge (edge fade) */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Lostedge
+            </label>
+            <ProgressSlider
+              value={activeSettings.lostEdge ?? 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                })
+              }
+              aria-label="Lost Edge"
+              className="flex-1"
+            />
+          </div>
+        </div>
       </div>
     );
   }
@@ -1581,6 +1647,28 @@ const BrushControls = () => {
             </div>
           </div>
         )}
+
+        {/* Lost Edge (edge fade) */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Lostedge
+            </label>
+            <ProgressSlider
+              value={activeSettings.lostEdge ?? 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                })
+              }
+              aria-label="Lost Edge"
+              className="flex-1"
+            />
+          </div>
+        </div>
 
         {canDitherForShape(activeSettings.brushShape) && (
           <DitherControls
@@ -1738,6 +1826,28 @@ const BrushControls = () => {
               setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
             }
             aria-label="Spacing"
+            className="flex-1"
+          />
+        </div>
+      </div>
+
+      {/* Lost Edge (edge fade) */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            Lostedge
+          </label>
+          <ProgressSlider
+            value={activeSettings.lostEdge ?? 0}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(value) =>
+              setActiveSettings({
+                lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+              })
+            }
+            aria-label="Lost Edge"
             className="flex-1"
           />
         </div>

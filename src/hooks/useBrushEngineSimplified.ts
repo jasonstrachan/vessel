@@ -1695,6 +1695,38 @@ export const useBrushEngineSimplified = () => {
     }
   };
 
+  const applyLostEdgeMaskInRegion = useCallback((
+    ctx: CanvasRenderingContext2D,
+    region: Rect | null,
+    lostEdgePercent?: number
+  ) => {
+    const p = lostEdgePercent ?? 0;
+    if (!ctx || !region || p <= 0) return;
+
+    const canvasWidth = ctx.canvas?.width ?? 0;
+    const canvasHeight = ctx.canvas?.height ?? 0;
+    const x = Math.max(0, Math.floor(region.x));
+    const y = Math.max(0, Math.floor(region.y));
+    const w = Math.max(1, Math.min(canvasWidth - x, Math.ceil(region.width)));
+    const h = Math.max(1, Math.min(canvasHeight - y, Math.ceil(region.height)));
+    if (w <= 0 || h <= 0) return;
+
+    let image: ImageData;
+    try {
+      image = ctx.getImageData(x, y, w, h);
+    } catch {
+      return;
+    }
+
+    applyLostEdgeToStrokeAlpha(image.data, w, h, p);
+
+    try {
+      ctx.putImageData(image, x, y);
+    } catch {
+      // best effort; ignore failures to keep stroke alive
+    }
+  }, [applyLostEdgeToStrokeAlpha]);
+
   const ditherRegionWithCurrentPressure = useCallback((
     ctx: CanvasRenderingContext2D,
     region: { x: number; y: number; width: number; height: number },
@@ -2249,6 +2281,16 @@ export const useBrushEngineSimplified = () => {
 
     brushEngine.renderBrushStroke(rawCtx, adjustedStrokeParams);
 
+    // Apply lost-edge fade even when dithering is disabled (stroke brushes)
+    if (
+      !shouldApplyStrokeDither &&
+      tools.brushSettings.lostEdge &&
+      tools.brushSettings.lostEdge > 0
+    ) {
+      const region = inflateRect(segmentBounds, 2);
+      applyLostEdgeMaskInRegion(rawCtx, region, tools.brushSettings.lostEdge);
+    }
+
     // Pressure-linked dither: immediately dither a tight dirty rect around this segment only
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
       const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (sizePressure || 1)));
@@ -2276,9 +2318,11 @@ export const useBrushEngineSimplified = () => {
     scheduleLiveStrokeRender,
     computePressureScaledResolution,
     tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
-    tools.brushSettings.size
+    tools.brushSettings.size,
+    applyLostEdgeMaskInRegion
   ]);
 
   /**
@@ -2331,6 +2375,16 @@ export const useBrushEngineSimplified = () => {
 
     brushEngine.renderBrushStroke(rawCtx, { ...strokeParams, pressure: sizePressure });
 
+    // Apply lost-edge fade even without dithering
+    if (
+      !shouldApplyStrokeDither &&
+      tools.brushSettings.lostEdge &&
+      tools.brushSettings.lostEdge > 0
+    ) {
+      const region = inflateRect(segmentBounds, 2);
+      applyLostEdgeMaskInRegion(rawCtx, region, tools.brushSettings.lostEdge);
+    }
+
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
       const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (sizePressure || 1)));
       const region = {
@@ -2356,9 +2410,11 @@ export const useBrushEngineSimplified = () => {
     scheduleLiveStrokeRender,
     computePressureScaledResolution,
     tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
-    tools.brushSettings.size
+    tools.brushSettings.size,
+    applyLostEdgeMaskInRegion
   ]);
 
   /**
@@ -2402,6 +2458,32 @@ export const useBrushEngineSimplified = () => {
       withAlphaLock(ctx, (targetCtx) => {
         brushEngine.finalizeStroke(targetCtx);
       }, strokeBounds ?? undefined);
+    }
+
+    // Non-dither strokes: apply lost-edge fade to the final stamp(s) and blit once.
+    if (
+      !shouldApplyStrokeDither &&
+      rawCtx &&
+      strokeBounds &&
+      region &&
+      region.width > 0 &&
+      region.height > 0
+    ) {
+      if (tools.brushSettings.lostEdge && tools.brushSettings.lostEdge > 0) {
+        applyLostEdgeMaskInRegion(rawCtx, inflateRect(region, 2), tools.brushSettings.lostEdge);
+      }
+      const { x, y, width, height } = region;
+      withAlphaLock(ctx, (targetCtx) => {
+        targetCtx.drawImage(
+          rawCanvas as CanvasImageSource,
+          x, y, width, height,
+          x, y, width, height
+        );
+      }, strokeBounds);
+      clearLiveStrokeBuffers();
+      clearCoverageMaps();
+      strokeBoundsRef.current = null;
+      return strokeBounds ? { ...strokeBounds } : null;
     }
 
     if (tools.brushSettings.pressureLinkedFillResolution && strokeBounds && ditherCanvas && region) {
@@ -2492,6 +2574,7 @@ export const useBrushEngineSimplified = () => {
     brushEngine,
     clearLiveStrokeBuffers,
     clearCoverageMaps,
+    applyLostEdgeMaskInRegion,
     isPixelDitherNoBg,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.lostEdge,

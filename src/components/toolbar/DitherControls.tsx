@@ -14,6 +14,7 @@ type Props = {
   compact?: boolean;
   isDitherPreset?: boolean;
   afterPresRes?: React.ReactNode; // rendered directly after PresRes toggle
+  hideLostEdge?: boolean; // suppress the Lostedge slider (useful when shown elsewhere)
 };
 
 const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label: string }[] = [
@@ -51,7 +52,8 @@ export const DitherControls: React.FC<Props> = ({
   hideToggle = false,
   compact = false,
   isDitherPreset = false,
-  afterPresRes
+  afterPresRes,
+  hideLostEdge = false
 }) => {
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
@@ -179,28 +181,30 @@ export const DitherControls: React.FC<Props> = ({
             />
           </div>
 
-          <div className="flex items-center gap-2 mt-2">
-            <label
-              className={labelWidth}
-              style={labelStyle}
-              title="Lostedge: break up edges with Sierra Lite dithering (higher = wider fade)"
-            >
-              Lostedge
-            </label>
-            <ProgressSlider
-              value={settings.lostEdge ?? 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) =>
-                onChange({
-                  lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-                })
-              }
-              aria-label="Lost Edge"
-              className="flex-1"
-            />
-          </div>
+          {!hideLostEdge && (
+            <div className="flex items-center gap-2 mt-2">
+              <label
+                className={labelWidth}
+                style={labelStyle}
+                title="Lostedge: break up edges with Sierra Lite dithering (higher = wider fade)"
+              >
+                Lostedge
+              </label>
+              <ProgressSlider
+                value={settings.lostEdge ?? 0}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(value) =>
+                  onChange({
+                    lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                  })
+                }
+                aria-label="Lost Edge"
+                className="flex-1"
+              />
+            </div>
+          )}
 
           {settings.ditherAlgorithm === 'pattern' && (
             <div className="flex items-center gap-2 mt-2">
