@@ -3,6 +3,7 @@ import Dropdown from '../ui/Dropdown';
 import ProgressSlider from '../ui/ProgressSlider';
 import CustomSwitch from '../ui/CustomSwitch';
 import type { BrushSettings } from '@/types';
+import { BrushShape } from '@/types';
 import type { DitherAlgorithm } from '@/utils/ditherAlgorithms';
 
 type Props = {
@@ -58,6 +59,7 @@ export const DitherControls: React.FC<Props> = ({
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
   const backgroundFillEnabled = settings.ditherBackgroundFill !== false;
+  const showLostEdge = !hideLostEdge || settings.brushShape === BrushShape.PIXEL_DITHER;
 
   return (
     <div className="mb-2">
@@ -131,6 +133,31 @@ export const DitherControls: React.FC<Props> = ({
 
           {afterPresRes ? <div className="mt-2">{afterPresRes}</div> : null}
 
+          {showLostEdge && (
+            <div className="flex items-center gap-2 mt-2">
+              <label
+                className={labelWidth}
+                style={labelStyle}
+                title="Lostedge: break up edges with Sierra Lite dithering (higher = wider fade)"
+              >
+                Lostedge
+              </label>
+              <ProgressSlider
+                value={settings.lostEdge ?? 0}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(value) =>
+                  onChange({
+                    lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                  })
+                }
+                aria-label="Lost Edge"
+                className="flex-1"
+              />
+            </div>
+          )}
+
           <div className="flex items-center gap-2 mt-1">
             <label className={labelWidth} style={labelStyle} title="Re-dither whole stroke with latest pressure (legacy behavior)">
               Smoosh
@@ -180,31 +207,6 @@ export const DitherControls: React.FC<Props> = ({
               className="flex-1"
             />
           </div>
-
-          {!hideLostEdge && (
-            <div className="flex items-center gap-2 mt-2">
-              <label
-                className={labelWidth}
-                style={labelStyle}
-                title="Lostedge: break up edges with Sierra Lite dithering (higher = wider fade)"
-              >
-                Lostedge
-              </label>
-              <ProgressSlider
-                value={settings.lostEdge ?? 0}
-                min={0}
-                max={100}
-                step={1}
-                onChange={(value) =>
-                  onChange({
-                    lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-                  })
-                }
-                aria-label="Lost Edge"
-                className="flex-1"
-              />
-            </div>
-          )}
 
           {settings.ditherAlgorithm === 'pattern' && (
             <div className="flex items-center gap-2 mt-2">

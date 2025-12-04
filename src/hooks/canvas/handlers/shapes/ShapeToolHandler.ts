@@ -392,27 +392,38 @@ export const createShapeToolHandler = (
 
     const { scale, offsetX, offsetY } = viewTransformRef.current;
 
+    const isParamPreview = !!session && session.stage === FillStage.AdjustingParam && !!session.currentParam;
+
     if (!session || !session.shape) {
-      if (lastPreviewRect) {
-        clearRegion(overlayCtx, lastPreviewRect);
-        lastPreviewRect = null;
-      }
+      clearRegion(overlayCtx, null);
+      lastPreviewRect = null;
       return;
     }
 
-    if (lastPreviewRect) {
+    // Param previews (spacing ring / rotation arm) can extend well outside the polygon bounds,
+    // so clear the entire overlay to avoid leaving stray strokes.
+    if (isParamPreview) {
+      clearRegion(overlayCtx, null);
+    } else if (lastPreviewRect) {
       clearRegion(overlayCtx, lastPreviewRect);
     }
 
     const bounds = session.shape.bounds;
     const scaledWidth = (bounds.maxX - bounds.minX) * scale;
     const scaledHeight = (bounds.maxY - bounds.minY) * scale;
-    const rect: OverlayRect = {
-      x: Math.floor(offsetX + bounds.minX * scale) - PREVIEW_CLEAR_PADDING,
-      y: Math.floor(offsetY + bounds.minY * scale) - PREVIEW_CLEAR_PADDING,
-      width: Math.ceil(Math.max(1, scaledWidth)) + PREVIEW_CLEAR_PADDING * 2,
-      height: Math.ceil(Math.max(1, scaledHeight)) + PREVIEW_CLEAR_PADDING * 2,
-    };
+    const rect: OverlayRect = isParamPreview
+      ? {
+          x: 0,
+          y: 0,
+          width: overlayCanvas.width,
+          height: overlayCanvas.height,
+        }
+      : {
+          x: Math.floor(offsetX + bounds.minX * scale) - PREVIEW_CLEAR_PADDING,
+          y: Math.floor(offsetY + bounds.minY * scale) - PREVIEW_CLEAR_PADDING,
+          width: Math.ceil(Math.max(1, scaledWidth)) + PREVIEW_CLEAR_PADDING * 2,
+          height: Math.ceil(Math.max(1, scaledHeight)) + PREVIEW_CLEAR_PADDING * 2,
+        };
 
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(rect.x, rect.y, rect.width, rect.height);

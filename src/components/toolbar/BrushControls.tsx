@@ -37,6 +37,11 @@ import {
   clampPressurePercent,
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
+import {
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  COLOR_CYCLE_SPEED_STEP,
+} from '@/constants/colorCycle';
 import ShapeFillControls from "./ShapeFillControls";
 import DitherControls from './DitherControls';
 import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
@@ -492,7 +497,7 @@ const BrushControls = () => {
         gradientDebounceTimerRef.current = null;
       }
 
-      if (activeLayerId) {
+      if (activeLayerId && activeLayer?.layerType === 'color-cycle') {
         pendingLayerUpdateRef.current = {
           layerId: activeLayerId,
           gradient: pendingGradientRef.current
@@ -511,7 +516,7 @@ const BrushControls = () => {
         scheduleFlushFrame();
       }, 80);
     },
-    [scheduleFlushFrame, activeLayerId]
+    [scheduleFlushFrame, activeLayerId, activeLayer]
   );
 
   React.useEffect(() => {
@@ -633,6 +638,19 @@ const BrushControls = () => {
     }
     return (
       <div className="p-4">
+        <div className="mb-3">
+          <GradientEditor
+            sampleTarget="brush"
+            stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
+            onChange={(stops) => {
+              scheduleGradientFlush(stops);
+              if (stops.length && activeSettings.gradientBands && activeSettings.gradientBands < stops.length) {
+                setActiveSettings({ gradientBands: stops.length });
+              }
+            }}
+          />
+        </div>
+
         {/* Color Cycle variant switcher (Stroke vs Triangle vs Shape) */}
         <div className="mb-3">
           <ButtonGroup
@@ -671,8 +689,68 @@ const BrushControls = () => {
             canToggle
             forceOn={Boolean(capability.forceDither)}
             isDitherPreset={isDitherPreset}
+            hideLostEdge
           />
         )}
+
+        {/* Animation + banding */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Speed
+            </label>
+            <ProgressSlider
+              value={activeSettings.colorCycleSpeed ?? 0.1}
+              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+              step={COLOR_CYCLE_SPEED_STEP}
+              onChange={(value) => setActiveSettings({ colorCycleSpeed: value })}
+              aria-label="Color Cycle Speed"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Bands
+            </label>
+            <ProgressSlider
+              value={activeSettings.gradientBands ?? 12}
+              min={2}
+              max={64}
+              step={1}
+              onChange={(value) => setActiveSettings({ gradientBands: Math.round(value) })}
+              aria-label="Gradient Bands"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Flow
+            </label>
+            <ButtonGroup
+              options={[
+                { label: 'Fwd', value: 'forward' },
+                { label: 'Rev', value: 'reverse' },
+                { label: 'Ping', value: 'pingpong' },
+              ]}
+              value={activeSettings.colorCycleFlowMode || 'reverse'}
+              onChange={(value) => {
+                const next: 'forward' | 'reverse' | 'pingpong' =
+                  value === 'forward' || value === 'pingpong' ? value : 'reverse';
+                setActiveSettings({ colorCycleFlowMode: next });
+                colorCycleRuntimeHandlers.setFlowMode?.(next);
+              }}
+              className="flex-1"
+              size="sm"
+            />
+          </div>
+        </div>
 
                 {/* Color Jitter */}
         <div className="mb-2">
@@ -1479,6 +1557,7 @@ const BrushControls = () => {
                 idSuffix="polygon"
               />
             }
+            hideLostEdge
           />
         )}
 
@@ -1684,6 +1763,7 @@ const BrushControls = () => {
                 idSuffix="gradient"
               />
             }
+            hideLostEdge
           />
         )}
 
@@ -1831,27 +1911,29 @@ const BrushControls = () => {
         </div>
       </div>
 
-      {/* Lost Edge (edge fade) */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-            Lostedge
-          </label>
-          <ProgressSlider
-            value={activeSettings.lostEdge ?? 0}
-            min={0}
-            max={100}
-            step={1}
-            onChange={(value) =>
-              setActiveSettings({
-                lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-              })
-            }
-            aria-label="Lost Edge"
-            className="flex-1"
-          />
+      {/* Lost Edge (edge fade) — keep here for non-dither brushes; dither presets show it in Dither controls */}
+      {!isDitherPreset && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Lostedge
+            </label>
+            <ProgressSlider
+              value={activeSettings.lostEdge ?? 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  lostEdge: Math.max(0, Math.min(100, Math.round(value)))
+                })
+              }
+              aria-label="Lost Edge"
+              className="flex-1"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {isRegularBrush && (
         <div className="mb-2">
@@ -1881,6 +1963,7 @@ const BrushControls = () => {
           forceOn={Boolean(capability.forceDither)}
           hideToggle={Boolean(capability.forceDither)}
           isDitherPreset={isDitherPreset}
+          hideLostEdge={!isDitherPreset}
           afterPresRes={
             <PigmentLiftControls
               settings={activeSettings}
@@ -1888,6 +1971,7 @@ const BrushControls = () => {
               idSuffix="default"
             />
           }
+          hideLostEdge
         />
       )}
 
