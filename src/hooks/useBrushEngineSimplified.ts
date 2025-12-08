@@ -1305,12 +1305,13 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
   const brushPressurePendingRef = useRef(normalizePressureSettings(tools.brushSettings));
-  const strokePressureRef = useRef<{ last: number; lastNonZero: number }>({
+  const strokePressureRef = useRef<{ last: number; lastNonZero: number; smoothed: number | null }>({
     last: 0,
-    lastNonZero: 0
+    lastNonZero: 0,
+    smoothed: null
   });
   const strokeDitherPixelSizeRef = useRef<number | null>(null);
-  const PRESSURE_EPS = 0.05;
+  const STABLE_EPS = 0.02;
   const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
 
   // Get color cycle brush from active layer instead of single instance
@@ -1651,11 +1652,20 @@ export const useBrushEngineSimplified = () => {
     if (strokeDitherPixelSizeRef.current != null) {
       return strokeDitherPixelSizeRef.current;
     }
-    const effectivePressure = Math.max(
-      0,
-      Math.min(1, strokePressureRef.current.lastNonZero || strokePressureRef.current.last || 0)
-    );
-    const resolved = computePressureScaledResolution(effectivePressure);
+    const stats = strokePressureRef.current;
+
+    let p: number;
+    if (stats.smoothed != null && stats.smoothed > 0) {
+      p = stats.smoothed;
+    } else if (stats.lastNonZero > 0) {
+      p = stats.lastNonZero;
+    } else {
+      p = 0.5; // fallback if the stroke was basically zero-pressure
+    }
+
+    const clamped = Math.max(0, Math.min(1, p));
+    const effectiveP = Math.max(clamped, 0.15);
+    const resolved = computePressureScaledResolution(effectiveP);
     strokeDitherPixelSizeRef.current = resolved;
     return resolved;
   }, [computePressureScaledResolution]);
@@ -1747,6 +1757,7 @@ export const useBrushEngineSimplified = () => {
       const [r, g, b] = parseColor(base);
       return [r, g, b] as [number, number, number];
     })();
+
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) return;
 
@@ -1760,12 +1771,26 @@ export const useBrushEngineSimplified = () => {
     }
 
     const probe = getDitherProbe();
+
+    // Decide whether we’re in pressure-linked mode
+    const pressureMode = !!tools.brushSettings.pressureLinkedFillResolution;
+
+    // Algorithm/pattern always come from the dropdown
+    const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+    const patternStyle = tools.brushSettings.patternStyle || 'dots';
+
+    // Base pixel size from slider
+    const baseFillRes = Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
+    // Pressure-resolved pixel size
+    const pressureFillRes = Math.max(1, getStrokeDitherPixelSize() | 0);
+    const pixelSize = pressureMode ? pressureFillRes : baseFillRes;
+
     DD('region-enter', {
       fillBackground,
-      algorithm: tools.brushSettings.ditherAlgorithm || 'sierra-lite',
-      patternStyle: tools.brushSettings.patternStyle || 'dots',
+      algorithm,
+      patternStyle,
       region: { x, y, width, height },
-      pixelSize: Math.max(1, Math.round(tools.brushSettings.fillResolution || 1))
+      pixelSize
     });
 
     // Erode stroke coverage before dithering so the pattern stays clean.
@@ -1778,142 +1803,132 @@ export const useBrushEngineSimplified = () => {
       );
     }
 
-    // Branch: classic dithering when PresRes is off.
-    if (!tools.brushSettings.pressureLinkedFillResolution) {
-      const pixelSize = Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
-      const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-      const patternStyle = tools.brushSettings.patternStyle || 'dots';
+    // Use the shared dithering helpers for ALL algorithms.
+    const dithered = pixelSize > 1
+      ? applyDitheringWithFillResolution(
+          src,
+          strokeDitherPalette.length,
+          pixelSize,
+          algorithm,
+          patternStyle,
+          strokeDitherPalette
+        )
+      : applyDitheringImport(
+          src,
+          strokeDitherPalette.length,
+          algorithm,
+          patternStyle,
+          strokeDitherPalette
+        );
 
-      const dithered = pixelSize > 1
-        ? applyDitheringWithFillResolution(
-            src,
-            strokeDitherPalette.length,
-            pixelSize,
-            algorithm,
-            patternStyle,
-            strokeDitherPalette
-          )
-        : applyDitheringImport(
-            src,
-            strokeDitherPalette.length,
-            algorithm,
-            patternStyle,
-            strokeDitherPalette
-          );
+    const data = dithered.data;
+    const srcData = src.data;
+    const zeroOff = true;
 
-      const data = dithered.data;
-      const srcData = src.data;
-      const zeroOff = true;
-      const isOffColor = (idx: number) =>
-        data[idx] === offR &&
-        data[idx + 1] === offG &&
-        data[idx + 2] === offB;
+    const isOffColor = (idx: number) =>
+      data[idx] === offR &&
+      data[idx + 1] === offG &&
+      data[idx + 2] === offB;
 
-      // First pass: default alpha = source alpha so fresh strokes are visible
+    // First pass: default alpha = source alpha so fresh strokes are visible
+    for (let i = 0; i < data.length; i += 4) {
+      data[i + 3] = srcData[i + 3];
+    }
+
+    if (fillBackground) {
+      // Classic “fill background” behaviour
       for (let i = 0; i < data.length; i += 4) {
-        data[i + 3] = srcData[i + 3];
-      }
-
-      if (fillBackground) {
-        for (let i = 0; i < data.length; i += 4) {
-          const alpha = data[i + 3];
-          if (alpha === 0 && srcData[i + 3] !== 0) {
-            data[i] = bgR;
-            data[i + 1] = bgG;
-            data[i + 2] = bgB;
-            data[i + 3] = srcData[i + 3];
-          }
+        const alpha = data[i + 3];
+        if (alpha === 0 && srcData[i + 3] !== 0) {
+          data[i] = bgR;
+          data[i + 1] = bgG;
+          data[i + 2] = bgB;
+          data[i + 3] = srcData[i + 3];
         }
-      } else {
-        // BG fill OFF: per-pixel logic without region-level gating (original behavior)
-        const prev = ctx.imageSmoothingEnabled;
-        ctx.imageSmoothingEnabled = false;
+      }
+    } else {
+      // BG fill OFF: per-pixel merge with existing canvas (preserve previous stamps + holes)
+      const prevSmooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      try {
+        let existing: ImageData | null = null;
         try {
-          let existing: ImageData | null = null;
-          try {
-            existing = ctx.getImageData(x, y, width, height);
-          } catch {
-            existing = null;
+          existing = ctx.getImageData(x, y, width, height);
+        } catch {
+          existing = null;
+        }
+
+        if (existing && zeroOff) {
+          const e = existing.data;
+
+          let countExistingAlpha = 0;
+          let countStrokeAlpha = 0;
+          let countOffColor = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            if (e[i + 3] > 0) countExistingAlpha++;
+            if (srcData[i + 3] > 0) countStrokeAlpha++;
+            if (isOffColor(i)) countOffColor++;
           }
 
-          if (existing && zeroOff) {
-            const e = existing.data;
+          DD('region-before-merge', {
+            region: { x, y, width, height },
+            existingAlphaPixels: countExistingAlpha,
+            strokeAlphaPixels: countStrokeAlpha,
+            offColorPixels: countOffColor
+          });
 
-            let countExistingAlpha = 0;
-            let countStrokeAlpha = 0;
-            let countOffColor = 0;
-            for (let i = 0; i < data.length; i += 4) {
-              if (e[i + 3] > 0) countExistingAlpha++;
-              if (srcData[i + 3] > 0) countStrokeAlpha++;
-              if (isOffColor(i)) countOffColor++;
-            }
+          const probePoint = probe ?? {
+            x: x + Math.floor(width / 2),
+            y: y + Math.floor(height / 2),
+            tag: 'region-center'
+          };
 
-            DD('region-before-merge', {
-              region: { x, y, width, height },
-              existingAlphaPixels: countExistingAlpha,
-              strokeAlphaPixels: countStrokeAlpha,
-              offColorPixels: countOffColor
+          if (
+            probePoint &&
+            probePoint.x >= x && probePoint.x < x + width &&
+            probePoint.y >= y && probePoint.y < y + height
+          ) {
+            const px = probePoint.x - x;
+            const py = probePoint.y - y;
+            const idx = (py * width + px) * 4;
+
+            DD('probe-pre-merge', {
+              tag: probePoint.tag,
+              canvasXY: { x: probePoint.x, y: probePoint.y },
+              idx,
+              existingRGBA: { r: e[idx], g: e[idx + 1], b: e[idx + 2], a: e[idx + 3] },
+              srcRGBA: { r: srcData[idx], g: srcData[idx + 1], b: srcData[idx + 2], a: srcData[idx + 3] },
+              ditherRGBA: { r: data[idx], g: data[idx + 1], b: data[idx + 2], a: data[idx + 3] },
+              isOff: isOffColor(idx)
             });
+          }
 
-            const probePoint = probe ?? {
-              x: x + Math.floor(width / 2),
-              y: y + Math.floor(height / 2),
-              tag: 'region-center'
-            };
+          for (let i = 0; i < data.length; i += 4) {
+            const ea = e[i + 3];        // existing alpha
+            const srcA = srcData[i + 3]; // stroke coverage
+            const off = isOffColor(i);
 
-            if (
-              probePoint &&
-              probePoint.x >= x && probePoint.x < x + width &&
-              probePoint.y >= y && probePoint.y < y + height
-            ) {
-              const px = probePoint.x - x;
-              const py = probePoint.y - y;
-              const idx = (py * width + px) * 4;
-
-              DD('probe-pre-merge', {
-                tag: probePoint.tag,
-                canvasXY: { x: probePoint.x, y: probePoint.y },
-                idx,
-                existingRGBA: { r: e[idx], g: e[idx + 1], b: e[idx + 2], a: e[idx + 3] },
-                srcRGBA: { r: srcData[idx], g: srcData[idx + 1], b: srcData[idx + 2], a: srcData[idx + 3] },
-                ditherRGBA: { r: data[idx], g: data[idx + 1], b: data[idx + 2], a: data[idx + 3] },
-                isOff: isOffColor(idx)
-              });
+            if (ea === 0) {
+              // Blank pixel: first-stamp rules
+              data[i + 3] = off ? 0 : srcA;
+              continue;
             }
 
-            for (let i = 0; i < data.length; i += 4) {
-              const ea = e[i + 3];       // existing alpha
-              const srcA = srcData[i + 3]; // stroke coverage
-              const isOff = isOffColor(i);
-
-              if (ea === 0) {
-                // Blank pixel: first-stamp rules
-                data[i + 3] = isOff ? 0 : srcA;
-                continue;
-              }
-
-              // Overlay on painted pixel
-              if (isOff) {
-                // Off ink over paint: preserve existing pattern
-                data[i] = e[i];
-                data[i + 1] = e[i + 1];
-                data[i + 2] = e[i + 2];
-                data[i + 3] = ea;
-                continue;
-              }
-
-              // On ink over paint: conservative alpha blend, keep existing colour
-              const na = Math.min(ea, srcA);
+            if (off) {
+              // “Off” ink over paint: preserve existing pattern
               data[i] = e[i];
               data[i + 1] = e[i + 1];
               data[i + 2] = e[i + 2];
-              data[i + 3] = na;
+              data[i + 3] = ea;
+              continue;
             }
-          } else {
-            // No existing data: treat as first stamp per pixel
-            for (let i = 0; i < data.length; i += 4) {
-              data[i + 3] = isOffColor(i) ? 0 : srcData[i + 3];
-            }
+
+            // “On” ink over paint: conservative alpha blend, keep existing colour
+            const na = Math.min(ea, srcA);
+            data[i] = e[i];
+            data[i + 1] = e[i + 1];
+            data[i + 2] = e[i + 2];
+            data[i + 3] = na;
           }
 
           if (
@@ -1930,92 +1945,23 @@ export const useBrushEngineSimplified = () => {
               finalDitherRGBA: { r: data[idx], g: data[idx + 1], b: data[idx + 2], a: data[idx + 3] }
             });
           }
-        } finally {
-          ctx.imageSmoothingEnabled = prev;
+        } else {
+          // No existing data: treat as first stamp per pixel
+          for (let i = 0; i < data.length; i += 4) {
+            data[i + 3] = isOffColor(i) ? 0 : srcData[i + 3];
+          }
         }
-      }
-
-      const prev = ctx.imageSmoothingEnabled;
-      ctx.imageSmoothingEnabled = false;
-      try {
-        ctx.putImageData(dithered, x, y);
-      } catch (err) {
-        console.warn('[Dither] Failed to write dithered region:', err);
       } finally {
-        ctx.imageSmoothingEnabled = prev;
-      }
-      return;
-    }
-
-    // Pressure-linked path: ordered dither whose period follows pressure.
-    const srcData = src.data;
-    const dest = new ImageData(width, height);
-    const destData = dest.data;
-
-    const tileSize = Math.max(1, getStrokeDitherPixelSize() | 0);
-    // Keep pattern stable while moving: no random phase in pressure mode
-    const phaseX = 0;
-    const phaseY = 0;
-    const paletteSpread = 0;
-
-    const BAYER_4 = [
-      0,  8,  2, 10,
-      12, 4, 14, 6,
-      3, 11, 1,  9,
-      15, 7, 13, 5
-    ];
-    const thresholdAt = (ix: number, iy: number) => {
-      const bx = ((ix + phaseX) % 4 + 4) % 4;
-      const by = ((iy + phaseY) % 4 + 4) % 4;
-      return ((BAYER_4[by * 4 + bx] + 0.5) / 16) * 255;
-    };
-
-    for (let dy = 0; dy < height; dy++) {
-      for (let dx = 0; dx < width; dx++) {
-        const si = (dy * width + dx) * 4;
-        const a = srcData[si + 3];
-        if (a === 0) {
-          destData[si] = 0;
-          destData[si + 1] = 0;
-          destData[si + 2] = 0;
-          destData[si + 3] = 0;
-          continue;
-        }
-
-        const sIdx = si; // use original pixel (no tile snap) to avoid footprint growth
-        const r = srcData[sIdx];
-        const g = srcData[sIdx + 1];
-        const b = srcData[sIdx + 2];
-
-        const jitter = paletteSpread > 0 ? (Math.random() * 2 - 1) * paletteSpread : 0;
-        const avg = (r + g + b) / 3 + jitter;
-        const threshold = thresholdAt(Math.floor((dx + x) / tileSize), Math.floor((dy + y) / tileSize));
-        const on = avg >= threshold;
-
-        destData[si] = on ? r : bgR;
-        destData[si + 1] = on ? g : bgG;
-        destData[si + 2] = on ? b : bgB;
-        destData[si + 3] = on ? a : (fillBackground ? a : 0);
-      }
-    }
-
-    if (fillBackground) {
-      for (let si = 0; si < destData.length; si += 4) {
-        if (destData[si + 3] === 0 && srcData[si + 3] !== 0) {
-          destData[si] = srcData[si];
-          destData[si + 1] = srcData[si + 1];
-          destData[si + 2] = srcData[si + 2];
-          destData[si + 3] = srcData[si + 3];
-        }
+        ctx.imageSmoothingEnabled = prevSmooth;
       }
     }
 
     const prev = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
     try {
-      ctx.putImageData(dest, x, y);
+      ctx.putImageData(dithered, x, y);
     } catch (err) {
-      console.warn('[Dither] Failed to write pressure dither region:', err);
+      console.warn('[Dither] Failed to write dithered region:', err);
     } finally {
       ctx.imageSmoothingEnabled = prev;
     }
@@ -2026,8 +1972,6 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
     tools.brushSettings.lostEdge,
-    tools.brushSettings.ditherPhaseJitter,
-    tools.brushSettings.ditherPaletteSpread,
     tools.brushSettings.ditherBackgroundFill,
     strokeDitherPalette
   ]);
@@ -2245,14 +2189,28 @@ export const useBrushEngineSimplified = () => {
       timestamp: Date.now(),
       customBrushData: cursor.customBrushData
     };
-    const pressureSample = strokeParams.pressure || 0;
-    if (pressureSample >= PRESSURE_EPS) {
-      strokePressureRef.current = {
-        last: pressureSample,
-        lastNonZero: pressureSample
-      };
-      strokeDitherPixelSizeRef.current = computePressureScaledResolution(pressureSample);
+    const rawPressure = strokeParams.pressure ?? 0;
+    const p = Math.max(0, Math.min(1, rawPressure));
+
+    const stats = strokePressureRef.current;
+    stats.last = p;
+
+    // Track last non-trivial pressure for debugging / fallback
+    if (p >= STABLE_EPS) {
+      stats.lastNonZero = p;
     }
+
+    // Asymmetric smoothing: fast up, slow down
+    const prevSmoothed = stats.smoothed ?? p;
+    const alphaUp = 0.6;    // respond quickly when pressing harder
+    const alphaDown = 0.15; // respond slowly when easing off
+    const alpha = p > prevSmoothed ? alphaUp : alphaDown;
+    const smoothed = prevSmoothed + (p - prevSmoothed) * alpha;
+    stats.smoothed = smoothed;
+
+    // Use smoothed pressure for resolution; floor to avoid ultra-tiny tiles
+    const effectiveP = Math.max(smoothed, 0.15);
+    strokeDitherPixelSizeRef.current = computePressureScaledResolution(effectiveP);
 
     // Render the stroke
     if (typeof window !== 'undefined') {
@@ -2291,22 +2249,29 @@ export const useBrushEngineSimplified = () => {
       applyLostEdgeMaskInRegion(rawCtx, region, tools.brushSettings.lostEdge);
     }
 
-    // Pressure-linked dither: immediately dither a tight dirty rect around this segment only
+    // Pressure-linked dither: re-dither the entire stroke so far with the current pressure
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
-      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (sizePressure || 1)));
-      const region = {
-        x: Math.max(0, Math.floor(Math.min(from.x, to.x) - size)),
-        y: Math.max(0, Math.floor(Math.min(from.y, to.y) - size)),
-        width: Math.max(1, Math.ceil(Math.abs(to.x - from.x) + size * 2)),
-        height: Math.max(1, Math.ceil(Math.abs(to.y - from.y) + size * 2))
-      };
       const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
-      if (ditherCtx) {
-        ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+      const fullBounds = strokeBoundsRef.current ?? segmentBounds;
+
+      if (ditherCtx && rawCtx && fullBounds) {
+        // Normalize to canvas and clear old pattern in that region
+        const canvasW = ditherCtx.canvas?.width ?? 0;
+        const canvasH = ditherCtx.canvas?.height ?? 0;
+        const region = normalizeRectForCanvas(fullBounds, canvasW, canvasH);
+        const { x, y, width, height } = region;
+
+        if (width > 0 && height > 0) {
+          ditherCtx.clearRect(x, y, width, height);
+
+          // Recompute dither for the whole stroke area from the raw stroke buffer
+          ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+
+          // Tell the preview that this whole region is dirty
+          liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
+          liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
+        }
       }
-      // Track dirty rect for preview blit
-      liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
-      liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
     }
 
     scheduleLiveStrokeRender(ctx);
@@ -2322,7 +2287,8 @@ export const useBrushEngineSimplified = () => {
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
     tools.brushSettings.size,
-    applyLostEdgeMaskInRegion
+    applyLostEdgeMaskInRegion,
+    normalizeRectForCanvas
   ]);
 
   /**
@@ -2344,14 +2310,25 @@ export const useBrushEngineSimplified = () => {
       velocity: 0,
       timestamp: Date.now()
     };
-    const pressureSample = pressure || 0;
-    if (pressureSample >= PRESSURE_EPS) {
-      strokePressureRef.current = {
-        last: pressureSample,
-        lastNonZero: pressureSample
-      };
-      strokeDitherPixelSizeRef.current = computePressureScaledResolution(pressureSample);
+    const rawPressure = pressure ?? 0;
+    const p = Math.max(0, Math.min(1, rawPressure));
+
+    const stats = strokePressureRef.current;
+    stats.last = p;
+
+    if (p >= STABLE_EPS) {
+      stats.lastNonZero = p;
     }
+
+    const prevSmoothed = stats.smoothed ?? p;
+    const alphaUp = 0.6;
+    const alphaDown = 0.15;
+    const alpha = p > prevSmoothed ? alphaUp : alphaDown;
+    const smoothed = prevSmoothed + (p - prevSmoothed) * alpha;
+    stats.smoothed = smoothed;
+
+    const effectiveP = Math.max(smoothed, 0.15);
+    strokeDitherPixelSizeRef.current = computePressureScaledResolution(effectiveP);
 
     if (typeof window !== 'undefined') {
       window.__AL_sample = { x, y, tag: 'drawStamp' };
@@ -2386,19 +2363,23 @@ export const useBrushEngineSimplified = () => {
     }
 
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
-      const size = Math.max(1, Math.ceil((tools.brushSettings.size || 1) * (sizePressure || 1)));
-      const region = {
-        x: Math.max(0, Math.floor(x - size)),
-        y: Math.max(0, Math.floor(y - size)),
-        width: Math.max(1, Math.ceil(size * 2)),
-        height: Math.max(1, Math.ceil(size * 2))
-      };
       const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
-      if (ditherCtx) {
-        ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+      const fullBounds = strokeBoundsRef.current ?? segmentBounds;
+
+      if (ditherCtx && rawCtx && fullBounds) {
+        const canvasW = ditherCtx.canvas?.width ?? 0;
+        const canvasH = ditherCtx.canvas?.height ?? 0;
+        const region = normalizeRectForCanvas(fullBounds, canvasW, canvasH);
+        const { x: rx, y: ry, width: rw, height: rh } = region;
+
+        if (rw > 0 && rh > 0) {
+          ditherCtx.clearRect(rx, ry, rw, rh);
+          ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+
+          liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
+          liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
+        }
       }
-      liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
-      liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
     }
 
     scheduleLiveStrokeRender(ctx);
@@ -2414,7 +2395,8 @@ export const useBrushEngineSimplified = () => {
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
     tools.brushSettings.size,
-    applyLostEdgeMaskInRegion
+    applyLostEdgeMaskInRegion,
+    normalizeRectForCanvas
   ]);
 
   /**
@@ -2590,7 +2572,7 @@ export const useBrushEngineSimplified = () => {
     strokeBoundsRef.current = null;
     clearLiveStrokeBuffers();
     clearCoverageMaps();
-    strokePressureRef.current = { last: 0, lastNonZero: 0 };
+    strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
     strokeDitherPixelSizeRef.current = null;
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
 
