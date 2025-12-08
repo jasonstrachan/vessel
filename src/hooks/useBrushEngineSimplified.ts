@@ -2236,8 +2236,8 @@ export const useBrushEngineSimplified = () => {
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
     lastSegmentBoundsRef.current = segmentBounds;
 
-    const decoupleSize = tools.brushSettings.pressureLinkedFillResolution && isDitherPreset;
-    const sizePressure = decoupleSize ? 1 : strokeParams.pressure ?? 1;
+    // Let brush size respond to pressure even when PresRes is enabled
+    const sizePressure = strokeParams.pressure ?? 1;
     const adjustedStrokeParams = { ...strokeParams, pressure: sizePressure };
 
     brushEngine.renderBrushStroke(rawCtx, adjustedStrokeParams);
@@ -2318,8 +2318,8 @@ export const useBrushEngineSimplified = () => {
     y: number,
     pressure: number = 1.0
   ) => {
-    const decoupleSize = tools.brushSettings.pressureLinkedFillResolution && isDitherPreset;
-    const sizePressure = decoupleSize ? 1 : pressure;
+    // Keep size responsive to pressure even when PresRes is enabled
+    const sizePressure = pressure;
 
     const strokeParams: BrushStrokeParams = {
       from: { x, y },
