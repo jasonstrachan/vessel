@@ -1312,6 +1312,10 @@ export const useBrushEngineSimplified = () => {
   });
   const strokeDitherPixelSizeRef = useRef<number | null>(null);
   const STABLE_EPS = 0.02;
+  const lastPressureDitherTimeRef = useRef(0);
+  const lastPressureDitherPixelSizeRef = useRef<number | null>(null);
+  const PRESSURE_DITHER_MIN_INTERVAL_MS = 30; // ~33 FPS throttle
+  const PRESSURE_DITHER_MIN_DELTA_RES = 0.75; // px; ignore tiny changes
   const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
 
   // Get color cycle brush from active layer instead of single instance
@@ -1664,8 +1668,7 @@ export const useBrushEngineSimplified = () => {
     }
 
     const clamped = Math.max(0, Math.min(1, p));
-    const effectiveP = Math.max(clamped, 0.15);
-    const resolved = computePressureScaledResolution(effectiveP);
+    const resolved = computePressureScaledResolution(clamped);
     strokeDitherPixelSizeRef.current = resolved;
     return resolved;
   }, [computePressureScaledResolution]);
@@ -2209,8 +2212,8 @@ export const useBrushEngineSimplified = () => {
     stats.smoothed = smoothed;
 
     // Use smoothed pressure for resolution; floor to avoid ultra-tiny tiles
-    const effectiveP = Math.max(smoothed, 0.15);
-    strokeDitherPixelSizeRef.current = computePressureScaledResolution(effectiveP);
+    const clampedSmoothed = Math.max(0, Math.min(1, smoothed));
+    strokeDitherPixelSizeRef.current = computePressureScaledResolution(clampedSmoothed);
 
     // Render the stroke
     if (typeof window !== 'undefined') {
@@ -2249,27 +2252,41 @@ export const useBrushEngineSimplified = () => {
       applyLostEdgeMaskInRegion(rawCtx, region, tools.brushSettings.lostEdge);
     }
 
-    // Pressure-linked dither: re-dither the entire stroke so far with the current pressure
+    // Pressure-linked dither: re-dither the entire stroke so far, but throttled
     if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
       const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
       const fullBounds = strokeBoundsRef.current ?? segmentBounds;
 
       if (ditherCtx && rawCtx && fullBounds) {
-        // Normalize to canvas and clear old pattern in that region
         const canvasW = ditherCtx.canvas?.width ?? 0;
         const canvasH = ditherCtx.canvas?.height ?? 0;
         const region = normalizeRectForCanvas(fullBounds, canvasW, canvasH);
         const { x, y, width, height } = region;
 
         if (width > 0 && height > 0) {
-          ditherCtx.clearRect(x, y, width, height);
+          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-          // Recompute dither for the whole stroke area from the raw stroke buffer
-          ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+          const currentPixelSize = getStrokeDitherPixelSize();
+          const lastPixelSize = lastPressureDitherPixelSizeRef.current ?? currentPixelSize;
 
-          // Tell the preview that this whole region is dirty
-          liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
-          liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
+          const tooSoon =
+            now - lastPressureDitherTimeRef.current < PRESSURE_DITHER_MIN_INTERVAL_MS;
+          const tinyDelta =
+            Math.abs(currentPixelSize - lastPixelSize) < PRESSURE_DITHER_MIN_DELTA_RES;
+
+          // Skip if it's both too soon AND the resolution hasn't really changed
+          if (!(tooSoon && tinyDelta)) {
+            lastPressureDitherTimeRef.current = now;
+            lastPressureDitherPixelSizeRef.current = currentPixelSize;
+
+            ditherCtx.clearRect(x, y, width, height);
+            // Recompute dither for the whole stroke area from the raw stroke buffer
+            ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+
+            // Mark the whole stroke region as needing preview
+            liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
+            liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
+          }
         }
       }
     }
@@ -2282,6 +2299,7 @@ export const useBrushEngineSimplified = () => {
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
     computePressureScaledResolution,
+    getStrokeDitherPixelSize,
     tools.brushSettings.pressureLinkedFillResolution,
     tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
@@ -2327,8 +2345,8 @@ export const useBrushEngineSimplified = () => {
     const smoothed = prevSmoothed + (p - prevSmoothed) * alpha;
     stats.smoothed = smoothed;
 
-    const effectiveP = Math.max(smoothed, 0.15);
-    strokeDitherPixelSizeRef.current = computePressureScaledResolution(effectiveP);
+    const clampedSmoothed = Math.max(0, Math.min(1, smoothed));
+    strokeDitherPixelSizeRef.current = computePressureScaledResolution(clampedSmoothed);
 
     if (typeof window !== 'undefined') {
       window.__AL_sample = { x, y, tag: 'drawStamp' };
@@ -2373,11 +2391,26 @@ export const useBrushEngineSimplified = () => {
         const { x: rx, y: ry, width: rw, height: rh } = region;
 
         if (rw > 0 && rh > 0) {
-          ditherCtx.clearRect(rx, ry, rw, rh);
-          ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-          liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
-          liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
+          const currentPixelSize = getStrokeDitherPixelSize();
+          const lastPixelSize = lastPressureDitherPixelSizeRef.current ?? currentPixelSize;
+
+          const tooSoon =
+            now - lastPressureDitherTimeRef.current < PRESSURE_DITHER_MIN_INTERVAL_MS;
+          const tinyDelta =
+            Math.abs(currentPixelSize - lastPixelSize) < PRESSURE_DITHER_MIN_DELTA_RES;
+
+          if (!(tooSoon && tinyDelta)) {
+            lastPressureDitherTimeRef.current = now;
+            lastPressureDitherPixelSizeRef.current = currentPixelSize;
+
+            ditherCtx.clearRect(rx, ry, rw, rh);
+            ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx);
+
+            liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, region);
+            liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, region);
+          }
         }
       }
     }
@@ -2390,6 +2423,7 @@ export const useBrushEngineSimplified = () => {
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
     computePressureScaledResolution,
+    getStrokeDitherPixelSize,
     tools.brushSettings.pressureLinkedFillResolution,
     tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
@@ -2574,6 +2608,8 @@ export const useBrushEngineSimplified = () => {
     clearCoverageMaps();
     strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
     strokeDitherPixelSizeRef.current = null;
+    lastPressureDitherTimeRef.current = 0;
+    lastPressureDitherPixelSizeRef.current = null;
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
 
   /**
