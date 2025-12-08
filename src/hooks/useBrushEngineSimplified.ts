@@ -682,6 +682,8 @@ export const useBrushEngineSimplified = () => {
   const strokeBoundsRef = useRef<Rect | null>(null);
   const liveStrokeRawRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeDitherRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
+  const liveStrokeHoleMaskRef = useRef<Uint8Array | null>(null);
+  const liveStrokeHoleMaskSizeRef = useRef<{ width: number; height: number } | null>(null);
   const liveStrokeBoundsRef = useRef<Rect | null>(null);
   const liveDirtyRectRef = useRef<Rect | null>(null);
   const lastSegmentBoundsRef = useRef<Rect | null>(null);
@@ -693,6 +695,21 @@ export const useBrushEngineSimplified = () => {
 
   const clearCoverageMaps = useCallback(() => {
     ditherCoverageMapRef.current.clear();
+  }, []);
+
+  const clearLiveStrokeHoleMask = useCallback(() => {
+    liveStrokeHoleMaskRef.current = null;
+    liveStrokeHoleMaskSizeRef.current = null;
+  }, []);
+
+  const ensureHoleMask = useCallback((canvasW: number, canvasH: number): Uint8Array | null => {
+    if (!canvasW || !canvasH) return null;
+    const size = liveStrokeHoleMaskSizeRef.current;
+    if (!size || size.width !== canvasW || size.height !== canvasH) {
+      liveStrokeHoleMaskRef.current = new Uint8Array(canvasW * canvasH);
+      liveStrokeHoleMaskSizeRef.current = { width: canvasW, height: canvasH };
+    }
+    return liveStrokeHoleMaskRef.current;
   }, []);
 
   const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
@@ -741,7 +758,8 @@ export const useBrushEngineSimplified = () => {
     liveStrokeBoundsRef.current = null;
     lastSegmentBoundsRef.current = null;
     liveRenderScheduledRef.current = false;
-  }, []);
+    clearLiveStrokeHoleMask();
+  }, [clearLiveStrokeHoleMask]);
 
   const createCoverageCanvas = useCallback((width: number, height: number): HTMLCanvasElement | OffscreenCanvas | null => {
     const globalAny = globalThis as unknown as { OffscreenCanvas?: { new (w: number, h: number): OffscreenCanvas } };
@@ -1855,6 +1873,9 @@ export const useBrushEngineSimplified = () => {
       }
     } else {
       // BG fill OFF: per-pixel merge with existing canvas (preserve previous stamps + holes)
+      const canvasW = ctx.canvas?.width ?? 0;
+      const canvasH = ctx.canvas?.height ?? 0;
+      const holeMask = ensureHoleMask(canvasW, canvasH);
       const prevSmooth = ctx.imageSmoothingEnabled;
       ctx.imageSmoothingEnabled = false;
       try {
@@ -1958,6 +1979,29 @@ export const useBrushEngineSimplified = () => {
             data[i + 3] = isOffColor(i) ? 0 : srcData[i + 3];
           }
         }
+
+        if (holeMask && canvasW > 0 && canvasH > 0) {
+          const baseX = x | 0;
+          const baseY = y | 0;
+          for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+            const px = p % width;
+            const py = (p / width) | 0;
+            const maskIndex = (baseY + py) * canvasW + (baseX + px);
+            if (maskIndex < 0 || maskIndex >= holeMask.length) {
+              continue;
+            }
+
+            if (holeMask[maskIndex]) {
+              data[i + 3] = 0;
+              continue;
+            }
+
+            // Once a pixel is “seen-through” in this stroke, keep it transparent for all re-dithers
+            if (srcData[i + 3] > 0 && data[i + 3] === 0) {
+              holeMask[maskIndex] = 1;
+            }
+          }
+        }
       } finally {
         ctx.imageSmoothingEnabled = prevSmooth;
       }
@@ -1980,7 +2024,8 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.patternStyle,
     tools.brushSettings.lostEdge,
     tools.brushSettings.ditherBackgroundFill,
-    strokeDitherPalette
+    strokeDitherPalette,
+    ensureHoleMask
   ]);
 
   const applyStrokeDither = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, sampleCtx?: CanvasRenderingContext2D) => {
