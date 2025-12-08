@@ -95,7 +95,6 @@ export function supportsDither(brushShape: BrushShape | string): boolean {
   return (
     isStrokeBrush(shape) ||
     shape === BrushShape.RECTANGLE_GRADIENT ||
-    shape === BrushShape.POLYGON_GRADIENT ||
-    shape === BrushShape.SHAPE_FILL
+    shape === BrushShape.POLYGON_GRADIENT
   );
 }

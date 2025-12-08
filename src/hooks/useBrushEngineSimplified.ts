@@ -1315,7 +1315,7 @@ export const useBrushEngineSimplified = () => {
   const lastPressureDitherTimeRef = useRef(0);
   const lastPressureDitherPixelSizeRef = useRef<number | null>(null);
   const PRESSURE_DITHER_MIN_INTERVAL_MS = 30; // ~33 FPS throttle
-  const PRESSURE_DITHER_MIN_DELTA_RES = 0.75; // px; ignore tiny changes
+  const PRESSURE_DITHER_MIN_DELTA_RES = 0.75; // px; revert to previous threshold
   const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
 
   // Get color cycle brush from active layer instead of single instance
@@ -1600,7 +1600,11 @@ export const useBrushEngineSimplified = () => {
     if (isColorCycleBrush(shape)) {
       return false;
     }
-    if (shape === BrushShape.RECTANGLE_GRADIENT || shape === BrushShape.POLYGON_GRADIENT) {
+    if (
+      shape === BrushShape.RECTANGLE_GRADIENT ||
+      shape === BrushShape.POLYGON_GRADIENT ||
+      shape === BrushShape.SHAPE_FILL
+    ) {
       return false;
     }
     return Boolean(tools.brushSettings.ditherEnabled);
@@ -2206,7 +2210,7 @@ export const useBrushEngineSimplified = () => {
     // Asymmetric smoothing: fast up, slow down
     const prevSmoothed = stats.smoothed ?? p;
     const alphaUp = 0.6;    // respond quickly when pressing harder
-    const alphaDown = 0.15; // respond slowly when easing off
+    const alphaDown = 0.15; // original slower easing for stability
     const alpha = p > prevSmoothed ? alphaUp : alphaDown;
     const smoothed = prevSmoothed + (p - prevSmoothed) * alpha;
     stats.smoothed = smoothed;

@@ -17,6 +17,7 @@ export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
   'color-cycle-stroke': { canDither: false },
   'color-cycle-shape': { canDither: false },
   'color-cycle-triangle': { canDither: false },
+  'shape-fill-brush': { canDither: false },
 };
 
 export const getPresetCapabilities = (
