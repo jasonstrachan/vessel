@@ -149,6 +149,9 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherAlgorithm: settings.ditherAlgorithm,
   patternStyle: settings.patternStyle,
   ditherBackgroundFill: settings.ditherBackgroundFill,
+  pressureEnabled: settings.pressureEnabled,
+  minPressure: settings.minPressure,
+  maxPressure: settings.maxPressure,
   pressureLinkedFillResolution: settings.pressureLinkedFillResolution,
   pressureDitherSmoosh: settings.pressureDitherSmoosh,
   pigmentLiftEnabled: settings.pigmentLiftEnabled,
@@ -1878,10 +1881,6 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         normalized.colorCycleFlowForward === false ? 'reverse' : 'forward';
       delete normalized.colorCycleFlowForward;
     }
-
-    delete normalized.pressureEnabled;
-    delete normalized.minPressure;
-    delete normalized.maxPressure;
 
     return normalized;
   },

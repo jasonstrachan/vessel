@@ -402,10 +402,16 @@ const captureLayerRegionImageData = (
   if (width <= 0 || height <= 0) {
     return null;
   }
-  const clampedX = Math.max(0, Math.min(region.x, width - 1));
-  const clampedY = Math.max(0, Math.min(region.y, height - 1));
-  const clampedWidth = Math.min(region.width, width - clampedX);
-  const clampedHeight = Math.min(region.height, height - clampedY);
+  const clampedX = Math.max(0, Math.min(Math.floor(region.x), width - 1));
+  const clampedY = Math.max(0, Math.min(Math.floor(region.y), height - 1));
+  const clampedWidth = Math.max(
+    0,
+    Math.min(Math.ceil(region.width), width - clampedX)
+  );
+  const clampedHeight = Math.max(
+    0,
+    Math.min(Math.ceil(region.height), height - clampedY)
+  );
   if (clampedWidth <= 0 || clampedHeight <= 0) {
     return null;
   }
@@ -418,7 +424,12 @@ const captureLayerRegionImageData = (
     for (let row = 0; row < clampedHeight; row += 1) {
       const srcOffset = ((clampedY + row) * source.width + clampedX) * 4;
       const tgtOffset = row * tgtStride;
-      targetData.set(srcData.subarray(srcOffset, srcOffset + tgtStride), tgtOffset);
+      const remaining = srcData.length - srcOffset;
+      if (remaining <= 0) {
+        break;
+      }
+      const copyLen = Math.min(tgtStride, remaining);
+      targetData.set(srcData.subarray(srcOffset, srcOffset + copyLen), tgtOffset);
     }
     return target;
   }

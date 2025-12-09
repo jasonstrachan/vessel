@@ -2246,6 +2246,11 @@ export const useBrushEngineSimplified = () => {
       } 
     } = {}
   ) => {
+    // New stroke: if no bounds yet, clear cached pressure/dither state to avoid inheriting stale resolution
+    if (!strokeBoundsRef.current) {
+      resetPressureDitherState();
+    }
+
     // Calculate velocity
     const distance = Math.sqrt(
       Math.pow(to.x - from.x, 2) + 
@@ -2389,6 +2394,10 @@ export const useBrushEngineSimplified = () => {
     y: number,
     pressure: number = 1.0
   ) => {
+    if (!strokeBoundsRef.current) {
+      resetPressureDitherState();
+    }
+
     // Keep size responsive to pressure even when PresRes is enabled
     const sizePressure = pressure;
 
@@ -2683,6 +2692,13 @@ export const useBrushEngineSimplified = () => {
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
+
+  const resetPressureDitherState = useCallback(() => {
+    strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
+    strokeDitherPixelSizeRef.current = null;
+    lastPressureDitherTimeRef.current = 0;
+    lastPressureDitherPixelSizeRef.current = null;
+  }, []);
 
   /**
    * Apply dithering effect
