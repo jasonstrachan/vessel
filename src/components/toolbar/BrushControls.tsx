@@ -205,7 +205,13 @@ const BrushControls = () => {
   const setShapeMode = useAppStore(state => state.setShapeMode);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
-  const isDitherPreset = currentBrushPresetId === 'pixel-dither' || currentBrushPresetId === 'polygon-dither';
+  const isDitherPreset =
+    currentBrushPresetId === 'pixel-dither' ||
+    currentBrushPresetId === 'polygon-dither' ||
+    currentBrushPresetId === 'shape-dither';
+  const isDitherStrokePreset = currentBrushPresetId === 'pixel-dither';
+  const isDitherShapePreset = currentBrushPresetId === 'shape-dither';
+  const hideShapeToggle = isDitherStrokePreset || isDitherShapePreset;
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -1323,25 +1329,27 @@ const BrushControls = () => {
         />
 
         {/* Shape Mode - Draw closed polygon shapes */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="shape-mode-resampler"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Shape
-            </label>
-            <CustomSwitch
-              id="shape-mode-resampler"
-              checked={shapeMode || false}
-              onChange={(checked) => {
-                try { console.log('[SHAPE/UI] toggle (resampler)', { checked }); } catch {}
-                setShapeMode(checked);
-              }}
-            />
+        {!hideShapeToggle && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="shape-mode-resampler"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Shape
+              </label>
+              <CustomSwitch
+                id="shape-mode-resampler"
+                checked={shapeMode || false}
+                onChange={(checked) => {
+                  try { console.log('[SHAPE/UI] toggle (resampler)', { checked }); } catch {}
+                  setShapeMode(checked);
+                }}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Pressure */}
         <div className="mb-2">
@@ -1414,61 +1422,63 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Dashed */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="dashed-enabled-resampler"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Dashed
-            </label>
-            <CustomSwitch
-              id="dashed-enabled-resampler"
-              checked={activeSettings.dashedEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ dashedEnabled: checked })
-              }
-            />
-            {(activeSettings.dashedEnabled || false) && (
-              <>
-                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
-                  L
-                </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.dashLength || 3}
-                  onChange={(e) =>
-                    setActiveSettings({
-                      dashLength: parseInt(e.target.value) || 3,
-                    })
-                  }
-                  min="1"
-                  max="20"
-            className="w-12 bg-transparent text-right"
-                  title="Length multiplier (×brush size)"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
-                  G
-                </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.dashGap || 2}
-                  onChange={(e) =>
-                    setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
-                  }
-                  min="1"
-                  max="20"
-            className="w-12 bg-transparent text-right"
-                  title="Gap multiplier (×brush size)"
-                />
-              </>
-            )}
+        {/* Dashed (hidden for Dither Shape) */}
+        {!isDitherShapePreset && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="dashed-enabled-resampler"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Dashed
+              </label>
+              <CustomSwitch
+                id="dashed-enabled-resampler"
+                checked={activeSettings.dashedEnabled || false}
+                onChange={(checked) =>
+                  setActiveSettings({ dashedEnabled: checked })
+                }
+              />
+              {(activeSettings.dashedEnabled || false) && (
+                <>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                    L
+                  </span>
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={activeSettings.dashLength || 3}
+                    onChange={(e) =>
+                      setActiveSettings({
+                        dashLength: parseInt(e.target.value) || 3,
+                      })
+                    }
+                    min="1"
+                    max="20"
+                    className="w-12 bg-transparent text-right"
+                    title="Length multiplier (×brush size)"
+                  />
+                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                    G
+                  </span>
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={activeSettings.dashGap || 2}
+                    onChange={(e) =>
+                      setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
+                    }
+                    min="1"
+                    max="20"
+                    className="w-12 bg-transparent text-right"
+                    title="Gap multiplier (×brush size)"
+                  />
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Grid Snap */}
         <div className="mb-2">
@@ -2026,25 +2036,27 @@ const BrushControls = () => {
       />
 
       {/* Shape Mode - Draw closed polygon shapes */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="shape-mode"
-            className="text-[#D9D9D9] w-16"
-            style={{ fontSize: "14px" }}
-          >
-            Shape
-          </label>
-          <CustomSwitch
-            id="shape-mode"
-            checked={shapeMode || false}
-            onChange={(checked) => {
-              try { console.log('[SHAPE/UI] toggle (default)', { checked }); } catch {}
-              setShapeMode(checked);
-            }}
-          />
+      {!hideShapeToggle && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="shape-mode"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Shape
+            </label>
+            <CustomSwitch
+              id="shape-mode"
+              checked={shapeMode || false}
+              onChange={(checked) => {
+                try { console.log('[SHAPE/UI] toggle (default)', { checked }); } catch {}
+                setShapeMode(checked);
+              }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Pressure */}
       <div className="mb-2">
@@ -2114,61 +2126,63 @@ const BrushControls = () => {
         </div>
       )}
 
-      {/* Dashed */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="dashed-enabled"
-            className="text-[#D9D9D9] w-16"
-            style={{ fontSize: "14px" }}
-          >
-            Dashed
-          </label>
-          <CustomSwitch
-            id="dashed-enabled"
-            checked={activeSettings.dashedEnabled || false}
-            onChange={(checked) =>
-              setActiveSettings({ dashedEnabled: checked })
-            }
-          />
-          {(activeSettings.dashedEnabled || false) && (
-            <>
-              <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
-                L
-              </span>
-              <Input
-                type="number"
-                variant="compact"
-                value={activeSettings.dashLength || 3}
-                onChange={(e) =>
-                  setActiveSettings({
-                    dashLength: parseInt(e.target.value) || 3,
-                  })
-                }
-                min="1"
-                max="20"
-                className="w-12 bg-transparent text-right"
-                title="Length multiplier (×brush size)"
-              />
-              <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
-                G
-              </span>
-              <Input
-                type="number"
-                variant="compact"
-                value={activeSettings.dashGap || 2}
-                onChange={(e) =>
-                  setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
-                }
-                min="1"
-                max="20"
-                className="w-12 bg-transparent text-right"
-                title="Gap multiplier (×brush size)"
-              />
-            </>
-          )}
+      {/* Dashed (hidden for Dither Shape) */}
+      {!isDitherShapePreset && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="dashed-enabled"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Dashed
+            </label>
+            <CustomSwitch
+              id="dashed-enabled"
+              checked={activeSettings.dashedEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ dashedEnabled: checked })
+              }
+            />
+            {(activeSettings.dashedEnabled || false) && (
+              <>
+                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  L
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.dashLength || 3}
+                  onChange={(e) =>
+                    setActiveSettings({
+                      dashLength: parseInt(e.target.value) || 3,
+                    })
+                  }
+                  min="1"
+                  max="20"
+                  className="w-12 bg-transparent text-right"
+                  title="Length multiplier (×brush size)"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  G
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.dashGap || 2}
+                  onChange={(e) =>
+                    setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
+                  }
+                  min="1"
+                  max="20"
+                  className="w-12 bg-transparent text-right"
+                  title="Gap multiplier (×brush size)"
+                />
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Grid Snap */}
       <div className="mb-2">

@@ -50,7 +50,7 @@ type RecolorSamplingState = AppState['recolorSampling'];
 
 const initialBrushPreset = pixelBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
-const DITHER_BRUSH_IDS = ['pixel-dither', 'polygon-dither']; // legacy alias maintained
+const DITHER_BRUSH_IDS = ['pixel-dither', 'polygon-dither', 'shape-dither']; // legacy alias maintained
 
 export const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
@@ -1347,9 +1347,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
                     newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
     const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
     const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
+    const forceShapeModePreset = preset.id === 'shape-dither';
+    const forceShapeOffPreset = preset.id === 'pixel-dither';
 
     let nextShapeMode: boolean;
-    if (isShapeFillBrush) {
+    if (forceShapeModePreset) {
+      nextShapeMode = true;
+    } else if (forceShapeOffPreset) {
+      nextShapeMode = false;
+    } else if (isShapeFillBrush) {
       nextShapeMode = true;
     } else if (isNewCC) {
       // Respect explicit CC variant presets; otherwise restore last CC shape mode

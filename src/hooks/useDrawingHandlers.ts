@@ -108,6 +108,26 @@ type ShapeBeforeSnapshot =
   | { kind: 'region'; image: ImageData; roi: CaptureRegion };
 type RecomposeRegion = { x: number; y: number; width: number; height: number };
 
+const normalizeRectForCanvas = (
+  rect: { x: number; y: number; width: number; height: number } | undefined,
+  canvasWidth: number,
+  canvasHeight: number
+): { x: number; y: number; width: number; height: number } => {
+  if (!rect) {
+    return { x: 0, y: 0, width: canvasWidth, height: canvasHeight };
+  }
+  const minX = Math.max(0, Math.floor(rect.x));
+  const minY = Math.max(0, Math.floor(rect.y));
+  const maxX = Math.min(canvasWidth, Math.ceil(rect.x + rect.width));
+  const maxY = Math.min(canvasHeight, Math.ceil(rect.y + rect.height));
+  const width = Math.max(0, maxX - minX);
+  const height = Math.max(0, maxY - minY);
+  if (width <= 0 || height <= 0) {
+    return { x: 0, y: 0, width: canvasWidth, height: canvasHeight };
+  }
+  return { x: minX, y: minY, width, height };
+};
+
 type CommitRasterOverlayOptions = {
   layer: Layer;
   overlayCanvas: HTMLCanvasElement | null;
@@ -4355,6 +4375,34 @@ export function useDrawingHandlers({
       return;
     }
 
+    // Auto-pick color for shape-mode brushes (parity with stroke auto-sample)
+    try {
+      const store = storeRef.current;
+      const currentTool = store.tools.currentTool;
+      const brushSettings = store.tools.brushSettings;
+      const ccFlags = getColorCycleBrushFlags(brushSettings);
+      const shouldAutoSample =
+        currentTool === 'brush' &&
+        brushSettings.autoSampleColor &&
+        !ccFlags.isAny &&
+        brushSettings.brushShape !== BrushShape.RESAMPLER;
+
+      if (shouldAutoSample) {
+        const sampler = typeof sampleColorAt === 'function' ? sampleColorAt : sampleHexAt;
+        const sampledColor = sampler(worldPos.x, worldPos.y) ?? brushSettings.color;
+        if (sampledColor && sampledColor !== brushSettings.color) {
+          store.setBrushSettings({ color: sampledColor, useSwatchColor: true });
+          if (store.palette.activeSlot === 'foreground') {
+            store.setPaletteColor('foreground', sampledColor);
+          }
+          // Keep engine config in sync if supported
+          if (brushEngine.engine && typeof brushEngine.engine.updateConfig === 'function') {
+            brushEngine.engine.updateConfig({ brushSettings: { ...brushSettings, color: sampledColor, useSwatchColor: true } });
+          }
+        }
+      }
+    } catch {}
+
     if (shapeMode) {
       const shouldResetBounding = !isDrawingShapeRef.current || shapePointsRef.current.length === 0;
       if (shouldResetBounding) {
@@ -5029,13 +5077,54 @@ export function useDrawingHandlers({
           // Reuse stroke-mode dithering so shape fills match regular strokes
           if (brushEngine.applyStrokeDither) {
             try {
-              const ditherRegion = boundingBoxToCaptureRegion(
+              let ditherRegion = boundingBoxToCaptureRegion(
                 strokeBoundingBoxRef.current,
                 ROI_PADDING_PX,
                 project
               );
-              if (ditherRegion) {
-                brushEngine.applyStrokeDither(drawCtx, ditherRegion);
+
+              // Shape mode can miss stroke bbox updates; rebuild from the polygon path
+              if (!ditherRegion && shapePointsRef.current.length >= 3) {
+                const pts = shapePointsRef.current;
+                let minX = pts[0].x;
+                let maxX = pts[0].x;
+                let minY = pts[0].y;
+                let maxY = pts[0].y;
+                for (let i = 1; i < pts.length; i += 1) {
+                  const p = pts[i];
+                  if (p.x < minX) minX = p.x;
+                  if (p.x > maxX) maxX = p.x;
+                  if (p.y < minY) minY = p.y;
+                  if (p.y > maxY) maxY = p.y;
+                }
+                // Pad generously to ensure coverage for BG-fill-off dithering
+                const pad = ROI_PADDING_PX + 8;
+                const padded = {
+                  minX: minX - pad,
+                  maxX: maxX + pad,
+                  minY: minY - pad,
+                  maxY: maxY + pad
+                };
+                ditherRegion = boundingBoxToCaptureRegion(padded, 0, project);
+              }
+
+              if (ditherRegion && ditherRegion.width > 0 && ditherRegion.height > 0) {
+                // Apply dithering directly to the padded polygon region; applyStrokeDither handles BG fill logic
+                brushEngine.applyStrokeDither(
+                  drawCtx,
+                  {
+                    x: ditherRegion.x,
+                    y: ditherRegion.y,
+                    width: ditherRegion.width,
+                    height: ditherRegion.height
+                  },
+                  undefined,
+                  {
+                    // When BG fill is off we must NOT merge with the freshly painted fill
+                    // or the dither holes get flattened to solid color.
+                    mergeExisting: liveBrushSettings.ditherBackgroundFill !== false
+                  }
+                );
               }
             } catch (error) {
               logError('Shape dithering failed', error);

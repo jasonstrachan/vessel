@@ -320,7 +320,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const CAPTURE_PADDING_PX = 2;
   const PREVIEW_WORLD_PADDING = 2;
   const PREVIEW_DITHER_PADDING_SCREEN = 3;
-  const PREVIEW_DITHER_BUFFER_SIZE = 512;
+  // Allow larger previews before we have to downscale (prevents dither holes collapsing on big shapes)
+  const PREVIEW_DITHER_BUFFER_SIZE = 2048;
 
   const ensurePointRef = (
     ref: React.MutableRefObject<Point | null> | undefined
@@ -739,20 +740,28 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
+    const worldWidth = overlayRegion.width / scale;
+    const worldHeight = overlayRegion.height / scale;
+    const worldMinX = (overlayRegion.x - transform.offsetX) / scale;
+    const worldMinY = (overlayRegion.y - transform.offsetY) / scale;
+
+    // Resize buffer to match *world* size (not screen size) so dithering stays stable at any zoom
+    const targetW = Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldWidth)));
+    const targetH = Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldHeight)));
+    if (bufferCanvas.width !== targetW || bufferCanvas.height !== targetH) {
+      bufferCanvas.width = targetW;
+      bufferCanvas.height = targetH;
+    }
+
+    const scaleX = bufferCanvas.width / Math.max(worldWidth, 1e-3);
+    const scaleY = bufferCanvas.height / Math.max(worldHeight, 1e-3);
+
     bufferCtx.save();
     bufferCtx.setTransform(1, 0, 0, 1, 0, 0);
     bufferCtx.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
     bufferCtx.lineJoin = 'round';
     bufferCtx.lineCap = 'round';
     bufferCtx.imageSmoothingEnabled = !isPixelBrush;
-
-    const worldWidth = overlayRegion.width / scale;
-    const worldHeight = overlayRegion.height / scale;
-    const worldMinX = (overlayRegion.x - transform.offsetX) / scale;
-    const worldMinY = (overlayRegion.y - transform.offsetY) / scale;
-
-    const scaleX = bufferCanvas.width / Math.max(worldWidth, 1e-3);
-    const scaleY = bufferCanvas.height / Math.max(worldHeight, 1e-3);
 
     bufferCtx.translate(-worldMinX * scaleX, -worldMinY * scaleY);
     bufferCtx.scale(scaleX, scaleY);
@@ -799,18 +808,28 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     bufferCtx.fill();
     bufferCtx.restore();
 
-    if (!isColorCycleLayer && brushSettings.ditherEnabled && bufferCtx) {
+    if (!isColorCycleLayer && bufferCtx) {
+      // Re-read live settings so BG fill toggles apply to the preview too
+      const liveBrushSettings = getDynamicDeps().tools.brushSettings;
+      const liveDitherEnabled = Boolean(liveBrushSettings.ditherEnabled);
+      const liveBgFillOn = liveBrushSettings.ditherBackgroundFill !== false;
+
+      if (liveDitherEnabled) {
       try {
         brushEngine?.applyStrokeDither(bufferCtx, {
           x: 0,
           y: 0,
           width: bufferCanvas.width,
           height: bufferCanvas.height,
+        }, undefined, {
+          // When BG fill is off, do not merge with the freshly painted fill
+          mergeExisting: liveBgFillOn
         });
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
           console.warn('[Vessel] Preview dithering failed', error);
         }
+      }
       }
     }
 

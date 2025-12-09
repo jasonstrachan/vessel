@@ -1637,17 +1637,63 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.brushShape, tools.brushSettings.ditherEnabled]);
 
   const strokeDitherPalette = useMemo(() => {
-    return buildDitherPalette(
+    const basePalette = buildDitherPalette(
       tools.brushSettings.color || '#000',
       tools.brushSettings.ditherPaletteSpread ?? 0
     );
-  }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread]);
+
+    // For BG-fill-off, force a 2-ink palette (darkest + lightest) so one ink always becomes transparent
+    if (tools.brushSettings.ditherBackgroundFill === false && basePalette.length >= 2) {
+      const luminance = (rgb: string): number => {
+        const [r, g, b] = parseColor(rgb || '#000');
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      let darkest = basePalette[0];
+      let lightest = basePalette[0];
+      let minLum = luminance(darkest);
+      let maxLum = minLum;
+      for (let i = 1; i < basePalette.length; i += 1) {
+        const l = luminance(basePalette[i]);
+        if (l < minLum) {
+          minLum = l;
+          darkest = basePalette[i];
+        }
+        if (l > maxLum) {
+          maxLum = l;
+          lightest = basePalette[i];
+        }
+      }
+      return [darkest, lightest];
+    }
+
+    return basePalette;
+  }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread, tools.brushSettings.ditherBackgroundFill]);
+
+  // Pick a single palette entry to represent "off"/transparent ink: choose the darkest ink for stability
+  const transparentInk = useMemo(() => {
+    const palette = strokeDitherPalette;
+    const luminance = (rgb: string): number => {
+      const [r, g, b] = parseColor(rgb || '#000');
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    if (!palette.length) return parseColor('#000') as [number, number, number];
+    let idx = 0;
+    let bestLum = luminance(palette[0]);
+    for (let i = 1; i < palette.length; i += 1) {
+      const l = luminance(palette[i]);
+      if (l < bestLum) {
+        bestLum = l;
+        idx = i;
+      }
+    }
+    return parseColor(palette[idx]) as [number, number, number];
+  }, [strokeDitherPalette]);
 
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const isDitherPreset = useMemo(() => {
     const id = currentBrushPreset?.id;
     if (!id) return false;
-    return id === 'pixel-dither' || id === 'polygon-dither';
+    return id === 'pixel-dither' || id === 'polygon-dither' || id === 'shape-dither';
   }, [currentBrushPreset]);
 
   const isPixelDitherNoBg = useMemo(() => {
@@ -1707,7 +1753,8 @@ export const useBrushEngineSimplified = () => {
     } else if (stats.lastNonZero > 0) {
       p = stats.lastNonZero;
     } else {
-      p = 0.5; // fallback if the stroke was basically zero-pressure
+      // No pressure recorded (e.g., shape fills). Use minimum pressure so resolution stays small.
+      p = 0;
     }
 
     const clamped = Math.max(0, Math.min(1, p));
@@ -1786,8 +1833,11 @@ export const useBrushEngineSimplified = () => {
   const ditherRegionWithCurrentPressure = useCallback((
     ctx: CanvasRenderingContext2D,
     region: { x: number; y: number; width: number; height: number },
-    sampleCtx?: CanvasRenderingContext2D
+    sampleCtx?: CanvasRenderingContext2D,
+    options?: { mergeExisting?: boolean }
   ) => {
+    const mergeExisting = options?.mergeExisting !== false;
+    // For shape-mode dither presets we need to respect the BG Fill toggle just like strokes
     const fillBackground = tools.brushSettings.ditherBackgroundFill !== false;
     const [bgR, bgG, bgB] = (() => {
       const candidate =
@@ -1798,11 +1848,7 @@ export const useBrushEngineSimplified = () => {
       const [r, g, b] = parseColor(candidate);
       return [r, g, b] as [number, number, number];
     })();
-    const [offR, offG, offB] = (() => {
-      const base = strokeDitherPalette[0] ?? tools.brushSettings.color ?? '#000';
-      const [r, g, b] = parseColor(base);
-      return [r, g, b] as [number, number, number];
-    })();
+    const [offR, offG, offB] = transparentInk;
 
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) return;
@@ -1829,7 +1875,10 @@ export const useBrushEngineSimplified = () => {
     const baseFillRes = Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
     // Pressure-resolved pixel size
     const pressureFillRes = Math.max(1, getStrokeDitherPixelSize() | 0);
-    const pixelSize = pressureMode ? pressureFillRes : baseFillRes;
+
+    // Shape dither should still respond to pressure when enabled via the toggle
+    const allowPressureForShapes = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
+    const pixelSize = pressureMode && allowPressureForShapes ? pressureFillRes : baseFillRes;
 
     DD('region-enter', {
       fillBackground,
@@ -1870,6 +1919,9 @@ export const useBrushEngineSimplified = () => {
     const data = dithered.data;
     const srcData = src.data;
     const zeroOff = true;
+    const canvasW = ctx.canvas?.width ?? 0;
+    const canvasH = ctx.canvas?.height ?? 0;
+    const holeMask = fillBackground ? ensureHoleMask(canvasW, canvasH) : null;
 
     const isOffColor = (idx: number) =>
       data[idx] === offR &&
@@ -1879,6 +1931,15 @@ export const useBrushEngineSimplified = () => {
     // First pass: default alpha = source alpha so fresh strokes are visible
     for (let i = 0; i < data.length; i += 4) {
       data[i + 3] = srcData[i + 3];
+    }
+
+    // With BG fill off, treat the “off” ink as transparent immediately
+    if (!fillBackground) {
+      for (let i = 0; i < data.length; i += 4) {
+        if (isOffColor(i)) {
+          data[i + 3] = 0;
+        }
+      }
     }
 
     if (fillBackground) {
@@ -1896,15 +1957,16 @@ export const useBrushEngineSimplified = () => {
       // BG fill OFF: per-pixel merge with existing canvas (preserve previous stamps + holes)
       const canvasW = ctx.canvas?.width ?? 0;
       const canvasH = ctx.canvas?.height ?? 0;
-      const holeMask = ensureHoleMask(canvasW, canvasH);
       const prevSmooth = ctx.imageSmoothingEnabled;
       ctx.imageSmoothingEnabled = false;
       try {
         let existing: ImageData | null = null;
-        try {
-          existing = ctx.getImageData(x, y, width, height);
-        } catch {
-          existing = null;
+        if (mergeExisting) {
+          try {
+            existing = ctx.getImageData(x, y, width, height);
+          } catch {
+            existing = null;
+          }
         }
 
         if (existing && zeroOff) {
@@ -1957,18 +2019,18 @@ export const useBrushEngineSimplified = () => {
             const srcA = srcData[i + 3]; // stroke coverage
             const off = isOffColor(i);
 
-            if (ea === 0) {
-              // Blank pixel: first-stamp rules
-              data[i + 3] = off ? 0 : srcA;
-              continue;
-            }
-
             if (off) {
-              // “Off” ink over paint: preserve existing pattern
+              // Off ink always cuts a hole, even over existing paint
+              data[i + 3] = 0;
               data[i] = e[i];
               data[i + 1] = e[i + 1];
               data[i + 2] = e[i + 2];
-              data[i + 3] = ea;
+              continue;
+            }
+
+            if (ea === 0) {
+              // Blank pixel: first-stamp rules
+              data[i + 3] = srcA;
               continue;
             }
 
@@ -2049,11 +2111,11 @@ export const useBrushEngineSimplified = () => {
     ensureHoleMask
   ]);
 
-  const applyStrokeDither = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, sampleCtx?: CanvasRenderingContext2D) => {
+  const applyStrokeDither = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, sampleCtx?: CanvasRenderingContext2D, options?: { mergeExisting?: boolean }) => {
     if (!shouldApplyStrokeDither || !ctx || !bounds) return;
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
-    ditherRegionWithCurrentPressure(ctx, region, sampleCtx);
+    ditherRegionWithCurrentPressure(ctx, region, sampleCtx, options);
   }, [ditherRegionWithCurrentPressure, shouldApplyStrokeDither]);
 
   const applyStrokeRisographOverlay = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, source?: HTMLCanvasElement | null) => {
@@ -2152,30 +2214,8 @@ export const useBrushEngineSimplified = () => {
           dCtx.drawImage(rawCanvas as CanvasImageSource, dx, dy, dw, dh, dx, dy, dw, dh);
           applyStrokeDither(dCtx, ditherRegion, rawCtx);
         } else {
-          // BG fill off: only dither the latest segment; keep previous dither intact
+          // BG fill off: only dither the latest segment; allow overwriting previous holes
           applyStrokeDither(dCtx, ditherRegion, rawCtx);
-
-          // Apply coverage mask live to preserve old holes during the same stroke; include lost-edge fade
-          const state = useAppStore.getState();
-          const layer = state.layers.find((l) => l.id === state.activeLayerId);
-          const layerFb = layer?.framebuffer ?? null;
-          const layerCtxForCoverage = layerFb ? pick2D(layerFb) : null;
-          if (layerCtxForCoverage && layer?.id) {
-            const normRegion = normalizeRectForCanvas(
-              ditherRegion,
-              dCtx.canvas?.width ?? 0,
-              dCtx.canvas?.height ?? 0
-            );
-            applyCoverageMaskToDither(
-              layerCtxForCoverage,
-              dCtx,
-              rawCtx,
-              normRegion,
-              layer.id,
-              undefined,
-              0
-            );
-          }
         }
 
         const blitRect = normalizeRectForCanvas(
@@ -2586,15 +2626,6 @@ export const useBrushEngineSimplified = () => {
     if (tools.brushSettings.pressureLinkedFillResolution && strokeBounds && ditherCanvas && region) {
       const { x, y, width, height } = region;
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-      if (
-        tools.brushSettings.ditherBackgroundFill === false &&
-        ditherCtx &&
-        rawCtx &&
-        layerCtxForCoverage &&
-        activeLayerIdSafe
-      ) {
-        applyCoverageMaskToDither(layerCtxForCoverage, ditherCtx, rawCtx, region, activeLayerIdSafe, undefined, 0);
-      }
       if (isPixelDitherNoBg) {
         ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
       } else {
@@ -2612,18 +2643,7 @@ export const useBrushEngineSimplified = () => {
     if (!tools.brushSettings.pressureLinkedFillResolution && strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
       const { x, y, width, height } = region;
       if (tools.brushSettings.ditherBackgroundFill === false) {
-        // Do NOT re-dither the whole stroke; use accumulated dither buffer and mask holes
-        if (layerCtxForCoverage && activeLayerIdSafe) {
-          applyCoverageMaskToDither(
-            layerCtxForCoverage,
-            ditherCtx,
-            rawCtx,
-            region,
-            activeLayerIdSafe,
-            undefined,
-            0
-          );
-        }
+        // Do NOT re-dither the whole stroke; use accumulated dither buffer and allow overwriting old holes
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
         if (isPixelDitherNoBg) {
           ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
@@ -2687,6 +2707,7 @@ export const useBrushEngineSimplified = () => {
     strokeBoundsRef.current = null;
     clearLiveStrokeBuffers();
     clearCoverageMaps();
+    clearLiveStrokeHoleMask();
     strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
     strokeDitherPixelSizeRef.current = null;
     lastPressureDitherTimeRef.current = 0;
@@ -2698,6 +2719,7 @@ export const useBrushEngineSimplified = () => {
     strokeDitherPixelSizeRef.current = null;
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
+    clearLiveStrokeHoleMask();
   }, []);
 
   /**

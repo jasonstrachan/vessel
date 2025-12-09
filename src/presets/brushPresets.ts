@@ -14,6 +14,7 @@ export type BrushCapabilities = {
 // Brush capability flags keyed by canonical preset id
 export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
   'pixel-dither': { canDither: true, forceDither: true },
+  'shape-dither': { canDither: true, forceDither: true },
   'color-cycle-stroke': { canDither: false },
   'color-cycle-shape': { canDither: false },
   'color-cycle-triangle': { canDither: false },
@@ -892,7 +893,7 @@ export const resamplerBrushPreset: BrushPreset = {
 // Pixel dither brush preset – pixel brush with dithering locked on
 export const pixelDitherPreset: BrushPreset = {
   id: 'pixel-dither',
-  name: 'Pixel Dither',
+  name: 'Dither Stroke',
   category: 'Pixel Art',
   components: pixelBrushComponents,
   thumbnail: '/assets/images/Brush.png',
@@ -918,6 +919,36 @@ export const pixelDitherPreset: BrushPreset = {
   }
 };
 
+// Shape dither brush preset – pixel dither defaults but forced into shape mode
+export const shapeDitherPreset: BrushPreset = {
+  id: 'shape-dither',
+  name: 'Dither Shape',
+  category: 'Pixel Art',
+  components: pixelBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['pixel', 'dither', 'shape', 'pixel-art'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    ...pixelBrushSettings,
+    brushShape: BrushShape.PIXEL_DITHER,
+    size: 1,
+    opacity: 1,
+    spacing: 1,
+    antialiasing: false,
+    pressureEnabled: false,
+    minPressure: 100,
+    maxPressure: 300,
+    ditherEnabled: true,
+    ditherAlgorithm: 'sierra-lite',
+    ditherPaletteSpread: 0,
+    ditherPhaseJitter: 0,
+    lostEdge: 0,
+    shapeEnabled: true
+  }
+};
+
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
@@ -925,6 +956,7 @@ export const brushPresets: BrushPreset[] = [
   roundPixel4Preset,
   defaultBrushPreset,
   pixelDitherPreset,
+  shapeDitherPreset,
   colorCycleStrokeBrushPreset,
   colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,
