@@ -1747,15 +1747,8 @@ export const useBrushEngineSimplified = () => {
     }
     const stats = strokePressureRef.current;
 
-    let p: number;
-    if (stats.smoothed != null && stats.smoothed > 0) {
-      p = stats.smoothed;
-    } else if (stats.lastNonZero > 0) {
-      p = stats.lastNonZero;
-    } else {
-      // No pressure recorded (e.g., shape fills). Use minimum pressure so resolution stays small.
-      p = 0;
-    }
+    // Use latest sampled pressure; if none yet, treat as 0 for shapes until we get a real sample
+    const p = Math.max(0, Math.min(1, stats.smoothed ?? stats.lastNonZero ?? 0));
 
     const clamped = Math.max(0, Math.min(1, p));
     const resolved = computePressureScaledResolution(clamped);
@@ -1834,9 +1827,11 @@ export const useBrushEngineSimplified = () => {
     ctx: CanvasRenderingContext2D,
     region: { x: number; y: number; width: number; height: number },
     sampleCtx?: CanvasRenderingContext2D,
-    options?: { mergeExisting?: boolean }
+    options?: { mergeExisting?: boolean; overridePressure?: number; overridePixelSize?: number }
   ) => {
     const mergeExisting = options?.mergeExisting !== false;
+    const overridePressure = options?.overridePressure;
+    const overridePixelSize = options?.overridePixelSize;
     // For shape-mode dither presets we need to respect the BG Fill toggle just like strokes
     const fillBackground = tools.brushSettings.ditherBackgroundFill !== false;
     const [bgR, bgG, bgB] = (() => {
@@ -1865,7 +1860,7 @@ export const useBrushEngineSimplified = () => {
     const probe = getDitherProbe();
 
     // Decide whether we’re in pressure-linked mode
-    const pressureMode = !!tools.brushSettings.pressureLinkedFillResolution;
+    const pressureMode = !!tools.brushSettings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
 
     // Algorithm/pattern always come from the dropdown
     const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
@@ -1873,12 +1868,34 @@ export const useBrushEngineSimplified = () => {
 
     // Base pixel size from slider
     const baseFillRes = Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
-    // Pressure-resolved pixel size
-    const pressureFillRes = Math.max(1, getStrokeDitherPixelSize() | 0);
+
+    // Pressure-resolved pixel size (hard override takes precedence)
+    const resolvedOverridePixelSize = overridePixelSize != null
+      ? Math.max(1, Math.round(overridePixelSize))
+      : null;
+
+    const pressureFillRes = resolvedOverridePixelSize ?? Math.max(
+      1,
+      overridePressure != null
+        ? computePressureScaledResolution(Math.max(0, Math.min(1, overridePressure)))
+        : getStrokeDitherPixelSize() | 0
+    );
 
     // Shape dither should still respond to pressure when enabled via the toggle
     const allowPressureForShapes = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
-    const pixelSize = pressureMode && allowPressureForShapes ? pressureFillRes : baseFillRes;
+    const pixelSize = resolvedOverridePixelSize
+      ?? (pressureMode && allowPressureForShapes ? pressureFillRes : baseFillRes);
+
+    console.log('[applyStrokeDither:before]', {
+      overridePixelSize,
+      resolvedOverridePixelSize,
+      overridePressure,
+      settingsFillRes: tools.brushSettings.fillResolution,
+      pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
+      baseFillRes,
+      pressureFillRes,
+      pixelSizeBeforeClamp: pixelSize
+    });
 
     DD('region-enter', {
       fillBackground,
@@ -2090,6 +2107,10 @@ export const useBrushEngineSimplified = () => {
       }
     }
 
+    console.log('[applyStrokeDither:final]', {
+      finalPixelSize: pixelSize
+    });
+
     const prev = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
     try {
@@ -2111,7 +2132,7 @@ export const useBrushEngineSimplified = () => {
     ensureHoleMask
   ]);
 
-  const applyStrokeDither = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, sampleCtx?: CanvasRenderingContext2D, options?: { mergeExisting?: boolean }) => {
+  const applyStrokeDither = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, sampleCtx?: CanvasRenderingContext2D, options?: { mergeExisting?: boolean; overridePressure?: number; overridePixelSize?: number }) => {
     if (!shouldApplyStrokeDither || !ctx || !bounds) return;
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);

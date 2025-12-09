@@ -810,12 +810,22 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     if (!isColorCycleLayer && bufferCtx) {
       // Re-read live settings so BG fill toggles apply to the preview too
-      const liveBrushSettings = getDynamicDeps().tools.brushSettings;
+      const liveDeps = getDynamicDeps();
+      const liveBrushSettings = liveDeps.tools.brushSettings;
+      const latestShapePressureRef = drawingHandlers.latestShapePressureRef;
+      const lastNonZeroShapePressureRef = drawingHandlers.lastNonZeroShapePressureRef;
+      const latestShapePixelSizeRef = drawingHandlers.latestShapePixelSizeRef;
+      const maxShapePressureRef = drawingHandlers.maxShapePressureRef;
       const liveDitherEnabled = Boolean(liveBrushSettings.ditherEnabled);
       const liveBgFillOn = liveBrushSettings.ditherBackgroundFill !== false;
+      const effectivePressure =
+        (lastNonZeroShapePressureRef?.current ?? 0) > 0.0001
+          ? lastNonZeroShapePressureRef?.current ?? 0
+          : maxShapePressureRef?.current ?? 0;
+      const effectivePixelSize = latestShapePixelSizeRef?.current ?? undefined;
 
       if (liveDitherEnabled) {
-      try {
+        try {
         brushEngine?.applyStrokeDither(bufferCtx, {
           x: 0,
           y: 0,
@@ -823,9 +833,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           height: bufferCanvas.height,
         }, undefined, {
           // When BG fill is off, do not merge with the freshly painted fill
-          mergeExisting: liveBgFillOn
+          mergeExisting: liveBgFillOn,
+          overridePressure: effectivePressure,
+          overridePixelSize: effectivePixelSize
         });
-      } catch (error) {
+        } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
           console.warn('[Vessel] Preview dithering failed', error);
         }
@@ -3298,8 +3310,8 @@ function cssColorToHex(color: string): string {
       }
       
       // Normal brush or shape mode
-      if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
-        let shapeWorld = worldPos;
+    if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+      let shapeWorld = worldPos;
         if (event.shiftKey) {
           const pts = drawingHandlers.shapePointsRef?.current || [];
           if (pts.length >= 1) {
@@ -3307,7 +3319,7 @@ function cssColorToHex(color: string): string {
             shapeWorld = snapPointToAngle(anchor, shapeWorld, 45);
           }
         }
-        drawingHandlers.continueShapeDrawing(shapeWorld);
+        drawingHandlers.continueShapeDrawing(shapeWorld, pressure, event.timeStamp);
       } else {
         // Continue drawing immediately for responsive feel
         let brushWorld = worldPos;

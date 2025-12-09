@@ -4367,7 +4367,85 @@ export function useDrawingHandlers({
     shapeBeforeSnapshotCapturedRef.current = true;
   }, [project, storeRef]);
   
-  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+  const latestShapePressureRef = useRef(0.5);
+  const lastNonZeroShapePressureRef = useRef(0.5);
+  const latestShapePixelSizeRef = useRef<number | null>(null);
+  const penLiftHoldUntilRef = useRef<number>(0);
+  const shapeMaxPressureRef = useRef(0.5);
+
+  const computeShapePixelSize = (pressure: number): number => {
+    const settings = storeRef.current.tools.brushSettings;
+    const p = Math.max(0, Math.min(1, pressure));
+    const base = Math.max(1, Math.round(settings.fillResolution || 1));
+    if (!settings.pressureLinkedFillResolution) return base;
+
+    // Match the dither preset mapping in useBrushEngineSimplified
+    const minRes = 1;
+    const maxRes = 28;
+    if (p <= 0.05) return minRes;
+    if (p <= 0.25) {
+      const t = (p - 0.05) / 0.20;
+      const res = minRes + t * 3;
+      return Math.max(1, Math.round(res));
+    }
+    const t = (p - 0.25) / 0.75;
+    const eased = Math.pow(t, 0.8);
+    const res = 4 + eased * (maxRes - 4);
+    return Math.max(1, Math.round(res));
+  };
+
+  const updateShapePressure = (p?: number, timestamp?: number) => {
+    const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
+    const now = timestamp ?? Date.now();
+
+    const EFFECTIVE_MIN = 0.08; // “real stroke” vs tail noise
+
+    if (val >= EFFECTIVE_MIN) {
+      // Normal in-stroke sample: allow pressure to go up AND down
+      const prev = latestShapePressureRef.current ?? val;
+      const alpha = 0.4; // smoothing factor
+      const smoothed = prev + (val - prev) * alpha;
+
+      latestShapePressureRef.current = smoothed;
+      lastNonZeroShapePressureRef.current = smoothed;
+      shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, smoothed);
+
+      // This is the pixel size the preview should use
+      latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
+
+      penLiftHoldUntilRef.current = now + 200;
+
+      console.log('[shape-pressure]', {
+        phase: 'sample',
+        raw: val,
+        smoothed,
+        pixelSize: latestShapePixelSizeRef.current
+      });
+    } else if (val > 0) {
+      // Tail while easing off: track raw, but DO NOT change lastNonZero or pixelSize
+      latestShapePressureRef.current = val;
+
+      console.log('[shape-pressure]', {
+        phase: 'tail',
+        raw: val,
+        lastNonZero: lastNonZeroShapePressureRef.current,
+        pixelSize: latestShapePixelSizeRef.current
+      });
+    } else {
+      // Pen-up: keep lastNonZero + pixelSize; only raw goes to 0
+      latestShapePressureRef.current = 0;
+
+      console.log('[shape-pressure]', {
+        phase: 'pen-up',
+        lastNonZero: lastNonZeroShapePressureRef.current,
+        pixelSize: latestShapePixelSizeRef.current
+      });
+    }
+  };
+
+  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5, timestamp?: number) => {
+    shapeMaxPressureRef.current = pressure || latestShapePressureRef.current || 0.5;
+    updateShapePressure(pressure, timestamp);
     // If we're selecting direction for linear gradient, record the direction
     if (isSelectingDirectionRef.current) {
       directionPreviewRef.current = worldPos;
@@ -4475,7 +4553,8 @@ export function useDrawingHandlers({
     clearShapeBeforeSnapshot
   ]);
   
-  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
+  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = latestShapePressureRef.current, timestamp?: number) => {
+    updateShapePressure(pressure, timestamp);
     // Handle animations based on brush type
     if (shapeMode && !ccShapePreviewPauseStartedRef.current) {
       const state = storeRef.current;
@@ -4550,6 +4629,7 @@ export function useDrawingHandlers({
       const store = storeRef.current;
       const zoom = store.canvas?.zoom || 1;
       const brushSize = store.tools.brushSettings.size || 20;
+      latestShapePressureRef.current = pressure;
       shapeDragLastRef.current = worldPos;
       if (shapeDragStartRef.current) {
         const distFromStart = Math.hypot(
@@ -5109,22 +5189,60 @@ export function useDrawingHandlers({
               }
 
               if (ditherRegion && ditherRegion.width > 0 && ditherRegion.height > 0) {
-                // Apply dithering directly to the padded polygon region; applyStrokeDither handles BG fill logic
-                brushEngine.applyStrokeDither(
-                  drawCtx,
-                  {
-                    x: ditherRegion.x,
-                    y: ditherRegion.y,
-                    width: ditherRegion.width,
-                    height: ditherRegion.height
-                  },
-                  undefined,
-                  {
-                    // When BG fill is off we must NOT merge with the freshly painted fill
-                    // or the dither holes get flattened to solid color.
-                    mergeExisting: liveBrushSettings.ditherBackgroundFill !== false
-                  }
-                );
+                const state = storeRef.current;
+
+                // Use the last stable pressure sample from the stroke
+                const effectivePressure =
+                  lastNonZeroShapePressureRef.current > 0.0001
+                    ? lastNonZeroShapePressureRef.current
+                    : 0;
+
+                // Prefer the pixel size that the preview actually used for that pressure
+                let forcedPixelSize =
+                  latestShapePixelSizeRef.current ?? computeShapePixelSize(effectivePressure);
+
+                // Guard: never go below 1px
+                forcedPixelSize = Math.max(1, Math.round(forcedPixelSize || 1));
+
+                latestShapePixelSizeRef.current = forcedPixelSize;
+
+                const originalFillResolution = state.tools.brushSettings.fillResolution;
+                const originalLinked = state.tools.brushSettings.pressureLinkedFillResolution;
+
+                console.log('[shape-dither-finalize]', {
+                  effectivePressure,
+                  previewPixelSize: latestShapePixelSizeRef.current,
+                  forcedPixelSize
+                });
+
+                try {
+                  state.setBrushSettings({
+                    fillResolution: forcedPixelSize,
+                    pressureLinkedFillResolution: false
+                  });
+
+                  brushEngine.applyStrokeDither(
+                    drawCtx,
+                    {
+                      x: ditherRegion.x,
+                      y: ditherRegion.y,
+                      width: ditherRegion.width,
+                      height: ditherRegion.height
+                    },
+                    undefined,
+                    {
+                      mergeExisting: liveBrushSettings.ditherBackgroundFill !== false,
+                      overridePressure: effectivePressure,
+                      overridePixelSize: forcedPixelSize
+                    }
+                  );
+                } finally {
+                  // Restore user settings
+                  state.setBrushSettings({
+                    fillResolution: originalFillResolution,
+                    pressureLinkedFillResolution: originalLinked
+                  });
+                }
               }
             } catch (error) {
               logError('Shape dithering failed', error);
@@ -6198,6 +6316,10 @@ export function useDrawingHandlers({
     startShapeDrawing,
     continueShapeDrawing,
     finalizeShapeDrawing,
+    latestShapePressureRef,
+    lastNonZeroShapePressureRef,
+    latestShapePixelSizeRef,
+    shapeMaxPressureRef,
     setSimpleShapePreviewRenderer,
     shapePointsRef,
     isDrawingShapeRef,
