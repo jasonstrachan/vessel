@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import BrushControls from '../BrushControls';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
+import { BrushShape } from '@/types';
 
 // Lightweight mocks to keep the test focused on wiring
 jest.mock('@/components/ui/ProgressSlider', () => ({
@@ -22,7 +23,7 @@ jest.mock('@/components/ui/ProgressSlider', () => ({
 
 jest.mock('@/components/ui/Dropdown', () => ({
   __esModule: true,
-  default: ({ value }: { value: string }) => <select aria-label="dropdown" value={value} readOnly />,
+  default: ({ value }: { value: string }) => <select aria-label="dropdown" value={value} />,
 }));
 
 jest.mock('@/components/ui/CustomSwitch', () => ({
@@ -163,12 +164,12 @@ jest.mock('@/stores/useAppStore', () => {
     linkSizeToBrush: true,
   };
 
-  const initialState: AppState = {
+  const initialState = {
     tools: {
       currentTool: 'brush',
       previousTool: 'brush',
       lastRegularTool: 'brush',
-      lastRegularBrushShape: 'color_cycle',
+      lastRegularBrushShape: BrushShape.COLOR_CYCLE,
       lastRegularShapeMode: false,
       lastColorCycleShapeMode: false,
       brushSettings: baseBrush,
@@ -186,7 +187,7 @@ jest.mock('@/stores/useAppStore', () => {
     brushPresets: [{ id: 'color-cycle-stroke', name: 'CC Stroke' } as any],
     currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as any,
     temporaryCustomBrush: null,
-    recolorSampling: { active: false, radius: 10, falloff: 0, start: null, end: null, samples: undefined, target: 'brush' },
+    recolorSampling: { active: false, start: null, end: null, samples: undefined, target: 'brush' },
     polygonGradientState: { drawingState: 'idle', points: [], previewPath: undefined },
     brushEditor: { status: 'IDLE', editingBrushId: null, editingBounds: null, originalCanvasState: null, hueShift: 0, lightness: 0, saturation: 100 },
     pressureSettings: { enabled: false, min: 1, max: 1000 },
@@ -211,7 +212,7 @@ jest.mock('@/stores/useAppStore', () => {
     colorCycleRuntimeHandlers: {},
     setLayersNeedRecomposition: () => {},
     setLayers: () => {},
-    addLayer: () => {},
+    addLayer: () => 'layer-2',
     removeLayer: () => {},
     reorderLayers: () => {},
     setActiveLayer: () => {},
@@ -221,11 +222,9 @@ jest.mock('@/stores/useAppStore', () => {
     initColorCycleForLayer: () => {},
     cleanupColorCycleForLayer: () => {},
     getLayerColorCycleBrush: () => null,
-    compositeLayersToCanvas: () => Promise.resolve(null),
-    captureCanvasToActiveLayer: () => Promise.resolve(null),
-    captureCanvasToLayer: () => Promise.resolve(null),
-    crashReports: [],
-    addCrashReport: () => {},
+    compositeLayersToCanvas: () => {},
+    captureCanvasToActiveLayer: () => Promise.resolve(),
+    captureCanvasToLayer: () => Promise.resolve(),
     autosaveDirtyReasons: new Set(),
     markAutosaveDirty: () => {},
     clearDirtyState: () => {},
@@ -240,13 +239,14 @@ jest.mock('@/stores/useAppStore', () => {
     project: null,
     setProject: () => {},
     layersSnapshots: [],
-    history: { entries: [], pointer: -1 },
-    pushHistory: () => {},
-    undo: () => {},
-    redo: () => {},
+    history: { undoStack: [], redoStack: [], maxHistorySize: 50, isCapturing: false },
+    canUndo: () => false,
+    canRedo: () => false,
+    undo: () => Promise.resolve(null),
+    redo: () => Promise.resolve(null),
     clearHistory: () => {},
     sampleColorAtPoint: () => Promise.resolve('#000'),
-  };
+  } as unknown as AppState;
 
   const store = create<AppState>(() => initialState);
   return { useAppStore: store };

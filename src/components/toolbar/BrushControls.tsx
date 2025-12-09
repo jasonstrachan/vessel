@@ -2016,7 +2016,6 @@ const BrushControls = () => {
               idSuffix="default"
             />
           }
-          hideLostEdge
         />
       )}
 
