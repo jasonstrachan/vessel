@@ -149,6 +149,8 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherAlgorithm: settings.ditherAlgorithm,
   patternStyle: settings.patternStyle,
   ditherBackgroundFill: settings.ditherBackgroundFill,
+  pressureLinkedFillResolution: settings.pressureLinkedFillResolution,
+  pressureDitherSmoosh: settings.pressureDitherSmoosh,
   pigmentLiftEnabled: settings.pigmentLiftEnabled,
   pigmentLiftStrength: settings.pigmentLiftStrength,
   pigmentLiftFeather: settings.pigmentLiftFeather,

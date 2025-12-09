@@ -94,17 +94,6 @@ export const DitherControls: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center gap-2 mt-2">
-            <label className={labelWidth} style={labelStyle} title="Keep a solid fill behind dither dots/lines">
-              BG Fill
-            </label>
-            <CustomSwitch
-              checked={backgroundFillEnabled}
-              onChange={(checked) => onChange({ ditherBackgroundFill: checked })}
-              aria-label="Dither Background Fill"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 mt-2">
             <label className={labelWidth} style={labelStyle}>
               Res
             </label>
@@ -167,25 +156,6 @@ export const DitherControls: React.FC<Props> = ({
               onChange={(checked) => onChange({ pressureDitherSmoosh: checked })}
               aria-label="Pressure dither Smoosh"
               disabled={!settings.pressureLinkedFillResolution}
-            />
-          </div>
-
-          <div className="flex items-center gap-2 mt-2">
-            <label className={labelWidth} style={labelStyle}>
-              Sprd
-            </label>
-            <ProgressSlider
-              value={settings.ditherPaletteSpread ?? 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) =>
-                onChange({
-                  ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value)))
-                })
-              }
-              aria-label="Dither Palette Spread"
-              className="flex-1"
             />
           </div>
 

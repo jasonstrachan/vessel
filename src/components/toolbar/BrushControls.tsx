@@ -1935,6 +1935,32 @@ const BrushControls = () => {
         </div>
       )}
 
+      {canDitherForShape(activeSettings.brushShape) && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              className={CONTROL_LABEL_CLASS}
+              style={CONTROL_LABEL_STYLE}
+            >
+              Sprd
+            </label>
+            <ProgressSlider
+              value={activeSettings.ditherPaletteSpread ?? 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value)))
+                })
+              }
+              aria-label="Dither Palette Spread"
+              className="flex-1"
+            />
+          </div>
+        </div>
+      )}
+
       {isRegularBrush && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -1950,6 +1976,25 @@ const BrushControls = () => {
               id="auto-sample-color"
               checked={Boolean(activeSettings.autoSampleColor)}
               onChange={(checked) => setActiveSettings({ autoSampleColor: checked })}
+            />
+          </div>
+        </div>
+      )}
+
+      {canDitherForShape(activeSettings.brushShape) && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              className={CONTROL_LABEL_CLASS}
+              style={CONTROL_LABEL_STYLE}
+              title="Keep a solid fill behind dither dots/lines"
+            >
+              BG Fill
+            </label>
+            <CustomSwitch
+              checked={activeSettings.ditherBackgroundFill !== false}
+              onChange={(checked) => setActiveSettings({ ditherBackgroundFill: checked })}
+              aria-label="Dither Background Fill"
             />
           </div>
         </div>

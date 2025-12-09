@@ -1665,8 +1665,21 @@ export const useBrushEngineSimplified = () => {
     if (tools.brushSettings.pressureLinkedFillResolution && isDitherPreset) {
       const minRes = 1;   // low pressure → fine pattern
       const maxRes = 28;  // high pressure → coarse pattern
-      const eased = Math.pow(p, 0.85);
-      return Math.max(1, Math.round(minRes + (maxRes - minRes) * eased));
+      if (p <= 0.05) return minRes; // snap to 1px at very light pressure
+
+      // Piecewise easing to avoid a jump from 1px to larger steps:
+      // - 0.05..0.25 maps smoothly from 1 → 4px
+      // - 0.25..1 maps from 4px → maxRes with gentle easing
+      if (p <= 0.25) {
+        const t = (p - 0.05) / 0.20; // 0..1
+        const res = minRes + t * 3;  // up to 4px
+        return Math.max(1, Math.round(res));
+      }
+
+      const t = (p - 0.25) / 0.75;     // 0..1
+      const eased = Math.pow(t, 0.8);  // slight ease-in to keep mid-range smooth
+      const res = 4 + eased * (maxRes - 4);
+      return Math.max(1, Math.round(res));
     }
 
     const base = tools.brushSettings.fillResolution || 1;
