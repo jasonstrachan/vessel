@@ -965,6 +965,14 @@ export const useBrushEngineSimplified = () => {
     }
   }, [layers]);
 
+  // Reset pressure-linked resolution caches whenever the mode toggles
+  useEffect(() => {
+    strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
+    strokeDitherPixelSizeRef.current = null;
+    lastPressureDitherTimeRef.current = 0;
+    lastPressureDitherPixelSizeRef.current = null;
+  }, [tools.brushSettings.pressureLinkedFillResolution]);
+
   const layerHasAnyAlpha = useCallback(() => {
     const mask = getActiveLayerBitmapCanvas();
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -2323,8 +2331,9 @@ export const useBrushEngineSimplified = () => {
           const tinyDelta =
             Math.abs(currentPixelSize - lastPixelSize) < PRESSURE_DITHER_MIN_DELTA_RES;
 
-          // Skip if it's both too soon AND the resolution hasn't really changed
-          if (!(tooSoon && tinyDelta)) {
+          const resolutionDecreased = currentPixelSize < lastPixelSize;
+          // Skip only when throttled AND change is tiny AND resolution did not get finer
+          if (!(tooSoon && tinyDelta && !resolutionDecreased)) {
             lastPressureDitherTimeRef.current = now;
             lastPressureDitherPixelSizeRef.current = currentPixelSize;
 
@@ -2450,7 +2459,8 @@ export const useBrushEngineSimplified = () => {
           const tinyDelta =
             Math.abs(currentPixelSize - lastPixelSize) < PRESSURE_DITHER_MIN_DELTA_RES;
 
-          if (!(tooSoon && tinyDelta)) {
+          const resolutionDecreased = currentPixelSize < lastPixelSize;
+          if (!(tooSoon && tinyDelta && !resolutionDecreased)) {
             lastPressureDitherTimeRef.current = now;
             lastPressureDitherPixelSizeRef.current = currentPixelSize;
 
