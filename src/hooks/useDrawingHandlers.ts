@@ -975,6 +975,7 @@ export function useDrawingHandlers({
   const shapeDragLastRef = useRef<{ x: number; y: number } | null>(null);
   const shapeDragMovedRef = useRef(false);
   const simpleShapePreviewRendererRef = useRef<(() => void) | null>(null);
+  const lastShapePreviewTsRef = useRef(0);
   const activeStrokeSessionRef = useRef<BrushStrokeSession | null>(null);
   const strokeBeforeColorStateRef = useRef<ColorCycleSerializedState | null>(null);
   const strokeBeforeImageRef = useRef<ImageData | null>(null);
@@ -1001,6 +1002,12 @@ export function useDrawingHandlers({
   };
 
   const triggerSimpleShapePreview = useCallback(() => {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    // Throttle to ~60fps to avoid repainting huge polygons on every stylus sample.
+    if (now - lastShapePreviewTsRef.current < 16) {
+      return;
+    }
+    lastShapePreviewTsRef.current = now;
     simpleShapePreviewRendererRef.current?.();
   }, []);
 

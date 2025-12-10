@@ -666,11 +666,20 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    const points = drawingHandlers.shapePointsRef?.current ?? [];
-    if (!points || points.length < 2) {
+    const rawPoints = drawingHandlers.shapePointsRef?.current ?? [];
+    if (!rawPoints || rawPoints.length < 2) {
       ctx.clearRect(0, 0, overlay.width, overlay.height);
       return;
     }
+
+    // Preview decimation: cap the number of points we render to keep large shapes responsive.
+    const MAX_PREVIEW_POINTS = 400;
+    const decimationStep = rawPoints.length > MAX_PREVIEW_POINTS
+      ? Math.ceil(rawPoints.length / MAX_PREVIEW_POINTS)
+      : 1;
+    const points = decimationStep === 1
+      ? rawPoints
+      : rawPoints.filter((_, idx) => idx % decimationStep === 0 || idx === rawPoints.length - 1);
 
     const { tools, layers, activeLayerId } = getDynamicDeps();
     const brushSettings = tools.brushSettings;
@@ -827,7 +836,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         ? latestShapePixelSizeRef?.current ?? undefined
         : undefined;
 
-      if (liveDitherEnabled) {
+      // Skip heavy dither preview for extremely large overlays to reduce lag.
+      const overlayArea = overlayRegion.width * overlayRegion.height;
+      const SKIP_DITHER_AREA = 1_200_000; // ~1200x1000px screen area equivalent
+      const shouldSkipDither = overlayArea > SKIP_DITHER_AREA || points.length > MAX_PREVIEW_POINTS;
+
+      if (liveDitherEnabled && !shouldSkipDither) {
         try {
         brushEngine?.applyStrokeDither(bufferCtx, {
           x: 0,
