@@ -4372,6 +4372,7 @@ export function useDrawingHandlers({
   const latestShapePixelSizeRef = useRef<number | null>(null);
   const penLiftHoldUntilRef = useRef<number>(0);
   const shapeMaxPressureRef = useRef(0.5);
+  const shapePressureInitializedRef = useRef(false);
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
@@ -4402,6 +4403,24 @@ export function useDrawingHandlers({
     const TAIL_MIN = 0.2; // below this (after a decent stroke) we consider it tail
 
     if (val >= SAMPLE_MIN) {
+      if (!shapePressureInitializedRef.current) {
+        // First valid sample of this stroke: seed from the live value so light strokes can go small.
+        shapePressureInitializedRef.current = true;
+        latestShapePressureRef.current = val;
+        lastNonZeroShapePressureRef.current = val;
+        shapeMaxPressureRef.current = val;
+        latestShapePixelSizeRef.current = computeShapePixelSize(val);
+        penLiftHoldUntilRef.current = now + 200;
+
+        console.log('[shape-pressure]', {
+          phase: 'sample-seed',
+          raw: val,
+          smoothed: val,
+          pixelSize: latestShapePixelSizeRef.current
+        });
+        return;
+      }
+
       const reachedTailGate = shapeMaxPressureRef.current >= TAIL_MIN;
 
       if (reachedTailGate && val < TAIL_MIN) {
@@ -4450,6 +4469,7 @@ export function useDrawingHandlers({
     } else {
       // Pen-up: keep lastNonZero + pixelSize; only raw goes to 0
       latestShapePressureRef.current = 0;
+      shapePressureInitializedRef.current = false;
 
       console.log('[shape-pressure]', {
         phase: 'pen-up',
