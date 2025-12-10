@@ -93,6 +93,20 @@ export const DitherControls: React.FC<Props> = ({
             />
           </div>
 
+          {settings.ditherAlgorithm === 'pattern' && (
+            <div className="flex items-center gap-2 mt-2">
+              <div className={labelWidth} />
+              <Dropdown
+                value={settings.patternStyle || 'dots'}
+                options={PATTERN_STYLES}
+                onChange={(value) =>
+                  onChange({ patternStyle: value as NonNullable<BrushSettings['patternStyle']> })
+                }
+                className="flex-1"
+              />
+            </div>
+          )}
+
           <div className="flex items-center gap-2 mt-2">
             <label className={labelWidth} style={labelStyle}>
               Res
@@ -177,20 +191,6 @@ export const DitherControls: React.FC<Props> = ({
               className="flex-1"
             />
           </div>
-
-          {settings.ditherAlgorithm === 'pattern' && (
-            <div className="flex items-center gap-2 mt-2">
-              <div className={labelWidth} />
-              <Dropdown
-                value={settings.patternStyle || 'dots'}
-                options={PATTERN_STYLES}
-                onChange={(value) =>
-                  onChange({ patternStyle: value as NonNullable<BrushSettings['patternStyle']> })
-                }
-                className="flex-1"
-              />
-            </div>
-          )}
         </>
       )}
     </div>

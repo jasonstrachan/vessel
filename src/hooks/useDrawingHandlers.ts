@@ -4398,10 +4398,25 @@ export function useDrawingHandlers({
     const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
     const now = timestamp ?? Date.now();
 
-    // Higher threshold to treat easing-off samples as tail sooner
-    const EFFECTIVE_MIN = 0.2; // “real stroke” vs tail noise
+    const SAMPLE_MIN = 0.05; // minimum to treat as a valid sample
+    const TAIL_MIN = 0.2; // below this (after a decent stroke) we consider it tail
 
-    if (val >= EFFECTIVE_MIN) {
+    if (val >= SAMPLE_MIN) {
+      const reachedTailGate = shapeMaxPressureRef.current >= TAIL_MIN;
+
+      if (reachedTailGate && val < TAIL_MIN) {
+        // Tail for strokes that have already exceeded the gate; freeze pixel size
+        latestShapePressureRef.current = val;
+
+        console.log('[shape-pressure]', {
+          phase: 'tail',
+          raw: val,
+          lastNonZero: lastNonZeroShapePressureRef.current,
+          pixelSize: latestShapePixelSizeRef.current
+        });
+        return;
+      }
+
       // Normal in-stroke sample: allow pressure to go up AND down
       const prev = latestShapePressureRef.current ?? val;
       const alpha = 0.4; // smoothing factor
