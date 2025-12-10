@@ -4,7 +4,7 @@
 // Based on /docs/03_Features/Drawing_Tools.md (lines 8-48)
 
 import React from "react";
-import { useAppStore } from "../../stores/useAppStore";
+import { useAppStore } from "@/stores/useAppStore";
 import {
   selectActiveLayerId,
   selectLayers,
@@ -16,16 +16,16 @@ import {
   selectGlobalBrushSize,
   selectShapeMode,
 } from '@/stores/selectors/toolsSelectors';
-import { BrushShape, type BrushSettings } from "../../types";
+import { BrushShape, type BrushSettings } from "@/types";
 import Input from "../ui/Input";
 import ProgressSlider from "../ui/ProgressSlider";
 // Using ProgressSlider to match pixel square brush opacity style
 import Dropdown from "../ui/Dropdown";
 import ButtonGroup from "../ui/ButtonGroup";
-import { drawTestSwatches } from "../../utils/drawTestSwatches";
+import { drawTestSwatches } from "@/utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 import CustomSwitch from "../ui/CustomSwitch";
-import { isStrokeBrush, supportsDither } from "../../utils/brushCategories";
+import { isStrokeBrush, supportsDither } from "@/utils/brushCategories";
 import {
   DEFAULT_GRADIENT_STOPS,
   getPresetOptions as getRectGradientPresetOptions,

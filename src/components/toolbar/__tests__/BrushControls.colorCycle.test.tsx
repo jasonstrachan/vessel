@@ -3,10 +3,59 @@ import { render, screen } from '@testing-library/react';
 import { create } from 'zustand';
 import userEvent from '@testing-library/user-event';
 
+jest.mock('@/types', () => ({
+  __esModule: true,
+  BrushShape: {
+    ROUND: 'round',
+    PIXEL_ROUND: 'pixel_round',
+    PIXEL_DITHER: 'pixel_dither',
+    SQUARE: 'square',
+    TRIANGLE: 'triangle',
+    POLYGON: 'polygon',
+    CUSTOM: 'custom',
+    RECTANGLE_GRADIENT: 'rectangle_gradient',
+    POLYGON_GRADIENT: 'polygon_gradient',
+    CONTOUR_POLYGON: 'contour_polygon',
+    CONTOUR_LINES2: 'contour_lines2',
+    RISOGRAPH_SOFT: 'risograph_soft',
+    RISOGRAPH_ULTRA: 'risograph_ultra',
+    RESAMPLER: 'resampler',
+    COLOR_CYCLE: 'color_cycle',
+    COLOR_CYCLE_TRIANGLE: 'color_cycle_triangle',
+    COLOR_CYCLE_SHAPE: 'color_cycle_shape',
+    SPAM_TEXT: 'spam_text',
+    SHAPE_FILL: 'shape_fill',
+  },
+}));
+// ts-jest transpiles the path in BrushControls to a relative import; double-mock for that path too.
+jest.mock('../../../types', () => ({
+  __esModule: true,
+  BrushShape: {
+    ROUND: 'round',
+    PIXEL_ROUND: 'pixel_round',
+    PIXEL_DITHER: 'pixel_dither',
+    SQUARE: 'square',
+    TRIANGLE: 'triangle',
+    POLYGON: 'polygon',
+    CUSTOM: 'custom',
+    RECTANGLE_GRADIENT: 'rectangle_gradient',
+    POLYGON_GRADIENT: 'polygon_gradient',
+    CONTOUR_POLYGON: 'contour_polygon',
+    CONTOUR_LINES2: 'contour_lines2',
+    RISOGRAPH_SOFT: 'risograph_soft',
+    RISOGRAPH_ULTRA: 'risograph_ultra',
+    RESAMPLER: 'resampler',
+    COLOR_CYCLE: 'color_cycle',
+    COLOR_CYCLE_TRIANGLE: 'color_cycle_triangle',
+    COLOR_CYCLE_SHAPE: 'color_cycle_shape',
+    SPAM_TEXT: 'spam_text',
+    SHAPE_FILL: 'shape_fill',
+  },
+}));
+
 import BrushControls from '../BrushControls';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
-import { BrushShape } from '@/types';
 
 // Lightweight mocks to keep the test focused on wiring
 jest.mock('@/components/ui/ProgressSlider', () => ({
@@ -61,6 +110,11 @@ jest.mock('@/components/ui/GradientEditor', () => ({
   GradientEditor: ({ stops }: { stops: Array<{ position: number; color: string }> }) => (
     <div data-testid="gradient-editor">{stops.length}</div>
   ),
+}));
+
+jest.mock('@/presets/brushPresets', () => ({
+  __esModule: true,
+  getPresetCapabilities: jest.fn(() => ({ components: [] })),
 }));
 
 // Minimal mock store
@@ -169,7 +223,7 @@ jest.mock('@/stores/useAppStore', () => {
       currentTool: 'brush',
       previousTool: 'brush',
       lastRegularTool: 'brush',
-      lastRegularBrushShape: BrushShape.COLOR_CYCLE,
+      lastRegularBrushShape: 'color_cycle',
       lastRegularShapeMode: false,
       lastColorCycleShapeMode: false,
       brushSettings: baseBrush,

@@ -170,7 +170,14 @@ export type DitherAlgorithm =
   | 'void-and-cluster'
   | 'pattern';
 export type BayerMatrixSize = 2 | 4 | 8;
-export type PatternStyle = 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+export type PatternStyle =
+  | 'dots'
+  | 'lines'
+  | 'vertical-lines'
+  | 'horizontal-lines'
+  | 'crosshatch'
+  | 'diagonal'
+  | 'tone-adaptive';
 
 export interface DitherSettings {
   algorithm: DitherAlgorithm;
@@ -959,6 +966,25 @@ export const applyPatternDither = (
           const dx = Math.abs((x % spacing) - spacing / 2);
           const dy = Math.abs((y % spacing) - spacing / 2);
           patternValue = (dx + dy) / spacing;
+          break;
+        }
+        case 'tone-adaptive': {
+          // Choose a cheap pattern based on local luminance so dark/mid/high differ.
+          const lum = (data[idx] + data[idx + 1] + data[idx + 2]) / (3 * 255);
+          if (lum < 0.33) {
+            // Shadows: tight vertical lines
+            const spacing = 3;
+            patternValue = (x % spacing) / spacing;
+          } else if (lum < 0.66) {
+            // Midtones: dotted/diagonal mix
+            const spacing = 4;
+            const diag = (x + y) % spacing;
+            patternValue = diag / spacing;
+          } else {
+            // Highlights: horizontal lines, slightly looser
+            const spacing = 5;
+            patternValue = (y % spacing) / spacing;
+          }
           break;
         }
       }

@@ -4419,7 +4419,16 @@ export function useDrawingHandlers({
     const settings = storeRef.current.tools.brushSettings;
     const p = Math.max(0, Math.min(1, pressure));
     const base = Math.max(1, Math.round(settings.fillResolution || 1));
-    if (!settings.pressureLinkedFillResolution) return base;
+    if (!settings.pressureLinkedFillResolution) {
+      // Treat disabling pressure linkage as a hard reset of cached shape pressure state
+      latestShapePixelSizeRef.current = null;
+      hadValidShapePressureRef.current = false;
+      lastStablePressureRef.current = 0;
+      shapeMaxPressureRef.current = 0;
+      shapePressureInitializedRef.current = false;
+      tailActiveRef.current = false;
+      return base;
+    }
 
     // Match the dither preset mapping in useBrushEngineSimplified
     const minRes = 1;
@@ -4521,7 +4530,7 @@ export function useDrawingHandlers({
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5, timestamp?: number) => {
     const isNewShape = !isDrawingShapeRef.current || shapePointsRef.current.length === 0;
 
-    if (shapeMode && isNewShape) {
+    if (isNewShape) {
       resetShapePressureState();
     }
 
@@ -5273,17 +5282,27 @@ export function useDrawingHandlers({
               if (ditherRegion && ditherRegion.width > 0 && ditherRegion.height > 0) {
                 const state = storeRef.current;
 
+                const settings = storeRef.current.tools.brushSettings;
+                const sliderBase = Math.max(1, Math.round(settings.fillResolution || 1));
+
+                const hasValidPressure = hadValidShapePressureRef.current;
                 const effectivePressure =
-                  lastStablePressureRef.current > 0.0001
+                  hasValidPressure && lastStablePressureRef.current > 0.0001
                     ? lastStablePressureRef.current
                     : 0;
 
-                // Prefer the pixel size that the preview actually used for that pressure
-                const previewPixelSize = hadValidShapePressureRef.current
-                  ? latestShapePixelSizeRef.current
-                  : null;
+                let forcedPixelSize: number;
 
-                let forcedPixelSize = previewPixelSize ?? computeShapePixelSize(effectivePressure);
+                if (!hasValidPressure) {
+                  // No meaningful pressure sampled for this shape; fall back to the slider value
+                  forcedPixelSize = sliderBase;
+                } else if (latestShapePixelSizeRef.current != null) {
+                  // Use the pixel size actually seen during this shape's preview
+                  forcedPixelSize = latestShapePixelSizeRef.current;
+                } else {
+                  // Fallback: compute from the sampled pressure
+                  forcedPixelSize = computeShapePixelSize(effectivePressure);
+                }
 
                 // Guard: never go below 1px
                 forcedPixelSize = Math.max(1, Math.round(forcedPixelSize || 1));
@@ -5295,7 +5314,7 @@ export function useDrawingHandlers({
 
                 console.log('[shape-dither-finalize]', {
                   effectivePressure,
-                  previewPixelSize,
+                  hasValidPressure,
                   forcedPixelSize
                 });
 
