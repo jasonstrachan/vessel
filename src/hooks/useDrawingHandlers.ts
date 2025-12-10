@@ -911,6 +911,7 @@ export function useDrawingHandlers({
     shapeMaxPressureRef.current = 0;
     shapePressureInitializedRef.current = false;
     hadValidShapePressureRef.current = false;
+    shapePressureStatsRef.current = { sum: 0, count: 0, max: 0 };
   }, []);
 
   useEffect(() => {
@@ -4403,6 +4404,7 @@ export function useDrawingHandlers({
   const shapeMaxPressureRef = useRef(0.5);
   const shapePressureInitializedRef = useRef(false);
   const hadValidShapePressureRef = useRef(false);
+  const shapePressureStatsRef = useRef({ sum: 0, count: 0, max: 0 });
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
@@ -4429,12 +4431,13 @@ export function useDrawingHandlers({
     const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
     const now = timestamp ?? Date.now();
 
-    const SAMPLE_MIN = 0.05; // minimum to treat as a valid sample
-    const TAIL_MIN = 0.2; // below this (after a decent stroke) we consider it tail
+    if (val > 0) {
+      const stats = shapePressureStatsRef.current;
+      stats.sum += val;
+      stats.count += 1;
+      stats.max = Math.max(stats.max, val);
 
-    if (val >= SAMPLE_MIN) {
       if (!shapePressureInitializedRef.current) {
-        // First valid sample of this stroke: seed from the live value so light strokes can go small.
         shapePressureInitializedRef.current = true;
         hadValidShapePressureRef.current = true;
         latestShapePressureRef.current = val;
@@ -4452,22 +4455,6 @@ export function useDrawingHandlers({
         return;
       }
 
-      const reachedTailGate = shapeMaxPressureRef.current >= TAIL_MIN;
-
-      if (reachedTailGate && val < TAIL_MIN) {
-        // Tail for strokes that have already exceeded the gate; freeze pixel size
-        latestShapePressureRef.current = val;
-
-        console.log('[shape-pressure]', {
-          phase: 'tail',
-          raw: val,
-          lastNonZero: lastNonZeroShapePressureRef.current,
-          pixelSize: latestShapePixelSizeRef.current
-        });
-        return;
-      }
-
-      // Normal in-stroke sample: allow pressure to go up AND down
       const prev = latestShapePressureRef.current ?? val;
       const alpha = 0.4; // smoothing factor
       const smoothed = prev + (val - prev) * alpha;
@@ -4477,7 +4464,6 @@ export function useDrawingHandlers({
       shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, smoothed);
       hadValidShapePressureRef.current = true;
 
-      // This is the pixel size the preview should use
       latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
 
       penLiftHoldUntilRef.current = now + 200;
@@ -4488,23 +4474,11 @@ export function useDrawingHandlers({
         smoothed,
         pixelSize: latestShapePixelSizeRef.current
       });
-    } else if (val > 0) {
-      // Tail while easing off: track raw, but DO NOT change lastNonZero or pixelSize
-      latestShapePressureRef.current = val;
-
-      console.log('[shape-pressure]', {
-        phase: 'tail',
-        raw: val,
-        lastNonZero: lastNonZeroShapePressureRef.current,
-        pixelSize: latestShapePixelSizeRef.current
-      });
     } else {
-      // Pen-up: keep lastNonZero + pixelSize; only raw goes to 0
+      // Pen-up: keep lastNonZero + pixelSize for finalize
       latestShapePressureRef.current = 0;
       shapePressureInitializedRef.current = false;
-      hadValidShapePressureRef.current = false;
-      latestShapePixelSizeRef.current = null;
-      lastNonZeroShapePressureRef.current = 0;
+      hadValidShapePressureRef.current = Boolean(lastNonZeroShapePressureRef.current > 0);
 
       console.log('[shape-pressure]', {
         phase: 'pen-up',
@@ -5269,11 +5243,13 @@ export function useDrawingHandlers({
               if (ditherRegion && ditherRegion.width > 0 && ditherRegion.height > 0) {
                 const state = storeRef.current;
 
-                // Use the last stable pressure sample from the stroke
-                const effectivePressure =
-                  lastNonZeroShapePressureRef.current > 0.0001
-                    ? lastNonZeroShapePressureRef.current
-                    : 0;
+                const stats = shapePressureStatsRef.current;
+                const avgPressure = stats.count ? stats.sum / stats.count : 0;
+                const maxPressure = stats.max;
+                const blendedPressure = stats.count
+                  ? 0.7 * avgPressure + 0.3 * maxPressure
+                  : lastNonZeroShapePressureRef.current || 0;
+                const effectivePressure = Math.max(0, Math.min(1, blendedPressure));
 
                 // Prefer the pixel size that the preview actually used for that pressure
                 const previewPixelSize = hadValidShapePressureRef.current
