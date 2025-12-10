@@ -904,6 +904,35 @@ export function useDrawingHandlers({
   void _viewTransformRef;
   void _canvasRef;
   const brushEngine = useBrushEngineSimplified();
+  const resetShapePressureState = useCallback(() => {
+    latestShapePixelSizeRef.current = null;
+    lastNonZeroShapePressureRef.current = 0;
+    latestShapePressureRef.current = 0;
+    shapeMaxPressureRef.current = 0;
+    shapePressureInitializedRef.current = false;
+    hadValidShapePressureRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    // Clear cached pressure-derived pixel size when fill resolution settings change
+    const selector = (state: AppState) => ({
+      fillResolution: state.tools.brushSettings.fillResolution,
+      pressureLinkedFillResolution: state.tools.brushSettings.pressureLinkedFillResolution
+    });
+
+    let prev = selector(useAppStore.getState());
+    const unsubscribe = useAppStore.subscribe((state) => {
+      const next = selector(state);
+      if (
+        next.fillResolution !== prev.fillResolution ||
+        next.pressureLinkedFillResolution !== prev.pressureLinkedFillResolution
+      ) {
+        resetShapePressureState();
+      }
+      prev = next;
+    });
+    return () => unsubscribe();
+  }, [resetShapePressureState]);
   const userBrushEngine = useUserBrushEngine();
   const captureCanvasToActiveLayer = useAppStore((state) => state.captureCanvasToActiveLayer);
   const activeLayerId = useAppStore(selectActiveLayerId);
@@ -4373,6 +4402,7 @@ export function useDrawingHandlers({
   const penLiftHoldUntilRef = useRef<number>(0);
   const shapeMaxPressureRef = useRef(0.5);
   const shapePressureInitializedRef = useRef(false);
+  const hadValidShapePressureRef = useRef(false);
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
@@ -4406,6 +4436,7 @@ export function useDrawingHandlers({
       if (!shapePressureInitializedRef.current) {
         // First valid sample of this stroke: seed from the live value so light strokes can go small.
         shapePressureInitializedRef.current = true;
+        hadValidShapePressureRef.current = true;
         latestShapePressureRef.current = val;
         lastNonZeroShapePressureRef.current = val;
         shapeMaxPressureRef.current = val;
@@ -4444,6 +4475,7 @@ export function useDrawingHandlers({
       latestShapePressureRef.current = smoothed;
       lastNonZeroShapePressureRef.current = smoothed;
       shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, smoothed);
+      hadValidShapePressureRef.current = true;
 
       // This is the pixel size the preview should use
       latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
@@ -4470,6 +4502,9 @@ export function useDrawingHandlers({
       // Pen-up: keep lastNonZero + pixelSize; only raw goes to 0
       latestShapePressureRef.current = 0;
       shapePressureInitializedRef.current = false;
+      hadValidShapePressureRef.current = false;
+      latestShapePixelSizeRef.current = null;
+      lastNonZeroShapePressureRef.current = 0;
 
       console.log('[shape-pressure]', {
         phase: 'pen-up',
@@ -4480,6 +4515,12 @@ export function useDrawingHandlers({
   };
 
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5, timestamp?: number) => {
+    const isNewShape = !isDrawingShapeRef.current || shapePointsRef.current.length === 0;
+
+    if (shapeMode && isNewShape) {
+      resetShapePressureState();
+    }
+
     shapeMaxPressureRef.current = pressure || latestShapePressureRef.current || 0.5;
     updateShapePressure(pressure, timestamp);
     // If we're selecting direction for linear gradient, record the direction
@@ -4584,6 +4625,7 @@ export function useDrawingHandlers({
     startDrawing,
     updateAutoSampledGradient,
     storeRef,
+    resetShapePressureState,
     seedManualStrokeBoundingBox,
     triggerSimpleShapePreview,
     clearShapeBeforeSnapshot
@@ -5234,8 +5276,11 @@ export function useDrawingHandlers({
                     : 0;
 
                 // Prefer the pixel size that the preview actually used for that pressure
-                let forcedPixelSize =
-                  latestShapePixelSizeRef.current ?? computeShapePixelSize(effectivePressure);
+                const previewPixelSize = hadValidShapePressureRef.current
+                  ? latestShapePixelSizeRef.current
+                  : null;
+
+                let forcedPixelSize = previewPixelSize ?? computeShapePixelSize(effectivePressure);
 
                 // Guard: never go below 1px
                 forcedPixelSize = Math.max(1, Math.round(forcedPixelSize || 1));
@@ -5247,7 +5292,7 @@ export function useDrawingHandlers({
 
                 console.log('[shape-dither-finalize]', {
                   effectivePressure,
-                  previewPixelSize: latestShapePixelSizeRef.current,
+                  previewPixelSize,
                   forcedPixelSize
                 });
 
@@ -5795,6 +5840,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
       clearShapeBeforeSnapshot();
+      resetShapePressureState();
     }
     }); // End of FinalizeQueue.enqueue
     return;
@@ -6356,6 +6402,7 @@ export function useDrawingHandlers({
     lastNonZeroShapePressureRef,
     latestShapePixelSizeRef,
     shapeMaxPressureRef,
+    hadValidShapePressureRef,
     setSimpleShapePreviewRenderer,
     shapePointsRef,
     isDrawingShapeRef,

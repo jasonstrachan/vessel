@@ -465,6 +465,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         brushShape === BrushShape.POLYGON_GRADIENT || 
         brushShape === BrushShape.CONTOUR_POLYGON ||
         brushShape === BrushShape.CONTOUR_LINES2 ||
+        brushShape === BrushShape.PIXEL_DITHER ||
         brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
         brushShape === BrushShape.SPAM_TEXT ||
         brushShape === BrushShape.SHAPE_FILL) {
