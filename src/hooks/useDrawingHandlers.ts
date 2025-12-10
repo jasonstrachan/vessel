@@ -4398,7 +4398,8 @@ export function useDrawingHandlers({
     const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
     const now = timestamp ?? Date.now();
 
-    const EFFECTIVE_MIN = 0.08; // “real stroke” vs tail noise
+    // Higher threshold to treat easing-off samples as tail sooner
+    const EFFECTIVE_MIN = 0.2; // “real stroke” vs tail noise
 
     if (val >= EFFECTIVE_MIN) {
       // Normal in-stroke sample: allow pressure to go up AND down
