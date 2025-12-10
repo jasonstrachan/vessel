@@ -911,7 +911,8 @@ export function useDrawingHandlers({
     shapeMaxPressureRef.current = 0;
     shapePressureInitializedRef.current = false;
     hadValidShapePressureRef.current = false;
-    shapePressureStatsRef.current = { sum: 0, count: 0, max: 0 };
+    lastStablePressureRef.current = 0;
+    tailActiveRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -4404,7 +4405,8 @@ export function useDrawingHandlers({
   const shapeMaxPressureRef = useRef(0.5);
   const shapePressureInitializedRef = useRef(false);
   const hadValidShapePressureRef = useRef(false);
-  const shapePressureStatsRef = useRef({ sum: 0, count: 0, max: 0 });
+  const lastStablePressureRef = useRef(0.5);
+  const tailActiveRef = useRef(false);
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
@@ -4429,60 +4431,81 @@ export function useDrawingHandlers({
 
   const updateShapePressure = (p?: number, timestamp?: number) => {
     const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
-    const now = timestamp ?? Date.now();
 
-    if (val > 0) {
-      const stats = shapePressureStatsRef.current;
-      stats.sum += val;
-      stats.count += 1;
-      stats.max = Math.max(stats.max, val);
+    const DROP_EPS = 0.06; // significant drop that marks tail start
+    const SAMPLE_MIN = 0.05; // ignore tiny noise near 0
 
+    if (val >= SAMPLE_MIN) {
       if (!shapePressureInitializedRef.current) {
+        // First valid sample of this shape
         shapePressureInitializedRef.current = true;
-        hadValidShapePressureRef.current = true;
+        tailActiveRef.current = false;
+
         latestShapePressureRef.current = val;
+        lastStablePressureRef.current = val;
         lastNonZeroShapePressureRef.current = val;
         shapeMaxPressureRef.current = val;
+        hadValidShapePressureRef.current = true;
         latestShapePixelSizeRef.current = computeShapePixelSize(val);
-        penLiftHoldUntilRef.current = now + 200;
 
         console.log('[shape-pressure]', {
           phase: 'sample-seed',
           raw: val,
-          smoothed: val,
           pixelSize: latestShapePixelSizeRef.current
         });
         return;
       }
 
       const prev = latestShapePressureRef.current ?? val;
-      const alpha = 0.4; // smoothing factor
+      const alpha = 0.4;
       const smoothed = prev + (val - prev) * alpha;
 
       latestShapePressureRef.current = smoothed;
-      lastNonZeroShapePressureRef.current = smoothed;
       shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, smoothed);
-      hadValidShapePressureRef.current = true;
 
-      latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
+      const dropFromStable = lastStablePressureRef.current - smoothed;
+      if (!tailActiveRef.current && dropFromStable > DROP_EPS) {
+        tailActiveRef.current = true;
 
-      penLiftHoldUntilRef.current = now + 200;
+        console.log('[shape-pressure]', {
+          phase: 'tail-start',
+          raw: val,
+          smoothed,
+          lastStable: lastStablePressureRef.current,
+          pixelSize: latestShapePixelSizeRef.current
+        });
+        return;
+      }
 
-      console.log('[shape-pressure]', {
-        phase: 'sample',
-        raw: val,
-        smoothed,
-        pixelSize: latestShapePixelSizeRef.current
-      });
+      if (!tailActiveRef.current) {
+        lastStablePressureRef.current = smoothed;
+        lastNonZeroShapePressureRef.current = smoothed;
+        hadValidShapePressureRef.current = true;
+        latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
+
+        console.log('[shape-pressure]', {
+          phase: 'sample',
+          raw: val,
+          smoothed,
+          pixelSize: latestShapePixelSizeRef.current
+        });
+      } else {
+        console.log('[shape-pressure]', {
+          phase: 'tail',
+          raw: val,
+          smoothed,
+          frozenStable: lastStablePressureRef.current,
+          pixelSize: latestShapePixelSizeRef.current
+        });
+      }
     } else {
-      // Pen-up: keep lastNonZero + pixelSize for finalize
+      // Pen-up or near-zero noise: do not disturb stable values
       latestShapePressureRef.current = 0;
       shapePressureInitializedRef.current = false;
-      hadValidShapePressureRef.current = Boolean(lastNonZeroShapePressureRef.current > 0);
 
       console.log('[shape-pressure]', {
         phase: 'pen-up',
-        lastNonZero: lastNonZeroShapePressureRef.current,
+        lastStable: lastStablePressureRef.current,
         pixelSize: latestShapePixelSizeRef.current
       });
     }
@@ -5243,13 +5266,10 @@ export function useDrawingHandlers({
               if (ditherRegion && ditherRegion.width > 0 && ditherRegion.height > 0) {
                 const state = storeRef.current;
 
-                const stats = shapePressureStatsRef.current;
-                const avgPressure = stats.count ? stats.sum / stats.count : 0;
-                const maxPressure = stats.max;
-                const blendedPressure = stats.count
-                  ? 0.7 * avgPressure + 0.3 * maxPressure
-                  : lastNonZeroShapePressureRef.current || 0;
-                const effectivePressure = Math.max(0, Math.min(1, blendedPressure));
+                const effectivePressure =
+                  lastStablePressureRef.current > 0.0001
+                    ? lastStablePressureRef.current
+                    : 0;
 
                 // Prefer the pixel size that the preview actually used for that pressure
                 const previewPixelSize = hadValidShapePressureRef.current
