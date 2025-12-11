@@ -935,6 +935,28 @@ export function useDrawingHandlers({
     });
     return () => unsubscribe();
   }, [resetShapePressureState]);
+
+  useEffect(() => {
+    let prevZoom = useAppStore.getState().canvas?.zoom ?? 1;
+
+    const unsubscribe = useAppStore.subscribe((state: AppState) => {
+      const nextZoom = state.canvas?.zoom ?? 1;
+      if (nextZoom !== prevZoom) {
+        // Zoom changed: flush per-shape state so pressure/dither caches cannot leak across zoom levels
+        resetShapePressureState();
+        strokeBoundingBoxRef.current = null;
+        strokeCapturePaddingRef.current = 0;
+        shapePointsRef.current = [];
+        isDrawingShapeRef.current = false;
+        shapeDragStartRef.current = null;
+        shapeDragLastRef.current = null;
+        shapeDragMovedRef.current = false;
+      }
+      prevZoom = nextZoom;
+    });
+
+    return () => unsubscribe();
+  }, [resetShapePressureState]);
   const userBrushEngine = useUserBrushEngine();
   const captureCanvasToActiveLayer = useAppStore((state) => state.captureCanvasToActiveLayer);
   const activeLayerId = useAppStore(selectActiveLayerId);
@@ -4480,8 +4502,20 @@ export function useDrawingHandlers({
       shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, smoothed);
 
       const dropFromStable = lastStablePressureRef.current - smoothed;
+      // Unlock tail mode if pressure rises again during live preview
+      if (tailActiveRef.current && smoothed > prev) {
+        tailActiveRef.current = false;
+      }
+
       if (!tailActiveRef.current && dropFromStable > DROP_EPS) {
         tailActiveRef.current = true;
+
+        // If pressure remains meaningful, treat this as modulation rather than lift-off.
+        if (smoothed > 0.2) {
+          lastStablePressureRef.current = smoothed;
+          lastNonZeroShapePressureRef.current = smoothed;
+          latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
+        }
 
         console.log('[shape-pressure]', {
           phase: 'tail-start',
@@ -4644,7 +4678,7 @@ export function useDrawingHandlers({
     clearShapeBeforeSnapshot
   ]);
   
-  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = latestShapePressureRef.current, timestamp?: number) => {
+  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5, timestamp?: number) => {
     updateShapePressure(pressure, timestamp);
     // Handle animations based on brush type
     if (shapeMode && !ccShapePreviewPauseStartedRef.current) {
@@ -5285,24 +5319,15 @@ export function useDrawingHandlers({
                 const settings = storeRef.current.tools.brushSettings;
                 const sliderBase = Math.max(1, Math.round(settings.fillResolution || 1));
 
-                const hasValidPressure = hadValidShapePressureRef.current;
-                const effectivePressure =
-                  hasValidPressure && lastStablePressureRef.current > 0.0001
-                    ? lastStablePressureRef.current
-                    : 0;
+                const hasPressureSample = hadValidShapePressureRef.current;
+                const usePressure =
+                  settings.pressureLinkedFillResolution && hasPressureSample;
 
-                let forcedPixelSize: number;
+                const effectivePressure = usePressure ? lastStablePressureRef.current : 0;
 
-                if (!hasValidPressure) {
-                  // No meaningful pressure sampled for this shape; fall back to the slider value
-                  forcedPixelSize = sliderBase;
-                } else if (latestShapePixelSizeRef.current != null) {
-                  // Use the pixel size actually seen during this shape's preview
-                  forcedPixelSize = latestShapePixelSizeRef.current;
-                } else {
-                  // Fallback: compute from the sampled pressure
-                  forcedPixelSize = computeShapePixelSize(effectivePressure);
-                }
+                let forcedPixelSize = usePressure
+                  ? computeShapePixelSize(effectivePressure)
+                  : sliderBase;
 
                 // Guard: never go below 1px
                 forcedPixelSize = Math.max(1, Math.round(forcedPixelSize || 1));
@@ -5314,7 +5339,7 @@ export function useDrawingHandlers({
 
                 console.log('[shape-dither-finalize]', {
                   effectivePressure,
-                  hasValidPressure,
+                  usePressure,
                   forcedPixelSize
                 });
 

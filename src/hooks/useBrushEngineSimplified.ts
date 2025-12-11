@@ -967,8 +967,7 @@ export const useBrushEngineSimplified = () => {
 
   // Reset pressure-linked resolution caches whenever the mode toggles
   useEffect(() => {
-    strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
-    strokeDitherPixelSizeRef.current = null;
+    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0 };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
   }, [tools.brushSettings.pressureLinkedFillResolution]);
@@ -1331,13 +1330,13 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
   const brushPressurePendingRef = useRef(normalizePressureSettings(tools.brushSettings));
-  const strokePressureRef = useRef<{ last: number; lastNonZero: number; smoothed: number | null }>({
-    last: 0,
+  type StrokePressureState = { min: number; max: number; lastNonZero: number; last: number };
+  const strokePressureRef = useRef<StrokePressureState>({
+    min: 1,
+    max: 0,
     lastNonZero: 0,
-    smoothed: null
+    last: 0
   });
-  const strokeDitherPixelSizeRef = useRef<number | null>(null);
-  const STABLE_EPS = 0.02;
   const lastPressureDitherTimeRef = useRef(0);
   const lastPressureDitherPixelSizeRef = useRef<number | null>(null);
   const PRESSURE_DITHER_MIN_INTERVAL_MS = 30; // ~33 FPS throttle
@@ -1742,18 +1741,12 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution, isDitherPreset]);
 
   const getStrokeDitherPixelSize = useCallback(() => {
-    if (strokeDitherPixelSizeRef.current != null) {
-      return strokeDitherPixelSizeRef.current;
-    }
     const stats = strokePressureRef.current;
-
-    // Use latest sampled pressure; if none yet, treat as 0 for shapes until we get a real sample
-    const p = Math.max(0, Math.min(1, stats.smoothed ?? stats.lastNonZero ?? 0));
-
-    const clamped = Math.max(0, Math.min(1, p));
-    const resolved = computePressureScaledResolution(clamped);
-    strokeDitherPixelSizeRef.current = resolved;
-    return resolved;
+    const p = Math.max(
+      0,
+      Math.min(1, stats.last || stats.lastNonZero || stats.max || 0)
+    );
+    return computePressureScaledResolution(p);
   }, [computePressureScaledResolution]);
 
   // Erode stroke alpha before dithering to keep the pattern intact.
@@ -1882,9 +1875,8 @@ export const useBrushEngineSimplified = () => {
     );
 
     // Shape dither should still respond to pressure when enabled via the toggle
-    const allowPressureForShapes = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
     const pixelSize = resolvedOverridePixelSize
-      ?? (pressureMode && allowPressureForShapes ? pressureFillRes : baseFillRes);
+      ?? (pressureMode ? pressureFillRes : baseFillRes);
 
     console.log('[applyStrokeDither:before]', {
       overridePixelSize,
@@ -2332,24 +2324,14 @@ export const useBrushEngineSimplified = () => {
     const p = Math.max(0, Math.min(1, rawPressure));
 
     const stats = strokePressureRef.current;
-    stats.last = p;
-
-    // Track last non-trivial pressure for debugging / fallback
-    if (p >= STABLE_EPS) {
+    if (p > 0.01) {
+      stats.min = Math.min(stats.min, p);
+      stats.max = Math.max(stats.max, p);
       stats.lastNonZero = p;
+      stats.last = p;
+    } else {
+      stats.last = p;
     }
-
-    // Asymmetric smoothing: fast up, slow down
-    const prevSmoothed = stats.smoothed ?? p;
-    const alphaUp = 0.6;    // respond quickly when pressing harder
-    const alphaDown = 0.15; // original slower easing for stability
-    const alpha = p > prevSmoothed ? alphaUp : alphaDown;
-    const smoothed = prevSmoothed + (p - prevSmoothed) * alpha;
-    stats.smoothed = smoothed;
-
-    // Use smoothed pressure for resolution; floor to avoid ultra-tiny tiles
-    const clampedSmoothed = Math.max(0, Math.min(1, smoothed));
-    strokeDitherPixelSizeRef.current = computePressureScaledResolution(clampedSmoothed);
 
     // Render the stroke
     if (typeof window !== 'undefined') {
@@ -2473,21 +2455,14 @@ export const useBrushEngineSimplified = () => {
     const p = Math.max(0, Math.min(1, rawPressure));
 
     const stats = strokePressureRef.current;
-    stats.last = p;
-
-    if (p >= STABLE_EPS) {
+    if (p > 0.01) {
+      stats.min = Math.min(stats.min, p);
+      stats.max = Math.max(stats.max, p);
       stats.lastNonZero = p;
+      stats.last = p;
+    } else {
+      stats.last = p;
     }
-
-    const prevSmoothed = stats.smoothed ?? p;
-    const alphaUp = 0.6;
-    const alphaDown = 0.15;
-    const alpha = p > prevSmoothed ? alphaUp : alphaDown;
-    const smoothed = prevSmoothed + (p - prevSmoothed) * alpha;
-    stats.smoothed = smoothed;
-
-    const clampedSmoothed = Math.max(0, Math.min(1, smoothed));
-    strokeDitherPixelSizeRef.current = computePressureScaledResolution(clampedSmoothed);
 
     if (typeof window !== 'undefined') {
       window.__AL_sample = { x, y, tag: 'drawStamp' };
@@ -2645,6 +2620,15 @@ export const useBrushEngineSimplified = () => {
     }
 
     if (tools.brushSettings.pressureLinkedFillResolution && strokeBounds && ditherCanvas && region) {
+      // Force a final, unthrottled dither pass so the committed stroke reflects the latest pressure.
+      const rawCtxForFinal = rawCanvas ? pick2D(rawCanvas) : null;
+      const ditherCtxForFinal = ditherCanvas ? pick2D(ditherCanvas) : null;
+      if (rawCtxForFinal && ditherCtxForFinal) {
+        const { x, y, width, height } = region;
+        ditherCtxForFinal.clearRect(x, y, width, height);
+        ditherRegionWithCurrentPressure(ditherCtxForFinal as CanvasRenderingContext2D, region, rawCtxForFinal as CanvasRenderingContext2D);
+      }
+
       const { x, y, width, height } = region;
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
       if (isPixelDitherNoBg) {
@@ -2729,15 +2713,13 @@ export const useBrushEngineSimplified = () => {
     clearLiveStrokeBuffers();
     clearCoverageMaps();
     clearLiveStrokeHoleMask();
-    strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
-    strokeDitherPixelSizeRef.current = null;
+    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0 };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
 
   const resetPressureDitherState = useCallback(() => {
-    strokePressureRef.current = { last: 0, lastNonZero: 0, smoothed: null };
-    strokeDitherPixelSizeRef.current = null;
+    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0 };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
     clearLiveStrokeHoleMask();
