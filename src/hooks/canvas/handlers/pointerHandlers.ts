@@ -1686,9 +1686,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       y: event.clientY - rect.top,
     } : { x: 0, y: 0 };
     
-    // Store pressure value (0-1, with reasonable defaults for mice)
-    // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
-    let pressure = event.pressure ?? 0.5;
+    // Store raw and effective pressure values (0-1).
+    // rawPressure: hardware reading (or 0 if missing).
+    // pressure: effective value after mouse fallbacks / modifiers.
+    const rawPressure = event.pressure ?? 0;
+    let pressure = rawPressure;
     if (event.pointerType === 'mouse') {
       if (tools.brushSettings.pressureEnabled) {
         if (event.shiftKey) {
@@ -2021,6 +2023,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const shouldRouteToShapeHandler =
       (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
+
+    // Cursor rule: shapes use crosshair; stroke brushes use brush-size cursor when allowed
+    if (shouldRouteToShapeHandler || tools.shapeMode) {
+      setCursorStyle('crosshair');
+      setShowBrushCursor(false);
+    } else {
+      setCursorStyle(deps.defaultCursorStyle || 'none');
+      setShowBrushCursor(true);
+    }
 
     if (shouldRouteToShapeHandler) {
       const rewriteHandled = shapeHandler.handlePointerDown(event);
@@ -2718,9 +2729,15 @@ function cssColorToHex(color: string): string {
       return; // Skip all other pointer move logic while panning
     }
 
-    // Quick visibility: show when Shift is held during drawing
-    if (interaction.state.isDrawing && event.shiftKey) {
-      // quiet
+    // Quick visibility: enforce cursor rule while drawing too
+    if (interaction.state.isDrawing) {
+      if (shouldRouteToShapeHandler || tools.shapeMode) {
+        setCursorStyle('crosshair');
+        setShowBrushCursor(false);
+      } else {
+        setCursorStyle(deps.defaultCursorStyle || 'none');
+        setShowBrushCursor(true);
+      }
     }
 
     // Unified coalesced handling below covers both brush and shape drawing (with snapping)
@@ -2747,8 +2764,10 @@ function cssColorToHex(color: string): string {
     }
     
     // Store pressure value (0-1, with reasonable defaults for mice)
+    // rawPressure: hardware reading (or 0 if missing)
+    const rawPressure = event.pressure ?? 0;
     // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
-    let pressure = event.pressure ?? 0.5;
+    let pressure = rawPressure ?? 0.5;
     if (event.pointerType === 'mouse') {
       if (tools.brushSettings.pressureEnabled) {
         if (event.shiftKey) {
@@ -3336,7 +3355,7 @@ function cssColorToHex(color: string): string {
             shapeWorld = snapPointToAngle(anchor, shapeWorld, 45);
           }
         }
-        drawingHandlers.continueShapeDrawing(shapeWorld, pressure, event.timeStamp);
+        drawingHandlers.continueShapeDrawing(shapeWorld, pressure, event.timeStamp, rawPressure);
       } else {
         // Continue drawing immediately for responsive feel
         let brushWorld = worldPos;

@@ -4460,8 +4460,9 @@ export function useDrawingHandlers({
     }
   };
 
-  const updateShapePressure = (p?: number, timestamp?: number) => {
-    const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
+  const updateShapePressure = (p?: number, timestamp?: number, raw?: number) => {
+    const rawVal = typeof raw === 'number' ? raw : p;
+    const val = typeof rawVal === 'number' ? Math.max(0, Math.min(1, rawVal)) : 0;
 
     const now = timestamp || (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -4494,15 +4495,18 @@ export function useDrawingHandlers({
     latestShapePressureRef.current = val;
   };
 
-  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number) => {
+  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {
     const isNewShape = !isDrawingShapeRef.current || shapePointsRef.current.length === 0;
 
     if (isNewShape) {
       resetShapePressureState();
     }
 
-    shapeMaxPressureRef.current = pressure || latestShapePressureRef.current || 0.5;
-    updateShapePressure(pressure, timestamp);
+    const effectivePressure = pressure;
+    const rawVal = typeof rawPressure === 'number' ? rawPressure : pressure;
+
+    shapeMaxPressureRef.current = rawVal || latestShapePressureRef.current || 0.5;
+    updateShapePressure(effectivePressure, timestamp, rawVal);
     // If we're selecting direction for linear gradient, record the direction
     if (isSelectingDirectionRef.current) {
       directionPreviewRef.current = worldPos;
@@ -4611,8 +4615,9 @@ export function useDrawingHandlers({
     clearShapeBeforeSnapshot
   ]);
   
-  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number) => {
-    updateShapePressure(pressure, timestamp);
+  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {
+    const rawVal = typeof rawPressure === 'number' ? rawPressure : pressure;
+    updateShapePressure(pressure, timestamp, rawVal);
     // Handle animations based on brush type
     if (shapeMode && !ccShapePreviewPauseStartedRef.current) {
       const state = storeRef.current;
