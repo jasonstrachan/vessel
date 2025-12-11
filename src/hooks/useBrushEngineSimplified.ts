@@ -2343,8 +2343,12 @@ export const useBrushEngineSimplified = () => {
 
     stats.sampleCount += 1;
     const isEarlySample = stats.sampleCount <= INSTANT_PRESSURE_SAMPLE_WINDOW;
+    const isPenLift = p <= 0.02;
 
-    if (smoothed >= stats.stable || isEarlySample) {
+    if (isPenLift) {
+      // Freeze stable on pen-lift; do not decay or collapse.
+      // Keep last for debugging/analytics, but leave stable untouched.
+    } else if (smoothed >= stats.stable || isEarlySample) {
       // Rising pressure or early samples settle immediately to avoid start-of-stroke lock.
       stats.stable = smoothed;
     } else {
@@ -2501,8 +2505,11 @@ export const useBrushEngineSimplified = () => {
 
     stats.sampleCount += 1;
     const isEarlySample = stats.sampleCount <= INSTANT_PRESSURE_SAMPLE_WINDOW;
+    const isPenLift = p <= 0.02;
 
-    if (smoothed >= stats.stable || isEarlySample) {
+    if (isPenLift) {
+      // Freeze stable on pen-lift; leave latched value intact.
+    } else if (smoothed >= stats.stable || isEarlySample) {
       stats.stable = smoothed;
     } else {
       const isLowPressure = smoothed < 0.25;

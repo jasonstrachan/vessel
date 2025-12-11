@@ -4475,7 +4475,11 @@ export function useDrawingHandlers({
     const elapsed = now - lastShapePressureTimeRef.current;
     lastShapePressureTimeRef.current = now;
 
-    if (val >= lastStablePressureRef.current) {
+    const isPenLift = val <= 0.02;
+
+    if (isPenLift) {
+      // Freeze stable on lift; keep lastStablePressureRef as-is.
+    } else if (val >= lastStablePressureRef.current) {
       lastStablePressureRef.current = val;
     } else {
       const isLowPressure = val < 0.25;
