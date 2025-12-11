@@ -2663,6 +2663,8 @@ export const useBrushEngineSimplified = () => {
 
       const { x, y, width, height } = region;
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
+      // Clear stale preview pixels before committing the final dithered stroke
+      ctx.clearRect(x, y, width, height);
       if (isPixelDitherNoBg) {
         ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
       } else {
