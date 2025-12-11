@@ -915,7 +915,9 @@ export const pixelDitherPreset: BrushPreset = {
     ditherAlgorithm: 'sierra-lite',
     ditherPaletteSpread: 0,
     ditherPhaseJitter: 0,
-    lostEdge: 0
+    lostEdge: 0,
+    pressureLinkedFillResolution: true,
+    fillResolution: 28
   }
 };
 
@@ -945,7 +947,9 @@ export const shapeDitherPreset: BrushPreset = {
     ditherPaletteSpread: 0,
     ditherPhaseJitter: 0,
     lostEdge: 0,
-    shapeEnabled: true
+    shapeEnabled: true,
+    pressureLinkedFillResolution: true,
+    fillResolution: 28
   }
 };
 

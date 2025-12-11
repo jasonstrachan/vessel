@@ -19,6 +19,7 @@ import { applyDithering as applyDitheringImport, applyDitheringWithFillResolutio
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
+import { computePressureResolution } from '@/utils/pressureResolution';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
@@ -967,7 +968,16 @@ export const useBrushEngineSimplified = () => {
 
   // Reset pressure-linked resolution caches whenever the mode toggles
   useEffect(() => {
-    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0, stable: 0, isTail: false };
+    strokePressureRef.current = {
+      min: 1,
+      max: 0,
+      lastNonZero: 0,
+      last: 0,
+      stable: 0,
+      isTail: false,
+      lastTime: 0,
+      sampleCount: 0
+    };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
   }, [tools.brushSettings.pressureLinkedFillResolution]);
@@ -1337,7 +1347,9 @@ export const useBrushEngineSimplified = () => {
     lastNonZero: number;
     last: number;
     stable: number;   // latched pressure during tail to prevent collapse
-    isTail: boolean;  // whether we are currently easing off
+    isTail: boolean;  // legacy; kept for compatibility but unused in ratchet logic
+    lastTime: number;
+    sampleCount: number;
   };
   const strokePressureRef = useRef<StrokePressureState>({
     min: 1,
@@ -1345,10 +1357,14 @@ export const useBrushEngineSimplified = () => {
     lastNonZero: 0,
     last: 0,
     stable: 0,
-    isTail: false
+    isTail: false,
+    lastTime: 0,
+    sampleCount: 0
   });
-  const PRESSURE_MODULATION_THRESHOLD = 0.25;
-  const PRESSURE_DROP_EPSILON = 0.05;
+  // Pressure ratchet: limit decay by elapsed time so fast lift-offs keep peak resolution.
+  const MAX_PRESSURE_DECAY_PER_MS = 0.003;
+  const MIN_DROP_PER_EVENT = 0.01;
+  const INSTANT_PRESSURE_SAMPLE_WINDOW = 5;
   const lastPressureDitherTimeRef = useRef(0);
   const lastPressureDitherPixelSizeRef = useRef<number | null>(null);
   const PRESSURE_DITHER_MIN_INTERVAL_MS = 30; // ~33 FPS throttle
@@ -1716,41 +1732,12 @@ export const useBrushEngineSimplified = () => {
   }, [isDitherPreset, shouldApplyStrokeDither, tools.brushSettings.ditherBackgroundFill]);
 
   const computePressureScaledResolution = useCallback((pressure: number) => {
-    const p = Math.max(0, Math.min(1, pressure));
-
-    // Dither preset: widen the range so pressure clearly changes the pattern period.
-    if (tools.brushSettings.pressureLinkedFillResolution && isDitherPreset) {
-      const minRes = 1;   // low pressure → fine pattern
-      const maxRes = 28;  // high pressure → coarse pattern
-      if (p <= 0.05) return minRes; // snap to 1px at very light pressure
-
-      // Piecewise easing to avoid a jump from 1px to larger steps:
-      // - 0.05..0.25 maps smoothly from 1 → 4px
-      // - 0.25..1 maps from 4px → maxRes with gentle easing
-      if (p <= 0.25) {
-        const t = (p - 0.05) / 0.20; // 0..1
-        const res = minRes + t * 3;  // up to 4px
-        return Math.max(1, Math.round(res));
-      }
-
-      const t = (p - 0.25) / 0.75;     // 0..1
-      const eased = Math.pow(t, 0.8);  // slight ease-in to keep mid-range smooth
-      const res = 4 + eased * (maxRes - 4);
-      return Math.max(1, Math.round(res));
-    }
-
-    const base = tools.brushSettings.fillResolution || 1;
-    const clampedBase = Math.max(1, Math.min(16, Math.round(base)));
-    if (!tools.brushSettings.pressureLinkedFillResolution) {
-      return clampedBase;
-    }
-
-    // Low pressure → smaller period; high pressure → larger period
-    const minFactor = 0.6;
-    const maxFactor = 1.8;
-    const factor = minFactor + (maxFactor - minFactor) * p;
-    return Math.max(1, Math.round(clampedBase * factor));
-  }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution, isDitherPreset]);
+    return computePressureResolution(
+      tools.brushSettings.fillResolution || 1,
+      pressure,
+      tools.brushSettings.pressureLinkedFillResolution ?? false
+    );
+  }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
 
   const getStrokeDitherPixelSize = useCallback(() => {
     const stats = strokePressureRef.current;
@@ -2320,6 +2307,9 @@ export const useBrushEngineSimplified = () => {
       resetPressureDitherState();
     }
 
+    // High-res timestamp minimizes zero-delta frames (batched pointer events)
+    const nowHighRes = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
     // Calculate velocity
     const distance = Math.sqrt(
       Math.pow(to.x - from.x, 2) + 
@@ -2340,29 +2330,30 @@ export const useBrushEngineSimplified = () => {
     const p = Math.max(0, Math.min(1, rawPressure));
 
     const stats = strokePressureRef.current;
-    // Tail latch: smooth input and hold last stable value during lift-off
+    // Time-based ratchet: smooth input then allow only time-bounded (and minimum) decay.
     const alpha = 0.6;
     const smoothed = stats.last === 0 ? p : (stats.last + (p - stats.last) * alpha);
 
-    // Dither brushes should track pressure directly so lift-off tapers instead of locking resolution.
-    if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
-      stats.isTail = false;
+    const now = nowHighRes;
+    if (stats.lastTime === 0) {
+      stats.lastTime = now;
+    }
+    const elapsed = now - stats.lastTime;
+    stats.lastTime = now;
+
+    stats.sampleCount += 1;
+    const isEarlySample = stats.sampleCount <= INSTANT_PRESSURE_SAMPLE_WINDOW;
+
+    if (smoothed >= stats.stable || isEarlySample) {
+      // Rising pressure or early samples settle immediately to avoid start-of-stroke lock.
       stats.stable = smoothed;
     } else {
-      // If pressure is still substantial or rising, allow resolution to track it (prevents early tail lock)
-      if (smoothed > PRESSURE_MODULATION_THRESHOLD || smoothed > stats.stable) {
-        stats.isTail = false;
-        stats.stable = smoothed;
-      } else {
-        const dropFromStable = stats.stable - smoothed;
-        if (!stats.isTail && dropFromStable > PRESSURE_DROP_EPSILON) {
-          // Enter tail: lock stable at its previous value to avoid collapsing dither into 1px noise
-          stats.isTail = true;
-        } else if (!stats.isTail) {
-          // Gentle low-pressure changes still adjust stable while not in tail
-          stats.stable = smoothed;
-        }
-      }
+      // Falling pressure: accelerate decay when intentionally light; always drop at least a small step.
+      const isLowPressure = smoothed < 0.25;
+      const decayMultiplier = isLowPressure ? 4.0 : 1.0;
+      const timeDrop = Math.max(0, elapsed * MAX_PRESSURE_DECAY_PER_MS * decayMultiplier);
+      const maxDrop = Math.max(timeDrop, MIN_DROP_PER_EVENT);
+      stats.stable = Math.max(smoothed, stats.stable - maxDrop);
     }
 
     if (p > 0.01) {
@@ -2482,6 +2473,8 @@ export const useBrushEngineSimplified = () => {
       resetPressureDitherState();
     }
 
+    const nowHighRes = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
     // Keep size responsive to pressure even when PresRes is enabled
     const sizePressure = pressure;
 
@@ -2496,20 +2489,27 @@ export const useBrushEngineSimplified = () => {
     const p = Math.max(0, Math.min(1, rawPressure));
 
     const stats = strokePressureRef.current;
-    // Tail latch: smooth input and hold last stable value during lift-off
     const alpha = 0.6;
     const smoothed = stats.last === 0 ? p : (stats.last + (p - stats.last) * alpha);
 
-    if (smoothed > PRESSURE_MODULATION_THRESHOLD || smoothed > stats.stable) {
-      stats.isTail = false;
+    const now = nowHighRes;
+    if (stats.lastTime === 0) {
+      stats.lastTime = now;
+    }
+    const elapsed = now - stats.lastTime;
+    stats.lastTime = now;
+
+    stats.sampleCount += 1;
+    const isEarlySample = stats.sampleCount <= INSTANT_PRESSURE_SAMPLE_WINDOW;
+
+    if (smoothed >= stats.stable || isEarlySample) {
       stats.stable = smoothed;
     } else {
-      const dropFromStable = stats.stable - smoothed;
-      if (!stats.isTail && dropFromStable > PRESSURE_DROP_EPSILON) {
-        stats.isTail = true;
-      } else if (!stats.isTail) {
-        stats.stable = smoothed;
-      }
+      const isLowPressure = smoothed < 0.25;
+      const decayMultiplier = isLowPressure ? 4.0 : 1.0;
+      const timeDrop = Math.max(0, elapsed * MAX_PRESSURE_DECAY_PER_MS * decayMultiplier);
+      const maxDrop = Math.max(timeDrop, MIN_DROP_PER_EVENT);
+      stats.stable = Math.max(smoothed, stats.stable - maxDrop);
     }
 
     if (p > 0.01) {
@@ -2682,8 +2682,34 @@ export const useBrushEngineSimplified = () => {
       const ditherCtxForFinal = ditherCanvas ? pick2D(ditherCanvas) : null;
       if (rawCtxForFinal && ditherCtxForFinal) {
         const { x, y, width, height } = region;
+        // Keep a backup so shapes don't vanish if the re-dither receives an empty source.
+        let backup: ImageData | null = null;
+        try {
+          backup = ditherCtxForFinal.getImageData(x, y, width, height);
+        } catch {
+          backup = null;
+        }
+
         ditherCtxForFinal.clearRect(x, y, width, height);
         ditherRegionWithCurrentPressure(ditherCtxForFinal as CanvasRenderingContext2D, region, rawCtxForFinal as CanvasRenderingContext2D);
+
+        try {
+          const post = ditherCtxForFinal.getImageData(x, y, width, height);
+          let hasAlpha = false;
+          for (let i = 3; i < post.data.length; i += 4) {
+            if (post.data[i] !== 0) {
+              hasAlpha = true;
+              break;
+            }
+          }
+          if (!hasAlpha && backup) {
+            ditherCtxForFinal.putImageData(backup, x, y);
+          }
+        } catch {
+          if (backup) {
+            ditherCtxForFinal.putImageData(backup, x, y);
+          }
+        }
       }
 
       const { x, y, width, height } = region;
@@ -2772,13 +2798,31 @@ export const useBrushEngineSimplified = () => {
     clearLiveStrokeBuffers();
     clearCoverageMaps();
     clearLiveStrokeHoleMask();
-    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0, stable: 0, isTail: false };
+    strokePressureRef.current = {
+      min: 1,
+      max: 0,
+      lastNonZero: 0,
+      last: 0,
+      stable: 0,
+      isTail: false,
+      lastTime: 0,
+      sampleCount: 0
+    };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
 
   const resetPressureDitherState = useCallback(() => {
-    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0, stable: 0, isTail: false };
+    strokePressureRef.current = {
+      min: 1,
+      max: 0,
+      lastNonZero: 0,
+      last: 0,
+      stable: 0,
+      isTail: false,
+      lastTime: 0,
+      sampleCount: 0
+    };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
     clearLiveStrokeHoleMask();

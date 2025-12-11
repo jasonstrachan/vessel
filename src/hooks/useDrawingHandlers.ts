@@ -39,6 +39,11 @@ import { unwrapAngle } from '@/utils/angles';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
 import { captureBrushFromCanvas } from '@/utils/customBrushCapture';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
+import { computePressureResolution } from '@/utils/pressureResolution';
+
+// Pressure tuning shared with brush engine
+const MAX_PRESSURE_DECAY_PER_MS = 0.003;
+const MIN_DROP_PER_EVENT = 0.01;
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -909,10 +914,9 @@ export function useDrawingHandlers({
     lastNonZeroShapePressureRef.current = 0;
     latestShapePressureRef.current = 0;
     shapeMaxPressureRef.current = 0;
-    shapePressureInitializedRef.current = false;
     hadValidShapePressureRef.current = false;
     lastStablePressureRef.current = 0;
-    tailActiveRef.current = false;
+    lastShapePressureTimeRef.current = 0;
   }, []);
 
   useEffect(() => {
@@ -4432,39 +4436,17 @@ export function useDrawingHandlers({
   const latestShapePixelSizeRef = useRef<number | null>(null);
   const penLiftHoldUntilRef = useRef<number>(0);
   const shapeMaxPressureRef = useRef(0.5);
-  const shapePressureInitializedRef = useRef(false);
   const hadValidShapePressureRef = useRef(false);
   const lastStablePressureRef = useRef(0.5);
-  const tailActiveRef = useRef(false);
+  const lastShapePressureTimeRef = useRef<number>(0);
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
-    const p = Math.max(0, Math.min(1, pressure));
-    const base = Math.max(1, Math.round(settings.fillResolution || 1));
-    if (!settings.pressureLinkedFillResolution) {
-      // Treat disabling pressure linkage as a hard reset of cached shape pressure state
-      latestShapePixelSizeRef.current = null;
-      hadValidShapePressureRef.current = false;
-      lastStablePressureRef.current = 0;
-      shapeMaxPressureRef.current = 0;
-      shapePressureInitializedRef.current = false;
-      tailActiveRef.current = false;
-      return base;
-    }
-
-    // Match the dither preset mapping in useBrushEngineSimplified
-    const minRes = 1;
-    const maxRes = 28;
-    if (p <= 0.05) return minRes;
-    if (p <= 0.25) {
-      const t = (p - 0.05) / 0.20;
-      const res = minRes + t * 3;
-      return Math.max(1, Math.round(res));
-    }
-    const t = (p - 0.25) / 0.75;
-    const eased = Math.pow(t, 0.8);
-    const res = 4 + eased * (maxRes - 4);
-    return Math.max(1, Math.round(res));
+    return computePressureResolution(
+      settings.fillResolution || 1,
+      pressure,
+      settings.pressureLinkedFillResolution ?? false
+    );
   };
 
   const shapePressureDebugEnabled = () => {
@@ -4481,98 +4463,38 @@ export function useDrawingHandlers({
   const updateShapePressure = (p?: number, timestamp?: number) => {
     const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
 
-    const DROP_EPS = 0.06; // significant drop that marks tail start
-    const SAMPLE_MIN = 0.05; // ignore tiny noise near 0
+    const now = timestamp || (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-    if (val >= SAMPLE_MIN) {
-      if (!shapePressureInitializedRef.current) {
-        // First valid sample of this shape
-        shapePressureInitializedRef.current = true;
-        tailActiveRef.current = false;
-
-        latestShapePressureRef.current = val;
-        lastStablePressureRef.current = val;
-        lastNonZeroShapePressureRef.current = val;
-        shapeMaxPressureRef.current = val;
-        hadValidShapePressureRef.current = true;
-        latestShapePixelSizeRef.current = computeShapePixelSize(val);
-
-        SP({
-          phase: 'sample-seed',
-          raw: val,
-          pixelSize: latestShapePixelSizeRef.current
-        });
-        return;
-      }
-
-      const prev = latestShapePressureRef.current ?? val;
-      const alpha = 0.4;
-      const smoothed = prev + (val - prev) * alpha;
-
-      latestShapePressureRef.current = smoothed;
-      shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, smoothed);
-
-      const dropFromStable = lastStablePressureRef.current - smoothed;
-      // Unlock tail mode if pressure rises again during live preview
-      if (tailActiveRef.current && smoothed > prev) {
-        tailActiveRef.current = false;
-      }
-
-      if (!tailActiveRef.current && dropFromStable > DROP_EPS) {
-        tailActiveRef.current = true;
-
-        // If pressure remains meaningful, treat this as modulation rather than lift-off.
-        if (smoothed > 0.2) {
-          lastStablePressureRef.current = smoothed;
-          lastNonZeroShapePressureRef.current = smoothed;
-          latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
-        }
-
-        SP({
-          phase: 'tail-start',
-          raw: val,
-          smoothed,
-          lastStable: lastStablePressureRef.current,
-          pixelSize: latestShapePixelSizeRef.current
-        });
-        return;
-      }
-
-      if (!tailActiveRef.current) {
-        lastStablePressureRef.current = smoothed;
-        lastNonZeroShapePressureRef.current = smoothed;
-        hadValidShapePressureRef.current = true;
-        latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
-
-        SP({
-          phase: 'sample',
-          raw: val,
-          smoothed,
-          pixelSize: latestShapePixelSizeRef.current
-        });
-      } else {
-        SP({
-          phase: 'tail',
-          raw: val,
-          smoothed,
-          frozenStable: lastStablePressureRef.current,
-          pixelSize: latestShapePixelSizeRef.current
-        });
-      }
-    } else {
-      // Pen-up or near-zero noise: do not disturb stable values
-      latestShapePressureRef.current = 0;
-      shapePressureInitializedRef.current = false;
-
-      SP({
-        phase: 'pen-up',
-        lastStable: lastStablePressureRef.current,
-        pixelSize: latestShapePixelSizeRef.current
-      });
+    // RATCHET LOGIC
+    if (lastShapePressureTimeRef.current === 0) {
+      lastShapePressureTimeRef.current = now;
+      lastStablePressureRef.current = val;
     }
+
+    const elapsed = now - lastShapePressureTimeRef.current;
+    lastShapePressureTimeRef.current = now;
+
+    if (val >= lastStablePressureRef.current) {
+      lastStablePressureRef.current = val;
+    } else {
+      const isLowPressure = val < 0.25;
+      const decayMultiplier = isLowPressure ? 4.0 : 1.0;
+      const timeDrop = Math.max(0, elapsed * MAX_PRESSURE_DECAY_PER_MS * decayMultiplier);
+      const maxDrop = Math.max(timeDrop, MIN_DROP_PER_EVENT);
+      lastStablePressureRef.current = Math.max(val, lastStablePressureRef.current - maxDrop);
+    }
+
+    hadValidShapePressureRef.current = true;
+    latestShapePixelSizeRef.current = computeShapePixelSize(lastStablePressureRef.current);
+
+    if (val > 0.01) {
+      shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, val);
+      lastNonZeroShapePressureRef.current = val;
+    }
+    latestShapePressureRef.current = val;
   };
 
-  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5, timestamp?: number) => {
+  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number) => {
     const isNewShape = !isDrawingShapeRef.current || shapePointsRef.current.length === 0;
 
     if (isNewShape) {
@@ -4689,7 +4611,7 @@ export function useDrawingHandlers({
     clearShapeBeforeSnapshot
   ]);
   
-  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5, timestamp?: number) => {
+  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number) => {
     updateShapePressure(pressure, timestamp);
     // Handle animations based on brush type
     if (shapeMode && !ccShapePreviewPauseStartedRef.current) {
