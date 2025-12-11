@@ -18,7 +18,8 @@ describe('global brush persistence', () => {
       brushSpecificSettings: {
         'pixel-brush': { ditherEnabled: true },
       },
-      lastBrushId: 'pixel-brush'
+      lastBrushId: 'pixel-brush',
+      pressureSettings: { enabled: false, min: 25, max: 300 },
     });
 
     const { useAppStore } = await import('@/stores/useAppStore');
@@ -29,6 +30,9 @@ describe('global brush persistence', () => {
     expect(state.brushSpecificSettings['pixel-brush']?.ditherEnabled).toBe(true);
     expect(state.tools.brushSettings.ditherEnabled).toBe(true);
     expect(state.currentBrushPreset?.id).toBe('pixel-brush');
+    expect(state.pressureSettings).toEqual({ enabled: false, min: 25, max: 300 });
+    expect(state.tools.brushSettings.minPressure).toBe(25);
+    expect(state.tools.brushSettings.maxPressure).toBe(300);
   });
 
   it('saves when brush-specific settings change', async () => {
@@ -112,5 +116,17 @@ describe('global brush persistence', () => {
     store.setBrushPreset(pixelBrushPreset);
     const updated = saveMock.mock.calls.at(-1)?.[0];
     expect(updated?.lastBrushId).toBe(pixelBrushPreset.id);
+  });
+
+  it('persists global pressure settings separately from brush-specific overrides', async () => {
+    loadMock.mockReturnValue(null);
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    store.setPressureSettings({ enabled: true, min: 15, max: 220 });
+
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.pressureSettings).toEqual({ enabled: true, min: 15, max: 220 });
+    expect(payload?.brushSpecificSettings).toBeDefined();
   });
 });

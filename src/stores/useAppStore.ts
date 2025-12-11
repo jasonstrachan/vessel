@@ -222,6 +222,8 @@ import { createCustomBrushPersistence } from '@/stores/helpers/customBrushPersis
 import {
   DEFAULT_RECTANGLE_BRUSH_STATE,
   PressureSettings,
+  applyPressureUpdate,
+  applyPressureToTools,
 } from '@/stores/helpers/toolsState';
 import { createHistorySlice } from '@/stores/slices/historySlice';
 import { createLayersSlice } from '@/stores/slices/layersSlice';
@@ -1111,6 +1113,7 @@ const hydrateGlobalBrushSettings = (): void => {
 
   useAppStore.setState((state) => {
     let nextTools = state.tools;
+    let nextPressure = state.pressureSettings;
     const partial: Partial<AppState> = {};
 
     const storedMap = payload.brushSpecificSettings;
@@ -1138,6 +1141,15 @@ const hydrateGlobalBrushSettings = (): void => {
       }
     }
 
+    if (payload.pressureSettings) {
+      const pressureUpdates = {
+        enabled: payload.pressureSettings.enabled,
+        min: payload.pressureSettings.min,
+        max: payload.pressureSettings.max,
+      };
+      nextPressure = applyPressureUpdate(nextPressure, pressureUpdates);
+    }
+
     if (typeof payload.globalBrushSize === 'number' && Number.isFinite(payload.globalBrushSize)) {
       const nextSize = Math.max(1, Math.round(payload.globalBrushSize));
       partial.globalBrushSize = nextSize;
@@ -1152,6 +1164,11 @@ const hydrateGlobalBrushSettings = (): void => {
             ? { ...nextTools.eraserSettings, size: nextSize }
             : nextTools.eraserSettings,
       };
+    }
+
+    if (nextPressure !== state.pressureSettings) {
+      partial.pressureSettings = nextPressure;
+      nextTools = applyPressureToTools(nextTools, nextPressure);
     }
 
     if (nextTools !== state.tools) {
@@ -1177,12 +1194,14 @@ const subscribeToGlobalBrushPersistence = (): void => {
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
       globalBrushSize: state.globalBrushSize,
+      pressureSettings: state.pressureSettings,
       lastBrushId: getActiveBrushStorageId(state),
     }),
     (next, prev) => {
       if (
         next.brushSpecificSettings === prev.brushSpecificSettings &&
         next.globalBrushSize === prev.globalBrushSize &&
+        next.pressureSettings === prev.pressureSettings &&
         next.lastBrushId === prev.lastBrushId
       ) {
         return;
@@ -1191,6 +1210,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
       saveGlobalBrushSettings({
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
+        pressureSettings: next.pressureSettings,
         lastBrushId: next.lastBrushId ?? undefined,
       });
     },
@@ -1198,6 +1218,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
       equalityFn: (a, b) =>
         a.brushSpecificSettings === b.brushSpecificSettings &&
         a.globalBrushSize === b.globalBrushSize &&
+        a.pressureSettings === b.pressureSettings &&
         a.lastBrushId === b.lastBrushId,
     }
   );

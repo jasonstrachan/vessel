@@ -461,11 +461,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
     // Gradient, contour, shape brushes, and spam text use crosshair cursor
     const brushShape = tools.brushSettings.brushShape;
+    if (brushShape === BrushShape.PIXEL_DITHER && tools.shapeMode) {
+      // Dither Shape (shape mode on) keeps precision crosshair
+      return 'crosshair';
+    }
     if (brushShape === BrushShape.RECTANGLE_GRADIENT || 
         brushShape === BrushShape.POLYGON_GRADIENT || 
         brushShape === BrushShape.CONTOUR_POLYGON ||
         brushShape === BrushShape.CONTOUR_LINES2 ||
-        brushShape === BrushShape.PIXEL_DITHER ||
         brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
         brushShape === BrushShape.SPAM_TEXT ||
         brushShape === BrushShape.SHAPE_FILL) {

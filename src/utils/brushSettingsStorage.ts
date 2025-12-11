@@ -1,13 +1,21 @@
 import type { BrushSettings } from '@/types';
+import { clampPressurePercent } from '@/utils/pressureSettings';
 
 const STORAGE_KEY = 'vessel:brush-settings';
 
 type StoredBrushMap = Record<string, Partial<BrushSettings>>;
 
+export interface PressureSettingsPayload {
+  enabled?: boolean;
+  min?: number;
+  max?: number;
+}
+
 export interface GlobalBrushSettingsPayload {
   globalBrushSize?: number;
   brushSpecificSettings?: StoredBrushMap;
   lastBrushId?: string;
+  pressureSettings?: PressureSettingsPayload;
 }
 
 let storageOverride: Storage | null = null;
@@ -72,6 +80,29 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
     }
     if (payload.brushSpecificSettings && Object.keys(payload.brushSpecificSettings).length > 0) {
       sanitized.brushSpecificSettings = payload.brushSpecificSettings;
+    }
+    if (payload.pressureSettings) {
+      const { enabled, min, max } = payload.pressureSettings;
+      const pressure: PressureSettingsPayload = {};
+      if (typeof enabled === 'boolean') {
+        pressure.enabled = enabled;
+      }
+      if (Number.isFinite(min)) {
+        pressure.min = clampPressurePercent(min as number);
+      }
+      if (Number.isFinite(max)) {
+        pressure.max = clampPressurePercent(max as number);
+      }
+      if (
+        pressure.min !== undefined &&
+        pressure.max !== undefined &&
+        pressure.max < pressure.min
+      ) {
+        pressure.max = pressure.min;
+      }
+      if (Object.keys(pressure).length > 0) {
+        sanitized.pressureSettings = pressure;
+      }
     }
     if (payload.lastBrushId && typeof payload.lastBrushId === 'string') {
       sanitized.lastBrushId = payload.lastBrushId;
