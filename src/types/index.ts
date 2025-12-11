@@ -465,8 +465,13 @@ export interface BrushSettings {
   lastRegularBrushSize?: number;
   // Pressure sensitivity settings
   pressureEnabled: boolean;
-  minPressure: number; // Percentage (1-1000)
-  maxPressure?: number; // Percentage (1-1000)
+  /**
+   * Pressure range expressed as deltas from the base (100%).
+   * minPressure: percent under base (0-1000) => absolute min = 100 - minPressure
+   * maxPressure: percent over base (0-1000) => absolute max = 100 + maxPressure
+   */
+  minPressure: number;
+  maxPressure?: number;
   // Rotation settings
   // Legacy rotation toggle (kept for compatibility)
   rotationEnabled: boolean;

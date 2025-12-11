@@ -1,5 +1,5 @@
 import type { BrushSettings } from '@/types';
-import { clampPressurePercent } from '@/utils/pressureSettings';
+import { clampPressureDeltaPercent } from '@/utils/pressureSettings';
 
 const STORAGE_KEY = 'vessel:brush-settings';
 
@@ -88,18 +88,12 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
         pressure.enabled = enabled;
       }
       if (Number.isFinite(min)) {
-        pressure.min = clampPressurePercent(min as number);
+        pressure.min = clampPressureDeltaPercent(min as number);
       }
       if (Number.isFinite(max)) {
-        pressure.max = clampPressurePercent(max as number);
+        pressure.max = clampPressureDeltaPercent(max as number);
       }
-      if (
-        pressure.min !== undefined &&
-        pressure.max !== undefined &&
-        pressure.max < pressure.min
-      ) {
-        pressure.max = pressure.min;
-      }
+      // min/max are independent deltas from the base pressure
       if (Object.keys(pressure).length > 0) {
         sanitized.pressureSettings = pressure;
       }

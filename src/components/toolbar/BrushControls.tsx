@@ -33,8 +33,8 @@ import {
 } from '@/utils/gradientPresets';
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
 import {
-  PRESSURE_MIN_PERCENT,
-  clampPressurePercent,
+  PRESSURE_BASE_PERCENT,
+  clampPressureDeltaPercent,
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
 import {
@@ -46,7 +46,7 @@ import ShapeFillControls from "./ShapeFillControls";
 import DitherControls from './DitherControls';
 import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
 
-const PRESSURE_MIN_BOUND = PRESSURE_MIN_PERCENT;
+const PRESSURE_MIN_BOUND = 0;
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
 const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
 
@@ -343,23 +343,14 @@ const BrushControls = () => {
       if (Number.isNaN(parsed)) {
         return;
       }
-      const clamped = clampPressurePercent(parsed);
-      const currentMax =
-        activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape);
-      const updates: Partial<BrushSettings> = { minPressure: clamped };
-      let nextMax = currentMax;
-      if (currentMax < clamped) {
-        updates.maxPressure = clamped;
-        nextMax = clamped;
-      }
-      setActiveSettings(updates);
+      const clamped = clampPressureDeltaPercent(parsed);
+      setActiveSettings({ minPressure: clamped });
       setPressureDraft((draft) => {
         const minString = clamped.toString();
-        const maxString = nextMax.toString();
-        if (draft.min === minString && draft.max === maxString) {
+        if (draft.min === minString) {
           return draft;
         }
-        return { ...draft, min: minString, max: maxString };
+        return { ...draft, min: minString };
       });
     },
     [activeSettings.maxPressure, activeSettings.brushShape, setActiveSettings]
@@ -372,23 +363,14 @@ const BrushControls = () => {
   const handleMinBlur = React.useCallback(() => {
     updatePressureEditing('min', false);
     if (pressureDraft.min === '') {
-      const fallback = clampPressurePercent(activeSettings.minPressure ?? PRESSURE_MIN_BOUND);
-      const currentMax =
-        activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape);
-      const updates: Partial<BrushSettings> = { minPressure: fallback };
-      let nextMax = currentMax;
-      if (currentMax < fallback) {
-        updates.maxPressure = fallback;
-        nextMax = fallback;
-      }
-      setActiveSettings(updates);
+      const fallback = clampPressureDeltaPercent(activeSettings.minPressure ?? PRESSURE_MIN_BOUND);
+      setActiveSettings({ minPressure: fallback });
       setPressureDraft((draft) => {
         const minString = fallback.toString();
-        const maxString = nextMax.toString();
-        if (draft.min === minString && draft.max === maxString) {
+        if (draft.min === minString) {
           return draft;
         }
-        return { ...draft, min: minString, max: maxString };
+        return { ...draft, min: minString };
       });
       return;
     }
@@ -413,8 +395,7 @@ const BrushControls = () => {
       if (Number.isNaN(parsed)) {
         return;
       }
-      const baseMin = clampPressurePercent(activeSettings.minPressure ?? PRESSURE_MIN_BOUND);
-      const clamped = Math.max(clampPressurePercent(parsed), baseMin);
+      const clamped = clampPressureDeltaPercent(parsed);
       const nextString = clamped.toString();
       setActiveSettings({ maxPressure: clamped });
       setPressureDraft((draft) => (draft.max === nextString ? draft : { ...draft, max: nextString }));
@@ -430,7 +411,11 @@ const BrushControls = () => {
     updatePressureEditing('max', false);
     if (pressureDraft.max === '') {
       setActiveSettings({ maxPressure: undefined });
-      const fallback = getDefaultMaxPressurePercent(activeSettings.brushShape).toString();
+      const fallbackOver = Math.max(
+        0,
+        getDefaultMaxPressurePercent(activeSettings.brushShape) - PRESSURE_BASE_PERCENT
+      ).toString();
+      const fallback = fallbackOver;
       setPressureDraft((draft) => (draft.max === fallback ? draft : { ...draft, max: fallback }));
       return;
     }

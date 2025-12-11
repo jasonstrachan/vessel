@@ -33,7 +33,7 @@ import {
   isColorCyclePresetId,
   isColorCycleBrushShape,
 } from '@/stores/helpers/toolsState';
-import { getDefaultMaxPressurePercent } from '@/utils/pressureSettings';
+import { getDefaultMaxPressurePercent, PRESSURE_BASE_PERCENT } from '@/utils/pressureSettings';
 import { applyPaletteSnapshot } from '@/stores/helpers/paletteState';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
@@ -130,10 +130,10 @@ export const createDefaultRecolorSamplingState = (): RecolorSamplingState => ({
 
 export const defaultPressureSettings: PressureSettings = {
   enabled: Boolean(defaultBrushSettingsForStore.pressureEnabled),
-  min: clampPressurePercent(defaultBrushSettingsForStore.minPressure ?? 100),
+  min: clampPressurePercent(defaultBrushSettingsForStore.minPressure ?? 0),
   max: clampPressurePercent(
     defaultBrushSettingsForStore.maxPressure ??
-      getDefaultMaxPressurePercent(defaultBrushSettingsForStore.brushShape)
+      Math.max(0, getDefaultMaxPressurePercent(defaultBrushSettingsForStore.brushShape) - PRESSURE_BASE_PERCENT)
   ),
 };
 

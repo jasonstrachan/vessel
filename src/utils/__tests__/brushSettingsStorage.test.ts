@@ -69,6 +69,6 @@ describe('brushSettingsStorage', () => {
       pressureSettings: { enabled: true, min: -5, max: 2000 },
     });
     const payload = JSON.parse((storage.setItem as jest.Mock).mock.calls[0][1]);
-    expect(payload.pressureSettings).toEqual({ enabled: true, min: 1, max: 1000 });
+    expect(payload.pressureSettings).toEqual({ enabled: true, min: 0, max: 1000 });
   });
 });

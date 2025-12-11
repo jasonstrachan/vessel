@@ -46,8 +46,8 @@ export const pixelBrushSettings: BrushSettings = {
   rotation: 0,
   antialiasing: false,
   pressureEnabled: false,
-  minPressure: 100,   // Maintain 1px at light pressure
-  maxPressure: 300,   // Grow to 3px at firm pressure
+  minPressure: 0,   // Maintain 1px at light pressure (0% under base)
+  maxPressure: 200,   // Grow to 3px at firm pressure (200% over base)
   rotationEnabled: false,
   rotationConfig: {
     enabled: false,
@@ -122,7 +122,7 @@ export const defaultBrushSettings: BrushSettings = {
   brushShape: BrushShape.SQUARE,
   lastRegularBrushSize: 100,
   pressureEnabled: false,
-  minPressure: 1,
+  minPressure: 99,
   maxPressure: undefined,
   rotationEnabled: false,
   rotationConfig: {
@@ -258,8 +258,8 @@ export const pixelBrushPreset: BrushPreset = {
     size: 1,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 100,
-    maxPressure: 300,
+    minPressure: 0,
+    maxPressure: 200,
     rotationEnabled: false,
     dashedEnabled: false,
     gridSnapEnabled: false,
@@ -400,8 +400,8 @@ export const roundPixel4Preset: BrushPreset = {
     size: 4,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 100,
-    maxPressure: 300,
+    minPressure: 0,
+    maxPressure: 200,
     rotationEnabled: false,
     dashedEnabled: false,
     gridSnapEnabled: false,
@@ -515,8 +515,8 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     colorCycleFPS: 30,
     gradientBands: 12, // Number of distinct color bands in strokes
     pressureEnabled: false,
-    minPressure: 100,
-    maxPressure: 100,
+    minPressure: 0,
+    maxPressure: 0,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: false // Force shape mode OFF for stroke variant
   }
@@ -573,8 +573,8 @@ export const colorCycleTriangleBrushPreset: BrushPreset = {
     colorCycleFPS: 30,
     gradientBands: 12,
     pressureEnabled: false,
-    minPressure: 100,
-    maxPressure: 100,
+    minPressure: 0,
+    maxPressure: 0,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: false
   }
@@ -631,8 +631,8 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
     colorCycleFPS: 30,
     gradientBands: 26,
     pressureEnabled: false,
-    minPressure: 100,
-    maxPressure: 100,
+    minPressure: 0,
+    maxPressure: 0,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: true // Force shape mode ON for shape variant
   }
@@ -812,8 +812,8 @@ export const spamBrushPreset: BrushPreset = {
     spacing: 10,  // Optimized spacing for letter-by-letter text flow
     pressureEnabled: false,  // Disable pressure for consistent text
     gridSnapEnabled: true,  // Grid snap on by default
-    minPressure: 1,
-    maxPressure: 1,
+    minPressure: 99,
+    maxPressure: 0,
     spamFont: 'courier',
     spamContentType: 'mixed'
   }
@@ -875,8 +875,8 @@ export const resamplerBrushPreset: BrushPreset = {
     antialiasing: true,
     spacing: 1,
     pressureEnabled: false,
-    minPressure: 1,
-    maxPressure: 100,
+    minPressure: 99,
+    maxPressure: 0,
     rotationEnabled: true,
     dashedEnabled: false,
     dashLength: 10,
@@ -909,8 +909,8 @@ export const pixelDitherPreset: BrushPreset = {
     spacing: 1,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 100,
-    maxPressure: 300,
+    minPressure: 0,
+    maxPressure: 200,
     ditherEnabled: true,
     ditherAlgorithm: 'sierra-lite',
     ditherPaletteSpread: 0,
@@ -940,8 +940,8 @@ export const shapeDitherPreset: BrushPreset = {
     spacing: 1,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 100,
-    maxPressure: 300,
+    minPressure: 0,
+    maxPressure: 200,
     ditherEnabled: true,
     ditherAlgorithm: 'sierra-lite',
     ditherPaletteSpread: 0,
@@ -1004,13 +1004,13 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;
     settings.pressureEnabled = false;
-    settings.minPressure = 50;  // leave defaults so users who re-enable pressure get sensible range
-    settings.maxPressure = 200;
+    settings.minPressure = 50;  // 50% under base => min at 50%
+    settings.maxPressure = 100; // 100% over base => max at 200%
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;
     settings.pressureEnabled = false;
-    settings.minPressure = 1;
+    settings.minPressure = 99;
     settings.maxPressure = undefined;
   }
   // Removed hardcoded opacity, spacing, colorJitter - these should come from user preferences or store defaults

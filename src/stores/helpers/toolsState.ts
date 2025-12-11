@@ -18,8 +18,7 @@ export const applyPressureUpdate = (
 ): PressureSettings => {
   const nextEnabled = updates.enabled ?? current.enabled;
   const nextMin = clampPressurePercent(updates.min ?? current.min);
-  const nextMaxRaw = clampPressurePercent(updates.max ?? current.max);
-  const nextMax = Math.max(nextMin, nextMaxRaw);
+  const nextMax = clampPressurePercent(updates.max ?? current.max);
 
   return {
     enabled: nextEnabled,

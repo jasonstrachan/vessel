@@ -2651,12 +2651,8 @@ export const useBrushEngineSimplified = () => {
 
     if (rawCtx) {
       // Finalize without emitting a new stamp; finalizeStroke() may currently place a tail stamp.
-      // Guard against the final "large stamp" by flushing with zero pressure when pressure-linked fill res is enabled.
-      if (tools.brushSettings.pressureLinkedFillResolution) {
-        brushEngine.finalizeStroke(rawCtx, { pressure: 0 });
-      } else {
-        brushEngine.finalizeStroke(rawCtx);
-      }
+      // Guard against the final "large stamp" by flushing normally (finalizeStroke currently ignores pressure).
+      brushEngine.finalizeStroke(rawCtx);
     } else {
       withAlphaLock(ctx, (targetCtx) => {
         brushEngine.finalizeStroke(targetCtx);

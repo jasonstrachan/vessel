@@ -38,6 +38,7 @@ import { EraserTool } from '@/tools/EraserTool';
 import { unwrapAngle } from '@/utils/angles';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
 import { captureBrushFromCanvas } from '@/utils/customBrushCapture';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 import { computePressureResolution } from '@/utils/pressureResolution';
 
@@ -1273,11 +1274,12 @@ export function useDrawingHandlers({
       state.tools.lastRegularBrushShape ??
       BrushShape.ROUND;
 
+    const pressureRange = resolveBrushPressureRange(settings);
     const baseSettings = {
       size: settings.size ?? state.globalBrushSize ?? 1,
-      pressureEnabled: flags.isAny ? true : !!settings.pressureEnabled,
-      minPressure: settings.minPressure ?? 50,
-      maxPressure: settings.maxPressure ?? 200,
+      pressureEnabled: flags.isAny ? true : !!pressureRange.enabled,
+      minPressure: pressureRange.minPercent,
+      maxPressure: pressureRange.maxPercent,
       brushShape
     };
 

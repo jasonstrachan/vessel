@@ -5,6 +5,7 @@
 
 import type { BrushSettings } from '@/types';
 import { resolvePressureSizing } from '@/utils/pressureSizing';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 
 /**
  * Calculate grid spacing from brush settings
@@ -158,12 +159,13 @@ export const createBrushUtilities = (getSettings: () => BrushSettings) => {
       calculateBrushSpacing(getSettings(), baseSize),
     calculatePressureSize: (baseSize: number, pressure: number) => {
       const settings = getSettings();
+      const resolvedRange = resolveBrushPressureRange(settings);
       return calculatePressureSize(
         baseSize,
         pressure,
-        settings.minPressure || 50,    // Default to 50% at min pressure
-        settings.maxPressure || 200,   // Default to 200% at max pressure
-        settings.pressureEnabled || false
+        resolvedRange.minPercent,
+        resolvedRange.maxPercent,
+        resolvedRange.enabled
       );
     },
     calculatePressureOpacity: (baseOpacity: number, pressure: number) => {

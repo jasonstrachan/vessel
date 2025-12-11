@@ -1,11 +1,17 @@
 import { BrushShape, type BrushSettings } from '@/types';
 
+export const PRESSURE_BASE_PERCENT = 100;
 export const PRESSURE_MIN_PERCENT = 1;
 export const PRESSURE_MAX_PERCENT = 1000;
 
 export const clampPressurePercent = (value: number): number => {
   const normalized = Math.round(Number.isFinite(value) ? value : PRESSURE_MIN_PERCENT);
   return Math.min(PRESSURE_MAX_PERCENT, Math.max(PRESSURE_MIN_PERCENT, normalized));
+};
+
+export const clampPressureDeltaPercent = (value: number): number => {
+  const normalized = Math.round(Number.isFinite(value) ? value : 0);
+  return Math.min(PRESSURE_MAX_PERCENT, Math.max(0, normalized));
 };
 
 export const getDefaultMaxPressurePercent = (shape?: BrushShape): number => {
@@ -31,9 +37,15 @@ export interface ResolvedPressureRange {
 
 export const resolveBrushPressureRange = (settings: BrushSettings): ResolvedPressureRange => {
   const enabled = Boolean(settings.pressureEnabled);
+  const minUnder = clampPressureDeltaPercent(settings.minPressure ?? 0);
+  const maxOver = clampPressureDeltaPercent(
+    settings.maxPressure ?? Math.max(0, getDefaultMaxPressurePercent(settings.brushShape) - PRESSURE_BASE_PERCENT)
+  );
+  const minPercent = clampPressurePercent(PRESSURE_BASE_PERCENT - minUnder);
+  const maxPercent = clampPressurePercent(PRESSURE_BASE_PERCENT + maxOver);
   return {
     enabled,
-    minPercent: settings.minPressure ?? PRESSURE_MIN_PERCENT,
-    maxPercent: settings.maxPressure ?? getDefaultMaxPressurePercent(settings.brushShape),
+    minPercent,
+    maxPercent: Math.max(minPercent, maxPercent),
   };
 };

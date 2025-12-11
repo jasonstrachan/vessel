@@ -321,7 +321,7 @@ export const createProjectSlice =
           lightnessAdjust: 0,
           saturationAdjust: 100,
           pressureEnabled: false,
-          minPressure: 1,
+          minPressure: 99,
           maxPressure: undefined,
         };
 
@@ -482,7 +482,7 @@ export const createProjectSlice =
               saturationAdjust: 100,
               size: targetSize,
               pressureEnabled: false,
-              minPressure: 1,
+              minPressure: 99,
               maxPressure: undefined,
             },
           },
