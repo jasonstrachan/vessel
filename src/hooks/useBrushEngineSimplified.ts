@@ -1083,6 +1083,7 @@ export const useBrushEngineSimplified = () => {
   ) => {
     const dstW = dstCtx.canvas.width | 0;
     const dstH = dstCtx.canvas.height | 0;
+    const alphaLockDebugLevel = getAlphaLockDebugLevel();
     const sample = (typeof window !== 'undefined' && window.__AL_sample) || {
       x: dstW ? dstW / 2 : 0,
       y: dstH ? dstH / 2 : 0,
@@ -1125,12 +1126,12 @@ export const useBrushEngineSimplified = () => {
         };
         if (isColorCycleLayer) {
           probeWindow.__AL_probe.bypasses += 1;
-          if (typeof console !== 'undefined') {
+          if (alphaLockDebugLevel > 0 && typeof console !== 'undefined') {
             console.warn('[AL:bypass-cc]', payload);
           }
         } else {
           probeWindow.__AL_probe.blocks += 1;
-          if (typeof console !== 'undefined') {
+          if (alphaLockDebugLevel > 0 && typeof console !== 'undefined') {
             console.warn('[AL:block]', payload);
           }
         }
@@ -1144,7 +1145,7 @@ export const useBrushEngineSimplified = () => {
     }
 
     if (shouldBlock && !isColorCycleLayer) {
-      if (!alphaLockEmptyMaskWarnedRef.current && typeof console !== 'undefined') {
+      if (!alphaLockEmptyMaskWarnedRef.current && alphaLockDebugLevel > 0 && typeof console !== 'undefined') {
         console.warn('[AlphaLock] Active layer shows no visible alpha; lock prevents new pixels.');
         alphaLockEmptyMaskWarnedRef.current = true;
       }
@@ -1346,6 +1347,8 @@ export const useBrushEngineSimplified = () => {
     stable: 0,
     isTail: false
   });
+  const PRESSURE_MODULATION_THRESHOLD = 0.25;
+  const PRESSURE_DROP_EPSILON = 0.05;
   const lastPressureDitherTimeRef = useRef(0);
   const lastPressureDitherPixelSizeRef = useRef<number | null>(null);
   const PRESSURE_DITHER_MIN_INTERVAL_MS = 30; // ~33 FPS throttle
@@ -1889,7 +1892,7 @@ export const useBrushEngineSimplified = () => {
     const pixelSize = resolvedOverridePixelSize
       ?? (pressureMode ? pressureFillRes : baseFillRes);
 
-    console.log('[applyStrokeDither:before]', {
+    DD('pixel-size', {
       overridePixelSize,
       resolvedOverridePixelSize,
       overridePressure,
@@ -2110,7 +2113,7 @@ export const useBrushEngineSimplified = () => {
       }
     }
 
-    console.log('[applyStrokeDither:final]', {
+    DD('pixel-size-final', {
       finalPixelSize: pixelSize
     });
 
@@ -2340,20 +2343,26 @@ export const useBrushEngineSimplified = () => {
     // Tail latch: smooth input and hold last stable value during lift-off
     const alpha = 0.6;
     const smoothed = stats.last === 0 ? p : (stats.last + (p - stats.last) * alpha);
-    const DROP_EPS = 0.05;
 
-    // Rising pressure exits tail mode so pixels can grow again
-    if (stats.isTail && smoothed > stats.stable) {
+    // Dither brushes should track pressure directly so lift-off tapers instead of locking resolution.
+    if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
       stats.isTail = false;
-    }
-
-    const dropFromStable = stats.stable - smoothed;
-    if (!stats.isTail && dropFromStable > DROP_EPS) {
-      // Enter tail: lock stable at its previous value
-      stats.isTail = true;
-    } else if (!stats.isTail) {
-      // Normal drawing: track stable pressure
       stats.stable = smoothed;
+    } else {
+      // If pressure is still substantial or rising, allow resolution to track it (prevents early tail lock)
+      if (smoothed > PRESSURE_MODULATION_THRESHOLD || smoothed > stats.stable) {
+        stats.isTail = false;
+        stats.stable = smoothed;
+      } else {
+        const dropFromStable = stats.stable - smoothed;
+        if (!stats.isTail && dropFromStable > PRESSURE_DROP_EPSILON) {
+          // Enter tail: lock stable at its previous value to avoid collapsing dither into 1px noise
+          stats.isTail = true;
+        } else if (!stats.isTail) {
+          // Gentle low-pressure changes still adjust stable while not in tail
+          stats.stable = smoothed;
+        }
+      }
     }
 
     if (p > 0.01) {
@@ -2487,6 +2496,22 @@ export const useBrushEngineSimplified = () => {
     const p = Math.max(0, Math.min(1, rawPressure));
 
     const stats = strokePressureRef.current;
+    // Tail latch: smooth input and hold last stable value during lift-off
+    const alpha = 0.6;
+    const smoothed = stats.last === 0 ? p : (stats.last + (p - stats.last) * alpha);
+
+    if (smoothed > PRESSURE_MODULATION_THRESHOLD || smoothed > stats.stable) {
+      stats.isTail = false;
+      stats.stable = smoothed;
+    } else {
+      const dropFromStable = stats.stable - smoothed;
+      if (!stats.isTail && dropFromStable > PRESSURE_DROP_EPSILON) {
+        stats.isTail = true;
+      } else if (!stats.isTail) {
+        stats.stable = smoothed;
+      }
+    }
+
     if (p > 0.01) {
       stats.min = Math.min(stats.min, p);
       stats.max = Math.max(stats.max, p);

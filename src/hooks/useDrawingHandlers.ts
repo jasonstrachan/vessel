@@ -4467,6 +4467,17 @@ export function useDrawingHandlers({
     return Math.max(1, Math.round(res));
   };
 
+  const shapePressureDebugEnabled = () => {
+    if (typeof window === 'undefined') return false;
+    return Boolean((window as { __shapePressureDebug?: unknown }).__shapePressureDebug);
+  };
+
+  const SP = (payload: Record<string, unknown>) => {
+    if (shapePressureDebugEnabled() && typeof console !== 'undefined') {
+      console.log('[shape-pressure]', payload);
+    }
+  };
+
   const updateShapePressure = (p?: number, timestamp?: number) => {
     const val = typeof p === 'number' ? Math.max(0, Math.min(1, p)) : 0;
 
@@ -4486,7 +4497,7 @@ export function useDrawingHandlers({
         hadValidShapePressureRef.current = true;
         latestShapePixelSizeRef.current = computeShapePixelSize(val);
 
-        console.log('[shape-pressure]', {
+        SP({
           phase: 'sample-seed',
           raw: val,
           pixelSize: latestShapePixelSizeRef.current
@@ -4517,7 +4528,7 @@ export function useDrawingHandlers({
           latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
         }
 
-        console.log('[shape-pressure]', {
+        SP({
           phase: 'tail-start',
           raw: val,
           smoothed,
@@ -4533,14 +4544,14 @@ export function useDrawingHandlers({
         hadValidShapePressureRef.current = true;
         latestShapePixelSizeRef.current = computeShapePixelSize(smoothed);
 
-        console.log('[shape-pressure]', {
+        SP({
           phase: 'sample',
           raw: val,
           smoothed,
           pixelSize: latestShapePixelSizeRef.current
         });
       } else {
-        console.log('[shape-pressure]', {
+        SP({
           phase: 'tail',
           raw: val,
           smoothed,
@@ -4553,7 +4564,7 @@ export function useDrawingHandlers({
       latestShapePressureRef.current = 0;
       shapePressureInitializedRef.current = false;
 
-      console.log('[shape-pressure]', {
+      SP({
         phase: 'pen-up',
         lastStable: lastStablePressureRef.current,
         pixelSize: latestShapePixelSizeRef.current
