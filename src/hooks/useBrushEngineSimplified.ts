@@ -967,7 +967,7 @@ export const useBrushEngineSimplified = () => {
 
   // Reset pressure-linked resolution caches whenever the mode toggles
   useEffect(() => {
-    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0 };
+    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0, stable: 0, isTail: false };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
   }, [tools.brushSettings.pressureLinkedFillResolution]);
@@ -1330,12 +1330,21 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
   const brushPressurePendingRef = useRef(normalizePressureSettings(tools.brushSettings));
-  type StrokePressureState = { min: number; max: number; lastNonZero: number; last: number };
+  type StrokePressureState = {
+    min: number;
+    max: number;
+    lastNonZero: number;
+    last: number;
+    stable: number;   // latched pressure during tail to prevent collapse
+    isTail: boolean;  // whether we are currently easing off
+  };
   const strokePressureRef = useRef<StrokePressureState>({
     min: 1,
     max: 0,
     lastNonZero: 0,
-    last: 0
+    last: 0,
+    stable: 0,
+    isTail: false
   });
   const lastPressureDitherTimeRef = useRef(0);
   const lastPressureDitherPixelSizeRef = useRef<number | null>(null);
@@ -1742,10 +1751,12 @@ export const useBrushEngineSimplified = () => {
 
   const getStrokeDitherPixelSize = useCallback(() => {
     const stats = strokePressureRef.current;
-    const p = Math.max(
-      0,
-      Math.min(1, stats.last || stats.lastNonZero || stats.max || 0)
-    );
+    // Use latched stable pressure so lift-off doesn't collapse to 1px
+    let p = stats.stable;
+    if (typeof p !== 'number' || p === 0) {
+      p = stats.max || stats.last || 0.5;
+    }
+    p = Math.max(0, Math.min(1, p));
     return computePressureScaledResolution(p);
   }, [computePressureScaledResolution]);
 
@@ -2324,6 +2335,25 @@ export const useBrushEngineSimplified = () => {
     const p = Math.max(0, Math.min(1, rawPressure));
 
     const stats = strokePressureRef.current;
+    // Tail latch: smooth input and hold last stable value during lift-off
+    const alpha = 0.6;
+    const smoothed = stats.last === 0 ? p : (stats.last + (p - stats.last) * alpha);
+    const DROP_EPS = 0.05;
+
+    // Rising pressure exits tail mode so pixels can grow again
+    if (stats.isTail && smoothed > stats.stable) {
+      stats.isTail = false;
+    }
+
+    const dropFromStable = stats.stable - smoothed;
+    if (!stats.isTail && dropFromStable > DROP_EPS) {
+      // Enter tail: lock stable at its previous value
+      stats.isTail = true;
+    } else if (!stats.isTail) {
+      // Normal drawing: track stable pressure
+      stats.stable = smoothed;
+    }
+
     if (p > 0.01) {
       stats.min = Math.min(stats.min, p);
       stats.max = Math.max(stats.max, p);
@@ -2713,13 +2743,13 @@ export const useBrushEngineSimplified = () => {
     clearLiveStrokeBuffers();
     clearCoverageMaps();
     clearLiveStrokeHoleMask();
-    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0 };
+    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0, stable: 0, isTail: false };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
 
   const resetPressureDitherState = useCallback(() => {
-    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0 };
+    strokePressureRef.current = { min: 1, max: 0, lastNonZero: 0, last: 0, stable: 0, isTail: false };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
     clearLiveStrokeHoleMask();
