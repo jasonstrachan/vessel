@@ -2199,6 +2199,8 @@ export const useBrushEngineSimplified = () => {
             dCtx.canvas?.width ?? 0,
             dCtx.canvas?.height ?? 0
           );
+          // Clear previous pass so holes in the new dither pattern don't stack old pixels
+          visibleCtx.clearRect(bx, by, bw, bh);
           const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
           if (isPixelDitherNoBg) {
             visibleCtx.drawImage(
