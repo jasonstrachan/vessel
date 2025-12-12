@@ -40,11 +40,15 @@ import { useStoreSelectorRef } from './useStoreSelectorRef';
 import { captureBrushFromCanvas } from '@/utils/customBrushCapture';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
-import { computePressureResolution } from '@/utils/pressureResolution';
 
 // Pressure tuning shared with brush engine
 const MAX_PRESSURE_DECAY_PER_MS = 0.003;
 const MIN_DROP_PER_EVENT = 0.01;
+const SHAPE_PRESSURE_SMOOTHING = 0.6;
+const SHAPE_PRESSURE_SAMPLE_WINDOW = 5;
+// Shapes get fewer pressure samples; cap multiplier so pressure-linked dithering
+// stays in the same ballpark as stroke mode instead of jumping to 16x.
+const SHAPE_PRESSURE_MAX_MULTIPLIER = 1;
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -918,6 +922,7 @@ export function useDrawingHandlers({
     hadValidShapePressureRef.current = false;
     lastStablePressureRef.current = 0;
     lastShapePressureTimeRef.current = 0;
+    shapeSampleCountRef.current = 0;
   }, []);
 
   useEffect(() => {
@@ -4436,6 +4441,7 @@ export function useDrawingHandlers({
   const latestShapePressureRef = useRef(0.5);
   const lastNonZeroShapePressureRef = useRef(0.5);
   const latestShapePixelSizeRef = useRef<number | null>(null);
+  const shapeSampleCountRef = useRef(0);
   const penLiftHoldUntilRef = useRef<number>(0);
   const shapeMaxPressureRef = useRef(0.5);
   const hadValidShapePressureRef = useRef(false);
@@ -4444,11 +4450,15 @@ export function useDrawingHandlers({
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
-    return computePressureResolution(
-      settings.fillResolution || 1,
-      pressure,
-      settings.pressureLinkedFillResolution ?? false
-    );
+    const base = Math.max(1, Math.round(settings.fillResolution || 1));
+    const linked = settings.pressureLinkedFillResolution ?? false;
+    if (!linked) return base;
+
+    const p = Math.max(0, Math.min(1, pressure));
+    const maxSize = base * SHAPE_PRESSURE_MAX_MULTIPLIER;
+    const t = Math.pow(p, 1.5); // match stroke easing
+    const result = 1 + (maxSize - 1) * t;
+    return Math.max(1, Math.round(result));
   };
 
   const shapePressureDebugEnabled = () => {
@@ -4467,28 +4477,32 @@ export function useDrawingHandlers({
     const val = typeof rawVal === 'number' ? Math.max(0, Math.min(1, rawVal)) : 0;
 
     const now = timestamp || (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const prevSample = latestShapePressureRef.current || 0;
+    const smoothed = prevSample === 0 ? val : prevSample + (val - prevSample) * SHAPE_PRESSURE_SMOOTHING;
 
     // RATCHET LOGIC
     if (lastShapePressureTimeRef.current === 0) {
       lastShapePressureTimeRef.current = now;
-      lastStablePressureRef.current = val;
+      lastStablePressureRef.current = smoothed;
     }
 
     const elapsed = now - lastShapePressureTimeRef.current;
     lastShapePressureTimeRef.current = now;
+    shapeSampleCountRef.current += 1;
 
     const isPenLift = val <= 0.02;
+    const isEarlySample = shapeSampleCountRef.current <= SHAPE_PRESSURE_SAMPLE_WINDOW;
 
     if (isPenLift) {
       // Freeze stable on lift; keep lastStablePressureRef as-is.
-    } else if (val >= lastStablePressureRef.current) {
-      lastStablePressureRef.current = val;
+    } else if (smoothed >= lastStablePressureRef.current || isEarlySample) {
+      lastStablePressureRef.current = smoothed;
     } else {
-      const isLowPressure = val < 0.25;
+      const isLowPressure = smoothed < 0.25;
       const decayMultiplier = isLowPressure ? 4.0 : 1.0;
       const timeDrop = Math.max(0, elapsed * MAX_PRESSURE_DECAY_PER_MS * decayMultiplier);
       const maxDrop = Math.max(timeDrop, MIN_DROP_PER_EVENT);
-      lastStablePressureRef.current = Math.max(val, lastStablePressureRef.current - maxDrop);
+      lastStablePressureRef.current = Math.max(smoothed, lastStablePressureRef.current - maxDrop);
     }
 
     hadValidShapePressureRef.current = true;
@@ -4498,7 +4512,7 @@ export function useDrawingHandlers({
       shapeMaxPressureRef.current = Math.max(shapeMaxPressureRef.current, val);
       lastNonZeroShapePressureRef.current = val;
     }
-    latestShapePressureRef.current = val;
+    latestShapePressureRef.current = smoothed;
   };
 
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {

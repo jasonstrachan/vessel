@@ -315,6 +315,52 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
   });
 
+  it('shows brush-size cursor for pixel-dither stroke (non-shape)', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          shapeEnabled: false,
+        } as any,
+      },
+    });
+
+    dynamicDepsRef.current.tools = deps.tools;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
+
+    expect(deps.setCursorStyle).toHaveBeenCalledWith('none');
+    expect(deps.setShowBrushCursor).toHaveBeenCalledWith(true);
+  });
+
+  it('uses crosshair cursor for pixel-dither shape mode', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          shapeEnabled: true,
+        } as any,
+      },
+    });
+
+    dynamicDepsRef.current.tools = deps.tools;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 12, clientY: 12 }));
+
+    expect(deps.setCursorStyle).toHaveBeenCalledWith('crosshair');
+    expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
+  });
+
   it('clears selection when clicking outside marquee', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
