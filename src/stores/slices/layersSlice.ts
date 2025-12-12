@@ -422,7 +422,8 @@ export interface LayersSlice {
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
-  setActiveLayer: (id: string) => void;
+  mergeLayers: (layerIds: string[]) => string | null;
+  setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
   setReferenceLayer: (id: string | null) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
@@ -1265,7 +1266,196 @@ export const createLayersSlice = (
       selectedLayerIds: validIds
     };
   }),
-  setActiveLayer: (id) => set((state) => {
+  mergeLayers: (layerIds) => {
+    const stateBeforeMerge = get();
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeMerge, {
+      actionType: 'layer-merge',
+      description: 'Merge layers',
+    });
+
+    let mergedLayerId: string | null = null;
+
+    set((state) => {
+      if (!state.project) {
+        return state;
+      }
+
+      const uniqueIds = Array.from(new Set(layerIds));
+      const layersToMerge = state.layers.filter((layer) => uniqueIds.includes(layer.id));
+
+      if (layersToMerge.length < 2) {
+        return state;
+      }
+
+      const sortedByOrder = [...layersToMerge].sort((a, b) => a.order - b.order);
+      const anchorOrder = (() => {
+        const anchorId = uniqueIds[0];
+        const anchorLayer = state.layers.find(layer => layer.id === anchorId);
+        return anchorLayer?.order ?? sortedByOrder[0]?.order ?? 0;
+      })();
+      const projectWidth = state.project.width || 1;
+      const projectHeight = state.project.height || 1;
+      const targetIndex = Math.max(...sortedByOrder.map((layer) => state.layers.indexOf(layer)));
+
+      const mergeCanvas = createLayerTransferCanvas(projectWidth, projectHeight);
+      if (!mergeCanvas) {
+        return state;
+      }
+
+      const ctx = mergeCanvas.getContext(
+        '2d',
+        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+      ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+
+      if (!ctx) {
+        return state;
+      }
+
+      ctx.clearRect(0, 0, projectWidth, projectHeight);
+
+      const ensureCanvasFromImageData = (imageData: ImageData | null | undefined) => {
+        if (!imageData) {
+          return null;
+        }
+        const tempCanvas = createLayerTransferCanvas(imageData.width, imageData.height);
+        if (!tempCanvas) {
+          return null;
+        }
+        const tempCtx = tempCanvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+        tempCtx?.putImageData(imageData, 0, 0);
+        return tempCanvas;
+      };
+
+      const drawLayerOntoMergeCanvas = (layer: Layer) => {
+        ctx.globalCompositeOperation = layer.blendMode;
+        ctx.globalAlpha = layer.opacity ?? 1;
+
+        if (layer.layerType === 'color-cycle') {
+          const brush = colorCycleBrushManager.getBrush(layer.id);
+          const sourceCanvas =
+            (layer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
+            (hasValidFramebuffer(layer.framebuffer) ? layer.framebuffer : null);
+
+          if (brush && sourceCanvas) {
+            try {
+              brush.renderDirectToCanvas?.(sourceCanvas, layer.id);
+            } catch (error) {
+              logError('[mergeLayers] Failed to render CC layer before merge', error);
+            }
+          }
+
+          const ccCanvas =
+            sourceCanvas ??
+            ensureCanvasFromImageData(layer.colorCycleData?.canvasImageData) ??
+            ensureCanvasFromImageData(layer.imageData);
+
+          if (ccCanvas) {
+            try {
+              ctx.drawImage(ccCanvas as CanvasImageSource, 0, 0, projectWidth, projectHeight);
+            } catch (error) {
+              logError('[mergeLayers] Failed to draw CC layer', error);
+            }
+          }
+          return;
+        }
+
+        const sourceCanvas =
+          ensureCanvasFromImageData(layer.imageData) ||
+          (hasValidFramebuffer(layer.framebuffer) ? layer.framebuffer : null);
+
+        if (sourceCanvas) {
+          try {
+            ctx.drawImage(sourceCanvas as CanvasImageSource, 0, 0, projectWidth, projectHeight);
+          } catch (error) {
+            logError('[mergeLayers] Failed to draw normal layer', error);
+          }
+        }
+      };
+
+      sortedByOrder.forEach(drawLayerOntoMergeCanvas);
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+
+      let mergedImageData: ImageData | null = null;
+      try {
+        mergedImageData = (ctx as CanvasRenderingContext2D).getImageData(0, 0, projectWidth, projectHeight);
+      } catch (error) {
+        logError('[mergeLayers] Failed to read merged imageData', error);
+      }
+
+      mergedLayerId = `layer-${Date.now()}-${Math.random()}`;
+      const topLayer = sortedByOrder[sortedByOrder.length - 1];
+      const mergedLayer: Layer = {
+        id: mergedLayerId,
+        name:
+          sortedByOrder.length === 2
+            ? `${sortedByOrder[1].name} + ${sortedByOrder[0].name}`
+            : `Merged ${sortedByOrder.length} layers`,
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over',
+        locked: false,
+        transparencyLocked: false,
+        order: 0,
+        imageData: mergedImageData,
+        framebuffer: mergeCanvas,
+        alignment: cloneLayerAlignment(topLayer.alignment),
+        layerType: 'normal',
+        version: (topLayer.version ?? 0) + 1,
+      };
+
+      const remainingLayers = state.layers.filter((layer) => !uniqueIds.includes(layer.id));
+      const insertionIndex = (() => {
+        const idx = remainingLayers.findIndex((layer) => layer.order >= anchorOrder);
+        if (idx === -1) {
+          return remainingLayers.length;
+        }
+        return idx;
+      })();
+      remainingLayers.splice(insertionIndex, 0, mergedLayer);
+
+      const normalizedLayers = remainingLayers.map((layer, index) => ({ ...layer, order: index }));
+      const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
+
+      const nextReferenceLayerId =
+        state.referenceLayerId && uniqueIds.includes(state.referenceLayerId) ? null : state.referenceLayerId;
+
+      return {
+        layers: syncedLayers,
+        activeLayerId: mergedLayerId,
+        selectedLayerIds: [mergedLayerId],
+        referenceLayerId: nextReferenceLayerId,
+        layersNeedRecomposition: true,
+      };
+    });
+
+    if (!mergedLayerId) {
+      return null;
+    }
+
+    const stateAfterMerge = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterMerge, {
+      actionType: 'layer-merge',
+      description: 'Merge layers',
+      activeLayerId: mergedLayerId,
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Merge layers',
+      metadata: { sourceLayerIds: layerIds, mergedLayerId },
+    });
+    get().markAllCompositeSegmentsDirty();
+
+    return mergedLayerId;
+  },
+  setActiveLayer: (id, opts) => set((state) => {
     const layer = state.layers.find(l => l.id === id);
     if (!layer) {
       logError('setActiveLayer: Invalid layer ID', id);
@@ -1314,6 +1504,15 @@ export const createLayersSlice = (
     
     // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
     // Skip entirely when the Recolor tool is active so we don't override recolor mode.
+    const baseSelection = (() => {
+      if (opts?.preserveSelection) {
+        return state.selectedLayerIds.includes(id)
+          ? state.selectedLayerIds
+          : [...state.selectedLayerIds, id];
+      }
+      return [id];
+    })();
+
     if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
       /* console.log('🟣 SWITCHING TO CC LAYER:', {
         layerId: id.substring(0, 20),
@@ -1380,7 +1579,7 @@ export const createLayersSlice = (
 
       const result = {
         activeLayerId: id,
-        selectedLayerIds: [id],
+        selectedLayerIds: baseSelection,
         tools: {
           ...state.tools,
           lastRegularTool: savedRegularTool,
@@ -1438,7 +1637,7 @@ export const createLayersSlice = (
 
     const result = {
       activeLayerId: id,
-      selectedLayerIds: [id],
+      selectedLayerIds: baseSelection,
       tools: nextTools
       // DO NOT return layers unless we're actually changing them
     };

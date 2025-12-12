@@ -210,6 +210,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const project = useAppStore((state) => state.project);
   const layers = useAppStore(selectLayers);
   const referenceLayerId = useAppStore(selectReferenceLayerId);
+  const preferReferenceSampling = useAppStore((state) => state.colorPickerPreferReferenceLayer);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectionStart = useAppStore((state) => state.selectionStart);
   const selectionEnd = useAppStore((state) => state.selectionEnd);
@@ -532,11 +533,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [layers]);
   
   // Small cache to avoid redundant getImageData calls when pointer stays in same pixel
-  const lastSampleRef = useRef<{ x: number; y: number; color: string; layerId: string | null }>({
+  const lastSampleRef = useRef<{ x: number; y: number; color: string; layerId: string | null; preferReference: boolean }>({
     x: -1,
     y: -1,
     color: '#000000',
-    layerId: null
+    layerId: null,
+    preferReference: true
   });
 
   type CompositeSampleOptions = {
@@ -675,24 +677,29 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
       // Return cached color if sampling the same pixel as last time
       const last = lastSampleRef.current;
-      const cacheLayerId = referenceLayerId ?? null;
-      if (last.x === clampedX && last.y === clampedY && last.layerId === cacheLayerId) {
+      const cacheLayerId = preferReferenceSampling && referenceLayerId ? referenceLayerId : null;
+      if (
+        last.x === clampedX &&
+        last.y === clampedY &&
+        last.layerId === cacheLayerId &&
+        last.preferReference === preferReferenceSampling
+      ) {
         return last.color;
       }
 
-      if (referenceLayerId) {
+      if (preferReferenceSampling && referenceLayerId) {
         const referenceColor = sampleColorFromReferenceLayer(clampedX, clampedY);
         if (referenceColor) {
-          lastSampleRef.current = { x: clampedX, y: clampedY, color: referenceColor, layerId: cacheLayerId };
+          lastSampleRef.current = { x: clampedX, y: clampedY, color: referenceColor, layerId: cacheLayerId, preferReference: preferReferenceSampling };
           return referenceColor;
         }
       }
 
       const color = sampleCompositeOpaque(clampedX, clampedY, { radius: 1, preferSolid: true });
-      lastSampleRef.current = { x: clampedX, y: clampedY, color, layerId: cacheLayerId };
+      lastSampleRef.current = { x: clampedX, y: clampedY, color, layerId: cacheLayerId, preferReference: preferReferenceSampling };
       return color;
     },
-    [sampleCompositeOpaque, sampleColorFromReferenceLayer, referenceLayerId]
+    [sampleCompositeOpaque, sampleColorFromReferenceLayer, referenceLayerId, preferReferenceSampling]
   );
   
   // Helper function to sample colors along line
@@ -2220,7 +2227,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       compositeCanvasDirtyRef.current = false;
       lastCompositeHashRef.current = layersHash;
       lastActiveLayerIdRef.current = activeLayerId ?? null;
-      lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null };
+      lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null, preferReference: preferReferenceSampling };
       setLayersNeedRecomposition(false);
     }
 
@@ -2238,7 +2245,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     renderSplitComposites,
     layersHash,
     activeLayerId,
-    setLayersNeedRecomposition
+    setLayersNeedRecomposition,
+    preferReferenceSampling
   ]);
 
   // Redraw immediately when marquee selection changes to ensure deleted pixels disappear
@@ -2811,7 +2819,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       lastCompositeHashRef.current = layersHash;
       lastActiveLayerIdRef.current = activeLayerId ?? null;
       compositeCanvasDirtyRef.current = false;
-      lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null };
+      lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)', layerId: null, preferReference: preferReferenceSampling };
       if (layersNeedRecomposition) {
         setLayersNeedRecomposition(false);
       }
@@ -2832,7 +2840,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     setLayersNeedRecomposition,
     activeLayerId,
     renderSplitComposites,
-    rebuildStaticComposite
+    rebuildStaticComposite,
+    preferReferenceSampling
   ]);
   
   // Animate marching ants

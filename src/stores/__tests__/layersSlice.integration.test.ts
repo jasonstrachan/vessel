@@ -332,4 +332,47 @@ describe('layers slice integration', () => {
     expect(targetLayer?.imageData?.width).toBe(16);
     expect(targetLayer?.imageData?.height).toBe(16);
   });
+
+  it('merges selected layers into a single normal layer and focuses it', () => {
+    const createElementSpy = jest.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    createElementSpy.mockImplementation((tagName: string) => {
+      if (tagName === 'canvas') {
+        return makeCanvas() as unknown as HTMLCanvasElement;
+      }
+      // @ts-expect-error
+      return realCreateElement(tagName);
+    });
+
+    useAppStore.setState((state) => ({
+      project: state.project ?? {
+        id: 'proj-merge',
+        name: 'Merge Test',
+        width: 256,
+        height: 256,
+        layers: [],
+        backgroundColor: 'transparent',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const store = useAppStore.getState();
+    const bottomId = store.addLayer(createNormalLayerInput('Bottom'));
+    const topId = store.addLayer(createNormalLayerInput('Top'));
+
+    const mergedId = useAppStore.getState().mergeLayers([bottomId, topId]);
+    createElementSpy.mockRestore();
+
+    const nextState = useAppStore.getState();
+    expect(mergedId).toBeTruthy();
+    expect(nextState.layers).toHaveLength(1);
+    const mergedLayer = nextState.layers[0];
+    expect(mergedLayer?.id).toBe(mergedId);
+    expect(mergedLayer?.layerType).toBe('normal');
+    expect(nextState.activeLayerId).toBe(mergedId);
+    expect(nextState.selectedLayerIds).toEqual([mergedId]);
+    expect(nextState.referenceLayerId).toBeNull();
+  });
 });

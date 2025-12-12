@@ -138,11 +138,11 @@ const LayerRow = memo<LayerRowProps>(
     if (!layer) {
       return null;
     }
+    const isHighlighted = isActive || isSelected;
 
     const rowClassName = `
-      relative group cursor-move select-none
-      ${isActive ? 'bg-[#4A4A4A]' : isSelected ? 'bg-[#3F3F3F]' : 'hover:bg-[#353535]'}
-      transition-all duration-150
+      relative group cursor-move select-none rounded-sm transition-all duration-150 border-l-4
+      ${isHighlighted ? 'bg-[#E8F2FF] text-[#0F172A] border-[#0EA5E9] shadow-[0_0_0_1px_rgba(14,165,233,0.20),inset_4px_0_0_#0EA5E922]' : 'hover:bg-[#353535] text-[#D9D9D9] border-transparent'}
     `;
 
     const renderColorPreview = () => {
@@ -194,6 +194,9 @@ const LayerRow = memo<LayerRowProps>(
         onDragStart={(event) => onDragStart(event, layer.id)}
         onDragEnd={onDragEnd}
       >
+        {isSelected && (
+          <div className={`absolute left-0 top-0 h-full w-[6px] ${isActive ? 'bg-[#0EA5E9]' : 'bg-[#5EC7FF]'} opacity-90 pointer-events-none`} />
+        )}
         <div className="relative flex items-center h-7 pl-2 pr-8">
           <button
             onClick={(event) => onToggleVisibility(event, layer.id)}
@@ -573,44 +576,11 @@ const MinimalLayerList = () => {
     const selection = selectedLayerIdsRef.current;
     const anchorId = activeLayerIdRef.current;
 
-    if (event.shiftKey && anchorId) {
-      const anchorIndex = layers.findIndex(l => l.id === anchorId);
-      const targetIndex = layers.findIndex(l => l.id === layerId);
-
-      if (anchorIndex !== -1 && targetIndex !== -1) {
-        const start = Math.min(anchorIndex, targetIndex);
-        const end = Math.max(anchorIndex, targetIndex);
-        const rangeSelection = layers.slice(start, end + 1).map(layer => layer.id);
-
-        setActiveLayer(layerId);
-        setSelectedLayerIds(rangeSelection);
-        return;
-      }
-    }
-
-    if (event.metaKey || event.ctrlKey) {
-      const isSelected = selection.includes(layerId);
-
-      if (isSelected) {
-        const nextSelection = selection.filter(id => id !== layerId);
-
-        if (nextSelection.length === 0) {
-          setActiveLayer(layerId);
-          setSelectedLayerIds([layerId]);
-          return;
-        }
-
-        if (layerId === anchorId) {
-          const nextActiveLayerId = nextSelection[nextSelection.length - 1] ?? nextSelection[0];
-          setActiveLayer(nextActiveLayerId);
-        }
-
-        setSelectedLayerIds(nextSelection);
-        return;
-      }
-
-      setActiveLayer(layerId);
-      setSelectedLayerIds([...selection, layerId]);
+    if (event.shiftKey) {
+      // Shift adds the clicked layer to the selection without removing others.
+      const nextSelection = selection.includes(layerId) ? selection : [...selection, layerId];
+      setSelectedLayerIds(nextSelection);
+      setActiveLayer(layerId, { preserveSelection: true });
       return;
     }
 

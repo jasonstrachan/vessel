@@ -343,6 +343,8 @@ export interface AppState {
   setActiveColor: (color: string) => void;
   swapPaletteColors: () => void;
   setActivePaletteSlot: (slot: 'foreground' | 'background') => void;
+  colorPickerPreferReferenceLayer: boolean;
+  setColorPickerPreferReferenceLayer: (prefer: boolean) => void;
   syncPaletteFromTool: (color: string, slot?: 'foreground' | 'background') => void;
   
   // Brush-specific settings storage
@@ -539,7 +541,8 @@ export interface AppState {
   duplicateLayer: (id: string) => string | null;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
-  setActiveLayer: (id: string) => void;
+  mergeLayers: (layerIds: string[]) => string | null;
+  setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
   setLayers: (layers: Layer[]) => void;
   setReferenceLayer: (id: string | null) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
@@ -807,6 +810,7 @@ export const useAppStore = createVesselStore<AppState>(
         selectLayerAlpha: selectionSlice.selectLayerAlpha,
         paletteDirty: false,
         palette: initialPalette,
+        colorPickerPreferReferenceLayer: true,
       colorCyclePlayback: {
         desiredPlaying: false,
         suspendDepth: 0,
@@ -843,6 +847,9 @@ export const useAppStore = createVesselStore<AppState>(
         const slot = (get().palette.activeSlot ?? 'foreground');
         get().setPaletteColor(slot, color);
       },
+      setColorPickerPreferReferenceLayer: (prefer) => set(() => ({
+        colorPickerPreferReferenceLayer: Boolean(prefer)
+      })),
       swapPaletteColors: () => {
         const palette = get().palette;
         const nextPalette: PaletteState = {

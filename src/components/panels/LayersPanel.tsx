@@ -6,6 +6,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
+  selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
 import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -24,6 +25,7 @@ const LayersPanel: React.FC = () => {
 
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
+  const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const addLayer = useAppStore((state) => state.addLayer);
   const duplicateLayer = useAppStore((state) => state.duplicateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
@@ -36,6 +38,7 @@ const LayersPanel: React.FC = () => {
   const setReferenceLayer = useAppStore((state) => state.setReferenceLayer);
   const referenceLayerId = useAppStore((state) => state.referenceLayerId);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const mergeLayers = useAppStore((state) => state.mergeLayers);
 
   const handleAddRegularLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
@@ -227,6 +230,24 @@ const LayersPanel: React.FC = () => {
     setDragOverBottom(false);
   }, []);
 
+  const handleRowClick = React.useCallback((event: React.MouseEvent, layerId: string) => {
+    // Shift+click adds the layer to the current selection without toggling others.
+    if (event.shiftKey) {
+      const nextSelection = selectedLayerIds.includes(layerId)
+        ? selectedLayerIds
+        : [...selectedLayerIds, layerId];
+      setSelectedLayerIds(nextSelection);
+      setActiveLayer(layerId, { preserveSelection: true });
+      setLayerMenuState(null);
+      return;
+    }
+
+    // Plain click selects only this layer.
+    setActiveLayer(layerId);
+    setSelectedLayerIds([layerId]);
+    setLayerMenuState(null);
+  }, [activeLayerId, selectedLayerIds, setActiveLayer, setLayerMenuState, setSelectedLayerIds]);
+
   const generateGradientCSS = React.useCallback((gradient?: Array<{ position: number; color: string }>) => {
     if (!gradient || gradient.length === 0) {
       return 'linear-gradient(90deg, #888 0%, #888 100%)';
@@ -283,21 +304,23 @@ const LayersPanel: React.FC = () => {
       <div className="flex-1 min-h-0 overflow-y-auto">
         {layers.slice().reverse().map(layer => {
           const isActive = activeLayerId === layer.id;
+          const isSelected = selectedLayerIds.includes(layer.id);
+          const isHighlighted = isActive || isSelected;
           const isColorCycle = layer.layerType === 'color-cycle';
           const gradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
           const isMenuOpen = layerMenuState?.layerId === layer.id;
           const isReferenceLayer = referenceLayerId === layer.id;
           const sliderPercent = Math.round(layer.opacity * 100);
-          const rowVisualClass = isActive
-            ? 'bg-[#D9D9D9] text-[#1A1A1A]'
-            : 'hover:bg-[#383838]/20 text-[#D9D9D9]';
+          const rowVisualClass = isHighlighted
+            ? 'bg-[#E8F2FF] text-[#0F172A] border-l-4 border-[#0EA5E9] shadow-[0_0_0_1px_rgba(14,165,233,0.25),inset_4px_0_0_#0EA5E922]'
+            : 'hover:bg-[#383838]/20 text-[#D9D9D9] border-l-4 border-transparent';
           const visibleIconClass = layer.visible
-            ? (isActive ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
-            : (isActive ? 'text-[#5A5A5A]' : 'text-[#666]');
-          const badgeBackgroundClass = isActive ? 'bg-[#CFCFCF]' : 'bg-[#3A3A3A]';
-          const badgeTextClass = isActive ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]';
-          const deleteButtonColor = isActive ? 'text-[#5A5A5A]' : 'text-[#666]';
-          const hoverDeleteColor = isActive ? 'hover:text-red-600' : 'hover:text-red-500';
+            ? (isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
+            : (isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]');
+          const badgeBackgroundClass = isHighlighted ? 'bg-[#CFCFCF]' : 'bg-[#3A3A3A]';
+          const badgeTextClass = isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]';
+          const deleteButtonColor = isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]';
+          const hoverDeleteColor = isHighlighted ? 'hover:text-red-600' : 'hover:text-red-500';
 
           return (
             <div
@@ -307,6 +330,11 @@ const LayersPanel: React.FC = () => {
                 event.preventDefault();
                 const anchor = event.currentTarget as HTMLDivElement;
                 const placement = estimateLayerMenuPosition(anchor);
+
+                if (!selectedLayerIds.includes(layer.id)) {
+                  setSelectedLayerIds([layer.id]);
+                  setActiveLayer(layer.id);
+                }
 
                 setLayerMenuState({
                   layerId: layer.id,
@@ -318,10 +346,7 @@ const LayersPanel: React.FC = () => {
               } ${draggedLayerId === layer.id ? 'opacity-50 shadow-lg' : ''} ${
                 isMenuOpen ? 'z-30' : ''
               } cursor-pointer transition-colors`}
-              onClick={() => {
-                setActiveLayer(layer.id);
-                setLayerMenuState(null);
-              }}
+              onClick={(event) => handleRowClick(event, layer.id)}
               onDragStart={event => handleDragStart(event, layer.id)}
               onDragOver={handleDragOver}
               onDrop={event => handleDrop(event, layer.id)}
@@ -490,6 +515,26 @@ const LayersPanel: React.FC = () => {
                         title="Duplicate this layer"
                       >
                         <span>Duplicate layer</span>
+                      </button>
+                      <button
+                        onClick={event => {
+                          event.stopPropagation();
+                          const targetIds =
+                            selectedLayerIds.length > 1 && selectedLayerIds.includes(layer.id)
+                              ? selectedLayerIds
+                              : [layer.id];
+                          mergeLayers(targetIds);
+                          setLayerMenuState(null);
+                        }}
+                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
+                          selectedLayerIds.length > 1
+                            ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29] hover:bg-[#3A4A32]'
+                            : 'border-[#3A3A3A] text-[#777] cursor-not-allowed'
+                        }`}
+                        disabled={selectedLayerIds.length < 2}
+                        title="Merge selected layers into one"
+                      >
+                        <span>Merge layers</span>
                       </button>
                       <button
                         onClick={event => {
