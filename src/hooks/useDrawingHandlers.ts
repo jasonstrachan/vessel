@@ -2420,7 +2420,8 @@ export function useDrawingHandlers({
       20;
     const opacity = tools.eraserSettings.opacity || 1;
 
-    ctx.lineWidth = eraserSize * 2; // Diameter to match circle-based approach
+    // Use the configured eraser size directly; doubling was making the stroke appear oversized.
+    ctx.lineWidth = eraserSize;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     // The "color" of the eraser determines its strength. Black with opacity.

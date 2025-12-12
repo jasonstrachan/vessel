@@ -3460,14 +3460,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       {/* Brush cursor preview */}
       {(() => {
-        const brushShapeForCursor = tools.brushSettings.brushShape || BrushShape.ROUND;
-        const cursorSize = Math.max(
-          1,
-          tools.brushSettings.size ??
-            globalBrushSize ??
-            tools.eraserSettings.size ??
-            1
-        );
+        const brushShapeForCursor =
+          tools.currentTool === 'eraser'
+            ? BrushShape.ROUND
+            : tools.brushSettings.brushShape || BrushShape.ROUND;
+
+        const baseBrushSize = tools.brushSettings.size ?? globalBrushSize ?? 1;
+        const eraserSize =
+          tools.eraserSettings.linkSizeToBrush === false
+            ? tools.eraserSettings.size ?? baseBrushSize
+            : baseBrushSize;
+
+        const cursorSize =
+          tools.currentTool === 'eraser'
+            ? Math.max(1, eraserSize)
+            : Math.max(1, baseBrushSize);
+
         return (
           <BrushCursor
             ref={brushCursorHandleRef}
