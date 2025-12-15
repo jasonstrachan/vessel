@@ -2697,7 +2697,7 @@ export const createShapeToolHandler = (
                   const bg = parseCssColorToRgba(
                     palette?.backgroundColor ?? '#fff'
                   );
-                  const paletteRGBA = buildFgBgPalette(fg, bg);
+                  const paletteRGBA: Array<[number, number, number, number]> = [fg, bg];
                   const pixelSize = Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 3));
                   const tempCanvas = canvasPool.acquire(w, h);
                   const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);

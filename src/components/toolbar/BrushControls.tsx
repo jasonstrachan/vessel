@@ -263,6 +263,7 @@ const BrushControls = () => {
     !isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) &&
     activeSettings.brushShape !== BrushShape.RESAMPLER;
   const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
+  const isDitherGradient = brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
 
   const [pressureDraft, setPressureDraft] = React.useState(() => ({
     min: (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString(),
@@ -1782,6 +1783,42 @@ const BrushControls = () => {
     );
   }
 
+  if (isDitherGradient) {
+    return (
+      <div className="p-4">
+        {/* Opacity */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Opacity
+            </label>
+            <ProgressSlider
+              value={activeSettings.opacity}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => setActiveSettings({ opacity: value })}
+              aria-label="Opacity"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Dither settings (toggle kept to allow background transparency control) */}
+        {canDitherForShape(activeSettings.brushShape) && (
+          <DitherControls
+            settings={activeSettings}
+            onChange={setActiveSettings}
+            canToggle={false}
+            forceOn
+            hideToggle
+            hideLostEdge
+          />
+        )}
+      </div>
+    );
+  }
+
   if (isShapeFillBrush) {
     if (typeof window !== 'undefined') {
       console.log('[BrushControls] ShapeFill branch');
@@ -1834,39 +1871,41 @@ const BrushControls = () => {
       )}
 
       {/* Size */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-            Size {sizeUnit}
-          </label>
-          <ProgressSlider
-            value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
-            min={isActiveCustomBrush ? 5 : 1}
-            max={isActiveCustomBrush ? 1000 : 500}
-            step={isActiveCustomBrush ? 5 : 1}
-            onChange={(value) => {
-              if (isActiveCustomBrush) {
-                setCustomBrushSizePercent(value);
-                if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
-                  const updatedSize =
-                    useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
-                  setEraserSettings({ size: updatedSize });
+      {!isDitherGradient && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Size {sizeUnit}
+            </label>
+            <ProgressSlider
+              value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
+              min={isActiveCustomBrush ? 5 : 1}
+              max={isActiveCustomBrush ? 1000 : 500}
+              step={isActiveCustomBrush ? 5 : 1}
+              onChange={(value) => {
+                if (isActiveCustomBrush) {
+                  setCustomBrushSizePercent(value);
+                  if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
+                    const updatedSize =
+                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                    setEraserSettings({ size: updatedSize });
+                  }
+                  return;
                 }
-                return;
-              }
-              const min = 1;
-              const max = 500;
-              const next = Math.min(max, Math.max(min, Math.round(value)));
-              setGlobalBrushSize(next);
-              if (currentTool === 'eraser') {
-                setEraserSettings({ size: next });
-              }
-            }}
-            aria-label={`Brush Size (${sizeUnit})`}
-            className="flex-1"
-          />
+                const min = 1;
+                const max = 500;
+                const next = Math.min(max, Math.max(min, Math.round(value)));
+                setGlobalBrushSize(next);
+                if (currentTool === 'eraser') {
+                  setEraserSettings({ size: next });
+                }
+              }}
+              aria-label={`Brush Size (${sizeUnit})`}
+              className="flex-1"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Opacity */}
       <div className="mb-2">
@@ -1887,24 +1926,26 @@ const BrushControls = () => {
       </div>
 
       {/* Spacing */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-            Spacing
-          </label>
-          <ProgressSlider
-            value={activeSettings.spacing}
-            min={1}
-            max={40}
-            step={1}
-            onChange={(value) =>
-              setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
-            }
-            aria-label="Spacing"
-            className="flex-1"
-          />
+      {!isDitherGradient && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Spacing
+            </label>
+            <ProgressSlider
+              value={activeSettings.spacing}
+              min={1}
+              max={40}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+              }
+              aria-label="Spacing"
+              className="flex-1"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Lost Edge (edge fade) — keep here for non-dither brushes; dither presets show it in Dither controls */}
       {!isDitherPreset && (

@@ -16,6 +16,7 @@ type Props = {
   isDitherPreset?: boolean;
   afterPresRes?: React.ReactNode; // rendered directly after PresRes toggle
   hideLostEdge?: boolean; // suppress the Lostedge slider (useful when shown elsewhere)
+  hideResolution?: boolean; // hide the resolution slider (for shape-specific UIs)
 };
 
 const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label: string }[] = [
@@ -54,7 +55,8 @@ export const DitherControls: React.FC<Props> = ({
   compact = false,
   isDitherPreset = false,
   afterPresRes,
-  hideLostEdge = false
+  hideLostEdge = false,
+  hideResolution = false
 }) => {
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
@@ -107,21 +109,23 @@ export const DitherControls: React.FC<Props> = ({
             </div>
           )}
 
-          <div className="flex items-center gap-2 mt-2">
-            <label className={labelWidth} style={labelStyle}>
-              Res
-            </label>
-            <ProgressSlider
-              value={settings.fillResolution || 1}
-              min={1}
-              max={16}
-              step={1}
-              onChange={(value) => onChange({ fillResolution: Math.max(1, Math.round(value)) })}
-              disabled={Boolean(settings.pressureLinkedFillResolution && isDitherPreset)}
-              aria-label="Dither Resolution"
-              className="flex-1"
-            />
-          </div>
+          {!hideResolution && (
+            <div className="flex items-center gap-2 mt-2">
+              <label className={labelWidth} style={labelStyle}>
+                Res
+              </label>
+              <ProgressSlider
+                value={settings.fillResolution || 1}
+                min={1}
+                max={16}
+                step={1}
+                onChange={(value) => onChange({ fillResolution: Math.max(1, Math.round(value)) })}
+                disabled={Boolean(settings.pressureLinkedFillResolution && isDitherPreset)}
+                aria-label="Dither Resolution"
+                className="flex-1"
+              />
+            </div>
+          )}
 
           <div className="flex items-center gap-2 mt-1">
             <label className={labelWidth} style={labelStyle}>

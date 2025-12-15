@@ -4941,7 +4941,7 @@ export function useDrawingHandlers({
       const palette = storeRef.current.palette;
       const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');
       const bg = parseCssColorToRgba(palette?.backgroundColor || '#fff');
-      const paletteRGBA = buildFgBgPalette(fg, bg);
+      const paletteRGBA: Array<[number, number, number, number]> = [fg, bg];
       const pixelSize = Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1));
 
       const imageData = renderOrderedDitherGradientToImageData({
