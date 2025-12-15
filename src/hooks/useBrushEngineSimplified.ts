@@ -2418,6 +2418,35 @@ export const useBrushEngineSimplified = () => {
         const { x, y, width, height } = region;
 
         if (width > 0 && height > 0) {
+          // Protect against re-dithering extremely large stroke regions, which
+          // was causing a “wall” of lag mid-stroke when the bounding box grows
+          // huge. Fall back to incremental dithering in that case.
+          const PRESSURE_DITHER_AREA_LIMIT = 1_200_000; // ~1.2 MP
+          const PRESSURE_DITHER_DIM_LIMIT = 2200; // guard single-axis runaway
+          const regionArea = width * height;
+          const regionTooBig =
+            regionArea > PRESSURE_DITHER_AREA_LIMIT ||
+            width > PRESSURE_DITHER_DIM_LIMIT ||
+            height > PRESSURE_DITHER_DIM_LIMIT;
+
+          if (regionTooBig) {
+            // Only dither the latest segment instead of the whole stroke.
+            const fallbackRegion = inflateRect(segmentBounds, 4);
+            const safeRegion = normalizeRectForCanvas(
+              fallbackRegion,
+              canvasW,
+              canvasH
+            );
+            const { x: fx, y: fy, width: fw, height: fh } = safeRegion;
+            if (fw > 0 && fh > 0) {
+              ditherCtx.clearRect(fx, fy, fw, fh);
+              ditherRegionWithCurrentPressure(ditherCtx, safeRegion, rawCtx);
+              liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, safeRegion);
+              liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, safeRegion);
+            }
+            return;
+          }
+
           const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
           const currentPixelSize = getStrokeDitherPixelSize();

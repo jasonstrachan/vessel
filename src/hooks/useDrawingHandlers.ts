@@ -4872,7 +4872,72 @@ export function useDrawingHandlers({
         y: point.y - minY,
       }));
 
-      const axis = computeGradientAxisFromPolygon(localVertices);
+      const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>) => {
+        const n = verts.length;
+        if (n === 0) {
+          return { start: { x: 0, y: 0 }, end: { x: 1, y: 0 }, dir: { x: 1, y: 0 }, length: 1 };
+        }
+        if (n === 1) {
+          return { start: verts[0], end: { x: verts[0].x + 1, y: verts[0].y }, dir: { x: 1, y: 0 }, length: 1 };
+        }
+
+        let a = verts[0];
+        let b = verts[1];
+        let bestD2 = -1;
+        for (let i = 0; i < n; i += 1) {
+          for (let j = i + 1; j < n; j += 1) {
+            const dx = verts[j].x - verts[i].x;
+            const dy = verts[j].y - verts[i].y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 > bestD2) {
+              bestD2 = d2;
+              a = verts[i];
+              b = verts[j];
+            }
+          }
+        }
+
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let len = Math.hypot(dx, dy);
+        if (len < 1e-6) {
+          dx = 1;
+          dy = 0;
+          len = 1;
+        }
+        dx /= len;
+        dy /= len;
+
+        let minT = Infinity;
+        let maxT = -Infinity;
+        const corners = [
+          { x: 0, y: 0 },
+          { x: width, y: 0 },
+          { x: 0, y: height },
+          { x: width, y: height },
+        ];
+
+        for (const v of verts) {
+          const t = v.x * dx + v.y * dy;
+          if (t < minT) minT = t;
+          if (t > maxT) maxT = t;
+        }
+        for (const c of corners) {
+          const t = c.x * dx + c.y * dy;
+          if (t < minT) minT = t;
+          if (t > maxT) maxT = t;
+        }
+
+        const length = Math.max(1e-6, maxT - minT);
+        return {
+          start: { x: dx * minT, y: dy * minT },
+          end: { x: dx * maxT, y: dy * maxT },
+          dir: { x: dx, y: dy },
+          length,
+        };
+      };
+
+      const axis = computeAxisOpposingEnds(localVertices);
       const palette = storeRef.current.palette;
       const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');
       const bg = parseCssColorToRgba(palette?.backgroundColor || '#fff');
