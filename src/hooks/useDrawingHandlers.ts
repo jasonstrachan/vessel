@@ -4854,6 +4854,16 @@ export function useDrawingHandlers({
       maxX = Math.min(project.width, Math.ceil(maxX));
       maxY = Math.min(project.height, Math.ceil(maxY));
 
+      // Ensure finalize ROI covers the drawn polygon
+      strokeBoundingBoxRef.current = {
+        minX,
+        minY,
+        maxX,
+        maxY,
+      };
+      const PADDING_FOR_DITHER = 6;
+      strokeCapturePaddingRef.current = Math.max(strokeCapturePaddingRef.current, ROI_PADDING_PX + PADDING_FOR_DITHER);
+
       const width = Math.max(1, Math.ceil(maxX - minX));
       const height = Math.max(1, Math.ceil(maxY - minY));
 

@@ -1494,6 +1494,97 @@ export const createShapeToolHandler = (
     return colors.background;
   };
 
+  const computeAxisStartFarthest = (verts: Array<{ x: number; y: number }>): {
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    dir: { x: number; y: number };
+    length: number;
+  } => {
+    const start = verts[0] ?? { x: 0, y: 0 };
+    let end = start;
+    let bestD2 = -1;
+    for (let i = 1; i < verts.length; i += 1) {
+      const dx = verts[i].x - start.x;
+      const dy = verts[i].y - start.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > bestD2) {
+        bestD2 = d2;
+        end = verts[i];
+      }
+    }
+    const length = Math.max(1e-6, Math.sqrt(bestD2 < 0 ? 0 : bestD2));
+    const inv = 1 / length;
+    return {
+      start,
+      end,
+      dir: { x: (end.x - start.x) * inv, y: (end.y - start.y) * inv },
+      length,
+    };
+  };
+
+  const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    dir: { x: number; y: number };
+    length: number;
+  } => {
+    const n = verts.length;
+    if (n === 0) {
+      return { start: { x: 0, y: 0 }, end: { x: 1, y: 0 }, dir: { x: 1, y: 0 }, length: 1 };
+    }
+    if (n === 1) {
+      return { start: verts[0], end: { x: verts[0].x + 1, y: verts[0].y }, dir: { x: 1, y: 0 }, length: 1 };
+    }
+
+    // 1) pick direction from farthest pair (O(n^2), acceptable for small vertex counts)
+    let a = verts[0];
+    let b = verts[1];
+    let bestD2 = -1;
+    for (let i = 0; i < n; i += 1) {
+      for (let j = i + 1; j < n; j += 1) {
+        const dx = verts[j].x - verts[i].x;
+        const dy = verts[j].y - verts[i].y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > bestD2) {
+          bestD2 = d2;
+          a = verts[i];
+          b = verts[j];
+        }
+      }
+    }
+
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let len = Math.hypot(dx, dy);
+    if (len < 1e-6) {
+      dx = 1;
+      dy = 0;
+      len = 1;
+    }
+    dx /= len;
+    dy /= len;
+
+    // 2) choose opposing endpoints along that direction by projection
+    let minT = Infinity;
+    let maxT = -Infinity;
+    let minP = verts[0];
+    let maxP = verts[0];
+    for (const v of verts) {
+      const t = v.x * dx + v.y * dy;
+      if (t < minT) {
+        minT = t;
+        minP = v;
+      }
+      if (t > maxT) {
+        maxT = t;
+        maxP = v;
+      }
+    }
+
+    const length = Math.max(1e-6, maxT - minT);
+    return { start: minP, end: maxP, dir: { x: dx, y: dy }, length };
+  };
+
   const parseCssColorToRgba = (color: string): [number, number, number, number] => {
     const hex = color?.trim().toLowerCase();
     const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
@@ -2490,6 +2581,7 @@ export const createShapeToolHandler = (
 
             const pts = points as Array<{ x: number; y: number }>;
             const vertexCount = pts.length + 1;
+            let didCustomFill = false;
 
             if (vertexCount >= 3) {
               const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
@@ -2548,21 +2640,77 @@ export const createShapeToolHandler = (
                     x: pt.x - minX,
                     y: pt.y - minY,
                   }));
-                  const axis = computeGradientAxisFromPolygon(localVertices);
-                  const palette = useAppStore.getState().palette;
-                  const fg = parseCssColorToRgba(palette?.foregroundColor || tools.brushSettings.color || '#000');
-                  const bg = parseCssColorToRgba(palette?.backgroundColor || '#ffffff');
-                  const paletteRGBA = buildFgBgPalette(fg, bg);
-                  const pixelSize = Math.max(1, Math.round((tools.brushSettings.fillResolution ?? 3) * 2));
+                  const axisBase = computeAxisOpposingEnds(localVertices);
                   const w = Math.max(1, Math.ceil(width));
                   const h = Math.max(1, Math.ceil(height));
+                  const corners = [
+                    { x: 0, y: 0 },
+                    { x: w, y: 0 },
+                    { x: 0, y: h },
+                    { x: w, y: h },
+                  ];
+                  let minT = Infinity;
+                  let maxT = -Infinity;
+                  for (const v of localVertices) {
+                    const t = v.x * axisBase.dir.x + v.y * axisBase.dir.y;
+                    if (t < minT) minT = t;
+                    if (t > maxT) maxT = t;
+                  }
+                  for (const c of corners) {
+                    const t = c.x * axisBase.dir.x + c.y * axisBase.dir.y;
+                    if (t < minT) minT = t;
+                    if (t > maxT) maxT = t;
+                  }
+                  const axisLength = Math.max(1e-6, maxT - minT);
+                  const axis = {
+                    start: { x: axisBase.dir.x * minT, y: axisBase.dir.y * minT },
+                    end: { x: axisBase.dir.x * maxT, y: axisBase.dir.y * maxT },
+                    dir: axisBase.dir,
+                    length: axisLength,
+                  };
+                  const dot = (p: { x: number; y: number }, d: { x: number; y: number }) => p.x * d.x + p.y * d.y;
+                  const cornersForT = [
+                    { x: 0, y: 0 },
+                    { x: w, y: 0 },
+                    { x: 0, y: h },
+                    { x: w, y: h },
+                  ];
+                  let minProj = Infinity;
+                  let maxProj = -Infinity;
+                  for (const p of [...localVertices, ...cornersForT]) {
+                    const proj = dot(p, axis.dir);
+                    if (proj < minProj) minProj = proj;
+                    if (proj > maxProj) maxProj = proj;
+                  }
+                  const startProj = dot(axis.start, axis.dir);
+                  const shift = minProj - startProj;
+                  const axisNorm = {
+                    ...axis,
+                    start: { x: axis.start.x + axis.dir.x * shift, y: axis.start.y + axis.dir.y * shift },
+                    length: Math.max(1e-6, maxProj - minProj),
+                  };
+
+                  const palette = useAppStore.getState().palette;
+                  const fg = parseCssColorToRgba(
+                    palette?.foregroundColor ?? tools.brushSettings.color ?? '#000'
+                  );
+                  const bg = parseCssColorToRgba(
+                    palette?.backgroundColor ?? '#fff'
+                  );
+                  const paletteRGBA = buildFgBgPalette(fg, bg);
+                  const pixelSize = Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 3));
                   const tempCanvas = canvasPool.acquire(w, h);
                   const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
                   if (tempCtx) {
+                    tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+                    tempCtx.globalCompositeOperation = 'source-over';
+                    tempCtx.globalAlpha = 1;
+                    tempCtx.imageSmoothingEnabled = false;
+                    tempCtx.clearRect(0, 0, w, h);
                     const imageData = renderOrderedDitherGradientToImageData({
                       width: w,
                       height: h,
-                      axis,
+                      axis: axisNorm,
                       paletteRGBA,
                       tileSize: 8,
                       pixelSize,
@@ -2580,9 +2728,13 @@ export const createShapeToolHandler = (
                     tempCtx.fill();
                     tempCtx.globalCompositeOperation = 'source-over';
 
+                    overlayCtx.save();
+                    overlayCtx.globalAlpha = 1;
                     overlayCtx.drawImage(tempCanvas, minX, minY);
+                    overlayCtx.restore();
                   }
                   canvasPool.release(tempCanvas);
+                  didCustomFill = true;
                 } else {
                   let gradient: CanvasGradient;
                   if (width > height) {
@@ -2629,9 +2781,13 @@ export const createShapeToolHandler = (
                 overlayCtx.stroke();
                 strokePreviewOutline();
               } else if (isShapeFill) {
-                overlayCtx.fill();
+                if (!didCustomFill) {
+                  overlayCtx.fill();
+                }
               } else {
-                overlayCtx.fill();
+                if (!didCustomFill) {
+                  overlayCtx.fill();
+                }
                 strokePreviewOutline();
               }
 
@@ -2952,6 +3108,11 @@ export const createShapeToolHandler = (
       } else {
         const polygonColors = points.map(point => point?.color ?? fillColor);
 
+        drawCtx.save();
+        drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+        drawCtx.globalCompositeOperation = 'source-over';
+        drawCtx.globalAlpha = 1;
+        drawCtx.imageSmoothingEnabled = false;
         brushEngine.drawPolygonGradient(
           drawCtx,
           {
@@ -2960,6 +3121,7 @@ export const createShapeToolHandler = (
           },
           false
         );
+        drawCtx.restore();
 
         drawingHandlers.drawingCanvasHasContent.current = true;
       }
