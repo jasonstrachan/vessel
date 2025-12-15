@@ -16,6 +16,12 @@ import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamK
 import { registerToolFlush } from '@/utils/toolFlushRegistry';
 import { snapPointToPixel } from '@/utils/pixelSharp';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
+import { canvasPool } from '@/utils/canvasPool';
+import {
+  buildFgBgPalette,
+  computeGradientAxisFromPolygon,
+  renderOrderedDitherGradientToImageData,
+} from '@/utils/orderedDitherGradient';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -1488,6 +1494,47 @@ export const createShapeToolHandler = (
     return colors.background;
   };
 
+  const parseCssColorToRgba = (color: string): [number, number, number, number] => {
+    const hex = color?.trim().toLowerCase();
+    const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+    if (hex?.startsWith('#')) {
+      const raw = hex.slice(1);
+      if (raw.length === 3 || raw.length === 4) {
+        const r = parseInt(raw[0] + raw[0], 16);
+        const g = parseInt(raw[1] + raw[1], 16);
+        const b = parseInt(raw[2] + raw[2], 16);
+        const a = raw.length === 4 ? parseInt(raw[3] + raw[3], 16) : 255;
+        return [clamp(r), clamp(g), clamp(b), clamp(a)];
+      }
+      if (raw.length === 6 || raw.length === 8) {
+        const r = parseInt(raw.slice(0, 2), 16);
+        const g = parseInt(raw.slice(2, 4), 16);
+        const b = parseInt(raw.slice(4, 6), 16);
+        const a = raw.length === 8 ? parseInt(raw.slice(6, 8), 16) : 255;
+        return [clamp(r), clamp(g), clamp(b), clamp(a)];
+      }
+    }
+
+    if (typeof document !== 'undefined') {
+      const ctx = document.createElement('canvas').getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#000';
+        ctx.fillStyle = color;
+        const computed = ctx.fillStyle;
+        if (typeof computed === 'string' && computed.startsWith('rgb')) {
+          const m = computed.match(/rgba?\(([^)]+)\)/);
+          if (m?.[1]) {
+            const parts = m[1].split(',').map(part => parseFloat(part.trim()));
+            const [r, g, b, a = 1] = parts;
+            return [clamp(r), clamp(g), clamp(b), clamp(a * 255)];
+          }
+        }
+      }
+    }
+
+    return [0, 0, 0, 255];
+  };
+
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
     const store = useAppStore.getState();
     const { brushSettings } = store.tools;
@@ -1510,10 +1557,19 @@ export const createShapeToolHandler = (
       return toOpaqueColorString(target);
     }
 
+    if (brushShape === BrushShape.DITHER_GRADIENT) {
+      const palette = store.palette;
+      const fg = palette?.foregroundColor || brushSettings.color || '#000';
+      return toOpaqueColorString(fg);
+    }
+
     return brushSettings.color;
   };
 
-  const isPolygonGradientBrush = () => tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
+  const isPolygonGradientBrush = () => {
+    const shape = tools.brushSettings.brushShape;
+    return shape === BrushShape.POLYGON_GRADIENT || shape === BrushShape.DITHER_GRADIENT;
+  };
   const isColorCycleShapeBrush = () => tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const isShapeFillBrush = () => isShapeFillToolActive();
   const isContourPolygonBrush = () => {
@@ -1563,6 +1619,21 @@ export const createShapeToolHandler = (
       return {
         foreground: toOpaqueColorString(brushSettings.color),
         background: undefined,
+        sampledForeground: false,
+        sampledBackground: false,
+        primary: 'foreground' as const,
+      };
+    }
+
+    if (brushShape === BrushShape.DITHER_GRADIENT) {
+      const palette = store.palette;
+      const foreground = toOpaqueColorString(palette?.foregroundColor || brushSettings.color);
+      const background = palette?.backgroundColor
+        ? toOpaqueColorString(palette.backgroundColor)
+        : undefined;
+      return {
+        foreground,
+        background,
         sampledForeground: false,
         sampledBackground: false,
         primary: 'foreground' as const,
@@ -2472,35 +2543,77 @@ export const createShapeToolHandler = (
                 const width = maxX - minX;
                 const height = maxY - minY;
 
-                let gradient: CanvasGradient;
-                if (width > height) {
-                  gradient = overlayCtx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+                if (tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT) {
+                  const localVertices = [...pts, previewPoint].map(pt => ({
+                    x: pt.x - minX,
+                    y: pt.y - minY,
+                  }));
+                  const axis = computeGradientAxisFromPolygon(localVertices);
+                  const palette = useAppStore.getState().palette;
+                  const fg = parseCssColorToRgba(palette?.foregroundColor || tools.brushSettings.color || '#000');
+                  const bg = parseCssColorToRgba(palette?.backgroundColor || '#ffffff');
+                  const paletteRGBA = buildFgBgPalette(fg, bg);
+                  const pixelSize = Math.max(1, Math.round((tools.brushSettings.fillResolution ?? 3) * 2));
+                  const w = Math.max(1, Math.ceil(width));
+                  const h = Math.max(1, Math.ceil(height));
+                  const tempCanvas = canvasPool.acquire(w, h);
+                  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+                  if (tempCtx) {
+                    const imageData = renderOrderedDitherGradientToImageData({
+                      width: w,
+                      height: h,
+                      axis,
+                      paletteRGBA,
+                      tileSize: 8,
+                      pixelSize,
+                    });
+                    tempCtx.clearRect(0, 0, w, h);
+                    tempCtx.putImageData(imageData, 0, 0);
+                    tempCtx.globalCompositeOperation = 'destination-in';
+                    tempCtx.beginPath();
+                    tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
+                    for (let i = 1; i < localVertices.length; i += 1) {
+                      tempCtx.lineTo(localVertices[i].x, localVertices[i].y);
+                    }
+                    tempCtx.closePath();
+                    tempCtx.fillStyle = 'white';
+                    tempCtx.fill();
+                    tempCtx.globalCompositeOperation = 'source-over';
+
+                    overlayCtx.drawImage(tempCanvas, minX, minY);
+                  }
+                  canvasPool.release(tempCanvas);
                 } else {
-                  gradient = overlayCtx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+                  let gradient: CanvasGradient;
+                  if (width > height) {
+                    gradient = overlayCtx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+                  } else {
+                    gradient = overlayCtx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+                  }
+
+                  const useSampledFill = false;
+                  const previewColors = polygonStateForPreview.points.length > 0
+                    ? polygonStateForPreview.points.map(point => point.color ?? tools.brushSettings.color)
+                    : [];
+                  const previewColor = useSampledFill
+                    ? sampleColorAtPosition(previewPoint.x, previewPoint.y)
+                    : getPrimaryColor(resolveShapeFillColors(polygonStateForPreview.points));
+                  previewColors.push(previewColor);
+
+                  if (previewColors.length >= 3) {
+                    gradient.addColorStop(0, previewColors[0]);
+                    gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
+                    gradient.addColorStop(1, previewColors[previewColors.length - 1]);
+                  } else if (previewColors.length === 2) {
+                    gradient.addColorStop(0, previewColors[0]);
+                    gradient.addColorStop(1, previewColors[1]);
+                  } else if (previewColors.length === 1) {
+                    gradient.addColorStop(0, previewColors[0]);
+                    gradient.addColorStop(1, previewColors[0]);
+                  }
+
+                  overlayCtx.fillStyle = gradient;
                 }
-
-                const useSampledFill = false;
-                const previewColors = polygonStateForPreview.points.length > 0
-                  ? polygonStateForPreview.points.map(point => point.color ?? tools.brushSettings.color)
-                  : [];
-                const previewColor = useSampledFill
-                  ? sampleColorAtPosition(previewPoint.x, previewPoint.y)
-                  : getPrimaryColor(resolveShapeFillColors(polygonStateForPreview.points));
-                previewColors.push(previewColor);
-
-                if (previewColors.length >= 3) {
-                  gradient.addColorStop(0, previewColors[0]);
-                  gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
-                  gradient.addColorStop(1, previewColors[previewColors.length - 1]);
-                } else if (previewColors.length === 2) {
-                  gradient.addColorStop(0, previewColors[0]);
-                  gradient.addColorStop(1, previewColors[1]);
-                } else if (previewColors.length === 1) {
-                  gradient.addColorStop(0, previewColors[0]);
-                  gradient.addColorStop(1, previewColors[0]);
-                }
-
-                overlayCtx.fillStyle = gradient;
               }
 
               overlayCtx.globalCompositeOperation = 'source-over';

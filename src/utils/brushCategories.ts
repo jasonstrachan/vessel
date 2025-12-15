@@ -27,6 +27,7 @@ export const STROKE_BRUSHES: BrushShape[] = [
 export const SHAPE_FILL_BRUSHES: BrushShape[] = [
   BrushShape.RECTANGLE_GRADIENT,
   BrushShape.POLYGON_GRADIENT,
+  BrushShape.DITHER_GRADIENT,
   BrushShape.CONTOUR_POLYGON,
   BrushShape.CONTOUR_LINES2,
   BrushShape.COLOR_CYCLE_SHAPE,
@@ -95,6 +96,7 @@ export function supportsDither(brushShape: BrushShape | string): boolean {
   return (
     isStrokeBrush(shape) ||
     shape === BrushShape.RECTANGLE_GRADIENT ||
-    shape === BrushShape.POLYGON_GRADIENT
+    shape === BrushShape.POLYGON_GRADIENT ||
+    shape === BrushShape.DITHER_GRADIENT
   );
 }

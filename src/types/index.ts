@@ -263,6 +263,7 @@ export enum BrushShape {
   CUSTOM = 'custom',
   RECTANGLE_GRADIENT = 'rectangle_gradient',
   POLYGON_GRADIENT = 'polygon_gradient',
+  DITHER_GRADIENT = 'dither_gradient',
   CONTOUR_POLYGON = 'contour_polygon',
   CONTOUR_LINES2 = 'contour_lines2',
   RISOGRAPH_SOFT = 'risograph_soft',

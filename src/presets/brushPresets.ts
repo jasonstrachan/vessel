@@ -734,6 +734,54 @@ export const polygonGradientBrushPreset: BrushPreset = {
   }
 };
 
+// Dither Gradient Brush Components
+const ditherGradientBrushComponents: BrushComponent[] = [
+  {
+    id: 'dither-gradient-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'dither-gradient-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'dither-gradient-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.DITHER_GRADIENT
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const ditherGradientBrushPreset: BrushPreset = {
+  id: 'dither-gradient-brush',
+  name: 'Dither Grad',
+  category: 'Special',
+  components: ditherGradientBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['gradient', 'dither', 'polygon', 'special'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    ditherEnabled: true,
+    fillResolution: 3,
+    ditherAlgorithm: 'bayer'
+  }
+};
+
 const shapeFillBrushComponents: BrushComponent[] = [
   {
     id: 'shape-fill-renderer',
@@ -966,6 +1014,7 @@ export const brushPresets: BrushPreset[] = [
   colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
+  ditherGradientBrushPreset,
   shapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset

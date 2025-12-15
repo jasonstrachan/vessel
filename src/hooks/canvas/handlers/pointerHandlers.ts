@@ -246,6 +246,7 @@ const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
   brushShape === BrushShape.CONTOUR_LINES2 ||
   brushShape === BrushShape.RECTANGLE_GRADIENT ||
   brushShape === BrushShape.POLYGON_GRADIENT ||
+  brushShape === BrushShape.DITHER_GRADIENT ||
   brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
   brushShape === BrushShape.SHAPE_FILL;
 
@@ -2075,6 +2076,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       tools.shapeMode &&
       tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
+      tools.brushSettings.brushShape !== BrushShape.DITHER_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
       !isLines2Active &&
       tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE
@@ -2114,6 +2116,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         !tools.shapeMode &&
         tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
+        tools.brushSettings.brushShape !== BrushShape.DITHER_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
         !isLines2Active &&
         tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE) {
