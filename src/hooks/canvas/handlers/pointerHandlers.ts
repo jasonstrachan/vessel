@@ -824,7 +824,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       const latestShapePressureRef = drawingHandlers.latestShapePressureRef;
       const lastNonZeroShapePressureRef = drawingHandlers.lastNonZeroShapePressureRef;
       const latestShapePixelSizeRef = drawingHandlers.latestShapePixelSizeRef;
-      const maxShapePressureRef = drawingHandlers.maxShapePressureRef;
+      const maxShapePressureRef = drawingHandlers.shapeMaxPressureRef;
       const hadValidShapePressureRef = drawingHandlers.hadValidShapePressureRef;
       const liveDitherEnabled = Boolean(liveBrushSettings.ditherEnabled);
       const liveBgFillOn = liveBrushSettings.ditherBackgroundFill !== false;
