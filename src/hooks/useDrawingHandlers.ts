@@ -44,6 +44,8 @@ import { canvasPool } from '@/utils/canvasPool';
 import {
   buildFgBgPalette,
   computeGradientAxisFromPolygon,
+  scaleOrderedAxis,
+  pixelateImageData,
   renderOrderedDitherGradientToImageData,
 } from '@/utils/orderedDitherGradient';
 
@@ -4647,7 +4649,6 @@ export function useDrawingHandlers({
           activeShape === BrushShape.RECTANGLE_GRADIENT ||
           activeShape === BrushShape.POLYGON_GRADIENT ||
           activeShape === BrushShape.DITHER_GRADIENT ||
-          activeShape === BrushShape.DITHER_GRADIENT ||
           activeShape === BrushShape.COLOR_CYCLE_SHAPE ||
           activeShape === BrushShape.SHAPE_FILL;
 
@@ -4937,21 +4938,24 @@ export function useDrawingHandlers({
         };
       };
 
-      const axis = computeAxisOpposingEnds(localVertices);
+      let axis = computeAxisOpposingEnds(localVertices);
+      const lengthFactor = Math.max(0.05, Math.min(2, (liveBrushSettings.gradientLength ?? 100) / 100));
+      axis = scaleOrderedAxis(axis, lengthFactor);
       const palette = storeRef.current.palette;
       const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');
       const bg = parseCssColorToRgba(palette?.backgroundColor || '#fff');
       const paletteRGBA: Array<[number, number, number, number]> = [fg, bg];
       const pixelSize = Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1));
 
-      const imageData = renderOrderedDitherGradientToImageData({
+      const imageDataBase = renderOrderedDitherGradientToImageData({
         width,
         height,
         axis,
         paletteRGBA,
         tileSize: 8,
-        pixelSize,
+        pixelSize: 1,
       });
+      const imageData = pixelateImageData(imageDataBase, pixelSize);
 
       const tempCanvas = canvasPool.acquire(width, height);
       const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);

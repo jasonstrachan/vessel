@@ -7,6 +7,27 @@ export type OrderedDitherAxis = {
   length: number;
 };
 
+/**
+ * Scale a gradient axis length around its midpoint.
+ * factor 1 = unchanged, <1 compresses toward center, >1 extends past endpoints.
+ */
+export function scaleOrderedAxis(axis: OrderedDitherAxis, factor: number): OrderedDitherAxis {
+  const safeFactor = Math.max(0.05, Math.min(2, factor));
+  const half = (axis.length * safeFactor) / 2;
+  const center = {
+    x: (axis.start.x + axis.end.x) / 2,
+    y: (axis.start.y + axis.end.y) / 2,
+  };
+  const dx = axis.dir.x * half;
+  const dy = axis.dir.y * half;
+  return {
+    start: { x: center.x - dx, y: center.y - dy },
+    end: { x: center.x + dx, y: center.y + dy },
+    dir: { ...axis.dir },
+    length: Math.max(1e-6, axis.length * safeFactor),
+  };
+}
+
 export type OrderedDitherGradientParams = {
   width: number;
   height: number;
@@ -155,6 +176,43 @@ export function renderOrderedDitherGradientToImageData(params: OrderedDitherGrad
   }
 
   return imageData;
+}
+
+/**
+ * Nearest-neighbor pixelation of an ImageData.
+ * Leaves content unchanged when blockSize <= 1.
+ */
+export function pixelateImageData(source: ImageData, blockSize: number): ImageData {
+  const size = Math.max(1, Math.floor(blockSize));
+  if (size <= 1) return source;
+
+  const { width, height } = source;
+  const src = source.data;
+  const out = new ImageData(width, height);
+  const dst = out.data;
+
+  for (let y = 0; y < height; y += size) {
+    for (let x = 0; x < width; x += size) {
+      const srcIdx = (y * width + x) * 4;
+      const r = src[srcIdx];
+      const g = src[srcIdx + 1];
+      const b = src[srcIdx + 2];
+      const a = src[srcIdx + 3];
+      const maxY = Math.min(height, y + size);
+      const maxX = Math.min(width, x + size);
+      for (let yy = y; yy < maxY; yy += 1) {
+        for (let xx = x; xx < maxX; xx += 1) {
+          const dstIdx = (yy * width + xx) * 4;
+          dst[dstIdx] = r;
+          dst[dstIdx + 1] = g;
+          dst[dstIdx + 2] = b;
+          dst[dstIdx + 3] = a;
+        }
+      }
+    }
+  }
+
+  return out;
 }
 
 /**

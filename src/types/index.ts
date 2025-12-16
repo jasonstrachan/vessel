@@ -571,6 +571,11 @@ export interface BrushSettings {
   rectGradientPresetId?: string;
   // Polygon gradient sampling toggle
   polygonSampleColors?: boolean;
+  /**
+   * Controls how far the dither gradient spans along its axis (percent).
+   * 100 = full shape, <100 compresses, >100 extends.
+   */
+  gradientLength?: number;
   shapeFillMode?: 'default' | 'linear' | 'concentric' | (string & {}); // mode for shape fill tools
   // Fill resolution for dither block size (1-32 pixels per block)
   fillResolution?: number; // 1-32 for dithering block size

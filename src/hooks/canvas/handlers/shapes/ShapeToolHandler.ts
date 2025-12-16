@@ -20,6 +20,8 @@ import { canvasPool } from '@/utils/canvasPool';
 import {
   buildFgBgPalette,
   computeGradientAxisFromPolygon,
+  scaleOrderedAxis,
+  pixelateImageData,
   renderOrderedDitherGradientToImageData,
 } from '@/utils/orderedDitherGradient';
 
@@ -2689,6 +2691,8 @@ export const createShapeToolHandler = (
                     start: { x: axis.start.x + axis.dir.x * shift, y: axis.start.y + axis.dir.y * shift },
                     length: Math.max(1e-6, maxProj - minProj),
                   };
+                  const lengthFactor = Math.max(0.05, Math.min(2, (tools.brushSettings.gradientLength ?? 100) / 100));
+                  const axisScaled = scaleOrderedAxis(axisNorm, lengthFactor);
 
                   const palette = useAppStore.getState().palette;
                   const fg = parseCssColorToRgba(
@@ -2707,14 +2711,15 @@ export const createShapeToolHandler = (
                     tempCtx.globalAlpha = 1;
                     tempCtx.imageSmoothingEnabled = false;
                     tempCtx.clearRect(0, 0, w, h);
-                    const imageData = renderOrderedDitherGradientToImageData({
+                    const imageDataBase = renderOrderedDitherGradientToImageData({
                       width: w,
                       height: h,
-                      axis: axisNorm,
+                      axis: axisScaled,
                       paletteRGBA,
                       tileSize: 8,
-                      pixelSize,
+                      pixelSize: 1,
                     });
+                    const imageData = pixelateImageData(imageDataBase, pixelSize);
                     tempCtx.clearRect(0, 0, w, h);
                     tempCtx.putImageData(imageData, 0, 0);
                     tempCtx.globalCompositeOperation = 'destination-in';
