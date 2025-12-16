@@ -24,6 +24,7 @@ import {
   pixelateImageData,
   renderOrderedDitherGradientToImageData,
 } from '@/utils/orderedDitherGradient';
+import { computePressureResolution } from '@/utils/pressureResolution';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -300,6 +301,14 @@ export const createShapeToolHandler = (
   delegate: ShapeToolHandlerDelegate
 ): ShapeToolHandler => {
   const safeDelegate: ShapeToolHandlerDelegate = delegate ?? {};
+
+  // Dither gradient preview anchoring
+  let ditherGradOrigin: { x: number; y: number } | null = null;
+  let ditherGradLastPx = -1;
+  const resetDitherGradOrigin = () => {
+    ditherGradOrigin = null;
+    ditherGradLastPx = -1;
+  };
 
   const {
     canvasRef,
@@ -1660,10 +1669,11 @@ export const createShapeToolHandler = (
   };
 
   const isPolygonGradientBrush = () => {
-    const shape = tools.brushSettings.brushShape;
+    const shape = useAppStore.getState().tools.brushSettings.brushShape;
     return shape === BrushShape.POLYGON_GRADIENT || shape === BrushShape.DITHER_GRADIENT;
   };
-  const isColorCycleShapeBrush = () => tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+  const isColorCycleShapeBrush = () =>
+    useAppStore.getState().tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const isShapeFillBrush = () => isShapeFillToolActive();
   const isContourPolygonBrush = () => {
     const shape = tools.brushSettings.brushShape;
@@ -2376,7 +2386,14 @@ export const createShapeToolHandler = (
   };
 
   const computePointerPressure = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    let pressure = event.pressure ?? 0.5;
+    const raw = typeof event.pressure === 'number' ? event.pressure : 0.5;
+    const hasRealPressure = raw !== 0.5 && raw !== 0; // treat non-defaults as real
+
+    if (hasRealPressure) {
+      return raw;
+    }
+
+    let pressure = raw;
     if (event.pointerType === 'mouse') {
       if (tools.brushSettings.pressureEnabled) {
         if (event.shiftKey) {
@@ -2405,6 +2422,19 @@ export const createShapeToolHandler = (
     const isContourPolygon = isContourPolygonBrush();
     const isCCShape = isColorCycleShapeBrush();
     const isShapeFill = isShapeFillBrush();
+    const liveBrush = useAppStore.getState().tools.brushSettings;
+    const isDitherGradient = liveBrush.brushShape === BrushShape.DITHER_GRADIENT;
+
+    if (isDitherGradient) {
+      resetDitherGradOrigin();
+      const pressure = computePointerPressure(event);
+      const nowTs =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+      drawingHandlers.resetShapePressureState?.();
+      drawingHandlers.updateShapePressure?.(pressure, nowTs, event.pressure);
+    }
 
     if (isShapeFill) {
       const store = useAppStore.getState();
@@ -2509,6 +2539,21 @@ export const createShapeToolHandler = (
 
     const worldPos = computeWorldPointer(event);
     let previewWorld = worldPos;
+
+    const liveBrushForMove = useAppStore.getState().tools.brushSettings;
+    if (liveBrushForMove.brushShape === BrushShape.DITHER_GRADIENT) {
+      const pressure = computePointerPressure(event);
+      const nowTs =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+      const penActive = event.pointerType === 'pen' && (event.pressure ?? 0) > 0;
+      const mouseDown = (event.buttons & 1) === 1;
+      if (penActive || mouseDown) {
+        drawingHandlers.updateShapePressure?.(pressure, nowTs, event.pressure);
+      }
+    }
+
     if (event.shiftKey) {
       const polygonState = getPolygonState();
       const points = (isPolygonGradient || isContourPolygon)
@@ -2554,6 +2599,10 @@ export const createShapeToolHandler = (
       shouldShowPreview = appendPolygonGradientPoint(previewWorld);
     } else {
       shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
+    }
+
+    if (tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT && !drawingHandlers.isDrawingShapeRef.current) {
+      resetDitherGradOrigin();
     }
 
     if (shouldShowPreview && previewAnimationFrameRef) {
@@ -2630,6 +2679,10 @@ export const createShapeToolHandler = (
                   if (p.x > maxX) maxX = p.x;
                   if (p.y > maxY) maxY = p.y;
                 }
+                const baseMinX = minX;
+                const baseMinY = minY;
+                const baseMaxX = maxX;
+                const baseMaxY = maxY;
                 if (previewPoint.x < minX) minX = previewPoint.x;
                 if (previewPoint.y < minY) minY = previewPoint.y;
                 if (previewPoint.x > maxX) maxX = previewPoint.x;
@@ -2638,13 +2691,26 @@ export const createShapeToolHandler = (
                 const height = maxY - minY;
 
                 if (tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT) {
+                  // Stable origin to avoid swimming pixels as preview moves
+                  const pixelSize = computePressureResolution(
+                    Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 1)),
+                    drawingHandlers.lastStablePressureRef?.current ?? 0,
+                    Boolean(tools.brushSettings.pressureLinkedFillResolution && drawingHandlers.hadValidShapePressureRef?.current)
+                  );
+
+                  if (!ditherGradOrigin || ditherGradLastPx !== pixelSize) {
+                    ditherGradOrigin = { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
+                    ditherGradLastPx = pixelSize;
+                  }
+                  const origin = ditherGradOrigin ?? { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
+
                   const localVertices = [...pts, previewPoint].map(pt => ({
-                    x: pt.x - minX,
-                    y: pt.y - minY,
+                    x: pt.x - origin.x,
+                    y: pt.y - origin.y,
                   }));
                   const axisBase = computeAxisOpposingEnds(localVertices);
-                  const w = Math.max(1, Math.ceil(width));
-                  const h = Math.max(1, Math.ceil(height));
+                  const w = Math.max(1, Math.ceil(Math.max(baseMaxX, previewPoint.x) - origin.x));
+                  const h = Math.max(1, Math.ceil(Math.max(baseMaxY, previewPoint.y) - origin.y));
                   const corners = [
                     { x: 0, y: 0 },
                     { x: w, y: 0 },
@@ -2702,7 +2768,6 @@ export const createShapeToolHandler = (
                     palette?.backgroundColor ?? '#fff'
                   );
                   const paletteRGBA: Array<[number, number, number, number]> = [fg, bg];
-                  const pixelSize = Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 3));
                   const tempCanvas = canvasPool.acquire(w, h);
                   const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
                   if (tempCtx) {
@@ -2735,7 +2800,7 @@ export const createShapeToolHandler = (
 
                     overlayCtx.save();
                     overlayCtx.globalAlpha = 1;
-                    overlayCtx.drawImage(tempCanvas, minX, minY);
+                    overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
                     overlayCtx.restore();
                   }
                   canvasPool.release(tempCanvas);
@@ -2855,6 +2920,15 @@ export const createShapeToolHandler = (
     const isPolygonGradient = isPolygonGradientBrush();
     const isContourPolygon = isContourPolygonBrush();
     const isShapeFill = isShapeFillBrush();
+    const liveBrushForUp = useAppStore.getState().tools.brushSettings;
+    if (liveBrushForUp.brushShape === BrushShape.DITHER_GRADIENT) {
+      const nowTs =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+      drawingHandlers.updateShapePressure?.(0, nowTs, event.pressure);
+      resetDitherGradOrigin();
+    }
 
     if (isShapeFill) {
       if (drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length >= 3) {

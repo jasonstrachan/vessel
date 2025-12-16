@@ -3,8 +3,9 @@ export const PRESSURE_RESOLUTION_EASING_EXPONENT = 1.5;
 export const PRESSURE_RESOLUTION_MAX_MULTIPLIER = 16;
 
 /**
- * Maps pressure to a pixel size for pressure-linked fill resolution.
- * 0% pressure -> 1px, 100% pressure -> sliderValue * multiplier.
+ * Pressure-linked fill resolution.
+ * 0% pressure -> 1px, 100% pressure -> 16px (independent of sliderValue).
+ * If pressureLinked is false -> fixed pixel size = sliderValue (>= 1).
  */
 export const computePressureResolution = (
   sliderValue: number,
@@ -15,7 +16,7 @@ export const computePressureResolution = (
   if (!pressureLinked) return base;
 
   const p = Math.max(0, Math.min(1, pressure));
-  const maxSize = base * PRESSURE_RESOLUTION_MAX_MULTIPLIER;
+  const maxSize = PRESSURE_RESOLUTION_MAX_MULTIPLIER; // fixed range when linked
   const t = Math.pow(p, PRESSURE_RESOLUTION_EASING_EXPONENT);
   const result = PRESSURE_RESOLUTION_MIN_PX + (maxSize - PRESSURE_RESOLUTION_MIN_PX) * t;
 

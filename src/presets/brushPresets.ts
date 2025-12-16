@@ -731,7 +731,8 @@ export const polygonGradientBrushPreset: BrushPreset = {
   modifiedAt: new Date(),
   preferredSettings: {
     ditherEnabled: true,
-    fillResolution: 3
+    // Default to a larger max pixel size so pressure-linking has visible range (1..fillResolution)
+    fillResolution: 6
   }
 };
 
@@ -778,7 +779,8 @@ export const ditherGradientBrushPreset: BrushPreset = {
   modifiedAt: new Date(),
   preferredSettings: {
     ditherEnabled: true,
-    fillResolution: 3,
+    // Default to a larger max pixel size so pressure-linking spans multiple bins
+    fillResolution: 6,
     ditherAlgorithm: 'bayer'
   }
 };

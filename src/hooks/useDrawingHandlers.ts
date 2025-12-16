@@ -48,15 +48,20 @@ import {
   pixelateImageData,
   renderOrderedDitherGradientToImageData,
 } from '@/utils/orderedDitherGradient';
+import {
+  computePressureResolution,
+  PRESSURE_RESOLUTION_MIN_PX,
+  PRESSURE_RESOLUTION_MAX_MULTIPLIER,
+  PRESSURE_RESOLUTION_EASING_EXPONENT,
+} from '@/utils/pressureResolution';
 
 // Pressure tuning shared with brush engine
 const MAX_PRESSURE_DECAY_PER_MS = 0.003;
 const MIN_DROP_PER_EVENT = 0.01;
 const SHAPE_PRESSURE_SMOOTHING = 0.6;
 const SHAPE_PRESSURE_SAMPLE_WINDOW = 5;
-// Shapes get fewer pressure samples; cap multiplier so pressure-linked dithering
-// stays in the same ballpark as stroke mode instead of jumping to 16x.
-const SHAPE_PRESSURE_MAX_MULTIPLIER = 1;
+const PRESSURE_RES_HYST_BAND = 0.75; // px units
+const PRESSURE_RES_HOLD_MS = 60;
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -966,13 +971,17 @@ export function useDrawingHandlers({
   const brushEngine = useBrushEngineSimplified();
   const resetShapePressureState = useCallback(() => {
     latestShapePixelSizeRef.current = null;
-    lastNonZeroShapePressureRef.current = 0;
-    latestShapePressureRef.current = 0;
-    shapeMaxPressureRef.current = 0;
+    lastNonZeroShapePressureRef.current = 0.5;
+    latestShapePressureRef.current = 0.5;
+    shapeMaxPressureRef.current = 1;
     hadValidShapePressureRef.current = false;
-    lastStablePressureRef.current = 0;
+    lastStablePressureRef.current = 0.5;
     lastShapePressureTimeRef.current = 0;
     shapeSampleCountRef.current = 0;
+    penLiftHoldUntilRef.current = 0;
+    shapePressureGainRef.current = 1;
+    shapePixelHysteresisRef.current = 1;
+    shapePixelLastChangeAtRef.current = 0;
   }, []);
 
   useEffect(() => {
@@ -4496,22 +4505,53 @@ export function useDrawingHandlers({
   const latestShapePixelSizeRef = useRef<number | null>(null);
   const shapeSampleCountRef = useRef(0);
   const penLiftHoldUntilRef = useRef<number>(0);
-  const shapeMaxPressureRef = useRef(0.5);
+  const shapeMaxPressureRef = useRef(1);
   const hadValidShapePressureRef = useRef(false);
   const lastStablePressureRef = useRef(0.5);
   const lastShapePressureTimeRef = useRef<number>(0);
+  const shapePressureGainRef = useRef(1);
+  const shapePixelHysteresisRef = useRef(1);
+  const shapePixelLastChangeAtRef = useRef(0);
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
     const base = Math.max(1, Math.round(settings.fillResolution || 1));
-    const linked = settings.pressureLinkedFillResolution ?? false;
-    if (!linked) return base;
+
+    if (!settings.pressureLinkedFillResolution) {
+      return computePressureResolution(base, Math.max(0, Math.min(1, pressure)), false);
+    }
+
+    const now =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
 
     const p = Math.max(0, Math.min(1, pressure));
-    const maxSize = base * SHAPE_PRESSURE_MAX_MULTIPLIER;
-    const t = Math.pow(p, 1.5); // match stroke easing
-    const result = 1 + (maxSize - 1) * t;
-    return Math.max(1, Math.round(result));
+    const t = Math.pow(p, PRESSURE_RESOLUTION_EASING_EXPONENT);
+    const floatPx =
+      PRESSURE_RESOLUTION_MIN_PX +
+      (PRESSURE_RESOLUTION_MAX_MULTIPLIER - PRESSURE_RESOLUTION_MIN_PX) * t;
+
+    const prev = shapePixelHysteresisRef.current || PRESSURE_RESOLUTION_MIN_PX;
+
+    // Hold time to prevent rapid chatter
+    if (now - shapePixelLastChangeAtRef.current < PRESSURE_RES_HOLD_MS) {
+      return prev;
+    }
+
+    let next = prev;
+    if (floatPx > prev + PRESSURE_RES_HYST_BAND && prev < PRESSURE_RESOLUTION_MAX_MULTIPLIER) {
+      next = prev + 1;
+    } else if (floatPx < prev - PRESSURE_RES_HYST_BAND && prev > PRESSURE_RESOLUTION_MIN_PX) {
+      next = prev - 1;
+    }
+
+    if (next !== prev) {
+      shapePixelHysteresisRef.current = next;
+      shapePixelLastChangeAtRef.current = now;
+    }
+
+    return shapePixelHysteresisRef.current;
   };
 
   const shapePressureDebugEnabled = () => {
@@ -4566,6 +4606,13 @@ export function useDrawingHandlers({
       lastNonZeroShapePressureRef.current = val;
     }
     latestShapePressureRef.current = smoothed;
+
+    SP({
+      raw: val,
+      stable: lastStablePressureRef.current,
+      maxSeen: shapeMaxPressureRef.current,
+      px: latestShapePixelSizeRef.current,
+    });
   };
 
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {
@@ -4945,7 +4992,11 @@ export function useDrawingHandlers({
       const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');
       const bg = parseCssColorToRgba(palette?.backgroundColor || '#fff');
       const paletteRGBA: Array<[number, number, number, number]> = [fg, bg];
-      const pixelSize = Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1));
+      const pixelSize = computePressureResolution(
+        Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1)),
+        lastStablePressureRef.current ?? 0,
+        Boolean(liveBrushSettings.pressureLinkedFillResolution && hadValidShapePressureRef.current)
+      );
 
       const imageDataBase = renderOrderedDitherGradientToImageData({
         width,
@@ -6636,6 +6687,10 @@ export function useDrawingHandlers({
     latestShapePixelSizeRef,
     shapeMaxPressureRef,
     hadValidShapePressureRef,
+    lastStablePressureRef,
+    resetShapePressureState,
+    updateShapePressure,
+    computeShapePixelSize,
     setSimpleShapePreviewRenderer,
     shapePointsRef,
     isDrawingShapeRef,
