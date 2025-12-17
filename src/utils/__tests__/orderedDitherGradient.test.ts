@@ -1,5 +1,10 @@
-import { buildFgBgPalette, computeGradientAxisFromPolygon, getBayerTile, renderOrderedDitherGradientToImageData } from '../orderedDitherGradient';
-import { resolveDitherGradPalette } from '../orderedDitherGradient';
+import {
+  buildFgBgPalette,
+  computeGradientAxisFromPolygon,
+  getBayerTile,
+  renderOrderedDitherGradientToImageData,
+  resolveDitherGradPalette
+} from '../orderedDitherGradient';
 
 describe('orderedDitherGradient', () => {
   const fg: [number, number, number, number] = [255, 0, 0, 255];
@@ -114,6 +119,37 @@ describe('orderedDitherGradient', () => {
     const [fgOut, bgOut] = resolveDitherGradPalette(fg, transparentBg, false);
     expect(fgOut).toEqual(fg);
     expect(bgOut).toEqual<[number, number, number, number]>([0, 0, 0, 0]);
+  });
+
+  it('supports multi-stop palettes up to six colors', () => {
+    const paletteRGBA = resolveDitherGradPalette(
+      fg,
+      bg,
+      true,
+      ['#ff0000', '#00ff00', '#0000ff', '#ffffff']
+    );
+    expect(paletteRGBA).toHaveLength(4);
+    expect(paletteRGBA[1]).toEqual<[number, number, number, number]>([0, 255, 0, 255]);
+
+    const axis = computeGradientAxisFromPolygon([
+      { x: 0, y: 0 },
+      { x: 32, y: 0 },
+    ]);
+    const image = renderOrderedDitherGradientToImageData({
+      width: 32,
+      height: 8,
+      axis,
+      paletteRGBA,
+      tile: getBayerTile(8),
+      tileSize: 8,
+      pixelSize: 1,
+    });
+
+    const encountered = new Set<string>();
+    for (let i = 0; i < image.data.length; i += 4) {
+      encountered.add(`${image.data[i]}-${image.data[i + 1]}-${image.data[i + 2]}`);
+    }
+    expect(encountered.has('0-255-0')).toBe(true); // middle green stop appears
   });
 
   it('keeps visible dithering even with large pixelSize', () => {

@@ -521,6 +521,8 @@ export interface BrushSettings {
   ditherBackgroundFill?: boolean;
   /** Dither Gradient only: when false, background is fully transparent */
   ditherGradBgFill?: boolean;
+  /** Optional explicit palette for dither gradient (2-6 hex colors, first→last) */
+  ditherGradStops?: string[];
   ditherAlgorithm?:
     | 'floyd-steinberg'
     | 'jarvis-judice-ninke'

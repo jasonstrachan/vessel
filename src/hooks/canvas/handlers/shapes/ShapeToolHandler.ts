@@ -2771,7 +2771,8 @@ export const createShapeToolHandler = (
                   const paletteRGBA = resolveDitherGradPalette(
                     fg,
                     bg,
-                    tools.brushSettings.ditherGradBgFill
+                    tools.brushSettings.ditherGradBgFill,
+                    tools.brushSettings.ditherGradStops
                   );
                   const tempCanvas = canvasPool.acquire(w, h);
                   const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);

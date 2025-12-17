@@ -200,6 +200,7 @@ const BrushControls = () => {
   const eraserSettings = useAppStore(selectEraserSettings);
   const currentTool = useAppStore(selectCurrentTool);
   const globalBrushSize = useAppStore(selectGlobalBrushSize);
+  const palette = useAppStore((state) => state.palette);
   const customBrushPercent = brushSettings.customBrushSizePercent ?? 100;
   const shapeMode = useAppStore(selectShapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
@@ -256,6 +257,94 @@ const BrushControls = () => {
   // Use the appropriate settings and setter based on current tool
   const setActiveSettings =
     currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
+
+  // Shared dither gradient palette helpers (kept outside branches to preserve hook order)
+  const clampStopCount = React.useCallback((count: number) => Math.min(6, Math.max(2, Math.round(count))), []);
+  const toRgb = React.useCallback((hex: string): [number, number, number] => {
+    const match = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+    if (!match) {
+      return [255, 255, 255];
+    }
+    const val = match[1];
+    return [
+      parseInt(val.slice(0, 2), 16),
+      parseInt(val.slice(2, 4), 16),
+      parseInt(val.slice(4, 6), 16)
+    ];
+  }, []);
+  const toHex = React.useCallback((rgb: [number, number, number]) =>
+    `#${rgb[0].toString(16).padStart(2, '0')}${rgb[1].toString(16).padStart(2, '0')}${rgb[2]
+      .toString(16)
+      .padStart(2, '0')}`.toUpperCase(), []);
+  const lerp = React.useCallback((a: number, b: number, t: number) => a + (b - a) * t, []);
+  const lerpHex = React.useCallback(
+    (aHex: string, bHex: string, t: number) => {
+      const a = toRgb(aHex);
+      const b = toRgb(bHex);
+      return toHex([
+        Math.round(lerp(a[0], b[0], t)),
+        Math.round(lerp(a[1], b[1], t)),
+        Math.round(lerp(a[2], b[2], t))
+      ]);
+    },
+    [lerp, toHex, toRgb]
+  );
+
+  const fgColor = React.useMemo(
+    () => palette?.foregroundColor ?? activeSettings.color ?? '#000000',
+    [palette?.foregroundColor, activeSettings.color]
+  );
+  const bgColor = React.useMemo(
+    () => palette?.backgroundColor ?? '#ffffff',
+    [palette?.backgroundColor]
+  );
+
+  const currentStops = React.useMemo(() => {
+    const stored = activeSettings.ditherGradStops;
+    if (Array.isArray(stored) && stored.length >= 2) {
+      return stored.slice(0, 6);
+    }
+    return [fgColor, bgColor];
+  }, [activeSettings.ditherGradStops, fgColor, bgColor]);
+
+  const resizeStops = React.useCallback(
+    (count: number): string[] => {
+      const clamped = clampStopCount(count);
+      const base = currentStops.length >= 2 ? currentStops : [fgColor, bgColor];
+      if (clamped === base.length) return base;
+
+      const result: string[] = [];
+      for (let i = 0; i < clamped; i += 1) {
+        const t = clamped === 1 ? 0 : i / (clamped - 1);
+        const samplePos = (base.length - 1) * t;
+        const idx = Math.floor(samplePos);
+        const nextIdx = Math.min(base.length - 1, idx + 1);
+        const localT = samplePos - idx;
+        result.push(localT <= 0 ? base[idx] : lerpHex(base[idx], base[nextIdx], localT));
+      }
+      return result;
+    },
+    [bgColor, clampStopCount, currentStops, fgColor, lerpHex]
+  );
+
+  const handleStopCountChange = React.useCallback(
+    (value: number) => {
+      const resized = resizeStops(value);
+      setActiveSettings({ ditherGradStops: resized });
+    },
+    [resizeStops, setActiveSettings]
+  );
+
+  const handleStopColorChange = React.useCallback(
+    (index: number, nextHex: string) => {
+      const clampedHex = /^#([0-9a-fA-F]{6})$/.test(nextHex.trim())
+        ? nextHex.trim()
+        : currentStops[index] ?? fgColor;
+      const updated = currentStops.map((c, i) => (i === index ? clampedHex : c));
+      setActiveSettings({ ditherGradStops: updated });
+    },
+    [currentStops, fgColor, setActiveSettings]
+  );
 
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
   const isRegularBrush =
@@ -1814,24 +1903,59 @@ const BrushControls = () => {
             hideToggle
             hideLostEdge
             afterResolution={
-              <div className="flex items-center gap-2 mt-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Length
-                </label>
-                <ProgressSlider
-                  value={activeSettings.gradientLength ?? 100}
-                  min={20}
-                  max={200}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      gradientLength: Math.max(20, Math.min(200, Math.round(value))),
-                    })
-                  }
-                  aria-label="Gradient Length (%)"
-                  className="flex-1"
-                />
-              </div>
+              <>
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                    Length
+                  </label>
+                  <ProgressSlider
+                    value={activeSettings.gradientLength ?? 100}
+                    min={20}
+                    max={200}
+                    step={1}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        gradientLength: Math.max(20, Math.min(200, Math.round(value))),
+                      })
+                    }
+                    aria-label="Gradient Length (%)"
+                    className="flex-1"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                    Colors
+                  </label>
+                  <ProgressSlider
+                    value={currentStops.length}
+                    min={2}
+                    max={6}
+                    step={1}
+                    onChange={handleStopCountChange}
+                    aria-label="Dither Gradient Colors"
+                    className="flex-1"
+                  />
+                </div>
+
+                <div className="flex items-start gap-2 mt-2">
+                  <div className="w-16" />
+                  <div className="flex flex-wrap gap-3 flex-1">
+                    {currentStops.map((stop, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="text-xs text-[#D9D9D9] w-4 text-right">{idx + 1}</span>
+                        <Input
+                          type="color"
+                          value={stop}
+                          aria-label={`Dither gradient color ${idx + 1}`}
+                          onChange={(e) => handleStopColorChange(idx, e.target.value)}
+                          className="w-10 h-10 p-0 border border-[#4a4a4a] rounded"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
             }
           />
         )}

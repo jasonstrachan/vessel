@@ -4958,7 +4958,12 @@ export function useDrawingHandlers({
       const palette = storeRef.current.palette;
       const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');
       const bg = parseCssColorToRgba(palette?.backgroundColor || '#fff');
-      const paletteRGBA = resolveDitherGradPalette(fg, bg, liveBrushSettings.ditherGradBgFill);
+      const paletteRGBA = resolveDitherGradPalette(
+        fg,
+        bg,
+        liveBrushSettings.ditherGradBgFill,
+        liveBrushSettings.ditherGradStops
+      );
       const pixelSize = computePressureResolution(
         Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1)),
         lastStablePressureRef.current ?? 0,

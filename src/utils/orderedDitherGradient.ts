@@ -44,16 +44,89 @@ export type OrderedDitherGradientParams = {
   origin?: Vec2;
 };
 
-export const resolveDitherGradPalette = (fg: RGBA, bg: RGBA, bgFill: boolean | undefined): [RGBA, RGBA] => {
-  if (bgFill !== false) {
-    return [fg, bg];
+const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
+
+const parseHexToRgba = (hex: string, fallback: RGBA): RGBA => {
+  const normalized = hex.trim().toLowerCase();
+  const shortMatch = /^#([0-9a-f]{3})$/i.exec(normalized);
+  if (shortMatch) {
+    const [r, g, b] = shortMatch[1].split('').map((c) => parseInt(`${c}${c}`, 16));
+    return [r, g, b, 255];
   }
-  return [fg, [0, 0, 0, 0]];
+  const longMatch = /^#([0-9a-f]{6})$/i.exec(normalized);
+  if (longMatch) {
+    const intVal = longMatch[1];
+    const r = parseInt(intVal.slice(0, 2), 16);
+    const g = parseInt(intVal.slice(2, 4), 16);
+    const b = parseInt(intVal.slice(4, 6), 16);
+    return [r, g, b, 255];
+  }
+  return fallback;
+};
+
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+const lerpColor = (a: RGBA, b: RGBA, t: number): RGBA => [
+  Math.round(lerp(a[0], b[0], t)),
+  Math.round(lerp(a[1], b[1], t)),
+  Math.round(lerp(a[2], b[2], t)),
+  Math.round(lerp(a[3] ?? 255, b[3] ?? 255, t)),
+];
+
+export const resolveDitherGradPalette = (
+  fg: RGBA,
+  bg: RGBA,
+  bgFill: boolean | undefined,
+  stopHex?: string[]
+): Array<RGBA> => {
+  const fallbackStops = [fg, bg];
+  const parsedStops = Array.isArray(stopHex)
+    ? stopHex
+        .filter(Boolean)
+        .slice(0, 6)
+        .map((hex) => parseHexToRgba(hex, fg))
+    : [];
+
+  const palette = parsedStops.length >= 2 ? parsedStops : fallbackStops;
+
+  if (palette.length === 2) {
+    // Preserve legacy behavior and avoid extra allocations for the common case
+    if (bgFill === false) {
+      return [palette[0], [0, 0, 0, 0]];
+    }
+    return palette;
+  }
+
+  // Ensure at least two colors and clamp to 6 entries
+  const clamped = palette.slice(0, Math.max(2, Math.min(6, palette.length)));
+  const first = clamped[0];
+  const last = clamped[clamped.length - 1];
+
+  // Guarantee transparent tail when background fill is off
+  if (bgFill === false) {
+    clamped[clamped.length - 1] = [0, 0, 0, 0];
+  }
+
+  // Normalize the array to evenly spaced stops (useful if user supplied >2 colors unevenly)
+  if (clamped.length <= 6) {
+    const evenStops: RGBA[] = [];
+    for (let i = 0; i < clamped.length; i += 1) {
+      const t = clamped.length === 1 ? 0 : i / (clamped.length - 1);
+      const samplePos = (palette.length - 1) * t;
+      const idx = Math.floor(samplePos);
+      const nextIdx = Math.min(palette.length - 1, idx + 1);
+      const localT = samplePos - idx;
+      const base = palette[idx] ?? first;
+      const next = palette[nextIdx] ?? last;
+      evenStops.push(localT <= 0 ? base : lerpColor(base, next, localT));
+    }
+    return evenStops;
+  }
+
+  return clamped;
 };
 
 const DEFAULT_TILE_SIZE = 8;
-const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
-
 /**
  * Compute a gradient axis for an ordered dither polygon fill.
  * Start is the first vertex, end is the farthest vertex from start.
@@ -165,6 +238,8 @@ export function renderOrderedDitherGradientToImageData(params: OrderedDitherGrad
   const safeDir = axis.length > 1e-6 ? axis.dir : { x: 1, y: 0 };
   const safeLength = axis.length > 1e-6 ? axis.length : 1e-6;
 
+  const levelCount = Math.max(2, paletteRGBA.length);
+
   for (let y = 0; y < height; y += pixelSize) {
     const tileY = ((origin.y + y) % tileSize + tileSize) % tileSize;
     for (let x = 0; x < width; x += pixelSize) {
@@ -178,7 +253,11 @@ export function renderOrderedDitherGradientToImageData(params: OrderedDitherGrad
         ((sampleX - axis.start.x) * safeDir.x + (sampleY - axis.start.y) * safeDir.y) /
         safeLength;
       const coverage = clamp01(proj);
-      const paletteIndex = coverage >= tileVal ? 1 : 0;
+      const scaled = coverage * (levelCount - 1);
+      const baseIndex = Math.floor(scaled);
+      const frac = scaled - baseIndex;
+      const stepUp = baseIndex < levelCount - 1 && tileVal < frac;
+      const paletteIndex = Math.min(levelCount - 1, stepUp ? baseIndex + 1 : baseIndex);
       const color = paletteRGBA[paletteIndex] ?? paletteRGBA[paletteRGBA.length - 1];
 
       for (let py = 0; py < pixelSize; py += 1) {
