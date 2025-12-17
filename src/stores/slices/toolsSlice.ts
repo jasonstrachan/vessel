@@ -149,6 +149,9 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherAlgorithm: settings.ditherAlgorithm,
   patternStyle: settings.patternStyle,
   ditherBackgroundFill: settings.ditherBackgroundFill,
+  ditherGradBgFill: settings.ditherGradBgFill,
+  ditherGradStops: settings.ditherGradStops,
+  trans: settings.trans,
   pressureEnabled: settings.pressureEnabled,
   minPressure: settings.minPressure,
   maxPressure: settings.maxPressure,
@@ -173,6 +176,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorCycleFPS: settings.colorCycleFPS,
   colorCycleFlowMode: settings.colorCycleFlowMode,
   gradientBands: settings.gradientBands,
+  gradientLength: settings.gradientLength,
   colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
   continuousSampling: settings.continuousSampling,
   resampleInterval: settings.resampleInterval,
@@ -582,6 +586,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.patternStyle !== undefined) {
         settingsToSave.patternStyle = newSettings.patternStyle;
       }
+      if (settings.ditherBackgroundFill !== undefined) {
+        settingsToSave.ditherBackgroundFill = newSettings.ditherBackgroundFill;
+      }
+      if (settings.ditherGradBgFill !== undefined) {
+        settingsToSave.ditherGradBgFill = newSettings.ditherGradBgFill;
+      }
+      if (settings.ditherGradStops !== undefined) {
+        settingsToSave.ditherGradStops = newSettings.ditherGradStops;
+      }
+      if (settings.trans !== undefined) {
+        settingsToSave.trans = newSettings.trans;
+      }
       if (settings.pigmentLiftEnabled !== undefined) {
         settingsToSave.pigmentLiftEnabled = newSettings.pigmentLiftEnabled;
       }
@@ -606,6 +622,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleStampDitherClears !== undefined) {
         settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
       }
+      if (settings.pressureLinkedFillResolution !== undefined) {
+        settingsToSave.pressureLinkedFillResolution = newSettings.pressureLinkedFillResolution;
+      }
+      if (settings.pressureDitherSmoosh !== undefined) {
+        settingsToSave.pressureDitherSmoosh = newSettings.pressureDitherSmoosh;
+      }
       if (settings.fillResolution !== undefined) settingsToSave.fillResolution = newSettings.fillResolution;
       if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
       if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;
@@ -627,6 +649,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.colorCycleFlowMode !== undefined) {
         settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
+      }
+      if (settings.gradientLength !== undefined) {
+        settingsToSave.gradientLength = newSettings.gradientLength;
       }
       if (
         settings.colorCycleGradient !== undefined ||

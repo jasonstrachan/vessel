@@ -4963,7 +4963,10 @@ export function useDrawingHandlers({
       };
 
       let axis = computeAxisOpposingEnds(localVertices);
-      const lengthFactor = Math.max(0.05, Math.min(2, (liveBrushSettings.gradientLength ?? 100) / 100));
+      const lengthFactor = Math.max(
+        0.05,
+        Math.min(2, ((liveBrushSettings.gradientLength ?? 100) / 100) * 1.3)
+      );
       axis = scaleOrderedAxis(axis, lengthFactor);
       const palette = storeRef.current.palette;
       const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');

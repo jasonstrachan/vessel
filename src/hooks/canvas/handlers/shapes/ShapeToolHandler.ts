@@ -2799,7 +2799,10 @@ export const createShapeToolHandler = (
                     start: { x: axis.start.x + axis.dir.x * shift, y: axis.start.y + axis.dir.y * shift },
                     length: Math.max(1e-6, maxProj - minProj),
                   };
-                  const lengthFactor = Math.max(0.05, Math.min(2, (tools.brushSettings.gradientLength ?? 100) / 100));
+                  const lengthFactor = Math.max(
+                    0.05,
+                    Math.min(2, ((tools.brushSettings.gradientLength ?? 100) / 100) * 1.3)
+                  );
                   const axisScaled = scaleOrderedAxis(axisNorm, lengthFactor);
 
                   const palette = useAppStore.getState().palette;
