@@ -48,7 +48,11 @@ import {
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
-import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
+import {
+  computePressureResolution,
+  createPressureResolutionState,
+  PRESSURE_RESOLUTION_MAX_PX,
+} from '@/utils/pressureResolution';
 
 // Pressure tuning shared with brush engine
 const MAX_PRESSURE_DECAY_PER_MS = 0.003;
@@ -4521,7 +4525,9 @@ export function useDrawingHandlers({
       base,
       Math.max(0, Math.min(1, pressure)),
       true,
-      state
+      state,
+      undefined,
+      PRESSURE_RESOLUTION_MAX_PX
     );
   };
 

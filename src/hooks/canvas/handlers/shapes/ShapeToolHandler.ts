@@ -24,7 +24,12 @@ import {
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
-import { computePressureResolution, createPressureResolutionState, type PressureResolutionState } from '@/utils/pressureResolution';
+import {
+  computePressureResolution,
+  createPressureResolutionState,
+  PRESSURE_RESOLUTION_MAX_PX,
+  type PressureResolutionState,
+} from '@/utils/pressureResolution';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -2730,7 +2735,9 @@ export const createShapeToolHandler = (
                         tools.brushSettings.pressureLinkedFillResolution &&
                           drawingHandlers.hadValidShapePressureRef?.current
                       ),
-                      ditherGradPreviewState.resState
+                      ditherGradPreviewState.resState,
+                      undefined,
+                      PRESSURE_RESOLUTION_MAX_PX
                     );
 
                   if (!ditherGradPreviewState.origin) {

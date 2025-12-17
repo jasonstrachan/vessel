@@ -19,7 +19,12 @@ import { applyDithering as applyDitheringImport, applyDitheringWithFillResolutio
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
-import { computePressureResolution, createPressureResolutionState, type PressureResolutionState } from '@/utils/pressureResolution';
+import {
+  computePressureResolution,
+  createPressureResolutionState,
+  PRESSURE_RESOLUTION_MAX_PX,
+  type PressureResolutionState,
+} from '@/utils/pressureResolution';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
@@ -1738,7 +1743,9 @@ export const useBrushEngineSimplified = () => {
       tools.brushSettings.fillResolution || 1,
       pressure,
       tools.brushSettings.pressureLinkedFillResolution ?? false,
-      strokePressureResStateRef.current
+      strokePressureResStateRef.current,
+      undefined,
+      PRESSURE_RESOLUTION_MAX_PX
     );
   }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
 

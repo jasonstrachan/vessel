@@ -2,6 +2,7 @@ import {
   computePressureResolution,
   createPressureResolutionState,
   PRESSURE_RESOLUTION_HYSTERESIS,
+  PRESSURE_RESOLUTION_MAX_PX,
   PRESSURE_RESOLUTION_MIN_PX,
   PRESSURE_RESOLUTION_TIME_CONSTANT_MS,
 } from '../pressureResolution';
@@ -73,5 +74,23 @@ describe('computePressureResolution smoothing', () => {
       );
     }
     expect(state.output).toBeGreaterThan(1);
+  });
+
+  it('uses explicit maxResolution when pressure-linked', () => {
+    const state = createPressureResolutionState(1);
+    const sliderMax = 8;
+    const explicitMax = PRESSURE_RESOLUTION_MAX_PX;
+    const pressure = 1;
+
+    const result = computePressureResolution(
+      sliderMax,
+      pressure,
+      true,
+      state,
+      0,
+      explicitMax
+    );
+
+    expect(result).toBe(explicitMax);
   });
 });

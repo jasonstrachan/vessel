@@ -1,4 +1,5 @@
 export const PRESSURE_RESOLUTION_MIN_PX = 1;
+export const PRESSURE_RESOLUTION_MAX_PX = 32;
 export const PRESSURE_RESOLUTION_EASING_EXPONENT = 1.5;
 export const PRESSURE_RESOLUTION_HYSTERESIS = 0.15;
 export const PRESSURE_RESOLUTION_TIME_CONSTANT_MS = 100;
@@ -19,7 +20,7 @@ export const createPressureResolutionState = (
 
 /**
  * Pressure-linked fill resolution with smoothing and hysteresis.
- * 0% pressure -> 1px, 100% pressure -> 16px (independent of sliderValue).
+ * 0% pressure -> 1px, 100% pressure -> maxResolution (defaults to sliderValue).
  * If pressureLinked is false -> fixed pixel size = sliderValue (>= 1).
  */
 export const computePressureResolution = (
@@ -27,9 +28,11 @@ export const computePressureResolution = (
   pressure: number,
   pressureLinked: boolean,
   state?: PressureResolutionState,
-  now?: number
+  now?: number,
+  maxResolution?: number
 ): number => {
-  const maxSize = Math.max(PRESSURE_RESOLUTION_MIN_PX, Math.round(sliderValue || 1));
+  const maxBase = pressureLinked ? maxResolution ?? sliderValue : sliderValue;
+  const maxSize = Math.max(PRESSURE_RESOLUTION_MIN_PX, Math.round(maxBase || 1));
   if (!pressureLinked) return maxSize;
 
   const p = Math.max(0, Math.min(1, pressure));
