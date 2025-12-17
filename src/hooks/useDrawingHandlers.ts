@@ -45,23 +45,16 @@ import {
   buildFgBgPalette,
   computeGradientAxisFromPolygon,
   scaleOrderedAxis,
-  pixelateImageData,
   renderOrderedDitherGradientToImageData,
+  resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
-import {
-  computePressureResolution,
-  PRESSURE_RESOLUTION_MIN_PX,
-  PRESSURE_RESOLUTION_MAX_MULTIPLIER,
-  PRESSURE_RESOLUTION_EASING_EXPONENT,
-} from '@/utils/pressureResolution';
+import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
 
 // Pressure tuning shared with brush engine
 const MAX_PRESSURE_DECAY_PER_MS = 0.003;
 const MIN_DROP_PER_EVENT = 0.01;
 const SHAPE_PRESSURE_SMOOTHING = 0.6;
 const SHAPE_PRESSURE_SAMPLE_WINDOW = 5;
-const PRESSURE_RES_HYST_BAND = 0.75; // px units
-const PRESSURE_RES_HOLD_MS = 60;
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -980,8 +973,7 @@ export function useDrawingHandlers({
     shapeSampleCountRef.current = 0;
     penLiftHoldUntilRef.current = 0;
     shapePressureGainRef.current = 1;
-    shapePixelHysteresisRef.current = 1;
-    shapePixelLastChangeAtRef.current = 0;
+    shapePixelResStateRef.current = createPressureResolutionState(1);
   }, []);
 
   useEffect(() => {
@@ -4510,8 +4502,7 @@ export function useDrawingHandlers({
   const lastStablePressureRef = useRef(0.5);
   const lastShapePressureTimeRef = useRef<number>(0);
   const shapePressureGainRef = useRef(1);
-  const shapePixelHysteresisRef = useRef(1);
-  const shapePixelLastChangeAtRef = useRef(0);
+  const shapePixelResStateRef = useRef(createPressureResolutionState(1));
 
   const computeShapePixelSize = (pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
@@ -4521,37 +4512,13 @@ export function useDrawingHandlers({
       return computePressureResolution(base, Math.max(0, Math.min(1, pressure)), false);
     }
 
-    const now =
-      typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now();
-
-    const p = Math.max(0, Math.min(1, pressure));
-    const t = Math.pow(p, PRESSURE_RESOLUTION_EASING_EXPONENT);
-    const floatPx =
-      PRESSURE_RESOLUTION_MIN_PX +
-      (PRESSURE_RESOLUTION_MAX_MULTIPLIER - PRESSURE_RESOLUTION_MIN_PX) * t;
-
-    const prev = shapePixelHysteresisRef.current || PRESSURE_RESOLUTION_MIN_PX;
-
-    // Hold time to prevent rapid chatter
-    if (now - shapePixelLastChangeAtRef.current < PRESSURE_RES_HOLD_MS) {
-      return prev;
-    }
-
-    let next = prev;
-    if (floatPx > prev + PRESSURE_RES_HYST_BAND && prev < PRESSURE_RESOLUTION_MAX_MULTIPLIER) {
-      next = prev + 1;
-    } else if (floatPx < prev - PRESSURE_RES_HYST_BAND && prev > PRESSURE_RESOLUTION_MIN_PX) {
-      next = prev - 1;
-    }
-
-    if (next !== prev) {
-      shapePixelHysteresisRef.current = next;
-      shapePixelLastChangeAtRef.current = now;
-    }
-
-    return shapePixelHysteresisRef.current;
+    const state = shapePixelResStateRef.current;
+    return computePressureResolution(
+      base,
+      Math.max(0, Math.min(1, pressure)),
+      true,
+      state
+    );
   };
 
   const shapePressureDebugEnabled = () => {
@@ -4991,22 +4958,24 @@ export function useDrawingHandlers({
       const palette = storeRef.current.palette;
       const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');
       const bg = parseCssColorToRgba(palette?.backgroundColor || '#fff');
-      const paletteRGBA: Array<[number, number, number, number]> = [fg, bg];
+      const paletteRGBA = resolveDitherGradPalette(fg, bg, liveBrushSettings.ditherGradBgFill);
       const pixelSize = computePressureResolution(
         Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1)),
         lastStablePressureRef.current ?? 0,
-        Boolean(liveBrushSettings.pressureLinkedFillResolution && hadValidShapePressureRef.current)
+        Boolean(liveBrushSettings.pressureLinkedFillResolution && hadValidShapePressureRef.current),
+        shapePixelResStateRef.current
       );
+      latestShapePixelSizeRef.current = pixelSize;
 
-      const imageDataBase = renderOrderedDitherGradientToImageData({
+      const imageData = renderOrderedDitherGradientToImageData({
         width,
         height,
         axis,
         paletteRGBA,
         tileSize: 8,
-        pixelSize: 1,
+        pixelSize,
+        origin: { x: minX, y: minY },
       });
-      const imageData = pixelateImageData(imageDataBase, pixelSize);
 
       const tempCanvas = canvasPool.acquire(width, height);
       const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
@@ -5517,7 +5486,7 @@ export function useDrawingHandlers({
           }
 
           // Reuse stroke-mode dithering so shape fills match regular strokes
-          if (brushEngine.applyStrokeDither) {
+          if (brushEngine.applyStrokeDither && liveBrushSettings.brushShape !== BrushShape.DITHER_GRADIENT) {
             try {
               let ditherRegion = boundingBoxToCaptureRegion(
                 strokeBoundingBoxRef.current,

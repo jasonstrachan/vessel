@@ -1,4 +1,5 @@
 export type Vec2 = { x: number; y: number };
+export type RGBA = [number, number, number, number];
 
 export type OrderedDitherAxis = {
   start: Vec2;
@@ -32,10 +33,22 @@ export type OrderedDitherGradientParams = {
   width: number;
   height: number;
   axis: OrderedDitherAxis;
-  paletteRGBA: Array<[number, number, number, number]>;
+  paletteRGBA: Array<RGBA>;
   tileSize?: number;
   tile?: Float32Array;
   pixelSize?: number;
+  /**
+   * World-space origin for tile phase anchoring. When provided, dither cells
+   * stay locked to the canvas even if the polygon bounds or pixelSize change.
+   */
+  origin?: Vec2;
+};
+
+export const resolveDitherGradPalette = (fg: RGBA, bg: RGBA, bgFill: boolean | undefined): [RGBA, RGBA] => {
+  if (bgFill !== false) {
+    return [fg, bg];
+  }
+  return [fg, [0, 0, 0, 0]];
 };
 
 const DEFAULT_TILE_SIZE = 8;
@@ -118,27 +131,33 @@ export function getBayerTile(size: number = DEFAULT_TILE_SIZE): Float32Array {
   return flat;
 }
 
-const writePixel = (
-  data: Uint8ClampedArray,
-  offset: number,
-  color: [number, number, number, number]
-) => {
+const writePixel = (data: Uint8ClampedArray, offset: number, color: RGBA) => {
+  const alpha = color[3] ?? 255;
+  if (alpha <= 0) {
+    data[offset] = 0;
+    data[offset + 1] = 0;
+    data[offset + 2] = 0;
+    data[offset + 3] = 0;
+    return;
+  }
+
   data[offset] = color[0];
   data[offset + 1] = color[1];
   data[offset + 2] = color[2];
-  data[offset + 3] = color[3];
+  data[offset + 3] = alpha;
 };
 
 /**
  * Render an ordered dither gradient into a new ImageData.
  * - Axis is expressed in bounds-local coordinates (0,0 is top-left of bounds).
- * - Palette entries are RGBA tuples; index 0 is background, 1 is foreground in v1.
+ * - Palette entries are RGBA tuples; index 0 is used when coverage < threshold, index 1 when coverage >= threshold.
  */
 export function renderOrderedDitherGradientToImageData(params: OrderedDitherGradientParams): ImageData {
   const { width, height, axis, paletteRGBA } = params;
   const tileSize = params.tileSize ?? DEFAULT_TILE_SIZE;
   const tile = params.tile ?? getBayerTile(tileSize);
   const pixelSize = Math.max(1, Math.floor(params.pixelSize ?? 1));
+  const origin = params.origin ?? { x: 0, y: 0 };
 
   const imageData = new ImageData(width, height);
   const data = imageData.data;
@@ -147,9 +166,9 @@ export function renderOrderedDitherGradientToImageData(params: OrderedDitherGrad
   const safeLength = axis.length > 1e-6 ? axis.length : 1e-6;
 
   for (let y = 0; y < height; y += pixelSize) {
-    const tileY = y % tileSize;
+    const tileY = ((origin.y + y) % tileSize + tileSize) % tileSize;
     for (let x = 0; x < width; x += pixelSize) {
-      const tileX = x % tileSize;
+      const tileX = ((origin.x + x) % tileSize + tileSize) % tileSize;
       const tileVal = tile[tileY * tileSize + tileX];
 
       // Use the pixel center for smoother ramping
@@ -218,6 +237,6 @@ export function pixelateImageData(source: ImageData, blockSize: number): ImageDa
 /**
  * Convenience to build palette from fg/bg RGBA tuples while allowing transparent BG.
  */
-export function buildFgBgPalette(fg: [number, number, number, number], bg: [number, number, number, number]): Array<[number, number, number, number]> {
+export function buildFgBgPalette(fg: RGBA, bg: RGBA): Array<RGBA> {
   return [bg, fg];
 }

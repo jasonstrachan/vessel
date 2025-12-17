@@ -21,10 +21,10 @@ import {
   buildFgBgPalette,
   computeGradientAxisFromPolygon,
   scaleOrderedAxis,
-  pixelateImageData,
   renderOrderedDitherGradientToImageData,
+  resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
-import { computePressureResolution } from '@/utils/pressureResolution';
+import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -305,9 +305,11 @@ export const createShapeToolHandler = (
   // Dither gradient preview anchoring
   let ditherGradOrigin: { x: number; y: number } | null = null;
   let ditherGradLastPx = -1;
+  let ditherGradResState = createPressureResolutionState(1);
   const resetDitherGradOrigin = () => {
     ditherGradOrigin = null;
     ditherGradLastPx = -1;
+    ditherGradResState = createPressureResolutionState(1);
   };
 
   const {
@@ -2695,13 +2697,14 @@ export const createShapeToolHandler = (
                   const pixelSize = computePressureResolution(
                     Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 1)),
                     drawingHandlers.lastStablePressureRef?.current ?? 0,
-                    Boolean(tools.brushSettings.pressureLinkedFillResolution && drawingHandlers.hadValidShapePressureRef?.current)
+                    Boolean(tools.brushSettings.pressureLinkedFillResolution && drawingHandlers.hadValidShapePressureRef?.current),
+                    ditherGradResState
                   );
 
-                  if (!ditherGradOrigin || ditherGradLastPx !== pixelSize) {
+                  if (!ditherGradOrigin) {
                     ditherGradOrigin = { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
-                    ditherGradLastPx = pixelSize;
                   }
+                  ditherGradLastPx = pixelSize;
                   const origin = ditherGradOrigin ?? { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
 
                   const localVertices = [...pts, previewPoint].map(pt => ({
@@ -2764,10 +2767,12 @@ export const createShapeToolHandler = (
                   const fg = parseCssColorToRgba(
                     palette?.foregroundColor ?? tools.brushSettings.color ?? '#000'
                   );
-                  const bg = parseCssColorToRgba(
-                    palette?.backgroundColor ?? '#fff'
+                  const bg = parseCssColorToRgba(palette?.backgroundColor ?? '#fff');
+                  const paletteRGBA = resolveDitherGradPalette(
+                    fg,
+                    bg,
+                    tools.brushSettings.ditherGradBgFill
                   );
-                  const paletteRGBA: Array<[number, number, number, number]> = [fg, bg];
                   const tempCanvas = canvasPool.acquire(w, h);
                   const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
                   if (tempCtx) {
@@ -2776,15 +2781,15 @@ export const createShapeToolHandler = (
                     tempCtx.globalAlpha = 1;
                     tempCtx.imageSmoothingEnabled = false;
                     tempCtx.clearRect(0, 0, w, h);
-                    const imageDataBase = renderOrderedDitherGradientToImageData({
+                    const imageData = renderOrderedDitherGradientToImageData({
                       width: w,
                       height: h,
                       axis: axisScaled,
                       paletteRGBA,
                       tileSize: 8,
-                      pixelSize: 1,
+                      pixelSize,
+                      origin,
                     });
-                    const imageData = pixelateImageData(imageDataBase, pixelSize);
                     tempCtx.clearRect(0, 0, w, h);
                     tempCtx.putImageData(imageData, 0, 0);
                     tempCtx.globalCompositeOperation = 'destination-in';

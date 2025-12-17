@@ -519,6 +519,8 @@ export interface BrushSettings {
   pressureDitherSmoosh?: boolean;
   /** Keep a solid background under dithered strokes (prevents transparent holes) */
   ditherBackgroundFill?: boolean;
+  /** Dither Gradient only: when false, background is fully transparent */
+  ditherGradBgFill?: boolean;
   ditherAlgorithm?:
     | 'floyd-steinberg'
     | 'jarvis-judice-ninke'

@@ -19,7 +19,7 @@ import { applyDithering as applyDitheringImport, applyDitheringWithFillResolutio
 import { parseColor } from './brushEngine/colorUtils';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
-import { computePressureResolution } from '@/utils/pressureResolution';
+import { computePressureResolution, createPressureResolutionState, type PressureResolutionState } from '@/utils/pressureResolution';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
@@ -1361,6 +1361,7 @@ export const useBrushEngineSimplified = () => {
     lastTime: 0,
     sampleCount: 0
   });
+  const strokePressureResStateRef = useRef<PressureResolutionState>(createPressureResolutionState(1));
   // Pressure ratchet: limit decay by elapsed time so fast lift-offs keep peak resolution.
   const MAX_PRESSURE_DECAY_PER_MS = 0.003;
   const MIN_DROP_PER_EVENT = 0.01;
@@ -1735,7 +1736,8 @@ export const useBrushEngineSimplified = () => {
     return computePressureResolution(
       tools.brushSettings.fillResolution || 1,
       pressure,
-      tools.brushSettings.pressureLinkedFillResolution ?? false
+      tools.brushSettings.pressureLinkedFillResolution ?? false,
+      strokePressureResStateRef.current
     );
   }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
 
@@ -1747,7 +1749,9 @@ export const useBrushEngineSimplified = () => {
       p = stats.max || stats.last || 0.5;
     }
     p = Math.max(0, Math.min(1, p));
-    return computePressureScaledResolution(p);
+    const size = computePressureScaledResolution(p);
+    lastPressureDitherPixelSizeRef.current = size;
+    return size;
   }, [computePressureScaledResolution]);
 
   // Erode stroke alpha before dithering to keep the pattern intact.
@@ -2848,6 +2852,7 @@ export const useBrushEngineSimplified = () => {
     };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
+    strokePressureResStateRef.current = createPressureResolutionState(1);
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
 
   const resetPressureDitherState = useCallback(() => {
@@ -2863,6 +2868,7 @@ export const useBrushEngineSimplified = () => {
     };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
+    strokePressureResStateRef.current = createPressureResolutionState(1);
     clearLiveStrokeHoleMask();
   }, []);
 
