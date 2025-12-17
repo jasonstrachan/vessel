@@ -230,13 +230,16 @@ const writePixel = (data: Uint8ClampedArray, offset: number, color: RGBA) => {
   data[offset + 3] = alpha;
 };
 
-const renderOrderedDitherGradientCore = (
-  params: OrderedDitherGradientParams,
-  pixelSize: number
-): ImageData => {
+/**
+ * Render an ordered dither gradient into a new ImageData.
+ * - Axis is expressed in bounds-local coordinates (0,0 is top-left of bounds).
+ * - Palette entries are RGBA tuples; index 0 is used when coverage < threshold, index 1 when coverage >= threshold.
+ */
+export function renderOrderedDitherGradientToImageData(params: OrderedDitherGradientParams): ImageData {
   const { width, height, axis, paletteRGBA } = params;
   const tileSize = params.tileSize ?? DEFAULT_TILE_SIZE;
   const tile = params.tile ?? getBayerTile(tileSize);
+  const pixelSize = Math.max(1, Math.floor(params.pixelSize ?? 1));
   const origin = params.origin ?? { x: 0, y: 0 };
 
   const imageData = new ImageData(width, height);
@@ -244,57 +247,48 @@ const renderOrderedDitherGradientCore = (
 
   const safeDir = axis.length > 1e-6 ? axis.dir : { x: 1, y: 0 };
   const safeLength = axis.length > 1e-6 ? axis.length : 1e-6;
-
   const levelCount = Math.max(2, paletteRGBA.length);
 
-  for (let y = 0; y < height; y += pixelSize) {
-    const tileY = ((origin.y + y) % tileSize + tileSize) % tileSize;
-    for (let x = 0; x < width; x += pixelSize) {
-      const tileX = ((origin.x + x) % tileSize + tileSize) % tileSize;
-      const tileVal = tile[tileY * tileSize + tileX];
+  const mod = (value: number, modulo: number) =>
+    ((value % modulo) + modulo) % modulo;
+  const axisStartWorldX = origin.x + axis.start.x;
+  const axisStartWorldY = origin.y + axis.start.y;
+  for (let yy = 0; yy < height; yy += 1) {
+    const worldY = origin.y + yy + 0.5;
+    const cellY = Math.floor(worldY / pixelSize);
+    const cellCenterWorldY = (cellY + 0.5) * pixelSize;
+    const tileY = mod(cellY, tileSize);
 
-      // Sample at a stable pixel center so changing pixelSize doesn't shift the gradient.
-      const sampleX = x + 0.5;
-      const sampleY = y + 0.5;
-      const proj =
-        ((sampleX - axis.start.x) * safeDir.x + (sampleY - axis.start.y) * safeDir.y) /
-        safeLength;
-      const coverage = clamp01(proj);
-      const scaled = coverage * (levelCount - 1);
-      const baseIndex = Math.floor(scaled);
-      const frac = scaled - baseIndex;
-      const stepUp = baseIndex < levelCount - 1 && tileVal < frac;
-      const paletteIndex = Math.min(levelCount - 1, stepUp ? baseIndex + 1 : baseIndex);
-      const color = paletteRGBA[paletteIndex] ?? paletteRGBA[paletteRGBA.length - 1];
+    let lastCellX = Number.NaN;
+    let cachedColor: RGBA = paletteRGBA[0] ?? [0, 0, 0, 0];
+    for (let xx = 0; xx < width; xx += 1) {
+      const worldX = origin.x + xx + 0.5;
+      const cellX = Math.floor(worldX / pixelSize);
+      if (cellX !== lastCellX) {
+        const cellCenterWorldX = (cellX + 0.5) * pixelSize;
+        const tileX = mod(cellX, tileSize);
+        const tileVal = tile[tileY * tileSize + tileX];
 
-      for (let py = 0; py < pixelSize; py += 1) {
-        const yy = y + py;
-        if (yy >= height) break;
-        for (let px = 0; px < pixelSize; px += 1) {
-          const xx = x + px;
-          if (xx >= width) break;
-          const offset = (yy * width + xx) * 4;
-          writePixel(data, offset, color);
-        }
+        const proj =
+          ((cellCenterWorldX - axisStartWorldX) * safeDir.x +
+            (cellCenterWorldY - axisStartWorldY) * safeDir.y) /
+          safeLength;
+        const coverage = clamp01(proj);
+        const scaled = coverage * (levelCount - 1);
+        const baseIndex = Math.floor(scaled);
+        const frac = scaled - baseIndex;
+        const stepUp = baseIndex < levelCount - 1 && tileVal < frac;
+        const paletteIndex = Math.min(levelCount - 1, stepUp ? baseIndex + 1 : baseIndex);
+        cachedColor = paletteRGBA[paletteIndex] ?? paletteRGBA[paletteRGBA.length - 1];
+        lastCellX = cellX;
       }
+
+      const offset = (yy * width + xx) * 4;
+      writePixel(data, offset, cachedColor);
     }
   }
 
   return imageData;
-};
-
-/**
- * Render an ordered dither gradient into a new ImageData.
- * - Axis is expressed in bounds-local coordinates (0,0 is top-left of bounds).
- * - Palette entries are RGBA tuples; index 0 is used when coverage < threshold, index 1 when coverage >= threshold.
- */
-export function renderOrderedDitherGradientToImageData(params: OrderedDitherGradientParams): ImageData {
-  const pixelSize = Math.max(1, Math.floor(params.pixelSize ?? 1));
-  if (pixelSize <= 1) {
-    return renderOrderedDitherGradientCore(params, 1);
-  }
-  const base = renderOrderedDitherGradientCore(params, 1);
-  return pixelateImageData(base, pixelSize, params.origin);
 }
 
 /**
@@ -314,33 +308,21 @@ export function pixelateImageData(
   const out = new ImageData(width, height);
   const dst = out.data;
 
-  const mod = (value: number, modulo: number) =>
-    ((value % modulo) + modulo) % modulo;
-  const offsetX = origin ? mod(-Math.floor(origin.x), size) : 0;
-  const offsetY = origin ? mod(-Math.floor(origin.y), size) : 0;
+  const baseOriginX = origin ? Math.floor(origin.x) : 0;
+  const baseOriginY = origin ? Math.floor(origin.y) : 0;
 
-  for (let y = offsetY - size; y < height; y += size) {
-    for (let x = offsetX - size; x < width; x += size) {
-      const sampleX = Math.max(0, Math.min(width - 1, x));
-      const sampleY = Math.max(0, Math.min(height - 1, y));
-      const srcIdx = (sampleY * width + sampleX) * 4;
-      const r = src[srcIdx];
-      const g = src[srcIdx + 1];
-      const b = src[srcIdx + 2];
-      const a = src[srcIdx + 3];
-      const startY = Math.max(0, y);
-      const startX = Math.max(0, x);
-      const maxY = Math.min(height, y + size);
-      const maxX = Math.min(width, x + size);
-      for (let yy = startY; yy < maxY; yy += 1) {
-        for (let xx = startX; xx < maxX; xx += 1) {
-          const dstIdx = (yy * width + xx) * 4;
-          dst[dstIdx] = r;
-          dst[dstIdx + 1] = g;
-          dst[dstIdx + 2] = b;
-          dst[dstIdx + 3] = a;
-        }
-      }
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const srcX = baseOriginX + Math.floor((x - baseOriginX) / size) * size;
+      const srcY = baseOriginY + Math.floor((y - baseOriginY) / size) * size;
+      const clampedX = Math.max(0, Math.min(width - 1, srcX));
+      const clampedY = Math.max(0, Math.min(height - 1, srcY));
+      const srcIdx = (clampedY * width + clampedX) * 4;
+      const dstIdx = (y * width + x) * 4;
+      dst[dstIdx] = src[srcIdx];
+      dst[dstIdx + 1] = src[srcIdx + 1];
+      dst[dstIdx + 2] = src[srcIdx + 2];
+      dst[dstIdx + 3] = src[srcIdx + 3];
     }
   }
 

@@ -986,10 +986,14 @@ export function useDrawingHandlers({
     let prev = selector(useAppStore.getState());
     const unsubscribe = useAppStore.subscribe((state) => {
       const next = selector(state);
-      if (
-        next.fillResolution !== prev.fillResolution ||
-        next.pressureLinkedFillResolution !== prev.pressureLinkedFillResolution
-      ) {
+      const pressureToggled =
+        next.pressureLinkedFillResolution !== prev.pressureLinkedFillResolution;
+      const fillResolutionChanged = next.fillResolution !== prev.fillResolution;
+      const shouldReset =
+        pressureToggled ||
+        (fillResolutionChanged && !next.pressureLinkedFillResolution);
+
+      if (shouldReset) {
         resetShapePressureState();
       }
       prev = next;
@@ -4965,12 +4969,8 @@ export function useDrawingHandlers({
         liveBrushSettings.ditherGradStops,
         liveBrushSettings.trans
       );
-      const pixelSize = computePressureResolution(
-        Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1)),
-        lastStablePressureRef.current ?? 0,
-        Boolean(liveBrushSettings.pressureLinkedFillResolution && hadValidShapePressureRef.current),
-        shapePixelResStateRef.current
-      );
+      const stablePressure = lastStablePressureRef.current ?? 0.5;
+      const pixelSize = computeShapePixelSize(stablePressure);
       latestShapePixelSizeRef.current = pixelSize;
 
       const imageData = renderOrderedDitherGradientToImageData({

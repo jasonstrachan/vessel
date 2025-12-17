@@ -2719,12 +2719,19 @@ export const createShapeToolHandler = (
 
                 if (tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT) {
                   // Stable origin to avoid swimming pixels as preview moves
-                  const pixelSize = computePressureResolution(
-                    Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 1)),
-                    drawingHandlers.lastStablePressureRef?.current ?? 0,
-                    Boolean(tools.brushSettings.pressureLinkedFillResolution && drawingHandlers.hadValidShapePressureRef?.current),
-                    ditherGradPreviewState.resState
-                  );
+                  const fallbackPressure = drawingHandlers.lastStablePressureRef?.current ?? 0.5;
+                  const pixelSize =
+                    drawingHandlers.latestShapePixelSizeRef?.current ??
+                    drawingHandlers.computeShapePixelSize?.(fallbackPressure) ??
+                    computePressureResolution(
+                      Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 1)),
+                      fallbackPressure,
+                      Boolean(
+                        tools.brushSettings.pressureLinkedFillResolution &&
+                          drawingHandlers.hadValidShapePressureRef?.current
+                      ),
+                      ditherGradPreviewState.resState
+                    );
 
                   if (!ditherGradPreviewState.origin) {
                     ditherGradPreviewState.origin = { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };

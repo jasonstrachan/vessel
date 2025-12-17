@@ -237,6 +237,63 @@ describe('orderedDitherGradient', () => {
     expect(pixelColor(base.data, 0)).not.toEqual(pixelColor(shifted.data, 0));
   });
 
+  it('samples gradient at world-anchored cell centers', () => {
+    const axis = {
+      start: { x: 0, y: 0 },
+      end: { x: 1, y: 0 },
+      dir: { x: 1, y: 0 },
+      length: 1,
+    } as const;
+
+    const image = renderOrderedDitherGradientToImageData({
+      width: 1,
+      height: 1,
+      axis,
+      paletteRGBA: palette,
+      tile: new Float32Array([0.5]),
+      tileSize: 1,
+      pixelSize: 4,
+      origin: { x: 1.5, y: 0 },
+    });
+
+    expect(Array.from(image.data.slice(0, 4))).toEqual([0, 0, 255, 255]);
+  });
+
+  it('locks Bayer phase to world-anchored cell indices', () => {
+    const axis = {
+      start: { x: 0, y: 0 },
+      end: { x: 0, y: 10 },
+      dir: { x: 0, y: 1 },
+      length: 10,
+    } as const;
+
+    const tile = new Float32Array([0.05, 0.9, 0.9, 0.9]);
+
+    const base = renderOrderedDitherGradientToImageData({
+      width: 1,
+      height: 1,
+      axis,
+      paletteRGBA: palette,
+      tile,
+      tileSize: 2,
+      pixelSize: 2,
+      origin: { x: 0, y: 0 },
+    });
+
+    const shifted = renderOrderedDitherGradientToImageData({
+      width: 1,
+      height: 1,
+      axis,
+      paletteRGBA: palette,
+      tile,
+      tileSize: 2,
+      pixelSize: 2,
+      origin: { x: 1, y: 0 }, // stay in same cell
+    });
+
+    expect(Array.from(base.data)).toEqual(Array.from(shifted.data));
+  });
+
   it('aligns pixelation grid to origin', () => {
     const width = 4;
     const height = 2;
