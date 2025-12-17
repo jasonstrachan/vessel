@@ -1,3 +1,6 @@
+import { applyPressureDither, createGrayscalePalette } from '@/utils/ditherAlgorithms';
+import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
+
 export type Vec2 = { x: number; y: number };
 export type RGBA = [number, number, number, number];
 
@@ -42,6 +45,11 @@ export type OrderedDitherGradientParams = {
    * stay locked to the canvas even if the polygon bounds or pixelSize change.
    */
   origin?: Vec2;
+};
+
+export type DitherGradientRenderParams = OrderedDitherGradientParams & {
+  algorithm?: DitherAlgorithm;
+  patternStyle?: PatternStyle;
 };
 
 const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
@@ -289,6 +297,141 @@ export function renderOrderedDitherGradientToImageData(params: OrderedDitherGrad
   }
 
   return imageData;
+}
+
+const getCellGridBounds = (
+  width: number,
+  height: number,
+  pixelSize: number,
+  origin: Vec2
+) => {
+  const minCellX = Math.floor((origin.x + 0.5) / pixelSize);
+  const maxCellX = Math.floor((origin.x + width - 0.5) / pixelSize);
+  const minCellY = Math.floor((origin.y + 0.5) / pixelSize);
+  const maxCellY = Math.floor((origin.y + height - 0.5) / pixelSize);
+  const gridWidth = Math.max(1, maxCellX - minCellX + 1);
+  const gridHeight = Math.max(1, maxCellY - minCellY + 1);
+  return {
+    minCellX,
+    minCellY,
+    gridWidth,
+    gridHeight,
+  };
+};
+
+const buildValueToIndexLut = (levels: number): Uint8Array => {
+  const safeLevels = Math.max(2, levels);
+  const step = 255 / (safeLevels - 1);
+  const lut = new Uint8Array(256);
+  for (let v = 0; v < 256; v += 1) {
+    const idx = Math.round(v / step);
+    lut[v] = Math.max(0, Math.min(safeLevels - 1, idx));
+  }
+  return lut;
+};
+
+const renderGradientCoverageGrid = (
+  width: number,
+  height: number,
+  axis: OrderedDitherAxis,
+  pixelSize: number,
+  origin: Vec2
+) => {
+  const { minCellX, minCellY, gridWidth, gridHeight } = getCellGridBounds(
+    width,
+    height,
+    pixelSize,
+    origin
+  );
+
+  const safeDir = axis.length > 1e-6 ? axis.dir : { x: 1, y: 0 };
+  const safeLength = axis.length > 1e-6 ? axis.length : 1e-6;
+  const axisStartWorldX = origin.x + axis.start.x;
+  const axisStartWorldY = origin.y + axis.start.y;
+
+  const data = new Uint8ClampedArray(gridWidth * gridHeight * 4);
+  for (let gy = 0; gy < gridHeight; gy += 1) {
+    const cellY = minCellY + gy;
+    const cellCenterWorldY = (cellY + 0.5) * pixelSize;
+    for (let gx = 0; gx < gridWidth; gx += 1) {
+      const cellX = minCellX + gx;
+      const cellCenterWorldX = (cellX + 0.5) * pixelSize;
+      const proj =
+        ((cellCenterWorldX - axisStartWorldX) * safeDir.x +
+          (cellCenterWorldY - axisStartWorldY) * safeDir.y) /
+        safeLength;
+      const coverage = clamp01(proj);
+      const value = Math.max(0, Math.min(255, Math.round(coverage * 255)));
+      const idx = (gy * gridWidth + gx) * 4;
+      data[idx] = value;
+      data[idx + 1] = value;
+      data[idx + 2] = value;
+      data[idx + 3] = 255;
+    }
+  }
+
+  return {
+    imageData: new ImageData(data, gridWidth, gridHeight),
+    minCellX,
+    minCellY,
+    gridWidth,
+    gridHeight,
+  };
+};
+
+export function renderDitherGradientToImageData(params: DitherGradientRenderParams): ImageData {
+  const { width, height, axis, paletteRGBA } = params;
+  const pixelSize = Math.max(1, Math.floor(params.pixelSize ?? 1));
+  const origin = params.origin ?? { x: 0, y: 0 };
+  const algorithm: DitherAlgorithm = params.algorithm ?? 'bayer';
+
+  if (algorithm === 'bayer') {
+    return renderOrderedDitherGradientToImageData(params);
+  }
+
+  const levelCount = Math.max(2, paletteRGBA.length);
+  const coverageGrid = renderGradientCoverageGrid(width, height, axis, pixelSize, origin);
+  const grayscalePalette = createGrayscalePalette(levelCount);
+  const dithered = applyPressureDither(coverageGrid.imageData, {
+    algorithm,
+    pressure: 0.5,
+    intensity: 1,
+    bayerMatrixSize: 8,
+    palette: grayscalePalette,
+    patternStyle: params.patternStyle,
+    phaseOffset: { x: coverageGrid.minCellX, y: coverageGrid.minCellY },
+  });
+
+  const lut = buildValueToIndexLut(levelCount);
+  const output = new ImageData(width, height);
+  const out = output.data;
+  const src = dithered.data;
+  const { gridWidth, gridHeight, minCellX, minCellY } = coverageGrid;
+
+  for (let yy = 0; yy < height; yy += 1) {
+    const worldY = origin.y + yy + 0.5;
+    const cellY = Math.floor(worldY / pixelSize);
+    let gridY = cellY - minCellY;
+    if (gridY < 0) gridY = 0;
+    if (gridY >= gridHeight) gridY = gridHeight - 1;
+
+    for (let xx = 0; xx < width; xx += 1) {
+      const worldX = origin.x + xx + 0.5;
+      const cellX = Math.floor(worldX / pixelSize);
+      let gridX = cellX - minCellX;
+      if (gridX < 0) gridX = 0;
+      if (gridX >= gridWidth) gridX = gridWidth - 1;
+
+      const srcIdx = (gridY * gridWidth + gridX) * 4;
+      const value = src[srcIdx];
+      const paletteIndex = lut[value];
+      const color = paletteRGBA[paletteIndex] ?? paletteRGBA[paletteRGBA.length - 1];
+      const dstIdx = (yy * width + xx) * 4;
+      writePixel(out, dstIdx, color);
+    }
+  }
+
+  return output;
 }
 
 /**

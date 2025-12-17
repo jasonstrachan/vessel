@@ -1015,12 +1015,12 @@ export const brushPresets: BrushPreset[] = [
   defaultBrushPreset,
   pixelDitherPreset,
   shapeDitherPreset,
+  ditherGradientBrushPreset,
   colorCycleStrokeBrushPreset,
   colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
-  ditherGradientBrushPreset,
   shapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset

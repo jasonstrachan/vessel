@@ -186,7 +186,10 @@ export interface DitherSettings {
   bayerMatrixSize: BayerMatrixSize;
   palette: [number, number, number][];
   patternStyle?: PatternStyle; // For pattern dithering
+  phaseOffset?: { x: number; y: number }; // Optional phase offset for ordered patterns
 }
+
+const mod = (value: number, modulo: number) => ((value % modulo) + modulo) % modulo;
 
 /**
  * Calculates pressure-sensitive dither threshold
@@ -386,6 +389,8 @@ export const applyBayerDither = (
   const width = imageData.width;
   const height = imageData.height;
   const palette = settings.palette;
+  const offsetX = settings.phaseOffset?.x ?? 0;
+  const offsetY = settings.phaseOffset?.y ?? 0;
   
   // Select Bayer matrix based on size
   let matrix: number[][];
@@ -417,7 +422,7 @@ export const applyBayerDither = (
       const idx = (y * width + x) * 4;
       
       // Get Bayer threshold for this position
-      const bayerValue = matrix[y % matrixSize][x % matrixSize];
+      const bayerValue = matrix[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
       const threshold = (bayerValue - 0.5) * thresholdMultiplier * 128; // Scale to ±64
       
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
@@ -552,6 +557,8 @@ export const applyBlueNoiseDither = (
   const width = imageData.width;
   const height = imageData.height;
   const palette = settings.palette;
+  const offsetX = settings.phaseOffset?.x ?? 0;
+  const offsetY = settings.phaseOffset?.y ?? 0;
   
   const matrixSize = BLUE_NOISE_16x16.length;
   
@@ -568,7 +575,7 @@ export const applyBlueNoiseDither = (
       const idx = (y * width + x) * 4;
       
       // Get blue noise threshold for this position
-      const noiseValue = BLUE_NOISE_16x16[y % matrixSize][x % matrixSize];
+      const noiseValue = BLUE_NOISE_16x16[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
       const threshold = (noiseValue - 0.5) * thresholdMultiplier * 255;
       
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
@@ -598,6 +605,8 @@ export const applyVoidAndClusterDither = (
   const matrix = VOID_CLUSTER_8x8;
   const matrixSize = matrix.length;
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
+  const offsetX = settings.phaseOffset?.x ?? 0;
+  const offsetY = settings.phaseOffset?.y ?? 0;
 
   for (let y = 0; y < height; y++) {
     const leftToRight = (y & 1) === 0;
@@ -607,7 +616,7 @@ export const applyVoidAndClusterDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
-      const vcVal = matrix[y % matrixSize][x % matrixSize];
+      const vcVal = matrix[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
       const threshold = (vcVal - 0.5) * thresholdMultiplier * 128;
 
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
@@ -912,6 +921,8 @@ export const applyPatternDither = (
   const height = imageData.height;
   const palette = settings.palette;
   const patternStyle = settings.patternStyle || 'dots';
+  const offsetX = settings.phaseOffset?.x ?? 0;
+  const offsetY = settings.phaseOffset?.y ?? 0;
   
   // Pressure affects pattern density
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
@@ -923,12 +934,15 @@ export const applyPatternDither = (
       // Get pattern threshold based on style
       let patternValue = 0;
       
+      const px = x + offsetX;
+      const py = y + offsetY;
+
       switch (patternStyle) {
         case 'dots': {
           // Circular dot pattern
           const dotSize = 4;
-          const dx = x % dotSize - dotSize / 2;
-          const dy = y % dotSize - dotSize / 2;
+          const dx = mod(px, dotSize) - dotSize / 2;
+          const dy = mod(py, dotSize) - dotSize / 2;
           const distance = Math.sqrt(dx * dx + dy * dy) / (dotSize / 2);
           patternValue = Math.min(1, distance);
           break;
@@ -936,35 +950,35 @@ export const applyPatternDither = (
         case 'lines': {
           // Diagonal line pattern
           const lineSpacing = 4;
-          const diagonal = (x + y) % lineSpacing;
+          const diagonal = mod(px + py, lineSpacing);
           patternValue = diagonal / lineSpacing;
           break;
         }
         case 'vertical-lines': {
           // Vertical line pattern
           const lineSpacing = 4;
-          patternValue = (x % lineSpacing) / lineSpacing;
+          patternValue = mod(px, lineSpacing) / lineSpacing;
           break;
         }
         case 'horizontal-lines': {
           // Horizontal line pattern
           const lineSpacing = 4;
-          patternValue = (y % lineSpacing) / lineSpacing;
+          patternValue = mod(py, lineSpacing) / lineSpacing;
           break;
         }
         case 'crosshatch': {
           // Crosshatch pattern
           const spacing = 4;
-          const vertical = (x % spacing) / spacing;
-          const horizontal = (y % spacing) / spacing;
+          const vertical = mod(px, spacing) / spacing;
+          const horizontal = mod(py, spacing) / spacing;
           patternValue = Math.min(vertical, horizontal);
           break;
         }
         case 'diagonal': {
           // Diamond/diagonal pattern
           const spacing = 8;
-          const dx = Math.abs((x % spacing) - spacing / 2);
-          const dy = Math.abs((y % spacing) - spacing / 2);
+          const dx = Math.abs(mod(px, spacing) - spacing / 2);
+          const dy = Math.abs(mod(py, spacing) - spacing / 2);
           patternValue = (dx + dy) / spacing;
           break;
         }
@@ -974,16 +988,16 @@ export const applyPatternDither = (
           if (lum < 0.33) {
             // Shadows: tight vertical lines
             const spacing = 3;
-            patternValue = (x % spacing) / spacing;
+            patternValue = mod(px, spacing) / spacing;
           } else if (lum < 0.66) {
             // Midtones: dotted/diagonal mix
             const spacing = 4;
-            const diag = (x + y) % spacing;
+            const diag = mod(px + py, spacing);
             patternValue = diag / spacing;
           } else {
             // Highlights: horizontal lines, slightly looser
             const spacing = 5;
-            patternValue = (y % spacing) / spacing;
+            patternValue = mod(py, spacing) / spacing;
           }
           break;
         }

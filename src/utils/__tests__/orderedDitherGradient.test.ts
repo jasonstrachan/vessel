@@ -3,6 +3,7 @@ import {
   computeGradientAxisFromPolygon,
   getBayerTile,
   pixelateImageData,
+  renderDitherGradientToImageData,
   renderOrderedDitherGradientToImageData,
   resolveDitherGradPalette
 } from '../orderedDitherGradient';
@@ -292,6 +293,77 @@ describe('orderedDitherGradient', () => {
     });
 
     expect(Array.from(base.data)).toEqual(Array.from(shifted.data));
+  });
+
+  it('applies transparent tail for non-bayer algorithms', () => {
+    const axis = {
+      start: { x: -0.5, y: 0 },
+      end: { x: 0.5, y: 0 },
+      dir: { x: 1, y: 0 },
+      length: 1,
+    } as const;
+
+    const paletteRGBA: [number, number, number, number][] = [
+      [255, 0, 0, 255],
+      [0, 255, 0, 255],
+      [0, 0, 0, 0],
+    ];
+
+    const image = renderDitherGradientToImageData({
+      width: 1,
+      height: 1,
+      axis,
+      paletteRGBA,
+      tile: getBayerTile(4),
+      tileSize: 4,
+      pixelSize: 1,
+      origin: { x: 0, y: 0 },
+      algorithm: 'floyd-steinberg',
+    });
+
+    expect(image.data[3]).toBe(0);
+  });
+
+  it('anchors pattern phase to world cell coordinates', () => {
+    const axis = {
+      start: { x: -0.1, y: 0 },
+      end: { x: 0.9, y: 0 },
+      dir: { x: 1, y: 0 },
+      length: 1,
+    } as const;
+
+    const paletteRGBA: [number, number, number, number][] = [
+      [255, 0, 0, 255],
+      [0, 0, 255, 255],
+    ];
+
+    const base = renderDitherGradientToImageData({
+      width: 1,
+      height: 1,
+      axis,
+      paletteRGBA,
+      tile: getBayerTile(4),
+      tileSize: 4,
+      pixelSize: 1,
+      origin: { x: 0, y: 0 },
+      algorithm: 'pattern',
+      patternStyle: 'vertical-lines',
+    });
+
+    const shifted = renderDitherGradientToImageData({
+      width: 1,
+      height: 1,
+      axis,
+      paletteRGBA,
+      tile: getBayerTile(4),
+      tileSize: 4,
+      pixelSize: 1,
+      origin: { x: 2, y: 0 },
+      algorithm: 'pattern',
+      patternStyle: 'vertical-lines',
+    });
+
+    expect(Array.from(base.data.slice(0, 4))).not.toEqual(Array.from(shifted.data.slice(0, 4)));
   });
 
   it('aligns pixelation grid to origin', () => {

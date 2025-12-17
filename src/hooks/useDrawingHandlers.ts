@@ -45,7 +45,7 @@ import {
   buildFgBgPalette,
   computeGradientAxisFromPolygon,
   scaleOrderedAxis,
-  renderOrderedDitherGradientToImageData,
+  renderDitherGradientToImageData,
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
 import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
@@ -4973,7 +4973,7 @@ export function useDrawingHandlers({
       const pixelSize = computeShapePixelSize(stablePressure);
       latestShapePixelSizeRef.current = pixelSize;
 
-      const imageData = renderOrderedDitherGradientToImageData({
+      const imageData = renderDitherGradientToImageData({
         width,
         height,
         axis,
@@ -4981,6 +4981,8 @@ export function useDrawingHandlers({
         tileSize: 8,
         pixelSize,
         origin: { x: minX, y: minY },
+        algorithm: liveBrushSettings.ditherAlgorithm,
+        patternStyle: liveBrushSettings.patternStyle,
       });
 
       const tempCanvas = canvasPool.acquire(width, height);

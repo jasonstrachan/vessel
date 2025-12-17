@@ -21,7 +21,7 @@ import {
   buildFgBgPalette,
   computeGradientAxisFromPolygon,
   scaleOrderedAxis,
-  renderOrderedDitherGradientToImageData,
+  renderDitherGradientToImageData,
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
 import { computePressureResolution, createPressureResolutionState, type PressureResolutionState } from '@/utils/pressureResolution';
@@ -2815,7 +2815,7 @@ export const createShapeToolHandler = (
                     tempCtx.globalAlpha = 1;
                     tempCtx.imageSmoothingEnabled = false;
                     tempCtx.clearRect(0, 0, w, h);
-                    const imageData = renderOrderedDitherGradientToImageData({
+                    const imageData = renderDitherGradientToImageData({
                       width: w,
                       height: h,
                       axis: axisScaled,
@@ -2823,6 +2823,8 @@ export const createShapeToolHandler = (
                       tileSize: 8,
                       pixelSize,
                       origin,
+                      algorithm: tools.brushSettings.ditherAlgorithm,
+                      patternStyle: tools.brushSettings.patternStyle,
                     });
                     tempCtx.clearRect(0, 0, w, h);
                     tempCtx.putImageData(imageData, 0, 0);
