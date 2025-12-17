@@ -246,7 +246,7 @@ const LayersPanel: React.FC = () => {
     setActiveLayer(layerId);
     setSelectedLayerIds([layerId]);
     setLayerMenuState(null);
-  }, [activeLayerId, selectedLayerIds, setActiveLayer, setLayerMenuState, setSelectedLayerIds]);
+  }, [selectedLayerIds, setActiveLayer, setLayerMenuState, setSelectedLayerIds]);
 
   const generateGradientCSS = React.useCallback((gradient?: Array<{ position: number; color: string }>) => {
     if (!gradient || gradient.length === 0) {

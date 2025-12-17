@@ -309,7 +309,6 @@ const MinimalLayerList = () => {
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const layersRef = useStoreSelectorRef(selectLayers);
   const selectedLayerIdsRef = useStoreSelectorRef(selectSelectedLayerIds);
-  const activeLayerIdRef = useStoreSelectorRef(selectActiveLayerId);
   const brushSettings = useAppStore(selectBrushSettings);
   const globalColorCycleSpeed = brushSettings.colorCycleSpeed ?? 0.1;
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
@@ -572,9 +571,7 @@ const MinimalLayerList = () => {
   }, [resetDragState]);
   
   const handleLayerClick = useCallback((event: React.MouseEvent, layerId: string) => {
-    const layers = layersRef.current;
     const selection = selectedLayerIdsRef.current;
-    const anchorId = activeLayerIdRef.current;
 
     if (event.shiftKey) {
       // Shift adds the clicked layer to the selection without removing others.
@@ -586,7 +583,7 @@ const MinimalLayerList = () => {
 
     setActiveLayer(layerId);
     setSelectedLayerIds([layerId]);
-  }, [activeLayerIdRef, layersRef, selectedLayerIdsRef, setActiveLayer, setSelectedLayerIds]);
+  }, [selectedLayerIdsRef, setActiveLayer, setSelectedLayerIds]);
 
   const handleRemoveLayer = useCallback((layerId: string) => {
     removeLayer(layerId);

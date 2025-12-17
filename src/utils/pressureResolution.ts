@@ -43,6 +43,18 @@ export const computePressureResolution = (
     return Math.max(PRESSURE_RESOLUTION_MIN_PX, Math.round(targetFloat));
   }
 
+  // If we start at full pressure with an explicit max, snap to the max immediately.
+  if (maxResolution != null && p >= 1 && state.lastTime === 0) {
+    state.smoothed = targetFloat;
+    state.output = targetFloat;
+    state.lastTime = typeof now === 'number'
+      ? now
+      : typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    return Math.max(PRESSURE_RESOLUTION_MIN_PX, Math.min(maxSize, state.output));
+  }
+
   const timestamp =
     typeof now === 'number'
       ? now

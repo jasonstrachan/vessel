@@ -542,7 +542,7 @@ const BrushControls = () => {
         return { ...draft, min: minString };
       });
     },
-    [activeSettings.maxPressure, activeSettings.brushShape, setActiveSettings]
+    [setActiveSettings]
   );
 
   const handleMinFocus = React.useCallback(() => {
@@ -567,8 +567,6 @@ const BrushControls = () => {
   }, [
     pressureDraft.min,
     activeSettings.minPressure,
-    activeSettings.maxPressure,
-    activeSettings.brushShape,
     updatePressureEditing,
     handleMinChange,
     setActiveSettings,
@@ -589,7 +587,7 @@ const BrushControls = () => {
       setActiveSettings({ maxPressure: clamped });
       setPressureDraft((draft) => (draft.max === nextString ? draft : { ...draft, max: nextString }));
     },
-    [activeSettings.minPressure, setActiveSettings]
+    [setActiveSettings]
   );
 
   const handleMaxFocus = React.useCallback(() => {
@@ -653,7 +651,7 @@ const BrushControls = () => {
       pendingLayerUpdateRef.current = null;
     }
 
-    colorCycleRuntimeHandlers.updateGradient?.(clonedStops);
+    colorCycleRuntimeHandlers?.updateGradient?.(clonedStops);
     pendingGradientRef.current = clonedStops;
   }, [setActiveSettings, updateLayer, colorCycleRuntimeHandlers]);
 
@@ -924,7 +922,7 @@ const BrushControls = () => {
                 const next: 'forward' | 'reverse' | 'pingpong' =
                   value === 'forward' || value === 'pingpong' ? value : 'reverse';
                 setActiveSettings({ colorCycleFlowMode: next });
-                colorCycleRuntimeHandlers.setFlowMode?.(next);
+                colorCycleRuntimeHandlers?.setFlowMode?.(next);
               }}
               className="flex-1"
               size="sm"

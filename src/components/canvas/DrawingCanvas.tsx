@@ -477,7 +477,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
     // Color cycle uses standard brush cursor to show size
     return 'none';
-  }, [tools.currentTool, tools.brushSettings.brushShape]);
+  }, [tools.currentTool, tools.brushSettings.brushShape, tools.shapeMode]);
   
   const [cursorStyle, setCursorStyle] = useState(defaultCursorStyle);
   

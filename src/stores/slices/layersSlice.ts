@@ -1295,8 +1295,6 @@ export const createLayersSlice = (
       })();
       const projectWidth = state.project.width || 1;
       const projectHeight = state.project.height || 1;
-      const targetIndex = Math.max(...sortedByOrder.map((layer) => state.layers.indexOf(layer)));
-
       const mergeCanvas = createLayerTransferCanvas(projectWidth, projectHeight);
       if (!mergeCanvas) {
         return state;
@@ -1339,7 +1337,7 @@ export const createLayersSlice = (
             (layer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
             (hasValidFramebuffer(layer.framebuffer) ? layer.framebuffer : null);
 
-          if (brush && sourceCanvas) {
+          if (brush && sourceCanvas && typeof HTMLCanvasElement !== 'undefined' && sourceCanvas instanceof HTMLCanvasElement) {
             try {
               brush.renderDirectToCanvas?.(sourceCanvas, layer.id);
             } catch (error) {

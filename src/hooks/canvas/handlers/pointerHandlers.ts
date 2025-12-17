@@ -823,7 +823,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // Re-read live settings so BG fill toggles apply to the preview too
       const liveDeps = getDynamicDeps();
       const liveBrushSettings = liveDeps.tools.brushSettings;
-      const latestShapePressureRef = drawingHandlers.latestShapePressureRef;
       const lastNonZeroShapePressureRef = drawingHandlers.lastNonZeroShapePressureRef;
       const latestShapePixelSizeRef = drawingHandlers.latestShapePixelSizeRef;
       const maxShapePressureRef = drawingHandlers.shapeMaxPressureRef;

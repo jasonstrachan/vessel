@@ -54,6 +54,7 @@ jest.mock('../../../types', () => ({
 }));
 
 import BrushControls from '../BrushControls';
+import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
 
@@ -234,12 +235,12 @@ jest.mock('@/stores/useAppStore', () => {
     },
     globalBrushSize: 10,
     activeLayerId: 'layer-1',
-    layers: [{ id: 'layer-1', name: 'CC', layerType: 'color-cycle' } as any],
+    layers: [{ id: 'layer-1', name: 'CC', layerType: 'color-cycle' } as unknown as AppState['layers'][number]],
     selectedLayerIds: [],
     referenceLayerId: null,
     layersNeedRecomposition: false,
-    brushPresets: [{ id: 'color-cycle-stroke', name: 'CC Stroke' } as any],
-    currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as any,
+    brushPresets: [{ id: 'color-cycle-stroke', name: 'CC Stroke' } as unknown as AppState['brushPresets'][number]],
+    currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['currentBrushPreset'],
     temporaryCustomBrush: null,
     recolorSampling: { active: false, start: null, end: null, samples: undefined, target: 'brush' },
     polygonGradientState: { drawingState: 'idle', points: [], previewPath: undefined },
@@ -320,7 +321,6 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(forwardBtn).toBeInTheDocument();
     await user.click(forwardBtn);
 
-    const store = (require('@/stores/useAppStore') as { useAppStore: typeof import('@/stores/useAppStore').useAppStore }).useAppStore as unknown as { getState: () => AppState };
-    expect(store.getState().tools.brushSettings.colorCycleFlowMode).toBe('forward');
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('forward');
   });
 });

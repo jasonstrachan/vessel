@@ -340,7 +340,6 @@ describe('layers slice integration', () => {
       if (tagName === 'canvas') {
         return makeCanvas() as unknown as HTMLCanvasElement;
       }
-      // @ts-expect-error
       return realCreateElement(tagName);
     });
 

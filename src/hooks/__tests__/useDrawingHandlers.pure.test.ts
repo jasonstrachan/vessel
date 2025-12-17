@@ -98,4 +98,26 @@ describe('useDrawingHandlers pure utilities', () => {
 
     expect(stops).toEqual(['1,2', '1,2', '1,2']);
   });
+
+  it('clamps dither gradient samples to max stops', () => {
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 20, y: 0 },
+      { x: 30, y: 0 },
+      { x: 40, y: 0 },
+      { x: 50, y: 0 },
+      { x: 60, y: 0 },
+    ];
+
+    const sampleColor = jest.fn((x, y) => `${x},${y}`);
+    const sampler = jest.fn((points: Array<{ x: number; y: number }>, count: number) => {
+      return points.slice(0, count);
+    });
+
+    const stops = computeDitherGradSampleStopsFromPolyline(pts, sampleColor, sampler, 12);
+
+    expect(stops).toHaveLength(AUTO_SAMPLE_MAX_STOPS);
+    expect(sampler).toHaveBeenCalledWith(expect.any(Array), AUTO_SAMPLE_MAX_STOPS);
+  });
 });

@@ -11,7 +11,6 @@ import {
   DitherSettings, 
   DitherAlgorithm, 
   BayerMatrixSize,
-  PatternStyle,
   APPLE_II_PALETTE,
   createGrayscalePalette,
   calculatePressureDitherThreshold
@@ -23,7 +22,7 @@ export interface DitherBrushSettings extends BrushSettings {
   pressureSensitiveDither: boolean;
   ditherPalette: 'apple-ii' | 'grayscale-2' | 'grayscale-4' | 'grayscale-8' | 'custom';
   bayerMatrixSize: BayerMatrixSize;
-  patternStyle: PatternStyle;
+  patternStyle: NonNullable<BrushSettings['patternStyle']>;
   realtimeProcessing: boolean; // true = chunked processing for large strokes
 }
 
@@ -276,7 +275,9 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           <label className="text-xs text-gray-400">Pattern Style</label>
           <select
             value={settings.patternStyle}
-            onChange={(e) => onChange({ patternStyle: e.target.value as PatternStyle })}
+            onChange={(e) =>
+              onChange({ patternStyle: e.target.value as NonNullable<BrushSettings['patternStyle']> })
+            }
             className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-white"
           >
             <option value="dots">Dots</option>

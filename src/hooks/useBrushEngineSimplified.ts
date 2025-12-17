@@ -114,14 +114,6 @@ const AL = (step: string, obj: Record<string, unknown>) => {
   }
 };
 
-const getDitherDebugLevel = () => {
-  if (typeof window === 'undefined') {
-    return 0;
-  }
-  const lvl = Number((window as { __ditherDebugLevel?: unknown }).__ditherDebugLevel ?? 0);
-  return Number.isFinite(lvl) ? lvl : 0;
-};
-
 const DD = (step: string, obj: Record<string, unknown>) => {
   const level = typeof window !== 'undefined'
     ? (window as { __ditherDebugLevel?: number }).__ditherDebugLevel ?? 0
@@ -766,200 +758,6 @@ export const useBrushEngineSimplified = () => {
     liveRenderScheduledRef.current = false;
     clearLiveStrokeHoleMask();
   }, [clearLiveStrokeHoleMask]);
-
-  const createCoverageCanvas = useCallback((width: number, height: number): HTMLCanvasElement | OffscreenCanvas | null => {
-    const globalAny = globalThis as unknown as { OffscreenCanvas?: { new (w: number, h: number): OffscreenCanvas } };
-    if (typeof globalAny.OffscreenCanvas === 'function') {
-      return new globalAny.OffscreenCanvas(width, height);
-    }
-    if (typeof document === 'undefined') {
-      return null;
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    return canvas;
-  }, []);
-
-  const ensureCoverageEntry = useCallback((
-    layerId: string | null,
-    layerCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
-  ): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } | null => {
-    if (!layerId) return null;
-    const canvasWidth = layerCtx.canvas?.width ?? 0;
-    const canvasHeight = layerCtx.canvas?.height ?? 0;
-    if (!canvasWidth || !canvasHeight) return null;
-
-    let entry = ditherCoverageMapRef.current.get(layerId) ?? null;
-    if (!entry) {
-      const canvas = createCoverageCanvas(canvasWidth, canvasHeight);
-      if (!canvas) return null;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-      if (!ctx) return null;
-      entry = { canvas, ctx };
-      ditherCoverageMapRef.current.set(layerId, entry);
-      return entry;
-    }
-
-    if (entry.canvas.width !== canvasWidth || entry.canvas.height !== canvasHeight) {
-      entry.canvas.width = canvasWidth;
-      entry.canvas.height = canvasHeight;
-      entry.ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    }
-
-    return entry;
-  }, [createCoverageCanvas]);
-
-  const applyCoverageMaskToDither = useCallback((
-    layerCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-    ditherCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-    rawCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null,
-    region: Rect,
-    layerId: string | null,
-    layerVersion?: number,
-    lostEdgePercent?: number
-  ) => {
-    if (!layerId) return;
-    const { x, y, width, height } = region;
-    if (width <= 0 || height <= 0) return;
-
-    const probe = getDitherProbe();
-    DD('coverage-enter', { layerId, layerVersion, region: { x, y, width, height } });
-
-    const entry = ensureCoverageEntry(layerId, layerCtx);
-    if (!entry) return;
-
-    let coverPatch: ImageData;
-    let layerPatch: ImageData;
-    let ditherPatch: ImageData;
-    let strokePatch: ImageData | null = null;
-    try {
-      coverPatch = entry.ctx.getImageData(x, y, width, height);
-      layerPatch = layerCtx.getImageData(x, y, width, height);
-      ditherPatch = ditherCtx.getImageData(x, y, width, height);
-      if (rawCtx) {
-        strokePatch = rawCtx.getImageData(x, y, width, height);
-      }
-    } catch (error) {
-      console.warn('[Dither] Failed to sample coverage merge region', error);
-      return;
-    }
-
-    const cd = coverPatch.data;
-    const ld = layerPatch.data;
-    const dd = ditherPatch.data;
-    const sd = strokePatch?.data ?? null;
-
-    const fade = lostEdgePercent ? Math.min(1, Math.max(0, lostEdgePercent / 100)) : 0;
-    let lostEdgeMask: Uint8ClampedArray | null = null;
-    if (lostEdgePercent && lostEdgePercent > 0) {
-      // Build coverage array from stroke alpha if available; fallback to dither alpha
-      const coverage = new Uint8Array((width ?? 0) * (height ?? 0));
-      for (let i = 0, p = 0; i < dd.length; i += 4, p++) {
-        const strokeA = sd ? sd[i + 3] : dd[i + 3];
-        coverage[p] = strokeA;
-      }
-      try {
-        lostEdgeMask = applySierraLiteLostEdgeMask(coverage, width, height, lostEdgePercent);
-      } catch (error) {
-        console.warn('[Dither] Lost-edge mask failed', error);
-        lostEdgeMask = null;
-      }
-    }
-
-    let countHole = 0;
-    let countCover = 0;
-    let countLayerAlpha = 0;
-    let countStrokeAlpha = 0;
-
-    for (let i = 0; i < dd.length; i += 4) {
-      const coverA = cd[i + 3];
-      const layerA = ld[i + 3];
-      const strokeA = sd ? sd[i + 3] : dd[i + 3];
-      if (coverA > 0) countCover++;
-      if (layerA > 0) countLayerAlpha++;
-      if (strokeA > 0) countStrokeAlpha++;
-      if (coverA > 0 && layerA === 0) countHole++;
-    }
-
-    DD('coverage-pre', {
-      layerId,
-      region: { x, y, width, height },
-      coverPixels: countCover,
-      layerAlphaPixels: countLayerAlpha,
-      strokePixels: countStrokeAlpha,
-      holePixels: countHole
-    });
-
-    const probePoint = probe ?? {
-      x: x + Math.floor(width / 2),
-      y: y + Math.floor(height / 2),
-      tag: 'coverage-center'
-    };
-
-    const probeInRegion =
-      probePoint &&
-      probePoint.x >= x && probePoint.x < x + width &&
-      probePoint.y >= y && probePoint.y < y + height;
-
-    if (probeInRegion) {
-      const px = probePoint.x - x;
-      const py = probePoint.y - y;
-      const idx = (py * width + px) * 4;
-      DD('coverage-probe-pre', {
-        tag: probePoint.tag,
-        canvasXY: { x: probePoint.x, y: probePoint.y },
-        coverA: cd[idx + 3],
-        layerA: ld[idx + 3],
-        strokeA: sd ? sd[idx + 3] : dd[idx + 3],
-        ditherA: dd[idx + 3],
-        isHoleFromPriorStamp: cd[idx + 3] > 0 && ld[idx + 3] === 0
-      });
-    }
-
-    for (let i = 0; i < dd.length; i += 4) {
-      const coverA = cd[i + 3];
-      const layerA = ld[i + 3];
-      const strokeA = sd ? sd[i + 3] : dd[i + 3];
-      const isHoleFromPriorStamp = coverA > 0 && layerA === 0;
-
-      if (lostEdgeMask) {
-        const maskVal = lostEdgeMask[(i / 4) | 0];
-        dd[i + 3] = Math.round(dd[i + 3] * (maskVal / 255));
-      } else if (fade > 0) {
-        dd[i + 3] = Math.round(dd[i + 3] * (1 - fade));
-      }
-
-      if (isHoleFromPriorStamp) {
-        dd[i + 3] = 0;
-        continue;
-      }
-
-      if (strokeA > 0) {
-        cd[i] = 0;
-        cd[i + 1] = 0;
-        cd[i + 2] = 0;
-        cd[i + 3] = 255;
-      }
-    }
-
-    if (probeInRegion) {
-      const px = probePoint!.x - x;
-      const py = probePoint!.y - y;
-      const idx = (py * width + px) * 4;
-      DD('coverage-probe-post', {
-        tag: probePoint!.tag,
-        canvasXY: { x: probePoint!.x, y: probePoint!.y },
-        coverA: cd[idx + 3],
-        layerA: ld[idx + 3],
-        strokeA: sd ? sd[idx + 3] : dd[idx + 3],
-        ditherA: dd[idx + 3]
-      });
-    }
-
-    entry.ctx.putImageData(coverPatch, x, y);
-    ditherCtx.putImageData(ditherPatch, x, y);
-  }, [ensureCoverageEntry]);
 
   useEffect(() => {
     const ids = new Set(layers.map((layer) => layer.id));
@@ -1763,7 +1561,7 @@ export const useBrushEngineSimplified = () => {
   }, [computePressureScaledResolution]);
 
   // Erode stroke alpha before dithering to keep the pattern intact.
-  const applyLostEdgeToStrokeAlpha = (
+  const applyLostEdgeToStrokeAlpha = useCallback((
     data: Uint8ClampedArray,
     width: number,
     height: number,
@@ -1795,7 +1593,7 @@ export const useBrushEngineSimplified = () => {
       const mv = mask[idx];
       data[i] = Math.round(data[i] * (mv / 255));
     }
-  };
+  }, []);
 
   const applyLostEdgeMaskInRegion = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -2126,13 +1924,17 @@ export const useBrushEngineSimplified = () => {
       ctx.imageSmoothingEnabled = prev;
     }
   }, [
+    applyLostEdgeToStrokeAlpha,
+    computePressureScaledResolution,
     getStrokeDitherPixelSize,
+    tools.brushSettings.color,
     tools.brushSettings.pressureLinkedFillResolution,
     tools.brushSettings.fillResolution,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
     tools.brushSettings.lostEdge,
     tools.brushSettings.ditherBackgroundFill,
+    transparentInk,
     strokeDitherPalette,
     ensureHoleMask
   ]);
@@ -2282,7 +2084,15 @@ export const useBrushEngineSimplified = () => {
       }, strokeBounds);
     }
     applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawSource);
-  }, [applyCoverageMaskToDither, applyStrokeDither, applyStrokeRisographOverlay, isPixelDitherNoBg, shouldApplyStrokeDither, tools.brushSettings.lostEdge, withAlphaLock]);
+  }, [
+    applyStrokeDither,
+    applyStrokeRisographOverlay,
+    isPixelDitherNoBg,
+    shouldApplyStrokeDither,
+    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.pressureLinkedFillResolution,
+    withAlphaLock
+  ]);
 
   const scheduleLiveStrokeRender = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     if (liveRenderScheduledRef.current) {
@@ -2296,6 +2106,23 @@ export const useBrushEngineSimplified = () => {
       setTimeout(cb, 16);
     }
   }, [renderLiveStrokePreview]);
+
+  const resetPressureDitherState = useCallback(() => {
+    strokePressureRef.current = {
+      min: 1,
+      max: 0,
+      lastNonZero: 0,
+      last: 0,
+      stable: 0,
+      isTail: false,
+      lastTime: 0,
+      sampleCount: 0
+    };
+    lastPressureDitherTimeRef.current = 0;
+    lastPressureDitherPixelSizeRef.current = null;
+    strokePressureResStateRef.current = createPressureResolutionState(1);
+    clearLiveStrokeHoleMask();
+  }, [clearLiveStrokeHoleMask]);
 
   /**
    * Main drawing function - simplified interface
@@ -2494,15 +2321,13 @@ export const useBrushEngineSimplified = () => {
     ensureLiveStrokeBuffers,
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
-    computePressureScaledResolution,
     getStrokeDitherPixelSize,
     tools.brushSettings.pressureLinkedFillResolution,
     tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
-    tools.brushSettings.size,
     applyLostEdgeMaskInRegion,
-    normalizeRectForCanvas
+    resetPressureDitherState
   ]);
 
   /**
@@ -2644,42 +2469,19 @@ export const useBrushEngineSimplified = () => {
     ensureLiveStrokeBuffers,
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
-    computePressureScaledResolution,
     getStrokeDitherPixelSize,
     tools.brushSettings.pressureLinkedFillResolution,
     tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
-    tools.brushSettings.size,
     applyLostEdgeMaskInRegion,
-    normalizeRectForCanvas
+    resetPressureDitherState
   ]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
    */
   const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D): Rect | null => {
-    const state = useAppStore.getState();
-    const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
-    const activeLayerIdSafe = activeLayer?.id ?? null;
-    const layerFramebuffer = activeLayer?.framebuffer ?? null;
-    let layerCtxForCoverage: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
-
-    if (layerFramebuffer) {
-      layerCtxForCoverage = pick2D(layerFramebuffer);
-    } else if (activeLayer?.imageData) {
-      const tempCanvas = createCoverageCanvas(activeLayer.imageData.width, activeLayer.imageData.height);
-      const tempCtx = pick2D(tempCanvas as HTMLCanvasElement | OffscreenCanvas | null);
-      if (tempCanvas && tempCtx) {
-        try {
-          tempCtx.putImageData(activeLayer.imageData, 0, 0);
-          layerCtxForCoverage = tempCtx;
-        } catch {
-          // best-effort; if this fails we skip coverage masking
-        }
-      }
-    }
-
     const strokeBounds = strokeBoundsRef.current ?? liveStrokeBoundsRef.current ?? null;
     const rawCanvas = liveStrokeRawRef.current;
     const ditherCanvas = liveStrokeDitherRef.current;
@@ -2825,14 +2627,15 @@ export const useBrushEngineSimplified = () => {
     strokeBoundsRef.current = null;
     return strokeBounds ? { ...strokeBounds } : null;
   }, [
-    applyCoverageMaskToDither,
     applyStrokeDither,
     applyStrokeRisographOverlay,
     brushEngine,
     clearLiveStrokeBuffers,
     clearCoverageMaps,
     applyLostEdgeMaskInRegion,
+    ditherRegionWithCurrentPressure,
     isPixelDitherNoBg,
+    shouldApplyStrokeDither,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.lostEdge,
     tools.brushSettings.pressureLinkedFillResolution,
@@ -2861,24 +2664,7 @@ export const useBrushEngineSimplified = () => {
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
     strokePressureResStateRef.current = createPressureResolutionState(1);
-  }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers]);
-
-  const resetPressureDitherState = useCallback(() => {
-    strokePressureRef.current = {
-      min: 1,
-      max: 0,
-      lastNonZero: 0,
-      last: 0,
-      stable: 0,
-      isTail: false,
-      lastTime: 0,
-      sampleCount: 0
-    };
-    lastPressureDitherTimeRef.current = 0;
-    lastPressureDitherPixelSizeRef.current = null;
-    strokePressureResStateRef.current = createPressureResolutionState(1);
-    clearLiveStrokeHoleMask();
-  }, []);
+  }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers, clearLiveStrokeHoleMask]);
 
   /**
    * Apply dithering effect

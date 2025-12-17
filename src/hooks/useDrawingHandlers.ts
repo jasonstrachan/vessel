@@ -42,8 +42,6 @@ import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 import { canvasPool } from '@/utils/canvasPool';
 import {
-  buildFgBgPalette,
-  computeGradientAxisFromPolygon,
   scaleOrderedAxis,
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
@@ -169,26 +167,6 @@ type ShapeBeforeSnapshot =
   | { kind: 'full'; image: ImageData }
   | { kind: 'region'; image: ImageData; roi: CaptureRegion };
 type RecomposeRegion = { x: number; y: number; width: number; height: number };
-
-const normalizeRectForCanvas = (
-  rect: { x: number; y: number; width: number; height: number } | undefined,
-  canvasWidth: number,
-  canvasHeight: number
-): { x: number; y: number; width: number; height: number } => {
-  if (!rect) {
-    return { x: 0, y: 0, width: canvasWidth, height: canvasHeight };
-  }
-  const minX = Math.max(0, Math.floor(rect.x));
-  const minY = Math.max(0, Math.floor(rect.y));
-  const maxX = Math.min(canvasWidth, Math.ceil(rect.x + rect.width));
-  const maxY = Math.min(canvasHeight, Math.ceil(rect.y + rect.height));
-  const width = Math.max(0, maxX - minX);
-  const height = Math.max(0, maxY - minY);
-  if (width <= 0 || height <= 0) {
-    return { x: 0, y: 0, width: canvasWidth, height: canvasHeight };
-  }
-  return { x: minX, y: minY, width, height };
-};
 
 type CommitRasterOverlayOptions = {
   layer: Layer;
@@ -4599,7 +4577,7 @@ export function useDrawingHandlers({
   const shapePressureGainRef = useRef(1);
   const shapePixelResStateRef = useRef(createPressureResolutionState(1));
 
-  const computeShapePixelSize = (pressure: number): number => {
+  const computeShapePixelSize = useCallback((pressure: number): number => {
     const settings = storeRef.current.tools.brushSettings;
     const base = Math.max(1, Math.round(settings.fillResolution || 1));
 
@@ -4616,20 +4594,20 @@ export function useDrawingHandlers({
       undefined,
       PRESSURE_RESOLUTION_MAX_PX
     );
-  };
+  }, [storeRef]);
 
-  const shapePressureDebugEnabled = () => {
+  const shapePressureDebugEnabled = useCallback(() => {
     if (typeof window === 'undefined') return false;
     return Boolean((window as { __shapePressureDebug?: unknown }).__shapePressureDebug);
-  };
+  }, []);
 
-  const SP = (payload: Record<string, unknown>) => {
+  const SP = useCallback((payload: Record<string, unknown>) => {
     if (shapePressureDebugEnabled() && typeof console !== 'undefined') {
       console.log('[shape-pressure]', payload);
     }
-  };
+  }, [shapePressureDebugEnabled]);
 
-  const updateShapePressure = (p?: number, timestamp?: number, raw?: number) => {
+  const updateShapePressure = useCallback((p?: number, timestamp?: number, raw?: number) => {
     const rawVal = typeof raw === 'number' ? raw : p;
     const val = typeof rawVal === 'number' ? Math.max(0, Math.min(1, rawVal)) : 0;
 
@@ -4677,7 +4655,7 @@ export function useDrawingHandlers({
       maxSeen: shapeMaxPressureRef.current,
       px: latestShapePixelSizeRef.current,
     });
-  };
+  }, [computeShapePixelSize, SP]);
 
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {
     const isNewShape = !isDrawingShapeRef.current || shapePointsRef.current.length === 0;
@@ -4809,11 +4787,15 @@ export function useDrawingHandlers({
     startDrawing,
     updateAutoSampledGradient,
     updateDitherGradSamples,
+    updateShapePressure,
     storeRef,
     resetShapePressureState,
     seedManualStrokeBoundingBox,
     triggerSimpleShapePreview,
-    clearShapeBeforeSnapshot
+    clearShapeBeforeSnapshot,
+    sampleColorAt,
+    sampleHexAt,
+    brushEngine.engine
   ]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {
@@ -4942,6 +4924,7 @@ export function useDrawingHandlers({
     updateAutoSampledGradient,
     updateDitherGradSamples,
     initDrawingCanvas,
+    updateShapePressure,
     storeRef,
     seedManualStrokeBoundingBox,
     triggerSimpleShapePreview,
@@ -6242,10 +6225,12 @@ export function useDrawingHandlers({
     scheduleDeferredColorCycleSave,
     runIdle,
     computeAutoSampleStops,
+    computeShapePixelSize,
     storeRef,
     toolsRef,
     triggerSimpleShapePreview,
-    clearShapeBeforeSnapshot
+    clearShapeBeforeSnapshot,
+    resetShapePressureState
   ]);
   
   // Start continuous color cycle animation (for when play button is pressed)

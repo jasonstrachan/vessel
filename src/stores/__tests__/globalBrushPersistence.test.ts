@@ -100,6 +100,44 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('persists dither gradient sampling settings per brush', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'dither-gradient-brush': {
+          ditherGradSampleEnabled: true,
+          ditherGradStops: ['#111111', '#222222', '#333333'],
+          trans: 1,
+        },
+      },
+    });
+
+    const { ditherGradientBrushPreset } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    expect(store.brushSpecificSettings['dither-gradient-brush']?.ditherGradSampleEnabled).toBe(true);
+
+    store.setBrushPreset(ditherGradientBrushPreset);
+    const active = useAppStore.getState().tools.brushSettings;
+    expect(active.ditherGradSampleEnabled).toBe(true);
+    expect(active.ditherGradStops).toEqual(['#111111', '#222222', '#333333']);
+    expect(active.trans).toBe(1);
+
+    store.setBrushSettings({
+      ditherGradSampleEnabled: false,
+      ditherGradStops: ['#aaaaaa', '#bbbbbb'],
+      trans: 0,
+    });
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['dither-gradient-brush']).toEqual(
+      expect.objectContaining({
+        ditherGradSampleEnabled: false,
+        ditherGradStops: ['#aaaaaa', '#bbbbbb'],
+        trans: 0,
+      })
+    );
+  });
+
   it('persists last used brush id', async () => {
     loadMock.mockReturnValue(null);
 

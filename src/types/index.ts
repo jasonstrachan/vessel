@@ -688,7 +688,7 @@ export interface CanvasSnapshot {
   // Expanded to include structural layer operations captured in history
   actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'paste' | 'delete' | 'color-adjust'
             | 'layer' | 'layers' | 'structure'
-            | 'layer-add' | 'layer-remove' | 'layer-reorder' | 'layer-duplicate';
+            | 'layer-add' | 'layer-remove' | 'layer-reorder' | 'layer-duplicate' | 'layer-merge';
   description: string;
   colorCycleState?: ColorCycleSnapshot; // Optional color cycle state
   projectSize?: {

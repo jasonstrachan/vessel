@@ -2,6 +2,14 @@
 import React from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { useDrawingHandlers } from '../useDrawingHandlers';
+import type { BrushSettings } from '@/types';
+import { BrushShape } from '@/types';
+
+type TestBrushSettings = Partial<BrushSettings> & {
+  brushShape: string;
+  size: number;
+  pressureEnabled: boolean;
+};
 
 // Minimal store mock
 const storeState = {
@@ -15,7 +23,7 @@ const storeState = {
       brushShape: 'round',
       size: 8,
       pressureEnabled: true,
-    },
+    } as TestBrushSettings,
     fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
     eraserSettings: { size: 8 },
     customBrushCapture: { sampleAllLayers: false, mode: 'idle', freehandPath: null },
@@ -40,6 +48,13 @@ const storeState = {
   setStrokeInProgress: jest.fn(),
   setStrokeBounds: jest.fn(),
   setColorCycleRuntimeHandlers: jest.fn(),
+};
+
+const baseBrushSettings = { ...storeState.tools.brushSettings };
+const baseToolsState = { ...storeState.tools, brushSettings: baseBrushSettings };
+const resetStoreState = () => {
+  storeState.tools = { ...baseToolsState, brushSettings: { ...baseBrushSettings } };
+  storeState.setBrushSettings.mockClear();
 };
 
 jest.mock('@/stores/useAppStore', () => {
@@ -100,6 +115,23 @@ const makeCanvas = () => {
 };
 
 describe('useDrawingHandlers stroke harness', () => {
+  let now = 1000;
+  let nowSpy: jest.SpyInstance | null = null;
+
+  beforeEach(() => {
+    resetStoreState();
+    now = 1000;
+    nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => {
+      now += 200;
+      return now;
+    });
+  });
+
+  afterEach(() => {
+    nowSpy?.mockRestore();
+    nowSpy = null;
+  });
+
   it('runs begin/continue/finalize stroke without crashing', async () => {
     const canvasRef = { current: makeCanvas() } as React.RefObject<HTMLCanvasElement>;
     const { result } = renderHook(() => useDrawingHandlers({
@@ -140,5 +172,177 @@ describe('useDrawingHandlers stroke harness', () => {
     });
 
     expect(result.current.clearStrokeSession).toBeDefined();
+  });
+
+  it('samples dither gradient stops on shape start when enabled', () => {
+    storeState.tools = {
+      ...storeState.tools,
+      shapeMode: true,
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        brushShape: BrushShape.DITHER_GRADIENT,
+        ditherGradSampleEnabled: true,
+        ditherGradStops: ['#000000', '#ffffff'],
+        trans: 0,
+      },
+    };
+
+    const canvasRef = { current: makeCanvas() } as React.RefObject<HTMLCanvasElement>;
+    const sampleColorAt = jest.fn(() => '#123456');
+    const { result } = renderHook(() => useDrawingHandlers({
+      project: storeState.project,
+      screenToWorld: (x, y) => ({ x, y }),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      canvasRef,
+      sampleColorAt,
+    }));
+
+    act(() => {
+      result.current.startShapeDrawing({ x: 0, y: 0 }, 0.5);
+    });
+
+    expect(storeState.setBrushSettings).toHaveBeenCalledWith({
+      ditherGradStops: ['#123456', '#123456'],
+    });
+  });
+
+  it('samples dither gradient stops across polyline points', () => {
+    storeState.tools = {
+      ...storeState.tools,
+      shapeMode: true,
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        brushShape: BrushShape.DITHER_GRADIENT,
+        ditherGradSampleEnabled: true,
+        ditherGradStops: ['#000000', '#111111', '#222222', '#333333'],
+        trans: 0,
+      },
+    };
+
+    const canvasRef = { current: makeCanvas() } as React.RefObject<HTMLCanvasElement>;
+    const sampleColorAt = jest.fn((x: number, _y: number) => {
+      void _y;
+      if (x < 5) return '#000000';
+      if (x < 15) return '#444444';
+      if (x < 25) return '#888888';
+      return '#cccccc';
+    });
+    const { result } = renderHook(() => useDrawingHandlers({
+      project: storeState.project,
+      screenToWorld: (x, y) => ({ x, y }),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      canvasRef,
+      sampleColorAt,
+    }));
+
+    act(() => {
+      result.current.updateDitherGradSamples([
+        { x: 0, y: 0 },
+        { x: 30, y: 0 },
+      ]);
+    });
+
+    expect(storeState.setBrushSettings).toHaveBeenCalledWith({
+      ditherGradStops: ['#000000', '#444444', '#888888', '#cccccc'],
+    });
+  });
+
+  it('skips dither gradient sampling when disabled', () => {
+    storeState.tools = {
+      ...storeState.tools,
+      shapeMode: true,
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        brushShape: BrushShape.DITHER_GRADIENT,
+        ditherGradSampleEnabled: false,
+        ditherGradStops: ['#000000', '#ffffff'],
+      },
+    };
+
+    const canvasRef = { current: makeCanvas() } as React.RefObject<HTMLCanvasElement>;
+    const { result } = renderHook(() => useDrawingHandlers({
+      project: storeState.project,
+      screenToWorld: (x, y) => ({ x, y }),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      canvasRef,
+    }));
+
+    act(() => {
+      result.current.updateDitherGradSamples([
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ]);
+    });
+
+    expect(storeState.setBrushSettings).not.toHaveBeenCalled();
+  });
+
+  it('clamps transparent count when sampling shrinks stop count', () => {
+    storeState.tools = {
+      ...storeState.tools,
+      shapeMode: true,
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        brushShape: BrushShape.DITHER_GRADIENT,
+        ditherGradSampleEnabled: true,
+        ditherGradStops: ['#000000', '#ffffff'],
+        trans: 5,
+      },
+    };
+
+    const canvasRef = { current: makeCanvas() } as React.RefObject<HTMLCanvasElement>;
+    const sampleColorAt = jest.fn(() => '#abcdef');
+    const { result } = renderHook(() => useDrawingHandlers({
+      project: storeState.project,
+      screenToWorld: (x, y) => ({ x, y }),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      canvasRef,
+      sampleColorAt,
+    }));
+
+    act(() => {
+      result.current.updateDitherGradSamples([
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ]);
+    });
+
+    expect(storeState.setBrushSettings).toHaveBeenCalledWith({
+      ditherGradStops: ['#abcdef', '#abcdef'],
+      trans: 1,
+    });
+  });
+
+  it('avoids redundant dither gradient updates when stops are unchanged', () => {
+    storeState.tools = {
+      ...storeState.tools,
+      shapeMode: true,
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        brushShape: BrushShape.DITHER_GRADIENT,
+        ditherGradSampleEnabled: true,
+        ditherGradStops: ['#123456', '#123456'],
+        trans: 0,
+      },
+    };
+
+    const canvasRef = { current: makeCanvas() } as React.RefObject<HTMLCanvasElement>;
+    const sampleColorAt = jest.fn(() => '#123456');
+    const { result } = renderHook(() => useDrawingHandlers({
+      project: storeState.project,
+      screenToWorld: (x, y) => ({ x, y }),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      canvasRef,
+      sampleColorAt,
+    }));
+
+    act(() => {
+      result.current.updateDitherGradSamples([
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ]);
+    });
+
+    expect(storeState.setBrushSettings).not.toHaveBeenCalled();
   });
 });

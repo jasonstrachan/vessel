@@ -78,6 +78,25 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.brushSettings.ditherBackgroundFill).toBe(false);
   });
 
+  it('persists dither gradient sample settings per brush', () => {
+    const store = useAppStore.getState();
+    const preset = brushPresets.find((candidate) => candidate.id === 'dither-gradient-brush');
+    expect(preset).toBeTruthy();
+    store.setBrushPreset(preset!, true);
+
+    store.setBrushSettings({
+      ditherGradSampleEnabled: true,
+      ditherGradStops: ['#111111', '#222222'],
+      trans: 1,
+    });
+
+    const state = useAppStore.getState();
+    expect(state.tools.brushSettings.ditherGradSampleEnabled).toBe(true);
+    const saved = state.brushSpecificSettings[preset!.id];
+    expect(saved?.ditherGradSampleEnabled).toBe(true);
+    expect(saved?.ditherGradStops).toEqual(['#111111', '#222222']);
+  });
+
   it('keeps eraser size in sync when linking to brush size', () => {
     const store = useAppStore.getState();
     store.setGlobalBrushSize(18);

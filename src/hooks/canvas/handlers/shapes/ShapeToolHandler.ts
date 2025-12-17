@@ -18,8 +18,6 @@ import { snapPointToPixel } from '@/utils/pixelSharp';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 import { canvasPool } from '@/utils/canvasPool';
 import {
-  buildFgBgPalette,
-  computeGradientAxisFromPolygon,
   scaleOrderedAxis,
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
@@ -1538,34 +1536,6 @@ export const createShapeToolHandler = (
       return colors.foreground;
     }
     return colors.background;
-  };
-
-  const computeAxisStartFarthest = (verts: Array<{ x: number; y: number }>): {
-    start: { x: number; y: number };
-    end: { x: number; y: number };
-    dir: { x: number; y: number };
-    length: number;
-  } => {
-    const start = verts[0] ?? { x: 0, y: 0 };
-    let end = start;
-    let bestD2 = -1;
-    for (let i = 1; i < verts.length; i += 1) {
-      const dx = verts[i].x - start.x;
-      const dy = verts[i].y - start.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > bestD2) {
-        bestD2 = d2;
-        end = verts[i];
-      }
-    }
-    const length = Math.max(1e-6, Math.sqrt(bestD2 < 0 ? 0 : bestD2));
-    const inv = 1 / length;
-    return {
-      start,
-      end,
-      dir: { x: (end.x - start.x) * inv, y: (end.y - start.y) * inv },
-      length,
-    };
   };
 
   const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
@@ -3526,7 +3496,7 @@ export const createShapeToolHandler = (
     },
     handlePointerMove(event) {
       // Don't interfere with custom brush area selection
-      if (interaction.state.isSelecting) {
+      if (interaction?.state?.isSelecting) {
         return false;
       }
       if (handleFlowPointerMove(event)) {

@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { create } from 'zustand';
 
+import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
 
@@ -276,8 +277,7 @@ describe('BrushControls per-algorithm tone curve selection', () => {
     const dropdown = screen.getByRole('combobox');
     await user.selectOptions(dropdown, 'bayer');
 
-    const store = (require('@/stores/useAppStore') as { useAppStore: typeof import('@/stores/useAppStore').useAppStore }).useAppStore as unknown as { getState: () => AppState };
-    expect(store.getState().setBrushSettings).toHaveBeenCalledWith({ ditherAlgorithm: 'bayer' });
+    expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith({ ditherAlgorithm: 'bayer' });
   });
 });
 // @ts-nocheck

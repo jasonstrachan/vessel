@@ -62,7 +62,6 @@ export const DitherControls: React.FC<Props> = ({
 }) => {
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
-  const backgroundFillEnabled = settings.ditherBackgroundFill !== false;
   const showLostEdge = !hideLostEdge || settings.brushShape === BrushShape.PIXEL_DITHER;
 
   return (

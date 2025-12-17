@@ -391,4 +391,145 @@ describe('orderedDitherGradient', () => {
     expect(pixel(base.data, 1, 0)).toEqual([0, 0, 0, 255]);
     expect(pixel(shifted.data, 1, 0)).toEqual([64, 0, 0, 255]);
   });
+
+  it('renders with error diffusion algorithms via renderDitherGradientToImageData', () => {
+    const axis = computeGradientAxisFromPolygon([
+      { x: 0, y: 0 },
+      { x: 16, y: 0 },
+    ]);
+    const paletteRGBA: Array<[number, number, number, number]> = [
+      [0, 0, 0, 255],
+      [255, 255, 255, 255],
+    ];
+
+    const image = renderDitherGradientToImageData({
+      width: 16,
+      height: 8,
+      axis,
+      paletteRGBA,
+      pixelSize: 1,
+      algorithm: 'sierra-lite',
+    });
+
+    const colors = new Set<string>();
+    for (let i = 0; i < image.data.length; i += 4) {
+      colors.add(`${image.data[i]}-${image.data[i + 1]}-${image.data[i + 2]}-${image.data[i + 3]}`);
+    }
+
+    expect(colors.size).toBeGreaterThan(1);
+    const paletteSet = new Set(paletteRGBA.map((c) => `${c[0]}-${c[1]}-${c[2]}-${c[3]}`));
+    for (const color of colors) {
+      expect(paletteSet.has(color)).toBe(true);
+    }
+  });
+
+  it('renders with blue-noise dithering', () => {
+    const axis = computeGradientAxisFromPolygon([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+    ]);
+    const paletteRGBA: Array<[number, number, number, number]> = [
+      [10, 10, 10, 255],
+      [240, 240, 240, 255],
+    ];
+
+    const image = renderDitherGradientToImageData({
+      width: 10,
+      height: 6,
+      axis,
+      paletteRGBA,
+      pixelSize: 1,
+      algorithm: 'blue-noise',
+    });
+
+    const colors = new Set<string>();
+    for (let i = 0; i < image.data.length; i += 4) {
+      colors.add(`${image.data[i]}-${image.data[i + 1]}-${image.data[i + 2]}-${image.data[i + 3]}`);
+    }
+
+    expect(colors.size).toBeGreaterThan(1);
+  });
+
+  it('supports pattern dithering styles in renderDitherGradientToImageData', () => {
+    const axis = computeGradientAxisFromPolygon([
+      { x: 0, y: 0 },
+      { x: 12, y: 0 },
+    ]);
+    const paletteRGBA: Array<[number, number, number, number]> = [
+      [20, 20, 20, 255],
+      [200, 200, 200, 255],
+    ];
+
+    const image = renderDitherGradientToImageData({
+      width: 12,
+      height: 6,
+      axis,
+      paletteRGBA,
+      pixelSize: 1,
+      algorithm: 'pattern',
+      patternStyle: 'lines',
+    });
+
+    const colors = new Set<string>();
+    for (let i = 0; i < image.data.length; i += 4) {
+      colors.add(`${image.data[i]}-${image.data[i + 1]}-${image.data[i + 2]}-${image.data[i + 3]}`);
+    }
+
+    expect(colors.size).toBeGreaterThan(1);
+  });
+
+  it('routes bayer algorithm through ordered dither renderer', () => {
+    const axis = computeGradientAxisFromPolygon([
+      { x: 0, y: 0 },
+      { x: 8, y: 0 },
+    ]);
+    const paletteRGBA = buildFgBgPalette([0, 0, 0, 255], [255, 255, 255, 255]);
+    const tile = getBayerTile(4);
+
+    const ordered = renderOrderedDitherGradientToImageData({
+      width: 8,
+      height: 4,
+      axis,
+      paletteRGBA,
+      tile,
+      tileSize: 4,
+      pixelSize: 1,
+    });
+
+    const dithered = renderDitherGradientToImageData({
+      width: 8,
+      height: 4,
+      axis,
+      paletteRGBA,
+      tile,
+      tileSize: 4,
+      pixelSize: 1,
+      algorithm: 'bayer',
+    });
+
+    expect(Array.from(dithered.data)).toEqual(Array.from(ordered.data));
+  });
+
+  it('preserves transparent palette entries for non-bayer algorithms', () => {
+    const axis = computeGradientAxisFromPolygon([
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+    ]);
+    const paletteRGBA: Array<[number, number, number, number]> = [
+      [255, 0, 0, 255],
+      [0, 0, 0, 0],
+    ];
+
+    const image = renderDitherGradientToImageData({
+      width: 4,
+      height: 1,
+      axis,
+      paletteRGBA,
+      pixelSize: 1,
+      algorithm: 'sierra-lite',
+    });
+
+    const hasTransparent = image.data.some((_, idx) => (idx + 1) % 4 === 0 && image.data[idx] === 0);
+    expect(hasTransparent).toBe(true);
+  });
 });

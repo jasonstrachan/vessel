@@ -466,7 +466,6 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
     const data = imageData.data;
     const cx = maskSize / 2;
     const cy = maskSize / 2;
-    const maxDistance = radius + featherAmount;
     const noiseAmount = Math.min(1, Math.max(0, noise));
 
     for (let y = 0; y < maskSize; y += 1) {
