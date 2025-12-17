@@ -260,6 +260,10 @@ const BrushControls = () => {
 
   // Shared dither gradient palette helpers (kept outside branches to preserve hook order)
   const clampStopCount = React.useCallback((count: number) => Math.min(6, Math.max(2, Math.round(count))), []);
+  const normalizeHex = React.useCallback((hex: string): string => {
+    const match = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+    return match ? `#${match[1].toUpperCase()}` : hex.trim().toUpperCase();
+  }, []);
   const toRgb = React.useCallback((hex: string): [number, number, number] => {
     const match = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
     if (!match) {
@@ -289,6 +293,14 @@ const BrushControls = () => {
     },
     [lerp, toHex, toRgb]
   );
+  const areStopsEqual = React.useCallback(
+    (a?: string[], b?: string[]) => {
+      if (!a || !b) return false;
+      if (a.length !== b.length) return false;
+      return a.every((stop, idx) => normalizeHex(stop) === normalizeHex(b[idx] ?? ''));
+    },
+    [normalizeHex]
+  );
 
   const fgColor = React.useMemo(
     () => palette?.foregroundColor ?? activeSettings.color ?? '#000000',
@@ -299,6 +311,14 @@ const BrushControls = () => {
     [palette?.backgroundColor]
   );
 
+  const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
+  const isRegularBrush =
+    currentTool === 'brush' &&
+    !isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) &&
+    activeSettings.brushShape !== BrushShape.RESAMPLER;
+  const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
+  const isDitherGradient = brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
+
   const currentStops = React.useMemo(() => {
     const stored = activeSettings.ditherGradStops;
     if (Array.isArray(stored) && stored.length >= 2) {
@@ -306,6 +326,63 @@ const BrushControls = () => {
     }
     return [fgColor, bgColor];
   }, [activeSettings.ditherGradStops, fgColor, bgColor]);
+
+  const ditherGradAutoRef = React.useRef<boolean | null>(null);
+  const ditherGradAutoStopsRef = React.useRef<string[] | null>(null);
+
+  const buildAutoStops = React.useCallback(
+    (count: number): string[] => {
+      const clamped = clampStopCount(count);
+      if (clamped <= 2) {
+        return [fgColor, bgColor];
+      }
+      const result: string[] = [];
+      for (let i = 0; i < clamped; i += 1) {
+        const t = clamped === 1 ? 0 : i / (clamped - 1);
+        result.push(lerpHex(fgColor, bgColor, t));
+      }
+      return result;
+    },
+    [bgColor, clampStopCount, fgColor, lerpHex]
+  );
+
+  React.useEffect(() => {
+    if (brushSettings.brushShape !== BrushShape.DITHER_GRADIENT) return;
+    if (ditherGradAutoRef.current !== null) return;
+    const stored = activeSettings.ditherGradStops;
+    if (!stored || stored.length < 2) {
+      ditherGradAutoRef.current = true;
+      return;
+    }
+    const autoStops = buildAutoStops(stored.length);
+    ditherGradAutoRef.current = areStopsEqual(stored, autoStops);
+    if (ditherGradAutoRef.current) {
+      ditherGradAutoStopsRef.current = autoStops;
+    }
+  }, [
+    activeSettings.ditherGradStops,
+    areStopsEqual,
+    brushSettings.brushShape,
+    buildAutoStops
+  ]);
+
+  React.useEffect(() => {
+    if (brushSettings.brushShape !== BrushShape.DITHER_GRADIENT) return;
+    if (!ditherGradAutoRef.current) return;
+    const targetCount = clampStopCount(activeSettings.ditherGradStops?.length ?? 2);
+    const nextStops = buildAutoStops(targetCount);
+    if (!areStopsEqual(activeSettings.ditherGradStops ?? [], nextStops)) {
+      ditherGradAutoStopsRef.current = nextStops;
+      setActiveSettings({ ditherGradStops: nextStops });
+    }
+  }, [
+    activeSettings.ditherGradStops,
+    areStopsEqual,
+    brushSettings.brushShape,
+    buildAutoStops,
+    clampStopCount,
+    setActiveSettings
+  ]);
 
   const resizeStops = React.useCallback(
     (count: number): string[] => {
@@ -329,10 +406,28 @@ const BrushControls = () => {
 
   const handleStopCountChange = React.useCallback(
     (value: number) => {
-      const resized = resizeStops(value);
+      const useAuto = ditherGradAutoRef.current !== false;
+      const resized = useAuto ? buildAutoStops(value) : resizeStops(value);
+      const nextMaxTransparent = Math.max(0, Math.min(6, resized.length - 1));
+      const currentTrans = activeSettings.trans;
+      if (typeof currentTrans === 'number' && Number.isFinite(currentTrans)) {
+        const nextTrans = Math.max(0, Math.min(nextMaxTransparent, Math.round(currentTrans)));
+        if (nextTrans !== currentTrans) {
+          setActiveSettings({ ditherGradStops: resized, trans: nextTrans });
+          if (useAuto) {
+            ditherGradAutoRef.current = true;
+            ditherGradAutoStopsRef.current = resized;
+          }
+          return;
+        }
+      }
       setActiveSettings({ ditherGradStops: resized });
+      if (useAuto) {
+        ditherGradAutoRef.current = true;
+        ditherGradAutoStopsRef.current = resized;
+      }
     },
-    [resizeStops, setActiveSettings]
+    [activeSettings.trans, buildAutoStops, resizeStops, setActiveSettings]
   );
 
   const handleStopColorChange = React.useCallback(
@@ -341,18 +436,11 @@ const BrushControls = () => {
         ? nextHex.trim()
         : currentStops[index] ?? fgColor;
       const updated = currentStops.map((c, i) => (i === index ? clampedHex : c));
+      ditherGradAutoRef.current = false;
       setActiveSettings({ ditherGradStops: updated });
     },
     [currentStops, fgColor, setActiveSettings]
   );
-
-  const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
-  const isRegularBrush =
-    currentTool === 'brush' &&
-    !isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) &&
-    activeSettings.brushShape !== BrushShape.RESAMPLER;
-  const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
-  const isDitherGradient = brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
 
   const [pressureDraft, setPressureDraft] = React.useState(() => ({
     min: (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString(),
@@ -1873,6 +1961,8 @@ const BrushControls = () => {
   }
 
   if (isDitherGradient) {
+    const maxTransparent = Math.max(0, Math.min(6, currentStops.length - 1));
+    const transValue = Math.min(activeSettings.trans ?? 0, maxTransparent);
     return (
       <div className="p-4">
         {/* Opacity */}
@@ -1888,6 +1978,28 @@ const BrushControls = () => {
               step={0.01}
               onChange={(value) => setActiveSettings({ opacity: value })}
               aria-label="Opacity"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Trans */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Trans
+            </label>
+            <ProgressSlider
+              value={transValue}
+              min={0}
+              max={6}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  trans: Math.max(0, Math.min(maxTransparent, Math.round(value))),
+                })
+              }
+              aria-label="Transparent Colors"
               className="flex-1"
             />
           </div>

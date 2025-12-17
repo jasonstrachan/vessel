@@ -1395,9 +1395,10 @@ export const useBrushEngineSimplified = () => {
   }, [getActiveLayerColorCycleBrush]);
   
   // Performance: Cache expensive computations
-  const isPixelBrush = useMemo(() => 
+  const isPixelBrush = useMemo(() =>
     tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
-    (tools.brushSettings.brushShape === BrushShape.SQUARE && 
+    tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER ||
+    (tools.brushSettings.brushShape === BrushShape.SQUARE &&
      !tools.brushSettings.antialiasing),
     [tools.brushSettings.brushShape, tools.brushSettings.antialiasing]
   );

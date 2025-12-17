@@ -212,7 +212,9 @@ export class BrushEngineFacade {
 
     // Determine if this is a pixel brush that should remain pixel-perfect
     // Override shape to CUSTOM if custom brush data is provided
-    const shape = customBrushData ? BrushShape.CUSTOM : (brushSettings.brushShape || BrushShape.ROUND);
+    const configuredShape = customBrushData ? BrushShape.CUSTOM : (brushSettings.brushShape || BrushShape.ROUND);
+    // PIXEL_DITHER should render like PIXEL_ROUND (dithering is applied downstream)
+    const shape = configuredShape === BrushShape.PIXEL_DITHER ? BrushShape.PIXEL_ROUND : configuredShape;
     const isPixelBrush = shape === BrushShape.PIXEL_ROUND;
     const isPixelSquare = shape === BrushShape.SQUARE && !brushSettings.antialiasing;
     

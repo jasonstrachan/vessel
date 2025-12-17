@@ -686,6 +686,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const brushSettings = tools.brushSettings;
     const isPixelBrush =
       brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+      brushSettings.brushShape === BrushShape.PIXEL_DITHER ||
       (brushSettings.brushShape === BrushShape.SQUARE && brushSettings.antialiasing === false);
     const activeLayer = layers.find((layer) => layer.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
@@ -897,7 +898,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     settings: { brushShape?: BrushShape; antialiasing?: boolean } | null | undefined
   ): boolean => {
     if (!settings) return false;
-    if (settings.brushShape === BrushShape.PIXEL_ROUND) return true;
+    if (settings.brushShape === BrushShape.PIXEL_ROUND || settings.brushShape === BrushShape.PIXEL_DITHER) {
+      return true;
+    }
     return settings.brushShape === BrushShape.SQUARE && settings.antialiasing === false;
   };
 

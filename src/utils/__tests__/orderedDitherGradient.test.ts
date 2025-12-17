@@ -2,6 +2,7 @@ import {
   buildFgBgPalette,
   computeGradientAxisFromPolygon,
   getBayerTile,
+  pixelateImageData,
   renderOrderedDitherGradientToImageData,
   resolveDitherGradPalette
 } from '../orderedDitherGradient';
@@ -152,6 +153,30 @@ describe('orderedDitherGradient', () => {
     expect(encountered.has('0-255-0')).toBe(true); // middle green stop appears
   });
 
+  it('applies transparent tail based on explicit transparent count', () => {
+    const paletteRGBA = resolveDitherGradPalette(
+      fg,
+      bg,
+      true,
+      ['#ff0000', '#00ff00', '#0000ff', '#ffffff'],
+      2
+    );
+    expect(paletteRGBA).toHaveLength(4);
+    expect(paletteRGBA[2]?.[3]).toBe(0);
+    expect(paletteRGBA[3]?.[3]).toBe(0);
+  });
+
+  it('does not force transparency when transparent count is zero', () => {
+    const paletteRGBA = resolveDitherGradPalette(
+      fg,
+      bg,
+      false,
+      ['#ff0000', '#00ff00'],
+      0
+    );
+    expect(paletteRGBA[1]?.[3]).toBe(255);
+  });
+
   it('keeps visible dithering even with large pixelSize', () => {
     const axis = computeGradientAxisFromPolygon([
       { x: 0, y: 0 },
@@ -210,5 +235,31 @@ describe('orderedDitherGradient', () => {
 
     // Same coverage, but origin shift should change Bayer lookup for x=0
     expect(pixelColor(base.data, 0)).not.toEqual(pixelColor(shifted.data, 0));
+  });
+
+  it('aligns pixelation grid to origin', () => {
+    const width = 4;
+    const height = 2;
+    const source = new ImageData(width, height);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = (y * width + x) * 4;
+        source.data[offset] = x * 64;
+        source.data[offset + 1] = y * 64;
+        source.data[offset + 2] = 0;
+        source.data[offset + 3] = 255;
+      }
+    }
+
+    const base = pixelateImageData(source, 2, { x: 0, y: 0 });
+    const shifted = pixelateImageData(source, 2, { x: 1, y: 0 });
+
+    const pixel = (data: Uint8ClampedArray, x: number, y: number) => {
+      const idx = (y * width + x) * 4;
+      return [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]];
+    };
+
+    expect(pixel(base.data, 1, 0)).toEqual([0, 0, 0, 255]);
+    expect(pixel(shifted.data, 1, 0)).toEqual([64, 0, 0, 255]);
   });
 });

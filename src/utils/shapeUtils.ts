@@ -107,7 +107,7 @@ export function renderShape(
   ctx.save();
 
   // Apply brush-specific rendering settings
-  const isPixelBrush = brushShape === BrushShape.PIXEL_ROUND;
+  const isPixelBrush = brushShape === BrushShape.PIXEL_ROUND || brushShape === BrushShape.PIXEL_DITHER;
   const shouldUsePixelPerfect = isPixelBrush || antiAliasing === false;
   
   if (shouldUsePixelPerfect) {

@@ -883,7 +883,7 @@ const shouldPixelAlignBrush = (settings: BrushSettings | null | undefined): bool
   if (!settings) {
     return false;
   }
-  if (settings.brushShape === BrushShape.PIXEL_ROUND) {
+  if (settings.brushShape === BrushShape.PIXEL_ROUND || settings.brushShape === BrushShape.PIXEL_DITHER) {
     return true;
   }
   return settings.brushShape === BrushShape.SQUARE && settings.antialiasing === false;
@@ -4962,7 +4962,8 @@ export function useDrawingHandlers({
         fg,
         bg,
         liveBrushSettings.ditherGradBgFill,
-        liveBrushSettings.ditherGradStops
+        liveBrushSettings.ditherGradStops,
+        liveBrushSettings.trans
       );
       const pixelSize = computePressureResolution(
         Math.max(1, Math.round(liveBrushSettings.fillResolution ?? 1)),
@@ -5258,6 +5259,7 @@ export function useDrawingHandlers({
           
           // Check if we're using a pixel brush - need crisp edges
           const isPixelBrush = liveBrushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+            liveBrushSettings.brushShape === BrushShape.PIXEL_DITHER ||
             (liveBrushSettings.brushShape === BrushShape.SQUARE && !liveBrushSettings.antialiasing);
           
           // Set ALL smoothing properties to ensure pixel-perfect shapes
@@ -5430,6 +5432,7 @@ export function useDrawingHandlers({
             drawCtx.fillStyle = liveBrushSettings.color;
           }
 
+          const isDitherGradientShape = liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT;
           // Check if we're on a color cycle layer - if so, skip regular shape drawing
           const currentState = storeRef.current;
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -5437,22 +5440,24 @@ export function useDrawingHandlers({
           
           if (!isColorCycleLayer) {
             // Only draw regular shapes if NOT on a color cycle layer
-            drawCtx.beginPath();
-          if (isPixelBrush) {
-            // For pixel brushes, snap all coordinates to integer pixels for crisp edges
-            drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
-            for (let i = 1; i < shapePointsRef.current.length; i++) {
-              drawCtx.lineTo(Math.round(shapePointsRef.current[i].x), Math.round(shapePointsRef.current[i].y));
+            if (!isDitherGradientShape) {
+              drawCtx.beginPath();
+              if (isPixelBrush) {
+                // For pixel brushes, snap all coordinates to integer pixels for crisp edges
+                drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
+                for (let i = 1; i < shapePointsRef.current.length; i++) {
+                  drawCtx.lineTo(Math.round(shapePointsRef.current[i].x), Math.round(shapePointsRef.current[i].y));
+                }
+              } else {
+                // Use original coordinates for smooth brushes
+                drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+                for (let i = 1; i < shapePointsRef.current.length; i++) {
+                  drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                }
+              }
+              drawCtx.closePath();
+              drawCtx.fill();
             }
-          } else {
-            // Use original coordinates for smooth brushes
-            drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
-            for (let i = 1; i < shapePointsRef.current.length; i++) {
-              drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
-            }
-          }
-          drawCtx.closePath();
-          drawCtx.fill();
 
           // Apply lost-edge erosion for polygon gradient shapes on raster layers
           if (

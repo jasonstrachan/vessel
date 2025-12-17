@@ -150,7 +150,8 @@ export const drawShape = (
   targetCtx.globalCompositeOperation = currentCompositeOp;
   
   // Determine if this is a pixel brush
-  const isPixelBrush = shape === BrushShape.PIXEL_ROUND || 
+  const isPixelBrush = shape === BrushShape.PIXEL_ROUND ||
+    shape === BrushShape.PIXEL_DITHER ||
     (shape === BrushShape.SQUARE && !antiAliasing);
   
   // Quantize rotation to nearest 15 degrees for pixel brushes to enable caching
@@ -627,6 +628,7 @@ export const drawShape = (
         drawingCtx.fill();
         break;
         
+      case BrushShape.PIXEL_DITHER:
       case BrushShape.PIXEL_ROUND: {
         // Special handling for pixel brushes - use stamps for ALL sizes
         // Match exact logic from monolithic implementation

@@ -24,7 +24,7 @@ import {
   renderOrderedDitherGradientToImageData,
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
-import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
+import { computePressureResolution, createPressureResolutionState, type PressureResolutionState } from '@/utils/pressureResolution';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -179,6 +179,33 @@ type ShapeFillBoundingBox = {
 
 const SHAPE_FILL_ROI_PADDING = 2;
 
+type DitherGradPreviewState = {
+  origin: { x: number; y: number } | null;
+  lastPx: number;
+  resState: PressureResolutionState;
+};
+
+const ditherGradPreviewStateByCanvas = new WeakMap<
+  React.RefObject<HTMLCanvasElement>,
+  DitherGradPreviewState
+>();
+
+const getDitherGradPreviewState = (
+  canvasRef: React.RefObject<HTMLCanvasElement>
+): DitherGradPreviewState => {
+  const existing = ditherGradPreviewStateByCanvas.get(canvasRef);
+  if (existing) {
+    return existing;
+  }
+  const created: DitherGradPreviewState = {
+    origin: null,
+    lastPx: -1,
+    resState: createPressureResolutionState(1),
+  };
+  ditherGradPreviewStateByCanvas.set(canvasRef, created);
+  return created;
+};
+
 const snapshotLayerImageData = (layer: Layer | null | undefined): ImageData | null => {
   if (!layer) return null;
   if (layer.imageData) {
@@ -302,14 +329,12 @@ export const createShapeToolHandler = (
 ): ShapeToolHandler => {
   const safeDelegate: ShapeToolHandlerDelegate = delegate ?? {};
 
-  // Dither gradient preview anchoring
-  let ditherGradOrigin: { x: number; y: number } | null = null;
-  let ditherGradLastPx = -1;
-  let ditherGradResState = createPressureResolutionState(1);
+  // Dither gradient preview anchoring (persist across handler recreation)
+  const ditherGradPreviewState = getDitherGradPreviewState(context.deps.canvasRef);
   const resetDitherGradOrigin = () => {
-    ditherGradOrigin = null;
-    ditherGradLastPx = -1;
-    ditherGradResState = createPressureResolutionState(1);
+    ditherGradPreviewState.origin = null;
+    ditherGradPreviewState.lastPx = -1;
+    ditherGradPreviewState.resState = createPressureResolutionState(1);
   };
 
   const {
@@ -2698,14 +2723,14 @@ export const createShapeToolHandler = (
                     Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 1)),
                     drawingHandlers.lastStablePressureRef?.current ?? 0,
                     Boolean(tools.brushSettings.pressureLinkedFillResolution && drawingHandlers.hadValidShapePressureRef?.current),
-                    ditherGradResState
+                    ditherGradPreviewState.resState
                   );
 
-                  if (!ditherGradOrigin) {
-                    ditherGradOrigin = { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
+                  if (!ditherGradPreviewState.origin) {
+                    ditherGradPreviewState.origin = { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
                   }
-                  ditherGradLastPx = pixelSize;
-                  const origin = ditherGradOrigin ?? { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
+                  ditherGradPreviewState.lastPx = pixelSize;
+                  const origin = ditherGradPreviewState.origin ?? { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
 
                   const localVertices = [...pts, previewPoint].map(pt => ({
                     x: pt.x - origin.x,
@@ -2772,7 +2797,8 @@ export const createShapeToolHandler = (
                     fg,
                     bg,
                     tools.brushSettings.ditherGradBgFill,
-                    tools.brushSettings.ditherGradStops
+                    tools.brushSettings.ditherGradStops,
+                    tools.brushSettings.trans
                   );
                   const tempCanvas = canvasPool.acquire(w, h);
                   const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);

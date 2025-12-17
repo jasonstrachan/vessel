@@ -59,6 +59,7 @@ export function generateBrushThumbnail(
     case BrushShape.SQUARE:
       generateSquareThumbnail(ctx, opts, isAntialiased, baseStrokeWidth);
       break;
+    case BrushShape.PIXEL_DITHER:
     case BrushShape.PIXEL_ROUND:
       generatePixelRoundThumbnail(ctx, opts, baseStrokeWidth);
       break;

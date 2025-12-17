@@ -572,7 +572,9 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
   ) => {
     const roundedX = Math.round(currentX);
     const roundedY = Math.round(currentY);
-    const usePixelSpacing = settings.pixelAlignment || settings.shape === BrushShape.PIXEL_ROUND;
+    const usePixelSpacing = settings.pixelAlignment ||
+      settings.shape === BrushShape.PIXEL_ROUND ||
+      settings.shape === BrushShape.PIXEL_DITHER;
     const spacingThreshold = usePixelSpacing
       ? Math.max(1, Math.round(settings.spacing || 1))
       : Math.max(settings.spacing, 0.0001);

@@ -77,7 +77,8 @@ export const resolveDitherGradPalette = (
   fg: RGBA,
   bg: RGBA,
   bgFill: boolean | undefined,
-  stopHex?: string[]
+  stopHex?: string[],
+  transparentCount?: number
 ): Array<RGBA> => {
   const fallbackStops = [fg, bg];
   const parsedStops = Array.isArray(stopHex)
@@ -88,42 +89,51 @@ export const resolveDitherGradPalette = (
     : [];
 
   const palette = parsedStops.length >= 2 ? parsedStops : fallbackStops;
+  const targetLength = Math.max(2, Math.min(6, palette.length));
+  const first = palette[0] ?? fg;
+  const last = palette[palette.length - 1] ?? bg;
 
-  if (palette.length === 2) {
-    // Preserve legacy behavior and avoid extra allocations for the common case
-    if (bgFill === false) {
-      return [palette[0], [0, 0, 0, 0]];
-    }
-    return palette;
-  }
-
-  // Ensure at least two colors and clamp to 6 entries
-  const clamped = palette.slice(0, Math.max(2, Math.min(6, palette.length)));
-  const first = clamped[0];
-  const last = clamped[clamped.length - 1];
-
-  // Guarantee transparent tail when background fill is off
-  if (bgFill === false) {
-    clamped[clamped.length - 1] = [0, 0, 0, 0];
-  }
-
-  // Normalize the array to evenly spaced stops (useful if user supplied >2 colors unevenly)
-  if (clamped.length <= 6) {
+  const normalizeStops = (source: RGBA[], length: number): RGBA[] => {
     const evenStops: RGBA[] = [];
-    for (let i = 0; i < clamped.length; i += 1) {
-      const t = clamped.length === 1 ? 0 : i / (clamped.length - 1);
-      const samplePos = (palette.length - 1) * t;
+    for (let i = 0; i < length; i += 1) {
+      const t = length === 1 ? 0 : i / (length - 1);
+      const samplePos = (source.length - 1) * t;
       const idx = Math.floor(samplePos);
-      const nextIdx = Math.min(palette.length - 1, idx + 1);
+      const nextIdx = Math.min(source.length - 1, idx + 1);
       const localT = samplePos - idx;
-      const base = palette[idx] ?? first;
-      const next = palette[nextIdx] ?? last;
+      const base = source[idx] ?? first;
+      const next = source[nextIdx] ?? last;
       evenStops.push(localT <= 0 ? base : lerpColor(base, next, localT));
+    }
+    return evenStops;
+  };
+
+  const evenStops = normalizeStops(palette, targetLength);
+  const hasTransparentCount = typeof transparentCount === 'number' && Number.isFinite(transparentCount);
+
+  if (hasTransparentCount) {
+    const safeCount = Math.max(0, Math.min(targetLength - 1, Math.round(transparentCount)));
+    if (safeCount > 0) {
+      for (let i = targetLength - safeCount; i < targetLength; i += 1) {
+        evenStops[i] = [0, 0, 0, 0];
+      }
     }
     return evenStops;
   }
 
-  return clamped;
+  if (targetLength === 2) {
+    // Preserve legacy behavior and avoid extra allocations for the common case
+    if (bgFill === false) {
+      return [evenStops[0], [0, 0, 0, 0]];
+    }
+    return evenStops;
+  }
+
+  if (bgFill === false) {
+    evenStops[targetLength - 1] = [0, 0, 0, 0];
+  }
+
+  return evenStops;
 };
 
 const DEFAULT_TILE_SIZE = 8;
@@ -220,16 +230,13 @@ const writePixel = (data: Uint8ClampedArray, offset: number, color: RGBA) => {
   data[offset + 3] = alpha;
 };
 
-/**
- * Render an ordered dither gradient into a new ImageData.
- * - Axis is expressed in bounds-local coordinates (0,0 is top-left of bounds).
- * - Palette entries are RGBA tuples; index 0 is used when coverage < threshold, index 1 when coverage >= threshold.
- */
-export function renderOrderedDitherGradientToImageData(params: OrderedDitherGradientParams): ImageData {
+const renderOrderedDitherGradientCore = (
+  params: OrderedDitherGradientParams,
+  pixelSize: number
+): ImageData => {
   const { width, height, axis, paletteRGBA } = params;
   const tileSize = params.tileSize ?? DEFAULT_TILE_SIZE;
   const tile = params.tile ?? getBayerTile(tileSize);
-  const pixelSize = Math.max(1, Math.floor(params.pixelSize ?? 1));
   const origin = params.origin ?? { x: 0, y: 0 };
 
   const imageData = new ImageData(width, height);
@@ -246,9 +253,9 @@ export function renderOrderedDitherGradientToImageData(params: OrderedDitherGrad
       const tileX = ((origin.x + x) % tileSize + tileSize) % tileSize;
       const tileVal = tile[tileY * tileSize + tileX];
 
-      // Use the pixel center for smoother ramping
-      const sampleX = x + pixelSize * 0.5;
-      const sampleY = y + pixelSize * 0.5;
+      // Sample at a stable pixel center so changing pixelSize doesn't shift the gradient.
+      const sampleX = x + 0.5;
+      const sampleY = y + 0.5;
       const proj =
         ((sampleX - axis.start.x) * safeDir.x + (sampleY - axis.start.y) * safeDir.y) /
         safeLength;
@@ -274,13 +281,31 @@ export function renderOrderedDitherGradientToImageData(params: OrderedDitherGrad
   }
 
   return imageData;
+};
+
+/**
+ * Render an ordered dither gradient into a new ImageData.
+ * - Axis is expressed in bounds-local coordinates (0,0 is top-left of bounds).
+ * - Palette entries are RGBA tuples; index 0 is used when coverage < threshold, index 1 when coverage >= threshold.
+ */
+export function renderOrderedDitherGradientToImageData(params: OrderedDitherGradientParams): ImageData {
+  const pixelSize = Math.max(1, Math.floor(params.pixelSize ?? 1));
+  if (pixelSize <= 1) {
+    return renderOrderedDitherGradientCore(params, 1);
+  }
+  const base = renderOrderedDitherGradientCore(params, 1);
+  return pixelateImageData(base, pixelSize, params.origin);
 }
 
 /**
  * Nearest-neighbor pixelation of an ImageData.
  * Leaves content unchanged when blockSize <= 1.
  */
-export function pixelateImageData(source: ImageData, blockSize: number): ImageData {
+export function pixelateImageData(
+  source: ImageData,
+  blockSize: number,
+  origin?: Vec2
+): ImageData {
   const size = Math.max(1, Math.floor(blockSize));
   if (size <= 1) return source;
 
@@ -289,17 +314,26 @@ export function pixelateImageData(source: ImageData, blockSize: number): ImageDa
   const out = new ImageData(width, height);
   const dst = out.data;
 
-  for (let y = 0; y < height; y += size) {
-    for (let x = 0; x < width; x += size) {
-      const srcIdx = (y * width + x) * 4;
+  const mod = (value: number, modulo: number) =>
+    ((value % modulo) + modulo) % modulo;
+  const offsetX = origin ? mod(-Math.floor(origin.x), size) : 0;
+  const offsetY = origin ? mod(-Math.floor(origin.y), size) : 0;
+
+  for (let y = offsetY - size; y < height; y += size) {
+    for (let x = offsetX - size; x < width; x += size) {
+      const sampleX = Math.max(0, Math.min(width - 1, x));
+      const sampleY = Math.max(0, Math.min(height - 1, y));
+      const srcIdx = (sampleY * width + sampleX) * 4;
       const r = src[srcIdx];
       const g = src[srcIdx + 1];
       const b = src[srcIdx + 2];
       const a = src[srcIdx + 3];
+      const startY = Math.max(0, y);
+      const startX = Math.max(0, x);
       const maxY = Math.min(height, y + size);
       const maxX = Math.min(width, x + size);
-      for (let yy = y; yy < maxY; yy += 1) {
-        for (let xx = x; xx < maxX; xx += 1) {
+      for (let yy = startY; yy < maxY; yy += 1) {
+        for (let xx = startX; xx < maxX; xx += 1) {
           const dstIdx = (yy * width + xx) * 4;
           dst[dstIdx] = r;
           dst[dstIdx + 1] = g;
