@@ -1965,46 +1965,6 @@ const BrushControls = () => {
     const transValue = Math.min(activeSettings.trans ?? 0, maxTransparent);
     return (
       <div className="p-4">
-        {/* Opacity */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Opacity
-            </label>
-            <ProgressSlider
-              value={activeSettings.opacity}
-              min={0}
-              max={1}
-              step={0.01}
-              onChange={(value) => setActiveSettings({ opacity: value })}
-              aria-label="Opacity"
-              className="flex-1"
-            />
-          </div>
-        </div>
-
-        {/* Trans */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Trans
-            </label>
-            <ProgressSlider
-              value={transValue}
-              min={0}
-              max={6}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({
-                  trans: Math.max(0, Math.min(maxTransparent, Math.round(value))),
-                })
-              }
-              aria-label="Transparent Colors"
-              className="flex-1"
-            />
-          </div>
-        </div>
-
         {/* Dither settings (toggle kept to allow background transparency control) */}
         {canDitherForShape(activeSettings.brushShape) && (
           <DitherControls
@@ -2067,10 +2027,47 @@ const BrushControls = () => {
                     ))}
                   </div>
                 </div>
+
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                    Trans
+                  </label>
+                  <ProgressSlider
+                    value={transValue}
+                    min={0}
+                    max={6}
+                    step={1}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        trans: Math.max(0, Math.min(maxTransparent, Math.round(value))),
+                      })
+                    }
+                    aria-label="Transparent Colors"
+                    className="flex-1"
+                  />
+                </div>
               </>
             }
           />
         )}
+
+        {/* Opacity */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Opacity
+            </label>
+            <ProgressSlider
+              value={activeSettings.opacity}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => setActiveSettings({ opacity: value })}
+              aria-label="Opacity"
+              className="flex-1"
+            />
+          </div>
+        </div>
       </div>
     );
   }
