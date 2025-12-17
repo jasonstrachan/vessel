@@ -523,6 +523,8 @@ export interface BrushSettings {
   ditherGradBgFill?: boolean;
   /** Optional explicit palette for dither gradient (2-6 hex colors, first→last) */
   ditherGradStops?: string[];
+  /** Dither Gradient only: sample stops from the canvas along shape points */
+  ditherGradSampleEnabled?: boolean;
   /** Dither Gradient only: number of trailing colors to make transparent (0-6). */
   trans?: number;
   ditherAlgorithm?:

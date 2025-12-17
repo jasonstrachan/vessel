@@ -1081,6 +1081,7 @@ export const createShapeToolHandler = (
       spacingReferenceSpacing: undefined,
       flowRandomSeed: undefined,
     });
+    drawingHandlers.updateDitherGradSamples?.([{ x: worldPos.x, y: worldPos.y }]);
   };
 
   const appendPolygonGradientPoint = (worldPos: { x: number; y: number }) => {
@@ -1100,9 +1101,11 @@ export const createShapeToolHandler = (
     }
 
     const color = resolvePolygonPointColor(worldPos);
+    const nextPoints = [...points, { x: worldPos.x, y: worldPos.y, color }];
     state.setPolygonGradientState({
-      points: [...points, { x: worldPos.x, y: worldPos.y, color }],
+      points: nextPoints,
     });
+    drawingHandlers.updateDitherGradSamples?.(nextPoints);
     return true;
   };
 

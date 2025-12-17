@@ -322,6 +322,45 @@ export const computeAutoSampleStopsFromPolyline = (
   }));
 };
 
+export const computeDitherGradSampleStopsFromPolyline = (
+  sourcePts: PolyPoint[],
+  sampleColor: (x: number, y: number) => string,
+  sampler: (pts: PolyPoint[], count: number) => PolyPoint[],
+  count: number
+): string[] | null => {
+  const clampedCount = Math.max(1, Math.min(AUTO_SAMPLE_MAX_STOPS, Math.round(count)));
+  if (clampedCount <= 0) {
+    return null;
+  }
+
+  const deduped = dedupePolylineForSampling(sourcePts);
+  if (deduped.length === 0) {
+    return null;
+  }
+
+  if (deduped.length === 1 || clampedCount === 1) {
+    const color = sampleColor(deduped[0].x, deduped[0].y);
+    return Array.from({ length: clampedCount }, () => color);
+  }
+
+  const sampledPoints = sampler(deduped, clampedCount);
+  if (sampledPoints.length === 0) {
+    const color = sampleColor(deduped[0].x, deduped[0].y);
+    return Array.from({ length: clampedCount }, () => color);
+  }
+
+  const filled = sampledPoints.slice(0, clampedCount);
+  filled[0] = deduped[0];
+  if (clampedCount > 1) {
+    filled[clampedCount - 1] = deduped[deduped.length - 1];
+  }
+  while (filled.length < clampedCount) {
+    filled.push(deduped[deduped.length - 1]);
+  }
+
+  return filled.map((point) => sampleColor(point.x, point.y));
+};
+
 const SAMPLE_PREVIEW_STROKE_STYLE = 'rgba(255, 214, 102, 0.95)';
 
 const ensureCanvasPixelSize = (canvas: HTMLCanvasElement): void => {
@@ -1618,6 +1657,7 @@ export function useDrawingHandlers({
   // Auto-sample gradient (for color cycle brushes)
   const autoSamplePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const autoSampleLastUpdateRef = useRef<number>(0);
+  const ditherGradSampleLastUpdateRef = useRef<number>(0);
   const brushSamplingPreviewActiveRef = useRef<boolean>(false);
 
   const sampleHexAt = useCallback((x: number, y: number): string => {
@@ -1820,6 +1860,53 @@ export function useDrawingHandlers({
       brushEngine.updateColorCycleGradient?.(stops);
     } catch {}
   }, [brushEngine, computeAutoSampleStops, storeRef]);
+
+  const updateDitherGradSamples = useCallback(
+    (sourcePts: Array<{ x: number; y: number }>) => {
+      const store = storeRef.current;
+      const settings = store.tools.brushSettings;
+      if (settings.brushShape !== BrushShape.DITHER_GRADIENT || !settings.ditherGradSampleEnabled) {
+        return;
+      }
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (now - ditherGradSampleLastUpdateRef.current < 120) {
+        return;
+      }
+
+      const targetCount = Math.max(
+        2,
+        Math.min(AUTO_SAMPLE_MAX_STOPS, Math.round(settings.ditherGradStops?.length ?? 2))
+      );
+      const sampler = typeof sampleColorAt === 'function' ? sampleColorAt : sampleHexAt;
+      const stops = computeDitherGradSampleStopsFromPolyline(
+        sourcePts,
+        sampler,
+        equidistantPointsOnPolyline,
+        targetCount
+      );
+      if (!stops) {
+        return;
+      }
+      ditherGradSampleLastUpdateRef.current = now;
+
+      const current = settings.ditherGradStops ?? [];
+      const same =
+        current.length === stops.length &&
+        current.every((stop, idx) => stop.toLowerCase() === (stops[idx] ?? '').toLowerCase());
+      if (same) {
+        return;
+      }
+
+      const maxTransparent = Math.max(0, Math.min(6, stops.length - 1));
+      const currentTrans = settings.trans;
+      if (typeof currentTrans === 'number' && currentTrans > maxTransparent) {
+        store.setBrushSettings({ ditherGradStops: stops, trans: maxTransparent });
+        return;
+      }
+      store.setBrushSettings({ ditherGradStops: stops });
+    },
+    [equidistantPointsOnPolyline, sampleColorAt, sampleHexAt, storeRef]
+  );
 
   // Track which CC layers were animating so we can resume them after interaction
   const pausedCCLayerIdsRef = useRef<string[]>([]);
@@ -4680,6 +4767,15 @@ export function useDrawingHandlers({
           shapePointsRef.current.push(worldPos);
           seedManualStrokeBoundingBox(shapePointsRef.current, 2);
           triggerSimpleShapePreview();
+          try {
+            const st = storeRef.current;
+            if (
+              st.tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT &&
+              st.tools.brushSettings.ditherGradSampleEnabled
+            ) {
+              updateDitherGradSamples(shapePointsRef.current);
+            }
+          } catch {}
         } else {
           shapePointsRef.current = [worldPos];
           seedManualStrokeBoundingBox(shapePointsRef.current, 2);
@@ -4696,6 +4792,12 @@ export function useDrawingHandlers({
               autoSampleLastUpdateRef.current = 0;
               updateAutoSampledGradient(autoSamplePointsRef.current);
             }
+            if (
+              st.tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT &&
+              st.tools.brushSettings.ditherGradSampleEnabled
+            ) {
+              updateDitherGradSamples(shapePointsRef.current);
+            }
           } catch {}
         }
     } else {
@@ -4706,6 +4808,7 @@ export function useDrawingHandlers({
     initDrawingCanvas,
     startDrawing,
     updateAutoSampledGradient,
+    updateDitherGradSamples,
     storeRef,
     resetShapePressureState,
     seedManualStrokeBoundingBox,
@@ -4820,6 +4923,12 @@ export function useDrawingHandlers({
               autoSamplePointsRef.current = [...shapePointsRef.current];
               updateAutoSampledGradient(autoSamplePointsRef.current);
             }
+            if (
+              store.tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT &&
+              store.tools.brushSettings.ditherGradSampleEnabled
+            ) {
+              updateDitherGradSamples(shapePointsRef.current);
+            }
           } catch {}
         }
       }
@@ -4831,6 +4940,7 @@ export function useDrawingHandlers({
     continueDrawing,
     pauseColorCycleForNonCCInteraction,
     updateAutoSampledGradient,
+    updateDitherGradSamples,
     initDrawingCanvas,
     storeRef,
     seedManualStrokeBoundingBox,
@@ -6694,7 +6804,8 @@ export function useDrawingHandlers({
     setFeedbackCallback,
     commitRasterOverlay,
     seedManualStrokeBoundingBox,
-    coerceDragShapeToPolygon
+    coerceDragShapeToPolygon,
+    updateDitherGradSamples
   };
 }
 
@@ -6772,6 +6883,7 @@ export const __TESTING__ = {
   dedupePolylineForSampling,
   computePolylineLength,
   computeAutoSampleStopsFromPolyline,
+  computeDitherGradSampleStopsFromPolyline,
   MIN_AUTO_SAMPLE_PREVIEW_DISTANCE,
   AUTO_SAMPLE_MAX_STOPS
 };

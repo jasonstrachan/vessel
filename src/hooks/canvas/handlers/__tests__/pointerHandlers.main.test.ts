@@ -202,6 +202,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       isDrawingShapeRef: { current: false },
       shapePointsRef: { current: [] },
       coerceDragShapeToPolygon: jest.fn(),
+      updateDitherGradSamples: jest.fn(),
     } as any,
     brushEngine: null,
     sampleColorAtPosition: jest.fn().mockReturnValue('#000000'),

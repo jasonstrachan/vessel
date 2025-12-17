@@ -75,6 +75,7 @@ export const pixelBrushSettings: BrushSettings = {
   pressureDitherSmoosh: false,
   ditherBackgroundFill: true,
   ditherGradBgFill: true,
+  ditherGradSampleEnabled: false,
   lostEdge: 0,
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
@@ -153,6 +154,7 @@ export const defaultBrushSettings: BrushSettings = {
   pressureDitherSmoosh: false,
   ditherBackgroundFill: true,
   ditherGradBgFill: true,
+  ditherGradSampleEnabled: false,
   pigmentLiftEnabled: false,
   pigmentLiftStrength: 0.6,
   pigmentLiftFeather: 1,
@@ -784,7 +786,8 @@ export const ditherGradientBrushPreset: BrushPreset = {
     // Default to a larger max pixel size so pressure-linking spans multiple bins
     fillResolution: 6,
     ditherAlgorithm: 'bayer',
-    ditherGradBgFill: true
+    ditherGradBgFill: true,
+    ditherGradSampleEnabled: false
   }
 };
 

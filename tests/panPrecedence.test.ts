@@ -97,7 +97,14 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
       worldToScreen: (x: number, y: number, s: number) => ({ x: x * (s || 1), y: y * (s || 1) }),
     },
     toolStateMachine: { isRectangleGradient: false, isPolygonGradient: false, isColorCycleShape: false, isContourPolygon: false },
-    drawingHandlers: { isDrawingShapeRef: { current: false }, continueShapeDrawing: jest.fn(), startShapeDrawing: jest.fn(), drawingCanvasHasContent: { current: false }, finalizeShapeDrawing: jest.fn().mockResolvedValue(undefined) },
+    drawingHandlers: {
+      isDrawingShapeRef: { current: false },
+      continueShapeDrawing: jest.fn(),
+      startShapeDrawing: jest.fn(),
+      drawingCanvasHasContent: { current: false },
+      finalizeShapeDrawing: jest.fn().mockResolvedValue(undefined),
+      updateDitherGradSamples: jest.fn(),
+    },
     brushEngine: {},
 
     sampleColorAtPosition: jest.fn(() => '#000000'),

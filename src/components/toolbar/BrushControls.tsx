@@ -318,6 +318,7 @@ const BrushControls = () => {
     activeSettings.brushShape !== BrushShape.RESAMPLER;
   const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
   const isDitherGradient = brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
+  const isDitherGradSampling = Boolean(activeSettings.ditherGradSampleEnabled);
 
   const currentStops = React.useMemo(() => {
     const stored = activeSettings.ditherGradStops;
@@ -348,6 +349,13 @@ const BrushControls = () => {
 
   React.useEffect(() => {
     if (brushSettings.brushShape !== BrushShape.DITHER_GRADIENT) return;
+    if (activeSettings.ditherGradSampleEnabled) {
+      if (ditherGradAutoRef.current !== false) {
+        ditherGradAutoRef.current = false;
+        ditherGradAutoStopsRef.current = null;
+      }
+      return;
+    }
     if (ditherGradAutoRef.current !== null) return;
     const stored = activeSettings.ditherGradStops;
     if (!stored || stored.length < 2) {
@@ -361,6 +369,7 @@ const BrushControls = () => {
     }
   }, [
     activeSettings.ditherGradStops,
+    activeSettings.ditherGradSampleEnabled,
     areStopsEqual,
     brushSettings.brushShape,
     buildAutoStops
@@ -368,6 +377,7 @@ const BrushControls = () => {
 
   React.useEffect(() => {
     if (brushSettings.brushShape !== BrushShape.DITHER_GRADIENT) return;
+    if (activeSettings.ditherGradSampleEnabled) return;
     if (!ditherGradAutoRef.current) return;
     const targetCount = clampStopCount(activeSettings.ditherGradStops?.length ?? 2);
     const nextStops = buildAutoStops(targetCount);
@@ -381,7 +391,8 @@ const BrushControls = () => {
     brushSettings.brushShape,
     buildAutoStops,
     clampStopCount,
-    setActiveSettings
+    setActiveSettings,
+    activeSettings.ditherGradSampleEnabled
   ]);
 
   const resizeStops = React.useCallback(
@@ -1992,6 +2003,25 @@ const BrushControls = () => {
                     }
                     aria-label="Gradient Length (%)"
                     className="flex-1"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 mt-2">
+                  <label
+                    htmlFor="dither-grad-sample"
+                    className="text-[#D9D9D9] w-16"
+                    style={{ fontSize: '14px' }}
+                  >
+                    Sample
+                  </label>
+                  <CustomSwitch
+                    id="dither-grad-sample"
+                    checked={isDitherGradSampling}
+                    onChange={(checked) => {
+                      ditherGradAutoRef.current = false;
+                      ditherGradAutoStopsRef.current = null;
+                      setActiveSettings({ ditherGradSampleEnabled: checked });
+                    }}
                   />
                 </div>
 

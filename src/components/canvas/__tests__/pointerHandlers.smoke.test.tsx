@@ -148,6 +148,7 @@ describe('pointerHandlers smoke', () => {
         setContourLinesPreviewRenderer: jest.fn(),
         setContourLinesSnapRenderer: jest.fn(),
         clearOverlay: jest.fn(),
+        updateDitherGradSamples: jest.fn(),
       },
       brushEngine: null,
       sampleColorAtPosition: jest.fn(() => '#000000'),

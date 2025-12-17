@@ -7,6 +7,7 @@ describe('useDrawingHandlers pure utilities', () => {
     dedupePolylineForSampling,
     computePolylineLength,
     computeAutoSampleStopsFromPolyline,
+    computeDitherGradSampleStopsFromPolyline,
     MIN_AUTO_SAMPLE_PREVIEW_DISTANCE,
     AUTO_SAMPLE_MAX_STOPS,
   } = __TESTING__;
@@ -67,5 +68,34 @@ describe('useDrawingHandlers pure utilities', () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it('samples dither gradient stops anchored to start/end', () => {
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 20, y: 0 },
+    ];
+
+    const sampleColor = jest.fn((x, y) => `${x},${y}`);
+    const sampler = jest.fn(() => [
+      { x: 5, y: 0 },
+      { x: 10, y: 0 },
+      { x: 15, y: 0 },
+      { x: 25, y: 0 },
+    ]);
+
+    const stops = computeDitherGradSampleStopsFromPolyline(pts, sampleColor, sampler, 4);
+
+    expect(stops).toEqual(['0,0', '10,0', '15,0', '20,0']);
+    expect(sampler).toHaveBeenCalledWith(expect.any(Array), 4);
+  });
+
+  it('repeats the first sample when only one point is available', () => {
+    const sampleColor = jest.fn((x, y) => `${x},${y}`);
+    const sampler = jest.fn(() => []);
+    const stops = computeDitherGradSampleStopsFromPolyline([{ x: 1, y: 2 }], sampleColor, sampler, 3);
+
+    expect(stops).toEqual(['1,2', '1,2', '1,2']);
   });
 });
