@@ -15,6 +15,7 @@ type Props = {
   compact?: boolean;
   isDitherPreset?: boolean;
   afterPresRes?: React.ReactNode; // rendered directly after PresRes toggle
+  afterResolution?: React.ReactNode; // rendered directly after the Resolution slider
   hideLostEdge?: boolean; // suppress the Lostedge slider (useful when shown elsewhere)
   hideResolution?: boolean; // hide the resolution slider (for shape-specific UIs)
 };
@@ -55,6 +56,7 @@ export const DitherControls: React.FC<Props> = ({
   compact = false,
   isDitherPreset = false,
   afterPresRes,
+  afterResolution,
   hideLostEdge = false,
   hideResolution = false
 }) => {
@@ -126,6 +128,8 @@ export const DitherControls: React.FC<Props> = ({
               />
             </div>
           )}
+
+          {afterResolution ? <div className="mt-2">{afterResolution}</div> : null}
 
           <div className="flex items-center gap-2 mt-1">
             <label className={labelWidth} style={labelStyle}>

@@ -1813,30 +1813,28 @@ const BrushControls = () => {
             forceOn
             hideToggle
             hideLostEdge
+            afterResolution={
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Length
+                </label>
+                <ProgressSlider
+                  value={activeSettings.gradientLength ?? 100}
+                  min={20}
+                  max={200}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      gradientLength: Math.max(20, Math.min(200, Math.round(value))),
+                    })
+                  }
+                  aria-label="Gradient Length (%)"
+                  className="flex-1"
+                />
+              </div>
+            }
           />
         )}
-
-        {/* Gradient Length */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Length
-            </label>
-            <ProgressSlider
-              value={activeSettings.gradientLength ?? 100}
-              min={20}
-              max={200}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({
-                  gradientLength: Math.max(20, Math.min(200, Math.round(value))),
-                })
-              }
-              aria-label="Gradient Length (%)"
-              className="flex-1"
-            />
-          </div>
-        </div>
       </div>
     );
   }
