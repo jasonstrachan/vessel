@@ -301,6 +301,22 @@ const BrushControls = () => {
     },
     [normalizeHex]
   );
+  const areStopsLinear = React.useCallback(
+    (stops?: string[]) => {
+      if (!stops || stops.length < 2) return false;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      for (let i = 0; i < stops.length; i += 1) {
+        const t = stops.length === 1 ? 0 : i / (stops.length - 1);
+        const expected = lerpHex(first, last, t);
+        if (normalizeHex(stops[i]) !== normalizeHex(expected)) {
+          return false;
+        }
+      }
+      return true;
+    },
+    [lerpHex, normalizeHex]
+  );
 
   const fgColor = React.useMemo(
     () => palette?.foregroundColor ?? activeSettings.color ?? '#000000',
@@ -363,14 +379,16 @@ const BrushControls = () => {
       return;
     }
     const autoStops = buildAutoStops(stored.length);
-    ditherGradAutoRef.current = areStopsEqual(stored, autoStops);
+    const isAuto = areStopsEqual(stored, autoStops) || areStopsLinear(stored);
+    ditherGradAutoRef.current = isAuto;
     if (ditherGradAutoRef.current) {
-      ditherGradAutoStopsRef.current = autoStops;
+      ditherGradAutoStopsRef.current = stored;
     }
   }, [
     activeSettings.ditherGradStops,
     activeSettings.ditherGradSampleEnabled,
     areStopsEqual,
+    areStopsLinear,
     brushSettings.brushShape,
     buildAutoStops
   ]);
@@ -2016,9 +2034,32 @@ const BrushControls = () => {
                     id="dither-grad-sample"
                     checked={isDitherGradSampling}
                     onChange={(checked) => {
-                      ditherGradAutoRef.current = false;
-                      ditherGradAutoStopsRef.current = null;
-                      setActiveSettings({ ditherGradSampleEnabled: checked });
+                      if (checked) {
+                        ditherGradAutoRef.current = false;
+                        ditherGradAutoStopsRef.current = null;
+                        setActiveSettings({ ditherGradSampleEnabled: true });
+                        return;
+                      }
+
+                      const autoStops = buildAutoStops(currentStops.length);
+                      const nextMaxTransparent = Math.max(0, Math.min(6, autoStops.length - 1));
+                      const currentTrans = activeSettings.trans;
+                      ditherGradAutoRef.current = true;
+                      ditherGradAutoStopsRef.current = autoStops;
+
+                      if (typeof currentTrans === 'number' && currentTrans > nextMaxTransparent) {
+                        setActiveSettings({
+                          ditherGradSampleEnabled: false,
+                          ditherGradStops: autoStops,
+                          trans: nextMaxTransparent,
+                        });
+                        return;
+                      }
+
+                      setActiveSettings({
+                        ditherGradSampleEnabled: false,
+                        ditherGradStops: autoStops,
+                      });
                     }}
                   />
                 </div>
