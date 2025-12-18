@@ -109,6 +109,21 @@ interface VisibleWorldRect {
   height: number;
 }
 
+export const resolveBrushCursorShape = (tools: {
+  currentTool: Tool;
+  brushSettings: { brushShape?: BrushShape };
+  eraserSettings: { brushShape?: BrushShape };
+}): BrushShape => {
+  if (tools.currentTool === 'eraser') {
+    return (
+      tools.eraserSettings.brushShape ??
+      tools.brushSettings.brushShape ??
+      BrushShape.ROUND
+    );
+  }
+  return tools.brushSettings.brushShape ?? BrushShape.ROUND;
+};
+
 const computeVisibleWorldRect = (
   offsetX: number,
   offsetY: number,
@@ -3469,10 +3484,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       {/* Brush cursor preview */}
       {(() => {
-        const brushShapeForCursor =
-          tools.currentTool === 'eraser'
-            ? BrushShape.ROUND
-            : tools.brushSettings.brushShape || BrushShape.ROUND;
+        const brushShapeForCursor = resolveBrushCursorShape(tools);
 
         const baseBrushSize = tools.brushSettings.size ?? globalBrushSize ?? 1;
         const eraserSize =
