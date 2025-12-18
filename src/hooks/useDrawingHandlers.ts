@@ -711,6 +711,40 @@ const createBoundingBox = (point: { x: number; y: number }): BoundingBox => ({
   maxY: point.y,
 });
 
+/**
+ * Build a polygon suitable for lost-edge erosion.
+ * - If we already have a polygon (>=3 points), return as-is.
+ * - For line segments (2 points), create a thin rectangle around the segment
+ *   using the provided fallbackWidth.
+ * - Otherwise return an empty array.
+ */
+const buildLostEdgePolygon = (
+  points: Array<{ x: number; y: number }>,
+  fallbackWidth: number
+): Array<{ x: number; y: number }> => {
+  if (points.length >= 3) {
+    return points;
+  }
+  if (points.length < 2) {
+    return [];
+  }
+
+  const [a, b] = points;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const half = Math.max(1, fallbackWidth / 2);
+  const nx = -(dy / len) * half;
+  const ny = (dx / len) * half;
+
+  return [
+    { x: a.x + nx, y: a.y + ny },
+    { x: b.x + nx, y: b.y + ny },
+    { x: b.x - nx, y: b.y - ny },
+    { x: a.x - nx, y: a.y - ny },
+  ];
+};
+
 const expandBoundingBox = (bbox: BoundingBox, point: { x: number; y: number }): BoundingBox => ({
   minX: Math.min(bbox.minX, point.x),
   minY: Math.min(bbox.minY, point.y),
@@ -4098,7 +4132,14 @@ export function useDrawingHandlers({
               drawingCtxRef.current
             ) {
               const polyState = storeRef.current.polygonGradientState;
-              const pts = (polyState.vertices && polyState.vertices.length ? polyState.vertices : polyState.points) ?? shapePointsRef.current;
+              const pts =
+                polyState.vertices && polyState.vertices.length >= 3
+                  ? polyState.vertices
+                  : polyState.points && polyState.points.length >= 3
+                    ? polyState.points
+                    : shapePointsRef.current.length >= 3
+                      ? shapePointsRef.current
+                      : [];
               const lostEdge = Math.max(0, Math.min(100, activeSettings.lostEdge ?? 0));
               if (pts && pts.length >= 3 && lostEdge > 0) {
                 let minX = pts[0].x;
@@ -4223,7 +4264,14 @@ export function useDrawingHandlers({
                   drawingCtxRef.current
                 ) {
                   const polyState = storeRef.current.polygonGradientState;
-                  const pts = (polyState.vertices && polyState.vertices.length ? polyState.vertices : polyState.points) ?? shapePointsRef.current;
+                  const pts =
+                    polyState.vertices && polyState.vertices.length >= 3
+                      ? polyState.vertices
+                      : polyState.points && polyState.points.length >= 3
+                        ? polyState.points
+                        : shapePointsRef.current.length >= 3
+                          ? shapePointsRef.current
+                          : [];
                   const lostEdge = Math.max(0, Math.min(100, activeSettings.lostEdge ?? 0));
                   if (pts && pts.length >= 3 && lostEdge > 0) {
                     let minX = pts[0].x;
@@ -5119,6 +5167,9 @@ export function useDrawingHandlers({
       return true;
     };
 
+    // Track points actually rendered for dither gradient so lost-edge can reuse them
+    let ditherGradPoints: Array<{ x: number; y: number }> | null = null;
+
     // Use FinalizeQueue to prevent concurrent finalization operations
     void finalizeQueueRef.current.enqueue(async () => {
       let finalizeTriggered = false;
@@ -5135,8 +5186,36 @@ export function useDrawingHandlers({
             : polygonState.points && polygonState.points.length >= 3
               ? polygonState.points
               : shapePointsRef.current;
+
         if (points && points.length >= 3) {
+          ditherGradPoints = points;
           renderDitherGradientPolygon(points);
+
+          const lostEdge = Math.max(0, Math.min(100, liveBrushSettings.lostEdge ?? 0));
+          if (lostEdge > 0 && drawingCtxRef.current) {
+            let minX = points[0].x;
+            let maxX = points[0].x;
+            let minY = points[0].y;
+            let maxY = points[0].y;
+            for (let i = 1; i < points.length; i += 1) {
+              const p = points[i];
+              if (p.x < minX) minX = p.x;
+              if (p.x > maxX) maxX = p.x;
+              if (p.y < minY) minY = p.y;
+              if (p.y > maxY) maxY = p.y;
+            }
+
+            const px = Math.max(1, Math.round(latestShapePixelSizeRef.current ?? 1));
+            const padding = Math.max(4, px * 4);
+
+            applyLostEdgeErosionToContext(
+              drawingCtxRef.current,
+              points,
+              { minX, maxX, minY, maxY },
+              padding,
+              lostEdge
+            );
+          }
         }
       }
     
@@ -5569,33 +5648,47 @@ export function useDrawingHandlers({
             liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT
           ) {
             const polyState = storeRef.current.polygonGradientState;
-            const pts =
-              (polyState.vertices && polyState.vertices.length
-                ? polyState.vertices
-                : polyState.points) ?? [...shapePointsRef.current];
+            const rawPts =
+              liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT && ditherGradPoints
+                ? ditherGradPoints
+                : polyState.vertices && polyState.vertices.length >= 3
+                  ? polyState.vertices
+                  : polyState.points && polyState.points.length >= 3
+                    ? polyState.points
+                    : shapePointsRef.current.length >= 2
+                      ? [...shapePointsRef.current]
+                      : [];
             const lostEdge = Math.max(0, Math.min(100, liveBrushSettings.lostEdge ?? 0));
 
-            if (pts.length >= 3 && lostEdge > 0) {
-              let minX = pts[0].x;
-              let maxX = pts[0].x;
-              let minY = pts[0].y;
-              let maxY = pts[0].y;
+            if (lostEdge > 0 && rawPts.length >= 2) {
+              const effectiveWidth =
+                liveBrushSettings.fillResolution ??
+                liveBrushSettings.thickness ??
+                liveBrushSettings.size ??
+                8;
+              const pts = buildLostEdgePolygon(rawPts, effectiveWidth);
+              if (pts.length >= 3) {
+                let minX = pts[0].x;
+                let maxX = pts[0].x;
+                let minY = pts[0].y;
+                let maxY = pts[0].y;
 
-              for (let i = 1; i < pts.length; i += 1) {
-                const p = pts[i];
-                if (p.x < minX) minX = p.x;
-                if (p.x > maxX) maxX = p.x;
-                if (p.y < minY) minY = p.y;
-                if (p.y > maxY) maxY = p.y;
+                for (let i = 1; i < pts.length; i += 1) {
+                  const p = pts[i];
+                  if (p.x < minX) minX = p.x;
+                  if (p.x > maxX) maxX = p.x;
+                  if (p.y < minY) minY = p.y;
+                  if (p.y > maxY) maxY = p.y;
+                }
+
+                const bounds = { minX, maxX, minY, maxY };
+                const padding = Math.max(
+                  4,
+                  Math.ceil((liveBrushSettings.thickness ?? 1) * 2 + (liveBrushSettings.spacing ?? 0))
+                );
+
+                applyLostEdgeErosionToContext(drawCtx, pts, bounds, padding, lostEdge);
               }
-
-              const bounds = { minX, maxX, minY, maxY };
-              const padding = Math.max(
-                4,
-                Math.ceil((liveBrushSettings.thickness ?? 1) * 2 + (liveBrushSettings.spacing ?? 0))
-              );
-
-              applyLostEdgeErosionToContext(drawCtx, pts, bounds, padding, lostEdge);
             }
           }
 
@@ -6870,5 +6963,6 @@ export const __TESTING__ = {
   computeAutoSampleStopsFromPolyline,
   computeDitherGradSampleStopsFromPolyline,
   MIN_AUTO_SAMPLE_PREVIEW_DISTANCE,
-  AUTO_SAMPLE_MAX_STOPS
+  AUTO_SAMPLE_MAX_STOPS,
+  buildLostEdgePolygon
 };

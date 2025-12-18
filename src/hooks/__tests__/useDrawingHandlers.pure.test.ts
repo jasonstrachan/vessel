@@ -120,4 +120,18 @@ describe('useDrawingHandlers pure utilities', () => {
     expect(stops).toHaveLength(AUTO_SAMPLE_MAX_STOPS);
     expect(sampler).toHaveBeenCalledWith(expect.any(Array), AUTO_SAMPLE_MAX_STOPS);
   });
+
+  it('builds rectangle for lost-edge when only two points', () => {
+    const rect = __TESTING__.buildLostEdgePolygon(
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
+      10
+    );
+
+    expect(rect).toHaveLength(4);
+    expect(rect[0].y).toBeCloseTo(5);
+    expect(rect[3].y).toBeCloseTo(-5);
+  });
 });
