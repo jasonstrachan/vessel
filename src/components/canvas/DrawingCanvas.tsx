@@ -222,6 +222,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const canvasOffsetX = useAppStore((state) => state.canvas.offsetX);
   const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
   const displayMode = useAppStore((state) => state.canvas.displayMode);
+  const projectFilename = useAppStore((state) => state.projectFilename);
   const compositeBitmap = useAppStore((state) => state.currentCompositeBitmap);
   const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
   const compositeSegmentsVersion = useAppStore((state) => state.compositeSegmentsVersion);
@@ -257,6 +258,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     [brushSettings, currentTool, customBrushCapture, eraserSettings, fillSettings, shapeMode]
   );
   const { crop, commitCrop, cancelCrop } = useCropState();
+
+  const displayProjectName = projectFilename ?? project?.name ?? 'Untitled';
   
   // Get functions separately (they don't change)
   const setLayersNeedRecomposition = useAppStore(selectSetLayersNeedRecomposition);
@@ -468,6 +471,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
     if (brushShape === BrushShape.RECTANGLE_GRADIENT || 
         brushShape === BrushShape.POLYGON_GRADIENT || 
+        brushShape === BrushShape.DITHER_GRADIENT ||
         brushShape === BrushShape.CONTOUR_POLYGON ||
         brushShape === BrushShape.CONTOUR_LINES2 ||
         brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
@@ -3453,9 +3457,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         />
       ) : null}
       
-      {/* Zoom indicator */}
-      <div className="absolute bottom-4 right-4 bg-black/50 text-white px-2 py-1 rounded text-sm">
-        {Math.round((canvasZoom || 1) * 100)}%
+      {/* Filename + zoom indicator */}
+      <div className="absolute bottom-4 right-4 flex items-center gap-2 text-[#b5b5b5] text-xs">
+        <div className="bg-black/60 px-2 py-1 rounded max-w-[240px] truncate" title={displayProjectName}>
+          {displayProjectName}
+        </div>
+        <div className="bg-black/60 px-2 py-1 rounded min-w-[58px] text-center">
+          {Math.round((canvasZoom || 1) * 100)}%
+        </div>
       </div>
       
       {/* Brush cursor preview */}
