@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { createPointerHandlers } from '../pointerHandlers';
+import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import type { EventHandlerDynamicDeps, EventHandlerDependencies } from '../../utils/types';
@@ -485,6 +486,29 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.clearSelection).toHaveBeenCalled();
     expect(deps.isMouseDownRef.current).toBe(false);
+  });
+
+  it('allows dither gradient shape start outside canvas', () => {
+    const store = useAppStore.getState();
+    const originalShape = store.tools.brushSettings.brushShape;
+    store.setBrushSettings({ brushShape: BrushShape.DITHER_GRADIENT });
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        brushSettings: { ...baseDynamic.tools.brushSettings, brushShape: BrushShape.DITHER_GRADIENT },
+      },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: -5, clientY: -5 }));
+
+    const lastSamples = deps.drawingHandlers.updateDitherGradSamples.mock.calls.at(-1)?.[0];
+    expect(lastSamples?.[0]).toMatchObject({ x: -5, y: -5 });
+
+    store.setBrushSettings({ brushShape: originalShape });
   });
 
   it('updates pan offsets while panning on move', () => {

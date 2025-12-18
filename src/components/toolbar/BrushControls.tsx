@@ -2000,7 +2000,6 @@ const BrushControls = () => {
             canToggle={false}
             forceOn
             hideToggle
-            hideLostEdge
             afterResolution={
               <>
                 <div className="flex items-center gap-2 mt-2">

@@ -158,4 +158,23 @@ describe('DitherControls wiring', () => {
     fireEvent.change(slider, { target: { value: '6' } });
     expect(onChange).toHaveBeenCalledWith({ fillResolution: 6 });
   });
+
+  it('shows lost edge slider for dither gradient brush and wires updates', () => {
+    const onChange = jest.fn();
+    render(
+      <DitherControls
+        settings={{ ...baseSettings, lostEdge: 12 }}
+        onChange={onChange}
+        forceOn
+        hideToggle
+      />
+    );
+
+    const slider = screen.getByLabelText('Lost Edge') as HTMLInputElement;
+    expect(slider).toBeInTheDocument();
+    expect(slider.value).toBe('12');
+
+    fireEvent.change(slider, { target: { value: '25' } });
+    expect(onChange).toHaveBeenCalledWith({ lostEdge: 25 });
+  });
 });

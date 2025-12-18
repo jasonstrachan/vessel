@@ -1764,10 +1764,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
 
     // If press starts outside the project, leave mouse-down false so move can bootstrap later.
+    // Exception: allow Dither Gradient shapes to start outside the canvas to position gradients freely.
+    const allowOobShapeStart = tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
     if (
       project &&
       (worldPos.x < 0 || worldPos.x > project.width ||
-       worldPos.y < 0 || worldPos.y > project.height)
+       worldPos.y < 0 || worldPos.y > project.height) &&
+      !allowOobShapeStart
     ) {
       isMouseDownRef.current = false;
       return;
