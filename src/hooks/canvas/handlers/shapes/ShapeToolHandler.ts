@@ -739,13 +739,6 @@ export const createShapeToolHandler = (
     const projectSnapshot = activeSnapshot.project ?? project ?? null;
     const historyDescription = `Shape Fill: ${payload.strategy.label ?? payload.fillId}`;
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[shapeFill] finalize target layer', {
-        layerId: activeLayer?.id,
-        layerType: activeLayer?.layerType,
-      });
-    }
-
     const fallbackFinalize = async () => {
       // Close the shape session now so its history transaction completes before layer history begins.
       store.cancelShapeFillSession();

@@ -1,5 +1,6 @@
 import type { AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
+import { BrushShape } from '@/types';
 
 type CanvasPoint = { x: number; y: number };
 
@@ -47,6 +48,8 @@ export class BrushStampSource {
   private usingUserBrush = false;
   private originalBrushSize: number | null = null;
   private sizeOverrideApplied = false;
+  private originalBrushShape: BrushShape | null = null;
+  private shapeOverrideApplied = false;
 
   constructor(deps: BrushStampSourceDeps) {
     this.getState = deps.getState;
@@ -65,7 +68,7 @@ export class BrushStampSource {
     this.usingUserBrush =
       !!this.activeBrushId && this.userBrushEngine.isUserBrush(this.activeBrushId);
 
-    this.applySizeOverrideIfNeeded(state);
+    this.applyOverridesIfNeeded(state);
 
     if (this.usingUserBrush) {
       this.userBrushEngine.setActiveBrush(this.activeBrushId);
@@ -104,14 +107,20 @@ export class BrushStampSource {
     if (this.usingUserBrush) {
       this.userBrushEngine.endStroke();
     }
-    if (this.sizeOverrideApplied) {
+    if (this.sizeOverrideApplied || this.shapeOverrideApplied) {
       const state = this.getState();
       const brushSettings = state.tools.brushSettings;
-      const restoreSize = this.originalBrushSize ?? brushSettings.size;
+      const restoreSize = this.sizeOverrideApplied
+        ? this.originalBrushSize ?? brushSettings.size
+        : brushSettings.size;
+      const restoreShape = this.shapeOverrideApplied
+        ? this.originalBrushShape ?? brushSettings.brushShape
+        : brushSettings.brushShape;
       this.brushEngine.updateConfig?.({
         brushSettings: {
           ...brushSettings,
-          size: restoreSize
+          size: restoreSize,
+          brushShape: restoreShape,
         }
       });
     }
@@ -122,39 +131,74 @@ export class BrushStampSource {
     this.usingUserBrush = false;
     this.originalBrushSize = null;
     this.sizeOverrideApplied = false;
+    this.originalBrushShape = null;
+    this.shapeOverrideApplied = false;
   }
 
   last(): CanvasPoint | null {
     return this.lastPoint;
   }
 
-  private applySizeOverrideIfNeeded(state: AppState): void {
+  private applyOverridesIfNeeded(state: AppState): void {
     if (state.tools.currentTool !== 'eraser') {
       this.sizeOverrideApplied = false;
       this.originalBrushSize = null;
+      this.shapeOverrideApplied = false;
+      this.originalBrushShape = null;
       return;
     }
     const eraserSettings = state.tools.eraserSettings;
-    const shouldLink = eraserSettings.linkSizeToBrush !== false;
-    if (shouldLink || !this.brushEngine.updateConfig) {
+    const brushSettings = state.tools.brushSettings;
+    const hasUpdate = Boolean(this.brushEngine.updateConfig);
+    if (!hasUpdate) {
       this.sizeOverrideApplied = false;
       this.originalBrushSize = null;
-      return;
-    }
-    const overrideSize = eraserSettings.size ?? state.tools.brushSettings.size;
-    if (typeof overrideSize !== 'number' || Number.isNaN(overrideSize) || overrideSize <= 0) {
-      this.sizeOverrideApplied = false;
-      this.originalBrushSize = null;
+      this.shapeOverrideApplied = false;
+      this.originalBrushShape = null;
       return;
     }
 
-    const brushSettings = state.tools.brushSettings;
-    this.originalBrushSize = brushSettings.size;
-    this.sizeOverrideApplied = true;
+    const nextSettings = { ...brushSettings };
+    let changed = false;
+
+    // Size override (when eraser is unlinked from brush size)
+    const shouldLink = eraserSettings.linkSizeToBrush !== false;
+    if (!shouldLink) {
+      const overrideSize = eraserSettings.size ?? brushSettings.size;
+      if (typeof overrideSize === 'number' && !Number.isNaN(overrideSize) && overrideSize > 0) {
+        this.originalBrushSize = brushSettings.size ?? null;
+        nextSettings.size = overrideSize;
+        this.sizeOverrideApplied = true;
+        changed = true;
+      } else {
+        this.sizeOverrideApplied = false;
+        this.originalBrushSize = null;
+      }
+    } else {
+      this.sizeOverrideApplied = false;
+      this.originalBrushSize = null;
+    }
+
+    // Shape override (when eraser shape differs from active brush)
+    const eraserShape = eraserSettings.brushShape;
+    const brushShape = brushSettings.brushShape;
+    if (eraserShape && eraserShape !== brushShape) {
+      this.originalBrushShape = brushShape ?? null;
+      nextSettings.brushShape = eraserShape;
+      this.shapeOverrideApplied = true;
+      changed = true;
+    } else {
+      this.shapeOverrideApplied = false;
+      this.originalBrushShape = null;
+    }
+
+    if (!changed) {
+      return;
+    }
     this.brushEngine.updateConfig({
       brushSettings: {
         ...brushSettings,
-        size: overrideSize
+        ...nextSettings,
       }
     });
   }

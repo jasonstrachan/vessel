@@ -14,6 +14,7 @@ import {
   loadProjectFromFile,
   exportProjectAsPNG,
 } from '@/utils/projectIO';
+import { fileBackupService } from '@/utils/fileBackupService';
 import { mergeCustomBrushCollections } from './customBrushMerge';
 import {
   type ColorCycleBrushManager,
@@ -21,6 +22,7 @@ import {
 } from '../colorCycleBrushManager';
 import { setActiveHistoryDocument } from '@/history/historyService';
 import { logError } from '@/utils/debug';
+import { devLog } from '@/utils/devLog';
 import { updateToolsWithPalette } from './paletteState';
 
 type AppState = import('../useAppStore').AppState;
@@ -73,6 +75,7 @@ export const createProjectLifecycle = ({
   syncPercentOffsetsFromPixels,
   captureCanvasToActiveLayer,
 }: ProjectLifecycleOptions) => {
+  const autosaveLog = devLog.scope('AUTOSAVE');
   const setProject = (project: Project): void => {
     const normalized = normalizeProject(project);
     setActiveHistoryDocument(normalized.id);
@@ -330,6 +333,10 @@ export const createProjectLifecycle = ({
       );
 
       const nextFileHandle = fileHandle ?? state.projectFileHandle ?? null;
+      if (nextFileHandle) {
+        fileBackupService.setFileHandle(nextFileHandle);
+        await fileBackupService.ensureFileWritePermission(nextFileHandle);
+      }
 
       set((current) => ({
         paletteDirty: false,
@@ -375,7 +382,16 @@ export const createProjectLifecycle = ({
 
     try {
       const { project: loadedProject, fileName, fileHandle } = await loadProjectFromFile();
+      autosaveLog.info('Load project file handle info', {
+        fileName,
+        hasHandle: Boolean(fileHandle),
+        handleName: (fileHandle as FileSystemFileHandle | null)?.name ?? null,
+      });
       await applyLoadedProject(loadedProject);
+      if (fileHandle) {
+        fileBackupService.setFileHandle(fileHandle);
+        await fileBackupService.ensureFileWritePermission(fileHandle);
+      }
       set((current) => ({
         projectFilename: fileName ?? null,
         projectFileHandle: fileHandle ?? null,
@@ -391,7 +407,16 @@ export const createProjectLifecycle = ({
                 backupPath: fileName ?? current.autosave.fileBackup.backupPath,
               },
             }
-          : current.autosave,
+          : {
+              ...current.autosave,
+              fileBackup: {
+                ...current.autosave.fileBackup,
+                enabled: false,
+                fileHandle: null,
+                directoryHandle: null,
+                backupPath: null,
+              },
+            },
       }));
     } catch (error) {
       state.addNotification({
@@ -406,16 +431,43 @@ export const createProjectLifecycle = ({
 
   const importProject = async (
     project: Project,
-    options?: { fileName?: string | null }
+    options?: { fileName?: string | null; fileHandle?: FileSystemFileHandle | null }
   ): Promise<void> => {
     const state = get();
 
     try {
       await applyLoadedProject(project);
-      set({
+      const fileHandle = options?.fileHandle ?? null;
+      if (fileHandle) {
+        fileBackupService.setFileHandle(fileHandle);
+        await fileBackupService.ensureFileWritePermission(fileHandle);
+      }
+      set((current) => ({
         projectFilename: options?.fileName ?? null,
-        projectFileHandle: null,
-      });
+        projectFileHandle: fileHandle,
+        autosave: fileHandle
+          ? {
+              ...current.autosave,
+              fileBackup: {
+                ...current.autosave.fileBackup,
+                enabled: true,
+                mode: 'single-file',
+                fileHandle,
+                directoryHandle: null,
+                backupPath: options?.fileName ?? current.autosave.fileBackup.backupPath,
+              },
+            }
+          : {
+              ...current.autosave,
+              fileBackup: {
+                ...current.autosave.fileBackup,
+                enabled: false,
+                fileHandle: null,
+                directoryHandle: null,
+                backupPath: null,
+              },
+            },
+      }));
     } catch (error) {
       state.addNotification({
         type: 'error',

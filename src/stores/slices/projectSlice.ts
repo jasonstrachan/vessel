@@ -131,7 +131,10 @@ export interface ProjectSlice {
   updateWebglExportSettings: (settings: Partial<WebGLExportSettings>) => void;
   saveProject: (filename?: string) => Promise<void>;
   loadProject: () => Promise<void>;
-  importProject: (project: Project, options?: { fileName?: string | null }) => Promise<void>;
+  importProject: (
+    project: Project,
+    options?: { fileName?: string | null; fileHandle?: FileSystemFileHandle | null }
+  ) => Promise<void>;
   exportProject: (
     format: 'png',
     options?: { quality?: number; scale?: number }

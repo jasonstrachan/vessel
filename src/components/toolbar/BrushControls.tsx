@@ -2141,9 +2141,6 @@ const BrushControls = () => {
   }
 
   if (isShapeFillBrush) {
-    if (typeof window !== 'undefined') {
-      console.log('[BrushControls] ShapeFill branch');
-    }
     return (
       <div className="flex flex-col gap-4">
         <div className="px-4">

@@ -269,6 +269,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
   const [projectData, setProjectData] = useState<ArrayBuffer | null>(null);
   const [cachedProject, setCachedProject] = useState<Project | null>(null);
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
+  const [selectedFileHandle, setSelectedFileHandle] = useState<FileSystemFileHandle | null>(null);
   const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(() => lastDirectoryHandle);
   const [directoryEntries, setDirectoryEntries] = useState<DirectoryProjectEntry[]>(() => lastDirectoryEntries);
   const [isScanningDirectory, setIsScanningDirectory] = useState(false);
@@ -318,6 +319,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     setProjectData(null);
     setCachedProject(null);
     setPreview(null);
+    setSelectedFileHandle(null);
     setDirectoryError(null);
     setSelectedEntryIndex(null);
     setPreviewOffset({ x: 0, y: 0 });
@@ -502,7 +504,10 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     }
   }, []);
 
-  const processProjectFile = useCallback(async (file: File, options?: { autoImport?: boolean }) => {
+  const processProjectFile = useCallback(async (
+    file: File,
+    options?: { autoImport?: boolean; fileHandle?: FileSystemFileHandle | null }
+  ) => {
     const autoImport = options?.autoImport ?? false;
     setIsProcessing(true);
     setError(null);
@@ -531,6 +536,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
       setPreview(previewDetails);
       updateSelectionForEntry(file.name);
       setCachedProject(null);
+      setSelectedFileHandle(options?.fileHandle ?? null);
 
       let hydratedProject: Project | null = null;
       const ensureHydratedProject = async (): Promise<Project> => {
@@ -565,7 +571,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         try {
           const hydrated = await ensureHydratedProject();
           setCachedProject(hydrated);
-          await importProject(hydrated, { fileName: file.name });
+          await importProject(hydrated, { fileName: file.name, fileHandle: options?.fileHandle ?? null });
           closeModal();
           return;
         } catch (importError) {
@@ -692,7 +698,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         });
         const file = await handle.getFile();
         ensureModalOpenForDrop();
-        void processProjectFile(file);
+        void processProjectFile(file, { fileHandle: handle });
         return;
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -925,7 +931,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     try {
       const file = await entry.handle.getFile();
       ensureModalOpenForDrop();
-      void processProjectFile(file, options);
+      void processProjectFile(file, { ...options, fileHandle: entry.handle });
     } catch (error) {
       console.error('[LoadProjectModal] Failed to open file from directory', error);
       setDirectoryError(error instanceof Error ? error.message : 'Failed to open file from folder');
@@ -1046,7 +1052,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
 
     try {
       const project = cachedProject ?? await deserializeProject(projectData);
-      await importProject(project, { fileName: selectedFileName });
+      await importProject(project, { fileName: selectedFileName, fileHandle: selectedFileHandle });
       closeModal();
     } catch (err) {
       console.error('[LoadProjectModal] Failed to import project', err);

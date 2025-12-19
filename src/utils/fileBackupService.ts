@@ -180,6 +180,62 @@ export class FileBackupService {
     }
   }
 
+  async ensureFileWritePermission(handle?: FileSystemFileHandle | null): Promise<boolean> {
+    const target = handle ?? this.fileHandle;
+    if (!target) return false;
+
+    const permissionHandle = target as FileSystemFileHandle & {
+      queryPermission?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+      requestPermission?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+    };
+
+    try {
+      if (permissionHandle.queryPermission) {
+        const current = await permissionHandle.queryPermission({ mode: 'readwrite' });
+        if (current === 'granted') {
+          return true;
+        }
+        if (permissionHandle.requestPermission) {
+          const requested = await permissionHandle.requestPermission({ mode: 'readwrite' });
+          return requested === 'granted';
+        }
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('[FileBackup] Failed to request file write permission:', error);
+      return false;
+    }
+  }
+
+  async ensureDirectoryWritePermission(handle?: FileSystemDirectoryHandle | null): Promise<boolean> {
+    const target = handle ?? this.directoryHandle;
+    if (!target) return false;
+
+    const permissionHandle = target as FileSystemDirectoryHandle & {
+      queryPermission?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+      requestPermission?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+    };
+
+    try {
+      if (permissionHandle.queryPermission) {
+        const current = await permissionHandle.queryPermission({ mode: 'readwrite' });
+        if (current === 'granted') {
+          return true;
+        }
+        if (permissionHandle.requestPermission) {
+          const requested = await permissionHandle.requestPermission({ mode: 'readwrite' });
+          return requested === 'granted';
+        }
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('[FileBackup] Failed to request directory write permission:', error);
+      return false;
+    }
+  }
+
   async checkDirectoryAccess(): Promise<boolean> {
     if (!this.directoryHandle) return false;
     

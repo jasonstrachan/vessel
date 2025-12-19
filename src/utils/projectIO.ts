@@ -1247,6 +1247,10 @@ export async function loadProjectFromFile(): Promise<{
       const file = await fileHandle.getFile();
       const projectData = await file.arrayBuffer();
       const project = await deserializeProject(projectData);
+      console.log('[projectIO] loadProjectFromFile: using File System Access handle', {
+        fileName: file.name,
+        handleName: fileHandle.name,
+      });
       return { project, fileName: file.name, fileHandle };
     } catch {
       // User cancelled or API not supported, fall back to file input
@@ -1269,6 +1273,9 @@ export async function loadProjectFromFile(): Promise<{
       try {
         const projectData = await file.arrayBuffer();
         const project = await deserializeProject(projectData);
+        console.log('[projectIO] loadProjectFromFile: using file input fallback', {
+          fileName: file.name,
+        });
         resolve({ project, fileName: file.name, fileHandle: null });
       } catch (error) {
         reject(error);

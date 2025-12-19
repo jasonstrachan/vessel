@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { AutosaveDirtyReason, AutosaveState } from '@/types';
 import historyManager from '@/history/historyService';
+import { backgroundStorageService } from '@/utils/backgroundStorage';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -36,7 +37,7 @@ const defaultAutosaveState: AutosaveState = {
   },
 };
 
-export const createAutosaveSlice: StateCreator<AppState, [], [], AutosaveSlice> = (set) => ({
+export const createAutosaveSlice: StateCreator<AppState, [], [], AutosaveSlice> = (set, get) => ({
   autosave: defaultAutosaveState,
 
   setAutosaveEnabled: (enabled) =>
@@ -95,14 +96,21 @@ export const createAutosaveSlice: StateCreator<AppState, [], [], AutosaveSlice> 
     })),
 
   markAutosaveDirty: (reason) =>
-    set((state) => ({
-      autosave: {
-        ...state.autosave,
-        hasUnsavedChanges: true,
-        lastDirtyReason: reason,
-        lastDirtyAt: new Date(),
-      },
-    })),
+    set((state) => {
+      const projectId = get().project?.id;
+      if (projectId) {
+        void backgroundStorageService.updateSession(projectId, true).catch(() => undefined);
+      }
+
+      return {
+        autosave: {
+          ...state.autosave,
+          hasUnsavedChanges: true,
+          lastDirtyReason: reason,
+          lastDirtyAt: new Date(),
+        },
+      };
+    }),
 
   updateFileBackupTime: () =>
     set((state) => ({

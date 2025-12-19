@@ -606,7 +606,10 @@ export interface AppState {
   // Project Save/Load Management
   saveProject: (filename?: string) => Promise<void>;
   loadProject: () => Promise<void>;
-  importProject: (project: Project, options?: { fileName?: string | null }) => Promise<void>;
+  importProject: (
+    project: Project,
+    options?: { fileName?: string | null; fileHandle?: FileSystemFileHandle | null }
+  ) => Promise<void>;
   exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;

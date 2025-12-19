@@ -180,7 +180,7 @@ class BackgroundStorageService {
 
       request.onsuccess = () => {
         // Project "${project.name}" saved to IndexedDB
-        this.updateSession(project.id, true);
+        void this.updateSession(project.id, false);
         resolve();
       };
     });
@@ -314,7 +314,7 @@ class BackgroundStorageService {
     });
   }
 
-  private async updateSession(projectId: string, hasUnsavedChanges: boolean): Promise<void> {
+  async updateSession(projectId: string, hasUnsavedChanges: boolean): Promise<void> {
     const db = await this.ensureDb();
     if (!db) return;
 

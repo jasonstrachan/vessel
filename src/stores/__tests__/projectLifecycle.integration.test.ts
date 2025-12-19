@@ -12,6 +12,14 @@ jest.mock('@/utils/projectIO', () => ({
   exportProjectAsPNG: jest.fn(),
 }));
 
+jest.mock('@/utils/fileBackupService', () => ({
+  __esModule: true as const,
+  fileBackupService: {
+    setFileHandle: jest.fn(),
+    ensureFileWritePermission: jest.fn().mockResolvedValue(true),
+  },
+}));
+
 const mockBrush = {
   setLayerId: jest.fn(),
   isUsingWebGL: jest.fn(() => false),
@@ -218,6 +226,48 @@ describe('project slice lifecycle flows', () => {
     expect(mockManager.cleanupOrphanedBrushes).toHaveBeenCalled();
     const cleanupArgs = mockManager.cleanupOrphanedBrushes.mock.calls[0]?.[0];
     expect(cleanupArgs instanceof Set ? cleanupArgs.size : null).toBe(0);
+  });
+
+  it('imports a project payload and binds file handle for autosave', async () => {
+    const layers = [makeLayer('layer-import-handle')];
+    const project: Project = {
+      id: 'project-import-handle',
+      name: 'Imported Scene With Handle',
+      width: 320,
+      height: 180,
+      layers,
+      backgroundColor: '#101010',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [makeCustomBrush('brush-2')],
+      defaultCustomBrushId: 'brush-2',
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ff00ff',
+        backgroundColor: '#00ffff',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    const fileHandle = { name: 'imported.vessel' } as FileSystemFileHandle;
+
+    await useAppStore.getState().importProject(project, {
+      fileName: 'imported.vessel',
+      fileHandle,
+    });
+
+    const nextState = useAppStore.getState();
+    expect(nextState.projectFilename).toBe('imported.vessel');
+    expect(nextState.projectFileHandle).toBe(fileHandle);
+    expect(nextState.autosave.fileBackup).toEqual({
+      enabled: true,
+      mode: 'single-file',
+      fileHandle,
+      directoryHandle: null,
+      backupPath: 'imported.vessel',
+      lastBackupTime: null,
+    });
   });
 
   it('exports the current project as PNG and emits a success notification', async () => {

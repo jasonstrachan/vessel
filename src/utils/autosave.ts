@@ -23,19 +23,12 @@ const selectAutosaveConfig = (state: AppState): AutosaveConfig => ({
 const configsEqual = (a: AutosaveConfig, b: AutosaveConfig): boolean =>
   a.enabled === b.enabled && a.interval === b.interval;
 
-type SelectorSubscriber = <Slice>(
-  selector: (state: AppState) => Slice,
-  listener: (slice: Slice, prevSlice: Slice) => void,
-  options?: { equalityFn?: (a: Slice, b: Slice) => boolean }
-) => () => void;
-
-const subscribeWithSelector = useAppStore.subscribe as unknown as SelectorSubscriber;
-
 class AutosaveService {
   private intervalId: NodeJS.Timeout | null = null;
   private intervalMs: number = 2 * 60 * 1000; // 2 minutes
   private inProgress = false;
   private storeUnsubscribe: (() => void) | null = null;
+  private warnedFilePermission = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -44,19 +37,17 @@ class AutosaveService {
   }
 
   private bindStoreSubscription(): void {
-    const selector = selectAutosaveConfig;
-    this.storeUnsubscribe = subscribeWithSelector(
-      selector,
-      (next: AutosaveConfig, prev: AutosaveConfig | undefined) => {
-        this.applyConfig(next, prev ?? next);
-      },
-      {
-        equalityFn: configsEqual,
-      }
-    );
+    this.storeUnsubscribe = useAppStore.subscribe((state, prevState) => {
+      const next = selectAutosaveConfig(state);
+      const prev = selectAutosaveConfig(prevState);
 
-    const initialConfig = selector(useAppStore.getState());
-    this.applyConfig(initialConfig, initialConfig);
+      if (!configsEqual(next, prev)) {
+        this.applyConfig(next, prev);
+      }
+    });
+
+    const initialConfig = selectAutosaveConfig(useAppStore.getState());
+    this.applyConfig(initialConfig, { enabled: false, interval: initialConfig.interval });
   }
 
   private applyConfig(next: AutosaveConfig, prev: AutosaveConfig): void {
@@ -120,6 +111,23 @@ class AutosaveService {
     }
   }
 
+  private buildFallbackCompositeCanvas(store: AppState): HTMLCanvasElement | null {
+    if (typeof document === 'undefined' || !store.project) {
+      return null;
+    }
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = store.project.width;
+      canvas.height = store.project.height;
+      store.compositeLayersToCanvas(canvas);
+      return canvas;
+    } catch (error) {
+      autosaveLog.warn('Failed to build fallback composite canvas for autosave.', { error });
+      return null;
+    }
+  }
+
   private async performAutosave(): Promise<void> {
     if (this.inProgress) {
       autosaveLog.debug('Autosave already running; skipping overlapping invocation.');
@@ -127,6 +135,16 @@ class AutosaveService {
     }
 
     const store = useAppStore.getState();
+    autosaveLog.debug('Autosave tick', {
+      enabled: store.autosave.isEnabled,
+      hasUnsavedChanges: store.autosave.hasUnsavedChanges,
+      intervalMs: this.intervalMs,
+      hasProject: Boolean(store.project),
+      layerCount: store.layers.length,
+      fileBackupEnabled: store.autosave.fileBackup.enabled,
+      fileBackupPath: store.autosave.fileBackup.backupPath ?? null,
+      fileHandleName: store.autosave.fileBackup.fileHandle?.name ?? null,
+    });
     
     // Check if autosave is enabled and there are unsaved changes
     if (!store.autosave.isEnabled || !store.autosave.hasUnsavedChanges) {
@@ -137,12 +155,45 @@ class AutosaveService {
     if (!store.project) {
       return;
     }
+    if (store.layers.length === 0) {
+      return;
+    }
 
     this.inProgress = true;
 
     try {
-      // Capture current canvas state to active layer before saving
-      await store.captureCanvasToActiveLayer();
+      const activeLayerId = store.activeLayerId ?? store.layers[0]?.id ?? null;
+      const activeLayer = activeLayerId
+        ? store.layers.find((layer) => layer.id === activeLayerId) ?? null
+        : null;
+      const activeLayerIsColorCycle = activeLayer?.layerType === 'color-cycle';
+      autosaveLog.debug('Autosave capture setup', {
+        activeLayerId,
+        activeLayerType: activeLayer?.layerType,
+        hasOffscreen: Boolean(store.currentOffscreenCanvas),
+        isHistoryCapturing: store.history?.isCapturing,
+        projectFilename: store.projectFilename ?? null,
+        fileBackupEnabled: store.autosave.fileBackup.enabled,
+        fileBackupPath: store.autosave.fileBackup.backupPath ?? null,
+        fileHandleName: store.autosave.fileBackup.fileHandle?.name ?? null,
+      });
+
+      if (!activeLayerIsColorCycle) {
+        const isHistoryCapturing = store.history?.isCapturing ?? false;
+        let sourceCanvas = store.currentOffscreenCanvas;
+
+        if (!sourceCanvas && !isHistoryCapturing) {
+          sourceCanvas = this.buildFallbackCompositeCanvas(store);
+        }
+
+        if (sourceCanvas && !isHistoryCapturing) {
+          await store.captureCanvasToActiveLayer(sourceCanvas);
+          autosaveLog.debug('Autosave capture complete');
+        } else {
+          autosaveLog.warn('Autosave skipped: no capture source available.');
+          return;
+        }
+      }
       
       // Get fresh state after capture
       const freshState = useAppStore.getState();
@@ -157,12 +208,20 @@ class AutosaveService {
         projectForBackground,
         freshState.layers
       );
+      autosaveLog.debug('Autosave background save complete', {
+        projectId: freshState.project.id,
+      });
       
       // Also save to file if file backup is enabled
       if (freshState.autosave.fileBackup.enabled) {
         const mode = freshState.autosave.fileBackup.mode;
         const hasFile = freshState.autosave.fileBackup.fileHandle;
         const hasDirectory = freshState.autosave.fileBackup.directoryHandle;
+        autosaveLog.debug('Autosave file backup check', {
+          mode,
+          hasFile: Boolean(hasFile),
+          hasDirectory: Boolean(hasDirectory),
+        });
         
         if ((mode === 'single-file' && hasFile) || (mode === 'timestamped-files' && hasDirectory)) {
           try {
@@ -171,6 +230,35 @@ class AutosaveService {
               fileBackupService.setFileHandle(freshState.autosave.fileBackup.fileHandle!);
             } else {
               fileBackupService.setDirectoryHandle(freshState.autosave.fileBackup.directoryHandle!);
+            }
+
+            const hasPermission =
+              mode === 'single-file'
+                ? await fileBackupService.ensureFileWritePermission(
+                    freshState.autosave.fileBackup.fileHandle
+                  )
+                : await fileBackupService.ensureDirectoryWritePermission(
+                    freshState.autosave.fileBackup.directoryHandle
+                  );
+
+            autosaveLog.debug('Autosave file permission', {
+              mode,
+              hasPermission,
+            });
+
+            if (!hasPermission) {
+              if (!this.warnedFilePermission) {
+                this.warnedFilePermission = true;
+                const store = useAppStore.getState();
+                store.addNotification({
+                  type: 'warning',
+                  title: 'Autosave Permission Needed',
+                  message: 'Autosave could not update the file because write permission was not granted. Re-open the project or choose a backup file.',
+                  timestamp: new Date(),
+                  duration: 5000
+                });
+              }
+              return;
             }
 
             const backupProject = {
@@ -183,6 +271,11 @@ class AutosaveService {
               freshState.layers,
               mode
             );
+            autosaveLog.debug('Autosave file backup result', {
+              success: backupResult.success,
+              filename: backupResult.filename,
+              error: backupResult.error,
+            });
           
             if (backupResult.success) {
               // Update file backup time in store
@@ -207,6 +300,7 @@ class AutosaveService {
         },
       }));
       useAppStore.setState({ paletteDirty: false });
+      void backgroundStorageService.updateSession(freshState.project.id, false).catch(() => undefined);
       
       // Project "${freshState.project.name}" saved to background storage
     } catch (error) {

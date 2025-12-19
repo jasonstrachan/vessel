@@ -5,14 +5,9 @@ import { backgroundStorageService } from '../backgroundStorage';
 import { fileBackupService } from '../fileBackupService';
 
 jest.mock('@/stores/useAppStore', () => {
-  type Subscriber = {
-    selector: (state: unknown) => unknown;
-    listener: (slice: unknown, prevSlice: unknown) => void;
-    equalityFn?: (a: unknown, b: unknown) => boolean;
-    prev: unknown;
-  };
+  type Listener = (state: unknown, prevState: unknown) => void;
 
-  const subscribers: Subscriber[] = [];
+  const subscribers: Listener[] = [];
   type AutosaveStoreState = Partial<AppState> & { autosave: AppState['autosave'] };
 
   let storeState: AutosaveStoreState = {
@@ -35,47 +30,27 @@ jest.mock('@/stores/useAppStore', () => {
     },
   };
 
+  let lastEmittedState: AutosaveStoreState = JSON.parse(JSON.stringify(storeState));
+
   const getState = jest.fn(() => storeState);
   const setState = jest.fn();
 
-  const subscribe = jest.fn(
-    (
-      selector: Subscriber['selector'],
-      listener: Subscriber['listener'],
-      options?: { equalityFn?: Subscriber['equalityFn'] }
-    ) => {
-      const subscriber: Subscriber = {
-        selector,
-        listener,
-        equalityFn: options?.equalityFn,
-        prev: selector(storeState),
-      };
-      subscribers.push(subscriber);
-
-      return () => {
-        const index = subscribers.indexOf(subscriber);
-        if (index >= 0) {
-          subscribers.splice(index, 1);
-        }
-      };
-    }
-  );
+  const subscribe = jest.fn((listener: Listener) => {
+    subscribers.push(listener);
+    return () => {
+      const index = subscribers.indexOf(listener);
+      if (index >= 0) {
+        subscribers.splice(index, 1);
+      }
+    };
+  });
 
   const emitMock = (): void => {
-    subscribers.forEach((subscriber) => {
-      const nextSlice = subscriber.selector(storeState);
-      const equals = subscriber.equalityFn
-        ? subscriber.equalityFn(nextSlice, subscriber.prev)
-        : Object.is(nextSlice, subscriber.prev);
-
-      if (equals) {
-        return;
-      }
-
-      const previous = subscriber.prev;
-      subscriber.prev = nextSlice;
-      subscriber.listener(nextSlice, previous);
+    const prev = lastEmittedState;
+    subscribers.forEach((listener) => {
+      listener(storeState, prev);
     });
+    lastEmittedState = JSON.parse(JSON.stringify(storeState));
   };
 
   return {
@@ -85,9 +60,7 @@ jest.mock('@/stores/useAppStore', () => {
       subscribe,
       __setMockState(state: AutosaveStoreState) {
         storeState = state;
-        subscribers.forEach((subscriber) => {
-          subscriber.prev = subscriber.selector(storeState);
-        });
+        lastEmittedState = JSON.parse(JSON.stringify(state));
       },
       __emitMock() {
         emitMock();
@@ -127,13 +100,19 @@ const createStoreStub = () => ({
   project: {
     id: 'test-project',
     name: 'Test Project',
+    width: 64,
+    height: 64,
   },
   palette: {
     foregroundColor: '#000000',
     backgroundColor: '#FFFFFF',
     activeSlot: 'foreground' as const,
   },
-  layers: [{ id: 'layer-1' }],
+  layers: [{ id: 'layer-1', layerType: 'normal' as const }],
+  activeLayerId: 'layer-1',
+  history: { isCapturing: false },
+  currentOffscreenCanvas: null as HTMLCanvasElement | null,
+  compositeLayersToCanvas: jest.fn(),
   captureCanvasToActiveLayer: jest.fn().mockResolvedValue(undefined),
   clearDirtyState: jest.fn(),
   markAutosaveDirty: jest.fn(),
@@ -152,9 +131,12 @@ describe('AutosaveService', () => {
     setStateMock.mockImplementation(() => {});
 
     jest.spyOn(backgroundStorageService, 'saveProjectInBackground').mockResolvedValue(undefined);
+    jest.spyOn(backgroundStorageService, 'updateSession').mockResolvedValue(undefined);
     jest.spyOn(fileBackupService, 'saveProjectBackup').mockResolvedValue({ success: true, filename: 'backup.json' });
     jest.spyOn(fileBackupService, 'setFileHandle').mockImplementation(() => {});
     jest.spyOn(fileBackupService, 'setDirectoryHandle').mockImplementation(() => {});
+    jest.spyOn(fileBackupService, 'ensureFileWritePermission').mockResolvedValue(true);
+    jest.spyOn(fileBackupService, 'ensureDirectoryWritePermission').mockResolvedValue(true);
 
     autosaveService.stop();
   });
@@ -225,6 +207,7 @@ describe('AutosaveService', () => {
     });
     expect(updated?.autosave.lastSaveTime).toBeInstanceOf(Date);
     expect(setStateMock).toHaveBeenCalledWith({ paletteDirty: false });
+    expect(backgroundStorageService.updateSession).toHaveBeenCalledWith(store.project.id, false);
   });
 
   it('should not perform autosave when disabled', async () => {
