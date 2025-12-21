@@ -40,6 +40,7 @@ jest.mock('@/stores/useAppStore', () => {
     initColorCycleForLayer: jest.fn(),
     playColorCycle: jest.fn(),
     pauseColorCycle: jest.fn(),
+    forceResumeColorCycle: jest.fn(),
     setLayersNeedRecomposition: jest.fn(),
     setCurrentOffscreenCanvas: jest.fn(),
   };
@@ -184,5 +185,19 @@ describe('MinimalLayerList visibility toggling', () => {
     // Smoke assertion: component rendered and layer visibility state is defined
     expect(layers.find((l) => l.id === 'layer-1')?.visible).toBeDefined();
     expect(layers.find((l) => l.id === 'layer-2')?.visible).toBeDefined();
+  });
+
+  it('forces resume when playback is suspended and play is pressed', () => {
+    useAppStore.setState({
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
+    });
+
+    render(<MinimalLayerList />);
+
+    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+
+    const store = useAppStore.getState();
+    expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
   });
 });

@@ -513,24 +513,32 @@ export const createLayersSlice = (
         if (!layer.visible || layer.layerType === 'color-cycle') {
           continue;
         }
-        if (!layer.imageData) {
+        let source: CanvasImageSource | null = null;
+
+        if (hasValidFramebuffer(layer.framebuffer)) {
+          source = layer.framebuffer as CanvasImageSource;
+        } else if (layer.imageData) {
+          const layerCanvas = createLayerTransferCanvas(layer.imageData.width, layer.imageData.height);
+          if (!layerCanvas) {
+            continue;
+          }
+          const layerCtx = layerCanvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          if (!layerCtx) {
+            continue;
+          }
+          layerCtx.putImageData(layer.imageData, 0, 0);
+          source = layerCanvas as CanvasImageSource;
+        }
+
+        if (!source) {
           continue;
         }
-        const layerCanvas = createLayerTransferCanvas(layer.imageData.width, layer.imageData.height);
-        if (!layerCanvas) {
-          continue;
-        }
-        const layerCtx = layerCanvas.getContext(
-          '2d',
-          { willReadFrequently: true } as CanvasRenderingContext2DSettings
-        ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-        if (!layerCtx) {
-          continue;
-        }
-        layerCtx.putImageData(layer.imageData, 0, 0);
         ctx.globalCompositeOperation = layer.blendMode;
         ctx.globalAlpha = layer.opacity;
-        ctx.drawImage(layerCanvas as CanvasImageSource, 0, 0);
+        ctx.drawImage(source, 0, 0);
       }
 
       ctx.globalCompositeOperation = 'source-over';

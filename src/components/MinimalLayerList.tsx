@@ -300,6 +300,7 @@ const MinimalLayerList = () => {
   const suspendDepth = useAppStore((state) => state.colorCyclePlayback.suspendDepth);
   const playColorCycle = useAppStore((state) => state.playColorCycle);
   const pauseColorCycle = useAppStore((state) => state.pauseColorCycle);
+  const forceResumeColorCycle = useAppStore((state) => state.forceResumeColorCycle);
   const effectivePlaying = desiredPlaying && suspendDepth === 0;
   const isSuspended = desiredPlaying && suspendDepth > 0;
   
@@ -747,10 +748,13 @@ const MinimalLayerList = () => {
         <div className="border-t border-[#424242] p-2">
           <button
             onClick={() => {
-              if (desiredPlaying) {
+              if (effectivePlaying) {
                 pauseColorCycle('toolbar');
-              } else {
-                playColorCycle('toolbar');
+                return;
+              }
+              playColorCycle('toolbar');
+              if (suspendDepth > 0) {
+                forceResumeColorCycle('toolbar');
               }
             }}
             className="w-full h-10 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"

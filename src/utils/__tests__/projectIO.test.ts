@@ -1,5 +1,7 @@
 import JSZip from 'jszip';
-import { readProjectManifest } from '@/utils/projectIO';
+import { deserializeProject, readProjectManifest, serializeProject } from '@/utils/projectIO';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import type { Layer, Project } from '@/types';
 
 const minimalVesselProject = {
   version: '1.0.0',
@@ -27,6 +29,39 @@ async function zipWithProjectJson(): Promise<Uint8Array> {
   zip.file('project.json', asJson);
   return zip.generateAsync({ type: 'uint8array' });
 }
+
+const createSolidImageData = (
+  width: number,
+  height: number,
+  color: [number, number, number, number]
+): ImageData => {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = color[0];
+    data[i + 1] = color[1];
+    data[i + 2] = color[2];
+    data[i + 3] = color[3];
+  }
+  return new ImageData(data, width, height);
+};
+
+const createCanvasFromImageData = (imageData: ImageData): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx?.putImageData(imageData, 0, 0);
+  return canvas;
+};
+
+const readPixel = (imageData: ImageData | null, x: number, y: number): [number, number, number, number] => {
+  if (!imageData) {
+    return [0, 0, 0, 0];
+  }
+  const idx = (y * imageData.width + x) * 4;
+  const { data } = imageData;
+  return [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]];
+};
 
 describe('projectIO readProjectManifest', () => {
   let errorSpy: jest.SpyInstance;
@@ -76,5 +111,66 @@ describe('projectIO readProjectManifest', () => {
   it('rejects corrupted binary payloads', async () => {
     const garbage = new Uint8Array([1, 2, 3, 4, 5]);
     await expect(readProjectManifest(garbage)).rejects.toThrow(/Invalid project file format/);
+  });
+});
+
+describe('projectIO serialize/deserialize layering', () => {
+  it('prefers per-layer framebuffer pixels when saving', async () => {
+    const red = createSolidImageData(2, 2, [255, 0, 0, 255]);
+    const green = createSolidImageData(2, 2, [0, 255, 0, 255]);
+    const blue = createSolidImageData(2, 2, [0, 0, 255, 255]);
+
+    const layer1: Layer = {
+      id: 'layer-1',
+      name: 'Layer 1',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: green,
+      framebuffer: createCanvasFromImageData(red),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+
+    const layer2: Layer = {
+      id: 'layer-2',
+      name: 'Layer 2',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 1,
+      imageData: blue,
+      framebuffer: createCanvasFromImageData(blue),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+
+    const project: Project = {
+      id: 'p1',
+      name: 'demo',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer1, layer2],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await serializeProject(project, project.layers);
+    const restored = await deserializeProject(payload);
+
+    const restoredLayer1 = restored.layers[0];
+    const restoredLayer2 = restored.layers[1];
+
+    expect(readPixel(restoredLayer1.imageData, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(readPixel(restoredLayer2.imageData, 0, 0)).toEqual([0, 0, 255, 255]);
   });
 });

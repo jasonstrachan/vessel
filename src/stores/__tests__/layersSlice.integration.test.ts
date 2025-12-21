@@ -374,4 +374,43 @@ describe('layers slice integration', () => {
     expect(nextState.selectedLayerIds).toEqual([mergedId]);
     expect(nextState.referenceLayerId).toBeNull();
   });
+
+  it('composites visible normal layers from framebuffer when imageData is missing', () => {
+    useAppStore.setState((state) => ({
+      project: state.project ?? {
+        id: 'proj-composite',
+        name: 'Composite Test',
+        width: 64,
+        height: 64,
+        layers: [],
+        backgroundColor: 'transparent',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const framebuffer = makeCanvas();
+    const store = useAppStore.getState();
+    store.addLayer({
+      ...createNormalLayerInput('Framebuffer Layer'),
+      imageData: null,
+      framebuffer,
+    });
+
+    const ctx = {
+      clearRect: jest.fn(),
+      fillRect: jest.fn(),
+      drawImage: jest.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const targetCanvas = {
+      width: 64,
+      height: 64,
+      getContext: jest.fn(() => ctx),
+    } as unknown as HTMLCanvasElement;
+
+    useAppStore.getState().compositeLayersToCanvas(targetCanvas);
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(framebuffer, 0, 0);
+  });
 });

@@ -783,6 +783,7 @@ export const useBrushEngineSimplified = () => {
     };
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
+    strokePressureResStateRef.current = createPressureResolutionState(1);
   }, [tools.brushSettings.pressureLinkedFillResolution]);
 
   const layerHasAnyAlpha = useCallback(() => {
@@ -1556,7 +1557,6 @@ export const useBrushEngineSimplified = () => {
     }
     p = Math.max(0, Math.min(1, p));
     const size = computePressureScaledResolution(p);
-    lastPressureDitherPixelSizeRef.current = size;
     return size;
   }, [computePressureScaledResolution]);
 

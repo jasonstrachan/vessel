@@ -3,7 +3,11 @@
 import React from 'react';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import ButtonGroup, { type ButtonGroupOption } from '@/components/ui/ButtonGroup';
-import { useAppStore, selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
+import {
+  useAppStore,
+  selectEffectiveColorCyclePlaying,
+  selectColorCycleSuspendDepth,
+} from '@/stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
@@ -31,11 +35,12 @@ const AnimationControlsPanel: React.FC = () => {
   const globalColorCycleFlowMode = brushSettings.colorCycleFlowMode ?? 'reverse';
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const updateLayer = useAppStore((state) => state.updateLayer);
-  const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const forceResumeColorCycle = useAppStore(state => state.forceResumeColorCycle);
   const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
   const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
+  const suspendDepth = useAppStore(selectColorCycleSuspendDepth);
 
   const activeLayer = React.useMemo(
     () => layers.find(layer => layer.id === activeLayerId) || null,
@@ -81,12 +86,15 @@ const AnimationControlsPanel: React.FC = () => {
   }, [activeLayerId, layers, selectedLayerIds, setBrushSettings, updateLayer]);
 
   const handleTogglePlayback = React.useCallback(() => {
-    if (desiredPlaying) {
+    if (effectivePlaying) {
       pauseColorCycle('toolbar');
-    } else {
-      playColorCycle('toolbar');
+      return;
     }
-  }, [desiredPlaying, pauseColorCycle, playColorCycle]);
+    playColorCycle('toolbar');
+    if (suspendDepth > 0) {
+      forceResumeColorCycle('toolbar');
+    }
+  }, [effectivePlaying, pauseColorCycle, playColorCycle, forceResumeColorCycle, suspendDepth]);
 
   const handleFlowModeChange = React.useCallback((value: string) => {
     const nextMode: 'forward' | 'reverse' | 'pingpong' =

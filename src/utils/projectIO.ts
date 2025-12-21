@@ -514,12 +514,29 @@ function base64ToUint8Array(base64?: string): Uint8Array | undefined {
 }
 
 
+const resolveLayerImageDataForSave = (layer: Layer): ImageData | null => {
+  const layerImageData = layer.imageData ?? null;
+  const framebufferImageData = captureCanvasImageData(layer.framebuffer ?? null) ?? null;
+
+  if (framebufferImageData) {
+    const framebufferHasPixels = imageDataHasVisiblePixels(framebufferImageData);
+    const layerHasPixels = imageDataHasVisiblePixels(layerImageData);
+
+    if (framebufferHasPixels || !layerHasPixels) {
+      return framebufferImageData;
+    }
+  }
+
+  return layerImageData;
+};
+
 // Serialize a layer for saving
 async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
   let imageDataUrl = '';
-  if (layer.imageData) {
+  const imageDataForSave = resolveLayerImageDataForSave(layer);
+  if (imageDataForSave) {
     try {
-      imageDataUrl = await imageDataToDataUrl(layer.imageData);
+      imageDataUrl = await imageDataToDataUrl(imageDataForSave);
     } catch (error) {
       console.warn('[projectIO] Failed to encode layer imageData, falling back to empty payload:', error);
     }
