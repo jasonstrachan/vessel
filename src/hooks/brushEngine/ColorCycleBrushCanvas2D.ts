@@ -8,7 +8,7 @@ import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 // Debug logs suppressed for color cycle brush
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
-import { applyDitheringWithFillResolution } from './dithering';
+import { applyDithering, applyDitheringWithFillResolution } from './dithering';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
@@ -19,6 +19,7 @@ import { getMaskManager } from '@/layers/MaskManager';
 import { recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
 import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
+import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 
 interface CustomStampInput {
   imageData: ImageData;
@@ -107,10 +108,11 @@ interface StampMaskCacheEntry {
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
-const STAMP_DITHER_BUCKETS = 16;
+const STAMP_DITHER_BUCKETS = 64;
 const STAMP_DITHER_TILE_SIZE = 16;
-const MIN_STAMP_DITHER_COVERAGE = 0.35;
-const MAX_STAMP_DITHER_COVERAGE = 1.0;
+const STAMP_DITHER_PHASE_STEPS = 8;
+const STAMP_DITHER_COVERAGE_MIN = 0.25;
+const STAMP_DITHER_COVERAGE_MAX = 0.75;
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -229,9 +231,10 @@ export class ColorCycleBrushCanvas2D {
   private gradientSignatures: Map<string, string> = new Map();
   private stampDitherEnabled: boolean = false;
   private stampDitherPixelSize: number = 1;
-  private stampDitherBaseTiles: Map<number, Uint8Array> = new Map();
+  private stampDitherAlgorithm: DitherAlgorithm = 'sierra-lite';
+  private stampDitherPatternStyle: PatternStyle = 'dots';
+  private stampDitherBaseTiles: Map<string, Uint8Array> = new Map();
   private stampDitherTiles: Map<string, Uint8Array> = new Map();
-  private stampPaletteBuckets: Uint8Array = new Uint8Array(256);
   private stampDitherClears: boolean = false;
   
   constructor(canvas: HTMLCanvasElement, options: {
@@ -280,7 +283,7 @@ export class ColorCycleBrushCanvas2D {
     this.pressureEnabled = false;
     this.minPressure = 1;
     this.maxPressure = 200; // Default to 2x size at max pressure
-    this.rebuildStampDitherBuckets();
+    this.clearStampDitherCache();
   }
 
   private ensureStrokeState(layerId: string): LayerStrokeState {
@@ -434,18 +437,29 @@ export class ColorCycleBrushCanvas2D {
     }
   }
 
-  private computeColorBandIndex(strokeData: LayerStrokeState): number {
-    const bandsToUse = Math.max(1, this.gradientBands || 12);
-    const colorsToUse = Math.min(255, bandsToUse);
-    const bandIndex = colorsToUse > 0 ? strokeData.stampCounter % colorsToUse : 0;
-
-    if (colorsToUse <= 1) {
-      return 1; // Degenerate case: always use the first non-transparent entry
+  private mapBandIndexToPaletteIndex(bandIndex: number, bandsToUse: number): number {
+    const clampedBands = Math.max(1, Math.min(255, Math.floor(bandsToUse)));
+    if (clampedBands <= 1) {
+      return 1;
     }
-
-    const normalized = bandIndex / (colorsToUse - 1);
+    const normalized = Math.max(0, Math.min(1, bandIndex / (clampedBands - 1)));
     const paletteIndex = 1 + Math.round(normalized * 254); // Offset keeps index 0 reserved for transparency
     return Math.max(1, Math.min(255, paletteIndex));
+  }
+
+  private computeColorBandIndex(strokeData: LayerStrokeState): number {
+    const bandIndex = strokeData.stampCounter % 255;
+    return Math.max(1, Math.min(255, bandIndex + 1));
+  }
+
+  private resolveStampDitherCoverage(phase: number): number {
+    const basePhase = this.isAnimating ? phase : 0.5;
+    const clamped = Math.max(0, Math.min(1, basePhase));
+    const steps = Math.max(2, STAMP_DITHER_PHASE_STEPS);
+    const snapped = Math.round(clamped * (steps - 1)) / (steps - 1);
+    const eased = STAMP_DITHER_COVERAGE_MIN +
+      (STAMP_DITHER_COVERAGE_MAX - STAMP_DITHER_COVERAGE_MIN) * snapped;
+    return Math.max(0, Math.min(1, eased));
   }
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
@@ -620,30 +634,42 @@ export class ColorCycleBrushCanvas2D {
       // Detailed paint debug removed
       
       const useStampDither = this.stampDitherEnabled;
-      const tile = useStampDither ? this.getStampDitherTile(this.stampPaletteBuckets[colorIndex] ?? 0) : undefined;
       const tileScale = Math.max(1, this.stampDitherPixelSize);
       const tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE * tileScale : undefined;
       const tileClears = useStampDither && this.stampDitherClears;
+      let primaryIndex = colorIndex;
+      let secondaryIndex: number | undefined;
+      let tile: Uint8Array | undefined;
+
+      if (useStampDither) {
+        const phase = typeof animator.getOffset === 'function' ? animator.getOffset() : 0;
+        const coverage = this.resolveStampDitherCoverage(phase);
+        const bucket = this.resolveStampDitherBucket(coverage);
+        primaryIndex = colorIndex;
+        secondaryIndex = 0;
+        tile = this.getStampDitherTile(bucket);
+      }
 
       // Paint with specific color index and pressure-modulated size
       if (this.stampShape === 'triangle') {
         if (useStampDither && tile && tileSize) {
-          animator.paintTriangle(x, y, pressureSize, colorIndex, tile, tileSize, tileClears);
+          animator.paintTriangle(x, y, pressureSize, primaryIndex, tile, tileSize, tileClears, secondaryIndex);
         } else {
-          animator.paintTriangle(x, y, pressureSize, colorIndex);
+          animator.paintTriangle(x, y, pressureSize, primaryIndex);
         }
       } else if (useStampDither && tile && tileSize) {
         animator.paintSquare(
           x,
           y,
           pressureSize,
-          colorIndex,
+          primaryIndex,
           tile,
           tileSize,
-          tileClears
+          tileClears,
+          secondaryIndex
         );
       } else {
-        animator.paintSquare(x, y, pressureSize, colorIndex);
+        animator.paintSquare(x, y, pressureSize, primaryIndex);
       }
       
       // Update tracking
@@ -807,7 +833,6 @@ export class ColorCycleBrushCanvas2D {
     // Cache stops for perceptual dithering paths
     try {
       this.currentGradientStops = Array.isArray(stops) && stops.length > 0 ? [...stops] : this.currentGradientStops;
-      this.rebuildStampDitherBuckets();
     } catch {}
     
     if (gradientChanged) {
@@ -892,57 +917,40 @@ export class ColorCycleBrushCanvas2D {
     return this.parseCssColor(sorted[sorted.length - 1].color);
   }
 
-  private rebuildStampDitherBuckets() {
-    if (!this.stampPaletteBuckets || this.stampPaletteBuckets.length !== 256) {
-      this.stampPaletteBuckets = new Uint8Array(256);
-    }
-    for (let index = 1; index < 256; index++) {
-      const normalized = (index - 1) / 254;
-      const { r, g, b } = this.colorAtPosition(normalized);
-      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      const brightness = Math.max(0, Math.min(1, luminance / 255));
-      const bucket = Math.min(
-        STAMP_DITHER_BUCKETS - 1,
-        Math.max(0, Math.floor(brightness * STAMP_DITHER_BUCKETS))
-      );
-      this.stampPaletteBuckets[index] = bucket;
-    }
-    this.stampPaletteBuckets[0] = 0;
+  private clearStampDitherCache() {
     this.stampDitherBaseTiles.clear();
     this.stampDitherTiles.clear();
   }
 
-  private coverageForBucket(bucket: number): number {
-    if (STAMP_DITHER_BUCKETS <= 1) {
-      return MAX_STAMP_DITHER_COVERAGE;
-    }
-    const ratio = Math.max(0, Math.min(1, bucket / (STAMP_DITHER_BUCKETS - 1)));
-    return MIN_STAMP_DITHER_COVERAGE + (MAX_STAMP_DITHER_COVERAGE - MIN_STAMP_DITHER_COVERAGE) * ratio;
+  private resolveStampDitherBucket(fraction: number): number {
+    const clamped = Math.max(0, Math.min(1, fraction));
+    return Math.round(clamped * (STAMP_DITHER_BUCKETS - 1));
   }
 
   private buildBaseStampDitherTile(bucket: number): Uint8Array {
     const tileSize = STAMP_DITHER_TILE_SIZE;
-    const coverage = this.coverageForBucket(bucket);
-    const working = new Float32Array(tileSize * tileSize);
-    working.fill(coverage);
+    const targetValue = Math.round(
+      (Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket)) / Math.max(1, STAMP_DITHER_BUCKETS - 1)) * 255
+    );
+    const buffer = new Uint8ClampedArray(tileSize * tileSize * 4);
+    for (let i = 0; i < buffer.length; i += 4) {
+      buffer[i] = targetValue;
+      buffer[i + 1] = targetValue;
+      buffer[i + 2] = targetValue;
+      buffer[i + 3] = 255;
+    }
+    const imageData = new ImageData(buffer, tileSize, tileSize);
+    const dithered = applyDithering(
+      imageData,
+      2,
+      this.stampDitherAlgorithm,
+      this.stampDitherPatternStyle,
+      ['#000000', '#ffffff']
+    );
     const result = new Uint8Array(tileSize * tileSize);
-    for (let y = 0; y < tileSize; y++) {
-      for (let x = 0; x < tileSize; x++) {
-        const idx = y * tileSize + x;
-        const current = working[idx];
-        const newValue = current >= 0.5 ? 1 : 0;
-        result[idx] = newValue;
-        const error = current - newValue;
-        if (x + 1 < tileSize) {
-          working[idx + 1] += error * 0.5;
-        }
-        if (y + 1 < tileSize) {
-          if (x > 0) {
-            working[idx + tileSize - 1] += error * 0.25;
-          }
-          working[idx + tileSize] += error * 0.25;
-        }
-      }
+    for (let i = 0; i < result.length; i += 1) {
+      const idx = i * 4;
+      result[i] = dithered.data[idx] > 127 ? 1 : 0;
     }
     return result;
   }
@@ -966,18 +974,24 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private getBaseStampDitherTile(bucket: number): Uint8Array {
-    let tile = this.stampDitherBaseTiles.get(bucket);
+    const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
+    const algo = this.stampDitherAlgorithm || 'sierra-lite';
+    const pattern = this.stampDitherPatternStyle || 'dots';
+    const cacheKey = `${algo}|${pattern}|${normalizedBucket}`;
+    let tile = this.stampDitherBaseTiles.get(cacheKey);
     if (!tile) {
-      tile = this.buildBaseStampDitherTile(bucket);
-      this.stampDitherBaseTiles.set(bucket, tile);
+      tile = this.buildBaseStampDitherTile(normalizedBucket);
+      this.stampDitherBaseTiles.set(cacheKey, tile);
     }
     return tile;
   }
 
   private getStampDitherTile(bucket: number): Uint8Array {
     const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
+    const algo = this.stampDitherAlgorithm || 'sierra-lite';
+    const pattern = this.stampDitherPatternStyle || 'dots';
     const scale = Math.max(1, Math.floor(this.stampDitherPixelSize));
-    const cacheKey = `${normalizedBucket}|${scale}`;
+    const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${scale}`;
     let tile = this.stampDitherTiles.get(cacheKey);
     if (!tile) {
       const baseTile = this.getBaseStampDitherTile(normalizedBucket);
@@ -2852,8 +2866,28 @@ export class ColorCycleBrushCanvas2D {
   setStampDitherEnabled(enabled: boolean) {
     this.stampDitherEnabled = !!enabled;
     if (this.stampDitherEnabled) {
-      this.rebuildStampDitherBuckets();
+      this.clearStampDitherCache();
     }
+  }
+
+  /** Select the dithering algorithm for stamp masks. */
+  setStampDitherAlgorithm(algorithm?: DitherAlgorithm) {
+    const next = algorithm || 'sierra-lite';
+    if (next === this.stampDitherAlgorithm) {
+      return;
+    }
+    this.stampDitherAlgorithm = next;
+    this.clearStampDitherCache();
+  }
+
+  /** Select the dithering pattern style when using pattern algorithm. */
+  setStampDitherPatternStyle(style?: PatternStyle) {
+    const next = style || 'dots';
+    if (next === this.stampDitherPatternStyle) {
+      return;
+    }
+    this.stampDitherPatternStyle = next;
+    this.clearStampDitherCache();
   }
 
   /** Adjust stamp dithering pixel size multiplier (>=1). */

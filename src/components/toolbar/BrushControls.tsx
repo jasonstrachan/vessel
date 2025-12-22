@@ -43,7 +43,7 @@ import {
   COLOR_CYCLE_SPEED_STEP,
 } from '@/constants/colorCycle';
 import ShapeFillControls from "./ShapeFillControls";
-import DitherControls from './DitherControls';
+import DitherControls, { DITHER_OPTIONS, PATTERN_STYLES } from './DitherControls';
 import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
 
 const PRESSURE_MIN_BOUND = 0;
@@ -988,6 +988,32 @@ const BrushControls = () => {
             {activeSettings.colorCycleStampDitherEnabled && (
               <>
                 <div className="flex items-center gap-2 mt-2">
+                  <div className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} />
+                  <Dropdown
+                    value={activeSettings.ditherAlgorithm || 'sierra-lite'}
+                    options={DITHER_OPTIONS}
+                    onChange={(value) =>
+                      setActiveSettings({ ditherAlgorithm: value as BrushSettings['ditherAlgorithm'] })
+                    }
+                    className="flex-1"
+                  />
+                </div>
+                {activeSettings.ditherAlgorithm === 'pattern' && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} />
+                    <Dropdown
+                      value={activeSettings.patternStyle || 'dots'}
+                      options={PATTERN_STYLES}
+                      onChange={(value) =>
+                        setActiveSettings({
+                          patternStyle: value as NonNullable<BrushSettings['patternStyle']>
+                        })
+                      }
+                      className="flex-1"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-2">
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Res
                   </label>
@@ -1002,6 +1028,20 @@ const BrushControls = () => {
                       })
                     }
                     aria-label="Stamp Dither Resolution"
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Spacing
+                  </label>
+                  <ProgressSlider
+                    value={activeSettings.spacing ?? 1}
+                    min={1}
+                    max={64}
+                    step={1}
+                    onChange={(value) => setActiveSettings({ spacing: Math.max(1, Math.round(value)) })}
+                    aria-label="Stamp Spacing"
                     className="flex-1"
                   />
                 </div>

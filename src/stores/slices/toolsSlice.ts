@@ -265,7 +265,17 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
   setPressureSettings: (updates) => {
     set((state) => {
-      const nextPressure = applyPressureUpdate(state.pressureSettings, updates);
+      let nextPressure = applyPressureUpdate(state.pressureSettings, updates);
+      if (
+        updates.enabled === true &&
+        updates.min === undefined &&
+        updates.max === undefined &&
+        nextPressure.min === 0 &&
+        nextPressure.max === 0
+      ) {
+        const fallbackMaxDelta = PRESSURE_BASE_PERCENT;
+        nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+      }
       return {
         pressureSettings: nextPressure,
         tools: applyPressureToTools(state.tools, nextPressure),
@@ -405,6 +415,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete settings.customBrushSizePercent;
     }
 
+    const currentSettings = state.tools.brushSettings;
+    const nextBrushShapeForPressure = settings.brushShape ?? currentSettings.brushShape;
     const pressureUpdates: Partial<PressureSettings> = {};
     let hasPressureUpdate = false;
 
@@ -435,16 +447,29 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete settings.maxPressure;
     }
 
-    const nextPressure = hasPressureUpdate
+    let nextPressure = hasPressureUpdate
       ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
       : state.pressureSettings;
+    if (
+      pressureUpdates.enabled === true &&
+      !Object.prototype.hasOwnProperty.call(settings, 'minPressure') &&
+      !Object.prototype.hasOwnProperty.call(settings, 'maxPressure') &&
+      nextPressure.min === 0 &&
+      nextPressure.max === 0
+    ) {
+      const defaultMaxDelta = Math.max(
+        0,
+        getDefaultMaxPressurePercent(nextBrushShapeForPressure) - PRESSURE_BASE_PERCENT
+      );
+      const fallbackMaxDelta = defaultMaxDelta > 0 ? defaultMaxDelta : PRESSURE_BASE_PERCENT;
+      nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+    }
 
     if (settings.colorCycleFlowForward !== undefined) {
       settings.colorCycleFlowMode = settings.colorCycleFlowForward === false ? 'reverse' : 'forward';
       delete settings.colorCycleFlowForward;
     }
 
-    const currentSettings = state.tools.brushSettings;
     let newSettings = { ...currentSettings, ...settings };
 
     if (DEBUG_LOSTEDGE && Object.prototype.hasOwnProperty.call(settings, 'lostEdge')) {
@@ -828,9 +853,23 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete settings.maxPressure;
     }
 
-    const nextPressure = hasPressureUpdate
+    let nextPressure = hasPressureUpdate
       ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
       : state.pressureSettings;
+    if (
+      pressureUpdates.enabled === true &&
+      !Object.prototype.hasOwnProperty.call(settings, 'minPressure') &&
+      !Object.prototype.hasOwnProperty.call(settings, 'maxPressure') &&
+      nextPressure.min === 0 &&
+      nextPressure.max === 0
+    ) {
+      const defaultMaxDelta = Math.max(
+        0,
+        getDefaultMaxPressurePercent(nextBrushShapeForPressure) - PRESSURE_BASE_PERCENT
+      );
+      const fallbackMaxDelta = defaultMaxDelta > 0 ? defaultMaxDelta : PRESSURE_BASE_PERCENT;
+      nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+    }
 
     const next = {
       ...state.tools.eraserSettings,

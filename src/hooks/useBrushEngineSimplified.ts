@@ -4334,6 +4334,16 @@ useEffect(() => {
         colorCycleBrush.setStampDitherEnabled(
           !!tools.brushSettings.colorCycleStampDitherEnabled
         );
+        if (typeof colorCycleBrush.setStampDitherAlgorithm === 'function') {
+          colorCycleBrush.setStampDitherAlgorithm(
+            tools.brushSettings.ditherAlgorithm ?? 'sierra-lite'
+          );
+        }
+        if (typeof colorCycleBrush.setStampDitherPatternStyle === 'function') {
+          colorCycleBrush.setStampDitherPatternStyle(
+            tools.brushSettings.patternStyle ?? 'dots'
+          );
+        }
         if (typeof colorCycleBrush.setStampDitherClears === 'function') {
           colorCycleBrush.setStampDitherClears(
             !!tools.brushSettings.colorCycleStampDitherClears
@@ -4348,6 +4358,8 @@ useEffect(() => {
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.colorCycleStampDitherEnabled,
     tools.brushSettings.colorCycleStampDitherClears,
+    tools.brushSettings.ditherAlgorithm,
+    tools.brushSettings.patternStyle,
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);

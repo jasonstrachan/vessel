@@ -144,6 +144,12 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         brush.setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
       }
       brush.setStampDitherEnabled(Boolean(currentSettings.colorCycleStampDitherEnabled));
+      if (typeof brush.setStampDitherAlgorithm === 'function') {
+        brush.setStampDitherAlgorithm(currentSettings.ditherAlgorithm ?? 'sierra-lite');
+      }
+      if (typeof brush.setStampDitherPatternStyle === 'function') {
+        brush.setStampDitherPatternStyle(currentSettings.patternStyle ?? 'dots');
+      }
       if (typeof currentSettings.colorCycleStampDitherPixelSize === 'number') {
         brush.setStampDitherPixelSize(
           Math.max(1, Math.floor(currentSettings.colorCycleStampDitherPixelSize))

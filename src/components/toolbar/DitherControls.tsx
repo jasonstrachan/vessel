@@ -20,7 +20,7 @@ type Props = {
   hideResolution?: boolean; // hide the resolution slider (for shape-specific UIs)
 };
 
-const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label: string }[] = [
+export const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label: string }[] = [
   { value: 'dots', label: 'Dots' },
   { value: 'lines', label: 'Diagonal Lines' },
   { value: 'vertical-lines', label: 'Vertical Lines' },
@@ -29,7 +29,7 @@ const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label
   { value: 'diagonal', label: 'Diamond' }
 ];
 
-const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
+export const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
   { value: 'sierra-lite', label: 'Sierra Lite' },
   { value: 'sierra-2', label: 'Sierra 2-row' },
   { value: 'sierra-3', label: 'Sierra 3-row' },

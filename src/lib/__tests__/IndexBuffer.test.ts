@@ -158,6 +158,23 @@ describe('IndexBuffer', () => {
       expect(buffer.getPixel(minX + 1, minY)).toBe(0);
     });
 
+    it('applies secondary index instead of clearing masked pixels', () => {
+      const tileSize = 2;
+      const mask = new Uint8Array([1, 0, 0, 1]);
+      const centerX = 20;
+      const centerY = 20;
+      const brushSize = 4;
+
+      buffer.paintSquareWithIndex(centerX, centerY, brushSize, 2, mask, tileSize, false, 3);
+
+      const half = brushSize / 2;
+      const minX = Math.max(0, Math.floor(centerX - half));
+      const minY = Math.max(0, Math.floor(centerY - half));
+
+      expect(buffer.getPixel(minX, minY)).toBe(2);
+      expect(buffer.getPixel(minX + 1, minY)).toBe(3);
+    });
+
     it('clears masked pixels when requested', () => {
       const brushSize = 4;
       const centerX = 40;

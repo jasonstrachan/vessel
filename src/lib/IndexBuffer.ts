@@ -209,7 +209,8 @@ export class IndexBuffer {
     colorIndex: number,
     maskTile?: Uint8Array,
     maskTileSize?: number,
-    maskClears?: boolean
+    maskClears?: boolean,
+    secondaryIndex?: number
   ) {
     this.paintSquareInternal(
       x,
@@ -218,7 +219,8 @@ export class IndexBuffer {
       colorIndex,
       maskTile,
       maskTileSize,
-      maskClears
+      maskClears,
+      secondaryIndex
     );
     this.isDirty = true;
   }
@@ -230,9 +232,12 @@ export class IndexBuffer {
     colorIndex: number,
     maskTile?: Uint8Array,
     maskTileSize: number = 0,
-    maskClears: boolean = false
+    maskClears: boolean = false,
+    secondaryIndex?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSecondaryIndex =
+      typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
     const halfSize = brushSize / 2;
 
     const minX = Math.max(0, Math.floor(x - halfSize));
@@ -255,6 +260,9 @@ export class IndexBuffer {
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
               this.data[dataIndex] = 0;
+            }
+            if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
+              this.data[dataIndex] = normalizedSecondaryIndex;
             }
             continue;
           }
@@ -297,7 +305,8 @@ export class IndexBuffer {
     colorIndex: number,
     maskTile?: Uint8Array,
     maskTileSize?: number,
-    maskClears?: boolean
+    maskClears?: boolean,
+    secondaryIndex?: number
   ) {
     this.paintTriangleInternal(
       x,
@@ -306,7 +315,8 @@ export class IndexBuffer {
       colorIndex,
       maskTile,
       maskTileSize,
-      maskClears
+      maskClears,
+      secondaryIndex
     );
     this.isDirty = true;
   }
@@ -318,9 +328,12 @@ export class IndexBuffer {
     colorIndex: number,
     maskTile?: Uint8Array,
     maskTileSize: number = 0,
-    maskClears: boolean = false
+    maskClears: boolean = false,
+    secondaryIndex?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSecondaryIndex =
+      typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
     const halfSize = brushSize / 2;
 
     const topX = x;
@@ -361,6 +374,9 @@ export class IndexBuffer {
             if (maskTile![maskIdx] === 0) {
               if (shouldClearMaskedPixels) {
                 this.data[dataIndex] = 0;
+              }
+              if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
+                this.data[dataIndex] = normalizedSecondaryIndex;
               }
               continue;
             }

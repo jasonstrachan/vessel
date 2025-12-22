@@ -489,6 +489,11 @@ export class ColorCycleAnimator {
       debugWarn('cc-render', '[ColorCycleAnimator] Stack:', (error as Error).stack);
     }
   }
+
+  /** Expose current animation offset (0..1) for stamp dithering decisions. */
+  getOffset(): number {
+    return this.animationController.getOffset();
+  }
   
   /**
    * Paint with brush
@@ -541,7 +546,8 @@ export class ColorCycleAnimator {
     colorIndex?: number,
     maskTile?: Uint8Array,
     maskTileSize?: number,
-    maskClears?: boolean
+    maskClears?: boolean,
+    secondaryIndex?: number
   ) {
     try {
       // Use provided color index or auto-increment
@@ -555,7 +561,8 @@ export class ColorCycleAnimator {
         index,
         maskTile,
         maskTileSize,
-        maskClears
+        maskClears,
+        secondaryIndex
       );
       this._glIndexDirty = true;
       
@@ -576,7 +583,8 @@ export class ColorCycleAnimator {
     colorIndex?: number,
     maskTile?: Uint8Array,
     maskTileSize?: number,
-    maskClears?: boolean
+    maskClears?: boolean,
+    secondaryIndex?: number
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
@@ -587,7 +595,8 @@ export class ColorCycleAnimator {
         index,
         maskTile,
         maskTileSize,
-        maskClears
+        maskClears,
+        secondaryIndex
       );
       this._glIndexDirty = true;
     } catch (error) {

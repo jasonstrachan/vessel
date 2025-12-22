@@ -149,6 +149,7 @@ jest.mock('@/utils/canvasPool', () => ({
 }));
 
 jest.mock('../dithering', () => ({
+  applyDithering: jest.fn((imageData: ImageData) => imageData),
   applyDitheringWithFillResolution: jest.fn(),
 }));
 
