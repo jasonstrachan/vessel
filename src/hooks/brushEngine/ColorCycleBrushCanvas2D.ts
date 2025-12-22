@@ -113,6 +113,8 @@ const STAMP_DITHER_TILE_SIZE = 16;
 const STAMP_DITHER_PHASE_STEPS = 8;
 const STAMP_DITHER_COVERAGE_MIN = 0.25;
 const STAMP_DITHER_COVERAGE_MAX = 0.75;
+const STAMP_DITHER_COVERAGE_CLAMP_MIN = 0.35;
+const STAMP_DITHER_COVERAGE_CLAMP_MAX = 0.65;
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -452,14 +454,18 @@ export class ColorCycleBrushCanvas2D {
     return Math.max(1, Math.min(255, bandIndex + 1));
   }
 
-  private resolveStampDitherCoverage(phase: number): number {
+  private resolveStampDitherCoverage(phase: number, colorIndex: number): number {
     const basePhase = this.isAnimating ? phase : 0.5;
     const clamped = Math.max(0, Math.min(1, basePhase));
     const steps = Math.max(2, STAMP_DITHER_PHASE_STEPS);
     const snapped = Math.round(clamped * (steps - 1)) / (steps - 1);
     const eased = STAMP_DITHER_COVERAGE_MIN +
       (STAMP_DITHER_COVERAGE_MAX - STAMP_DITHER_COVERAGE_MIN) * snapped;
-    return Math.max(0, Math.min(1, eased));
+    const normalizedIndex = Math.max(0, Math.min(1, (colorIndex - 1) / 254));
+    const extremity = Math.abs(normalizedIndex - 0.5) * 2;
+    const pullToMid = Math.min(1, extremity * 0.85);
+    const blended = eased + (0.5 - eased) * pullToMid;
+    return Math.max(STAMP_DITHER_COVERAGE_CLAMP_MIN, Math.min(STAMP_DITHER_COVERAGE_CLAMP_MAX, blended));
   }
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
@@ -643,7 +649,7 @@ export class ColorCycleBrushCanvas2D {
 
       if (useStampDither) {
         const phase = typeof animator.getOffset === 'function' ? animator.getOffset() : 0;
-        const coverage = this.resolveStampDitherCoverage(phase);
+        const coverage = this.resolveStampDitherCoverage(phase, colorIndex);
         const rawBucket = this.resolveStampDitherBucket(coverage);
         const bucket = Math.min(STAMP_DITHER_BUCKETS - 2, Math.max(1, rawBucket));
         primaryIndex = colorIndex;
