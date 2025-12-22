@@ -821,7 +821,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   setEraserSettings: (incomingSettings) => {
     let pendingPalette: PaletteState | null = null;
     set((state) => {
-      const settings = { ...incomingSettings } as Partial<BrushSettings>;
+    const settings = { ...incomingSettings } as Partial<BrushSettings>;
+    const currentEraserSettings = state.tools.eraserSettings;
+    const nextEraserShapeForPressure =
+      currentEraserSettings.brushShape ?? state.tools.brushSettings.brushShape;
 
     const pressureUpdates: Partial<PressureSettings> = {};
     let hasPressureUpdate = false;
@@ -865,7 +868,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     ) {
       const defaultMaxDelta = Math.max(
         0,
-        getDefaultMaxPressurePercent(nextBrushShapeForPressure) - PRESSURE_BASE_PERCENT
+        getDefaultMaxPressurePercent(nextEraserShapeForPressure) - PRESSURE_BASE_PERCENT
       );
       const fallbackMaxDelta = defaultMaxDelta > 0 ? defaultMaxDelta : PRESSURE_BASE_PERCENT;
       nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });

@@ -644,7 +644,8 @@ export class ColorCycleBrushCanvas2D {
       if (useStampDither) {
         const phase = typeof animator.getOffset === 'function' ? animator.getOffset() : 0;
         const coverage = this.resolveStampDitherCoverage(phase);
-        const bucket = this.resolveStampDitherBucket(coverage);
+        const rawBucket = this.resolveStampDitherBucket(coverage);
+        const bucket = Math.min(STAMP_DITHER_BUCKETS - 2, Math.max(1, rawBucket));
         primaryIndex = colorIndex;
         secondaryIndex = 0;
         tile = this.getStampDitherTile(bucket);
