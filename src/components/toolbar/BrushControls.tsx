@@ -851,7 +851,8 @@ const BrushControls = () => {
         <div className="mb-3">
           <ButtonGroup
             options={[
-              { label: 'Stroke', value: 'stroke' },
+              { label: 'Square', value: 'square' },
+              { label: 'Round', value: 'round' },
               { label: 'Triangle', value: 'triangle' },
               { label: 'Shape', value: 'shape' }
             ]}
@@ -860,7 +861,9 @@ const BrushControls = () => {
                 ? 'shape'
                 : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
                   ? 'triangle'
-                  : 'stroke'
+                  : activeSettings.colorCycleStampShape === 'round'
+                    ? 'round'
+                    : 'square'
             }
             onChange={(value) => {
               const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
@@ -868,10 +871,13 @@ const BrushControls = () => {
               const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
               if (value === 'shape' && shapePreset) {
                 setBrushPreset(shapePreset, true);
+                setActiveSettings({ colorCycleStampShape: 'square' });
               } else if (value === 'triangle' && trianglePreset) {
                 setBrushPreset(trianglePreset, true);
-              } else if (value === 'stroke' && strokePreset) {
+                setActiveSettings({ colorCycleStampShape: 'triangle' });
+              } else if ((value === 'square' || value === 'round') && strokePreset) {
                 setBrushPreset(strokePreset, true);
+                setActiveSettings({ colorCycleStampShape: value === 'round' ? 'round' : 'square' });
               }
             }}
             size="sm"

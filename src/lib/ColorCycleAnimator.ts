@@ -603,6 +603,37 @@ export class ColorCycleAnimator {
       console.error('[ColorCycleAnimator] Error in paintTriangle:', error);
     }
   }
+
+  /**
+   * Paint circular brush with stamp-based color progression
+   */
+  paintCircle(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex?: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number
+  ) {
+    try {
+      const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
+      this.indexBuffer.paintCircleWithIndex(
+        x,
+        y,
+        brushSize,
+        index,
+        maskTile,
+        maskTileSize,
+        maskClears,
+        secondaryIndex
+      );
+      this._glIndexDirty = true;
+    } catch (error) {
+      console.error('[ColorCycleAnimator] Error in paintCircle:', error);
+    }
+  }
   
   /**
    * Paint line

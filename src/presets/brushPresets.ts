@@ -80,6 +80,8 @@ export const pixelBrushSettings: BrushSettings = {
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherClears: false,
+  colorCycleStampShape: 'square',
+  colorCycleStampShape: 'square',
   contourLines2Spacing: 4,
   contourLines2Density: 4,
   contourLines2Alternate: false,
@@ -523,6 +525,7 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     minPressure: 0,
     maxPressure: 0,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
+    colorCycleStampShape: 'square',
     shapeEnabled: false // Force shape mode OFF for stroke variant
   }
 };
@@ -581,6 +584,7 @@ export const colorCycleTriangleBrushPreset: BrushPreset = {
     minPressure: 0,
     maxPressure: 0,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
+    colorCycleStampShape: 'triangle',
     shapeEnabled: false
   }
 };

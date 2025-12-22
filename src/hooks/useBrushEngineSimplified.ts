@@ -3674,9 +3674,10 @@ export const useBrushEngineSimplified = () => {
       }
 
       try {
-        const stampShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
-          ? 'triangle'
-          : 'square';
+        const stampShape =
+          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+            ? 'triangle'
+            : (tools.brushSettings.colorCycleStampShape ?? 'square');
         colorCycleBrush.setStampShape(stampShape);
       } catch (error) {
         console.error('[CC Init] Failed to set stamp shape:', error);
@@ -3883,9 +3884,10 @@ export const useBrushEngineSimplified = () => {
       }
 
       try {
-        const stampShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
-          ? 'triangle'
-          : 'square';
+        const stampShape =
+          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+            ? 'triangle'
+            : (tools.brushSettings.colorCycleStampShape ?? 'square');
         colorCycleBrush.setStampShape(stampShape);
       } catch (error) {
         console.error('[CC DrawCycle] Error setting stamp shape:', error);

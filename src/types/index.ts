@@ -557,6 +557,7 @@ export interface BrushSettings {
   colorCycleStampDitherEnabled?: boolean;
   colorCycleStampDitherPixelSize?: number;
   colorCycleStampDitherClears?: boolean;
+  colorCycleStampShape?: 'square' | 'round' | 'triangle';
   // Resampler brush settings
   continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5

@@ -85,7 +85,7 @@ interface ColorCycleBrushCanvasState {
   [key: string]: unknown;
 }
 
-type StampShape = 'square' | 'triangle';
+type StampShape = 'square' | 'round' | 'triangle';
 
 interface ColorCycleBrushCanvasSerialized {
   layers: SerializedLayerState[];
@@ -663,6 +663,12 @@ export class ColorCycleBrushCanvas2D {
           animator.paintTriangle(x, y, pressureSize, primaryIndex, tile, tileSize, tileClears, secondaryIndex);
         } else {
           animator.paintTriangle(x, y, pressureSize, primaryIndex);
+        }
+      } else if (this.stampShape === 'round') {
+        if (useStampDither && tile && tileSize) {
+          animator.paintCircle(x, y, pressureSize, primaryIndex, tile, tileSize, tileClears, secondaryIndex);
+        } else {
+          animator.paintCircle(x, y, pressureSize, primaryIndex);
         }
       } else if (useStampDither && tile && tileSize) {
         animator.paintSquare(
@@ -2822,7 +2828,13 @@ export class ColorCycleBrushCanvas2D {
    * Set stamp shape for stroke rendering
    */
   setStampShape(shape: StampShape) {
-    this.stampShape = shape === 'triangle' ? 'triangle' : 'square';
+    if (shape === 'triangle') {
+      this.stampShape = 'triangle';
+    } else if (shape === 'round') {
+      this.stampShape = 'round';
+    } else {
+      this.stampShape = 'square';
+    }
   }
   
   /**

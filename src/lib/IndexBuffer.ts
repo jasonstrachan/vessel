@@ -175,6 +175,29 @@ export class IndexBuffer {
     this.paintCircleInternal(x, y, brushSize, colorIndex);
     this.isDirty = true;
   }
+
+  paintCircleWithIndex(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number
+  ) {
+    this.paintCircleInternalMasked(
+      x,
+      y,
+      brushSize,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex
+    );
+    this.isDirty = true;
+  }
   
   /**
    * Paint pixels with a square brush
@@ -250,6 +273,59 @@ export class IndexBuffer {
 
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
+        const dataIndex = py * this.width + px;
+        if (useMask) {
+          const localY = py - minY;
+          const localX = px - minX;
+          const sampleY = localY % maskTileSize;
+          const sampleX = localX % maskTileSize;
+          const maskIdx = sampleY * maskTileSize + sampleX;
+          if (maskTile![maskIdx] === 0) {
+            if (shouldClearMaskedPixels) {
+              this.data[dataIndex] = 0;
+            }
+            if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
+              this.data[dataIndex] = normalizedSecondaryIndex;
+            }
+            continue;
+          }
+        }
+        this.data[dataIndex] = normalizedIndex;
+      }
+    }
+  }
+
+  private paintCircleInternalMasked(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize: number = 0,
+    maskClears: boolean = false,
+    secondaryIndex?: number
+  ) {
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSecondaryIndex =
+      typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
+    const radius = brushSize / 2;
+    const radiusSq = radius * radius;
+
+    const minX = Math.max(0, Math.floor(x - radius));
+    const maxX = Math.min(this.width - 1, Math.ceil(x + radius));
+    const minY = Math.max(0, Math.floor(y - radius));
+    const maxY = Math.min(this.height - 1, Math.ceil(y + radius));
+
+    const useMask = !!maskTile && maskTileSize > 0;
+    const shouldClearMaskedPixels = useMask && !!maskClears;
+
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        const dx = px + 0.5 - x;
+        const dy = py + 0.5 - y;
+        if (dx * dx + dy * dy > radiusSq) {
+          continue;
+        }
         const dataIndex = py * this.width + px;
         if (useMask) {
           const localY = py - minY;

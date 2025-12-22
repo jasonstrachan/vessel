@@ -156,6 +156,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   pressureEnabled: settings.pressureEnabled,
   minPressure: settings.minPressure,
   maxPressure: settings.maxPressure,
+  colorCycleStampShape: settings.colorCycleStampShape,
   pressureLinkedFillResolution: settings.pressureLinkedFillResolution,
   pressureDitherSmoosh: settings.pressureDitherSmoosh,
   pigmentLiftEnabled: settings.pigmentLiftEnabled,
@@ -648,9 +649,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleStampDitherPixelSize !== undefined) {
         settingsToSave.colorCycleStampDitherPixelSize = newSettings.colorCycleStampDitherPixelSize;
       }
-      if (settings.colorCycleStampDitherClears !== undefined) {
-        settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
-      }
+  if (settings.colorCycleStampDitherClears !== undefined) {
+    settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
+  }
+  if (settings.colorCycleStampShape !== undefined) {
+    settingsToSave.colorCycleStampShape = newSettings.colorCycleStampShape;
+  }
       if (settings.pressureLinkedFillResolution !== undefined) {
         settingsToSave.pressureLinkedFillResolution = newSettings.pressureLinkedFillResolution;
       }
