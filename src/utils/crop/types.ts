@@ -7,6 +7,7 @@ export interface CroppedAnimatorIndexSnapshot {
   width: number;
   height: number;
   data: ArrayBuffer;
+  gradientIdData?: ArrayBuffer;
   gradientStops?: Array<{ position: number; color: string }>;
 }
 

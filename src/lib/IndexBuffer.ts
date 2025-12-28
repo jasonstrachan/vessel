@@ -5,11 +5,18 @@
 
 export class IndexBuffer {
   private data: Uint8Array;
+  private gradientId: Uint8Array;
   private width: number;
   private height: number;
   private palette: string[];
   private isDirty: boolean = false;
   private maxPaletteIndex: number;
+  private dirtyMinX: number = 0;
+  private dirtyMinY: number = 0;
+  private dirtyMaxX: number = -1;
+  private dirtyMaxY: number = -1;
+  private hasDirtyBounds: boolean = false;
+  private hasNonZeroGradientIds: boolean = false;
   
   // Cache for converted RGBA values
   private rgbaCache: Map<number, [number, number, number, number]> = new Map();
@@ -23,11 +30,36 @@ export class IndexBuffer {
     this.height = height;
     // Initialize with zeros (transparent/no color)
     this.data = new Uint8Array(width * height);
+    this.gradientId = new Uint8Array(width * height);
     this.palette = ['rgba(0,0,0,0)']; // Index 0 = transparent
     this.maxPaletteIndex = 0;
     
     // Pre-populate cache for transparent
     this.rgbaCache.set(0, [0, 0, 0, 0]);
+  }
+
+  private markDirtyRect(minX: number, minY: number, maxX: number, maxY: number) {
+    if (maxX < minX || maxY < minY) {
+      return;
+    }
+    const clampedMinX = Math.max(0, Math.min(this.width - 1, Math.floor(minX)));
+    const clampedMinY = Math.max(0, Math.min(this.height - 1, Math.floor(minY)));
+    const clampedMaxX = Math.max(0, Math.min(this.width - 1, Math.ceil(maxX)));
+    const clampedMaxY = Math.max(0, Math.min(this.height - 1, Math.ceil(maxY)));
+
+    if (!this.hasDirtyBounds) {
+      this.dirtyMinX = clampedMinX;
+      this.dirtyMinY = clampedMinY;
+      this.dirtyMaxX = clampedMaxX;
+      this.dirtyMaxY = clampedMaxY;
+      this.hasDirtyBounds = true;
+      return;
+    }
+
+    this.dirtyMinX = Math.min(this.dirtyMinX, clampedMinX);
+    this.dirtyMinY = Math.min(this.dirtyMinY, clampedMinY);
+    this.dirtyMaxX = Math.max(this.dirtyMaxX, clampedMaxX);
+    this.dirtyMaxY = Math.max(this.dirtyMaxY, clampedMaxY);
   }
   
   /**
@@ -135,8 +167,22 @@ export class IndexBuffer {
     return this.maxPaletteIndex;
   }
 
-  private paintCircleInternal(x: number, y: number, brushSize: number, colorIndex: number) {
+  private normalizeGradientSlot(slot?: number): number {
+    if (!Number.isFinite(slot)) {
+      return 0;
+    }
+    return Math.max(0, Math.min(255, Math.round(slot as number)));
+  }
+
+  private paintCircleInternal(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex: number,
+    gradientSlot?: number
+  ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const radius = brushSize / 2;
     const radiusSq = radius * radius;
 
@@ -148,6 +194,8 @@ export class IndexBuffer {
     const minY = Math.max(0, Math.floor(centerY - radius));
     const maxY = Math.min(this.height - 1, Math.ceil(centerY + radius));
 
+    this.markDirtyRect(minX, minY, maxX, maxY);
+
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const dx = px + 0.5 - x;
@@ -156,8 +204,12 @@ export class IndexBuffer {
         if (dx * dx + dy * dy <= radiusSq) {
           const dataIndex = py * this.width + px;
           this.data[dataIndex] = normalizedIndex;
+          this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
         }
       }
+    }
+    if (normalizedSlot !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroGradientIds = true;
     }
   }
 
@@ -171,8 +223,8 @@ export class IndexBuffer {
     this.isDirty = true;
   }
 
-  paintWithIndex(x: number, y: number, brushSize: number, colorIndex: number) {
-    this.paintCircleInternal(x, y, brushSize, colorIndex);
+  paintWithIndex(x: number, y: number, brushSize: number, colorIndex: number, gradientSlot?: number) {
+    this.paintCircleInternal(x, y, brushSize, colorIndex, gradientSlot);
     this.isDirty = true;
   }
 
@@ -184,7 +236,8 @@ export class IndexBuffer {
     maskTile?: Uint8Array,
     maskTileSize?: number,
     maskClears?: boolean,
-    secondaryIndex?: number
+    secondaryIndex?: number,
+    gradientSlot?: number
   ) {
     this.paintCircleInternalMasked(
       x,
@@ -194,7 +247,8 @@ export class IndexBuffer {
       maskTile,
       maskTileSize,
       maskClears,
-      secondaryIndex
+      secondaryIndex,
+      gradientSlot
     );
     this.isDirty = true;
   }
@@ -233,7 +287,8 @@ export class IndexBuffer {
     maskTile?: Uint8Array,
     maskTileSize?: number,
     maskClears?: boolean,
-    secondaryIndex?: number
+    secondaryIndex?: number,
+    gradientSlot?: number
   ) {
     this.paintSquareInternal(
       x,
@@ -243,7 +298,8 @@ export class IndexBuffer {
       maskTile,
       maskTileSize,
       maskClears,
-      secondaryIndex
+      secondaryIndex,
+      gradientSlot
     );
     this.isDirty = true;
   }
@@ -256,11 +312,13 @@ export class IndexBuffer {
     maskTile?: Uint8Array,
     maskTileSize: number = 0,
     maskClears: boolean = false,
-    secondaryIndex?: number
+    secondaryIndex?: number,
+    gradientSlot?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
+    const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const halfSize = brushSize / 2;
 
     const minX = Math.max(0, Math.floor(x - halfSize));
@@ -270,6 +328,8 @@ export class IndexBuffer {
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;
+
+    this.markDirtyRect(minX, minY, maxX, maxY);
 
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
@@ -283,15 +343,21 @@ export class IndexBuffer {
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
               this.data[dataIndex] = 0;
+              this.gradientId[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
               this.data[dataIndex] = normalizedSecondaryIndex;
+              this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
             }
             continue;
           }
         }
         this.data[dataIndex] = normalizedIndex;
+        this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
       }
+    }
+    if (normalizedSlot !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroGradientIds = true;
     }
   }
 
@@ -303,11 +369,13 @@ export class IndexBuffer {
     maskTile?: Uint8Array,
     maskTileSize: number = 0,
     maskClears: boolean = false,
-    secondaryIndex?: number
+    secondaryIndex?: number,
+    gradientSlot?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
+    const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const radius = brushSize / 2;
     const radiusSq = radius * radius;
 
@@ -318,6 +386,8 @@ export class IndexBuffer {
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;
+
+    this.markDirtyRect(minX, minY, maxX, maxY);
 
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
@@ -336,15 +406,21 @@ export class IndexBuffer {
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
               this.data[dataIndex] = 0;
+              this.gradientId[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
               this.data[dataIndex] = normalizedSecondaryIndex;
+              this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
             }
             continue;
           }
         }
         this.data[dataIndex] = normalizedIndex;
+        this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
       }
+    }
+    if (normalizedSlot !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroGradientIds = true;
     }
   }
 
@@ -382,7 +458,8 @@ export class IndexBuffer {
     maskTile?: Uint8Array,
     maskTileSize?: number,
     maskClears?: boolean,
-    secondaryIndex?: number
+    secondaryIndex?: number,
+    gradientSlot?: number
   ) {
     this.paintTriangleInternal(
       x,
@@ -392,7 +469,8 @@ export class IndexBuffer {
       maskTile,
       maskTileSize,
       maskClears,
-      secondaryIndex
+      secondaryIndex,
+      gradientSlot
     );
     this.isDirty = true;
   }
@@ -405,11 +483,13 @@ export class IndexBuffer {
     maskTile?: Uint8Array,
     maskTileSize: number = 0,
     maskClears: boolean = false,
-    secondaryIndex?: number
+    secondaryIndex?: number,
+    gradientSlot?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
+    const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const halfSize = brushSize / 2;
 
     const topX = x;
@@ -429,6 +509,8 @@ export class IndexBuffer {
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;
+
+    this.markDirtyRect(minX, minY, maxX, maxY);
 
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
@@ -450,16 +532,22 @@ export class IndexBuffer {
             if (maskTile![maskIdx] === 0) {
               if (shouldClearMaskedPixels) {
                 this.data[dataIndex] = 0;
+                this.gradientId[dataIndex] = 0;
               }
               if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
                 this.data[dataIndex] = normalizedSecondaryIndex;
+                this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
               }
               continue;
             }
           }
           this.data[dataIndex] = normalizedIndex;
+          this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
         }
       }
+    }
+    if (normalizedSlot !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroGradientIds = true;
     }
   }
 
@@ -473,8 +561,16 @@ export class IndexBuffer {
     this.isDirty = true;
   }
 
-  paintLineWithIndex(x0: number, y0: number, x1: number, y1: number, brushSize: number, colorIndex: number) {
-    this.paintLineInternal(x0, y0, x1, y1, brushSize, colorIndex);
+  paintLineWithIndex(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    brushSize: number,
+    colorIndex: number,
+    gradientSlot?: number
+  ) {
+    this.paintLineInternal(x0, y0, x1, y1, brushSize, colorIndex, gradientSlot);
     this.isDirty = true;
   }
 
@@ -484,7 +580,8 @@ export class IndexBuffer {
     x1: number,
     y1: number,
     brushSize: number,
-    colorIndex: number
+    colorIndex: number,
+    gradientSlot?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const dx = Math.abs(x1 - x0);
@@ -497,7 +594,7 @@ export class IndexBuffer {
     let y = y0;
 
     while (true) {
-      this.paintCircleInternal(x, y, brushSize, normalizedIndex);
+      this.paintCircleInternal(x, y, brushSize, normalizedIndex, gradientSlot);
 
       if (x === x1 && y === y1) {
         break;
@@ -526,13 +623,13 @@ export class IndexBuffer {
     }
   }
 
-  fillWithIndex(x: number, y: number, colorIndex: number) {
-    if (this.fillInternal(x, y, colorIndex)) {
+  fillWithIndex(x: number, y: number, colorIndex: number, gradientSlot?: number) {
+    if (this.fillInternal(x, y, colorIndex, gradientSlot)) {
       this.isDirty = true;
     }
   }
 
-  private fillInternal(x: number, y: number, colorIndex: number): boolean {
+  private fillInternal(x: number, y: number, colorIndex: number, gradientSlot?: number): boolean {
     x = Math.floor(x);
     y = Math.floor(y);
 
@@ -541,6 +638,7 @@ export class IndexBuffer {
     }
 
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const targetIndex = this.data[y * this.width + x];
 
     if (targetIndex === normalizedIndex) {
@@ -549,6 +647,10 @@ export class IndexBuffer {
 
     const stack: Array<[number, number]> = [[x, y]];
     let filled = false;
+    let minX = x;
+    let maxX = x;
+    let minY = y;
+    let maxY = y;
 
     while (stack.length > 0) {
       const [fx, fy] = stack.pop()!;
@@ -559,7 +661,12 @@ export class IndexBuffer {
       }
 
       this.data[dataIndex] = normalizedIndex;
+      this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
       filled = true;
+      minX = Math.min(minX, fx);
+      maxX = Math.max(maxX, fx);
+      minY = Math.min(minY, fy);
+      maxY = Math.max(maxY, fy);
 
       if (fx > 0) stack.push([fx - 1, fy]);
       if (fx < this.width - 1) stack.push([fx + 1, fy]);
@@ -567,6 +674,12 @@ export class IndexBuffer {
       if (fy < this.height - 1) stack.push([fx, fy + 1]);
     }
 
+    if (filled) {
+      this.markDirtyRect(minX, minY, maxX, maxY);
+    }
+    if (normalizedSlot !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroGradientIds = true;
+    }
     return filled;
   }
   
@@ -575,6 +688,9 @@ export class IndexBuffer {
    */
   clear() {
     this.data.fill(0);
+    this.gradientId.fill(0);
+    this.hasNonZeroGradientIds = false;
+    this.markDirtyRect(0, 0, this.width - 1, this.height - 1);
     this.isDirty = true;
   }
   
@@ -589,10 +705,13 @@ export class IndexBuffer {
     
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
-        this.data[py * this.width + px] = 0;
+        const idx = py * this.width + px;
+        this.data[idx] = 0;
+        this.gradientId[idx] = 0;
       }
     }
     
+    this.markDirtyRect(minX, minY, maxX, maxY);
     this.isDirty = true;
   }
   
@@ -647,6 +766,7 @@ export class IndexBuffer {
 
   markDirty() {
     this.isDirty = true;
+    this.markDirtyRect(0, 0, this.width - 1, this.height - 1);
   }
   
   private lastImageData?: ImageData;
@@ -664,11 +784,19 @@ export class IndexBuffer {
   /**
    * Set pixel index at position
    */
-  setPixel(x: number, y: number, colorIndex: number) {
+  setPixel(x: number, y: number, colorIndex: number, gradientSlot?: number) {
     if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
       return;
     }
-    this.data[y * this.width + x] = colorIndex;
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSlot = normalizedIndex === 0 ? 0 : this.normalizeGradientSlot(gradientSlot);
+    const index = y * this.width + x;
+    this.data[index] = normalizedIndex;
+    this.gradientId[index] = normalizedIndex === 0 ? 0 : normalizedSlot;
+    if (normalizedSlot !== 0) {
+      this.hasNonZeroGradientIds = true;
+    }
+    this.markDirtyRect(x, y, x, y);
     this.isDirty = true;
   }
   
@@ -699,8 +827,15 @@ export class IndexBuffer {
   clone(): IndexBuffer {
     const newBuffer = new IndexBuffer(this.width, this.height);
     newBuffer.data = new Uint8Array(this.data);
+    newBuffer.gradientId = new Uint8Array(this.gradientId);
     newBuffer.palette = [...this.palette];
     newBuffer.isDirty = this.isDirty;
+    newBuffer.hasNonZeroGradientIds = this.hasNonZeroGradientIds;
+    newBuffer.dirtyMinX = this.dirtyMinX;
+    newBuffer.dirtyMinY = this.dirtyMinY;
+    newBuffer.dirtyMaxX = this.dirtyMaxX;
+    newBuffer.dirtyMaxY = this.dirtyMaxY;
+    newBuffer.hasDirtyBounds = this.hasDirtyBounds;
     
     // Clone the cache
     this.rgbaCache.forEach((value, key) => {
@@ -715,6 +850,7 @@ export class IndexBuffer {
    */
   resize(newWidth: number, newHeight: number) {
     const newData = new Uint8Array(newWidth * newHeight);
+    const newGradientId = new Uint8Array(newWidth * newHeight);
     
     // Copy existing data
     const copyWidth = Math.min(this.width, newWidth);
@@ -725,12 +861,16 @@ export class IndexBuffer {
         const oldIndex = y * this.width + x;
         const newIndex = y * newWidth + x;
         newData[newIndex] = this.data[oldIndex];
+        newGradientId[newIndex] = this.gradientId[oldIndex];
       }
     }
     
     this.data = newData;
+    this.gradientId = newGradientId;
     this.width = newWidth;
     this.height = newHeight;
+    this.hasNonZeroGradientIds = this.gradientId.some((value) => value !== 0);
+    this.markDirtyRect(0, 0, newWidth - 1, newHeight - 1);
     this.isDirty = true;
   }
   
@@ -741,6 +881,52 @@ export class IndexBuffer {
   getDirectData(): Uint8Array {
     return this.data;
   }
+
+  getDirectGradientIdData(): Uint8Array {
+    return this.gradientId;
+  }
+
+  getIndexData(): Uint8Array {
+    return this.data;
+  }
+
+  getGradientIdData(): Uint8Array {
+    return this.gradientId;
+  }
+
+  getDirtyBounds(): { x: number; y: number; width: number; height: number } | null {
+    if (!this.hasDirtyBounds) {
+      return null;
+    }
+    const width = Math.max(1, this.dirtyMaxX - this.dirtyMinX + 1);
+    const height = Math.max(1, this.dirtyMaxY - this.dirtyMinY + 1);
+    return { x: this.dirtyMinX, y: this.dirtyMinY, width, height };
+  }
+
+  clearDirtyBounds() {
+    this.hasDirtyBounds = false;
+    this.dirtyMinX = 0;
+    this.dirtyMinY = 0;
+    this.dirtyMaxX = -1;
+    this.dirtyMaxY = -1;
+  }
+
+  getHasNonZeroGradientIds(): boolean {
+    return this.hasNonZeroGradientIds;
+  }
+
+  markHasNonZeroGradientIds() {
+    this.hasNonZeroGradientIds = true;
+  }
+
+  setHasNonZeroGradientIds(value: boolean) {
+    this.hasNonZeroGradientIds = value;
+  }
+
+  markDirtyBounds(minX: number, minY: number, maxX: number, maxY: number) {
+    this.markDirtyRect(minX, minY, maxX, maxY);
+    this.isDirty = true;
+  }
   
   /**
    * Export buffer data for serialization
@@ -749,12 +935,14 @@ export class IndexBuffer {
     width: number;
     height: number;
     data: Uint8Array;
+    gradientId: Uint8Array;
     palette: string[];
   } {
     return {
       width: this.width,
       height: this.height,
       data: new Uint8Array(this.data),
+      gradientId: new Uint8Array(this.gradientId),
       palette: [...this.palette]
     };
   }
@@ -766,12 +954,17 @@ export class IndexBuffer {
     width: number;
     height: number;
     data: Uint8Array;
+    gradientId?: Uint8Array;
     palette: string[];
   }): IndexBuffer {
     const buffer = new IndexBuffer(data.width, data.height);
     buffer.data = new Uint8Array(data.data);
+    buffer.gradientId = data.gradientId
+      ? new Uint8Array(data.gradientId)
+      : new Uint8Array(data.width * data.height);
     buffer.palette = [...data.palette];
     buffer.isDirty = true;
+    buffer.hasNonZeroGradientIds = buffer.gradientId.some((value) => value !== 0);
     
     // Rebuild cache
     for (let i = 0; i < buffer.palette.length; i++) {

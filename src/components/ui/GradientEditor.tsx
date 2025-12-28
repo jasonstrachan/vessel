@@ -32,6 +32,8 @@ interface GradientEditorProps {
   stops: GradientStop[];
   onChange: (stops: GradientStop[]) => void;
   className?: string;
+  onEditStart?: () => void;
+  onEditEnd?: () => void;
   // When user chooses "+ Sample" in the dropdown, where should the sampled gradient apply?
   // 'recolor' updates the active recolor layer; 'brush' updates the brush gradient.
   sampleTarget?: 'recolor' | 'brush';
@@ -85,6 +87,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   stops: initialStops, 
   onChange,
   className = '',
+  onEditStart,
+  onEditEnd,
   sampleTarget = 'recolor'
 }) => {
   const startRecolorSampling = useAppStore((state) => state.startRecolorSampling);
@@ -118,7 +122,37 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const colorPickerUndoRef = useRef(false);
   const pendingGradientUpdateRef = useRef<number | null>(null);
   const pendingGradientStopsRef = useRef<GradientStop[] | null>(null);
+  const editSessionActiveRef = useRef(false);
+  const editSessionTimeoutRef = useRef<number | null>(null);
   const gradientHeightClass = sampleTarget === 'brush' ? 'h-4' : 'h-8';
+
+  const beginEditSession = useCallback(() => {
+    if (!editSessionActiveRef.current) {
+      editSessionActiveRef.current = true;
+      onEditStart?.();
+    }
+    if (editSessionTimeoutRef.current !== null) {
+      window.clearTimeout(editSessionTimeoutRef.current);
+    }
+    editSessionTimeoutRef.current = window.setTimeout(() => {
+      editSessionTimeoutRef.current = null;
+      if (editSessionActiveRef.current) {
+        editSessionActiveRef.current = false;
+        onEditEnd?.();
+      }
+    }, 320);
+  }, [onEditStart, onEditEnd]);
+
+  const endEditSession = useCallback(() => {
+    if (editSessionTimeoutRef.current !== null) {
+      window.clearTimeout(editSessionTimeoutRef.current);
+      editSessionTimeoutRef.current = null;
+    }
+    if (editSessionActiveRef.current) {
+      editSessionActiveRef.current = false;
+      onEditEnd?.();
+    }
+  }, [onEditEnd]);
 
   const flushPendingGradientUpdate = useCallback(() => {
     if (pendingGradientUpdateRef.current !== null) {
@@ -132,6 +166,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   }, [onChange]);
 
   const scheduleGradientUpdate = useCallback((nextStops: GradientStop[]) => {
+    beginEditSession();
     pendingGradientStopsRef.current = nextStops;
     if (pendingGradientUpdateRef.current !== null) return;
     pendingGradientUpdateRef.current = requestAnimationFrame(() => {
@@ -141,13 +176,14 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         pendingGradientStopsRef.current = null;
       }
     });
-  }, [onChange]);
+  }, [beginEditSession, onChange]);
 
   useEffect(() => {
     return () => {
       flushPendingGradientUpdate();
+      endEditSession();
     };
-  }, [flushPendingGradientUpdate]);
+  }, [flushPendingGradientUpdate, endEditSession]);
 
   // Local undo/redo stacks (editor-scoped)
   const undoStackRef = useRef<GradientStop[][]>([]);
@@ -190,7 +226,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const closeColorPicker = useCallback(() => {
     setActiveColorPickerIndex(null);
     colorPickerUndoRef.current = false;
-  }, []);
+    endEditSession();
+  }, [endEditSession]);
 
   useEffect(() => {
     if (activeColorPickerIndex === null) {
@@ -480,8 +517,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
+    endEditSession();
     // Drag finished
-  }, []);
+  }, [endEditSession]);
 
   // Add global mouse event listeners for dragging
   useEffect(() => {

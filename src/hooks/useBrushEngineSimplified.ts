@@ -51,6 +51,60 @@ type ShapeFillOptions = Record<string, unknown>;
 
 type IdleHandle = { id: number; kind: 'idle' | 'timeout' } | null;
 
+type GradientStop = { position: number; color: string };
+type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
+type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
+
+const DEFAULT_CC_GRADIENT: GradientStop[] = [
+  { position: 0.0, color: '#ff0000' },
+  { position: 0.17, color: '#ff7f00' },
+  { position: 0.33, color: '#ffff00' },
+  { position: 0.5, color: '#00ff00' },
+  { position: 0.67, color: '#0000ff' },
+  { position: 0.83, color: '#4b0082' },
+  { position: 1.0, color: '#9400d3' }
+];
+
+const resolveColorCycleGradientsForLayer = (
+  layer: Layer | undefined,
+  brushSettings: BrushSettings
+): {
+  gradientDefs: ColorCycleGradientDef[];
+  slotPalettes: ColorCycleSlotPalette[];
+  activeGradientId: string;
+  activeSlot: number;
+  activeStops: GradientStop[];
+  fallbackStops: GradientStop[];
+} => {
+  const fallbackStops =
+    layer?.colorCycleData?.gradient ??
+    brushSettings.colorCycleGradient ??
+    DEFAULT_CC_GRADIENT;
+  const gradientDefs = layer?.colorCycleData?.gradientDefs?.length
+    ? layer.colorCycleData.gradientDefs
+    : [{ id: 'g0', currentSlot: 0 }];
+  const slotPalettes = layer?.colorCycleData?.slotPalettes?.length
+    ? layer.colorCycleData.slotPalettes
+    : [{ slot: 0, stops: fallbackStops }];
+  const activeGradientId = layer?.colorCycleData?.activeGradientId ?? gradientDefs[0].id;
+  const activeDef =
+    gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
+  const activeSlot = activeDef?.currentSlot ?? 0;
+  const activePalette = slotPalettes.find((entry) => entry.slot === activeSlot);
+  const activeStops =
+    activePalette?.stops && activePalette.stops.length > 0
+      ? activePalette.stops
+      : fallbackStops;
+  return {
+    gradientDefs,
+    slotPalettes,
+    activeGradientId,
+    activeSlot,
+    activeStops,
+    fallbackStops,
+  };
+};
+
 const scheduleDeferred = (callback: () => void, timeout = 120): IdleHandle => {
   if (typeof window === 'undefined') {
     callback();
@@ -3683,26 +3737,20 @@ export const useBrushEngineSimplified = () => {
         console.error('[CC Init] Failed to set stamp shape:', error);
       }
       
-      // Apply gradient - prioritize layer's stored gradient over brush settings
+      // Hydrate all layer gradients and set active slot (no global overwrite)
       const storeSnapshot = useAppStore.getState();
       const activeLayer = storeSnapshot.layers.find(l => l.id === activeLayerId);
-      const layerGradient = activeLayer?.colorCycleData?.gradient;
-      const brushGradient = tools.brushSettings.colorCycleGradient;
-      const defaultGradient = [
-        { position: 0.0, color: '#ff0000' },
-        { position: 0.17, color: '#ff7f00' },
-        { position: 0.33, color: '#ffff00' },
-        { position: 0.5, color: '#00ff00' },
-        { position: 0.67, color: '#0000ff' },
-        { position: 0.83, color: '#4b0082' },
-        { position: 1.0, color: '#9400d3' }
-      ];
-      
-      // Use layer gradient first, then brush gradient, then default
-      const gradientToUse = layerGradient || brushGradient || defaultGradient;
-      if (gradientToUse) {
-        colorCycleBrush.setGradient(gradientToUse, activeLayerId);
-      }
+      const { gradientDefs, slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
+        activeLayer,
+        tools.brushSettings
+      );
+      slotPalettes.forEach((entry, index) => {
+        const stops =
+          entry.stops && entry.stops.length > 0 ? entry.stops : fallbackStops;
+        const slot = Number.isFinite(entry.slot) ? entry.slot : index;
+        colorCycleBrush.setGradientSlot(activeLayerId, slot, stops);
+      });
+      colorCycleBrush.setActiveGradientSlot(activeLayerId, activeSlot);
       
       const layerFlowMode = activeLayer?.colorCycleData?.flowMode;
       const flowMode = layerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'reverse';
@@ -4118,12 +4166,19 @@ export const useBrushEngineSimplified = () => {
       const currentBrushLayerId = brush.getLayerId();
       if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
         // quiet
-        const currentGradient = tools.brushSettings.colorCycleGradient || [
-          { position: 0, color: '#ff0000' },
-          { position: 0.5, color: '#00ff00' },
-          { position: 1, color: '#0000ff' }
-        ];
-        brush.setGradient(currentGradient, layerId);
+        const state = useAppStore.getState();
+        const layer = state.layers.find((entry) => entry.id === layerId);
+        const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
+          layer,
+          tools.brushSettings
+        );
+        slotPalettes.forEach((entry, index) => {
+          const stops =
+            entry.stops && entry.stops.length > 0 ? entry.stops : fallbackStops;
+          const slot = Number.isFinite(entry.slot) ? entry.slot : index;
+          brush.setGradientSlot(layerId, slot, stops);
+        });
+        brush.setActiveGradientSlot(layerId, activeSlot);
       }
       
       // Ensure bands are set before filling
@@ -4183,12 +4238,19 @@ export const useBrushEngineSimplified = () => {
       if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
         // quiet
         // Set the gradient to create a layer
-        const currentGradient = tools.brushSettings.colorCycleGradient || [
-          { position: 0, color: '#ff0000' },
-          { position: 0.5, color: '#00ff00' },
-          { position: 1, color: '#0000ff' }
-        ];
-        brush.setGradient(currentGradient, layerId);
+        const state = useAppStore.getState();
+        const layer = state.layers.find((entry) => entry.id === layerId);
+        const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
+          layer,
+          tools.brushSettings
+        );
+        slotPalettes.forEach((entry, index) => {
+          const stops =
+            entry.stops && entry.stops.length > 0 ? entry.stops : fallbackStops;
+          const slot = Number.isFinite(entry.slot) ? entry.slot : index;
+          brush.setGradientSlot(layerId, slot, stops);
+        });
+        brush.setActiveGradientSlot(layerId, activeSlot);
       }
       
       // Ensure bands are set before filling
@@ -4500,8 +4562,11 @@ useEffect(() => {
       if (!colorCycleBrush || !activeLayerId) {
         return;
       }
-
-      colorCycleBrush.setGradient(stops, activeLayerId);
+      const state = useAppStore.getState();
+      const layer = state.layers.find((entry) => entry.id === activeLayerId);
+      const { activeSlot } = resolveColorCycleGradientsForLayer(layer, state.tools.brushSettings);
+      colorCycleBrush.setGradientSlot(activeLayerId, activeSlot, stops);
+      colorCycleBrush.setActiveGradientSlot(activeLayerId, activeSlot);
 
       // Force the brush to rebuild its palette caches immediately so the next render uses
       // the updated gradient without waiting for the animation loop.

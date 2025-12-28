@@ -82,6 +82,63 @@ type DebugBrush = Partial<ManagedColorCycleBrush> & {
   strokeCounter?: number;
 };
 
+type GradientStop = { position: number; color: string };
+type ColorCycleGradient = { id: string; slot: number; stops: GradientStop[] };
+
+const DEFAULT_CC_GRADIENT: GradientStop[] = [
+  { position: 0.0, color: '#ff0000' },
+  { position: 0.17, color: '#ff7f00' },
+  { position: 0.33, color: '#ffff00' },
+  { position: 0.5, color: '#00ff00' },
+  { position: 0.67, color: '#0000ff' },
+  { position: 0.83, color: '#4b0082' },
+  { position: 1.0, color: '#9400d3' }
+];
+
+const resolveActiveColorCycleGradient = (
+  layer: Layer,
+  brushSettings: BrushSettings
+): {
+  gradientDefs: Array<{ id: string; currentSlot: number }>;
+  slotPalettes: Array<{ slot: number; stops: GradientStop[] }>;
+  activeGradientId: string;
+  activeSlot: number;
+  activeStops: GradientStop[];
+  needsBootstrap: boolean;
+} => {
+  const fallbackStops =
+    layer.colorCycleData?.gradient ??
+    brushSettings.colorCycleGradient ??
+    DEFAULT_CC_GRADIENT;
+  const gradientDefs = layer.colorCycleData?.gradientDefs?.length
+    ? layer.colorCycleData.gradientDefs
+    : [{ id: 'g0', currentSlot: 0 }];
+  const slotPalettes = layer.colorCycleData?.slotPalettes?.length
+    ? layer.colorCycleData.slotPalettes
+    : [{ slot: 0, stops: fallbackStops }];
+  const activeGradientId = layer.colorCycleData?.activeGradientId ?? gradientDefs[0].id;
+  const activeDef =
+    gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
+  const activeSlot = activeDef?.currentSlot ?? 0;
+  const activePalette = slotPalettes.find((entry) => entry.slot === activeSlot);
+  const activeStops =
+    activePalette?.stops && activePalette.stops.length > 0
+      ? activePalette.stops
+      : fallbackStops;
+  const hasActiveId =
+    Boolean(layer.colorCycleData?.activeGradientId) &&
+    gradientDefs.some((entry) => entry.id === layer.colorCycleData?.activeGradientId);
+  const needsBootstrap = !layer.colorCycleData?.gradientDefs?.length || !hasActiveId;
+  return {
+    gradientDefs,
+    slotPalettes,
+    activeGradientId,
+    activeSlot,
+    activeStops,
+    needsBootstrap,
+  };
+};
+
 const parseCssColorToRgba = (color: string): [number, number, number, number] => {
   const hex = color?.trim().toLowerCase();
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
@@ -1017,6 +1074,31 @@ export function useDrawingHandlers({
   void _viewTransformRef;
   void _canvasRef;
   const brushEngine = useBrushEngineSimplified();
+  const ensureActiveColorCycleGradientSlot = useCallback((
+    state: AppState,
+    layer: Layer,
+    brush?: ColorCycleBrushImplementation | null
+  ) => {
+    const { gradientDefs, slotPalettes, activeGradientId, activeSlot, activeStops, needsBootstrap } =
+      resolveActiveColorCycleGradient(layer, state.tools.brushSettings);
+    if (needsBootstrap) {
+      try {
+        state.updateLayer(layer.id, {
+          colorCycleData: {
+            ...(layer.colorCycleData ?? {}),
+            gradientDefs,
+            slotPalettes,
+            activeGradientId,
+            gradient: activeStops
+          }
+        });
+      } catch {}
+    }
+    if (brush) {
+      brush.setGradientSlot(layer.id, activeSlot, activeStops);
+      brush.setActiveGradientSlot(layer.id, activeSlot);
+    }
+  }, []);
   const resetShapePressureState = useCallback(() => {
     latestShapePixelSizeRef.current = null;
     lastNonZeroShapePressureRef.current = 0.5;
@@ -1669,6 +1751,7 @@ export function useDrawingHandlers({
   // Auto-sample gradient (for color cycle brushes)
   const autoSamplePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const autoSampleLastUpdateRef = useRef<number>(0);
+  const autoSampleForkRef = useRef<boolean>(true);
   const ditherGradSampleLastUpdateRef = useRef<number>(0);
   const brushSamplingPreviewActiveRef = useRef<boolean>(false);
 
@@ -1849,7 +1932,8 @@ export function useDrawingHandlers({
 
     // Use shared setter to propagate to tools + active CC layer consistently
     try {
-      setSharedColorCycleGradient(stops);
+      setSharedColorCycleGradient(stops, { fork: autoSampleForkRef.current });
+      autoSampleForkRef.current = false;
     } catch {
       // Fallback: update brush and active layer directly
       store.setBrushSettings({ colorCycleGradient: stops });
@@ -2721,40 +2805,8 @@ export function useDrawingHandlers({
           if (!colorCycleBrushManager.getBrush(activeLayer.id)) {
             currentState.initColorCycleForLayer(activeLayer.id, runtimeProject.width, runtimeProject.height);
           }
-
-          const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
-          const brushGradientVersion = currentState.tools.brushSettings.colorCycleGradientVersion ?? null;
-          const layerGradient = activeLayer.colorCycleData?.gradient;
-          const layerGradientVersion = activeLayer.colorCycleData?.gradientVersion ?? null;
-          const layerGradientFingerprint =
-            layerGradient && layerGradientVersion == null ? JSON.stringify(layerGradient) : null;
-          const brushGradientFingerprint =
-            brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
-          const gradientsMatch =
-            !brushGradient ||
-            !layerGradient
-              ? brushGradient === layerGradient
-              : brushGradientVersion != null && layerGradientVersion != null
-                ? brushGradientVersion === layerGradientVersion
-                : brushGradientFingerprint === layerGradientFingerprint;
-
-          if (brushGradient && !gradientsMatch) {
-            const nextVersion =
-              brushGradientVersion ??
-              ((activeLayer.colorCycleData?.gradientVersion ?? 0) + 1);
-            try {
-              currentState.updateLayer(activeLayer.id, {
-                colorCycleData: {
-                  ...(activeLayer.colorCycleData ?? {}),
-                  gradient: brushGradient,
-                  gradientVersion: nextVersion
-                }
-              });
-            } catch {}
-            try {
-              brushEngine.updateColorCycleGradient?.(brushGradient);
-            } catch {}
-          }
+          const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+          ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
         }
       }
     }
@@ -2782,37 +2834,10 @@ export function useDrawingHandlers({
       try {
         const refreshedState = storeRef.current;
         const refreshedLayer = refreshedState.layers.find(l => l.id === refreshedState.activeLayerId);
-        const brushGradient = refreshedState.tools.brushSettings.colorCycleGradient;
-        if (refreshedLayer?.layerType === 'color-cycle' && brushGradient) {
-          const brushGradientVersion = refreshedState.tools.brushSettings.colorCycleGradientVersion ?? null;
-          const existingGradient = refreshedLayer.colorCycleData?.gradient;
-          const existingVersion = refreshedLayer.colorCycleData?.gradientVersion ?? null;
-          const existingFingerprint =
-            existingGradient && existingVersion == null ? JSON.stringify(existingGradient) : null;
-          const brushFingerprint =
-            brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
-          const gradientsMatch =
-            !existingGradient ||
-            !brushGradient
-              ? existingGradient === brushGradient
-              : brushGradientVersion != null && existingVersion != null
-                ? brushGradientVersion === existingVersion
-                : brushFingerprint === existingFingerprint;
-
-          if (brushGradient && !gradientsMatch) {
-            refreshedState.updateLayer(refreshedLayer.id, {
-              colorCycleData: {
-                ...(refreshedLayer.colorCycleData ?? {}),
-                gradient: brushGradient,
-                gradientVersion:
-                  brushGradientVersion ??
-                  ((refreshedLayer.colorCycleData?.gradientVersion ?? 0) + 1)
-              }
-            });
-            try {
-              brushEngine.updateColorCycleGradient?.(brushGradient);
-            } catch {}
-          }
+        if (refreshedLayer?.layerType === 'color-cycle') {
+          const colorCycleBrushManager = getColorCycleBrushManager();
+          const colorCycleBrush = colorCycleBrushManager.getBrush(refreshedLayer.id);
+          ensureActiveColorCycleGradientSlot(refreshedState, refreshedLayer, colorCycleBrush);
         }
 
         const desiredPlaying = selectColorCycleDesiredPlaying(refreshedState);
@@ -2867,6 +2892,7 @@ export function useDrawingHandlers({
       if (isCCStroke && autoSample) {
         autoSamplePointsRef.current = [worldPos];
         autoSampleLastUpdateRef.current = 0;
+        autoSampleForkRef.current = true;
         brushSamplingPreviewActiveRef.current = true;
         renderBrushSamplingPreview(autoSamplePointsRef.current);
       }
@@ -3036,38 +3062,10 @@ export function useDrawingHandlers({
           if (activeLayer && FF.ERASER_V2) {
             beginMaskHealingStroke(activeLayer.id, worldPos, pressure);
           }
-
-          const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
-          const brushGradientVersion = currentState.tools.brushSettings.colorCycleGradientVersion ?? null;
-          const layerGradient = activeLayer.colorCycleData?.gradient;
-          const layerGradientVersion = activeLayer.colorCycleData?.gradientVersion ?? null;
-          const layerGradientFingerprint =
-            layerGradient && layerGradientVersion == null ? JSON.stringify(layerGradient) : null;
-          const brushGradientFingerprint =
-            brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
-          const gradientsMatch =
-            !brushGradient ||
-            !layerGradient
-              ? brushGradient === layerGradient
-              : brushGradientVersion != null && layerGradientVersion != null
-                ? brushGradientVersion === layerGradientVersion
-                : brushGradientFingerprint === layerGradientFingerprint;
-
-          if (!gradientsMatch && brushGradient) {
-            try {
-              currentState.updateLayer(activeLayer.id, {
-                colorCycleData: {
-                  ...(activeLayer.colorCycleData ?? {}),
-                  gradient: brushGradient,
-                  gradientVersion:
-                    brushGradientVersion ??
-                    ((activeLayer.colorCycleData?.gradientVersion ?? 0) + 1)
-                }
-              });
-            } catch {}
-            try {
-              brushEngine.updateColorCycleGradient?.(brushGradient);
-            } catch {}
+          {
+            const colorCycleBrushManager = getColorCycleBrushManager();
+            const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+            ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
           }
 
           const rawSpacing = currentState.tools.brushSettings.spacing || 1;
@@ -3284,10 +3282,6 @@ export function useDrawingHandlers({
     const doSnap = shouldApplyGridSnapPure(brushSettings);
     const gridSpacing = doSnap ? calculateGridSpacing() : 0;
     const paused = !selectEffectiveColorCyclePlaying(currentState);
-    const brushGradient = brushSettings.colorCycleGradient;
-    const brushGradientVersion = brushSettings.colorCycleGradientVersion ?? null;
-    const brushGradientFingerprint =
-      brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
     
     if (!drawCtx || !project) {
       strokeBatchRef.current = [];
@@ -3407,33 +3401,10 @@ export function useDrawingHandlers({
               targetCtx.globalCompositeOperation = 'source-over';
               targetCtx.globalAlpha = 1;
               
-              const layerGradient = activeLayer?.colorCycleData?.gradient;
-              const layerGradientVersion = activeLayer?.colorCycleData?.gradientVersion ?? null;
-              const layerGradientFingerprint =
-                layerGradient && layerGradientVersion == null ? JSON.stringify(layerGradient) : null;
-              const gradientsMatch =
-                !brushGradient ||
-                !layerGradient
-                  ? brushGradient === layerGradient
-                  : brushGradientVersion != null && layerGradientVersion != null
-                    ? brushGradientVersion === layerGradientVersion
-                    : brushGradientFingerprint === layerGradientFingerprint;
-
-              if (!gradientsMatch && brushGradient && activeLayer) {
-                try {
-                  currentState.updateLayer(activeLayer.id, {
-                    colorCycleData: {
-                      ...(activeLayer.colorCycleData ?? {}),
-                      gradient: brushGradient,
-                      gradientVersion:
-                        brushGradientVersion ??
-                        ((activeLayer.colorCycleData?.gradientVersion ?? 0) + 1)
-                    }
-                  });
-                } catch {}
-                try {
-                  brushEngine.updateColorCycleGradient?.(brushGradient);
-                } catch {}
+              if (activeLayer) {
+                const colorCycleBrushManager = getColorCycleBrushManager();
+                const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+                ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
               }
 
               const usingCustomStamp = ccProcessFlags.isCustom;
@@ -4815,6 +4786,7 @@ export function useDrawingHandlers({
             const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
             if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
               autoSamplePointsRef.current = [...shapePointsRef.current];
+              autoSampleForkRef.current = true;
               autoSampleLastUpdateRef.current = 0;
               updateAutoSampledGradient(autoSamplePointsRef.current);
             }
@@ -4951,6 +4923,7 @@ export function useDrawingHandlers({
             const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
             if (isCCShape && store.tools.brushSettings.autoSampleGradient) {
               autoSamplePointsRef.current = [...shapePointsRef.current];
+              autoSampleForkRef.current = true;
               updateAutoSampledGradient(autoSamplePointsRef.current);
             }
             if (

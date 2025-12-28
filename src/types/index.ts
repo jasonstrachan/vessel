@@ -133,7 +133,38 @@ export interface Layer {
     mode?: 'brush' | 'recolor';
 
     // Brush mode data (existing functionality)
+    /**
+     * @deprecated Legacy single gradient. Use gradients + activeGradientId instead.
+     */
     gradient?: Array<{ position: number; color: string }>;
+    /**
+     * @deprecated Legacy gradient list (id + slot + stops). Prefer gradientDefs + slotPalettes.
+     */
+    gradients?: Array<{
+      id: string;
+      slot: number;
+      stops: Array<{ position: number; color: string }>;
+    }>;
+    /**
+     * Stable user gradients. Each def points to the current slot for future strokes.
+     */
+    gradientDefs?: Array<{
+      id: string;
+      name?: string;
+      currentSlot: number;
+    }>;
+    /**
+     * Immutable slot palettes for any slot referenced by pixels.
+     */
+    slotPalettes?: Array<{
+      slot: number;
+      stops: Array<{ position: number; color: string }>;
+    }>;
+    activeGradientId?: string;
+    /**
+     * Persisted buffer of per-pixel gradient slot indices (Uint8Array at runtime).
+     */
+    gradientIdBuffer?: ArrayBuffer;
     gradientVersion?: number;
     colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
     isAnimating?: boolean;
@@ -723,6 +754,7 @@ export interface ColorCycleSnapshot {
   layerStrokes: Array<{
     layerId: string;
     paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
     strokeLength: number;

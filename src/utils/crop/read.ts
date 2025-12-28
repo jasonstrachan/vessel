@@ -506,7 +506,7 @@ export function readLayerSourcesForCrop(
             (l: { layerId?: string }) => l.layerId === layer.id
           ) as {
             data?: {
-              indexBuffer?: { data?: ArrayBuffer };
+              indexBuffer?: { data?: ArrayBuffer; gradientId?: ArrayBuffer };
               gradient?: { gradientStops?: Array<{ position: number; color: string }> };
             };
           } | undefined;
@@ -517,10 +517,16 @@ export function readLayerSourcesForCrop(
             const full = new Uint8Array(idx.data);
             if (expectedLength > 0 && full.length === expectedLength) {
               const out = copyScalarRegion(full, sw, colorCycleReadbackCanvas.height, rect);
+              const gradientFull = idx.gradientId ? new Uint8Array(idx.gradientId) : null;
+              const gradientOut =
+                gradientFull && gradientFull.length === expectedLength
+                  ? copyScalarRegion(gradientFull, sw, colorCycleReadbackCanvas.height, rect)
+                  : null;
               croppedAnimatorIndex = {
                 width: targetWidth,
                 height: targetHeight,
                 data: out.buffer as ArrayBuffer,
+                gradientIdData: gradientOut?.buffer as ArrayBuffer | undefined,
                 gradientStops: layerState?.data?.gradient?.gradientStops
               };
             }

@@ -216,11 +216,13 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
               width?: number;
               height?: number;
               data?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
+              gradientId?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
             };
             gradient?: { gradientStops?: GradientStop[] | unknown };
           } | undefined;
           const indexBuffer = layerData?.indexBuffer;
           const animatorData = toArrayBuffer(indexBuffer?.data);
+          const animatorGradientId = toArrayBuffer(indexBuffer?.gradientId);
           const gradientStops = Array.isArray(layerData?.gradient?.gradientStops)
             ? (layerData?.gradient?.gradientStops as GradientStop[])
             : undefined;
@@ -230,12 +232,28 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
                   width: indexBuffer.width,
                   height: indexBuffer.height,
                   data: animatorData,
-                  gradientStops
+                  gradientIdData: animatorGradientId ?? undefined,
+                  gradientStops,
+                  gradientDefs: layerSnapshot.gradientDefs
+                    ? layerSnapshot.gradientDefs.map((entry) => ({
+                        id: entry.id,
+                        name: entry.name,
+                        currentSlot: entry.currentSlot,
+                      }))
+                    : undefined,
+                  slotPalettes: layerSnapshot.slotPalettes
+                    ? layerSnapshot.slotPalettes.map((entry) => ({
+                        slot: entry.slot,
+                        stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+                      }))
+                    : undefined,
+                  activeGradientId: layerSnapshot.activeGradientId,
                 }
               : undefined;
           return {
             layerId: layerSnapshot.layerId,
             paintBuffer: layerSnapshot.strokeData?.paintBuffer ?? new ArrayBuffer(0),
+            gradientIdBuffer: layerSnapshot.strokeData?.gradientIdBuffer,
             hasContent: Boolean(layerSnapshot.strokeData?.hasContent),
             strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
             animatorIndex

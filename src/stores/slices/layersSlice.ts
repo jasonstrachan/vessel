@@ -273,6 +273,9 @@ const cloneGradientStops = (
 };
 
 type GradientStop = { position: number; color: string };
+type ColorCycleGradient = { id: string; slot: number; stops: GradientStop[] };
+type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
+type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
 
 const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 0.0, color: '#ff0000' },
@@ -283,6 +286,226 @@ const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 0.83, color: '#4b0082' },
   { position: 1.0, color: '#9400d3' }
 ];
+
+const cloneColorCycleGradients = (
+  gradients?: ColorCycleGradient[]
+): ColorCycleGradient[] | undefined => {
+  if (!gradients) {
+    return undefined;
+  }
+  return gradients.map((entry, index) => ({
+    id: entry.id ?? `g${index}`,
+    slot: Number.isFinite(entry.slot) ? entry.slot : index,
+    stops: cloneGradientStops(entry.stops) ?? entry.stops,
+  }));
+};
+
+const cloneGradientDefs = (
+  defs?: ColorCycleGradientDef[]
+): ColorCycleGradientDef[] | undefined => {
+  if (!defs) {
+    return undefined;
+  }
+  return defs.map((entry, index) => ({
+    id: entry.id ?? `g${index}`,
+    name: entry.name,
+    currentSlot: Number.isFinite(entry.currentSlot) ? entry.currentSlot : index,
+  }));
+};
+
+const cloneSlotPalettes = (
+  palettes?: ColorCycleSlotPalette[]
+): ColorCycleSlotPalette[] | undefined => {
+  if (!palettes) {
+    return undefined;
+  }
+  return palettes.map((entry) => ({
+    slot: Number.isFinite(entry.slot) ? entry.slot : 0,
+    stops: cloneGradientStops(entry.stops) ?? entry.stops,
+  }));
+};
+
+const resolveLegacyGradientStops = (
+  data?: Layer['colorCycleData']
+): GradientStop[] | undefined => {
+  const legacyStops = (data as { gradient?: GradientStop[] } | undefined)?.gradient;
+  if (Array.isArray(legacyStops) && legacyStops.length > 0) {
+    return legacyStops.map((stop) => ({ ...stop }));
+  }
+  return undefined;
+};
+
+const ensureColorCycleGradients = (
+  data: Layer['colorCycleData'] | undefined,
+  fallbackStops: GradientStop[]
+): { gradientDefs: ColorCycleGradientDef[]; slotPalettes: ColorCycleSlotPalette[]; activeGradientId: string } => {
+  const existingDefs = cloneGradientDefs(data?.gradientDefs);
+  const existingPalettes = cloneSlotPalettes(data?.slotPalettes);
+
+  if (existingDefs && existingDefs.length > 0 && existingPalettes && existingPalettes.length > 0) {
+    const existingActiveId = data?.activeGradientId;
+    const hasActive = existingActiveId
+      ? existingDefs.some((entry) => entry.id === existingActiveId)
+      : false;
+    return {
+      gradientDefs: existingDefs,
+      slotPalettes: existingPalettes,
+      activeGradientId: hasActive ? (existingActiveId as string) : existingDefs[0].id,
+    };
+  }
+
+  const legacyGradients = cloneColorCycleGradients(data?.gradients);
+  if (legacyGradients && legacyGradients.length > 0) {
+    const gradientDefs = legacyGradients.map((entry) => ({
+      id: entry.id,
+      currentSlot: entry.slot,
+    }));
+    const slotPalettes = legacyGradients.map((entry) => ({
+      slot: entry.slot,
+      stops: cloneGradientStops(entry.stops) ?? entry.stops,
+    }));
+    const existingActiveId = data?.activeGradientId;
+    const hasActive = existingActiveId
+      ? gradientDefs.some((entry) => entry.id === existingActiveId)
+      : false;
+    return {
+      gradientDefs,
+      slotPalettes,
+      activeGradientId: hasActive ? (existingActiveId as string) : gradientDefs[0].id,
+    };
+  }
+
+  if (existingDefs && existingDefs.length > 0) {
+    const legacyStops = resolveLegacyGradientStops(data);
+    const stops = legacyStops && legacyStops.length > 0 ? legacyStops : fallbackStops;
+    const slotPalettes = existingDefs.map((entry, index) => ({
+      slot: Number.isFinite(entry.currentSlot) ? entry.currentSlot : index,
+      stops: cloneGradientStops(stops) ?? stops,
+    }));
+    const existingActiveId = data?.activeGradientId;
+    const hasActive = existingActiveId
+      ? existingDefs.some((entry) => entry.id === existingActiveId)
+      : false;
+    return {
+      gradientDefs: existingDefs,
+      slotPalettes,
+      activeGradientId: hasActive ? (existingActiveId as string) : existingDefs[0].id,
+    };
+  }
+
+  if (existingPalettes && existingPalettes.length > 0) {
+    const gradientDefs = existingPalettes.map((entry, index) => ({
+      id: `g${index}`,
+      currentSlot: entry.slot,
+    }));
+    const existingActiveId = data?.activeGradientId;
+    const hasActive = existingActiveId
+      ? gradientDefs.some((entry) => entry.id === existingActiveId)
+      : false;
+    return {
+      gradientDefs,
+      slotPalettes: existingPalettes,
+      activeGradientId: hasActive ? (existingActiveId as string) : gradientDefs[0].id,
+    };
+  }
+
+  const legacyStops = resolveLegacyGradientStops(data);
+  const stops = legacyStops && legacyStops.length > 0 ? legacyStops : fallbackStops;
+  return {
+    gradientDefs: [
+      {
+        id: 'g0',
+        currentSlot: 0,
+      },
+    ],
+    slotPalettes: [
+      {
+        slot: 0,
+        stops: cloneGradientStops(stops) ?? stops,
+      },
+    ],
+    activeGradientId: 'g0',
+  };
+};
+
+const resolveActiveGradientDef = (
+  data: Layer['colorCycleData'] | undefined
+): ColorCycleGradientDef | undefined => {
+  if (!data?.gradientDefs || data.gradientDefs.length === 0) {
+    return undefined;
+  }
+  if (data.activeGradientId) {
+    const match = data.gradientDefs.find((entry) => entry.id === data.activeGradientId);
+    if (match) {
+      return match;
+    }
+  }
+  return data.gradientDefs[0];
+};
+
+const resolveActiveGradientStops = (
+  data: Layer['colorCycleData'] | undefined
+): GradientStop[] | undefined => {
+  const activeDef = resolveActiveGradientDef(data);
+  if (activeDef && data?.slotPalettes?.length) {
+    const slotPalette = data.slotPalettes.find((entry) => entry.slot === activeDef.currentSlot);
+    if (slotPalette?.stops && slotPalette.stops.length > 0) {
+      return slotPalette.stops;
+    }
+  }
+  const legacy = resolveLegacyGradientStops(data);
+  if (legacy && legacy.length > 0) {
+    return legacy;
+  }
+  return data?.recolorSettings?.gradient;
+};
+
+const ensureGradientIdBuffer = ({
+  existingBuffer,
+  width,
+  height,
+  previousWidth,
+  previousHeight,
+  fillSlot,
+}: {
+  existingBuffer?: ArrayBuffer;
+  width: number;
+  height: number;
+  previousWidth?: number;
+  previousHeight?: number;
+  fillSlot: number;
+}): ArrayBuffer => {
+  const safeWidth = Math.max(1, Math.floor(width));
+  const safeHeight = Math.max(1, Math.floor(height));
+  const targetSize = safeWidth * safeHeight;
+
+  if (existingBuffer && existingBuffer.byteLength === targetSize) {
+    return existingBuffer;
+  }
+
+  const buffer = new ArrayBuffer(targetSize);
+  const view = new Uint8Array(buffer);
+  const clampedSlot = clamp(Math.round(fillSlot), 0, 255);
+  view.fill(clampedSlot);
+
+  if (
+    existingBuffer &&
+    previousWidth &&
+    previousHeight &&
+    existingBuffer.byteLength === previousWidth * previousHeight
+  ) {
+    const previousView = new Uint8Array(existingBuffer);
+    const copyWidth = Math.min(previousWidth, safeWidth);
+    const copyHeight = Math.min(previousHeight, safeHeight);
+    for (let row = 0; row < copyHeight; row += 1) {
+      const srcOffset = row * previousWidth;
+      const destOffset = row * safeWidth;
+      view.set(previousView.subarray(srcOffset, srcOffset + copyWidth), destOffset);
+    }
+  }
+
+  return buffer;
+};
 
 const parseHexColor = (hex: string): { r: number; g: number; b: number } => {
   if (!hex || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) {
@@ -360,9 +583,18 @@ const cloneColorCycleData = (
       }
     : undefined;
 
+  const { gradientDefs, slotPalettes, activeGradientId } = ensureColorCycleGradients(
+    data,
+    DEFAULT_CC_GRADIENT
+  );
+
   return {
     ...data,
     gradient: cloneGradientStops(data.gradient) ?? data.gradient,
+    gradientDefs,
+    slotPalettes,
+    activeGradientId,
+    gradientIdBuffer: data.gradientIdBuffer ? data.gradientIdBuffer.slice(0) : undefined,
     colorCycleBrush: undefined,
     brushState: undefined,
     canvas: stripSurfaces
@@ -855,7 +1087,7 @@ export const createLayersSlice = (
           id: l.id.substring(0, 20),
           type: l.layerType,
           hasCC: !!l.colorCycleData,
-          hasGradient: !!l.colorCycleData?.gradient
+          hasGradient: Boolean(resolveActiveGradientStops(l.colorCycleData)?.length)
         }))
       }); */
       
@@ -976,9 +1208,7 @@ export const createLayersSlice = (
           const width = adoptedCanvas.width || project?.width || 1024;
           const height = adoptedCanvas.height || project?.height || 1024;
           const gradientStops =
-            duplicatedLayer?.colorCycleData?.gradient ||
-            duplicatedLayer?.colorCycleData?.recolorSettings?.gradient ||
-            DEFAULT_CC_GRADIENT;
+            resolveActiveGradientStops(duplicatedLayer?.colorCycleData) ?? DEFAULT_CC_GRADIENT;
           const gradientArray = gradientStopsToUint8Array(gradientStops);
           const brush = colorCycleBrushManager.createBrush(newLayerId, width, height, gradientArray) as ColorCycleBrushImplementation & {
             setTargetCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
@@ -1160,9 +1390,34 @@ export const createLayersSlice = (
               // Skip this update - don't add colorCycleData to normal layers
             } else {
               // Merging colorCycleData for color-cycle layer
-              updatedLayer.colorCycleData = {
+              const mergedColorCycleData = {
                 ...layer.colorCycleData,
                 ...updates.colorCycleData
+              };
+              const legacyStops = resolveLegacyGradientStops(mergedColorCycleData);
+              const fallbackStops = legacyStops
+                ?? state.tools.brushSettings.colorCycleGradient
+                ?? DEFAULT_CC_GRADIENT;
+              const { gradientDefs, slotPalettes, activeGradientId } = ensureColorCycleGradients(
+                mergedColorCycleData,
+                fallbackStops
+              );
+              const activeDef = gradientDefs.find((entry) => entry.id === activeGradientId)
+                ?? gradientDefs[0];
+              const updatedSlotPalettes = legacyStops
+                ? slotPalettes.map((entry) =>
+                    entry.slot === activeDef.currentSlot
+                      ? { ...entry, stops: cloneGradientStops(legacyStops) ?? legacyStops }
+                      : entry
+                  )
+                : slotPalettes;
+              const activeSlotPalette = updatedSlotPalettes.find((entry) => entry.slot === activeDef.currentSlot);
+              updatedLayer.colorCycleData = {
+                ...mergedColorCycleData,
+                gradientDefs,
+                slotPalettes: updatedSlotPalettes,
+                activeGradientId,
+                gradient: activeSlotPalette?.stops ?? legacyStops ?? mergedColorCycleData.gradient,
               };
               // Layer is already color-cycle, keep it that way
               updatedLayer.layerType = 'color-cycle';
@@ -1478,7 +1733,7 @@ export const createLayersSlice = (
         id: l.id.substring(0, 20),
         type: l.layerType,
         hasCC: !!l.colorCycleData,
-        hasGradient: !!l.colorCycleData?.gradient
+        hasGradient: Boolean(resolveActiveGradientStops(l.colorCycleData)?.length)
       }))
     }); */
     
@@ -1522,8 +1777,8 @@ export const createLayersSlice = (
     if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
       /* console.log('🟣 SWITCHING TO CC LAYER:', {
         layerId: id.substring(0, 20),
-        hasGradient: !!layer.colorCycleData?.gradient,
-        gradientLength: layer.colorCycleData?.gradient?.length
+        hasGradient: Boolean(resolveActiveGradientStops(layer.colorCycleData)?.length),
+        gradientLength: resolveActiveGradientStops(layer.colorCycleData)?.length ?? 0
       }); */
       
       // Validate and reinitialize if needed
@@ -1566,8 +1821,7 @@ export const createLayersSlice = (
         savedBrushShape = state.tools.brushSettings.brushShape;
       }
 
-      const layerGradientStops = layer.colorCycleData?.gradient
-        ?? layer.colorCycleData?.recolorSettings?.gradient;
+      const layerGradientStops = resolveActiveGradientStops(layer.colorCycleData);
       const gradientForBrushSettings = layerGradientStops
         ? layerGradientStops.map(stop => ({ ...stop }))
         : undefined;
@@ -1801,6 +2055,28 @@ export const createLayersSlice = (
         });
         return {}; // Prevent color cycle initialization on regular layers
       }
+
+      const safeWidth = Math.max(
+        width || layer.colorCycleData?.canvasWidth || state.project?.width || 1024,
+        1
+      );
+      const safeHeight = Math.max(
+        height || layer.colorCycleData?.canvasHeight || state.project?.height || 1024,
+        1
+      );
+      const fallbackStops = state.tools.brushSettings.colorCycleGradient ?? DEFAULT_CC_GRADIENT;
+      const { gradientDefs, slotPalettes, activeGradientId } = ensureColorCycleGradients(layer.colorCycleData, fallbackStops);
+      const activeDef = gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
+      const activeSlotPalette = slotPalettes.find((entry) => entry.slot === activeDef.currentSlot);
+      const activeStops = activeSlotPalette?.stops ?? fallbackStops;
+      const gradientIdBuffer = ensureGradientIdBuffer({
+        existingBuffer: layer.colorCycleData?.gradientIdBuffer,
+        width: safeWidth,
+        height: safeHeight,
+        previousWidth: layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width,
+        previousHeight: layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height,
+        fillSlot: activeDef?.currentSlot ?? 0,
+      });
       
       // GUARD: Don't re-initialize if already initialized
       const existingBrush = colorCycleBrushManager.getBrush(layerId);
@@ -1826,15 +2102,20 @@ export const createLayersSlice = (
             layerType: 'color-cycle' as const,
             colorCycleData: {
               ...(l.colorCycleData || {}),
-              // Preserve existing gradient if any
-              gradient: l.colorCycleData?.gradient || state.tools.brushSettings.colorCycleGradient || l.colorCycleData?.gradient,
+              gradient: activeStops,
+              gradientDefs,
+              slotPalettes,
+              activeGradientId,
+              gradientIdBuffer,
               colorCycleBrush: existingBrush,
               // Keep current animation state if present; default to true for responsiveness
               isAnimating: l.colorCycleData?.isAnimating ?? true,
               // Ensure per-layer brush speed exists
               brushSpeed: l.colorCycleData?.brushSpeed ?? (state.tools.brushSettings.colorCycleSpeed || 0.1),
               flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'reverse'),
-              canvas
+              canvas,
+              canvasWidth: safeWidth,
+              canvasHeight: safeHeight,
             }
           };
         });
@@ -1843,15 +2124,9 @@ export const createLayersSlice = (
         return { layers: syncedLayers };
       }
       
-      // Validate dimensions
-      const safeWidth = Math.max(width || 1024, 1);
-      const safeHeight = Math.max(height || 1024, 1);
-      
       // Create a canvas element for this layer's color cycle
       // Use the current brush gradient if available
-      const currentBrushGradient = state.tools.brushSettings.colorCycleGradient;
-      const gradient = currentBrushGradient || layer?.colorCycleData?.gradient || DEFAULT_CC_GRADIENT;
-      const gradientArray = gradientStopsToUint8Array(gradient);
+      const gradientArray = gradientStopsToUint8Array(activeStops);
       
       // Create brush through manager
       const colorCycleBrush = colorCycleBrushManager.createBrush(layerId, safeWidth, safeHeight, gradientArray);
@@ -1933,7 +2208,11 @@ export const createLayersSlice = (
         ...l,
         layerType: 'color-cycle' as const,
         colorCycleData: {
-          gradient: gradient || [],
+          gradient: activeStops || [],
+          gradientDefs,
+          slotPalettes,
+          activeGradientId,
+          gradientIdBuffer,
           colorCycleBrush,
           isAnimating: true,
           // Initialize per-layer brush speed from current brush settings
@@ -1941,7 +2220,9 @@ export const createLayersSlice = (
           flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'reverse',
           canvas: layerCanvas ?? (colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined),
           eraseMask,
-          eraseMaskVersion
+          eraseMaskVersion,
+          canvasWidth: safeWidth,
+          canvasHeight: safeHeight,
         }
       };
     });

@@ -21,11 +21,116 @@ export function getSharedColorCycleGradient(): Array<{ position: number; color: 
 /**
  * Set the shared gradient for both color cycle brushes
  */
-export function setSharedColorCycleGradient(gradient: Array<{ position: number; color: string }>): void {
+
+const cloneStops = (stops: Array<{ position: number; color: string }>) =>
+  stops.map(stop => ({ position: stop.position, color: stop.color }));
+
+const getNextGradientSlot = (usedSlots: Set<number>): number | null => {
+  for (let i = 0; i < 256; i += 1) {
+    if (!usedSlots.has(i)) {
+      return i;
+    }
+  }
+  return null;
+};
+
+const applyColorCycleGradientEdit = (
+  gradient: Array<{ position: number; color: string }>,
+  layerId?: string,
+  options?: { fork?: boolean }
+): void => {
+  const state = useAppStore.getState();
+  const updateLayer = state.updateLayer;
+  const targetLayerId = layerId ?? state.activeLayerId;
+  if (!targetLayerId) return;
+
+  const layer = state.layers.find(l => l.id === targetLayerId);
+  if (!layer || layer.layerType !== 'color-cycle') {
+    return;
+  }
+
+  const colorCycleData = layer.colorCycleData;
+  if (!colorCycleData) {
+    return;
+  }
+
+  // If recolor mode is active, do NOT mutate layer here to avoid partial state flashes
+  if (colorCycleData.recolorSettings) {
+    return;
+  }
+
+  const fallbackStops = colorCycleData.gradient ?? gradient ?? DEFAULT_GRADIENT_STOPS;
+  const legacyGradients = colorCycleData.gradients ?? [];
+  let gradientDefs = colorCycleData.gradientDefs?.length
+    ? colorCycleData.gradientDefs.map(entry => ({
+        id: entry.id,
+        name: entry.name,
+        currentSlot: entry.currentSlot,
+      }))
+    : legacyGradients.length > 0
+      ? legacyGradients.map(entry => ({ id: entry.id, currentSlot: entry.slot }))
+      : [{ id: 'g0', currentSlot: 0 }];
+  let slotPalettes = colorCycleData.slotPalettes?.length
+    ? colorCycleData.slotPalettes.map(entry => ({
+        slot: entry.slot,
+        stops: cloneStops(entry.stops),
+      }))
+    : legacyGradients.length > 0
+      ? legacyGradients.map(entry => ({ slot: entry.slot, stops: cloneStops(entry.stops) }))
+      : [{ slot: 0, stops: cloneStops(fallbackStops) }];
+
+  let activeGradientId = colorCycleData.activeGradientId ?? gradientDefs[0].id;
+  let activeDef = gradientDefs.find(entry => entry.id === activeGradientId) ?? gradientDefs[0];
+  if (!activeDef) {
+    activeDef = { id: activeGradientId, currentSlot: 0 };
+    gradientDefs = [...gradientDefs, activeDef];
+  }
+
+  const shouldFork = options?.fork === true;
+  if (shouldFork) {
+    const usedSlots = new Set(slotPalettes.map(entry => entry.slot));
+    const nextSlot = getNextGradientSlot(usedSlots);
+    if (nextSlot !== null) {
+      activeDef = { ...activeDef, currentSlot: nextSlot };
+      gradientDefs = gradientDefs.map(entry => entry.id === activeDef.id ? activeDef : entry);
+      slotPalettes = [
+        ...slotPalettes,
+        { slot: nextSlot, stops: cloneStops(gradient) },
+      ];
+    }
+  }
+
+  const slotIndex = slotPalettes.findIndex(entry => entry.slot === activeDef.currentSlot);
+  if (slotIndex >= 0) {
+    const updated = [...slotPalettes];
+    updated[slotIndex] = { ...updated[slotIndex], stops: cloneStops(gradient) };
+    slotPalettes = updated;
+  } else {
+    slotPalettes = [...slotPalettes, { slot: activeDef.currentSlot, stops: cloneStops(gradient) }];
+  }
+
+  updateLayer(targetLayerId, {
+    colorCycleData: {
+      ...colorCycleData,
+      gradientDefs,
+      slotPalettes,
+      activeGradientId: activeDef.id,
+      gradient: cloneStops(gradient),
+    },
+  });
+};
+
+/**
+ * Set the shared gradient for both color cycle brushes.
+ * Editing in the UI forks the active gradient once, then updates the fork in place.
+ */
+export function setSharedColorCycleGradient(
+  gradient: Array<{ position: number; color: string }>,
+  options?: { fork?: boolean }
+): void {
   const state = useAppStore.getState();
   const setBrushSettings = state.setBrushSettings;
   const setEraserSettings = state.setEraserSettings;
-  const updateLayer = state.updateLayer;
   const activeLayerId = state.activeLayerId;
   
   // Update brush settings
@@ -39,21 +144,7 @@ export function setSharedColorCycleGradient(gradient: Array<{ position: number; 
 
   // Propagate to active layer if it's a color-cycle layer (brush-mode only)
   if (activeLayerId) {
-    const layer = state.layers.find(l => l.id === activeLayerId);
-    if (layer && layer.layerType === 'color-cycle') {
-      // If recolor mode is active, do NOT mutate layer here to avoid partial state flashes
-      // RecolorPanel handles its own gradient updates safely via RecolorManager
-      const recolor = layer.colorCycleData?.recolorSettings;
-      if (!recolor && layer.colorCycleData) {
-        // Otherwise update brush-mode gradient field for consistency
-        updateLayer(activeLayerId, {
-          colorCycleData: {
-            ...layer.colorCycleData,
-            gradient
-          }
-        });
-      }
-    }
+    applyColorCycleGradientEdit(gradient, activeLayerId, options);
   }
 }
 

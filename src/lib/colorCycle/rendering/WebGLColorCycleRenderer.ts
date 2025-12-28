@@ -1,13 +1,15 @@
 /**
  * WebGLColorCycleRenderer
  *
- * GPU renderer that maps an 8-bit index texture to RGBA via a 1D palette
- * texture, with animation achieved by a uniform palette offset (cyclic).
+ * GPU renderer that maps 8-bit index + gradient-slot textures to RGBA via a
+ * 2D palette atlas (256x256), with animation achieved by a uniform palette
+ * offset (cyclic).
  *
  * Goals
  * - Eliminate main-thread O(pixels) mapping and putImageData per frame
  * - Upload index buffer as an 8-bit texture (RED/LUMINANCE)
- * - Upload palette as a 256x1 RGBA texture (NEAREST sampling)
+ * - Upload gradient slot buffer as an 8-bit texture (RED/LUMINANCE)
+ * - Upload palette atlas as a 256x256 RGBA texture (NEAREST sampling)
  * - Animate by shifting the sampling offset (uniform), not re-uploading
  *
  * Notes
@@ -62,18 +64,23 @@ export class WebGLColorCycleRenderer {
   private vbo: WebGLBuffer | null = null;
 
   private uIndexTexLoc: WebGLUniformLocation | null = null;
+  private uGidTexLoc: WebGLUniformLocation | null = null;
   private uPaletteTexLoc: WebGLUniformLocation | null = null;
   private uPaletteSizeLoc: WebGLUniformLocation | null = null;
   private uOffsetLoc: WebGLUniformLocation | null = null;
 
   private indexTex: WebGLTexture | null = null;
+  private gidTex: WebGLTexture | null = null;
   private paletteTex: WebGLTexture | null = null;
   private width: number;
   private height: number;
   private indexTexAllocated: boolean = false;
+  private gidTexAllocated: boolean = false;
 
   private paletteSize: number = 256;
   private paletteUploaded: boolean = false;
+  private paletteTexAllocated: boolean = false;
+  private zeroGradientIdBuffer: Uint8Array | null = null;
 
   // Offscreen resources for compute-style polygon fills
   private fillProgram: WebGLProgram | null = null;
@@ -208,57 +215,78 @@ export class WebGLColorCycleRenderer {
     this.canvas.width = w;
     this.canvas.height = h;
     // Reallocate index texture storage on next setIndexData() call
-    // Palette texture remains 256x1
+    // Palette texture remains 256x256
     this.indexTexAllocated = false;
+    this.gidTexAllocated = false;
   }
 
   setPaletteColors(paletteRGBA: Uint8Array | Uint8ClampedArray) {
+    this.setPaletteRow(0, paletteRGBA);
+    this.paletteUploaded = true;
+  }
+
+  setPaletteRow(slot: number, paletteRGBA: Uint8Array | Uint8ClampedArray) {
     // Expect length == 256 * 4
+    const clampedSlot = Math.max(0, Math.min(255, Math.round(slot)));
     const gl = this.gl;
     gl.useProgram(this.program);
     if (!this.paletteTex) this.createTextures();
-    gl.activeTexture(gl.TEXTURE1);
+    this.ensurePaletteTexture();
+    gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
 
     // Ensure alignment for tightly-packed RGBA bytes
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
-    // Upload as 256x1 RGBA texture
     if (this.isWebGL2) {
       const gl2 = gl as WebGL2RenderingContext;
-      gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, this.paletteSize, 1, 0, gl2.RGBA, gl2.UNSIGNED_BYTE, paletteRGBA);
+      gl2.texSubImage2D(gl2.TEXTURE_2D, 0, 0, clampedSlot, this.paletteSize, 1, gl2.RGBA, gl2.UNSIGNED_BYTE, paletteRGBA);
     } else {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.paletteSize, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, paletteRGBA as Uint8Array);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, clampedSlot, this.paletteSize, 1, gl.RGBA, gl.UNSIGNED_BYTE, paletteRGBA as Uint8Array);
     }
 
     this.paletteUploaded = true;
   }
 
-  setIndexData(indexData: Uint8Array) {
+  setIndexData(
+    indexData: Uint8Array,
+    gradientIdData?: Uint8Array,
+    rect?: { x: number; y: number; width: number; height: number } | null
+  ) {
     const gl = this.gl;
     gl.useProgram(this.program);
-    if (!this.indexTex) this.createTextures();
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.indexTex);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    if (!this.indexTex || !this.gidTex) this.createTextures();
 
-    // Define or update the index texture. Use a single channel if available.
-    if (this.isWebGL2) {
-      const gl2 = gl as WebGL2RenderingContext;
-      if (!this.indexTexAllocated) {
-        // Allocate storage once, then sub-image updates
-        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.R8, this.width, this.height, 0, gl2.RED, gl2.UNSIGNED_BYTE, null);
-        this.indexTexAllocated = true;
-      }
-      gl2.texSubImage2D(gl2.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl2.RED, gl2.UNSIGNED_BYTE, indexData);
-    } else {
-      // WebGL1 fallback: use LUMINANCE as 8-bit channel
-      if (!this.indexTexAllocated) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width, this.height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
-        this.indexTexAllocated = true;
-      }
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.LUMINANCE, gl.UNSIGNED_BYTE, indexData);
-    }
+    const uploadRect = this.normalizeRect(rect);
+    const x = uploadRect.x;
+    const y = uploadRect.y;
+    const w = uploadRect.width;
+    const h = uploadRect.height;
+    const isFull = x === 0 && y === 0 && w === this.width && h === this.height;
+    const gidData = gradientIdData ?? this.getZeroGradientIdBuffer();
+
+    this.uploadSingleChannelTexture(
+      this.indexTex,
+      0,
+      indexData,
+      w,
+      h,
+      x,
+      y,
+      isFull,
+      true
+    );
+    this.uploadSingleChannelTexture(
+      this.gidTex,
+      1,
+      gidData,
+      w,
+      h,
+      x,
+      y,
+      isFull,
+      false
+    );
   }
 
   render(offset: number) {
@@ -270,9 +298,22 @@ export class WebGLColorCycleRenderer {
     if (this.uOffsetLoc) gl.uniform1f(this.uOffsetLoc, offset);
     if (this.uPaletteSizeLoc) gl.uniform1f(this.uPaletteSizeLoc, this.paletteSize);
 
-    // Bind textures to texture units 0 (index) and 1 (palette)
+    // Bind textures to texture units 0 (index), 1 (gid), 2 (palette)
     if (this.uIndexTexLoc) gl.uniform1i(this.uIndexTexLoc, 0);
-    if (this.uPaletteTexLoc) gl.uniform1i(this.uPaletteTexLoc, 1);
+    if (this.uGidTexLoc) gl.uniform1i(this.uGidTexLoc, 1);
+    if (this.uPaletteTexLoc) gl.uniform1i(this.uPaletteTexLoc, 2);
+    if (this.indexTex) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.indexTex);
+    }
+    if (this.gidTex) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.gidTex);
+    }
+    if (this.paletteTex) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
+    }
 
     // Draw full-screen quad
     if (this.isWebGL2) {
@@ -290,7 +331,11 @@ export class WebGLColorCycleRenderer {
     const gl = this.gl;
 
     if (this.indexTex) { gl.deleteTexture(this.indexTex); this.indexTex = null; }
+    if (this.gidTex) { gl.deleteTexture(this.gidTex); this.gidTex = null; }
     if (this.paletteTex) { gl.deleteTexture(this.paletteTex); this.paletteTex = null; }
+    this.indexTexAllocated = false;
+    this.gidTexAllocated = false;
+    this.paletteTexAllocated = false;
     if (this.fillTex) { gl.deleteTexture(this.fillTex); this.fillTex = null; }
     if (this.fillFbo) { gl.deleteFramebuffer(this.fillFbo); this.fillFbo = null; }
     if (this.vbo) { gl.deleteBuffer(this.vbo); this.vbo = null; }
@@ -351,6 +396,7 @@ export class WebGLColorCycleRenderer {
       precision mediump float;
       varying vec2 v_uv;
       uniform sampler2D u_indexTex;
+      uniform sampler2D u_gidTex;
       uniform sampler2D u_paletteTex;
       uniform float u_paletteSize; // 256
       uniform float u_offset;       // cycles in [0,1)
@@ -360,7 +406,9 @@ export class WebGLColorCycleRenderer {
         vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
         // Index texture is single channel (0..1). Convert to 0..255 with rounding.
         float idxN = texture2D(u_indexTex, uv).r;
+        float gidN = texture2D(u_gidTex, uv).r;
         float fIdx = floor(idxN * 255.0 + 0.5);
+        float fGid = floor(gidN * 255.0 + 0.5);
 
         // Index 0 = transparent
         if (fIdx < 0.5) {
@@ -375,7 +423,9 @@ export class WebGLColorCycleRenderer {
         float pIdx = mod(base + shift + u_paletteSize * 4.0, u_paletteSize);
         // Sample palette with NEAREST by addressing the center of the texel
         float u = (floor(pIdx) + 0.5) / u_paletteSize;
-        vec4 color = texture2D(u_paletteTex, vec2(u, 0.5));
+        float gid = clamp(fGid, 0.0, u_paletteSize - 1.0);
+        float v = (gid + 0.5) / u_paletteSize;
+        vec4 color = texture2D(u_paletteTex, vec2(u, v));
         gl_FragColor = color;
       }
     `;
@@ -764,6 +814,7 @@ export class WebGLColorCycleRenderer {
     const gl = this.gl;
     gl.useProgram(this.program);
     this.uIndexTexLoc = gl.getUniformLocation(this.program, 'u_indexTex');
+    this.uGidTexLoc = gl.getUniformLocation(this.program, 'u_gidTex');
     this.uPaletteTexLoc = gl.getUniformLocation(this.program, 'u_paletteTex');
     this.uPaletteSizeLoc = gl.getUniformLocation(this.program, 'u_paletteSize');
     this.uOffsetLoc = gl.getUniformLocation(this.program, 'u_offset');
@@ -782,13 +833,142 @@ export class WebGLColorCycleRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-    // Palette texture (256x1 RGBA, NEAREST)
-    this.paletteTex = gl.createTexture();
+    // Gradient id texture (8-bit single channel)
+    this.gidTex = gl.createTexture();
     gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.gidTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Palette texture (256x256 RGBA, NEAREST)
+    this.paletteTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  private normalizeRect(
+    rect?: { x: number; y: number; width: number; height: number } | null
+  ): { x: number; y: number; width: number; height: number } {
+    if (!rect) {
+      return { x: 0, y: 0, width: this.width, height: this.height };
+    }
+    const x = Math.max(0, Math.min(this.width - 1, Math.floor(rect.x)));
+    const y = Math.max(0, Math.min(this.height - 1, Math.floor(rect.y)));
+    const width = Math.max(1, Math.min(this.width - x, Math.floor(rect.width)));
+    const height = Math.max(1, Math.min(this.height - y, Math.floor(rect.height)));
+    return { x, y, width, height };
+  }
+
+  private getZeroGradientIdBuffer(): Uint8Array {
+    const size = this.width * this.height;
+    if (!this.zeroGradientIdBuffer || this.zeroGradientIdBuffer.length !== size) {
+      this.zeroGradientIdBuffer = new Uint8Array(size);
+    }
+    return this.zeroGradientIdBuffer;
+  }
+
+  private ensurePaletteTexture() {
+    if (this.paletteTexAllocated) {
+      return;
+    }
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
+    const zero = new Uint8Array(this.paletteSize * this.paletteSize * 4);
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, this.paletteSize, this.paletteSize, 0, gl2.RGBA, gl2.UNSIGNED_BYTE, zero);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.paletteSize, this.paletteSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, zero);
+    }
+    this.paletteTexAllocated = true;
+  }
+
+  private uploadSingleChannelTexture(
+    texture: WebGLTexture | null,
+    textureUnit: number,
+    data: Uint8Array,
+    rectW: number,
+    rectH: number,
+    rectX: number,
+    rectY: number,
+    isFull: boolean,
+    isIndex: boolean
+  ) {
+    if (!texture) return;
+    const gl = this.gl;
+    gl.activeTexture(textureUnit === 0 ? gl.TEXTURE0 : gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      const needsAlloc = isIndex ? !this.indexTexAllocated : !this.gidTexAllocated;
+      if (needsAlloc) {
+        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.R8, this.width, this.height, 0, gl2.RED, gl2.UNSIGNED_BYTE, null);
+        if (isIndex) {
+          this.indexTexAllocated = true;
+        } else {
+          this.gidTexAllocated = true;
+        }
+      }
+
+      if (!isFull) {
+        gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, this.width);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, rectX);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, rectY);
+      } else {
+        gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, 0);
+      }
+
+      gl2.texSubImage2D(
+        gl2.TEXTURE_2D,
+        0,
+        rectX,
+        rectY,
+        rectW,
+        rectH,
+        gl2.RED,
+        gl2.UNSIGNED_BYTE,
+        data
+      );
+
+      if (!isFull) {
+        gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, 0);
+      }
+    } else {
+      const needsAlloc = isIndex ? !this.indexTexAllocated : !this.gidTexAllocated;
+      if (needsAlloc) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width, this.height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
+        if (isIndex) {
+          this.indexTexAllocated = true;
+        } else {
+          this.gidTexAllocated = true;
+        }
+      }
+
+      let uploadData = data;
+      if (!isFull) {
+        const contiguous = new Uint8Array(rectW * rectH);
+        for (let row = 0; row < rectH; row++) {
+          const srcStart = (rectY + row) * this.width + rectX;
+          const srcEnd = srcStart + rectW;
+          contiguous.set(data.subarray(srcStart, srcEnd), row * rectW);
+        }
+        uploadData = contiguous;
+      }
+
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, rectX, rectY, rectW, rectH, gl.LUMINANCE, gl.UNSIGNED_BYTE, uploadData);
+    }
   }
 }

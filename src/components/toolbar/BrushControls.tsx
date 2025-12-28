@@ -643,35 +643,23 @@ const BrushControls = () => {
 
   const gradientDebounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const gradientFrameRef = React.useRef<number | null>(null);
+  const gradientForkRef = React.useRef(false);
   const pendingGradientRef = React.useRef<Array<{ position: number; color: string }>>(
     brushSettings.colorCycleGradient
       ? brushSettings.colorCycleGradient.map(stop => ({ ...stop }))
       : DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }))
   );
-  const pendingLayerUpdateRef = React.useRef<{
-    layerId: string;
-    gradient: Array<{ position: number; color: string }>;
-  } | null>(null);
 
   const flushPendingGradient = React.useCallback(() => {
     const stops = pendingGradientRef.current;
     const clonedStops = stops.map(stop => ({ ...stop }));
     setActiveSettings({ colorCycleGradient: clonedStops });
-    setSharedColorCycleGradient(clonedStops);
-
-    const pendingLayerUpdate = pendingLayerUpdateRef.current;
-    if (pendingLayerUpdate) {
-      updateLayer(pendingLayerUpdate.layerId, {
-        colorCycleData: {
-          gradient: pendingLayerUpdate.gradient.map(stop => ({ ...stop }))
-        }
-      });
-      pendingLayerUpdateRef.current = null;
-    }
+    setSharedColorCycleGradient(clonedStops, { fork: gradientForkRef.current });
+    gradientForkRef.current = false;
 
     colorCycleRuntimeHandlers?.updateGradient?.(clonedStops);
     pendingGradientRef.current = clonedStops;
-  }, [setActiveSettings, updateLayer, colorCycleRuntimeHandlers]);
+  }, [setActiveSettings, colorCycleRuntimeHandlers]);
 
   const scheduleFlushFrame = React.useCallback(() => {
     if (gradientFrameRef.current !== null) {
@@ -691,15 +679,6 @@ const BrushControls = () => {
       if (gradientDebounceTimerRef.current) {
         clearTimeout(gradientDebounceTimerRef.current);
         gradientDebounceTimerRef.current = null;
-      }
-
-      if (activeLayerId && activeLayer?.layerType === 'color-cycle') {
-        pendingLayerUpdateRef.current = {
-          layerId: activeLayerId,
-          gradient: pendingGradientRef.current
-        };
-      } else {
-        pendingLayerUpdateRef.current = null;
       }
 
       if (immediate) {
@@ -843,6 +822,9 @@ const BrushControls = () => {
               if (stops.length && activeSettings.gradientBands && activeSettings.gradientBands < stops.length) {
                 setActiveSettings({ gradientBands: stops.length });
               }
+            }}
+            onEditStart={() => {
+              gradientForkRef.current = true;
             }}
           />
         </div>
@@ -2227,6 +2209,9 @@ const BrushControls = () => {
                 stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
                 onChange={(stops) => {
                   scheduleGradientFlush(stops);
+                }}
+                onEditStart={() => {
+                  gradientForkRef.current = true;
                 }}
               />
             </div>

@@ -111,6 +111,9 @@ const cloneLayerForHistory = (
       actionType.startsWith('layer-');
     const isCCActionForLayer =
       isStructural ||
+      isColorCycleAction ||
+      actionType === 'brush' ||
+      actionType === 'eraser' ||
       actionType === 'fill' ||
       (description && (description.includes('CC') || description.includes('Color Cycle')));
 
@@ -169,6 +172,23 @@ const cloneLayerForHistory = (
       ...existingColorCycleData,
       hasContent: hasCCPixels,
       gradient: existingColorCycleData.gradient ? [...existingColorCycleData.gradient] : undefined,
+      gradientDefs: existingColorCycleData.gradientDefs
+        ? existingColorCycleData.gradientDefs.map((entry) => ({
+            id: entry.id,
+            name: entry.name,
+            currentSlot: entry.currentSlot,
+          }))
+        : undefined,
+      slotPalettes: existingColorCycleData.slotPalettes
+        ? existingColorCycleData.slotPalettes.map((entry) => ({
+            slot: entry.slot,
+            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+          }))
+        : undefined,
+      activeGradientId: existingColorCycleData.activeGradientId,
+      gradientIdBuffer: existingColorCycleData.gradientIdBuffer
+        ? existingColorCycleData.gradientIdBuffer.slice(0)
+        : undefined,
       canvasImageData,
       canvasWidth,
       canvasHeight,
@@ -196,6 +216,7 @@ interface SerializedColorCycleLayerSnapshot {
       width: number;
       height: number;
       data?: ArrayBufferLike | Uint8Array;
+      gradientId?: ArrayBufferLike | Uint8Array;
       gradient?: {
         gradientStops?: Array<{ position: number; color: string }>;
       };
@@ -204,8 +225,12 @@ interface SerializedColorCycleLayerSnapshot {
       gradientStops?: Array<{ position: number; color: string }>;
     };
   };
+  gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
+  slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  activeGradientId?: string;
   strokeData?: {
     paintBuffer?: ArrayBufferLike;
+    gradientIdBuffer?: ArrayBufferLike;
     hasContent?: boolean;
     strokeCounter?: number;
   };
@@ -287,12 +312,32 @@ export const createHistorySnapshotFromState = (
         const paintBufferSource = layerSnapshot.strokeData?.paintBuffer;
         const paintBufferArray = paintBufferSource ? new Uint8Array(paintBufferSource) : null;
         const paintBufferCopy = paintBufferArray ? paintBufferArray.slice().buffer : new ArrayBuffer(0);
+        const gradientBufferSource = layerSnapshot.strokeData?.gradientIdBuffer;
+        const gradientBufferArray = gradientBufferSource ? new Uint8Array(gradientBufferSource) : null;
+        const gradientBufferCopy = gradientBufferArray ? gradientBufferArray.slice().buffer : undefined;
 
         const animatorIndex = indexBuffer
           ? {
               width: indexBuffer.width,
               height: indexBuffer.height,
               data: (indexArray ? indexArray.slice() : new Uint8Array()).buffer,
+              gradientIdData: indexBuffer.gradientId
+                ? new Uint8Array(indexBuffer.gradientId).slice().buffer
+                : new Uint8Array(indexBuffer.width * indexBuffer.height).buffer,
+              gradientDefs: layerSnapshot.gradientDefs
+                ? layerSnapshot.gradientDefs.map((entry) => ({
+                    id: entry.id,
+                    name: entry.name,
+                    currentSlot: entry.currentSlot,
+                  }))
+                : undefined,
+              slotPalettes: layerSnapshot.slotPalettes
+                ? layerSnapshot.slotPalettes.map((entry) => ({
+                    slot: entry.slot,
+                    stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+                  }))
+                : undefined,
+              activeGradientId: layerSnapshot.activeGradientId,
               gradientStops: layerSnapshot.data?.gradient?.gradientStops || undefined,
             }
           : undefined;
@@ -300,6 +345,7 @@ export const createHistorySnapshotFromState = (
         return {
           layerId: layerSnapshot.layerId,
           paintBuffer: paintBufferCopy,
+          gradientIdBuffer: gradientBufferCopy,
           hasContent: Boolean(layerSnapshot.strokeData?.hasContent) || hasNonZeroIndex,
           strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
           strokeLength: 0,

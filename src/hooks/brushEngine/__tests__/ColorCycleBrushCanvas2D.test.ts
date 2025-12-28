@@ -63,9 +63,9 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       this.height = h;
     }
 
-    setIndexBufferFromArray(arr: Uint8Array) {
+    setIndexBufferFromArray(arr: Uint8Array, gradientId?: Uint8Array) {
       this.indexBuffer = arr;
-      setIndexBufferFromArrayMock(arr);
+      setIndexBufferFromArrayMock(arr, gradientId);
     }
 
     setFlowMode() {}
