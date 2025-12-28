@@ -877,6 +877,53 @@ const BrushControls = () => {
           />
         )}
 
+        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Size {sizeUnit}
+                </label>
+                <ProgressSlider
+                  value={globalBrushSize}
+                  min={1}
+                  max={500}
+                  step={1}
+                  onChange={(value) => {
+                    const next = Math.min(500, Math.max(1, Math.round(value)));
+                    setGlobalBrushSize(next);
+                    if (currentTool === 'eraser') {
+                      setEraserSettings({ size: next });
+                    }
+                  }}
+                  aria-label={`Brush Size (${sizeUnit})`}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Spacing
+                </label>
+                <ProgressSlider
+                  value={activeSettings.spacing ?? 1}
+                  min={1}
+                  max={64}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+                  }
+                  aria-label="Stamp Spacing"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Animation + banding */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -933,24 +980,6 @@ const BrushControls = () => {
               className="flex-1"
               size="sm"
             />
-          </div>
-        </div>
-
-                {/* Color Jitter */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Col Jit
-            </label>
-          <ProgressSlider
-            value={activeSettings.colorJitter || 0}
-            min={0}
-            max={100}
-            step={1}
-            onChange={(value) => setActiveSettings({ colorJitter: Math.round(value) })}
-            aria-label="Color Jitter"
-            className="flex-1"
-          />
           </div>
         </div>
 
@@ -1016,20 +1045,6 @@ const BrushControls = () => {
                       })
                     }
                     aria-label="Stamp Dither Resolution"
-                    className="flex-1"
-                  />
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Spacing
-                  </label>
-                  <ProgressSlider
-                    value={activeSettings.spacing ?? 1}
-                    min={1}
-                    max={64}
-                    step={1}
-                    onChange={(value) => setActiveSettings({ spacing: Math.max(1, Math.round(value)) })}
-                    aria-label="Stamp Spacing"
                     className="flex-1"
                   />
                 </div>

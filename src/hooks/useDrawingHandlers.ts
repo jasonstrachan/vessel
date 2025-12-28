@@ -4178,6 +4178,8 @@ export function useDrawingHandlers({
                   } else {
                     brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
                   }
+                  // Bake the stroke immediately so UI palette changes don't re-tint the last stroke.
+                  brush.clearPaintBuffer?.(targetLayerId);
 
                   // Mark layer metadata so downstream consumers know content exists
                   try {
