@@ -213,9 +213,15 @@ export class BrushEngineFacade {
     // Determine if this is a pixel brush that should remain pixel-perfect
     // Override shape to CUSTOM if custom brush data is provided
     const configuredShape = customBrushData ? BrushShape.CUSTOM : (brushSettings.brushShape || BrushShape.ROUND);
-    // PIXEL_DITHER should render like PIXEL_ROUND (dithering is applied downstream)
-    const shape = configuredShape === BrushShape.PIXEL_DITHER ? BrushShape.PIXEL_ROUND : configuredShape;
-    const isPixelBrush = shape === BrushShape.PIXEL_ROUND;
+    // PIXEL_DITHER should render like PIXEL_ROUND unless a non-round dither tip shape is selected
+    const ditherTipShape = brushSettings.ditherStrokeTipShape ?? 'round';
+    const shape =
+      configuredShape === BrushShape.PIXEL_DITHER && ditherTipShape !== 'round'
+        ? BrushShape.PIXEL_DITHER
+        : configuredShape === BrushShape.PIXEL_DITHER
+          ? BrushShape.PIXEL_ROUND
+          : configuredShape;
+    const isPixelBrush = shape === BrushShape.PIXEL_ROUND || shape === BrushShape.PIXEL_DITHER;
     const isPixelSquare = shape === BrushShape.SQUARE && !brushSettings.antialiasing;
     
     // Calculate rotation only for stroke-based brushes
@@ -257,10 +263,11 @@ export class BrushEngineFacade {
     }
     
     // Create render settings with custom brush pattern if provided
+    const resolvedColor = brushSettings.color || '#000000';
     const settings: RenderSettings = {
       size,
       opacity,
-      color: brushSettings.color,
+      color: resolvedColor,
       antiAliasing: brushSettings.antialiasing,
       pixelAlignment: !brushSettings.antialiasing,
       spacing,

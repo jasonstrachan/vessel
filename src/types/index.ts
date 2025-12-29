@@ -590,6 +590,8 @@ export interface BrushSettings {
     | 'void-and-cluster'
     | 'pattern';
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+  /** Dither Stroke only: stamp tip shape selection */
+  ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond';
   // Pigment lift mask: erode existing pigment before applying a new stamp
   pigmentLiftEnabled?: boolean;
   /** Strength of lift (0-1). 0 = no lift, 1 = full removal within mask. */

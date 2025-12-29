@@ -334,11 +334,28 @@ interface ColorCycleBrushState {
     };
     gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
     slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+    derivedGradients?: Array<{
+      key: string;
+      slot: number;
+      spec: {
+        mode: 'fg-derived';
+        baseColor: string;
+        lightness: number;
+        variance: number;
+        bands: number;
+        algoVersion: number;
+        key: string;
+      };
+    }>;
     activeGradientId?: string;
   }>;
   cycleSpeed?: number;
   fps?: number;
   brushSize?: number;
+  stampShape?: 'square' | 'round' | 'triangle' | 'diamond';
+  stampDitherEnabled?: boolean;
+  stampDitherPixelSize?: number;
+  stampDitherClears?: boolean;
 }
 
 type SerializedColorCycleWebGLState = NonNullable<SerializedLayer['colorCycleData']>['webGLState'];

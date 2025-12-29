@@ -632,6 +632,47 @@ export const drawShape = (
       case BrushShape.PIXEL_ROUND: {
         // Special handling for pixel brushes - use stamps for ALL sizes
         // Match exact logic from monolithic implementation
+        const ditherTipShape =
+          shape === BrushShape.PIXEL_DITHER
+            ? settings?.brushSettings?.ditherStrokeTipShape ?? 'round'
+            : 'round';
+        if (shape === BrushShape.PIXEL_DITHER && ditherTipShape !== 'round') {
+          const stampSize = Math.max(1, Math.round(size));
+          drawingCtx.imageSmoothingEnabled = false;
+          if (ditherTipShape === 'square' || ditherTipShape === 'diamond') {
+            const squareStamp = document.createElement('canvas');
+            squareStamp.width = stampSize;
+            squareStamp.height = stampSize;
+            const sqCtx = squareStamp.getContext('2d');
+            if (sqCtx) {
+              sqCtx.imageSmoothingEnabled = false;
+              const colorKey = drawingCtx.fillStyle.toString();
+              sqCtx.fillStyle = colorKey || '#000000';
+              sqCtx.fillRect(0, 0, stampSize, stampSize);
+              const rotation =
+                ditherTipShape === 'diamond'
+                  ? Math.PI / 4 + quantizedRotation
+                  : quantizedRotation;
+              const cacheKey =
+                ditherTipShape === 'diamond'
+                  ? `pixel_diamond_${stampSize}_${colorKey}`
+                  : `pixel_square_${stampSize}_${colorKey}`;
+              const rotatedSquare = getRotatedPixelStamp(squareStamp, rotation, cacheKey);
+              const offsetX = Math.round(drawX - rotatedSquare.width / 2);
+              const offsetY = Math.round(drawY - rotatedSquare.height / 2);
+              drawingCtx.drawImage(rotatedSquare, offsetX, offsetY);
+            }
+          } else if (ditherTipShape === 'triangle') {
+            drawingCtx.beginPath();
+            const height = Math.floor(stampSize * 0.866); // sqrt(3)/2
+            drawingCtx.moveTo(drawX, drawY - Math.floor(height / 2));
+            drawingCtx.lineTo(drawX - Math.floor(stampSize / 2), drawY + Math.floor(height / 2));
+            drawingCtx.lineTo(drawX + Math.floor(stampSize / 2), drawY + Math.floor(height / 2));
+            drawingCtx.closePath();
+            drawingCtx.fill();
+          }
+          break;
+        }
         if (deps?.createPixelCircleStamp) {
           const stampSize = Math.max(1, Math.round(size));
           const stampCanvas = deps.createPixelCircleStamp(stampSize);

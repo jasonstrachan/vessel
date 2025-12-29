@@ -32,4 +32,24 @@ describe('resolveBrushCursorShape', () => {
     const shape = resolveBrushCursorShape(baseTools);
     expect(shape).toBe(BrushShape.SQUARE);
   });
+
+  it('maps pixel dither tip shapes to cursor shapes', () => {
+    const triangleShape = resolveBrushCursorShape({
+      ...baseTools,
+      brushSettings: {
+        brushShape: BrushShape.PIXEL_DITHER,
+        ditherStrokeTipShape: 'triangle',
+      },
+    });
+    expect(triangleShape).toBe(BrushShape.TRIANGLE);
+
+    const roundShape = resolveBrushCursorShape({
+      ...baseTools,
+      brushSettings: {
+        brushShape: BrushShape.PIXEL_DITHER,
+        ditherStrokeTipShape: 'round',
+      },
+    });
+    expect(roundShape).toBe(BrushShape.ROUND);
+  });
 });

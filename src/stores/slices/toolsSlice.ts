@@ -148,6 +148,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherPaletteSpread: settings.ditherPaletteSpread,
   ditherAlgorithm: settings.ditherAlgorithm,
   patternStyle: settings.patternStyle,
+  ditherStrokeTipShape: settings.ditherStrokeTipShape,
   ditherBackgroundFill: settings.ditherBackgroundFill,
   ditherGradBgFill: settings.ditherGradBgFill,
   ditherGradStops: settings.ditherGradStops,
@@ -612,6 +613,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.patternStyle !== undefined) {
         settingsToSave.patternStyle = newSettings.patternStyle;
+      }
+      if (settings.ditherStrokeTipShape !== undefined) {
+        settingsToSave.ditherStrokeTipShape = newSettings.ditherStrokeTipShape;
       }
       if (settings.ditherBackgroundFill !== undefined) {
         settingsToSave.ditherBackgroundFill = newSettings.ditherBackgroundFill;

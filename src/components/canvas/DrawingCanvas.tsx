@@ -29,7 +29,7 @@ import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '@/hooks/useDrawingHandlers';
 import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
 import { useCropState } from '@/hooks/useCropState';
-import { BrushShape } from '@/types';
+import { BrushShape, type BrushSettings } from '@/types';
 import type { Layer, Tool } from '@/types';
 import type { FloatingPaste as FloatingPasteState } from '@/hooks/canvas/utils/types';
 import BrushCursor, { type BrushCursorHandle } from './BrushCursor';
@@ -110,7 +110,7 @@ interface VisibleWorldRect {
 
 export const resolveBrushCursorShape = (tools: {
   currentTool: Tool;
-  brushSettings: { brushShape?: BrushShape };
+  brushSettings: { brushShape?: BrushShape; ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'] };
   eraserSettings: { brushShape?: BrushShape };
 }): BrushShape => {
   if (tools.currentTool === 'eraser') {
@@ -120,7 +120,14 @@ export const resolveBrushCursorShape = (tools: {
       BrushShape.ROUND
     );
   }
-  return tools.brushSettings.brushShape ?? BrushShape.ROUND;
+  const brushShape = tools.brushSettings.brushShape ?? BrushShape.ROUND;
+  if (brushShape === BrushShape.PIXEL_DITHER) {
+    const tipShape = tools.brushSettings.ditherStrokeTipShape ?? 'round';
+    if (tipShape === 'round') return BrushShape.ROUND;
+    if (tipShape === 'triangle') return BrushShape.TRIANGLE;
+    return BrushShape.SQUARE;
+  }
+  return brushShape;
 };
 
 const computeVisibleWorldRect = (

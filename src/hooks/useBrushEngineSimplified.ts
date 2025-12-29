@@ -1457,6 +1457,13 @@ export const useBrushEngineSimplified = () => {
       }
     }
 
+    if (
+      brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
+      brushSettings.ditherStrokeTipShape === 'diamond'
+    ) {
+      effectiveSize *= Math.SQRT2;
+    }
+
     const spacing = brushSettings.spacing || 0;
     const halfExtent = Math.max(1, effectiveSize * 0.5);
     const safetyMargin = Math.max(halfExtent, spacing * 0.5, 32);

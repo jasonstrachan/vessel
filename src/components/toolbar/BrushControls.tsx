@@ -2363,6 +2363,27 @@ const BrushControls = () => {
         </div>
       )}
 
+      {isDitherStrokePreset && (
+        <div className="mb-2">
+          <ButtonGroup
+            options={[
+              { label: 'Square', value: 'square' },
+              { label: 'Round', value: 'round' },
+              { label: 'Diamond', value: 'diamond' },
+              { label: 'Triangle', value: 'triangle' },
+            ]}
+            value={activeSettings.ditherStrokeTipShape ?? 'round'}
+            onChange={(value) =>
+              setActiveSettings({
+                ditherStrokeTipShape: value as NonNullable<BrushSettings['ditherStrokeTipShape']>,
+              })
+            }
+            size="sm"
+            className="w-full"
+          />
+        </div>
+      )}
+
       {/* Size */}
       {!isDitherGradient && (
         <div className="mb-2">
