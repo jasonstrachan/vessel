@@ -835,6 +835,7 @@ const BrushControls = () => {
             options={[
               { label: 'Square', value: 'square' },
               { label: 'Round', value: 'round' },
+              { label: 'Diamond', value: 'diamond' },
               { label: 'Triangle', value: 'triangle' },
               { label: 'Shape', value: 'shape' }
             ]}
@@ -845,7 +846,9 @@ const BrushControls = () => {
                   ? 'triangle'
                   : activeSettings.colorCycleStampShape === 'round'
                     ? 'round'
-                    : 'square'
+                    : activeSettings.colorCycleStampShape === 'diamond'
+                      ? 'diamond'
+                      : 'square'
             }
             onChange={(value) => {
               const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
@@ -857,9 +860,12 @@ const BrushControls = () => {
               } else if (value === 'triangle' && trianglePreset) {
                 setBrushPreset(trianglePreset, true);
                 setActiveSettings({ colorCycleStampShape: 'triangle' });
-              } else if ((value === 'square' || value === 'round') && strokePreset) {
+              } else if ((value === 'square' || value === 'round' || value === 'diamond') && strokePreset) {
                 setBrushPreset(strokePreset, true);
-                setActiveSettings({ colorCycleStampShape: value === 'round' ? 'round' : 'square' });
+                setActiveSettings({
+                  colorCycleStampShape:
+                    value === 'round' ? 'round' : value === 'diamond' ? 'diamond' : 'square'
+                });
               }
             }}
             size="sm"

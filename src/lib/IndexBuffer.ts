@@ -252,6 +252,31 @@ export class IndexBuffer {
     );
     this.isDirty = true;
   }
+
+  paintDiamondWithIndex(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number
+  ) {
+    this.paintDiamondInternal(
+      x,
+      y,
+      brushSize,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot
+    );
+    this.isDirty = true;
+  }
   
   /**
    * Paint pixels with a square brush
@@ -394,6 +419,68 @@ export class IndexBuffer {
         const dx = px + 0.5 - x;
         const dy = py + 0.5 - y;
         if (dx * dx + dy * dy > radiusSq) {
+          continue;
+        }
+        const dataIndex = py * this.width + px;
+        if (useMask) {
+          const localY = py - minY;
+          const localX = px - minX;
+          const sampleY = localY % maskTileSize;
+          const sampleX = localX % maskTileSize;
+          const maskIdx = sampleY * maskTileSize + sampleX;
+          if (maskTile![maskIdx] === 0) {
+            if (shouldClearMaskedPixels) {
+              this.data[dataIndex] = 0;
+              this.gradientId[dataIndex] = 0;
+            }
+            if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
+              this.data[dataIndex] = normalizedSecondaryIndex;
+              this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
+            }
+            continue;
+          }
+        }
+        this.data[dataIndex] = normalizedIndex;
+        this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+      }
+    }
+    if (normalizedSlot !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroGradientIds = true;
+    }
+  }
+
+  private paintDiamondInternal(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize: number = 0,
+    maskClears: boolean = false,
+    secondaryIndex?: number,
+    gradientSlot?: number
+  ) {
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSecondaryIndex =
+      typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
+    const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const radius = brushSize / 2;
+
+    const minX = Math.max(0, Math.floor(x - radius));
+    const maxX = Math.min(this.width - 1, Math.floor(x + radius));
+    const minY = Math.max(0, Math.floor(y - radius));
+    const maxY = Math.min(this.height - 1, Math.floor(y + radius));
+
+    const useMask = !!maskTile && maskTileSize > 0;
+    const shouldClearMaskedPixels = useMask && !!maskClears;
+
+    this.markDirtyRect(minX, minY, maxX, maxY);
+
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        const dx = Math.abs(px + 0.5 - x);
+        const dy = Math.abs(py + 0.5 - y);
+        if (dx + dy > radius) {
           continue;
         }
         const dataIndex = py * this.width + px;

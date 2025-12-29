@@ -96,7 +96,7 @@ interface ColorCycleBrushCanvasState {
   [key: string]: unknown;
 }
 
-type StampShape = 'square' | 'round' | 'triangle';
+type StampShape = 'square' | 'round' | 'triangle' | 'diamond';
 
 interface ColorCycleBrushCanvasSerialized {
   layers: SerializedLayerState[];
@@ -719,6 +719,22 @@ export class ColorCycleBrushCanvas2D {
           );
         } else {
           animator.paintCircle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
+        }
+      } else if (this.stampShape === 'diamond') {
+        if (useStampDither && tile && tileSize) {
+          animator.paintDiamond(
+            x,
+            y,
+            pressureSize,
+            primaryIndex,
+            tile,
+            tileSize,
+            tileClears,
+            secondaryIndex,
+            activeSlot
+          );
+        } else {
+          animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
         }
       } else if (useStampDither && tile && tileSize) {
         animator.paintSquare(
@@ -3006,6 +3022,8 @@ export class ColorCycleBrushCanvas2D {
   setStampShape(shape: StampShape) {
     if (shape === 'triangle') {
       this.stampShape = 'triangle';
+    } else if (shape === 'diamond') {
+      this.stampShape = 'diamond';
     } else if (shape === 'round') {
       this.stampShape = 'round';
     } else {
@@ -3382,7 +3400,7 @@ export class ColorCycleBrushCanvas2D {
       if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
       if (state.fps !== undefined) this.fps = state.fps;
       if (state.brushSize !== undefined) this.brushSize = state.brushSize;
-      if (state.stampShape === 'triangle' || state.stampShape === 'square') {
+      if (state.stampShape === 'triangle' || state.stampShape === 'square' || state.stampShape === 'diamond') {
         this.setStampShape(state.stampShape);
       }
       

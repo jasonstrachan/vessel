@@ -715,6 +715,40 @@ export class ColorCycleAnimator {
       console.error('[ColorCycleAnimator] Error in paintCircle:', error);
     }
   }
+
+  /**
+   * Paint diamond brush with stamp-based color progression
+   */
+  paintDiamond(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex?: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number
+  ) {
+    try {
+      const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
+      const slot = gradientSlot ?? this.activeGradientSlot;
+      this.indexBuffer.paintDiamondWithIndex(
+        x,
+        y,
+        brushSize,
+        index,
+        maskTile,
+        maskTileSize,
+        maskClears,
+        secondaryIndex,
+        slot
+      );
+      this._glIndexDirty = true;
+    } catch (error) {
+      console.error('[ColorCycleAnimator] Error in paintDiamond:', error);
+    }
+  }
   
   /**
    * Paint line

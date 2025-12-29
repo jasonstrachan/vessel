@@ -324,4 +324,14 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
 
     expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('forward');
   });
+
+  it('allows selecting the diamond stamp for color cycle stroke', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const diamondButton = screen.getByRole('button', { name: 'Diamond' });
+    await user.click(diamondButton);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond');
+  });
 });
