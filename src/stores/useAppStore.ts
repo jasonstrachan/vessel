@@ -263,6 +263,8 @@ export type CCReason =
   | 'startup'
   | 'store-sync'
   | 'auto-start'
+  | 'pan'
+  | 'active-layer-not-cc'
   | 'shape-tool-start'
   | 'shape-tool-drag'
   | 'pointer-drag'

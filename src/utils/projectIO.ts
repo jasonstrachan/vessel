@@ -835,7 +835,8 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       gradientIdBuffer: serializedLayer.colorCycleData.gradientIdBuffer
         ? base64ToArrayBuffer(serializedLayer.colorCycleData.gradientIdBuffer)
         : undefined,
-      isAnimating: serializedLayer.colorCycleData.isAnimating,
+      // isAnimating is runtime-only; reset on load to avoid stuck playback state.
+      isAnimating: false,
       mode: serializedLayer.colorCycleData.mode,
       brushSpeed: serializedLayer.colorCycleData.brushSpeed,
       flowMode: serializedLayer.colorCycleData.flowMode,

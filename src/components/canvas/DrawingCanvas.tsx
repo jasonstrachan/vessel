@@ -37,7 +37,6 @@ import CropOverlay from './CropOverlay';
 import FloatingPasteOverlay from './FloatingPasteOverlay';
 import SelectionMarqueeHandles from './SelectionMarqueeHandles';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
-import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
 import { detectColorCycleWorkerSupport } from '@/utils/colorCycleWorkerSupport';
 import { getMaskManager } from '@/layers/MaskManager';
@@ -2016,8 +2015,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   // Simplified color cycle animation manager
   const colorCycleManagerRef = useRef<SimplifiedColorCycleManager | null>(null);
-  // Guard to avoid repeatedly stopping animations when already stopped
-  const hasStoppedAnimationRef = useRef(false);
+  // Guard to avoid repeatedly suspending animations when already suspended
+  const suspendedForNonCCActiveLayerRef = useRef(false);
   // Track when we paused CC animation specifically for panning so it can resume automatically
   const pausedAnimationForPanRef = useRef(false);
   const managerRunningRef = useRef(false);
@@ -2115,21 +2114,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   const pauseAnimationForPan = useCallback(() => {
     if (pausedAnimationForPanRef.current) return;
-    if (!stopAnimationRef.current) return;
-    stopAnimationRef.current('pan-start');
+    const st = useAppStore.getState();
+    st.suspendColorCycle('pan');
     pausedAnimationForPanRef.current = true;
   }, []);
 
   const resumeAnimationAfterPan = useCallback(async () => {
     if (!pausedAnimationForPanRef.current) return;
-    try {
-      await drawingHandlers.resumeColorCycleAfterInteraction?.();
-    } catch (error) {
-      console.warn('Failed to resume color cycle animation after pan', error);
-    } finally {
-      pausedAnimationForPanRef.current = false;
-    }
-  }, [drawingHandlers]);
+    const st = useAppStore.getState();
+    st.resumeColorCycle('pan');
+    pausedAnimationForPanRef.current = false;
+  }, []);
 
   // Set up the animation handlers for BrushControls
   useEffect(() => {
@@ -2149,46 +2144,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
   }, [setColorCycleRuntimeHandlers, wrappedStartAnimation, wrappedStopAnimation]);
 
-  // Stop all color-cycle playback when switching to a non-CC layer
+  // Suspend color-cycle playback when switching to a non-CC layer
   useEffect(() => {
     const activeLayer = layers.find(l => l.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-    if (isColorCycleLayer) {
-      // Reset guard so a future switch away from CC can stop again
-      hasStoppedAnimationRef.current = false;
+    const st = useAppStore.getState();
+
+    if (!isColorCycleLayer && !suspendedForNonCCActiveLayerRef.current) {
+      st.suspendColorCycle('active-layer-not-cc');
+      suspendedForNonCCActiveLayerRef.current = true;
       return;
     }
 
-    // If we've already stopped while on non-CC, avoid redundant work
-    if (hasStoppedAnimationRef.current) return;
-
-    try {
-      // Pause recolor animations (global controller)
-      const rm = RecolorManager.getInstance();
-      if (rm.isAnimating()) rm.pause();
-    } catch {}
-
-    try {
-      // Stop brush-based continuous animation loop and redraw
-      wrappedStopAnimation();
-    } catch {}
-
-    try {
-      // Clear isAnimating flags on all brush-based CC layers so render loop doesn't advance them
-      const st = useAppStore.getState();
-      st.layers
-        .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor' && l.colorCycleData?.isAnimating)
-        .forEach(l => {
-          const colorCycleData: Layer['colorCycleData'] = {
-            ...(l.colorCycleData ?? {}),
-            isAnimating: false
-          };
-          st.updateLayer(l.id, { colorCycleData });
-        });
-    } catch {}
-    // Mark as stopped so this effect doesn't run repeatedly from its own updates
-    hasStoppedAnimationRef.current = true;
-  }, [activeLayerId, layers, wrappedStopAnimation]);
+    if (isColorCycleLayer && suspendedForNonCCActiveLayerRef.current) {
+      st.resumeColorCycle('active-layer-not-cc');
+      suspendedForNonCCActiveLayerRef.current = false;
+    }
+  }, [activeLayerId, layers]);
   
   // Wrapper draw function that uses current hook values
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
