@@ -4008,6 +4008,8 @@ export function useDrawingHandlers({
 
               if (colorCycleBrush && refreshedActiveLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
                 bindBrushToCanvas(colorCycleBrush, refreshedActiveLayer.colorCycleData.canvas);
+                // Lock in the finished stroke before final render to avoid a "live" stroke lingering.
+                colorCycleBrush.commitCurrentStroke?.(refreshedActiveLayer.id);
                 // Final render directly to layer canvas at full opacity
                 colorCycleBrush.renderDirectToCanvas(refreshedActiveLayer.colorCycleData.canvas, refreshedActiveLayer.id);
                 
@@ -4167,10 +4169,6 @@ export function useDrawingHandlers({
                     brush.commitToLayer(layerCanvas, targetLayerId);
                   } else {
                     brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
-                  }
-                  // Only bake to static when global playback is not desired.
-                  if (!getDesiredColorCyclePlaying()) {
-                    brush.clearPaintBuffer?.(targetLayerId);
                   }
 
                   // Mark layer metadata so downstream consumers know content exists

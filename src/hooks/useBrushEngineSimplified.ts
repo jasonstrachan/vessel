@@ -4,7 +4,11 @@
  */
 
 import { useCallback, useMemo, useRef, useEffect } from 'react';
-import { selectEffectiveColorCyclePlaying, useAppStore } from '../stores/useAppStore';
+import {
+  selectColorCycleDesiredPlaying,
+  selectEffectiveColorCyclePlaying,
+  useAppStore
+} from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape, type Layer, type BrushSettings } from '../types';
 import {
@@ -4104,7 +4108,10 @@ export const useBrushEngineSimplified = () => {
                 } else {
                 brush.renderDirectToCanvas?.(layerCanvas, layerId);
               }
-              brush.clearPaintBuffer?.(layerId);
+              // Only clear animatable data when global playback is not desired.
+              if (!selectColorCycleDesiredPlaying(useAppStore.getState())) {
+                brush.clearPaintBuffer?.(layerId);
+              }
             }
           }
         } catch {

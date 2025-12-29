@@ -605,6 +605,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const activeRecolorPalette = activeLayer?.colorCycleData?.recolorSettings?.palette ?? null;
 
   const handleGradientSelect = useCallback((gradientId: string) => {
+    // Selecting a preset should fork the active gradient for new strokes.
+    beginEditSession();
     // Special case: restore "Original" palette-derived gradient for the active recolor layer
     if (gradientId === 'original') {
       try {
@@ -658,15 +660,16 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       }
     }
     if (gradient) {
-      const newStops = [...gradient.stops];
+      const newStops = gradient.stops.map(stop => ({ ...stop }));
       setStops(newStops);
       scheduleGradientUpdate(newStops);
       setSelectedGradientId(gradientId);
       setSelectedStop(null);
     }
-  }, [savedGradients, addNotification, scheduleGradientUpdate, activeRecolorPalette]);
+  }, [savedGradients, addNotification, scheduleGradientUpdate, activeRecolorPalette, beginEditSession]);
 
   const handleAddGradient = useCallback(() => {
+    beginEditSession();
     const existingCustom = savedGradients.filter(g => g.name.startsWith('Custom '));
     const customNumber = existingCustom.length + 1;
     const newId = `custom_${Date.now()}`;
@@ -690,7 +693,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     scheduleGradientUpdate(newGradient.stops);
     setSelectedGradientId(newId);
     setSelectedStop(null);
-  }, [savedGradients, scheduleGradientUpdate]);
+  }, [savedGradients, scheduleGradientUpdate, beginEditSession]);
 
   const handleRemoveGradient = useCallback((gradientId: string) => {
     const gradient = savedGradients.find(g => g.id === gradientId);
