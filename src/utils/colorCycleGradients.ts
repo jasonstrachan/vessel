@@ -4,6 +4,7 @@
  * to ensure they share the same gradient settings
  */
 
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
@@ -32,6 +33,54 @@ const getNextGradientSlot = (usedSlots: Set<number>): number | null => {
     }
   }
   return null;
+};
+
+type ManagedColorCycleBrush = {
+  commitCurrentStroke?: (layerId?: string) => void;
+  finalizeCurrentStroke?: (layerId?: string) => void;
+  flush?: (layerId?: string) => void;
+  setGradientSlot?: (layerId: string, slot: number, stops: Array<{ position: number; color: string }>) => void;
+  setActiveGradientSlot?: (layerId: string, slot: number) => void;
+  renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+};
+
+const applySelectedCCGradient = (
+  layerId: string,
+  nextSlot: number,
+  nextStops: Array<{ position: number; color: string }>
+): void => {
+  const state = useAppStore.getState();
+  const layer = state.layers.find(l => l.id === layerId);
+  if (!layer || layer.layerType !== 'color-cycle') {
+    return;
+  }
+
+  const manager = getColorCycleBrushManager();
+  const brush = manager.getBrush(layerId) as ManagedColorCycleBrush | undefined;
+  const canvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+
+  try {
+    brush?.commitCurrentStroke?.(layerId);
+    brush?.finalizeCurrentStroke?.(layerId);
+    brush?.flush?.(layerId);
+  } catch {}
+
+  try {
+    brush?.setGradientSlot?.(layerId, nextSlot, nextStops);
+    brush?.setActiveGradientSlot?.(layerId, nextSlot);
+  } catch {}
+
+  try {
+    if (brush && canvas) {
+      brush.setTargetCanvas?.(canvas);
+      brush.renderDirectToCanvas?.(canvas, layerId);
+    }
+  } catch {}
+
+  try {
+    window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate', { detail: { onlyActiveLayer: true } }));
+  } catch {}
 };
 
 const applyColorCycleGradientEdit = (
@@ -108,6 +157,8 @@ const applyColorCycleGradientEdit = (
   } else {
     slotPalettes = [...slotPalettes, { slot: activeDef.currentSlot, stops: cloneStops(gradient) }];
   }
+
+  applySelectedCCGradient(layer.id, activeDef.currentSlot, cloneStops(gradient));
 
   updateLayer(targetLayerId, {
     colorCycleData: {
