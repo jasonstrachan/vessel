@@ -594,6 +594,13 @@ const cloneColorCycleData = (
     gradientDefs,
     slotPalettes,
     activeGradientId,
+    derivedGradients: data.derivedGradients
+      ? data.derivedGradients.map((entry) => ({
+          key: entry.key,
+          slot: entry.slot,
+          spec: { ...entry.spec },
+        }))
+      : undefined,
     gradientIdBuffer: data.gradientIdBuffer ? data.gradientIdBuffer.slice(0) : undefined,
     colorCycleBrush: undefined,
     brushState: undefined,

@@ -7,6 +7,9 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
+import { parseCssColor } from '@/utils/color/parseCssColor';
+import { rgbToHsl, hslToRgb } from '@/utils/imageProcessing';
+import type { DerivedGradientSpec } from '@/types';
 
 export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
 
@@ -241,3 +244,108 @@ export function getShapeModeForBrush(brushShape: string | undefined): boolean | 
   }
   return undefined; // Let user control for other brushes
 }
+
+const clamp = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, value));
+};
+
+const toHex = (value: number): string => clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0');
+
+const rgbToHex = (r: number, g: number, b: number): string =>
+  `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+
+const FG_DERIVED_ALGO_VERSION = 1;
+const FG_DERIVED_COLOR_BITS = 5;
+const FG_DERIVED_LIGHTNESS_STEP = 5;
+const FG_DERIVED_VARIANCE_STEP = 5;
+const FG_DERIVED_MAX_BANDS = 6;
+
+export const DEFAULT_FG_DERIVED_LIGHTNESS = 50;
+export const DEFAULT_FG_DERIVED_VARIANCE = 0;
+
+const quantizeStep = (value: number, step: number): number => {
+  if (!Number.isFinite(value) || step <= 0) {
+    return 0;
+  }
+  const clamped = clamp(value, 0, 100);
+  return clamp(Math.round(clamped / step) * step, 0, 100);
+};
+
+const quantizeChannel = (value: number, bits: number): number => {
+  const steps = Math.max(2, 1 << bits);
+  const clamped = clamp(value, 0, 255);
+  return Math.round((clamped / 255) * (steps - 1));
+};
+
+export const clampForegroundDerivedBands = (bands: number | undefined): number => {
+  if (!Number.isFinite(bands)) {
+    return 2;
+  }
+  return clamp(Math.round(bands), 2, FG_DERIVED_MAX_BANDS);
+};
+
+export const buildForegroundDerivedGradientSpec = (params: {
+  baseColor: string;
+  lightness?: number;
+  variance?: number;
+  bands?: number;
+  algoVersion?: number;
+}): DerivedGradientSpec => {
+  const parsed = parseCssColor(params.baseColor, { r: 255, g: 255, b: 255, a: 255 });
+  const normalizedBase = rgbToHex(parsed.r, parsed.g, parsed.b);
+  const lightness = clamp(Math.round(params.lightness ?? DEFAULT_FG_DERIVED_LIGHTNESS), 0, 100);
+  const variance = clamp(Math.round(params.variance ?? DEFAULT_FG_DERIVED_VARIANCE), 0, 100);
+  const bands = clampForegroundDerivedBands(params.bands);
+  const algoVersion = params.algoVersion ?? FG_DERIVED_ALGO_VERSION;
+
+  const key = [
+    'fg',
+    algoVersion,
+    quantizeChannel(parsed.r, FG_DERIVED_COLOR_BITS),
+    quantizeChannel(parsed.g, FG_DERIVED_COLOR_BITS),
+    quantizeChannel(parsed.b, FG_DERIVED_COLOR_BITS),
+    quantizeStep(lightness, FG_DERIVED_LIGHTNESS_STEP),
+    quantizeStep(variance, FG_DERIVED_VARIANCE_STEP),
+    bands,
+  ].join(':');
+
+  return {
+    mode: 'fg-derived',
+    baseColor: normalizedBase,
+    lightness,
+    variance,
+    bands,
+    algoVersion,
+    key,
+  };
+};
+
+export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<{ position: number; color: string }> => {
+  const parsed = parseCssColor(spec.baseColor, { r: 255, g: 255, b: 255, a: 255 });
+  const [baseH, baseS, baseL] = rgbToHsl(parsed.r, parsed.g, parsed.b);
+  const bands = Math.max(2, Math.round(spec.bands));
+  const lightnessAdjust = spec.lightness - 50;
+  const varianceRange = clamp((spec.variance / 100) * 70, 0, 70);
+  const hueShift = clamp((spec.variance / 100) * 60, 0, 60);
+  const satShift = clamp((spec.variance / 100) * 45, 0, 45);
+  const derivedH = (baseH + hueShift) % 360;
+  const derivedS = clamp(Math.max(10, baseS + satShift + (baseS < 25 ? 20 : 0)), 0, 100);
+  const baseLAdjusted = clamp(baseL + lightnessAdjust, 0, 100);
+  const lPush = baseLAdjusted >= 50 ? -varianceRange : varianceRange;
+  const derivedL = clamp(baseLAdjusted + lPush, 0, 100);
+  const [derivedR, derivedG, derivedB] = hslToRgb(derivedH, derivedS, derivedL);
+  const baseColor = rgbToHex(parsed.r, parsed.g, parsed.b);
+  const derivedColor = rgbToHex(derivedR, derivedG, derivedB);
+  const stops: Array<{ position: number; color: string }> = [];
+
+  for (let i = 0; i < bands; i += 1) {
+    const t = bands === 1 ? 0 : i / (bands - 1);
+    const color = i % 2 === 0 ? baseColor : derivedColor;
+    stops.push({ position: t, color });
+  }
+
+  return stops;
+};

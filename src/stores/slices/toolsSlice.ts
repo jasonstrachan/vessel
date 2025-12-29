@@ -680,6 +680,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleGradient !== undefined) {
         settingsToSave.colorCycleGradient = newSettings.colorCycleGradient;
       }
+      if (settings.colorCycleUseForegroundGradient !== undefined) {
+        settingsToSave.colorCycleUseForegroundGradient = newSettings.colorCycleUseForegroundGradient;
+      }
+      if (settings.colorCycleFgLightness !== undefined) {
+        settingsToSave.colorCycleFgLightness = newSettings.colorCycleFgLightness;
+      }
+      if (settings.colorCycleFgVariance !== undefined) {
+        settingsToSave.colorCycleFgVariance = newSettings.colorCycleFgVariance;
+      }
+      if (settings.colorCycleFgStops !== undefined) {
+        settingsToSave.colorCycleFgStops = newSettings.colorCycleFgStops;
+      }
       if (settings.colorCycleFlowMode !== undefined) {
         settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
       }

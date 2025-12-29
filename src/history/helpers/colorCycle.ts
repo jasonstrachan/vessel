@@ -32,6 +32,13 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                       stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
                     }))
                   : undefined,
+                derivedGradients: layer.derivedGradients
+                  ? layer.derivedGradients.map((entry) => ({
+                      key: entry.key,
+                      slot: entry.slot,
+                      spec: { ...entry.spec },
+                    }))
+                  : undefined,
                 strokeData: layer.strokeData
                   ? {
                       ...layer.strokeData,

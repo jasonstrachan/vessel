@@ -31,7 +31,14 @@ import {
   getPresetOptions as getRectGradientPresetOptions,
   getPresetStops
 } from '@/utils/gradientPresets';
-import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
+import {
+  buildForegroundDerivedGradientSpec,
+  clampForegroundDerivedBands,
+  deriveForegroundGradientStops,
+  getShapeModeForBrush,
+  isColorCycleBrush,
+  setSharedColorCycleGradient
+} from "../../utils/colorCycleGradients";
 import {
   PRESSURE_BASE_PERCENT,
   clampPressureDeltaPercent,
@@ -326,6 +333,33 @@ const BrushControls = () => {
     () => palette?.backgroundColor ?? '#ffffff',
     [palette?.backgroundColor]
   );
+
+  const useForegroundDerivedGradient = Boolean(activeSettings.colorCycleUseForegroundGradient);
+  const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
+  const fgDerivedVariance = activeSettings.colorCycleFgVariance ?? 0;
+  const fgDerivedBands = clampForegroundDerivedBands(activeSettings.colorCycleFgStops);
+  const foregroundDerivedSpec = React.useMemo(
+    () =>
+      buildForegroundDerivedGradientSpec({
+        baseColor: fgColor,
+        lightness: fgDerivedLightness,
+        variance: fgDerivedVariance,
+        bands: fgDerivedBands,
+      }),
+    [fgColor, fgDerivedBands, fgDerivedLightness, fgDerivedVariance]
+  );
+  const foregroundDerivedStops = React.useMemo(
+    () => deriveForegroundGradientStops(foregroundDerivedSpec),
+    [foregroundDerivedSpec]
+  );
+  const foregroundDerivedCss = React.useMemo(() => {
+    if (!foregroundDerivedStops.length) {
+      return 'none';
+    }
+    return `linear-gradient(to right, ${foregroundDerivedStops
+      .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
+      .join(', ')})`;
+  }, [foregroundDerivedStops]);
 
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
   const isRegularBrush =
@@ -813,21 +847,34 @@ const BrushControls = () => {
     }
     return (
       <div className="p-4">
-        <div className="mb-3">
-          <GradientEditor
-            sampleTarget="brush"
-            stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
-            onChange={(stops) => {
-              scheduleGradientFlush(stops);
-              if (stops.length && activeSettings.gradientBands && activeSettings.gradientBands < stops.length) {
-                setActiveSettings({ gradientBands: stops.length });
-              }
-            }}
-            onEditStart={() => {
-              gradientForkRef.current = true;
-            }}
-          />
-        </div>
+        {useForegroundDerivedGradient ? (
+          <div className="mb-3">
+            <div className="flex items-center justify-between text-xs text-[#D9D9D9] mb-1">
+              <span>Foreground Gradient</span>
+              <span className="text-[#A0A0A0]">{fgColor.toUpperCase()}</span>
+            </div>
+            <div
+              className="h-6 rounded border border-white/10"
+              style={{ background: foregroundDerivedCss }}
+            />
+          </div>
+        ) : (
+          <div className="mb-3">
+            <GradientEditor
+              sampleTarget="brush"
+              stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
+              onChange={(stops) => {
+                scheduleGradientFlush(stops);
+                if (stops.length && activeSettings.gradientBands && activeSettings.gradientBands < stops.length) {
+                  setActiveSettings({ gradientBands: stops.length });
+                }
+              }}
+              onEditStart={() => {
+                gradientForkRef.current = true;
+              }}
+            />
+          </div>
+        )}
 
         {/* Color Cycle variant switcher (Stroke vs Triangle vs Shape) */}
         <div className="mb-3">
@@ -947,6 +994,82 @@ const BrushControls = () => {
             />
           </div>
         </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="cc-foreground-gradient-toggle"
+              className={CONTROL_LABEL_CLASS}
+              style={CONTROL_LABEL_STYLE}
+            >
+              FG Grad
+            </label>
+            <CustomSwitch
+              id="cc-foreground-gradient-toggle"
+              checked={useForegroundDerivedGradient}
+              onChange={(checked) => setActiveSettings({ colorCycleUseForegroundGradient: checked })}
+            />
+          </div>
+        </div>
+
+        {useForegroundDerivedGradient && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Light
+                </label>
+                <ProgressSlider
+                  value={fgDerivedLightness}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ colorCycleFgLightness: Math.max(0, Math.min(100, Math.round(value))) })
+                  }
+                  aria-label="Foreground Gradient Lightness"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Var
+                </label>
+                <ProgressSlider
+                  value={fgDerivedVariance}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ colorCycleFgVariance: Math.max(0, Math.min(100, Math.round(value))) })
+                  }
+                  aria-label="Foreground Gradient Variance"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Stops
+                </label>
+                <ProgressSlider
+                  value={activeSettings.colorCycleFgStops ?? 2}
+                  min={2}
+                  max={6}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ colorCycleFgStops: Math.max(2, Math.min(6, Math.round(value))) })
+                  }
+                  aria-label="Foreground Gradient Stops"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="mb-2">
           <div className="flex items-center gap-2">

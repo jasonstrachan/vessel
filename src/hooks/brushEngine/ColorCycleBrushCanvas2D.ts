@@ -72,6 +72,19 @@ interface SerializedLayerState {
   strokeData?: StrokeDataSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
+  derivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: {
+      mode: 'fg-derived';
+      baseColor: string;
+      lightness: number;
+      variance: number;
+      bands: number;
+      algoVersion: number;
+      key: string;
+    };
+  }>;
   activeGradientId?: string;
 }
 
@@ -1002,6 +1015,14 @@ export class ColorCycleBrushCanvas2D {
     if (stops && stops.length > 0) {
       this.applyGradientForLayer(id, stops);
     }
+  }
+
+  /**
+   * Read the active gradient slot for a layer.
+   */
+  getActiveGradientSlot(layerId?: string): number {
+    const id = layerId || this.activeLayerId || 'default';
+    return this.activeGradientSlots.get(id) ?? 0;
   }
   
   
@@ -2816,6 +2837,13 @@ export class ColorCycleBrushCanvas2D {
     this.render(false);
   }
 
+  /**
+   * Flush any pending renders (API compatible).
+   */
+  flush(_layerId?: string) {
+    this.flushScheduledRender();
+  }
+
   startAnimation() {
     if (this.isAnimating) {
       return;
@@ -3566,6 +3594,13 @@ export class ColorCycleBrushCanvas2D {
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
           }))
         : undefined;
+      const derivedGradients = colorCycleMeta?.derivedGradients
+        ? colorCycleMeta.derivedGradients.map((entry) => ({
+            key: entry.key,
+            slot: entry.slot,
+            spec: { ...entry.spec },
+          }))
+        : undefined;
       const activeGradientId = colorCycleMeta?.activeGradientId;
 
       layers.push({
@@ -3573,6 +3608,7 @@ export class ColorCycleBrushCanvas2D {
         data: animator.serialize(),
         gradientDefs,
         slotPalettes,
+        derivedGradients,
         activeGradientId,
         strokeData: {
           paintBuffer,

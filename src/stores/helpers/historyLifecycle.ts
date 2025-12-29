@@ -185,6 +185,13 @@ const cloneLayerForHistory = (
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
           }))
         : undefined,
+      derivedGradients: existingColorCycleData.derivedGradients
+        ? existingColorCycleData.derivedGradients.map((entry) => ({
+            key: entry.key,
+            slot: entry.slot,
+            spec: { ...entry.spec },
+          }))
+        : undefined,
       activeGradientId: existingColorCycleData.activeGradientId,
       gradientIdBuffer: existingColorCycleData.gradientIdBuffer
         ? existingColorCycleData.gradientIdBuffer.slice(0)
@@ -227,6 +234,19 @@ interface SerializedColorCycleLayerSnapshot {
   };
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  derivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: {
+      mode: 'fg-derived';
+      baseColor: string;
+      lightness: number;
+      variance: number;
+      bands: number;
+      algoVersion: number;
+      key: string;
+    };
+  }>;
   activeGradientId?: string;
   strokeData?: {
     paintBuffer?: ArrayBufferLike;

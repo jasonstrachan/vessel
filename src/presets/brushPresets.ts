@@ -82,6 +82,10 @@ export const pixelBrushSettings: BrushSettings = {
   colorCycleStampDitherClears: false,
   colorCycleStampShape: 'square',
   colorCycleStampShape: 'square',
+  colorCycleUseForegroundGradient: false,
+  colorCycleFgLightness: 50,
+  colorCycleFgVariance: 0,
+  colorCycleFgStops: 2,
   contourLines2Spacing: 4,
   contourLines2Density: 4,
   contourLines2Alternate: false,
@@ -184,6 +188,10 @@ export const defaultBrushSettings: BrushSettings = {
   colorCycleFlowMode: 'reverse',
   colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
   colorCycleBandSpacingPx: 12,
+  colorCycleUseForegroundGradient: false,
+  colorCycleFgLightness: 50,
+  colorCycleFgVariance: 0,
+  colorCycleFgStops: 2,
   shapeGradientMode: 'contour', // Default to contour mode for shape gradient brushes
   triangleFillSize: 36,
   triangleFillJitter: 35,
@@ -524,6 +532,10 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     pressureEnabled: false,
     minPressure: 0,
     maxPressure: 0,
+    colorCycleUseForegroundGradient: false,
+    colorCycleFgLightness: 50,
+    colorCycleFgVariance: 0,
+    colorCycleFgStops: 2,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     colorCycleStampShape: 'square',
     shapeEnabled: false // Force shape mode OFF for stroke variant
@@ -583,6 +595,10 @@ export const colorCycleTriangleBrushPreset: BrushPreset = {
     pressureEnabled: false,
     minPressure: 0,
     maxPressure: 0,
+    colorCycleUseForegroundGradient: false,
+    colorCycleFgLightness: 50,
+    colorCycleFgVariance: 0,
+    colorCycleFgStops: 2,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     colorCycleStampShape: 'triangle',
     shapeEnabled: false
@@ -642,6 +658,10 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
     pressureEnabled: false,
     minPressure: 0,
     maxPressure: 0,
+    colorCycleUseForegroundGradient: false,
+    colorCycleFgLightness: 50,
+    colorCycleFgVariance: 0,
+    colorCycleFgStops: 2,
     colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: true // Force shape mode ON for shape variant
   }

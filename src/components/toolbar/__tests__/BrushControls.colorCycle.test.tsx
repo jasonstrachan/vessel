@@ -201,6 +201,10 @@ jest.mock('@/stores/useAppStore', () => {
     customBrushColorCycle: false,
     colorCycleSpeed: 0.1,
     colorCycleStampShape: 'square',
+    colorCycleUseForegroundGradient: false,
+    colorCycleFgLightness: 50,
+    colorCycleFgVariance: 0,
+    colorCycleFgStops: 2,
     colorCycleGradient: [
       { position: 0, color: '#000' },
       { position: 1, color: '#fff' },

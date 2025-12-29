@@ -106,6 +106,16 @@ export interface Project {
   palette?: PaletteState;
 }
 
+export type DerivedGradientSpec = {
+  mode: 'fg-derived';
+  baseColor: string;
+  lightness: number;
+  variance: number;
+  bands: number;
+  algoVersion: number;
+  key: string;
+};
+
 export interface Layer {
   id: string;
   name: string;
@@ -159,6 +169,14 @@ export interface Layer {
     slotPalettes?: Array<{
       slot: number;
       stops: Array<{ position: number; color: string }>;
+    }>;
+    /**
+     * Derived foreground gradient metadata keyed by spec hash.
+     */
+    derivedGradients?: Array<{
+      key: string;
+      slot: number;
+      spec: DerivedGradientSpec;
     }>;
     activeGradientId?: string;
     /**
@@ -670,6 +688,11 @@ export interface BrushSettings {
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular'; // Fill mode for Color Cycle Shape
   colorCycleBandSpacingPx?: number; // Pixel distance between color-cycle bands for shapes
+  // Foreground-derived gradient controls for Color Cycle brushes
+  colorCycleUseForegroundGradient?: boolean; // true = derive gradient from foreground color per stroke
+  colorCycleFgLightness?: number; // 0-100 center lightness for derived gradient
+  colorCycleFgVariance?: number; // 0-100 lightness variance for derived gradient
+  colorCycleFgStops?: number; // 2-6 stops for derived foreground gradient
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas
   

@@ -199,6 +199,19 @@ interface SerializedBrushLayerSnapshot {
   animator?: SerializedAnimatorSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  derivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: {
+      mode: 'fg-derived';
+      baseColor: string;
+      lightness: number;
+      variance: number;
+      bands: number;
+      algoVersion: number;
+      key: string;
+    };
+  }>;
   activeGradientId?: string;
 }
 
@@ -239,6 +252,19 @@ interface SerializedColorCycleLayerData {
   gradient?: Array<{ position: number; color: string }>;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  derivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: {
+      mode: 'fg-derived';
+      baseColor: string;
+      lightness: number;
+      variance: number;
+      bands: number;
+      algoVersion: number;
+      key: string;
+    };
+  }>;
   activeGradientId?: string;
   gradientIdBuffer?: string;
   isAnimating?: boolean;
@@ -595,6 +621,13 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
           }))
         : undefined,
+      derivedGradients: colorCycleData.derivedGradients
+        ? colorCycleData.derivedGradients.map((entry) => ({
+            key: entry.key,
+            slot: entry.slot,
+            spec: { ...entry.spec },
+          }))
+        : undefined,
       activeGradientId: colorCycleData.activeGradientId,
       gradientIdBuffer: colorCycleData.gradientIdBuffer
         ? arrayBufferToBase64(colorCycleData.gradientIdBuffer)
@@ -746,6 +779,13 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
         stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
       }));
     }
+    if (layer.derivedGradients) {
+      snapshot.derivedGradients = layer.derivedGradients.map((entry) => ({
+        key: entry.key,
+        slot: entry.slot,
+        spec: { ...entry.spec },
+      }));
+    }
     if (layer.activeGradientId) {
       snapshot.activeGradientId = layer.activeGradientId;
     }
@@ -831,6 +871,13 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       gradient: serializedLayer.colorCycleData.gradient,
       gradientDefs: serializedLayer.colorCycleData.gradientDefs,
       slotPalettes: serializedLayer.colorCycleData.slotPalettes,
+      derivedGradients: serializedLayer.colorCycleData.derivedGradients
+        ? serializedLayer.colorCycleData.derivedGradients.map((entry) => ({
+            key: entry.key,
+            slot: entry.slot,
+            spec: { ...entry.spec },
+          }))
+        : undefined,
       activeGradientId: serializedLayer.colorCycleData.activeGradientId,
       gradientIdBuffer: serializedLayer.colorCycleData.gradientIdBuffer
         ? base64ToArrayBuffer(serializedLayer.colorCycleData.gradientIdBuffer)
