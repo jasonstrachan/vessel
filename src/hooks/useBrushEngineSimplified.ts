@@ -1806,7 +1806,7 @@ export const useBrushEngineSimplified = () => {
     const zeroOff = true;
     const canvasW = ctx.canvas?.width ?? 0;
     const canvasH = ctx.canvas?.height ?? 0;
-    const holeMask = fillBackground ? ensureHoleMask(canvasW, canvasH) : null;
+    const holeMask = !fillBackground ? ensureHoleMask(canvasW, canvasH) : null;
 
     const isOffColor = (idx: number) =>
       data[idx] === offR &&
