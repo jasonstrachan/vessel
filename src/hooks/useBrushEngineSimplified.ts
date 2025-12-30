@@ -1784,6 +1784,10 @@ export const useBrushEngineSimplified = () => {
     }
 
     // Use the shared dithering helpers for ALL algorithms.
+    const phaseOffset = !fillBackground
+      ? { x: Math.floor(x), y: Math.floor(y) }
+      : undefined;
+
     const dithered = pixelSize > 1
       ? applyDitheringWithFillResolution(
           src,
@@ -1791,14 +1795,16 @@ export const useBrushEngineSimplified = () => {
           pixelSize,
           algorithm,
           patternStyle,
-          strokeDitherPalette
+          strokeDitherPalette,
+          phaseOffset
         )
       : applyDitheringImport(
           src,
           strokeDitherPalette.length,
           algorithm,
           patternStyle,
-          strokeDitherPalette
+          strokeDitherPalette,
+          phaseOffset
         );
 
     const data = dithered.data;
@@ -1919,12 +1925,19 @@ export const useBrushEngineSimplified = () => {
               continue;
             }
 
-            // “On” ink over paint: conservative alpha blend, keep existing colour
-            const na = Math.min(ea, srcA);
-            data[i] = e[i];
-            data[i + 1] = e[i + 1];
-            data[i + 2] = e[i + 2];
-            data[i + 3] = na;
+            // “On” ink over paint: keep existing pixel to avoid stamping the tip shape
+            if (srcA > 0) {
+              data[i] = e[i];
+              data[i + 1] = e[i + 1];
+              data[i + 2] = e[i + 2];
+              data[i + 3] = ea;
+            } else {
+              // No new coverage here; leave existing pixel untouched
+              data[i] = e[i];
+              data[i + 1] = e[i + 1];
+              data[i + 2] = e[i + 2];
+              data[i + 3] = ea;
+            }
           }
 
           if (
@@ -2057,7 +2070,12 @@ export const useBrushEngineSimplified = () => {
     }
 
     // Pressure-linked path: only blit the newly dithered region; do NOT re-dither old stamps.
-    if (shouldApplyStrokeDither && tools.brushSettings.pressureLinkedFillResolution && ditherCanvas) {
+    if (
+      shouldApplyStrokeDither &&
+      tools.brushSettings.pressureLinkedFillResolution &&
+      ditherCanvas &&
+      tools.brushSettings.ditherBackgroundFill !== false
+    ) {
       const regionToBlit = liveDirtyRectRef.current ?? strokeBounds;
       liveDirtyRectRef.current = null;
       if (regionToBlit) {
@@ -2094,9 +2112,7 @@ export const useBrushEngineSimplified = () => {
         const fullDirty = liveDirtyRectRef.current ?? strokeBounds;
         liveDirtyRectRef.current = null;
 
-        const ditherRegion = tools.brushSettings.ditherBackgroundFill !== false
-          ? fullDirty
-          : (lastSegmentBoundsRef.current ?? fullDirty);
+        const ditherRegion = fullDirty;
 
         const { x: dx, y: dy, width: dw, height: dh } = normalizeRectForCanvas(
           ditherRegion,
@@ -2109,8 +2125,8 @@ export const useBrushEngineSimplified = () => {
           dCtx.drawImage(rawCanvas as CanvasImageSource, dx, dy, dw, dh, dx, dy, dw, dh);
           applyStrokeDither(dCtx, ditherRegion, rawCtx);
         } else {
-          // BG fill off: only dither the latest segment; allow overwriting previous holes
-          applyStrokeDither(dCtx, ditherRegion, rawCtx);
+          // BG fill off: re-dither the full dirty rect to avoid stamp seams
+          applyStrokeDither(dCtx, ditherRegion, rawCtx, { mergeExisting: false });
         }
 
         const blitRect = normalizeRectForCanvas(
@@ -2593,7 +2609,13 @@ export const useBrushEngineSimplified = () => {
       return strokeBounds ? { ...strokeBounds } : null;
     }
 
-    if (tools.brushSettings.pressureLinkedFillResolution && strokeBounds && ditherCanvas && region) {
+    if (
+      tools.brushSettings.pressureLinkedFillResolution &&
+      strokeBounds &&
+      ditherCanvas &&
+      region &&
+      tools.brushSettings.ditherBackgroundFill !== false
+    ) {
       // Force a final, unthrottled dither pass so the committed stroke reflects the latest pressure.
       const rawCtxForFinal = rawCanvas ? pick2D(rawCanvas) : null;
       const ditherCtxForFinal = ditherCanvas ? pick2D(ditherCanvas) : null;
@@ -2650,7 +2672,10 @@ export const useBrushEngineSimplified = () => {
     if (!tools.brushSettings.pressureLinkedFillResolution && strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
       const { x, y, width, height } = region;
       if (tools.brushSettings.ditherBackgroundFill === false) {
-        // Do NOT re-dither the whole stroke; use accumulated dither buffer and allow overwriting old holes
+        // BG fill off: re-dither the whole stroke region before commit to avoid stamp seams
+        ditherCtx.clearRect(x, y, width, height);
+        ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx, { mergeExisting: false });
+
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
         if (isPixelDitherNoBg) {
           ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);

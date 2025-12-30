@@ -397,20 +397,60 @@ export const applyDithering = (
   numColors: number, 
   algorithm?: string,
   patternStyle?: string,
-  customPalette?: string[]  // Accept custom palette
+  customPalette?: string[],  // Accept custom palette
+  phaseOffset?: { x: number; y: number }
 ): ImageData => {
   const palette = resolveDitherPalette(imageData, numColors, customPalette);
+  const resolvedAlgorithm = (algorithm as DitherAlgorithmType) || 'sierra-lite';
+  const offsetX = phaseOffset?.x ?? 0;
+  const offsetY = phaseOffset?.y ?? 0;
+  const hasPhaseOffset = (offsetX | 0) !== 0 || (offsetY | 0) !== 0;
+  const orderedPhaseAlgorithms = new Set(['bayer', 'pattern', 'void-and-cluster', 'blue-noise']);
+
+  const shiftImageData = (source: ImageData, shiftX: number, shiftY: number): ImageData => {
+    const { width, height, data } = source;
+    const out = new Uint8ClampedArray(data.length);
+    const sx = ((shiftX % width) + width) % width;
+    const sy = ((shiftY % height) + height) % height;
+    if (sx === 0 && sy === 0) {
+      return source;
+    }
+
+    for (let y = 0; y < height; y += 1) {
+      const srcY = (y + sy) % height;
+      for (let x = 0; x < width; x += 1) {
+        const srcX = (x + sx) % width;
+        const srcIdx = (srcY * width + srcX) * 4;
+        const dstIdx = (y * width + x) * 4;
+        out[dstIdx] = data[srcIdx];
+        out[dstIdx + 1] = data[srcIdx + 1];
+        out[dstIdx + 2] = data[srcIdx + 2];
+        out[dstIdx + 3] = data[srcIdx + 3];
+      }
+    }
+
+    return new ImageData(out, width, height);
+  };
+
+  const input =
+    hasPhaseOffset && !orderedPhaseAlgorithms.has(resolvedAlgorithm)
+      ? shiftImageData(imageData, offsetX, offsetY)
+      : imageData;
 
   const ditherSettings: DitherSettings = {
-    algorithm: (algorithm as DitherAlgorithmType) || 'sierra-lite',
+    algorithm: resolvedAlgorithm,
     pressure: 0.5,
     intensity: 1.0,
     bayerMatrixSize: 8,
     palette,
-    patternStyle: (patternStyle as PatternStyle) || 'dots'
+    patternStyle: (patternStyle as PatternStyle) || 'dots',
+    phaseOffset: orderedPhaseAlgorithms.has(resolvedAlgorithm) ? phaseOffset : undefined
   };
 
-  return applyPressureDither(imageData, ditherSettings);
+  const dithered = applyPressureDither(input, ditherSettings);
+  return hasPhaseOffset && !orderedPhaseAlgorithms.has(resolvedAlgorithm)
+    ? shiftImageData(dithered, -offsetX, -offsetY)
+    : dithered;
 };
 
 /**
@@ -562,13 +602,14 @@ export const applyDitheringWithFillResolution = (
   fillResolution: number,
   algorithm?: string,
   patternStyle?: string,
-  customPalette?: string[]  // Accept custom palette
+  customPalette?: string[],  // Accept custom palette
+  phaseOffset?: { x: number; y: number }
 ): ImageData => {
   const pixelSize = Math.max(1, Math.floor(fillResolution));
   const resolvedAlgorithm = algorithm || 'sierra-lite';
 
   if (pixelSize <= 1) {
-    return applyDithering(imageData, numColors, resolvedAlgorithm, patternStyle, customPalette);
+    return applyDithering(imageData, numColors, resolvedAlgorithm, patternStyle, customPalette, phaseOffset);
   }
 
   if (resolvedAlgorithm === 'sierra-lite') {
@@ -586,7 +627,8 @@ export const applyDitheringWithFillResolution = (
     pixelSize,
     resolvedAlgorithm,
     patternStyle,
-    customPalette
+    customPalette,
+    phaseOffset
   );
 };
 
@@ -612,10 +654,17 @@ const downsampleDitherAndScale = (
   pixelSize: number,
   algorithm: string,
   patternStyle?: string,
-  customPalette?: string[]
+  customPalette?: string[],
+  phaseOffset?: { x: number; y: number }
 ): ImageData => {
   const downsampled = createDownsampledImageData(imageData, pixelSize);
-  const dithered = applyDithering(downsampled, numColors, algorithm, patternStyle, customPalette);
+  const resolvedPhase = phaseOffset
+    ? {
+        x: Math.floor(phaseOffset.x / pixelSize),
+        y: Math.floor(phaseOffset.y / pixelSize)
+      }
+    : undefined;
+  const dithered = applyDithering(downsampled, numColors, algorithm, patternStyle, customPalette, resolvedPhase);
   return expandNearestNeighbor(dithered, imageData.width, imageData.height, pixelSize);
 };
 
