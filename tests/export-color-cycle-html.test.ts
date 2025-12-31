@@ -135,6 +135,21 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
   ];
 
   const brushIndices = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 16));
+  const gradientIdBuffer = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 2));
+  const slotPalettes = [
+    {
+      slot: 0,
+      stops: gradientStops
+    },
+    {
+      slot: 1,
+      stops: [
+        { position: 0, color: '#ff69b4' },
+        { position: 0.5, color: '#ffa500' },
+        { position: 1, color: '#7fffd4' }
+      ]
+    }
+  ];
 
   const mockBrush = {
     serialize: () => ({
@@ -146,7 +161,8 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
               width: 8,
               height: 8,
               data: brushIndices,
-              palette: ['#ffd700', '#adff2f', '#1e90ff']
+              palette: ['#ffd700', '#adff2f', '#1e90ff'],
+              gradientId: gradientIdBuffer
             },
             gradient: {
               gradientStops
@@ -187,6 +203,7 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
       isAnimating: true,
       brushSpeed: 0.35,
       gradient: gradientStops,
+      slotPalettes,
       canvas,
       colorCycleBrush: mockBrush as unknown as Layer['colorCycleData']['colorCycleBrush']
     },
@@ -292,6 +309,48 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
     expect(exportedLayer.colorCycle?.brushState?.gradientStops).toHaveLength(3);
     expect(exportedLayer.colorCycle?.brushState?.alphaMode).toBe('opaque-indices');
+  });
+
+  it('exports slot palettes and gradient id buffers for brush-mode color-cycle layers', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-slots',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    const slotPalettes = exportedLayer.colorCycle?.slotPalettes ?? [];
+    expect(slotPalettes).toHaveLength(2);
+    expect(slotPalettes[0]?.slot).toBe(0);
+    expect(slotPalettes[0]?.stops).toHaveLength(3);
+    expect(slotPalettes[1]?.slot).toBe(1);
+    expect(slotPalettes[1]?.stops).toHaveLength(3);
+
+    const gradientIdBuffer = exportedLayer.colorCycle?.brushState?.gradientIdBuffer;
+    expect(gradientIdBuffer).toBeDefined();
+    if (typeof gradientIdBuffer === 'string') {
+      expect(gradientIdBuffer.length).toBeGreaterThan(0);
+    } else if (Array.isArray(gradientIdBuffer)) {
+      expect(gradientIdBuffer.length).toBeGreaterThan(0);
+    }
   });
 
   it('embeds brush-mode color cycle data in single-file HTML bundle', async () => {

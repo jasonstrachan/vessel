@@ -149,8 +149,8 @@ export class BrushStampSource {
     }
     const eraserSettings = state.tools.eraserSettings;
     const brushSettings = state.tools.brushSettings;
-    const hasUpdate = Boolean(this.brushEngine.updateConfig);
-    if (!hasUpdate) {
+    const updateConfig = this.brushEngine.updateConfig;
+    if (!updateConfig) {
       this.sizeOverrideApplied = false;
       this.originalBrushSize = null;
       this.shapeOverrideApplied = false;
@@ -195,7 +195,7 @@ export class BrushStampSource {
     if (!changed) {
       return;
     }
-    this.brushEngine.updateConfig({
+    updateConfig({
       brushSettings: {
         ...brushSettings,
         ...nextSettings,

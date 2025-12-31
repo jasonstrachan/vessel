@@ -1446,7 +1446,9 @@ const PROPERTY_UNMINIFY_MAP = {
   bs: 'brushState',
   amk: 'alphaMask',
   gs: 'gradientStops',
+  gib: 'gradientIdBuffer',
   ib: 'indexBuffer',
+  sp: 'slotPalettes',
   pl: 'palette',
   ao: 'animationOffset',
   tf: 'targetFPS',
@@ -1966,6 +1968,32 @@ const normalizeGradientStops = (stops) => {
   return normalized;
 };
 
+const normalizeSlotPalettes = (slotPalettes, fallbackGradient) => {
+  if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {
+    return null;
+  }
+  const map = new Map();
+  slotPalettes.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+    const slot = Number(entry.slot);
+    if (!Number.isFinite(slot)) {
+      return;
+    }
+    const stops = Array.isArray(entry.stops) ? entry.stops : [];
+    const normalizedStops = normalizeGradientStops(stops);
+    map.set(Math.max(0, Math.min(255, Math.round(slot))), normalizedStops);
+  });
+  if (map.size === 0) {
+    return null;
+  }
+  if (!map.has(0) && Array.isArray(fallbackGradient) && fallbackGradient.length > 0) {
+    map.set(0, normalizeGradientStops(fallbackGradient));
+  }
+  return map;
+};
+
 const sampleGradient = (gradient, position) => {
   if (!Array.isArray(gradient) || gradient.length === 0) {
     return { r: 255, g: 255, b: 255, a: 255 };
@@ -2084,6 +2112,48 @@ const fillPixelsFromIndices = (indices, lut, outPixels32, alpha, options = {}) =
   }
 };
 
+const fillPixelsFromIndicesWithGradientIds = (indices, gradientIds, lutsBySlot, fallbackLut, outPixels32, alpha, options = {}) => {
+  const transparentZero = options.transparentZero === true;
+  const subtractOne = options.subtractOne === true;
+  const length = Math.min(indices.length, outPixels32.length);
+  const useAlpha = alpha && alpha.length >= length * 4;
+
+  if (!fallbackLut || fallbackLut.length === 0) {
+    outPixels32.fill(0, 0, length);
+    return;
+  }
+
+  if (useAlpha) {
+    for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
+      const rawIndex = indices[i] ?? 0;
+      if (transparentZero && rawIndex === 0) {
+        outPixels32[i] = 0;
+        continue;
+      }
+      const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
+      const slot = gradientIds ? (gradientIds[i] ?? 0) : 0;
+      const lut = lutsBySlot?.get(slot) ?? fallbackLut;
+      const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
+      const rgb = lut[capped] & 0x00ffffff;
+      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      outPixels32[i] = (a << 24) | rgb;
+    }
+  } else {
+    for (let i = 0; i < length; i += 1) {
+      const rawIndex = indices[i] ?? 0;
+      if (transparentZero && rawIndex === 0) {
+        outPixels32[i] = 0;
+        continue;
+      }
+      const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
+      const slot = gradientIds ? (gradientIds[i] ?? 0) : 0;
+      const lut = lutsBySlot?.get(slot) ?? fallbackLut;
+      const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
+      outPixels32[i] = lut[capped];
+    }
+  }
+};
+
 const fillPixelsFromPhaseMap = (phaseMap, lut, outPixels32, alpha) => {
   const length = Math.min(phaseMap.length, outPixels32.length);
   if (alpha && alpha.length >= length * 4) {
@@ -2168,9 +2238,11 @@ class ColorCycleLayerPlayer {
     this.alpha = null;
     this.baseImageData = null;
     this.indexBuffer = null;
+    this.gradientIdBuffer = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
     this.gradient = DEFAULT_GRADIENT;
+    this.slotGradients = null;
     this.cycleColors = 16;
     this.mappingMode = 'banded';
     this.flowMapping = 'palette';
@@ -2342,6 +2414,10 @@ class ColorCycleLayerPlayer {
     }
 
     this.indexBuffer = indexBuffer;
+    const gradientIdBuffer = brushState.gradientIdBuffer
+      ? await resolveNumericBuffer(brushState.gradientIdBuffer)
+      : null;
+    this.gradientIdBuffer = gradientIdBuffer && gradientIdBuffer.length ? gradientIdBuffer : null;
     const alphaMode = typeof brushState.alphaMode === 'string' ? brushState.alphaMode : 'source';
     if (alphaMode === 'opaque-indices') {
       const size = this.width * this.height * 4;
@@ -2352,7 +2428,9 @@ class ColorCycleLayerPlayer {
     }
     this.phaseMap = null;
     this.indexPhaseMap = null;
-    this.gradient = normalizeGradientStops(brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient);
+    const baseGradient = brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient;
+    this.gradient = normalizeGradientStops(baseGradient);
+    this.slotGradients = normalizeSlotPalettes(colorCycle.slotPalettes, this.gradient);
     this.cycleColors = Math.max(1, Math.floor(Array.isArray(brushState.palette) && brushState.palette.length > 0 ? brushState.palette.length : 256));
     this.mappingMode = 'continuous';
     this.flowMapping = 'palette';
@@ -2373,6 +2451,11 @@ class ColorCycleLayerPlayer {
       const resized = new Uint8Array(expectedLength);
       resized.set(this.indexBuffer.subarray(0, Math.min(expectedLength, this.indexBuffer.length)));
       this.indexBuffer = resized;
+    }
+    if (this.gradientIdBuffer && this.gradientIdBuffer.length !== expectedLength) {
+      const resized = new Uint8Array(expectedLength);
+      resized.set(this.gradientIdBuffer.subarray(0, Math.min(expectedLength, this.gradientIdBuffer.length)));
+      this.gradientIdBuffer = resized;
     }
   }
 
@@ -2455,7 +2538,7 @@ class ColorCycleLayerPlayer {
     if (!this.indexBuffer) {
       return;
     }
-    const lut = buildGradientLUT({
+    const baseLut = buildGradientLUT({
       gradient: this.gradient,
       cycleColors: this.cycleColors,
       tick: this.currentTick,
@@ -2464,12 +2547,43 @@ class ColorCycleLayerPlayer {
       indexPhaseMap: this.indexPhaseMap
     });
     if (this.flowMapping === 'palette' || !this.phaseMap) {
-      fillPixelsFromIndices(this.indexBuffer, lut, this.pixels32, this.alpha, {
-        transparentZero: this.zeroTransparent,
-        subtractOne: this.subtractIndexOffset
-      });
+      const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
+      if (canUseSlots) {
+        const lutsBySlot = new Map();
+        this.slotGradients.forEach((gradientStops, slot) => {
+          lutsBySlot.set(
+            slot,
+            buildGradientLUT({
+              gradient: gradientStops,
+              cycleColors: this.cycleColors,
+              tick: this.currentTick,
+              mappingMode: this.mappingMode,
+              flowDirection: this.flowDirection,
+              indexPhaseMap: this.indexPhaseMap
+            })
+          );
+        });
+        const fallbackLut = lutsBySlot.get(0) ?? baseLut;
+        fillPixelsFromIndicesWithGradientIds(
+          this.indexBuffer,
+          this.gradientIdBuffer,
+          lutsBySlot,
+          fallbackLut,
+          this.pixels32,
+          this.alpha,
+          {
+            transparentZero: this.zeroTransparent,
+            subtractOne: this.subtractIndexOffset
+          }
+        );
+      } else {
+        fillPixelsFromIndices(this.indexBuffer, baseLut, this.pixels32, this.alpha, {
+          transparentZero: this.zeroTransparent,
+          subtractOne: this.subtractIndexOffset
+        });
+      }
     } else {
-      fillPixelsFromPhaseMap(this.phaseMap, lut, this.pixels32, this.alpha);
+      fillPixelsFromPhaseMap(this.phaseMap, baseLut, this.pixels32, this.alpha);
     }
     this.ctx.putImageData(this.imageData, 0, 0);
   }
@@ -2481,10 +2595,12 @@ class ColorCycleLayerPlayer {
   destroy() {
     this.isAnimating = false;
     this.indexBuffer = null;
+    this.gradientIdBuffer = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
     this.alpha = null;
     this.baseImageData = null;
+    this.slotGradients = null;
   }
 }
 

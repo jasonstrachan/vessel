@@ -100,6 +100,8 @@ function createBaseState(): AppState {
   crop: { active: false } as unknown,
   ui: { keyboardScope: { active: 'global' }, modals: { document: false, settings: false, export: false, loadProject: false }, panels: {}, notifications: [] } as unknown,
   setCurrentTool: jest.fn(),
+  suspendColorCycle: jest.fn(),
+  resumeColorCycle: jest.fn(),
 } as unknown as AppState);
 }
 

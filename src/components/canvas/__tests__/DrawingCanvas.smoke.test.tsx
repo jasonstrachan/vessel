@@ -89,6 +89,8 @@ jest.mock('@/stores/useAppStore', () => {
     setCurrentTool: jest.fn(),
     setCanvasViewport: jest.fn(),
     setColorCycleRuntimeHandlers: jest.fn(),
+    suspendColorCycle: jest.fn(),
+    resumeColorCycle: jest.fn(),
     renderStaticComposite: jest.fn(() => true),
     setCurrentOffscreenCanvas: jest.fn(),
   } as any;

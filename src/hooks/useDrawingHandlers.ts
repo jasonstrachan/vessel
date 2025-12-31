@@ -700,19 +700,19 @@ const ensureLayerSnapshotWithRetry = async (
 };
 
 const debugTime = (label: string) => {
-  if (CC_DEBUG.on) {
+  if (CC_DEBUG.on && CC_DEBUG.timing) {
     console.time(label);
   }
 };
 
 const debugTimeEnd = (label: string) => {
-  if (CC_DEBUG.on) {
+  if (CC_DEBUG.on && CC_DEBUG.timing) {
     console.timeEnd(label);
   }
 };
 
 const debugVerbose = (...args: Parameters<typeof console.debug>) => {
-  if (CC_DEBUG.on) {
+  if (CC_DEBUG.on && CC_DEBUG.verbose) {
     console.debug(...args);
   }
 };
@@ -2624,7 +2624,7 @@ export function useDrawingHandlers({
 
   // DEBUG ONLY
   const stopContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
-    if (CC_DEBUG.on) {
+    if (CC_DEBUG.on && CC_DEBUG.verbose) {
       try {
         console.groupCollapsed('[CC:TRACE] stopContinuousColorCycleAnimation', { reason });
         console.log(new Error('stopContinuousColorCycleAnimation').stack);
@@ -5832,11 +5832,13 @@ export function useDrawingHandlers({
                 const originalFillResolution = state.tools.brushSettings.fillResolution;
                 const originalLinked = state.tools.brushSettings.pressureLinkedFillResolution;
 
-                console.log('[shape-dither-finalize]', {
-                  effectivePressure,
-                  usePressure,
-                  forcedPixelSize
-                });
+                if (CC_DEBUG.on && CC_DEBUG.verbose) {
+                  console.log('[shape-dither-finalize]', {
+                    effectivePressure,
+                    usePressure,
+                    forcedPixelSize
+                  });
+                }
 
                 try {
                   state.setBrushSettings({
@@ -6675,7 +6677,7 @@ export function useDrawingHandlers({
     const elapsed = lastLoggedAt === undefined ? Number.POSITIVE_INFINITY : now - lastLoggedAt;
     const shouldAttemptLog = elapsed >= START_CC_TRACE_THROTTLE_MS;
 
-    if (CC_DEBUG.on && shouldAttemptLog) {
+    if (CC_DEBUG.on && CC_DEBUG.verbose && shouldAttemptLog) {
       const suppressedCount = traceState.suppressedByReason[reason] ?? 0;
       traceState.lastByReason[reason] = now;
       traceState.suppressedByReason[reason] = 0;
@@ -6690,7 +6692,7 @@ export function useDrawingHandlers({
         console.log(new Error('startContinuousColorCycleAnimation').stack);
         console.groupEnd();
       } catch {}
-    } else if (CC_DEBUG.on && !shouldAttemptLog) {
+    } else if (CC_DEBUG.on && CC_DEBUG.verbose && !shouldAttemptLog) {
       traceState.suppressedByReason[reason] =
         (traceState.suppressedByReason[reason] ?? 0) + 1;
     } else if (shouldAttemptLog) {

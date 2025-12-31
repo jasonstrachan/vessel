@@ -59,9 +59,9 @@ import { useAppStore } from '@/stores/useAppStore';
 describe('AnimationControlsPanel playback button', () => {
   beforeEach(() => {
     const store = useAppStore.getState();
-    store.playColorCycle.mockClear();
-    store.pauseColorCycle.mockClear();
-    store.forceResumeColorCycle.mockClear();
+    (store.playColorCycle as jest.Mock).mockClear();
+    (store.pauseColorCycle as jest.Mock).mockClear();
+    (store.forceResumeColorCycle as jest.Mock).mockClear();
     useAppStore.setState({
       colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
     });

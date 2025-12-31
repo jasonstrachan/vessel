@@ -10,6 +10,15 @@ const isCcDebugEnabled = (): boolean => {
   }
 };
 
+const isCcDebugVerboseEnabled = (): boolean => {
+  try {
+    const scope = globalThis as { CC_DEBUG?: { verbose?: boolean } };
+    return scope.CC_DEBUG?.verbose === true;
+  } catch {
+    return false;
+  }
+};
+
 export type CaptureROI = {
   x: number;
   y: number;
@@ -1252,7 +1261,7 @@ subscribeToGlobalBrushPersistence();
       const before = useAppStore.getState().layers.find((l) => l.id === id);
       const prev = before?.colorCycleData?.isAnimating;
       const next = patch?.colorCycleData?.isAnimating;
-      if (isCcDebugEnabled() && typeof next === 'boolean' && next !== prev) {
+      if (isCcDebugEnabled() && isCcDebugVerboseEnabled() && typeof next === 'boolean' && next !== prev) {
         console.groupCollapsed('[CC:TRACE] updateLayer isAnimating flip', { id: id?.slice(-6), prev, next });
         console.log('patch:', patch);
         console.log(new Error('updateLayer:isAnimating').stack);

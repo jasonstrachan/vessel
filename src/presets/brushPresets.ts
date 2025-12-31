@@ -82,7 +82,6 @@ export const pixelBrushSettings: BrushSettings = {
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherClears: false,
   colorCycleStampShape: 'square',
-  colorCycleStampShape: 'square',
   colorCycleUseForegroundGradient: false,
   colorCycleFgLightness: 50,
   colorCycleFgVariance: 0,

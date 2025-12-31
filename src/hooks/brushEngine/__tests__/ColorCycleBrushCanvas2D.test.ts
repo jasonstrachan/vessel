@@ -92,9 +92,14 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
   };
 });
 
-jest.mock('@/stores/useAppStore', () => ({
-  useAppStore: () => ({ getState: () => ({}) }) as any,
-}));
+jest.mock('@/stores/useAppStore', () => {
+  const state = { layers: [] } as any;
+  const useAppStore = (selector?: (s: any) => unknown) => (selector ? selector(state) : state);
+  useAppStore.getState = () => state;
+  useAppStore.setState = jest.fn();
+  useAppStore.subscribe = jest.fn(() => () => {});
+  return { useAppStore };
+});
 
 jest.mock('@/utils/colorCycle/ccDebug', () => ({
   ccLog: jest.fn(),
@@ -239,22 +244,41 @@ describe('ColorCycleBrushCanvas2D', () => {
 
   it('rebuilds animator from index snapshot via deserialize', () => {
     const canvas = makeCanvas();
-    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const indexData = new Uint8Array([1, 0, 0, 0]);
 
-    const indexData = new Uint8Array([1, 0, 0, 0]).buffer;
+    const serialized = {
+      layers: [
+        {
+          layerId: 'layer-deser',
+          data: {
+            indexBuffer: {
+              width: 2,
+              height: 2,
+              data: indexData,
+              palette: [] as string[],
+            },
+            gradient: {
+              gradientStops: [{ position: 0, color: '#000' }],
+            },
+            animation: {
+              offset: 0,
+              stats: { targetFPS: 24 },
+            },
+          },
+          strokeData: {
+            paintBuffer: new Uint8Array(0).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+      cycleSpeed: 0.2,
+      fps: 24,
+      brushSize: 10,
+    };
 
-    brush.applyLayerSnapshot('layer-deser', {
-      paintBuffer: new Uint8Array(0).buffer,
-      hasContent: true,
-      strokeCounter: 1,
-    }, {
-      width: 2,
-      height: 2,
-      data: indexData,
-      gradientStops: [{ position: 0, color: '#000' }],
-    });
-
-    expect(animatorMocks.deserializeSpy).toHaveBeenCalled();
+    const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
+    expect(animatorMocks.setIndexBufferFromArrayMock).toHaveBeenCalled();
     const snapshot = brush.getLayerSnapshot('layer-deser');
     expect(snapshot?.hasContent).toBe(true);
   });

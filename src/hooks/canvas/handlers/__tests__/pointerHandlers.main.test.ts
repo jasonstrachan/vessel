@@ -505,7 +505,7 @@ describe('pointerHandlers main flows', () => {
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerDown(makePointerEvent({ clientX: -5, clientY: -5 }));
 
-    const lastSamples = deps.drawingHandlers.updateDitherGradSamples.mock.calls.at(-1)?.[0];
+    const lastSamples = (deps.drawingHandlers.updateDitherGradSamples as jest.Mock).mock.calls.at(-1)?.[0];
     expect(lastSamples?.[0]).toMatchObject({ x: -5, y: -5 });
 
     store.setBrushSettings({ brushShape: originalShape });

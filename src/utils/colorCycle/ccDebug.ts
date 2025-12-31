@@ -10,19 +10,24 @@ declare global {
   }
 }
 
-const readLocalStorageFlag = (): boolean => {
+const readLocalStorageFlag = (key: string): boolean => {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
     return false;
   }
 
   try {
-    return window.localStorage.getItem('ccDebug') === '1';
+    return window.localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 };
 
-export const ccDebugOn = (): boolean => {
+const resolveDebugOn = (): boolean => {
+  const scope = globalThis as { CC_DEBUG?: { on?: boolean } };
+  if (typeof scope.CC_DEBUG?.on === 'boolean') {
+    return scope.CC_DEBUG.on;
+  }
+
   if (typeof window === 'undefined') {
     return false;
   }
@@ -31,7 +36,34 @@ export const ccDebugOn = (): boolean => {
     return true;
   }
 
-  return readLocalStorageFlag();
+  return readLocalStorageFlag('ccDebug');
+};
+
+const resolveVerboseOn = (legacyDebugOn: boolean): boolean => {
+  const scope = globalThis as { CC_DEBUG?: { verbose?: boolean } };
+  if (typeof scope.CC_DEBUG?.verbose === 'boolean') {
+    return scope.CC_DEBUG.verbose;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if ((window as Window & { __CC_DEBUG_VERBOSE__?: boolean }).__CC_DEBUG_VERBOSE__ === true) {
+    return true;
+  }
+
+  const localVerbose = readLocalStorageFlag('ccDebugVerbose');
+  return localVerbose || legacyDebugOn;
+};
+
+export const ccDebugOn = (): boolean => {
+  const debugOn = resolveDebugOn();
+  if (!debugOn) {
+    return false;
+  }
+
+  return resolveVerboseOn(debugOn);
 };
 
 export const ccLog: CCLogFn = (...args) => {
@@ -64,6 +96,8 @@ if (typeof window !== 'undefined') {
 }
 
 // enable:   localStorage.setItem('ccDebug','1'); window.__CC_DEBUG__=true;
-// disable:  localStorage.removeItem('ccDebug'); window.__CC_DEBUG__=false;
+// verbose:  localStorage.setItem('ccDebugVerbose','1'); window.__CC_DEBUG_VERBOSE__=true;
+// disable:  localStorage.removeItem('ccDebug'); localStorage.removeItem('ccDebugVerbose');
+//           window.__CC_DEBUG__=false; window.__CC_DEBUG_VERBOSE__=false;
 
 export type { CCLogFn };

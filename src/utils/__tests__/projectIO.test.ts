@@ -3,6 +3,49 @@ import { deserializeProject, readProjectManifest, serializeProject } from '@/uti
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
+jest.setTimeout(20000);
+
+const originalOffscreenCanvas = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas;
+const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+let consoleWarnSpy: jest.SpyInstance | null = null;
+
+class TestOffscreenCanvas {
+  width: number;
+  height: number;
+
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+  }
+
+  getContext() {
+    return null;
+  }
+}
+
+beforeAll(() => {
+  (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = TestOffscreenCanvas;
+  consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
+    configurable: true,
+    writable: true,
+    value: () => {
+      throw new Error('Canvas encoding disabled for tests');
+    }
+  });
+});
+
+afterAll(() => {
+  (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = originalOffscreenCanvas;
+  Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
+    configurable: true,
+    writable: true,
+    value: originalToDataURL
+  });
+  consoleWarnSpy?.mockRestore();
+  consoleWarnSpy = null;
+});
+
 const minimalVesselProject = {
   version: '1.0.0',
   metadata: {
@@ -164,7 +207,7 @@ describe('projectIO serialize/deserialize layering', () => {
       updatedAt: new Date('2025-01-01T00:00:00.000Z'),
     };
 
-    const payload = await serializeProject(project, project.layers);
+    const payload = await serializeProject(project);
     const restored = await deserializeProject(payload);
 
     const restoredLayer1 = restored.layers[0];

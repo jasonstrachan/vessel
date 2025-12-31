@@ -281,7 +281,7 @@ const quantizeChannel = (value: number, bits: number): number => {
 };
 
 export const clampForegroundDerivedBands = (bands: number | undefined): number => {
-  if (!Number.isFinite(bands)) {
+  if (typeof bands !== 'number' || !Number.isFinite(bands)) {
     return 2;
   }
   return clamp(Math.round(bands), 2, FG_DERIVED_MAX_BANDS);

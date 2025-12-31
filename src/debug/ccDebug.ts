@@ -1,6 +1,7 @@
 import { useAppStore } from '@/stores/useAppStore';
 
 type ScopedConsole = typeof console;
+type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
 
 const resolveConsole = (): ScopedConsole => console;
 
@@ -24,12 +25,56 @@ const resolveInitialDebugState = (): boolean => {
   }
 };
 
-export const CC_DEBUG: { on: boolean } = (() => {
+const resolveInitialVerboseState = (): boolean => {
+  if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_CC_DEBUG_VERBOSE === '1') {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if ((window as Window & { __CC_DEBUG_VERBOSE__?: boolean }).__CC_DEBUG_VERBOSE__ === true) {
+    return true;
+  }
+
+  try {
+    return window.localStorage.getItem('ccDebugVerbose') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const resolveInitialTimingState = (): boolean => {
+  if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_CC_DEBUG_TIMING === '1') {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if ((window as Window & { __CC_DEBUG_TIMING__?: boolean }).__CC_DEBUG_TIMING__ === true) {
+    return true;
+  }
+
+  try {
+    return window.localStorage.getItem('ccDebugTiming') === '1';
+  } catch {
+    return false;
+  }
+};
+
+export const CC_DEBUG: CCDebugState = (() => {
   const globalScope = globalThis as Record<string, unknown>;
   if (!globalScope.CC_DEBUG) {
-    globalScope.CC_DEBUG = { on: resolveInitialDebugState() };
+    globalScope.CC_DEBUG = {
+      on: resolveInitialDebugState(),
+      verbose: resolveInitialVerboseState(),
+      timing: resolveInitialTimingState(),
+    } satisfies CCDebugState;
   }
-  return globalScope.CC_DEBUG as { on: boolean };
+  return globalScope.CC_DEBUG as CCDebugState;
 })();
 
 const persistDebugPreference = (enabled: boolean) => {
@@ -42,6 +87,34 @@ const persistDebugPreference = (enabled: boolean) => {
       window.localStorage.setItem('ccDebug', '1');
     } else {
       window.localStorage.removeItem('ccDebug');
+    }
+  } catch {}
+};
+
+const persistVerbosePreference = (enabled: boolean) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    if (enabled) {
+      window.localStorage.setItem('ccDebugVerbose', '1');
+    } else {
+      window.localStorage.removeItem('ccDebugVerbose');
+    }
+  } catch {}
+};
+
+const persistTimingPreference = (enabled: boolean) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    if (enabled) {
+      window.localStorage.setItem('ccDebugTiming', '1');
+    } else {
+      window.localStorage.removeItem('ccDebugTiming');
     }
   } catch {}
 };
@@ -62,6 +135,36 @@ if (typeof window !== 'undefined') {
     window.__CC_DEBUG__ = CC_DEBUG.on;
   }
 
+  try {
+    Object.defineProperty(window, '__CC_DEBUG_VERBOSE__', {
+      configurable: true,
+      get() {
+        return CC_DEBUG.verbose;
+      },
+      set(value: unknown) {
+        CC_DEBUG.verbose = Boolean(value);
+        persistVerbosePreference(CC_DEBUG.verbose);
+      }
+    });
+  } catch {
+    (window as Window & { __CC_DEBUG_VERBOSE__?: boolean }).__CC_DEBUG_VERBOSE__ = CC_DEBUG.verbose;
+  }
+
+  try {
+    Object.defineProperty(window, '__CC_DEBUG_TIMING__', {
+      configurable: true,
+      get() {
+        return CC_DEBUG.timing;
+      },
+      set(value: unknown) {
+        CC_DEBUG.timing = Boolean(value);
+        persistTimingPreference(CC_DEBUG.timing);
+      }
+    });
+  } catch {
+    (window as Window & { __CC_DEBUG_TIMING__?: boolean }).__CC_DEBUG_TIMING__ = CC_DEBUG.timing;
+  }
+
   ((window as unknown) as Record<string, unknown>).CC_DEBUG = CC_DEBUG;
 }
 
@@ -74,7 +177,7 @@ const timestamp = () => {
 };
 
 export function ccLog(message: string, data?: unknown) {
-  if (!CC_DEBUG.on) {
+  if (!CC_DEBUG.on || !CC_DEBUG.verbose) {
     return;
   }
   const logger = resolveConsole();
@@ -82,7 +185,7 @@ export function ccLog(message: string, data?: unknown) {
 }
 
 export function ccGroup(message: string, data?: unknown) {
-  if (!CC_DEBUG.on) {
+  if (!CC_DEBUG.on || !CC_DEBUG.verbose) {
     return;
   }
   const logger = resolveConsole();
@@ -93,7 +196,7 @@ export function ccGroup(message: string, data?: unknown) {
 }
 
 export function ccGroupEnd() {
-  if (!CC_DEBUG.on) {
+  if (!CC_DEBUG.on || !CC_DEBUG.verbose) {
     return;
   }
   const logger = resolveConsole();
@@ -101,7 +204,7 @@ export function ccGroupEnd() {
 }
 
 export function dumpLayerFlags() {
-  if (!CC_DEBUG.on) {
+  if (!CC_DEBUG.on || !CC_DEBUG.verbose) {
     return;
   }
   const state = useAppStore.getState();
@@ -124,6 +227,9 @@ export function dumpLayerFlags() {
 
 export function ccAssert(condition: boolean, message: string, info?: unknown) {
   if (condition) {
+    return;
+  }
+  if (!CC_DEBUG.on || !CC_DEBUG.verbose) {
     return;
   }
   resolveConsole().warn(`[CC][ASSERT FAIL] ${message}`, info ?? '');
