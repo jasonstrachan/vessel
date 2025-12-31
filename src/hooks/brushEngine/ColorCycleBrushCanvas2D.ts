@@ -21,6 +21,8 @@ import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCyc
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 
+const ENABLE_PERCEPTUAL_DITHER_WORKER = false;
+
 interface CustomStampInput {
   imageData: ImageData;
   width: number;
@@ -1680,7 +1682,7 @@ export class ColorCycleBrushCanvas2D {
         const quantLevels = numBands;
         const { css: paletteCss, mapRgbToIndex } = this.buildQuantizedGradientPalette(quantLevels);
         const paletteEntries = paletteEntriesFromMap(mapRgbToIndex);
-        const workerEligible = paletteEntries.length > 0 && shouldUseFillWorker(width, height);
+        const workerEligible = ENABLE_PERCEPTUAL_DITHER_WORKER && paletteEntries.length > 0 && shouldUseFillWorker(width, height);
         if (workerEligible) {
           const pixelBuffer = new Uint8ClampedArray(img.data);
           try {
