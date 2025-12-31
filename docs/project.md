@@ -7,6 +7,7 @@
   - [Canvas2D Performance Enhancements](#canvas2d-performance-enhancements-2025-08-28)
   - [Wacom Stylus Pressure Sensitivity Support](#wacom-stylus-pressure-sensitivity-support-2025-08-21)
   - [Color Cycle Brush System](#color-cycle-brush-system-2025-08-27)
+  - [Color Cycle + Recolor Workflow](#color-cycle-recolor-workflow-2025-12-31)
   - [Modular User Brush Plugin System](#modular-user-brush-plugin-system-2025-08-20)
   - [Preview Overlay Canvas Architecture](#preview-overlay-canvas-architecture-2025-08-20)
   - [Custom Brush Shape Tiling Fix](#custom-brush-shape-tiling-fix-2025-08-18)
@@ -18,6 +19,10 @@
   - [Dynamic Canvas Size](#dynamic-canvas-size-2025-01-13)
   - [Enhanced Dithering Algorithms](#enhanced-dithering-algorithms-2025-01-12)
   - [Dithering Palette Fix](#dithering-palette-fix-2025-01-08)
+- [Workspace Shell Architecture](#workspace-shell-architecture)
+  - [Layout and Composition](#layout-and-composition)
+  - [Panels and Modals](#panels-and-modals)
+  - [State and Services](#state-and-services)
 - [Rendering Pipeline Architecture](#rendering-pipeline-architecture)
   - [Overview](#overview)
   - [Three-Canvas Architecture](#three-canvas-architecture)
@@ -152,79 +157,45 @@
   - `src/utils/detectWacom.ts` - Wacom detection and diagnostics
 
 ### Color Cycle Brush System (2025-08-27)
-- **Implemented GPU-accelerated color cycling** with WebGL for smooth, animated gradients
-- **Architecture Components**:
-  - **ColorCycleBrush Class** (`src/hooks/brushEngine/ColorCycleBrush.ts`)
-    - WebGL-based rendering engine for animated color cycling
-    - Multi-layer architecture where each gradient change creates a new layer
-    - Preserves previous gradients when palette changes
-    - 30 FPS animation loop with requestAnimationFrame
-  - **Dual-Canvas System**:
-    - WebGL canvas for GPU-accelerated gradient animation
-    - Main 2D canvas for compositing with other tools
-    - Real-time compositing during both drawing and animation playback
-  - **Animation Control**:
-    - Play/pause button for controlling animation state
-    - Speed control (0.01x to 10x) for animation rate
-    - FPS control (10-60 FPS) for performance tuning
-    - Animation continues during drawing for live preview
+- **Canvas2D-first color cycling** backed by indexed buffers with optional WebGL acceleration
+- **Core Components**:
+  - **ColorCycleAnimator** (`src/lib/ColorCycleAnimator.ts`)
+    - IndexBuffer + GradientPalette + AnimationController integration
+    - Canvas2D rendering with optional WebGL renderer (`WebGLColorCycleRenderer`) fallback
+    - Palette shifting and frame callbacks for animated layers
+  - **Brush implementations** (`src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`, `ColorCycleBrushOptimized.ts`)
+    - Canvas2D paint + animation surfaces
+    - Configurable FPS/speed/banding and fill strategies
+  - **Runtime shim** (`src/hooks/brushEngine/ColorCycleBrushMigration.ts`)
+    - Feature-flagged Canvas2D/WebGL routing
+    - Drop-in compatibility for the brush engine
 - **Rendering Pipeline**:
-  1. **Drawing Phase**: 
-     - Strokes painted to index texture (0-255 gradient positions)
-     - Palette texture holds current gradient colors
-     - WebGL shader cycles through gradient in real-time
-  2. **Animation Phase**:
-     - `animate()` loop updates cycle offset continuously
-     - Calls `onFrameRendered` callback to notify main canvas
-     - Dispatches 'colorCycleFrameReady' event for canvas updates
-  3. **Compositing Phase**:
-     - Main canvas listens for frame events
-     - Calls `renderColorCycle()` to composite WebGL frames
-     - Integrated into main draw loop for flicker-free animation
-- **WebGL Implementation**:
-  - **Vertex Shader**: Simple pass-through for full-screen quad
-  - **Fragment Shader**: 
-    ```glsl
-    vec4 indexColor = texture2D(indexTexture, texCoord);
-    float paletteIndex = (indexColor.r + cycleOffset);
-    vec4 color = texture2D(paletteTexture, vec2(paletteIndex, 0.5));
-    ```
-  - **Texture Management**:
-    - Index texture: RGBA storing gradient positions per pixel
-    - Palette texture: 256x1 gradient lookup table
-    - Efficient GPU-based color cycling without CPU overhead
-- **Multi-Layer Support**:
-  - Each gradient change creates a new layer
-  - Layers preserve their original gradients
-  - All layers animate together at same rate
-  - Supports up to 50 layers before oldest are merged
+  1. **Paint** into an indexed buffer (0-255 palette slots).
+  2. **Apply palette** via GradientPalette (optionally animated).
+  3. **Render** to Canvas2D, with optional WebGL acceleration for palette cycling.
 - **Integration Points**:
-  - **useBrushEngineSimplified**: Manages ColorCycleBrush lifecycle
-  - **DrawingCanvas**: Handles frame event listener and compositing
-  - **BrushControls**: UI for animation controls (play/pause/speed/FPS)
-- **Performance Optimizations**:
-  - WebGL rendering offloads animation to GPU
-  - Batched texture updates reduce upload overhead
-  - Frame rate limiting prevents unnecessary renders
-  - Preserves drawing buffer for efficient compositing
-  - Only updates visible portions during animation
-- **User Experience**:
-  - Smooth, flicker-free animation playback
-  - Real-time gradient preview while drawing
-  - Instant gradient switching with preserved history
-  - Professional color cycling for psychedelic art
-- **Technical Benefits**:
-  - GPU acceleration for complex animations
-  - No CPU overhead during playback
-  - Scalable to large canvas sizes
-  - Frame-perfect synchronization
-  - Clean separation of rendering and logic
+  - **useBrushEngineSimplified** manages per-layer color-cycle brushes.
+  - **colorCycleBrushManager.ts** caches per-layer instances.
+  - **DrawingCanvas** composites animated frames with standard layers.
 - **Shape Mode Support** (2025-08-27):
   - Color cycle brush now fully supports polygon shape drawing
   - Shapes filled with gradient from edges to center using `fillShape()` method
   - Animation continues playing while drawing shapes (doesn't interrupt playback)
   - Proper coordinate scaling between canvas and WebGL spaces
   - Key implementation in `finalizeShapeDrawing()` and `fillColorCycleShape()`
+
+### Color Cycle + Recolor Workflow (2025-12-31)
+- **Recolor mode for color-cycle layers** enables palette extraction and animated remapping
+- **Core components**:
+  - **RecolorManager** (`src/lib/colorCycle/RecolorManager.ts`) orchestrates recolor playback and layer updates
+  - **Recolor UI** (`src/components/colorCycle/RecolorPanel.tsx`, `ExtractColorsDialog.tsx`)
+  - **State + sampling** (`useAppStore.recolorSampling`, `useDrawingHandlers`)
+- **Layer model**:
+  - Recolor metadata stored in `layer.colorCycleData.recolorSettings`
+  - Mode flag switches between `brush` and `recolor` paths
+- **Export support**:
+  - Export modal advances recolor layers deterministically for GIF/MP4/WebGL output
+  - Clean separation of rendering and logic
 
 ### Modular User Brush Plugin System (2025-08-20)
 - **Implemented plugin architecture** for user-created brushes without impacting default brush performance
@@ -473,6 +444,23 @@
   - Scores each of the 20 palette colors based on how well they match the sampled pixels
   - Selects the top N colors based on numColors slider setting
   - These selected colors are then used for the dithering process
+
+## Workspace Shell Architecture
+
+### Layout and Composition
+- **Root layout** (`src/app/layout.tsx`) loads global styles and wraps the App Router tree.
+- **Main workspace** (`src/app/page.tsx`) composes the left toolbar, center `DrawingCanvas`, and right-side panel columns.
+- **App Router** is the primary entrypoint; `src/pages/` hosts legacy/perf routes only.
+
+### Panels and Modals
+- **Panels** (`src/components/panels/`): Layers, alignment, animation controls, color picker, brush library/settings, crop, and color adjustment tooling.
+- **Modals** (`src/components/modals/`): Document, export, settings, and load project flows.
+- **Canvas suite** (`src/components/canvas/`): Core surface plus overlays (cursor, crop, selection, floating paste).
+
+### State and Services
+- **Zustand store** (`src/stores/useAppStore.ts`) centralizes project, tool, layer, history, and UI state.
+- **Selectors** in `src/stores/selectors` minimize re-renders in UI components.
+- **Services** such as `autosaveService` and `preloadRisographTexture` are initialized from `page.tsx`.
 
 ## Rendering Pipeline Architecture
 

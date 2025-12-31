@@ -1,110 +1,97 @@
 # Vessel
 
-A sophisticated web-based drawing application with animation capabilities, advanced brush tools, and layer management.
+A browser-based drawing application with advanced brush tooling, color-cycle animation, and layered compositing.
 
 ## Overview
 
-Vessel is built with Next.js 15 and a custom HTML Canvas rendering pipeline, providing a high-performance drawing experience with pixel-perfect rendering, custom brushes, and comprehensive animation tools. The application features a dark theme design with professional-grade drawing capabilities.
+Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeline, with optional WebGL acceleration for color-cycle layers. It combines a modern panel-based workspace with a plugin-friendly brush system, gradient tooling, and export formats tuned for animated artwork. The project ships as a static export for GitHub Pages, using a `/vessel` basePath and assetPrefix.
 
 ## Key Features
 
 ### Drawing Tools
-- **Brush Tool**: Advanced brush system with pressure sensitivity simulation
-- **Eraser Tool**: Precision erasing with configurable brush settings
-- **Fill Tool**: Intelligent flood fill with tolerance controls
-- **Selection Tool**: Rectangle and brush selection modes
-- **Crop Tool**: Precise canvas cropping with adjustable marquee handles
-- **Clear Tool**: Quick layer clearing functionality
+- **Brush / Eraser / Fill**: Standard tools with pressure-aware stroke controls
+- **Selection / Crop**: Marquee selection and crop overlays with handle UI
+- **Eyedropper / Zoom**: Sampling and navigation helpers
+- **Color Cycle + Recolor**: Animated gradient layers and recolor workflows
+- **Color Adjust**: Dedicated panel for per-layer color adjustments
 
 ### Brush System
-- **Preset Brushes**: Pixel art, soft brush, chalk, and specialized brushes
-- **Custom Brushes**: User-created brushes with thumbnail generation
-- **Dotted Patterns**: Configurable dash patterns for artistic effects
-- **Pixel-Perfect Mode**: Ensures crisp pixel art with spacing control
-- **Distance-Based Spacing**: Intelligent brush stroke spacing for natural drawing
+- **Preset + Custom Brushes**: Presets, user-defined brushes, and thumbnail generation
+- **Brush Plugins**: Plugin registry for discoverable brush implementations
+- **Spacing & Patterns**: Distance-based spacing, dotted/dash patterns, and pixel-perfect modes
+- **Pressure Handling**: Pointer-pressure mapping via `pressureOptimizer`
 
-### Animation & Layers
-- **Layer Management**: Multiple layers with visibility controls and reordering
-- **Frame-Based Animation**: Timeline with play/pause and frame navigation
-- **Onion Skinning**: Previous/next frame visualization for smooth animation
-- **FPS Control**: Configurable frame rate for animation playback
+### Layers & Animation
+- **Layer Stack**: Visibility, ordering, alignment controls, and layer metadata
+- **Color Cycle Animation**: Per-layer animation speed/FPS controls with playback panel
+- **Recolor Mode**: Extract palettes from existing artwork and animate recolor layers
+- **Undo/Redo**: History snapshots with configurable limits
 
 ### Advanced Features
-- **Clipboard Integration**: System clipboard support with image paste
-- **Zoom & Pan**: Smooth canvas navigation with mouse wheel support
-- **Keyboard Shortcuts**: Comprehensive hotkey system for efficient workflow
-- **Export Options**: GIF animation and PNG frame export
-- **Undo/Redo**: Frame-based history with 5-action limit
+- **Autosave & Recovery**: Background autosave service with restore flow
+- **Export Modal**: PNG, GIF, MP4/WebM, and WebGL “Goblet” bundles
+- **Keyboard Shortcuts**: Centralized shortcut scope management
+- **Clipboard Paste**: Floating paste overlay support
 
 ## Architecture
 
 ### Core Components
 
-#### Canvas System (`/src/components/canvas/`)
-- **DrawingCanvas.tsx**: Core canvas rendering surface driven by custom React hooks and brush engines
-- **ClientOnlyCanvas.tsx**: SSR-safe wrapper for dynamic loading
+#### Canvas Suite (`/src/components/canvas/`)
+- **DrawingCanvas.tsx**: Core rendering surface and input bridge
+- **BrushCursor.tsx**: Brush cursor overlay
+- **CropOverlay.tsx** / **SelectionMarqueeHandles.tsx**: Editing overlays
+- **SimplifiedColorCycleManager.ts**: Color-cycle layer management
 
-#### Toolbar System (`/src/components/toolbar/`)
-- **LeftToolbar.tsx**: Tool selection interface
-- **Toolbar.tsx**: Comprehensive brush settings and controls
-- **CustomBrushPanel.tsx**: Custom brush creation and management
-- **ColorPicker.tsx**: Color selection with hex input support
+#### Panels & UI (`/src/components/panels/`)
+- **LayersPanel**, **AlignmentPanel**, **AnimationControlsPanel**
+- **ColorPickerPanel**, **BrushLibraryPanel**, **BrushSettingsPanel**
+- **ColorAdjustmentsPanel**, **CropOptionsPanel**, **ColorSlidersPanel**
 
-#### Timeline System (`/src/components/timeline/`)
-- **Timeline.tsx**: Animation timeline with frame visualization
-- **LayerPanel.tsx**: Layer management interface
-- **FrameControls.tsx**: Animation playback controls
+#### Modals (`/src/components/modals/`)
+- **DocumentModal**, **ExportModal**, **SettingsModal**, **LoadProjectModal**
 
 #### State Management (`/src/stores/`)
-- **useAppStore.ts**: Centralized Zustand store managing project state, tools, and canvas interactions
+- **useAppStore.ts**: Centralized Zustand store (project, layers, tools, history, autosave)
 
-### Technical Stack
+#### Rendering & Color Cycle (`/src/lib/`)
+- **IndexBuffer**, **GradientPalette**, **AnimationController**, **ColorCycleAnimator**
+- Optional WebGL renderer in `src/lib/colorCycle/rendering` with Canvas2D fallback
 
-- **Next.js 15.3.4**: React framework with SSR support
-- **Zustand 5.0.6**: Lightweight state management
-- **Tailwind CSS 4**: Utility-first styling framework
-- **TypeScript 5**: Type safety and development experience
-- **gif.js 0.2.0**: GIF export functionality
+## Technical Stack
+
+- **Next.js 15 (App Router)** + **React 19**
+- **Zustand 5** for state
+- **Tailwind CSS 4** for styling
+- **TypeScript 5**
+- **gifenc** for GIF export
 
 ## Development
 
 ### Prerequisites
 - Node.js 18+ with npm
-- Modern web browser with HTML5 Canvas support
+- Modern browser with Canvas2D support (WebGL optional for color-cycle acceleration)
 
 ### Getting Started
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/vessel.git
-   cd vessel
-   ```
-
-2. **Install dependencies**
+1. **Install dependencies**
    ```bash
    npm install
    ```
 
-3. **Start development server**
+2. **Start development server**
    ```bash
-   npx next dev
+   npm run dev
    ```
 
-4. **Open in browser**
+3. **Open in browser**
    ```
    http://localhost:3000
    ```
 
-### WSL2 Development Notes
-For WSL2 environments, use explicit hostname binding:
-```bash
-npx next dev --hostname 0.0.0.0
-```
-
-Test connectivity with:
-```bash
-curl -I http://127.0.0.1:3000
-```
+### Alternative Dev Modes
+- **Raw Next.js dev**: `npm run dev:raw`
+- **Monitored dev server**: `npm run dev` (default)
 
 ### Build & Deploy
 
@@ -116,90 +103,35 @@ npm run build
 npm start
 ```
 
-## Usage
-
-### Basic Drawing
-1. Select the Brush tool (B key)
-2. Choose brush size and color
-3. Click and drag to draw on the canvas
-4. Use zoom controls or mouse wheel to navigate
-
-### Animation Workflow
-1. Create multiple layers for different elements
-2. Use frame controls to navigate through animation
-3. Enable onion skinning to see previous/next frames
-4. Export as GIF when animation is complete
-
-### Keyboard Shortcuts
-- **B**: Brush tool
-- **E**: Eraser tool
-- **G**: Fill tool
-- **S**: Selection tool
-- **C**: Clear tool
-- **[/]**: Decrease/increase brush size
-- **Enter**: Play/pause animation
-- **Arrow Keys**: Navigate frames
-- **Ctrl+C/V/X**: Copy/paste/cut
-- **Ctrl+Z/Y**: Undo/redo
-
-### Custom Brushes
-1. Open the custom brush panel
-2. Create or import brush patterns
-3. Configure brush settings (size, spacing, rotation)
-4. Save to brush library for reuse
-
 ## Project Structure
 
 ```
 src/
 ├── app/                  # Next.js app directory
-│   ├── page.tsx         # Main application entry point
-│   ├── layout.tsx       # Root layout with font loading
-│   └── globals.css      # Global styles and design system
+│   ├── page.tsx         # Main application shell
+│   ├── layout.tsx       # Root layout + global styles
+│   └── globals.css      # Global styles
 ├── components/          # React components
 │   ├── canvas/          # Drawing canvas system
-│   ├── toolbar/         # Tool and brush controls
-│   ├── timeline/        # Animation timeline
-│   └── ui/              # Shared UI components
-├── hooks/               # Custom React hooks
-│   ├── useKeyboardShortcuts.ts
-│   ├── useP5.ts
-│   └── useToast.ts
-├── stores/              # Zustand state management
-│   └── useAppStore.ts   # Centralized application state
-├── types/               # TypeScript type definitions
-│   └── index.ts         # Core types and interfaces
-└── utils/               # Utility functions
-    └── export.ts        # Export functionality
+│   ├── panels/          # Right-side panels
+│   ├── toolbar/         # Toolbars and tool controls
+│   ├── colorCycle/      # Color-cycle + recolor UI
+│   └── modals/          # Modal dialogs
+├── hooks/               # Custom React hooks (brush engine, input, state machines)
+├── stores/              # Zustand state slices
+├── lib/                 # Core rendering + animation libs
+├── brushes/             # Brush plugins and shapes
+├── utils/               # Utilities (autosave, export, canvas ops)
+└── workers/             # Web workers (e.g., gradient worker)
 ```
 
-## Contributing
+## Performance Notes
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## Performance Optimizations
-
-- **Canvas Pooling**: Reuses canvases for custom brush rendering
-- **Rotation Caching**: Caches rotated brush patterns to avoid recalculation
-- **Frame-based Rendering**: Throttles drawing to 60 FPS
-- **Dynamic Loading**: Canvas components load client-side only
-- **P5 Framebuffer Integration**: Each layer uses P5 framebuffers for optimal performance
-
-## Browser Support
-
-- Chrome 90+
-- Firefox 88+
-- Safari 14+
-- Edge 90+
+- **Indexed color buffers** via `IndexBuffer` reduce memory pressure
+- **Canvas pooling** and caching reduce per-stroke allocations
+- **Gradient work offloaded** to `gradientWorker` when enabled
+- **Optional WebGL** path for accelerated color-cycle rendering
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Support
-
-For issues and questions, please open an issue on GitHub.
+TBD

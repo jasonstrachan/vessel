@@ -1,50 +1,50 @@
 # Vessel Documentation
 
-Welcome to the comprehensive documentation for Vessel, a sophisticated web-based drawing application.
+Welcome to the documentation hub for Vessel.
 
 ## Documentation Structure
 
-### 📘 project.md  
-**Main Documentation** - All core project information:
-- Project Fundamentals (Vision, Goals, Tech Stack)
-- System Architecture (Design, Data Model) 
-- Features (Drawing Tools, Brush Engine, Pixel Perfect, Tool Interface)
+### 📘 project.md
+**Primary architecture + feature reference**
+- Rendering pipeline and brush engine notes
+- Color cycle / recolor systems
+- Recent update log
 
-### 📋 plan.md
-Current development tasks and project planning:
-- Active development roadmap and task tracking
+### 🧭 roadmap.md / todo.md
+**Planning + ongoing work**
+- Active roadmap themes
+- Near-term and backlog items
 
-### 🔧 issues.md
-Comprehensive troubleshooting and deployment guide:
-- Quick fixes for common problems
-- Complete deployment instructions  
-- Server troubleshooting solutions
-- Cache management strategies
-- Fixed issue reports
+### 🧯 issues.md
+**Troubleshooting + deployment**
+- Common fixes and cache resets
+- Build/deploy caveats
+
+### 🧪 testing/
+**Testing guidance**
+- Test helpers and conventions
 
 ## Quick Navigation
 
-- For **comprehensive overview**: Read `project.md`
-- For **current tasks**: Check `plan.md`  
-- For **deployment/issues**: See `issues.md`
-- For **AI assistants**: Use `project.md` for faster consumption
+- For **architecture and features**: read `project.md`
+- For **current priorities**: check `roadmap.md` and `todo.md`
+- For **deployment issues**: see `issues.md`
 
 ## Documentation Standards
 
-All documentation follows these principles:
-- **Clarity**: Direct and to-the-point information
-- **Fact-focused**: Concrete inputs, outputs, and rules
-- **Up-to-date**: Maintained alongside code changes
-- **Markdown standard**: Consistent formatting for easy parsing
+All docs should be:
+- **Clear** and scoped to a single purpose
+- **Concrete** about inputs/outputs and file locations
+- **Up-to-date** alongside code changes
+- **Consistent** in markdown formatting
 
 ## Contributing to Documentation
 
 When adding or modifying features:
-1. Update relevant documentation in parallel with code changes
-2. Follow the established document structure and naming conventions
-3. Include concrete examples and specific technical details
-4. Ensure all cross-references remain accurate
+1. Update relevant docs in parallel with code changes
+2. Keep cross-references accurate
+3. Include concrete file paths and behavior details
 
 ---
 
-*Last Updated: July 2025*
+*Last Updated: December 2025*
