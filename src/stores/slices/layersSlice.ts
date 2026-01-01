@@ -650,11 +650,15 @@ export interface LayersSlice {
   staticCompositeVersion: number;
   compositeSegmentsVersion: number;
   compositeSegments: CompositeSegment[];
+  currentOffscreenCanvas: HTMLCanvasElement | null;
+  currentCompositeBitmap: ImageBitmap | null;
   activeLayerId: string | null;
   selectedLayerIds: string[];
   referenceLayerId: string | null;
   currentLayer: number;
   setLayersNeedRecomposition: (needed: boolean) => void;
+  setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
+  setCurrentCompositeBitmap: (bitmap: ImageBitmap | null) => void;
   setLayers: (layers: Layer[]) => void;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   duplicateLayer: (layerId: string) => string | null;
@@ -874,12 +878,51 @@ export const createLayersSlice = (
         });
     };
 
+    const scheduleCompositeBitmapRelease = (bitmap: ImageBitmap) => {
+      const dispose = () => {
+        try {
+          bitmap.close();
+        } catch {
+          // ignore close errors
+        }
+      };
+
+      if (typeof window === 'undefined') {
+        dispose();
+        return;
+      }
+
+      const MAX_ATTEMPTS = 3;
+      let attempts = 0;
+
+      const tryDispose = () => {
+        if (get().currentCompositeBitmap === bitmap && attempts < MAX_ATTEMPTS) {
+          attempts += 1;
+          window.requestAnimationFrame(tryDispose);
+          return;
+        }
+        dispose();
+      };
+
+      window.setTimeout(tryDispose, 160);
+    };
+
     return {
       layers: [],
       layersNeedRecomposition: false,
       staticCompositeVersion: 0,
       compositeSegmentsVersion: 0,
       compositeSegments: [],
+      currentOffscreenCanvas: null,
+      currentCompositeBitmap: null,
+      setCurrentOffscreenCanvas: (canvas) => set({ currentOffscreenCanvas: canvas }),
+      setCurrentCompositeBitmap: (bitmap) => {
+        const previous = get().currentCompositeBitmap;
+        set({ currentCompositeBitmap: bitmap ?? null });
+        if (previous && previous !== bitmap) {
+          scheduleCompositeBitmapRelease(previous);
+        }
+      },
       setLayersNeedRecomposition: (needed) => {
         set((state) => {
           if (needed) {

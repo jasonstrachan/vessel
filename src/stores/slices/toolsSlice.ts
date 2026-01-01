@@ -9,6 +9,8 @@ import type {
   BrushEditorState,
   PaletteState,
   Tool,
+  ShapeState,
+  ShapePoint,
   Rectangle,
 } from '@/types';
 import { BrushShape } from '@/types';
@@ -20,6 +22,7 @@ import {
 } from '@/presets/brushPresets';
 import {
   PressureSettings,
+  DEFAULT_RECTANGLE_BRUSH_STATE,
   applyPressureToTools,
   applyPressureUpdate,
   clampPressurePercent,
@@ -94,6 +97,12 @@ export const defaultBrushEditorState: BrushEditorState = {
   hueShift: 0,
   lightness: 0,
   saturation: 100,
+};
+
+export const defaultShapeState: ShapeState = {
+  isDrawing: false,
+  points: [],
+  previewPath: undefined,
 };
 
 export const createDefaultPolygonGradientState = (): PolygonGradientState => ({
@@ -204,10 +213,25 @@ export interface ToolsSlice {
   currentBrushPreset: BrushPreset | null;
   activeBrushComponents: BrushComponent[];
   temporaryCustomBrush: CustomBrush | null;
+  shapeState: ShapeState;
+  rectangleBrushState: {
+    drawingState: 'idle' | 'definingLength' | 'definingWidth';
+    startPos: { x: number; y: number };
+    endPos: { x: number; y: number };
+    currentPos: { x: number; y: number };
+    width: number;
+    startColor: string;
+    endColor: string;
+  };
   polygonGradientState: PolygonGradientState;
   recolorSampling: RecolorSamplingState;
   brushEditor: BrushEditorState;
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
+  setShapeDrawing: (isDrawing: boolean) => void;
+  addShapePoint: (point: ShapePoint) => void;
+  clearShapePoints: () => void;
+  setShapePreviewPath: (path: Path2D | undefined) => void;
+  setRectangleBrushState: (partialState: Partial<ToolsSlice['rectangleBrushState']>) => void;
   setPressureSettings: (settings: Partial<PressureSettings>) => void;
   bumpGlobalBrushSize: (delta: number) => void;
   setGlobalBrushSize: (size: number) => void;
@@ -260,10 +284,44 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   activeBrushComponents: initialBrushPreset.components,
   temporaryCustomBrush: null,
   setTemporaryCustomBrush: (brush) => set({ temporaryCustomBrush: brush }),
+  shapeState: defaultShapeState,
+  rectangleBrushState: DEFAULT_RECTANGLE_BRUSH_STATE,
   polygonGradientState: createDefaultPolygonGradientState(),
   recolorSampling: createDefaultRecolorSamplingState(),
   brushEditor: defaultBrushEditorState,
   brushSpecificSettings: {},
+
+  setShapeDrawing: (isDrawing) =>
+    set((state) => ({
+      shapeState: { ...state.shapeState, isDrawing },
+    })),
+
+  addShapePoint: (point) =>
+    set((state) => ({
+      shapeState: {
+        ...state.shapeState,
+        points: [...state.shapeState.points, point],
+      },
+    })),
+
+  clearShapePoints: () =>
+    set((state) => ({
+      shapeState: {
+        ...state.shapeState,
+        points: [],
+        previewPath: undefined,
+      },
+    })),
+
+  setShapePreviewPath: (path) =>
+    set((state) => ({
+      shapeState: { ...state.shapeState, previewPath: path },
+    })),
+
+  setRectangleBrushState: (partialState) =>
+    set((state) => ({
+      rectangleBrushState: { ...state.rectangleBrushState, ...partialState },
+    })),
 
   setPressureSettings: (updates) => {
     set((state) => {

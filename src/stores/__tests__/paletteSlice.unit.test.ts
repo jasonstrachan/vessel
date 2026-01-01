@@ -25,6 +25,7 @@ const createTestStore = (overrides: MutableState = {}) => {
 
   const get = () => state;
   const slice = (createPaletteSlice as any)(set, get);
+  state = { ...state, ...slice };
 
   return {
     ...slice,
@@ -106,5 +107,12 @@ describe('palette slice', () => {
     const next = store.getState();
     expect(next.palette.backgroundColor).toBe('#0F0F0F');
     expect(next.paletteDirty).toBe(true);
+  });
+
+  it('updates color picker preference', () => {
+    const store = createTestStore();
+    expect(store.getState().colorPickerPreferReferenceLayer).toBe(true);
+    store.setColorPickerPreferReferenceLayer(false);
+    expect(store.getState().colorPickerPreferReferenceLayer).toBe(false);
   });
 });

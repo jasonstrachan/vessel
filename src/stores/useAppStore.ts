@@ -229,14 +229,17 @@ import type {
 import { BrushShape } from '@/types';
 import { createCustomBrushPersistence } from '@/stores/helpers/customBrushPersistence';
 import {
-  DEFAULT_RECTANGLE_BRUSH_STATE,
   PressureSettings,
   applyPressureUpdate,
   applyPressureToTools,
 } from '@/stores/helpers/toolsState';
+import { createColorCycleSlice } from '@/stores/slices/colorCycleSlice';
+import type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 import { createHistorySlice } from '@/stores/slices/historySlice';
 import { createLayersSlice } from '@/stores/slices/layersSlice';
 import type { CompositeSegment, UpdateLayerOptions } from '@/stores/slices/layersSlice';
+import { createAutosaveSlice } from '@/stores/slices/autosaveSlice';
+import { createPaletteSlice } from '@/stores/slices/paletteSlice';
 import { createProjectSlice } from '@/stores/slices/projectSlice';
 import { createUiSlice } from '@/stores/slices/uiSlice';
 import { createToolsSlice } from '@/stores/slices/toolsSlice';
@@ -247,10 +250,8 @@ import { createCropSlice } from '@/stores/slices/cropSlice';
 import { createVesselStore } from '@/stores/createVesselStore';
 // import { memoryManager } from '../utils/memoryCleanup';
 import { logError } from '../utils/debug';
-import { createDefaultPalette } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
 import { setActiveHistoryDocument } from '@/history/historyService';
-import { applyPaletteSnapshot } from '@/stores/helpers/paletteState';
 import {
   captureLayerStructureSnapshot,
   commitLayerStructureHistory,
@@ -260,50 +261,9 @@ import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 
+export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 
-export type CCReason =
-  | 'toolbar'
-  | 'brush-stroke'
-  | 'stroke-end'
-  | 'shape-preview'
-  | 'history-apply'
-  | 'visibility-hidden'
-  | 'layer-switch'
-  | 'startup'
-  | 'store-sync'
-  | 'auto-start'
-  | 'pan'
-  | 'active-layer-not-cc'
-  | 'shape-tool-start'
-  | 'shape-tool-drag'
-  | 'pointer-drag'
-  | 'layer-create'
-  | 'overlay-reinit'
-  | 'unknown'
-  | 'event';
 
-export interface ColorCycleUIState {
-  desiredPlaying: boolean;
-  suspendDepth: number;
-  lastReason?: CCReason;
-  recentReasons?: Array<{ reason: CCReason; ts: number }>;
-}
-
-const SHOULD_TRACK_COLOR_CYCLE_REASONS = process.env.NODE_ENV !== 'production';
-const MAX_COLOR_CYCLE_RECENT_REASONS = 16;
-
-const appendColorCycleReason = (
-  state: ColorCycleUIState,
-  reason: CCReason
-): ColorCycleUIState['recentReasons'] => {
-  if (!SHOULD_TRACK_COLOR_CYCLE_REASONS) {
-    return state.recentReasons;
-  }
-  const base = state.recentReasons ?? [];
-  const next = [...base, { reason, ts: Date.now() }];
-  const overflow = next.length - MAX_COLOR_CYCLE_RECENT_REASONS;
-  return overflow > 0 ? next.slice(overflow) : next;
-};
 
 export interface AppState {
   paletteDirty: boolean;
@@ -325,16 +285,8 @@ export interface AppState {
   resumeColorCycle: (reason: CCReason) => void;
   forceResumeColorCycle: (reason: CCReason) => void;
   withColorCycleSuspended: <T>(reason: CCReason, fn: () => T | Promise<T>) => Promise<T>;
-  colorCycleRuntimeHandlers: {
-    start?: (reason?: string) => void;
-    stop?: (reason?: string) => void;
-    updateGradient?: (stops: Array<{ position: number; color: string }>) => void;
-    setFlowMode?: (mode: 'forward' | 'reverse' | 'pingpong') => void;
-    setFlowDirection?: (direction: 'forward' | 'backward') => void;
-  };
-  setColorCycleRuntimeHandlers: (
-    handlers: AppState['colorCycleRuntimeHandlers'] | null
-  ) => void;
+  colorCycleRuntimeHandlers: ColorCycleRuntimeHandlers;
+  setColorCycleRuntimeHandlers: (handlers: ColorCycleRuntimeHandlers | null) => void;
   
   // Layer composition trigger
   layersNeedRecomposition: boolean;
@@ -645,12 +597,6 @@ export interface AppState {
   setHistorySize: (size: number) => void;
 }
 
-const defaultShapeState: ShapeState = {
-  isDrawing: false,
-  points: [],
-  previewPath: undefined
-};
-
 export const useAppStore = createVesselStore<AppState>(
   (set, get, store) => {
       const {
@@ -667,35 +613,6 @@ export const useAppStore = createVesselStore<AppState>(
           get().captureCanvasToActiveLayer(canvas, roi, options),
       })(set, get, store);
 
-      const scheduleCompositeBitmapRelease = (bitmap: ImageBitmap) => {
-        const dispose = () => {
-          try {
-            bitmap.close();
-          } catch {
-            // ignore close errors
-          }
-        };
-
-        if (typeof window === 'undefined') {
-          dispose();
-          return;
-        }
-
-        const MAX_ATTEMPTS = 3;
-        let attempts = 0;
-
-        const tryDispose = () => {
-          if (get().currentCompositeBitmap === bitmap && attempts < MAX_ATTEMPTS) {
-            attempts += 1;
-            window.requestAnimationFrame(tryDispose);
-            return;
-          }
-          dispose();
-        };
-
-        window.setTimeout(tryDispose, 160);
-      };
-
       // Expose store globally for debugging and test utilities
       if (typeof window !== 'undefined') {
         setTimeout(() => {
@@ -705,84 +622,10 @@ export const useAppStore = createVesselStore<AppState>(
       }
 
       setActiveHistoryDocument('default-project');
-
-      const playColorCycle = (reason: CCReason) => {
-        set((state) => ({
-          colorCyclePlayback: {
-            ...state.colorCyclePlayback,
-            desiredPlaying: true,
-            lastReason: reason,
-            recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason),
-          },
-        }));
-      };
-
-      const pauseColorCycle = (reason: CCReason) => {
-        set((state) => ({
-          colorCyclePlayback: {
-            ...state.colorCyclePlayback,
-            desiredPlaying: false,
-            lastReason: reason,
-            recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason),
-          },
-        }));
-      };
-
-      const suspendColorCycle = (reason: CCReason) => {
-        set((state) => {
-          const playback = state.colorCyclePlayback;
-          const nextDepth = Math.max(0, playback.suspendDepth) + 1;
-          return {
-            colorCyclePlayback: {
-              ...playback,
-              suspendDepth: nextDepth,
-              lastReason: reason,
-              recentReasons: appendColorCycleReason(playback, reason),
-            },
-          };
-        });
-      };
-
-      const resumeColorCycle = (reason: CCReason) => {
-        set((state) => {
-          const playback = state.colorCyclePlayback;
-          const nextDepth = Math.max(0, playback.suspendDepth - 1);
-          return {
-            colorCyclePlayback: {
-              ...playback,
-              suspendDepth: nextDepth,
-              lastReason: reason,
-              recentReasons: appendColorCycleReason(playback, reason),
-            },
-          };
-        });
-      };
-
-      const forceResumeColorCycle = (reason: CCReason) => {
-        set((state) => ({
-          colorCyclePlayback: {
-            ...state.colorCyclePlayback,
-            suspendDepth: 0,
-            lastReason: reason,
-            recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason),
-          },
-        }));
-      };
-
-      const withColorCycleSuspended = async <T>(
-        reason: CCReason,
-        fn: () => T | Promise<T>
-      ): Promise<T> => {
-        suspendColorCycle(reason);
-        try {
-          return await fn();
-        } finally {
-          resumeColorCycle(reason);
-        }
-      };
+      const colorCycleSlice = createColorCycleSlice(set, get, store);
 
       const historySlice = createHistorySlice({
-        runWithColorCycleSuspended: withColorCycleSuspended,
+        runWithColorCycleSuspended: colorCycleSlice.withColorCycleSuspended,
       })(set, get, store);
 
       const layersSlice = createLayersSlice({
@@ -807,8 +650,8 @@ export const useAppStore = createVesselStore<AppState>(
       const toolsSlice = createToolsSlice(set, get, store);
       const shapeFillSlice = createShapeFillSlice(set, get, store);
       const colorAdjustSlice = createColorAdjustSlice(set, get, store);
-
-      const initialPalette = createDefaultPalette();
+      const paletteSlice = createPaletteSlice(set, get, store);
+      const autosaveSlice = createAutosaveSlice(set, get, store);
 
       return {
         ...historySlice,
@@ -821,194 +664,12 @@ export const useAppStore = createVesselStore<AppState>(
         ...toolsSlice,
         ...shapeFillSlice,
         ...colorAdjustSlice,
+        ...colorCycleSlice,
+        ...paletteSlice,
+        ...autosaveSlice,
         selectLayerAlpha: selectionSlice.selectLayerAlpha,
-        paletteDirty: false,
-        palette: initialPalette,
-        colorPickerPreferReferenceLayer: true,
-      colorCyclePlayback: {
-        desiredPlaying: false,
-        suspendDepth: 0,
-        lastReason: 'startup',
-        recentReasons: SHOULD_TRACK_COLOR_CYCLE_REASONS ? [] : undefined
-      },
-      playColorCycle,
-      pauseColorCycle,
-      suspendColorCycle,
-      resumeColorCycle,
-      forceResumeColorCycle,
-      withColorCycleSuspended,
-      colorCycleRuntimeHandlers: {},
-      setColorCycleRuntimeHandlers: (handlers) => set(() => ({
-        colorCycleRuntimeHandlers: handlers ?? {}
-      })),
-      setPaletteColor: (slot, color) => {
-        const palette = get().palette;
-        const currentColor =
-          slot === 'background' ? palette.backgroundColor : palette.foregroundColor;
-
-        if (currentColor === color) {
-          return;
-        }
-
-        const nextPalette: PaletteState =
-          slot === 'background'
-            ? { ...palette, backgroundColor: color }
-            : { ...palette, foregroundColor: color };
-
-        applyPaletteSnapshot(set, get, nextPalette, { paletteDirty: true });
-      },
-      setActiveColor: (color) => {
-        const slot = (get().palette.activeSlot ?? 'foreground');
-        get().setPaletteColor(slot, color);
-      },
-      setColorPickerPreferReferenceLayer: (prefer) => set(() => ({
-        colorPickerPreferReferenceLayer: Boolean(prefer)
-      })),
-      swapPaletteColors: () => {
-        const palette = get().palette;
-        const nextPalette: PaletteState = {
-          ...palette,
-          foregroundColor: palette.backgroundColor,
-          backgroundColor: palette.foregroundColor
-        };
-        if (
-          palette.foregroundColor === nextPalette.foregroundColor &&
-          palette.backgroundColor === nextPalette.backgroundColor
-        ) {
-          return;
-        }
-        applyPaletteSnapshot(set, get, nextPalette, { paletteDirty: true });
-      },
-      setActivePaletteSlot: (slot) => set((state) => {
-        if (state.palette.activeSlot === slot) {
-          return state;
-        }
-        const nextPalette: PaletteState = {
-          ...state.palette,
-          activeSlot: slot
-        };
-        return {
-          palette: nextPalette
-        };
-      }),
-      syncPaletteFromTool: (color, slot = 'foreground') => {
-        const palette = get().palette;
-        const nextPalette: PaletteState =
-          slot === 'background'
-            ? { ...palette, backgroundColor: color }
-            : { ...palette, foregroundColor: color };
-        if (
-          palette.foregroundColor === nextPalette.foregroundColor &&
-          palette.backgroundColor === nextPalette.backgroundColor
-        ) {
-          return;
-        }
-        applyPaletteSnapshot(set, get, nextPalette, { paletteDirty: true });
-      },
-      
-      // Brush-specific settings storage (in-memory, separate from project)
-      brushSpecificSettings: {},
-      
-      // Shape State
-      shapeState: defaultShapeState,
-      setShapeDrawing: (isDrawing) => set((state) => ({
-        shapeState: { ...state.shapeState, isDrawing }
-      })),
-      addShapePoint: (point) => set((state) => ({
-        shapeState: { 
-          ...state.shapeState, 
-          points: [...state.shapeState.points, point] 
-        }
-      })),
-      clearShapePoints: () => set((state) => ({
-        shapeState: { 
-          ...state.shapeState, 
-          points: [], 
-          previewPath: undefined 
-        }
-      })),
-      setShapePreviewPath: (path) => set((state) => ({
-        shapeState: { ...state.shapeState, previewPath: path }
-      })),
-      // Rectangle Brush State
-      rectangleBrushState: DEFAULT_RECTANGLE_BRUSH_STATE,
-      setRectangleBrushState: (partialState) => set((state) => ({
-        rectangleBrushState: { ...state.rectangleBrushState, ...partialState }
-      })),
-      
-      // Canvas Reference
-      currentOffscreenCanvas: null,
-      setCurrentOffscreenCanvas: (canvas) => set({ currentOffscreenCanvas: canvas }),
-      currentCompositeBitmap: null,
-      setCurrentCompositeBitmap: (bitmap) => {
-        const previous = get().currentCompositeBitmap;
-        set({ currentCompositeBitmap: bitmap ?? null });
-        if (previous && previous !== bitmap) {
-          scheduleCompositeBitmapRelease(previous);
-        }
-      },
-      // Autosave State
-      autosave: {
-        isEnabled: false,
-        isRunning: false,
-        hasUnsavedChanges: false,
-        lastSaveTime: null,
-        interval: 2, // default 2 minutes
-        lastDirtyReason: null,
-        lastDirtyAt: null,
-        fileBackup: {
-          enabled: false,
-          mode: 'single-file',
-          fileHandle: null,
-          directoryHandle: null,
-          backupPath: null,
-          lastBackupTime: null,
-        },
-      },
-
-      ensureCustomBrushHydrated: () => ensureCustomBrushHydratedFn(),
-      
-      // Autosave Methods
-      setAutosaveEnabled: (enabled) => set((state) => ({
-        autosave: { ...state.autosave, isEnabled: enabled }
-      })),
-      setFileBackupEnabled: (enabled) => set((state) => ({
-        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, enabled } }
-      })),
-      setFileBackupMode: (mode) => set((state) => ({
-        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, mode } }
-      })),
-      setFileBackupFile: (handle, path) => set((state) => ({
-        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, fileHandle: handle, backupPath: path || null } }
-      })),
-      setFileBackupDirectory: (handle, path) => set((state) => ({
-        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, directoryHandle: handle, backupPath: path || null } }
-      })),
-      clearDirtyState: () => set((state) => ({
-        autosave: {
-          ...state.autosave,
-          hasUnsavedChanges: false,
-          lastDirtyReason: null,
-          lastDirtyAt: null
-        }
-      })),
-      markAutosaveDirty: (reason) => set((state) => ({
-        autosave: {
-          ...state.autosave,
-          hasUnsavedChanges: true,
-          lastDirtyReason: reason,
-          lastDirtyAt: new Date()
-        }
-      })),
-      updateFileBackupTime: () => set((state) => ({
-        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, lastBackupTime: new Date() } }
-      })),
-      setAutosaveInterval: (interval) => set((state) => ({
-        autosave: { ...state.autosave, interval }
-      })),
-      
-
-    };
+        ensureCustomBrushHydrated: () => ensureCustomBrushHydratedFn(),
+      };
     }
   // ),
   // { name: 'vessel-store' }

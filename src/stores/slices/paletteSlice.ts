@@ -8,16 +8,19 @@ type AppState = import('../useAppStore').AppState;
 export interface PaletteSlice {
   palette: PaletteState;
   paletteDirty: boolean;
+  colorPickerPreferReferenceLayer: boolean;
   setPaletteColor: (slot: 'foreground' | 'background', color: string) => void;
   setActiveColor: (color: string) => void;
   swapPaletteColors: () => void;
   setActivePaletteSlot: (slot: 'foreground' | 'background') => void;
   syncPaletteFromTool: (color: string, slot?: 'foreground' | 'background') => void;
+  setColorPickerPreferReferenceLayer: (prefer: boolean) => void;
 }
 
 export const createPaletteSlice: StateCreator<AppState, [], [], PaletteSlice> = (set, get) => ({
   palette: createDefaultPalette(),
   paletteDirty: false,
+  colorPickerPreferReferenceLayer: true,
 
   setPaletteColor: (slot, color) => {
     const palette = get().palette;
@@ -88,4 +91,9 @@ export const createPaletteSlice: StateCreator<AppState, [], [], PaletteSlice> = 
 
     applyPaletteSnapshot(set, get, nextPalette, { paletteDirty: true });
   },
+
+  setColorPickerPreferReferenceLayer: (prefer) =>
+    set(() => ({
+      colorPickerPreferReferenceLayer: Boolean(prefer),
+    })),
 });

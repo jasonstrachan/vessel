@@ -6,11 +6,13 @@ import {
   defaultBrushEditorState,
   createDefaultRecolorSamplingState,
   createDefaultPolygonGradientState,
+  defaultShapeState,
 } from '@/stores/slices/toolsSlice';
 import { brushPresets } from '@/presets/brushPresets';
 import { createDefaultPalette } from '@/utils/layoutDefaults';
 import { BrushShape, Project, type CustomBrush } from '@/types';
 import { defaultCropState } from '@/stores/slices/cropSlice';
+import { DEFAULT_RECTANGLE_BRUSH_STATE } from '@/stores/helpers/toolsState';
 
 const createMockProject = (): Project => ({
   id: 'test-project',
@@ -37,6 +39,8 @@ const resetToolsState = () => {
     recolorSampling: createDefaultRecolorSamplingState(),
     brushEditor: defaultBrushEditorState,
     brushSpecificSettings: {},
+    shapeState: defaultShapeState,
+    rectangleBrushState: DEFAULT_RECTANGLE_BRUSH_STATE,
     currentBrushPreset: defaultPreset,
     activeBrushComponents: defaultPreset.components,
     palette: createDefaultPalette(),
@@ -158,6 +162,27 @@ describe('tools slice', () => {
 
     store.stopRecolorSampling();
     expect(useAppStore.getState().recolorSampling.active).toBe(false);
+  });
+
+  it('updates shape drawing state and points', () => {
+    const store = useAppStore.getState();
+    store.setShapeDrawing(true);
+    store.addShapePoint({ x: 5, y: 6 });
+
+    const shapeState = useAppStore.getState().shapeState;
+    expect(shapeState.isDrawing).toBe(true);
+    expect(shapeState.points).toHaveLength(1);
+
+    store.clearShapePoints();
+    const cleared = useAppStore.getState().shapeState;
+    expect(cleared.points).toHaveLength(0);
+    expect(cleared.previewPath).toBeUndefined();
+  });
+
+  it('merges rectangle brush state updates', () => {
+    const store = useAppStore.getState();
+    store.setRectangleBrushState({ width: 42 });
+    expect(useAppStore.getState().rectangleBrushState.width).toBe(42);
   });
 
   describe('custom brush helpers', () => {

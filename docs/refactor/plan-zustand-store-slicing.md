@@ -17,6 +17,8 @@ Refactor `src/stores/useAppStore.ts` into focused slice modules with explicit bo
 - `projectSlice` (project metadata and canvas size)
 - `autosaveSlice` (autosave config + interval)
 - `exportSlice` (webgl export settings)
+- `colorCycleSlice` (playback state + runtime handlers)
+- `paletteSlice` (palette colors + picker preference)
 
 ## Slice Dependency Notes
 - Avoid direct cross-slice imports; use shared types in `src/types` or `src/stores/types`.
@@ -24,10 +26,10 @@ Refactor `src/stores/useAppStore.ts` into focused slice modules with explicit bo
 
 ## Migration Steps
 
-1. **Create slice modules** with existing logic moved verbatim.
-2. **Recompose** slices in `useAppStore.ts`.
-3. **Update imports** in tests and selectors.
-4. **Add slice tests** for higher‑risk areas (layers/history/tools).
+- [x] **Create slice modules** with existing logic moved verbatim.
+- [x] **Recompose** slices in `useAppStore.ts`.
+- [x] **Update imports** in tests and selectors.
+- [x] **Add slice tests** for higher‑risk areas (layers/history/tools).
 
 ---
 
