@@ -5,38 +5,29 @@ jest.mock('@/stores/ccRuntime', () => ({
 }));
 
 import { createLayersSlice } from '@/stores/slices/layersSlice';
+import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 
-type MutableState = Record<string, any>;
-
-const createTestStore = (overrides: MutableState = {}) => {
-  let state: MutableState = {
-    compositeSegments: [],
-    layersNeedRecomposition: false,
-    ...overrides,
-  };
-
-  const set = (updater: any) => {
-    const next = typeof updater === 'function' ? updater(state) : updater;
-    state = { ...state, ...next };
-    return state;
-  };
-
-  const get = () => state;
-
-  const slice = (createLayersSlice as any)({
-    syncPercentOffsetsFromPixels: (layers: any) => layers,
-    trackLayerChanges: jest.fn(),
-    colorCycleBrushManager: {} as any,
-    captureLayerStructureSnapshot: jest.fn(),
-    commitLayerStructureHistory: jest.fn(),
-    getVesselWindow: () => undefined,
-  })(set, get);
-
-  state = { ...state, ...slice, ...overrides };
+const createTestStore = (overrides: Record<string, any> = {}) => {
+  const { slice, getState } = createSliceTestStore(
+    (set, get) =>
+      (createLayersSlice as any)({
+        syncPercentOffsetsFromPixels: (layers: any) => layers,
+        trackLayerChanges: jest.fn(),
+        colorCycleBrushManager: {} as any,
+        captureLayerStructureSnapshot: jest.fn(),
+        commitLayerStructureHistory: jest.fn(),
+        getVesselWindow: () => undefined,
+      })(set, get),
+    {
+      compositeSegments: [],
+      layersNeedRecomposition: false,
+      ...overrides,
+    }
+  );
 
   return {
     ...slice,
-    getState: () => state,
+    getState,
   };
 };
 

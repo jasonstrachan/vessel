@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createAutosaveSlice } from '@/stores/slices/autosaveSlice';
+import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 
 jest.mock('@/history/historyService', () => ({
   __esModule: true,
@@ -12,27 +13,18 @@ const mockedHistory = jest.requireMock('@/history/historyService').default as {
   setMaxEntries: jest.Mock;
 };
 
-type MutableState = Record<string, any>;
-
-const createTestStore = (overrides: MutableState = {}) => {
-  let state: MutableState = {
-    history: { maxHistorySize: 50 },
-    ...overrides,
-  };
-
-  const set = (updater: any) => {
-    const next = typeof updater === 'function' ? updater(state) : updater;
-    state = { ...state, ...next };
-    return state;
-  };
-
-  const get = () => state;
-  const slice = (createAutosaveSlice as any)(set, get);
-  state = { ...state, ...slice };
+const createTestStore = (overrides: Record<string, any> = {}) => {
+  const { slice, getState } = createSliceTestStore(
+    (set, get) => (createAutosaveSlice as any)(set, get),
+    {
+      history: { maxHistorySize: 50 },
+      ...overrides,
+    }
+  );
 
   return {
     ...slice,
-    getState: () => state,
+    getState,
   };
 };
 

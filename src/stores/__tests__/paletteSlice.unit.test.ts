@@ -1,38 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createPaletteSlice } from '@/stores/slices/paletteSlice';
 import { createDefaultPalette } from '@/utils/layoutDefaults';
+import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 
-type MutableState = Record<string, any>;
-
-const createTestStore = (overrides: MutableState = {}) => {
-  let state: MutableState = {
-    palette: createDefaultPalette(),
-    paletteDirty: false,
-    tools: {
-      brushSettings: { color: '#000000' },
-      eraserSettings: { color: '#EEEEEE', linkSizeToBrush: false },
-      currentTool: 'brush',
-    },
-    project: null,
-    ...overrides,
-  };
-
-  const set = (updater: any) => {
-    const next = typeof updater === 'function' ? updater(state) : updater;
-    state = { ...state, ...next };
-    return state;
-  };
-
-  const get = () => state;
-  const slice = (createPaletteSlice as any)(set, get);
-  state = { ...state, ...slice };
+const createTestStore = (overrides: Record<string, any> = {}) => {
+  const { slice, getState, setState } = createSliceTestStore(
+    (set, get) => (createPaletteSlice as any)(set, get),
+    {
+      palette: createDefaultPalette(),
+      paletteDirty: false,
+      tools: {
+        brushSettings: { color: '#000000' },
+        eraserSettings: { color: '#EEEEEE', linkSizeToBrush: false },
+        currentTool: 'brush',
+      },
+      project: null,
+      ...overrides,
+    }
+  );
 
   return {
     ...slice,
-    getState: () => state,
-    setState: (partial: MutableState) => {
-      state = { ...state, ...partial };
-    },
+    getState,
+    setState,
   };
 };
 

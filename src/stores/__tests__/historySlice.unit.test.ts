@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createHistorySlice } from '@/stores/slices/historySlice';
+import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 
 jest.mock('@/stores/helpers/historyLifecycle', () => ({
   __esModule: true,
@@ -27,28 +28,19 @@ const mockedLifecycle = jest.requireMock('@/stores/helpers/historyLifecycle') as
   createHistoryService: jest.Mock;
 };
 
-type MutableState = Record<string, any>;
-
-const createTestStore = (overrides: MutableState = {}) => {
-  let state: MutableState = {
-    history: { maxHistorySize: 50 },
-    ...overrides,
-  };
-
-  const set = (updater: any) => {
-    const next = typeof updater === 'function' ? updater(state) : updater;
-    state = { ...state, ...next };
-    return state;
-  };
-
-  const get = () => state;
+const createTestStore = (overrides: Record<string, any> = {}) => {
   const runWithColorCycleSuspended = async <T,>(_: any, fn: () => T | Promise<T>) => fn();
-  const slice = (createHistorySlice as any)({ runWithColorCycleSuspended })(set, get);
-  state = { ...state, ...slice };
+  const { slice, getState } = createSliceTestStore(
+    (set, get) => (createHistorySlice as any)({ runWithColorCycleSuspended })(set, get),
+    {
+      history: { maxHistorySize: 50 },
+      ...overrides,
+    }
+  );
 
   return {
     ...slice,
-    getState: () => state,
+    getState,
     runWithColorCycleSuspended,
   };
 };

@@ -210,6 +210,12 @@ Coding Conventions
   - Action names are imperative verbs (`setBrushPreset`, `undo`, `redo`, `commitLayerHistory`).
   - Never mutate arrays/objects in place; return new references. Use helper utilities when updating nested state.
   - Use selectors in components; avoid accessing `getState()` directly except in utilities and effect glue code.
+  - Slice checklist (use for any new slice/change):
+    - Keep slice state/actions in `src/stores/slices/*`; compose only in `useAppStore.ts`.
+    - Prefer injected dependencies via `createXSlice(options)`; avoid cross-slice imports.
+    - Export only the slice interface + factory; keep helpers in `src/stores/helpers/` if reused.
+    - Ensure initial state lives in the slice (not in `useAppStore`).
+    - Add/adjust a unit test in `src/stores/__tests__/` when behavior changes.
 
 - Utilities
   - Pure, stateless by default; no hidden singletons unless clearly a cache/service (`brushCache`, `autosaveService`).
