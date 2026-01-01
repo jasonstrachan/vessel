@@ -159,7 +159,12 @@ const cl = {
 import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
 import { isStrokeBrush, isShapeFillBrush } from '@/utils/brushCategories';
 import { isColorCycleBrush } from '@/utils/colorCycleGradients';
-import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
+import {
+  handleRecolorSamplingPointerDown,
+  handleRecolorSamplingPointerMove,
+  handleRecolorSamplingPointerUp,
+} from './recolorSamplingHandler';
+import { cssColorToHex } from './utils/colorSampling';
 import type {
   ContourLinesBasis,
   ContourLinesStage,
@@ -187,13 +192,8 @@ import { createShapeToolHandler } from './shapes/ShapeToolHandler';
 import { logContourFillDebug } from './utils/logContourFillDebug';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
-import {
-  captureSelectionSnapshot,
-  commitSelectionHistory,
-  cloneSelectionSnapshot,
-} from '@/history/helpers/selectionHistory';
 import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
-import type { SelectionSnapshot } from '@/history/selectionState';
+import { createSelectionHandlers } from './selectionHandlers';
 
 type VerticalSpacingMapperConfig = {
   centroid: { x: number; y: number };
@@ -500,14 +500,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const strokeStartWorldPosRef = ensurePointRef(deps.snapStrokeStartRef);
   const shiftAnchorWorldPosRef = ensurePointRef(deps.snapShiftAnchorRef);
   const lastBrushSampleWorldPosRef = ensurePointRef(deps.snapLastBrushSampleRef);
-  let pendingSelectionHistory:
-    | {
-        before: SelectionSnapshot;
-        description: string;
-        meta?: Record<string, unknown>;
-      }
-    | null = null;
-
   if (!contourLinesStateRef || !contourLinesDefaultsCacheRef || !contourLinesFinalizingRef || !dynamicDepsRef) {
     throw new Error('Missing contour lines refs in pointer handler dependencies');
   }
@@ -1603,6 +1595,21 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     deps.setActiveColor(sampledHex);
   };
 
+  const selectionHandlers = createSelectionHandlers(
+    {
+      interaction,
+      setSelectionBounds,
+      clearSelection,
+      setShowBrushCursor,
+      canvasRef,
+      viewTransformRef,
+      draw: deps.draw,
+      updateBrushCursorVisibility,
+      flushAndSetCurrentTool,
+    },
+    getDynamicDeps
+  );
+
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
@@ -1739,28 +1746,22 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     );
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
 
-    const hasSelection = Boolean(selectionMask || (selectionStart && selectionEnd));
-    if (event.button === 0 && hasSelection && !floatingPaste) {
-      let hit = false;
-      if (selectionMask && selectionMaskBounds) {
-        const localX = worldPos.x - selectionMaskBounds.x;
-        const localY = worldPos.y - selectionMaskBounds.y;
-        if (localX >= 0 && localY >= 0 && localX < selectionMask.width && localY < selectionMask.height) {
-          const idx = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
-          hit = selectionMask.data[idx] > 0;
-        }
-      } else if (selectionStart && selectionEnd) {
-        hit = worldPos.x >= Math.min(selectionStart.x, selectionEnd.x) &&
-          worldPos.x <= Math.max(selectionStart.x, selectionEnd.x) &&
-          worldPos.y >= Math.min(selectionStart.y, selectionEnd.y) &&
-          worldPos.y <= Math.max(selectionStart.y, selectionEnd.y);
-      }
-
-      if (!hit) {
-        clearSelection();
-        isMouseDownRef.current = false;
-        return;
-      }
+    if (event.button === 0 && selectionHandlers.handleSelectionHitTest({
+      worldPos,
+      dynamic: {
+        tools,
+        selectionStart,
+        selectionEnd,
+        selectionMask,
+        selectionMaskBounds,
+        floatingPaste,
+        canvas,
+        project,
+        activeLayerId,
+      },
+    })) {
+      isMouseDownRef.current = false;
+      return;
     }
 
     // If press starts outside the project, leave mouse-down false so move can bootstrap later.
@@ -1843,72 +1844,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    // Recolor/Brush sampling finalize (on second click as a fallback)
-    const rsUp = getDynamicDeps().recolorSampling;
-    if (rsUp.active && rsUp.start) {
-      const start = rsUp.start;
-      const end = { x: worldPos.x, y: worldPos.y };
-      const samples = Math.max(2, Math.min(32, rsUp.samples || 12));
-      const colors = sampleColorsAlongLine(start.x, start.y, end.x, end.y, samples);
-      const stops = colors.map((c, i) => ({ position: samples === 1 ? 0 : i / (samples - 1), color: cssColorToHex(c) }));
-      // Determine target (recolor layer vs brush settings)
-      const target = rsUp.target || 'recolor';
-
-      if (target === 'recolor') {
-        const layer = layers.find(l => l.id === activeLayerId);
-        if (layer) {
-          const manager = RecolorManager.getInstance();
-          (async () => {
-            try {
-              if (!layer.colorCycleData?.recolorSettings) {
-                const ok = await manager.processLayer(layer, {
-                  quantizationMode: 'rgb332',
-                  ditherMode: 'off',
-                  cycleColors: 16,
-                  gradientPreset: 'custom',
-                  customGradient: stops
-                });
-                if (!ok) throw new Error('processLayer failed');
-              } else {
-                manager.updateGradient(layer, stops);
-              }
-              // Remap palette index sequence to flow along sampled direction without changing pixel structure
-              const dx = end.x - start.x;
-              const dy = end.y - start.y;
-              const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-              try { manager.setPaletteDirectionalOrder(layer.id, angle); } catch {}
-              try { manager.autoSetAnimationDirection(layer.id, angle); } catch {}
-              } catch (e) {
-                console.warn('Failed to apply sampled gradient', e);
-              }
-          })();
-        }
-      } else {
-        // target === 'brush' -> update brush gradient settings directly
-        try {
-          deps.setBrushSettings({ colorCycleGradient: stops });
-        } catch {}
-      }
-
-      const overlayCanvas = overlayCanvasRef.current;
-      if (overlayCanvas) {
-        const overlayCtx = overlayCanvas.getContext('2d');
-        overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-      }
-      deps.stopRecolorSampling();
-      return;
-    }
-
-    // Recolor sampling: start point
-    const rs1 = getDynamicDeps().recolorSampling;
-    if (rs1.active) {
-      deps.updateRecolorSampling({ start: { x: worldPos.x, y: worldPos.y }, end: null });
-      // Clear overlay
-      const overlayCanvas = overlayCanvasRef.current;
-      if (overlayCanvas) {
-        const overlayCtx = overlayCanvas.getContext('2d');
-        overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-      }
+    if (handleRecolorSamplingPointerDown({
+      deps: {
+        overlayCanvasRef,
+        viewTransformRef,
+        updateRecolorSampling: deps.updateRecolorSampling,
+        stopRecolorSampling: deps.stopRecolorSampling,
+        setBrushSettings: deps.setBrushSettings,
+        sampleColorsAlongLine,
+      },
+      getDynamicDeps,
+      worldPos,
+    })) {
       return;
     }
     
@@ -2294,22 +2241,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
 
       // Handle selection/custom brush capture tool (always behaves as selection)
-      if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
-        const beforeSelection = captureSelectionSnapshot();
-        pendingSelectionHistory = {
-          before: cloneSelectionSnapshot(beforeSelection),
-          description: beforeSelection.start && beforeSelection.end ? 'Adjust selection' : 'Create selection',
-          meta: {
-            source: tools.currentTool === 'custom' ? 'custom-selection-tool' : 'selection-tool',
-            pointerId: event.pointerId,
-          },
-        };
-        interaction.dispatch({ type: 'SELECTION_START' });
-        interaction.refs.selectionStart.current = worldPos;
-        setSelectionBounds(worldPos, worldPos);
-        if (tools.currentTool === 'custom') {
-          setShowBrushCursor(false); // Hide brush cursor when making custom brush selection
-        }
+      if (selectionHandlers.handleSelectionToolPointerDown({
+        worldPos,
+        pointerId: event.pointerId,
+        tools,
+      })) {
         return;
       }
       
@@ -2326,24 +2262,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
       
       // Clear selection when clicking outside of selected area (for any other tool)
-      if (selectionStart && selectionEnd) {
-        const minX = Math.min(selectionStart.x, selectionEnd.x);
-        const maxX = Math.max(selectionStart.x, selectionEnd.x);
-        const minY = Math.min(selectionStart.y, selectionEnd.y);
-        const maxY = Math.max(selectionStart.y, selectionEnd.y);
-        
-        // Check if click is outside selection bounds
-        if (worldPos.x < minX || worldPos.x > maxX || worldPos.y < minY || worldPos.y > maxY) {
-          const beforeSelection = captureSelectionSnapshot();
-          clearSelection();
-          commitSelectionHistory({
-            before: beforeSelection,
-            description: 'Clear selection',
-            meta: { source: 'click-outside' },
-          });
-          pendingSelectionHistory = null;
-        }
-      }
+      selectionHandlers.handleSelectionClearOnOutsideClick({
+        worldPos,
+        selectionStart,
+        selectionEnd,
+      });
       
       // Handle rectangle gradient
       if (toolStateMachine.isRectangleGradient) {
@@ -2534,15 +2457,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 }
 
 // Convert rgb(...) to #rrggbb
-function cssColorToHex(color: string): string {
-  if (color.startsWith('#')) return color;
-  const m = /rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i.exec(color);
-  if (!m) return '#ffffff';
-  const r = Number(m[1]).toString(16).padStart(2, '0');
-  const g = Number(m[2]).toString(16).padStart(2, '0');
-  const b = Number(m[3]).toString(16).padStart(2, '0');
-  return `#${r}${g}${b}`;
-}
   const shapeHandler = createShapeToolHandler(
     {
       deps,
@@ -2750,24 +2664,15 @@ function cssColorToHex(color: string): string {
 
     // Unified coalesced handling below covers both brush and shape drawing (with snapping)
 
-    // Recolor sampling preview line
-    const rsMove = getDynamicDeps().recolorSampling;
-    if (rsMove.active && isMouseDownRef.current && rsMove.start) {
-      const overlayCanvas = overlayCanvasRef.current;
-      const overlayCtx = overlayCanvas?.getContext('2d');
-      if (overlayCtx && overlayCanvas) {
-        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-        overlayCtx.save();
-        overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
-        overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
-        overlayCtx.strokeStyle = '#00d1b2';
-        overlayCtx.lineWidth = 2 / deps.viewTransformRef.current.scale;
-        overlayCtx.beginPath();
-        overlayCtx.moveTo(rsMove.start.x, rsMove.start.y);
-        overlayCtx.lineTo(worldPos.x, worldPos.y);
-        overlayCtx.stroke();
-        overlayCtx.restore();
-      }
+    if (handleRecolorSamplingPointerMove({
+      deps: {
+        overlayCanvasRef,
+        viewTransformRef,
+      },
+      getDynamicDeps,
+      worldPos,
+      isPointerDown: isMouseDownRef.current,
+    })) {
       return;
     }
     
@@ -2882,15 +2787,7 @@ function cssColorToHex(color: string): string {
     }
     
     // Handle selection
-    if (interaction.state.isSelecting) {
-      if (interaction.refs.selectionStart.current) {
-        setSelectionBounds(interaction.refs.selectionStart.current, worldPos);
-      }
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        deps.draw(ctx, deps.viewTransformRef.current);
-      }
+    if (selectionHandlers.handleSelectionPointerMove({ worldPos })) {
       return;
     }
     
@@ -3413,6 +3310,8 @@ function cssColorToHex(color: string): string {
       floatingPaste,
       selectionStart,
       selectionEnd,
+      selectionMask,
+      selectionMaskBounds,
       isDraggingFloatingPaste,
     } = getDynamicDeps();
     void floatingPaste;
@@ -3421,6 +3320,8 @@ function cssColorToHex(color: string): string {
     void activeLayerId;
     void selectionStart;
     void selectionEnd;
+    void selectionMask;
+    void selectionMaskBounds;
     void isDraggingFloatingPaste;
     // Clear pointer down state
     isMouseDownRef.current = false;
@@ -3528,62 +3429,21 @@ function cssColorToHex(color: string): string {
       return;
     }
 
-    // Recolor/Brush sampling finalize on drag-release
-    const rsFinalize = getDynamicDeps().recolorSampling;
-    if (rsFinalize.active && rsFinalize.start) {
+    const rsFinalizeGuard = getDynamicDeps().recolorSampling;
+    if (rsFinalizeGuard.active && rsFinalizeGuard.start) {
       const scaleFinalize = canvas?.zoom || 1;
       const worldPosFinalize = pan.screenToWorld(mousePos.x, mousePos.y, scaleFinalize);
-      const startFinalize = rsFinalize.start;
-      const endFinalize = { x: worldPosFinalize.x, y: worldPosFinalize.y };
-      const samplesFinalize = Math.max(2, Math.min(32, rsFinalize.samples || 12));
-      const colorsFinalize = sampleColorsAlongLine(startFinalize.x, startFinalize.y, endFinalize.x, endFinalize.y, samplesFinalize);
-      const stopsFinalize = colorsFinalize.map((c, i) => ({ position: samplesFinalize === 1 ? 0 : i / (samplesFinalize - 1), color: cssColorToHex(c) }));
-      // Configure directional mapping so the gradient flows along the sampled path
-      const targetFinalize = rsFinalize.target || 'recolor';
-
-      if (targetFinalize === 'recolor') {
-        const layerFinalize = layers.find(l => l.id === activeLayerId);
-        if (layerFinalize) {
-          const managerFinalize = RecolorManager.getInstance();
-          (async () => {
-            try {
-              if (!layerFinalize.colorCycleData?.recolorSettings) {
-                const ok = await managerFinalize.processLayer(layerFinalize, {
-                  quantizationMode: 'rgb332',
-                  ditherMode: 'off',
-                  cycleColors: 16,
-                  gradientPreset: 'custom',
-                  customGradient: stopsFinalize
-                });
-                if (!ok) throw new Error('processLayer failed');
-              } else {
-                managerFinalize.updateGradient(layerFinalize, stopsFinalize);
-              }
-              // Auto-play the recolor animation for this layer after applying gradient
-              try {
-                managerFinalize.playSingle(layerFinalize.id);
-              } catch (e) {
-                console.warn('Failed to auto-play recolor animation:', e);
-              }
-              // Remap palette index sequence to flow along sampled direction without changing pixel structure
-              const dxFinalize = endFinalize.x - startFinalize.x;
-              const dyFinalize = endFinalize.y - startFinalize.y;
-              const angleFinalize = (Math.atan2(dyFinalize, dxFinalize) * 180) / Math.PI;
-              try { managerFinalize.setPaletteDirectionalOrder(layerFinalize.id, angleFinalize); } catch {}
-              try { managerFinalize.autoSetAnimationDirection(layerFinalize.id, angleFinalize); } catch {}
-            } catch (e) {
-              console.warn('Failed to apply sampled gradient', e);
-            }
-          })();
-        }
-      } else {
-        try {
-          deps.setBrushSettings({ colorCycleGradient: stopsFinalize });
-        } catch {}
+      if (handleRecolorSamplingPointerUp({
+        deps: {
+          sampleColorsAlongLine,
+          setBrushSettings: deps.setBrushSettings,
+          stopRecolorSampling: deps.stopRecolorSampling,
+        },
+        getDynamicDeps,
+        worldPos: worldPosFinalize,
+      })) {
+        return;
       }
-
-      deps.stopRecolorSampling();
-      return;
     }
 
     // SIMPLIFIED PANNING: End pan if we were panning
@@ -3617,39 +3477,22 @@ function cssColorToHex(color: string): string {
     }
     
     // Handle selection
-    if (interaction.state.isSelecting) {
-      interaction.dispatch({ type: 'SELECTION_END' });
-      const scale = canvas?.zoom || 1;
-      let worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
-      
-      // Clamp world position to canvas bounds
-      if (project) {
-        worldPos = {
-          x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
-          y: Math.max(0, Math.min(project.height - 1, worldPos.y))
-        };
-      }
-      if (interaction.refs.selectionStart.current) {
-        setSelectionBounds(interaction.refs.selectionStart.current, worldPos);
-        if (tools.currentTool === 'custom') {
-          void flushAndSetCurrentTool('brush');
-          clearSelection();
-          updateBrushCursorVisibility(); // Show brush cursor again after custom brush selection
-        }
-      }
-      if (pendingSelectionHistory) {
-        commitSelectionHistory({
-          before: pendingSelectionHistory.before,
-          description: pendingSelectionHistory.description,
-          meta: {
-            ...(pendingSelectionHistory.meta ?? {}),
-            pointerId: event.pointerId,
-            outcome: tools.currentTool === 'custom' ? 'custom-selection' : 'selection',
-          },
-        });
-        pendingSelectionHistory = null;
-      }
-      interaction.refs.selectionStart.current = null;
+    if (selectionHandlers.handleSelectionPointerUp({
+      event,
+      mousePos,
+      pan,
+      dynamic: {
+        tools,
+        selectionStart,
+        selectionEnd,
+        selectionMask,
+        selectionMaskBounds,
+        floatingPaste,
+        canvas,
+        project,
+        activeLayerId,
+      },
+    })) {
       return;
     }
     

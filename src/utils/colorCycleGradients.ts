@@ -131,7 +131,7 @@ const applyColorCycleGradientEdit = (
       ? legacyGradients.map(entry => ({ slot: entry.slot, stops: cloneStops(entry.stops) }))
       : [{ slot: 0, stops: cloneStops(fallbackStops) }];
 
-  let activeGradientId = colorCycleData.activeGradientId ?? gradientDefs[0].id;
+  const activeGradientId = colorCycleData.activeGradientId ?? gradientDefs[0].id;
   let activeDef = gradientDefs.find(entry => entry.id === activeGradientId) ?? gradientDefs[0];
   if (!activeDef) {
     activeDef = { id: activeGradientId, currentSlot: 0 };

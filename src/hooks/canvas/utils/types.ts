@@ -225,6 +225,9 @@ export interface EventHandlerDependencies {
   contourLinesFinalizingRef: React.MutableRefObject<boolean>;
 }
 
+// Canonical dependency contract for handler modules (alias to avoid churn).
+export type HandlerDeps = EventHandlerDependencies;
+
 export interface PointerHandlers {
   handlePointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => void;
   handlePointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => void;

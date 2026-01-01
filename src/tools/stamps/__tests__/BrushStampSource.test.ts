@@ -35,7 +35,7 @@ describe('BrushStampSource eraser overrides', () => {
       endStroke: jest.fn(),
     };
 
-    let state = makeState();
+    const state = makeState();
     const getState = () => state;
 
     const source = new BrushStampSource({

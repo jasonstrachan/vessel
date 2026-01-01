@@ -28,14 +28,14 @@ Break the 7k‑line `src/hooks/useDrawingHandlers.ts` into focused modules witho
 ## Refactor Strategy (Phased)
 
 ### Phase 0 — Inventory + Guardrails
-- Map internal sections in `useDrawingHandlers.ts` and tag by concern.
-- Identify shared helpers already living in `src/hooks/canvas/handlers/` and `src/hooks/canvas/utils/`.
-- Add thin typings or interfaces for handler modules (non‑runtime).
-- Define a `HandlerDeps` contract listing all dependencies passed into handlers (store, refs, engines).
+- [x] Map internal sections in `useDrawingHandlers.ts` and tag by concern.
+- [x] Identify shared helpers already living in `src/hooks/canvas/handlers/` and `src/hooks/canvas/utils/`.
+- [x] Add thin typings or interfaces for handler modules (non‑runtime).
+- [x] Define a `HandlerDeps` contract listing all dependencies passed into handlers (store, refs, engines).
 
 Deliverable:
-- A short section map (comment block) at top of `useDrawingHandlers.ts`.
-- `HandlerDeps` type definition colocated with handlers.
+- [x] A short section map (comment block) at top of `useDrawingHandlers.ts`.
+- [x] `HandlerDeps` type definition colocated with handlers (`src/hooks/canvas/utils/types.ts`).
 
 ---
 
@@ -43,13 +43,13 @@ Deliverable:
 **Goal**: Move pure, stateless helpers into `src/hooks/canvas/utils/`.
 
 Candidates:
-- Color‑cycle gradient helpers (done in current patch)
-- CSS color parsing helpers
-- Geometry/pressure utilities when referenced by multiple tools
+- [x] Color‑cycle gradient helpers (done in current patch)
+- [x] CSS color parsing helpers (none found in `useDrawingHandlers` for extraction)
+- [x] Geometry/pressure utilities (extracted stroke capture padding helper into `hooks/canvas/utils`)
 
 Deliverable:
-- `src/hooks/canvas/utils/colorCycleHelpers.ts` (already created)
-- Any additional utilities extracted without call‑site behavior change
+- [x] `src/hooks/canvas/utils/colorCycleHelpers.ts` (already created)
+- [x] Any additional utilities extracted without call‑site behavior change (stroke capture padding helper)
 
 ---
 
@@ -64,7 +64,10 @@ Move shape finalize/lost‑edge logic to `src/hooks/canvas/handlers/shapes`.
   - `renderDitherGradientToImageData`
 
 Deliverable:
-- `ShapeFinalizeHandler.ts` (or similar) that exposes a `finalizeShape()` with explicit inputs.
+- [x] `ShapeFinalizeHandler.ts` (or similar) that exposes a `finalizeShape()` with explicit inputs.
+  - [x] Implemented: `ShapeFinalizeHandler.ts` now owns raster shape finalize + dither gradient finalize helpers; `buildLostEdgePolygon` moved.
+  - [x] Lost-edge polygon erosion helper extracted to `applyPolygonLostEdgeErosion`.
+  - [x] Raster shape commit helper extracted to `commitRasterShapeFill`.
 
 #### 2.2 Recolor Sampling Flow
 Move recolor sampling steps into `src/hooks/canvas/handlers/recolorSampling.ts`.
@@ -72,13 +75,16 @@ Move recolor sampling steps into `src/hooks/canvas/handlers/recolorSampling.ts`.
 - Outputs: updated recolor settings + layer updates
 
 Deliverable:
-- `recolorSamplingHandler.ts` + integration wiring in `useDrawingHandlers`.
+- [x] `recolorSamplingHandler.ts` + integration wiring in `useDrawingHandlers`.
+  - [x] Implemented: `recolorSamplingHandler.ts` extracted from pointer handlers and wired into `pointerHandlers` (no behavior change).
 
 #### 2.3 Crop & Selection Flows
 If state machine logic is already in `src/hooks/canvas/handlers`, move remaining logic that lives in `useDrawingHandlers`.
 
 Deliverable:
-- `cropHandlers.ts` or `selectionHandlers.ts`
+- [x] `cropHandlers.ts` or `selectionHandlers.ts`
+  - [x] Implemented: `selectionHandlers.ts` extracted from `pointerHandlers` for selection hit-test/start/move/end/clear flows.
+  - [x] Crop-specific handler extraction not needed (no crop-specific logic left in `useDrawingHandlers` beyond tool gating).
 
 ---
 
@@ -87,11 +93,15 @@ Deliverable:
 
 Move into:
 - `src/hooks/canvas/handlers/colorCycle/`
-  - `colorCycleCommit.ts`
-  - `colorCycleHistory.ts`
+  - [x] `colorCycleCommit.ts` (raster overlay commits + brush history scheduling + CC deferred save helper extracted; remaining CC commit paths still inline)
+  - [x] `colorCycleHistory.ts`
+- [x] `colorCycleShapeFill.ts` (linear/concentric CC shape fill helpers extracted)
+- [x] `colorCycleShapeFill.ts` extended with `runColorCycleShapeFill` and linear direction helper
 
 Deliverables:
 - Dedicated “commit” API used by `useDrawingHandlers` and any other call‑sites.
+  - [x] Implemented: `src/hooks/canvas/handlers/colorCycle/colorCycleHistory.ts` for deferred CC saves + queued history commits; `useDrawingHandlers` now delegates.
+  - [x] Extract remaining commit/save paths into `colorCycleCommit.ts` (CC layer stroke commit helper).
 
 ---
 
@@ -105,7 +115,55 @@ Deliverables:
   - hook return surface
 
 Deliverable:
-- `useDrawingHandlers.ts` under ~1,500 LOC
+- [ ] `useDrawingHandlers.ts` under ~1,500 LOC (currently ~5,209 LOC).
+  - [x] color-cycle interaction pause/resume moved to `colorCycleInteraction.ts`.
+  - [x] color-cycle rendering/deferred overlay scheduling moved to `colorCycleRender.ts`.
+  - [x] color-cycle playback start/stop moved to `colorCyclePlayback.ts`.
+  - [x] overlay canvas init/resize moved to `overlayCanvas.ts`.
+  - [x] color-cycle surface helpers moved to `colorCycleSurface.ts`.
+  - [x] capture-region utilities moved to `captureRegions.ts`.
+  - [x] brush sampling helpers (auto-sample stops, preview render/clear, sampleHexAt) moved to `brushSampling.ts`.
+  - [x] linear direction selection flow refactored into local helper (`handleLinearDirectionSelection`) for readability.
+  - [x] shape finalization flow refactored into local helper (`handleShapeFinalize`) for readability.
+  - [x] color-cycle brush finalization flow refactored into local helper (`finalizeColorCycleBrush`) for readability.
+  - [x] stroke capture prep (ROI + beforeImage) refactored into local helper (`prepareStrokeCapture`).
+  - [x] color-cycle layer canvas init refactored into local helper (`ensureColorCycleLayerCanvas`).
+  - [x] Extract color-cycle brush finalize + auto-sample stop orchestration into `handlers/colorCycle/colorCycleFinalize.ts`.
+  - [x] Extract CC layer stroke commit branch into `handlers/colorCycle/colorCycleStrokeCommit.ts`.
+  - [x] Extract stroke history commit orchestration into `handlers/colorCycle/colorCycleStrokeHistory.ts`.
+  - [x] Extract sampling cleanup reset into `handlers/brushSampling.ts` (`resetAutoSampleState`).
+  - [x] Extract CC layer canvas init helper into `handlers/colorCycle/colorCycleLayerInit.ts`.
+  - [x] Extract remaining CC brush end-of-stroke pipeline (commit + history + sampling handoff) into `handlers/colorCycle/`.
+  - [x] Extract eraser finalize path into `handlers/eraserFinalize.ts`.
+  - [x] Extract stroke capture prep into `handlers/strokeCapture.ts`.
+  - [x] Extract stroke coalesce payload builder into `handlers/strokeHistoryCoalesce.ts`.
+  - [x] Extract stroke history metadata resolver into `handlers/strokeHistoryMetadata.ts`.
+  - [x] Extract color-cycle brush flags helper into `utils/colorCycleBrushFlags.ts`.
+  - [x] Extract custom brush data resolver into `utils/customBrushData.ts`.
+  - [x] Extract stroke session helpers into `handlers/strokeSession.ts`.
+  - [x] Extract CC brush eraser settings helper into `handlers/colorCycle/colorCycleEraserSettings.ts`.
+  - [x] Extract CC stamp target context helper into `handlers/colorCycle/colorCycleStampTarget.ts`.
+  - [x] Extract brush rotation resolver into `utils/brushRotation.ts`.
+  - [x] Extract idle scheduling helpers into `utils/idle.ts`.
+  - [x] Extract snapshot/shape image helpers into `utils/snapshots.ts`.
+  - [x] Extract canvas backdrop and line clipping helpers into `utils/canvasBackdrop.ts` and `utils/lineClipping.ts`.
+  - [x] Extract color-cycle layer guard into `utils/layerGuards.ts`.
+  - [x] Extract perf/timing debug helpers into `utils/perfDebug.ts`.
+  - [x] Extract shape snapshot helpers into `handlers/shapeSnapshots.ts`.
+  - [x] Extract shape pressure handling into `handlers/shapePressure.ts`.
+  - [x] Extract CC finalize queue flush helper into `handlers/colorCycle/colorCycleFinalizeQueue.ts`.
+  - [x] Extract finalize stroke prep (batch cancel + resampler reset + engine finalize) into `handlers/strokeFinalizePrep.ts`.
+  - [x] Extract finalize guard evaluation into `handlers/finalizeGuards.ts`.
+  - [x] Extract finalize busy lock helper into `handlers/finalizeBusyLock.ts`.
+  - [x] Extract finalize overlay clear helper into `handlers/finalizeOverlayClear.ts`.
+  - [x] Extract pending eraser finalize helper into `handlers/eraserFinalize.ts`.
+  - [x] Extract finalize cleanup block into `handlers/finalizeCleanup.ts`.
+  - [x] Remaining sensible extractions (not strictly for size)
+    - [x] Mask-healing helpers (`createBrushStampSource`, begin/extend/end mask heal) into `handlers/maskHealing.ts`.
+    - [x] Custom brush capture/resampler workflow (captureBrushFromCanvas + resampler refs) into `handlers/customBrushCapture.ts`.
+    - [x] CC animation pause/resume helpers (`pauseAllBrushCCAnimationsNow`, `resumePausedBrushCCAnimations`) into `handlers/colorCycle/colorCycleInteraction.ts` or sibling.
+    - [x] Shape tool orchestration (`startShapeDrawing`, `continueShapeDrawing`, `finalizeShapeDrawing`, direction selection) into `handlers/shapes/shapeDrawing.ts`.
+    - [x] Stroke batching + pixel queue plumbing (`strokeBatchRef`, `processBatchedStrokes`, queue setup) into `handlers/strokeBatching.ts`.
 
 ## Handler Interface Contract
 - Handlers are plain functions (no React hooks).
@@ -158,6 +216,7 @@ src/hooks/canvas/
 3. **Recolor sampling extraction**
 4. **Color‑cycle history/commit extraction**
 5. **Final cleanup + doc update**
+6. **Color-cycle brush finalize + auto-sample extraction** (done)
 
 ---
 
