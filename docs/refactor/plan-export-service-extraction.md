@@ -38,19 +38,20 @@ Move export/encode workflows out of `ExportModal.tsx` into a typed service layer
 
 ## Migration Steps
 
-1. **Define types**
-   - `ExportRequest`, `ExportResult`, `ExportProgress` in `src/utils/export/types.ts`.
+- [x] **Define types**
+  - `ExportRequest`, `ExportResult`, `ExportProgress` in `src/utils/export/types.ts`.
 
-2. **Define frame provider**
-   - Pull frame capture from `ExportModal` into a provider used by the service.
-3. **Extract export logic**
-   - Move encode loops, palette estimation, and scheduling to service.
+- [x] **Define frame provider**
+  - Pull frame capture from `ExportModal` into a provider used by the service.
 
-4. **Simplify modal**
-   - Keep UI state only; use service for work.
+- [x] **Extract export logic**
+  - Move encode loops, palette estimation, and scheduling to service.
 
-5. **Add tests**
-   - Unit tests for `estimateExport` and `runExport` in `src/utils/__tests__`.
+- [x] **Simplify modal**
+  - Keep UI state only; use service for work.
+
+- [x] **Add tests**
+  - Unit tests for `estimateExport` and `runExport` in `src/utils/__tests__`.
 
 ---
 
