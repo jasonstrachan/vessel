@@ -101,22 +101,18 @@
     - Hardware-accelerated canvas-to-canvas transfers
     - Bitmap caching for frequently used images
     - Batch transfer operations for multiple bitmaps
-- **Optimized ColorCycleBrush** (`src/hooks/brushEngine/ColorCycleBrushOptimized.ts`)
-  - Combines all performance features with automatic feature detection
-  - Configurable optimization flags for testing/debugging
-  - Progressive enhancement based on browser capabilities
-  - Maintains full API compatibility with existing implementation
+- **Performance configuration** (`src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`)
+  - Exposes optional perf flags (workers, perceptual dither) for targeted tuning
+  - Keeps API compatibility with the primary brush implementation
+  - Supports progressive enhancement when features are available
 - **Performance Testing Suite** (`src/testing/PerformanceEnhancementsTest.ts`)
-  - Comprehensive benchmarks comparing baseline vs optimized
+  - Benchmarks comparing default vs configured brush options
   - Tests: rendering speed, paint operations, animation FPS, memory usage, gradient updates
   - HTML report generation with detailed metrics
   - Visual performance comparison page (`src/pages/PerformanceTest.tsx`)
-- **Key Performance Improvements**:
-  - Rendering performance: Up to 40% faster with OffscreenCanvas
-  - Paint operations: 2-3x faster with WASM acceleration
-  - Animation frame rate: Consistent 60 FPS with GPU offloading
-  - Memory usage: Maintained efficiency with indexed color system
-  - Gradient updates: Parallel processing reduces blocking
+- **Key Performance Notes**:
+  - Worker-based fills can reduce main-thread stalls on large shapes
+  - Indexed buffers keep memory usage low compared to RGBA pixels
 - **Technical Benefits**:
   - **Parallel Processing**: Web Workers handle calculations independently
   - **GPU Acceleration**: OffscreenCanvas with desynchronized rendering
@@ -163,8 +159,8 @@
     - IndexBuffer + GradientPalette + AnimationController integration
     - Canvas2D rendering with optional WebGL renderer (`WebGLColorCycleRenderer`) fallback
     - Palette shifting and frame callbacks for animated layers
-  - **Brush implementations** (`src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`, `ColorCycleBrushOptimized.ts`)
-    - Canvas2D paint + animation surfaces
+  - **Brush implementation** (`src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`)
+    - Canvas2D paint + animation surface
     - Configurable FPS/speed/banding and fill strategies
   - **Runtime shim** (`src/hooks/brushEngine/ColorCycleBrushMigration.ts`)
     - Feature-flagged Canvas2D/WebGL routing

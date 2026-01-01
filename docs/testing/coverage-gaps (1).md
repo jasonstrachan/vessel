@@ -21,7 +21,7 @@ Source: `coverage/coverage-final.json` from the latest Jest run. Overall stateme
   - Add unit tests for shape helper paths (preview vs. finalize) and pointer capture loss to lock re-entrancy bugs.
 
 - **Brush/color-cycle rendering**
-  - Files: `ColorCycleBrushCanvas2D` (27%), `ColorCycleBrush2D` (0%), `ColorCycleBrushPath2D` (0%), `ColorCycleBrushOptimized` (0%), `lib/colorCycle/rendering/WebGLColorCycleRenderer.ts` (4%), `lib/ColorCycleAnimator.ts` (25%).
+  - Files: `ColorCycleBrushCanvas2D` (27%), `lib/colorCycle/rendering/WebGLColorCycleRenderer.ts` (4%), `lib/ColorCycleAnimator.ts` (25%).
   - Create golden-image or fixture-based tests comparing CPU vs. GPU buffer outputs for fixed seeds; add disposal tests to ensure managers release WebGL/worker resources.
   - Cover palette changes during active strokes and undo/redo hydration (ties into `colorCycleBrushManager`).
 
@@ -66,7 +66,7 @@ Run `npm test -- --coverage` after adding suites to regenerate this snapshot.
 
 ## Near-term targets (remaining big gaps)
 - Shape tool finalize/preview flows (`ShapeToolHandler`, `useDrawingHandlers` shape branches): add down/move/up integration with shape snapshots and ROI capture assertions.
-- Color-cycle brush GPU/CPU parity (`ColorCycleBrushCanvas2D`, `ColorCycleBrush2D/Path2D`, `WebGLColorCycleRenderer`): fixture-based golden tests for fixed seeds; disposal/flush coverage.
+- Color-cycle brush GPU/CPU parity (`ColorCycleBrushCanvas2D`, `WebGLColorCycleRenderer`): fixture-based golden tests for fixed seeds; disposal/flush coverage.
 - Export/WebGL error paths (`utils/export/webglExporter.ts`): simulate minify/diagnostics toggles and failure cleanup.
 - Thumbnail/persistence edge cases (`brushThumbnailGenerator`, `colorCycleStorage`, `projectIO` corruption cases): use small fixtures/base64 to cover error branches.
 - UI zero-coverage components still pending: `BrushEditorUI`, `GradientEditor`, `BrushControls`, `ColorPicker`, `MinimalLayerList`, `RecolorPanel`, etc. Add RTL render + primary interaction checks with mocked selectors.

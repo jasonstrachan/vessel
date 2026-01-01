@@ -26,8 +26,14 @@ describe('ColorCycleAnimator multi-slot + undo flow', () => {
     animator.setIndex(0, 0, 1);
     animator.setIndex(1, 0, 1);
 
-    const indexBefore = new Uint8Array((animator as any).indexBuffer.getIndexData());
-    const gidBefore = new Uint8Array((animator as any).indexBuffer.getGradientIdData());
+    const animatorWithBuffer = animator as unknown as {
+      indexBuffer: {
+        getIndexData: () => ArrayBuffer;
+        getGradientIdData: () => ArrayBuffer;
+      };
+    };
+    const indexBefore = new Uint8Array(animatorWithBuffer.indexBuffer.getIndexData());
+    const gidBefore = new Uint8Array(animatorWithBuffer.indexBuffer.getGradientIdData());
 
     animator.setActiveGradientSlot(1);
     animator.setIndex(0, 0, 1); // overlap stroke A

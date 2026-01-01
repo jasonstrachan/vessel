@@ -1060,7 +1060,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     } finally {
       setApplyInFlight(false);
     }
-  }, [applyInFlight, cachedProject, closeModal, importProject, projectData, selectedFileName]);
+  }, [applyInFlight, cachedProject, closeModal, importProject, projectData, selectedFileName, selectedFileHandle]);
 
   const dropOverlay = useMemo(() => {
     if (!dragActive) {

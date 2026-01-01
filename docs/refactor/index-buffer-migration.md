@@ -6,8 +6,7 @@ Search scope: `rg "indexBuffer\.paint"`, `rg "indexBuffer\.paintSquare"`, `rg "i
 
 - `src/lib/ColorCycleAnimator.ts` – switched to `paint*WithIndex`/`fillWithIndex` (numeric path).
 - `src/lib/ColorCycleRenderer.ts` – migrated to numeric painting via `paint*WithIndex` and palette span helpers.
-- `src/hooks/brushEngine/ColorCycleBrushOptimized.ts` – uses numeric painting for Canvas2D fallback; WASM path already writes indices directly.
-- `src/hooks/brushEngine/ColorCycleBrush2D.ts` – maintains raw `Uint8Array` buffers; no `IndexBuffer` usage, so no migration needed.
+- Legacy ColorCycle brush implementations were removed during consolidation; numeric paint coverage now lives in `ColorCycleBrushCanvas2D`.
 - Test suites (`src/lib/__tests__/IndexBuffer.test.ts`) exercise both legacy and numeric APIs.
 
 No external module depends on `IndexBuffer.paint*` returning a string (all methods are void); palette string retrieval is confined to gradient/UI code paths.

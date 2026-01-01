@@ -1,5 +1,3 @@
-import type { AppState } from '@/stores/useAppStore';
-
 export type FinalizeGuardResult = {
   shouldProceed: boolean;
   overlayHasContent: boolean;
@@ -8,7 +6,6 @@ export type FinalizeGuardResult = {
 };
 
 export const evaluateFinalizeGuards = ({
-  snapshot,
   hasCanvas,
   busy,
   project,
@@ -18,7 +15,6 @@ export const evaluateFinalizeGuards = ({
   isEraserTool,
   drawingCanvasHasContent,
 }: {
-  snapshot: AppState;
   hasCanvas: boolean;
   busy: boolean;
   project: { width: number; height: number } | null;

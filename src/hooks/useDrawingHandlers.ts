@@ -586,11 +586,11 @@ export function useDrawingHandlers({
   const maskManager = useMemo(() => getMaskManager(), []);
   const eraserToolRef = useRef<EraserTool | null>(null);
   const storeRef = useStoreSelectorRef((state: AppState) => state);
-  const resetShapeDragRefs = () => {
+  const resetShapeDragRefs = useCallback(() => {
     shapeDragStartRef.current = null;
     shapeDragLastRef.current = null;
     shapeDragMovedRef.current = false;
-  };
+  }, []);
 
   const triggerSimpleShapePreview = useCallback(() => {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -606,10 +606,6 @@ export function useDrawingHandlers({
     simpleShapePreviewRendererRef.current = renderer;
   }, []);
 
-  const getDesiredColorCyclePlaying = useCallback(
-    () => selectColorCycleDesiredPlaying(storeRef.current),
-    [storeRef]
-  );
   const getEffectiveColorCyclePlaying = useCallback(
     () => selectEffectiveColorCyclePlaying(storeRef.current),
     [storeRef]
@@ -635,7 +631,7 @@ export function useDrawingHandlers({
         logError,
         finalizeLane: HISTORY_FINALIZE_LANE,
       }),
-    [runIdleAsync, withTiming]
+    [runIdleAsync]
   );
 
   const commitRasterOverlay = useCallback(async (options: CommitRasterOverlayOptions) => {
@@ -645,7 +641,7 @@ export function useDrawingHandlers({
       scheduleHistoryCommit,
       withTiming,
     });
-  }, [captureCanvasToActiveLayer, project, scheduleHistoryCommit, withTiming]);
+  }, [captureCanvasToActiveLayer, project, scheduleHistoryCommit]);
   const eraserRoiRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const createBrushStampSource = useCallback(
     () =>
@@ -676,7 +672,7 @@ export function useDrawingHandlers({
         }
       );
     },
-    [createBrushStampSource, debugWarn, maskManager]
+    [createBrushStampSource, maskManager]
   );
   const extendMaskHealingStroke = useCallback(
     (from: { x: number; y: number }, to: { x: number; y: number }, pressure: number) => {
@@ -859,14 +855,7 @@ export function useDrawingHandlers({
         debugTime,
         debugTimeEnd,
       }),
-    [
-      scheduleDeferredColorCycleSave,
-      captureColorCycleBrushState,
-      perfMark,
-      perfMeasure,
-      debugTime,
-      debugTimeEnd,
-    ]
+    [scheduleDeferredColorCycleSave]
   );
 
 
@@ -1007,11 +996,6 @@ export function useDrawingHandlers({
   }, [
     getEffectiveColorCyclePlaying,
     storeRef,
-    getColorCycleBrushManager,
-    ccGroup,
-    ccGroupEnd,
-    ccLog,
-    dumpLayerFlags,
   ]);
 
   const pauseColorCycleForNonCCInteraction = useCallback((reason: CCReason = 'shape-preview') => {
@@ -1035,7 +1019,7 @@ export function useDrawingHandlers({
       ccGroupEnd,
       ccLog,
     });
-  }, [getEffectiveColorCyclePlaying, storeRef, getColorCycleBrushManager]);
+  }, [getEffectiveColorCyclePlaying, storeRef]);
 
   // Helper: resume previously paused brush-based CC layers
   // NOTE: Currently unused because global playback flow handles resume/restoration.
@@ -1754,16 +1738,15 @@ export function useDrawingHandlers({
     getCCStampTargetCtx,
     scheduleRecompose,
     createBrushStampSource,
-    captureResamplerSingleSampleExternal,
     getColorCycleBrushEraserSettings,
     maskManager,
     renderBrushSamplingPreview,
     getEffectiveColorCyclePlaying,
     ensureOverlayInitialized,
+    ensureActiveColorCycleGradientSlot,
     getBrushHalfSize,
     storeRef,
     beginMaskHealingStroke,
-    captureBrushFromCanvas,
     sampleHexAt,
     sampleColorAt
   ]);
@@ -1916,7 +1899,6 @@ export function useDrawingHandlers({
     const isCCLayerSnapshot = activeLayerSnapshot?.layerType === 'color-cycle';
     const isCCBrushSnapshot = getColorCycleBrushFlags(snapshot.tools.brushSettings).isAny;
     const guardResult = evaluateFinalizeGuardsExternal({
-      snapshot,
       hasCanvas: Boolean(drawingCanvasRef.current),
       busy: isBusyRef?.current ?? false,
       project,
@@ -2300,13 +2282,12 @@ export function useDrawingHandlers({
     endStrokeSession,
     clearStrokeSession,
     scheduleDeferredColorCycleSave,
-    stopContinuousColorCycleAnimation,
     runIdleAsync,
     clearBrushSamplingPreview,
     resetAutoSampleState,
     commitRasterOverlay,
     computeAutoSampleStops,
-    getDesiredColorCyclePlaying,
+    getEffectiveColorCyclePlaying,
     storeRef,
     endMaskHealingStroke,
     scheduleHistoryCommit
@@ -2329,7 +2310,7 @@ export function useDrawingHandlers({
     }
     endMaskHealingStroke();
     resetShapeDragRefs();
-  }, [endMaskHealingStroke]);
+  }, [endMaskHealingStroke, resetShapeDragRefs]);
 
   const clearShapeBeforeSnapshot = useCallback(() => {
     clearShapeBeforeSnapshotExternal({
@@ -2562,54 +2543,29 @@ export function useDrawingHandlers({
     ROI_PADDING_PX,
     FF,
   }), [
-    FF,
-    applyBackdropFromSnapshot,
-    appendSegmentWithDynamicResampling,
-    bindBrushToCanvas,
-    boundingBoxToCaptureRegion,
     brushEngine,
     captureCanvasToActiveLayer,
-    captureColorCycleBrushState,
     capturePendingShapeSnapshot,
-    captureRegionFromPoints,
-    ccLog,
     clearShapeBeforeSnapshot,
-    commitRasterShapeFill,
     computeAutoSampleStops,
-    computeFallbackLinearDirection,
     computeShapePixelSize,
     continueDrawing,
-    createBoundingBox,
-    debugTime,
-    debugTimeEnd,
     drawingCanvasHasContent,
     drawingCanvasRef,
     drawingCtxRef,
-    ensureLayerSnapshotWithRetry,
     finalizeDrawing,
-    finalizeDitherGradientShape,
-    finalizeRasterShapeFill,
-    getColorCycleBrushFlags,
-    getColorCycleBrushManager,
     hadValidShapePressureRef,
-    inflateShapeBeforeSnapshot,
     initDrawingCanvas,
     isBusyRef,
-    isColorCycleLayerWithData,
     lastStablePressureRef,
     latestShapePixelSizeRef,
-    logError,
-    mergeBoundingBox,
     pauseColorCycleForNonCCInteraction,
-    perfMark,
-    perfMeasure,
     project,
     resetAutoSampleState,
     resetPolygonState,
     resetShapeDragRefs,
     resetShapePressureState,
     resumeColorCycleAfterInteraction,
-    runColorCycleShapeFill,
     runIdle,
     sampleColorAt,
     sampleHexAt,
@@ -2622,14 +2578,11 @@ export function useDrawingHandlers({
     storeRef,
     strokeBoundingBoxRef,
     strokeCapturePaddingRef,
-    timeAsync,
-    timeSync,
     toolsRef,
     triggerSimpleShapePreview,
     updateAutoSampledGradient,
     updateDitherGradSamples,
     updateShapePressure,
-    withTiming,
   ]);
 
   const startShapeDrawing = useCallback(

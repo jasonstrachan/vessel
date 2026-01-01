@@ -2,8 +2,31 @@ import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 
 jest.mock('@/stores/useAppStore', () => {
-  const listeners = new Set<(state: any) => void>();
-  const state: any = {
+  type ColorCyclePlayback = { desiredPlaying: boolean; suspendDepth: number };
+  type BrushSettings = { colorCycleSpeed: number; colorCycleFlowMode: string };
+  type MockState = {
+    colorCyclePlayback: ColorCyclePlayback;
+    layers: Array<unknown>;
+    activeLayerId: string | null;
+    selectedLayerIds: string[];
+    tools: { brushSettings: BrushSettings };
+    updateLayer: jest.Mock;
+    setBrushSettings: jest.Mock;
+    playColorCycle: jest.Mock;
+    pauseColorCycle: jest.Mock;
+    forceResumeColorCycle: jest.Mock;
+    colorCycleRuntimeHandlers: Record<string, unknown>;
+  };
+  type Selector<T> = (state: MockState) => T;
+  type StoreHook = {
+    <T>(selector?: Selector<T>): T;
+    getState: () => MockState;
+    setState: (updater: Partial<MockState> | ((state: MockState) => Partial<MockState>)) => void;
+    subscribe: (listener: (state: MockState) => void) => () => void;
+  };
+
+  const listeners = new Set<(state: MockState) => void>();
+  const state: MockState = {
     colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
     layers: [],
     activeLayerId: null,
@@ -17,22 +40,22 @@ jest.mock('@/stores/useAppStore', () => {
     colorCycleRuntimeHandlers: {},
   };
 
-  const useAppStore = ((selector?: (s: any) => any) =>
-    selector ? selector(state) : state) as any;
+  const useAppStore = ((selector?: Selector<unknown>) =>
+    selector ? selector(state) : state) as StoreHook;
   useAppStore.getState = () => state;
-  useAppStore.setState = (updater: any) => {
+  useAppStore.setState = (updater) => {
     const next = typeof updater === 'function' ? updater(state) : updater;
     Object.assign(state, next);
     listeners.forEach((listener) => listener(state));
   };
-  useAppStore.subscribe = (listener: (s: any) => void) => {
+  useAppStore.subscribe = (listener) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
 
-  const selectEffectiveColorCyclePlaying = (s: any) =>
+  const selectEffectiveColorCyclePlaying = (s: MockState) =>
     s.colorCyclePlayback.desiredPlaying && s.colorCyclePlayback.suspendDepth === 0;
-  const selectColorCycleSuspendDepth = (s: any) => s.colorCyclePlayback.suspendDepth;
+  const selectColorCycleSuspendDepth = (s: MockState) => s.colorCyclePlayback.suspendDepth;
 
   return {
     useAppStore,

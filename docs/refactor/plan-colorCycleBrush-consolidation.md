@@ -10,7 +10,7 @@ Reduce multiple overlapping ColorCycle brush implementations into a single prima
 - **Out**: Changes to user-facing behavior or data formats.
 
 ## Current Problem
-Multiple implementations (`ColorCycleBrushCanvas2D`, `ColorCycleBrushOptimized`, `ColorCycleBrush2D`, `ColorCycleBrushSimple`, `ColorCycleBrushPath2D`) create divergence and duplicated fixes. It’s unclear which path is authoritative.
+Formerly multiple implementations (`ColorCycleBrushCanvas2D`, `ColorCycleBrushOptimized`, `ColorCycleBrush2D`, `ColorCycleBrushSimple`, `ColorCycleBrushPath2D`) created divergence and duplicated fixes. This plan consolidates to a single canonical brush.
 
 ## Proposed Target
 - **Single primary brush**: `ColorCycleBrushCanvas2D` (or renamed `ColorCycleBrush`).
@@ -27,20 +27,21 @@ Multiple implementations (`ColorCycleBrushCanvas2D`, `ColorCycleBrushOptimized`,
 ## Migration Steps
 
 1. **Inventory call sites**
-   - Identify where each class is instantiated (prod vs testing).
+   - [x] Identify where each class is instantiated (prod vs testing).
 
 2. **Choose primary implementation**
-   - Keep `ColorCycleBrushCanvas2D` as canonical unless benchmarks dictate otherwise.
+   - [x] Keep `ColorCycleBrushCanvas2D` as canonical unless benchmarks dictate otherwise.
 
 3. **Fold optimized path**
-   - Move `ColorCycleBrushOptimized` settings into the primary brush via config.
+   - [x] Move `ColorCycleBrushOptimized` settings into the primary brush via config.
+   - [x] Expose perf flags (`useWebWorkers`, etc.) for parity, even when some are no-ops today.
 
 4. **Deprecate/remove legacy classes**
-   - Delete or mark as deprecated after re‑routing.
-   - Update tests/benchmarks to use primary brush.
+   - [x] Delete or mark as deprecated after re‑routing.
+   - [x] Update tests/benchmarks to use primary brush.
 
 5. **Update migration shim**
-   - `createColorCycleBrush` returns only the primary implementation.
+   - [x] `createColorCycleBrush` returns only the primary implementation.
 
 ---
 

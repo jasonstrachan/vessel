@@ -3,11 +3,16 @@
  * Compares optimized implementation against baseline
  */
 
-import { ColorCycleBrushOptimized } from '../hooks/brushEngine/ColorCycleBrushOptimized';
 import { ColorCycleBrushCanvas2D } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
 
 
-type PerformanceFeatureStats = ReturnType<ColorCycleBrushOptimized['getPerformanceStats']>;
+type PerformanceFeatureStats = {
+  useOffscreenCanvas: boolean;
+  useWebWorkers: boolean;
+  useWASM: boolean;
+  useImageBitmap: boolean;
+  usePerceptualDitherWorker: boolean;
+};
 
 type RenderingPerformanceDetails = {
   iterations: number;
@@ -148,12 +153,14 @@ export class PerformanceEnhancementsTest {
     const baselineTime = performance.now() - baselineStart;
     
     // Optimized implementation with all features
-    const optimized = new ColorCycleBrushOptimized(canvas2, {
+    const optimizedOptions: PerformanceFeatureStats = {
       useOffscreenCanvas: true,
       useWebWorkers: true,
       useWASM: true,
-      useImageBitmap: true
-    });
+      useImageBitmap: true,
+      usePerceptualDitherWorker: true,
+    };
+    const optimized = new ColorCycleBrushCanvas2D(canvas2, optimizedOptions);
     
     await optimized.updateGradient([
       { position: 0, color: 'rgb(255, 0, 0)' },
@@ -188,7 +195,7 @@ export class PerformanceEnhancementsTest {
         iterations,
         totalBaselineTime: baselineTime,
         totalOptimizedTime: optimizedTime,
-        performanceFeatures: optimized.getPerformanceStats()
+        performanceFeatures: optimizedOptions
       }
     });
     
@@ -217,9 +224,14 @@ export class PerformanceEnhancementsTest {
     const baselineTime = performance.now() - baselineStart;
     
     // Optimized with WASM
-    const optimized = new ColorCycleBrushOptimized(canvas2, {
-      useWASM: true
-    });
+    const optimizedOptions: PerformanceFeatureStats = {
+      useOffscreenCanvas: true,
+      useWebWorkers: true,
+      useWASM: true,
+      useImageBitmap: true,
+      usePerceptualDitherWorker: true,
+    };
+    const optimized = new ColorCycleBrushCanvas2D(canvas2, optimizedOptions);
     optimized.setBrushSize(20);
     
     // Wait for WASM initialization
@@ -288,13 +300,14 @@ export class PerformanceEnhancementsTest {
     const baselineFPS = (baselineFrames / duration) * 1000;
     
     // Optimized
-    const optimized = new ColorCycleBrushOptimized(canvas2, {
+    const optimizedOptions: PerformanceFeatureStats = {
       useOffscreenCanvas: true,
       useWebWorkers: true,
       useWASM: true,
       useImageBitmap: true,
-      fps: 60
-    });
+      usePerceptualDitherWorker: true,
+    };
+    const optimized = new ColorCycleBrushCanvas2D(canvas2, { ...optimizedOptions, fps: 60 });
     
     await optimized.updateGradient([
       { position: 0, color: 'rgb(255, 0, 0)' },
@@ -385,12 +398,14 @@ export class PerformanceEnhancementsTest {
     await new Promise(resolve => setTimeout(resolve, 100));
     
     // Optimized
-    const optimized = new ColorCycleBrushOptimized(canvas2, {
+    const optimizedOptions: PerformanceFeatureStats = {
       useOffscreenCanvas: true,
       useWebWorkers: true,
       useWASM: true,
-      useImageBitmap: true
-    });
+      useImageBitmap: true,
+      usePerceptualDitherWorker: true,
+    };
+    const optimized = new ColorCycleBrushCanvas2D(canvas2, optimizedOptions);
     
     await optimized.updateGradient([
       { position: 0, color: 'rgb(255, 0, 0)' },
@@ -455,9 +470,14 @@ export class PerformanceEnhancementsTest {
     const baselineTime = performance.now() - baselineStart;
     
     // Optimized with Web Workers
-    const optimized = new ColorCycleBrushOptimized(canvas2, {
-      useWebWorkers: true
-    });
+    const optimizedOptions: PerformanceFeatureStats = {
+      useOffscreenCanvas: true,
+      useWebWorkers: true,
+      useWASM: true,
+      useImageBitmap: true,
+      usePerceptualDitherWorker: true,
+    };
+    const optimized = new ColorCycleBrushCanvas2D(canvas2, optimizedOptions);
     
     const optimizedStart = performance.now();
     for (let i = 0; i < updates; i++) {

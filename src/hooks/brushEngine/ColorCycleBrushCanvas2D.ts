@@ -21,7 +21,16 @@ import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCyc
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 
-const ENABLE_PERCEPTUAL_DITHER_WORKER = false;
+type ColorCycleBrushCanvas2DOptions = {
+  brushSize?: number;
+  fps?: number;
+  forceCanvas2D?: boolean;
+  useOffscreenCanvas?: boolean;
+  useWebWorkers?: boolean;
+  useWASM?: boolean;
+  useImageBitmap?: boolean;
+  usePerceptualDitherWorker?: boolean;
+};
 
 interface CustomStampInput {
   imageData: ImageData;
@@ -267,12 +276,14 @@ export class ColorCycleBrushCanvas2D {
   private stampDitherBaseTiles: Map<string, Uint8Array> = new Map();
   private stampDitherTiles: Map<string, Uint8Array> = new Map();
   private stampDitherClears: boolean = false;
+  private performanceOptions: Required<
+    Pick<
+      ColorCycleBrushCanvas2DOptions,
+      'useOffscreenCanvas' | 'useWebWorkers' | 'useWASM' | 'useImageBitmap' | 'usePerceptualDitherWorker'
+    >
+  >;
   
-  constructor(canvas: HTMLCanvasElement, options: {
-    brushSize?: number;
-    fps?: number;
-    forceCanvas2D?: boolean;
-  } = {}) {
+  constructor(canvas: HTMLCanvasElement, options: ColorCycleBrushCanvas2DOptions = {}) {
     
     // Validate canvas
     if (!canvas) {
@@ -306,6 +317,13 @@ export class ColorCycleBrushCanvas2D {
     this.compositeCtx.imageSmoothingEnabled = false;
     
     this.forceCanvas2D = options.forceCanvas2D ?? false;
+    this.performanceOptions = {
+      useOffscreenCanvas: options.useOffscreenCanvas ?? true,
+      useWebWorkers: options.useWebWorkers ?? true,
+      useWASM: options.useWASM ?? true,
+      useImageBitmap: options.useImageBitmap ?? true,
+      usePerceptualDitherWorker: options.usePerceptualDitherWorker ?? false,
+    };
 
     // Core settings
     this.brushSize = options.brushSize || 20;
@@ -1682,7 +1700,11 @@ export class ColorCycleBrushCanvas2D {
         const quantLevels = numBands;
         const { css: paletteCss, mapRgbToIndex } = this.buildQuantizedGradientPalette(quantLevels);
         const paletteEntries = paletteEntriesFromMap(mapRgbToIndex);
-        const workerEligible = ENABLE_PERCEPTUAL_DITHER_WORKER && paletteEntries.length > 0 && shouldUseFillWorker(width, height);
+        const workerEligible =
+          this.performanceOptions.useWebWorkers &&
+          this.performanceOptions.usePerceptualDitherWorker &&
+          paletteEntries.length > 0 &&
+          shouldUseFillWorker(width, height);
         if (workerEligible) {
           const pixelBuffer = new Uint8ClampedArray(img.data);
           try {
@@ -2397,7 +2419,10 @@ export class ColorCycleBrushCanvas2D {
         }
       }
 
-      const preferWorker = !this.perceptualDither && shouldUseFillWorker(bbox.width, bbox.height);
+      const preferWorker =
+        this.performanceOptions.useWebWorkers &&
+        !this.perceptualDither &&
+        shouldUseFillWorker(bbox.width, bbox.height);
       if (preferWorker) {
         const workerVertices = new Float32Array(vertices.length * 2);
         for (let i = 0; i < vertices.length; i++) {
@@ -2843,6 +2868,7 @@ export class ColorCycleBrushCanvas2D {
    * Flush any pending renders (API compatible).
    */
   flush(_layerId?: string) {
+    void _layerId;
     this.flushScheduledRender();
   }
 

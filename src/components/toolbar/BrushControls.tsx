@@ -223,7 +223,6 @@ const BrushControls = () => {
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
-  const updateLayer = useAppStore((state) => state.updateLayer);
   const addNotification = useAppStore((state) => state.addNotification);
   const desiredColorCyclePlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
   const playColorCycle = useAppStore(state => state.playColorCycle);
@@ -725,7 +724,7 @@ const BrushControls = () => {
         scheduleFlushFrame();
       }, 80);
     },
-    [scheduleFlushFrame, activeLayerId, activeLayer]
+    [scheduleFlushFrame]
   );
 
   React.useEffect(() => {

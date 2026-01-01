@@ -66,6 +66,7 @@ export const createSelectionHandlers = (
   deps: SelectionHandlerDeps,
   getDynamicDeps: () => SelectionDynamicDeps
 ): SelectionHandlers => {
+  void getDynamicDeps;
   let pendingSelectionHistory: PendingSelectionHistory = null;
 
   const handleSelectionHitTest = ({ worldPos, dynamic }: {

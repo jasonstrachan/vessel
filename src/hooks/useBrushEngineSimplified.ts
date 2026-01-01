@@ -2326,7 +2326,7 @@ export const useBrushEngineSimplified = () => {
         const canvasW = ditherCtx.canvas?.width ?? 0;
         const canvasH = ditherCtx.canvas?.height ?? 0;
         const region = normalizeRectForCanvas(fullBounds, canvasW, canvasH);
-        const { x, y, width, height } = region;
+        const { width, height } = region;
 
         if (width > 0 && height > 0) {
           const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -2427,6 +2427,7 @@ export const useBrushEngineSimplified = () => {
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
     getStrokeDitherPixelSize,
+    tools.brushSettings.fillResolution,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.pressureLinkedFillResolution,
     tools.brushSettings.lostEdge,
@@ -2552,7 +2553,7 @@ export const useBrushEngineSimplified = () => {
         const canvasW = ditherCtx.canvas?.width ?? 0;
         const canvasH = ditherCtx.canvas?.height ?? 0;
         const region = normalizeRectForCanvas(fullBounds, canvasW, canvasH);
-        const { x: rx, y: ry, width: rw, height: rh } = region;
+        const { width: rw, height: rh } = region;
 
         if (rw > 0 && rh > 0) {
           const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -2617,6 +2618,7 @@ export const useBrushEngineSimplified = () => {
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
     getStrokeDitherPixelSize,
+    tools.brushSettings.fillResolution,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.pressureLinkedFillResolution,
     tools.brushSettings.lostEdge,
@@ -2777,6 +2779,7 @@ export const useBrushEngineSimplified = () => {
     clearCoverageMaps,
     applyLostEdgeMaskInRegion,
     ditherRegionWithCurrentPressure,
+    getStrokeDitherPixelSize,
     isPixelDitherNoBg,
     shouldApplyStrokeDither,
     tools.brushSettings.ditherBackgroundFill,
@@ -3833,7 +3836,7 @@ export const useBrushEngineSimplified = () => {
       // Hydrate all layer gradients and set active slot (no global overwrite)
       const storeSnapshot = useAppStore.getState();
       const activeLayer = storeSnapshot.layers.find(l => l.id === activeLayerId);
-      const { gradientDefs, slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
+      const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
         activeLayer,
         tools.brushSettings
       );
@@ -4303,11 +4306,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     initializeColorCycleBrush,
     activeLayerId,
-    tools.brushSettings.colorCycleGradient,
-    tools.brushSettings.gradientBands,
-    tools.brushSettings.brushShape,
-    tools.brushSettings.colorCycleBandSpacingPx,
-    tools.brushSettings.spacing,
+    tools.brushSettings,
   ]);
   
   /**
@@ -4375,10 +4374,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     initializeColorCycleBrush,
     activeLayerId,
-    tools.brushSettings.colorCycleGradient,
-    tools.brushSettings.spacing,
-    tools.brushSettings.gradientBands,
-    tools.brushSettings.colorCycleBandSpacingPx,
+    tools.brushSettings,
   ]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
