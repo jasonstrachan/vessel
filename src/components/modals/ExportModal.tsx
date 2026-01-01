@@ -1,19 +1,19 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Palette, RGB, RGBA } from 'gifenc';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
-import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither';
+import type { DitherMethod } from '@/utils/gifDither';
 import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
 import { LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
 import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
-import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
+import { estimateExport, runExport } from '@/utils/export/exportService';
+import type { FrameProvider } from '@/utils/export/types';
 import type { Layer, WebGLExportBundleFormat } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
@@ -117,21 +117,6 @@ interface ExportModalProps {
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
-  // Normalize a loose number[][] palette to a gifenc Palette (RGB[] or RGBA[])
-  const toGifPalette = (p: number[][]): Palette => {
-    if (p.length === 0) return [] as RGB[];
-    const hasAlpha = p.some((c) => c.length >= 4);
-    if (hasAlpha) {
-      return p.map((c) => [c[0] | 0, c[1] | 0, c[2] | 0, (c[3] ?? 255) | 0] as RGBA) as RGBA[];
-    }
-    return p.map((c) => [c[0] | 0, c[1] | 0, c[2] | 0] as RGB) as RGB[];
-  };
-
-  const toRgbaEntries = (entries: number[][]): number[][] => (
-    entries.map((entry) => (
-      entry.length === 4 ? entry.slice(0, 4) : [entry[0], entry[1], entry[2], 255]
-    ))
-  );
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
 
@@ -193,12 +178,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const cancelRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+  const exportAbortRef = useRef<AbortController | null>(null);
   // Estimation (pre-export)
   const [isEstimating, setIsEstimating] = useState(false);
   const [gifEstimatedPalette, setGifEstimatedPalette] = useState<number | null>(null);
   const [gifEstimatedSize, setGifEstimatedSize] = useState<number | null>(null);
-  const estimateCancelRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+  const estimateAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -507,213 +492,167 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     return sanitized || 'Vessel';
   }, [exportKind, project?.name, webglHtmlTitle]);
 
-  const composeBaseCanvas = (): HTMLCanvasElement => {
-    const base = document.createElement('canvas');
-    const w = project?.width || 1;
-    const h = project?.height || 1;
-    base.width = w;
-    base.height = h;
-    if (compositeLayersToCanvas) {
-      compositeLayersToCanvas(base);
+  const frameProvider = useMemo<FrameProvider>(() => ({
+    getDimensions: () => ({
+      width: project?.width || 1,
+      height: project?.height || 1
+    }),
+    compositeToCanvas: (canvas) => {
+      if (compositeLayersToCanvas) {
+        compositeLayersToCanvas(canvas);
+      }
+    },
+    beginAnimationSession: ({ fps, kind }) => {
+      const recolorManager = RecolorManager.getInstance();
+      const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
+
+      if (kind !== 'estimate') {
+        try {
+          const store = useAppStore.getState();
+          for (const layer of store.layers) {
+            if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+              const brush = store.getLayerColorCycleBrush(layer.id);
+              const wasPlaying = !!(brush && brush.isPlaying && brush.isPlaying());
+              const wasAnimating = !!layer.colorCycleData.isAnimating;
+              originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
+              if (!wasAnimating) {
+                store.updateLayer(layer.id, {
+                  colorCycleData: {
+                    ...layer.colorCycleData,
+                    isAnimating: true
+                  }
+                });
+              }
+              if (brush) {
+                try {
+                  brush.setFPS(fps);
+                } catch {}
+                if (brush.setPlaying) brush.setPlaying(false);
+              }
+            }
+          }
+          if (kind === 'gif') {
+            try { recolorManager.setFPS(fps); } catch {}
+          }
+        } catch {}
+      }
+
+      const stepFrame = ({ frameIndex, totalFrames, useAbsolutePhase }: { frameIndex: number; totalFrames: number; useAbsolutePhase: boolean }) => {
+        try {
+          const store = useAppStore.getState();
+          const phase = useAbsolutePhase ? (frameIndex / totalFrames) : null;
+          for (const layer of store.layers) {
+            if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
+              if (useAbsolutePhase && phase !== null) {
+                recolorManager.setPhase(layer, phase);
+              } else {
+                recolorManager.updateAnimation(layer);
+              }
+            }
+          }
+          for (const layer of store.layers) {
+            if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
+              const brush = store.getLayerColorCycleBrush(layer.id);
+              if (!brush) continue;
+              if (useAbsolutePhase && phase !== null) {
+                brush.setPhase(phase);
+              } else {
+                brush.updateAnimation();
+              }
+            }
+          }
+        } catch {}
+      };
+
+      const advanceFrame = () => {
+        try {
+          const store = useAppStore.getState();
+          for (const layer of store.layers) {
+            if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
+              recolorManager.updateAnimation(layer);
+            }
+          }
+        } catch {}
+      };
+
+      const finish = () => {
+        if (kind === 'estimate') return;
+        try {
+          const store = useAppStore.getState();
+          for (const st of originalStates) {
+            const layer = store.layers.find((l) => l.id === st.layerId);
+            if (!layer) continue;
+            if (!st.wasAnimating && layer.colorCycleData) {
+              store.updateLayer(layer.id, {
+                colorCycleData: {
+                  ...layer.colorCycleData,
+                  isAnimating: false
+                }
+              });
+            }
+            const brush = store.getLayerColorCycleBrush(layer.id);
+            try {
+              const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
+              if (brush) {
+                brush.setFPS(fps0);
+              }
+            } catch {}
+            if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
+          }
+        } catch {}
+      };
+
+      return { stepFrame, advanceFrame, finish };
     }
-    return base;
-  };
+  }), [compositeLayersToCanvas, project?.height, project?.width]);
 
   // Estimate palette size and approximate file size before export
   useEffect(() => {
     if (!isOpen || exportKind !== 'gif') return;
     if (isExporting) return;
-    estimateCancelRef.current.cancelled = false;
     setIsEstimating(true);
     setGifEstimatedPalette(null);
     setGifEstimatedSize(null);
 
     const handle = setTimeout(async () => {
+      const controller = new AbortController();
+      estimateAbortRef.current = controller;
       try {
-        const { GIFEncoder, quantize, applyPalette } = await import('gifenc/dist/gifenc.esm.js');
-        const fps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
-        const total = Math.max(1, Math.round((gifAutoFrames ? autoFrameSuggestion.duration : gifDuration) * fps));
-        const sampleFrames = Math.max(1, Math.min(3, total));
-        const sampleIndices = new Set<number>();
-        if (sampleFrames === 1) sampleIndices.add(0);
-        else if (sampleFrames === 2) { sampleIndices.add(0); sampleIndices.add(total - 1); }
-        else { sampleIndices.add(0); sampleIndices.add(Math.floor(total / 2)); sampleIndices.add(total - 1); }
-
-        // Canvases
-        const base = document.createElement('canvas');
-        base.width = project?.width || 1;
-        base.height = project?.height || 1;
-        const scaledW = Math.max(1, Math.floor(base.width * scale));
-        const scaledH = Math.max(1, Math.floor(base.height * scale));
-        const scaled = document.createElement('canvas');
-        scaled.width = scaledW; scaled.height = scaledH;
-        const sctx = scaled.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-        if (!sctx) throw new Error('No 2D context for estimate');
-
-        const frames: ImageData[] = [];
-        const usedRGB = new Set<number>();
-        let usesTransparency = false;
-        const ALPHA_THRESHOLD = 16;
-
-        const recolorManager = RecolorManager.getInstance();
-        const advanceRecolor = () => {
-          try {
-            const store = useAppStore.getState();
-            for (const layer of store.layers) {
-              if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
-                recolorManager.updateAnimation(layer);
-              }
-            }
-          } catch {}
-        };
-
-        let captured = 0;
-        for (let i = 0; i < total; i++) {
-          if (estimateCancelRef.current.cancelled) return;
-          if (sampleIndices.has(i)) {
-            const store2 = useAppStore.getState();
-            const useAbsolutePhase = gifAutoFrames; // Always drive by absolute phase when Perfect Loop is enabled
-            const phase = useAbsolutePhase ? (i / total) : null;
-            // Advance recolor-mode layers deterministically for estimates
-            try {
-              for (const layer of store2.layers) {
-                if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
-                  if (useAbsolutePhase && phase !== null) {
-                    recolorManager.setPhase(layer, phase);
-                  } else {
-                    recolorManager.updateAnimation(layer);
-                  }
-                }
-              }
-            } catch {}
-            // Advance brush-mode layers deterministically for estimates
-            try {
-              for (const layer of store2.layers) {
-                if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
-                  const brush = store2.getLayerColorCycleBrush(layer.id);
-                  if (brush) {
-                    if (useAbsolutePhase && phase !== null) {
-                      brush.setPhase(phase);
-                    } else {
-                      brush.updateAnimation();
-                    }
-                  }
-                }
-              }
-            } catch {}
-            compositeLayersToCanvas(base);
-            sctx.imageSmoothingEnabled = true;
-            sctx.imageSmoothingQuality = 'high';
-            sctx.drawImage(base, 0, 0, scaledW, scaledH);
-            const img = sctx.getImageData(0, 0, scaledW, scaledH);
-            frames.push(img);
-            const data = img.data;
-            for (let p = 0; p < data.length; p += 4) {
-              const a = data[p + 3];
-              if (a <= ALPHA_THRESHOLD) { usesTransparency = true; continue; }
-              usedRGB.add((data[p] << 16) | (data[p + 1] << 8) | data[p + 2]);
-            }
-            captured++;
-            if (captured >= sampleFrames) break;
+        const result = await estimateExport({
+          kind: 'gif',
+          scale,
+          frameProvider,
+          options: {
+            fps: gifFps,
+            durationSeconds: gifDuration,
+            repeat: gifRepeat,
+            autoFrames: gifAutoFrames,
+            suggestedTotalFrames: autoFrameSuggestion.frames,
+            frameStep: gifFrameStep,
+            ditherMethod: gifDitherMethod,
+            ditherStrength: gifDitherStrength,
+            maxColors: gifMaxColors,
+            autoColors: gifAutoColors,
           }
-          advanceRecolor();
-        }
-
-        // Palette build (estimated)
-        const needTransparentSlot = usesTransparency;
-        const manualTarget = gifMaxColors;
-        const targetSize = gifAutoColors ? 256 : manualTarget;
-        let palette: number[][] = [];
-        const candidateCount = usedRGB.size + (needTransparentSlot ? 1 : 0);
-        if (gifAutoColors && candidateCount <= 256) {
-          if (needTransparentSlot) palette.push([0, 0, 0, 0]);
-          for (const rgb of usedRGB) {
-            const r = (rgb >> 16) & 255; const g = (rgb >> 8) & 255; const b = rgb & 255;
-            palette.push([r, g, b, 255]);
-          }
-        } else {
-          const target = needTransparentSlot ? targetSize - 1 : targetSize;
-          const targetSamples = 120_000;
-          const totalPix = frames.reduce((acc, f) => acc + (f.width * f.height), 0);
-          const stride = Math.max(1, Math.floor(totalPix / targetSamples));
-          const approxLen = frames.reduce((acc, f) => acc + Math.ceil((f.data.length) / stride), 0);
-          const buf = new Uint8Array(approxLen);
-          let w = 0;
-          for (const f of frames) {
-            const arr = f.data;
-            for (let i = 0; i < arr.length; i += 4 * stride) {
-              const a = arr[i + 3]; if (a <= ALPHA_THRESHOLD) continue;
-              if (w + 4 > buf.length) break;
-              buf[w++] = arr[i]; buf[w++] = arr[i + 1]; buf[w++] = arr[i + 2]; buf[w++] = a;
-            }
-          }
-          const sampleBuf = w ? buf.slice(0, w) : new Uint8Array([0,0,0,255]);
-          const q = quantize(sampleBuf, Math.max(1, target), { format: 'rgb565' }) as number[][];
-          const quantizedPalette = toRgbaEntries(q);
-          palette = needTransparentSlot ? [[0, 0, 0, 0], ...quantizedPalette] : quantizedPalette;
-          // If user selected a manual size, force exact palette length
-          if (!gifAutoColors) {
-            const desired = targetSize;
-            if (palette.length < desired) {
-              const fill = palette.find((c) => c.length < 4 || c[3] !== 0) || [0, 0, 0, 255];
-              while (palette.length < desired) {
-                const f = fill.length === 3 ? [fill[0], fill[1], fill[2], 255] : fill.slice(0, 4);
-                palette.push(f);
-              }
-            } else if (palette.length > desired) {
-              palette = palette.slice(0, desired);
-            }
-          }
-        }
-        setGifEstimatedPalette(palette.length);
-
-        // Size estimate
-        try {
-          const enc = GIFEncoder();
-          const tIndex = palette.findIndex((c) => (c.length >= 4 && c[3] === 0));
-          for (const img of frames) {
-            let index: Uint8Array;
-            if (gifDitherMethod === 'none') {
-              index = applyPalette(img.data, toGifPalette(palette));
-              if (tIndex >= 0) {
-                for (let p = 0, px = 0; p < img.data.length; p += 4, px++) {
-                  if (img.data[p + 3] <= 16) index[px] = tIndex;
-                }
-              }
-            } else {
-              index = mapToIndexedWithDithering(
-                img.data, scaledW, scaledH, palette,
-                { method: gifDitherMethod, strength: gifDitherStrength, alphaThreshold: 16 }
-              );
-            }
-            enc.writeFrame(index, scaledW, scaledH, {
-              palette: toGifPalette(palette),
-              delay: Math.round(1000 / fps),
-              repeat: gifRepeat,
-              transparentIndex: tIndex >= 0 ? tIndex : undefined,
-            });
-          }
-          enc.finish();
-          const size = enc.bytes().length;
-          const est = Math.max(1, Math.round(size * (total / Math.max(1, frames.length))));
-          setGifEstimatedSize(est);
-        } catch {
-          setGifEstimatedSize(null);
-        }
+        }, controller.signal);
+        if (controller.signal.aborted) return;
+        setGifEstimatedPalette(result.paletteSize);
+        setGifEstimatedSize(result.estimatedBytes);
       } catch {
         // ignore
       } finally {
-        setIsEstimating(false);
+        if (estimateAbortRef.current === controller) {
+          setIsEstimating(false);
+        }
       }
     }, 250);
 
-    const cancelToken = estimateCancelRef.current;
     return () => {
-      cancelToken.cancelled = true;
       clearTimeout(handle);
+      estimateAbortRef.current?.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, exportKind, gifFps, gifDuration, gifRepeat, gifAutoFrames, gifDitherMethod, gifDitherStrength, gifFrameStep, gifMaxColors, gifAutoColors, scale, project?.width, project?.height, autoFrameSuggestion.duration]);
+  }, [isOpen, exportKind, gifFps, gifDuration, gifRepeat, gifAutoFrames, gifDitherMethod, gifDitherStrength, gifFrameStep, gifMaxColors, gifAutoColors, scale, project?.width, project?.height, autoFrameSuggestion.frames]);
 
   const formatBytes = (bytes: number): string => {
     if (!Number.isFinite(bytes) || bytes < 0) return '—';
@@ -722,19 +661,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     let u = 0;
     while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
     return `${v.toFixed(u === 0 ? 0 : v < 10 ? 2 : 1)} ${units[u]}`;
-  };
-
-  const drawScaled = (src: HTMLCanvasElement, scaleFactor: number): HTMLCanvasElement => {
-    if (scaleFactor === 1) return src;
-    const dst = document.createElement('canvas');
-    dst.width = Math.max(1, Math.floor(src.width * scaleFactor));
-    dst.height = Math.max(1, Math.floor(src.height * scaleFactor));
-    const dctx = dst.getContext('2d', { colorSpace: 'srgb' });
-    if (!dctx) return src;
-    dctx.imageSmoothingEnabled = true;
-    dctx.imageSmoothingQuality = 'high';
-    dctx.drawImage(src, 0, 0, dst.width, dst.height);
-    return dst;
   };
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -748,557 +674,112 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     URL.revokeObjectURL(url);
   };
 
-  async function exportPNG() {
-    const base = composeBaseCanvas();
-    const scaled = drawScaled(base, scale);
-    const includeBg = pngIncludeBg;
-
-    // If background should be transparent off, paint background color on a copy
-    let finalCanvas = scaled;
-    if (includeBg && project?.backgroundColor && project.backgroundColor !== 'transparent') {
-      const withBg = document.createElement('canvas');
-      withBg.width = scaled.width;
-      withBg.height = scaled.height;
-      const bgctx = withBg.getContext('2d', { colorSpace: 'srgb' });
-      if (bgctx) {
-        bgctx.fillStyle = project.backgroundColor;
-        bgctx.fillRect(0, 0, withBg.width, withBg.height);
-        bgctx.drawImage(scaled, 0, 0);
-        finalCanvas = withBg;
-      }
-    }
-    const quality = Math.max(0.1, Math.min(1, pngQuality));
-    return new Promise<void>((resolve, reject) => {
-      finalCanvas.toBlob(
-        (blob) => {
-          if (!blob) return reject(new Error('Failed to create PNG'));
-          downloadBlob(blob, `${filenameBase}@${scale}x.png`);
-          resolve();
-        },
-        'image/png',
-        quality
-      );
-    });
-  }
-
-  async function exportGIF() {
-    const effectiveFps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
-    let totalFrames = Math.max(1, Math.round(gifDuration * effectiveFps));
-    cancelRef.current.cancelled = false;
-    setProgress(0);
-    setGifPaletteCount(null);
-
-    // Dynamically import gifenc (ESM build) to avoid dev chunk 404s
-    // Prefer explicit ESM path for reliable bundling
-    const { GIFEncoder, quantize, applyPalette } = await import('gifenc/dist/gifenc.esm.js');
-
-    // We'll render to base size then scale for encoding
-    const base = document.createElement('canvas');
-    base.width = project?.width || 1;
-    base.height = project?.height || 1;
-    const scaledW = Math.max(1, Math.floor(base.width * scale));
-    const scaledH = Math.max(1, Math.floor(base.height * scale));
-    const scaled = document.createElement('canvas');
-    scaled.width = scaledW;
-    scaled.height = scaledH;
-    const sctx = scaled.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-    if (!sctx) throw new Error('No canvas context for GIF export');
-
-    const gif = GIFEncoder();
-
-    // If requested and color-cycling exists, adjust frames for a perfect loop
-    try {
-      const st0 = useAppStore.getState();
-      const hasAnyCC = st0.layers.some(l => l.layerType === 'color-cycle');
-      const useAutoFrames = gifAutoFrames && hasAnyCC;
-      if (useAutoFrames) {
-        totalFrames = autoFrameSuggestion.frames;
-      }
-    } catch {}
-
-    // Prepare recolor animation (if any recolor-mode layers)
-    const recolorManager = RecolorManager.getInstance();
-    try { recolorManager.setFPS(effectiveFps); } catch {}
-
-    // Attempt to ensure color-cycle layers are animating during export
-    const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
-    try {
-      const store = useAppStore.getState();
-      for (const layer of store.layers) {
-        if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
-          const brush = store.getLayerColorCycleBrush(layer.id);
-          const wasPlaying = !!(brush && brush.isPlaying && brush.isPlaying());
-          const wasAnimating = !!layer.colorCycleData.isAnimating;
-          originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
-          // Ensure recolor-mode layers advance deterministically
-          if (!wasAnimating) {
-            store.updateLayer(layer.id, {
-              colorCycleData: {
-                ...layer.colorCycleData,
-                isAnimating: true
-              }
-            });
-          }
-          // Sync brush FPS and pause internal RAF; we'll step it manually per captured frame
-          try {
-            if (brush) {
-              brush.setFPS(effectiveFps);
-            }
-          } catch {}
-          if (brush && brush.setPlaying) brush.setPlaying(false);
-        }
-      }
-    } catch {}
-
-    // First pass: capture frames and discover all colors used across the animation
-    // This ensures we include every color actually used, no more, no less (<=256 limit)
-    const frames: ImageData[] = [];
-    const usedRGB = new Set<number>();
-    let usesTransparency = false;
-    const ALPHA_THRESHOLD = 16;
-
-    for (let i = 0; i < totalFrames; i++) {
-      if (cancelRef.current.cancelled) break;
-      const store = useAppStore.getState();
-      const useAbsolutePhase = gifAutoFrames; // Always drive by absolute phase when Perfect Loop is enabled
-      const phase = useAbsolutePhase ? (i / totalFrames) : null;
-      // Advance recolor-mode layers (absolute phase when perfect loop found)
-      try {
-        for (const layer of store.layers) {
-          if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
-            if (useAbsolutePhase && phase !== null) {
-              recolorManager.setPhase(layer, phase);
-            } else {
-              recolorManager.updateAnimation(layer);
-            }
-          }
-        }
-      } catch {}
-
-      // Drive brush-mode CC layers (absolute phase when Perfect Loop is enabled)
-      try {
-        for (const layer of store.layers) {
-          if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
-            const brush = store.getLayerColorCycleBrush(layer.id);
-            if (!brush) continue;
-            if (useAbsolutePhase && phase !== null) {
-              brush.setPhase(phase);
-            } else {
-              brush.updateAnimation();
-            }
-          }
-        }
-      } catch {}
-
-      // Composite current frame
-      compositeLayersToCanvas(base);
-      // Scale draw
-      sctx.imageSmoothingEnabled = true;
-      sctx.imageSmoothingQuality = 'high';
-      sctx.drawImage(base, 0, 0, scaledW, scaledH);
-
-      const frame = sctx.getImageData(0, 0, scaledW, scaledH);
-      frames.push(frame);
-
-      // Accumulate unique RGB colors (ignore fully/mostly transparent)
-      const data = frame.data;
-      for (let p = 0; p < data.length; p += 4) {
-        const a = data[p + 3];
-        if (a <= ALPHA_THRESHOLD) { usesTransparency = true; continue; }
-        const r = data[p];
-        const g = data[p + 1];
-        const b = data[p + 2];
-        usedRGB.add((r << 16) | (g << 8) | b);
-        // Early bail if clearly over the GIF limit (keep scanning for progress but don't rely on exact set size)
-        if (usedRGB.size > 512) {
-          // No need to track beyond this for performance; palette will be quantized later
-          // but we still record frames for the second pass
-          // Do nothing extra here
-        }
-      }
-
-      setProgress(Math.round((((i + 1) / totalFrames) * 100) * 0.5)); // 0-50% during analysis pass
-      // Step time – allow animations to advance roughly per frame
-      await new Promise((r) => setTimeout(r, Math.max(0, Math.floor(1000 / effectiveFps))));
-    }
-
-    // Build the final palette
-    let fixedPalette: number[][] = [];
-    const needTransparentSlot = usesTransparency;
-    const colorCountCandidate = usedRGB.size + (needTransparentSlot ? 1 : 0);
-    const MAX_GIF_COLORS = 256;
-
-    const buildSampleBuffer = (): Uint8Array => {
-      // Build a sampling buffer across frames to feed into quantize()
-      // Aim for up to ~500k samples to keep perf reasonable
-      const targetSamples = 500_000;
-      const totalPixels = frames.reduce((acc, f) => acc + (f.width * f.height), 0);
-      const stride = Math.max(1, Math.floor(totalPixels / targetSamples));
-      const totalRGBA = frames.reduce((acc, f) => acc + f.data.length, 0);
-      const approxLen = Math.ceil(totalRGBA / stride);
-      const sample = new Uint8Array(approxLen);
-      let w = 0;
-      for (let fi = 0; fi < frames.length; fi++) {
-        const arr = frames[fi].data;
-        for (let i = 0; i < arr.length; i += 4 * stride) {
-          const a = arr[i + 3];
-          if (a <= ALPHA_THRESHOLD) continue; // skip transparent when sampling
-          if (w + 4 > sample.length) break;
-          sample[w++] = arr[i];
-          sample[w++] = arr[i + 1];
-          sample[w++] = arr[i + 2];
-          sample[w++] = a;
-        }
-      }
-      if (w === 0) {
-        // Fallback: sample from discovered unique colors (opaque)
-        const count = Math.max(1, usedRGB.size);
-        const fallback = new Uint8Array(count * 4);
-        let o = 0;
-        if (usedRGB.size > 0) {
-          for (const rgb of usedRGB) {
-            if (o + 4 > fallback.length) break;
-            fallback[o++] = (rgb >> 16) & 255;
-            fallback[o++] = (rgb >> 8) & 255;
-            fallback[o++] = rgb & 255;
-            fallback[o++] = 255;
-          }
-        } else {
-          // Last resort: a single black opaque pixel
-          fallback[0] = 0; fallback[1] = 0; fallback[2] = 0; fallback[3] = 255;
-        }
-        return fallback;
-      }
-      // Important: create a copy so underlying ArrayBuffer length equals w (multiple of 4)
-      // Some libs create Uint32 views over buffer length; subarray's backing buffer may be misaligned.
-      return sample.slice(0, w);
-    };
-
-    if (gifAutoColors) {
-      if (colorCountCandidate <= MAX_GIF_COLORS) {
-        // Exact palette: include every color used, plus transparent index if needed
-        if (needTransparentSlot) fixedPalette.push([0, 0, 0, 0]);
-        for (const rgb of usedRGB) {
-          const r = (rgb >> 16) & 255;
-          const g = (rgb >> 8) & 255;
-          const b = rgb & 255;
-          fixedPalette.push([r, g, b, 255]);
-        }
-        setGifPaletteCount(fixedPalette.length);
-      } else {
-        // Too many colors for GIF; quantize across all frames to 256
-        const sample = buildSampleBuffer();
-        const target = needTransparentSlot ? MAX_GIF_COLORS - 1 : MAX_GIF_COLORS;
-        const q = quantize(sample, target, { format: 'rgb565' }) as number[][];
-        const quantizedPalette = toRgbaEntries(q);
-        fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...quantizedPalette] : quantizedPalette;
-        setGifPaletteCount(fixedPalette.length);
-      }
-    } else {
-      // Manual size selected: quantize across all frames to requested size
-      const sample = buildSampleBuffer();
-      const target = needTransparentSlot ? gifMaxColors - 1 : gifMaxColors;
-      const q = quantize(sample, target, { format: 'rgb565' }) as number[][];
-      const quantizedPalette = toRgbaEntries(q);
-      fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...quantizedPalette] : quantizedPalette;
-      // Force exact palette length to the user-selected size
-      const desired = gifMaxColors;
-      if (fixedPalette.length < desired) {
-        const fill = fixedPalette.find((c) => c.length < 4 || c[3] !== 0) || [0, 0, 0, 255];
-        while (fixedPalette.length < desired) {
-          const f = fill.length === 3 ? [fill[0], fill[1], fill[2], 255] : fill.slice(0, 4);
-          fixedPalette.push(f);
-        }
-      } else if (fixedPalette.length > desired) {
-        fixedPalette = fixedPalette.slice(0, desired);
-      }
-      setGifPaletteCount(fixedPalette.length);
-    }
-
-    const transparentIndex = fixedPalette.findIndex((c) => (c.length >= 4 && c[3] === 0));
-
-    // Second pass: map frames with the fixed palette and write to GIF
-    for (let i = 0; i < frames.length; i++) {
-      if (cancelRef.current.cancelled) break;
-      const frame = frames[i];
-      let index: Uint8Array;
-      if (gifDitherMethod === 'none') {
-        index = applyPalette(frame.data, toGifPalette(fixedPalette));
-        // Ensure transparent pixels are mapped to transparent index explicitly
-        if (transparentIndex >= 0) {
-          const data = frame.data;
-          for (let p = 0, px = 0; p < data.length; p += 4, px++) {
-            if (data[p + 3] <= ALPHA_THRESHOLD) index[px] = transparentIndex;
-          }
-        }
-      } else {
-        index = mapToIndexedWithDithering(
-          frame.data,
-          scaledW,
-          scaledH,
-          fixedPalette,
-          { method: gifDitherMethod, strength: gifDitherStrength, alphaThreshold: ALPHA_THRESHOLD }
-        );
-      }
-      gif.writeFrame(index, scaledW, scaledH, { 
-        palette: toGifPalette(fixedPalette), 
-        delay: Math.round(1000 / effectiveFps), 
-        repeat: gifRepeat,
-        transparentIndex: transparentIndex >= 0 ? transparentIndex : undefined,
-      });
-      setProgress(50 + Math.round(((i + 1) / frames.length) * 50));
-      await new Promise((r) => setTimeout(r, 0));
-    }
-
-    // Restore animation states
-    try {
-      const store = useAppStore.getState();
-      for (const st of originalStates) {
-        const layer = store.layers.find((l) => l.id === st.layerId);
-        if (!layer) continue;
-        if (!st.wasAnimating && layer.colorCycleData) {
-          store.updateLayer(layer.id, {
-            colorCycleData: {
-              ...layer.colorCycleData,
-              isAnimating: false
-            }
-          });
-        }
-        const brush = store.getLayerColorCycleBrush(layer.id);
-        // Restore brush FPS to configured setting
-        try {
-          const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
-          if (brush) {
-            brush.setFPS(fps0);
-          }
-        } catch {}
-        if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
-      }
-    } catch {}
-
-    gif.finish();
-    const bytes = gif.bytes();
-    // Ensure BlobPart is ArrayBuffer-backed to satisfy TS DOM lib types
-    const bytesCopy = new Uint8Array(bytes.length);
-    bytesCopy.set(bytes);
-    const blob = new Blob([bytesCopy], { type: 'image/gif' });
-    downloadBlob(blob, `${filenameBase}@${scale}x.gif`);
-  }
-
-  async function exportWebGL() {
-    if (!project) {
-      throw new Error('No project available for export');
-    }
-
-    const layoutConfig = project.exportLayout ?? createDefaultExportLayout();
-    const fps = Math.max(1, Math.floor(webglFps));
-
-    const viewportMode: 'fill' | 'fixed' = webglViewportPreset === 'fill' ? 'fill' : 'fixed';
-    const viewport = {
-      designWidth: project?.width ?? 1024,
-      designHeight: project?.height ?? 1024,
-      mode: viewportMode
-    };
-
-    const metadata = await exportProjectAsWebGL({
-      project,
-      layers,
-      layout: layoutConfig,
-      viewport,
-      fps,
-      totalFrames: webglTotalFrames,
-      durationSeconds: webglEffectiveDuration,
-      perfectLoop: webglAutoFrames,
-      includeHiddenLayers: webglIncludeHidden,
-      embedCanvasFallback: webglEmbedFallback,
-      minify: webglMinify,
-      filenameBase,
-      bundleFormat: webglBundleFormat,
-      enableGobletDiagnostics: webglEnableDiagnostics,
-      compositeLayersToCanvas,
-      htmlTitle: webglHtmlTitle
-    });
-
-    setProgress(100);
-    addNotification({
-      type: 'success',
-      title: 'Goblet bundle saved',
-      message: `Exported ${metadata.layers.length} layer${metadata.layers.length === 1 ? '' : 's'} to ${BUNDLE_FORMAT_LABELS[webglBundleFormat]}`,
-      timestamp: new Date(),
-      duration: 5000
-    });
-  }
-
-  async function exportVideo() {
-    // Prepare canvases
-    const base = document.createElement('canvas');
-    base.width = project?.width || 1;
-    base.height = project?.height || 1;
-    const scaled = document.createElement('canvas');
-    scaled.width = Math.max(1, Math.floor(base.width * scale));
-    scaled.height = Math.max(1, Math.floor(base.height * scale));
-    const sctx = scaled.getContext('2d', { colorSpace: 'srgb' });
-    if (!sctx) throw new Error('No canvas context for video export');
-
-    // Choose a supported mime type
-    const preferredTypes = [
-      videoMime + ';codecs=avc1.42E01E', // mp4 (may fail in many browsers)
-      videoMime,
-      'video/webm;codecs=vp9',
-      'video/webm;codecs=vp8',
-      'video/webm'
-    ];
-    let mime: string | undefined;
-    const mediaRecorderCtor = (window as typeof window & { MediaRecorder?: typeof MediaRecorder }).MediaRecorder;
-    for (const t of preferredTypes) {
-      if (mediaRecorderCtor && typeof mediaRecorderCtor.isTypeSupported === 'function' && mediaRecorderCtor.isTypeSupported(t)) {
-        mime = t;
-        break;
-      }
-    }
-    if (!mime) mime = 'video/webm;codecs=vp8';
-
-    const stream = typeof scaled.captureStream === 'function' ? scaled.captureStream(videoFps) : null;
-    if (!stream) throw new Error('Canvas captureStream not supported');
-
-    const chunks: BlobPart[] = [];
-    const recorder = new MediaRecorder(stream, {
-      mimeType: mime,
-      videoBitsPerSecond: Math.max(1000, videoBitrate * 1000),
-    } as MediaRecorderOptions);
-
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-
-    const totalFrames = Math.max(1, Math.round(videoDuration * videoFps));
-    cancelRef.current.cancelled = false;
-    setProgress(0);
-
-    // Try to ensure animations are running
-    const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
-    try {
-      const store = useAppStore.getState();
-      for (const layer of store.layers) {
-        if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
-          const brush = store.getLayerColorCycleBrush(layer.id);
-          const wasPlaying = !!(brush && brush.isPlaying && brush.isPlaying());
-          const wasAnimating = !!layer.colorCycleData.isAnimating;
-          originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
-          if (!wasAnimating) {
-            store.updateLayer(layer.id, {
-              colorCycleData: {
-                ...layer.colorCycleData,
-                isAnimating: true
-              }
-            });
-          }
-          // Sync brush FPS to video FPS during export
-          try {
-            if (brush) {
-              brush.setFPS(videoFps);
-            }
-          } catch {}
-          // Let MediaRecorder loop drive timing; pause internal RAF for determinism
-          if (brush && brush.setPlaying) brush.setPlaying(false);
-        }
-      }
-    } catch {}
-
-    await new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
-      recorder.start();
-      let frame = 0;
-      const interval = Math.max(0, Math.floor(1000 / videoFps));
-      const tick = async () => {
-        if (cancelRef.current.cancelled || frame >= totalFrames) {
-          recorder.stop();
-          return;
-        }
-        // Advance recolor-mode layers one step
-        try {
-          const rm = RecolorManager.getInstance();
-          const store = useAppStore.getState();
-          for (const layer of store.layers) {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
-              rm.updateAnimation(layer);
-            }
-          }
-        } catch {}
-
-        // Drive brush-mode CC layers exactly one step per captured frame
-        try {
-          const store = useAppStore.getState();
-          for (const layer of store.layers) {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
-              const brush = store.getLayerColorCycleBrush(layer.id);
-              if (brush) {
-                brush.updateAnimation();
-              }
-            }
-          }
-        } catch {}
-
-        // Render current frame
-        compositeLayersToCanvas(base);
-        sctx.imageSmoothingEnabled = true;
-        sctx.imageSmoothingQuality = 'high';
-        sctx.drawImage(base, 0, 0, scaled.width, scaled.height);
-        frame++;
-        setProgress(Math.round((frame / totalFrames) * 100));
-        setTimeout(tick, interval);
-      };
-      setTimeout(tick, 0);
-    });
-
-    // Restore animation states
-    try {
-      const store = useAppStore.getState();
-      for (const st of originalStates) {
-        const layer = store.layers.find((l) => l.id === st.layerId);
-        if (!layer) continue;
-        if (!st.wasAnimating && layer.colorCycleData) {
-          store.updateLayer(layer.id, {
-            colorCycleData: {
-              ...layer.colorCycleData,
-              isAnimating: false
-            }
-          });
-        }
-        const brush = store.getLayerColorCycleBrush(layer.id);
-        // Restore brush FPS to configured setting
-        try {
-          const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
-          if (brush) {
-            brush.setFPS(fps0);
-          }
-        } catch {}
-        if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
-      }
-    } catch {}
-
-    const blob = new Blob(chunks, { type: recorder.mimeType });
-    const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
-    downloadBlob(blob, `${filenameBase}@${scale}x.${ext}`);
-  }
-
   const handleExport = async () => {
     if (!project) return;
     setIsExporting(true);
-    cancelRef.current.cancelled = false;
     setProgress(0);
+    setGifPaletteCount(null);
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
     try {
-      if (exportKind === 'png') await exportPNG();
-      else if (exportKind === 'gif') await exportGIF();
-      else if (exportKind === 'webgl') await exportWebGL();
-      else await exportVideo();
+      const request = exportKind === 'png'
+        ? {
+          kind: 'png' as const,
+          filenameBase,
+          scale,
+          frameProvider,
+          options: {
+            quality: pngQuality,
+            includeBackground: pngIncludeBg,
+            backgroundColor: project.backgroundColor,
+          }
+        }
+        : exportKind === 'gif'
+          ? {
+            kind: 'gif' as const,
+            filenameBase,
+            scale,
+            frameProvider,
+            options: {
+              fps: gifFps,
+              durationSeconds: gifDuration,
+              repeat: gifRepeat,
+              autoFrames: gifAutoFrames,
+              suggestedTotalFrames: autoFrameSuggestion.frames,
+              frameStep: gifFrameStep,
+              ditherMethod: gifDitherMethod,
+              ditherStrength: gifDitherStrength,
+              maxColors: gifMaxColors,
+              autoColors: gifAutoColors,
+            }
+          }
+          : exportKind === 'webgl'
+            ? {
+              kind: 'webgl' as const,
+              filenameBase,
+              options: {
+                request: {
+                  project,
+                  layers,
+                  layout: project.exportLayout ?? createDefaultExportLayout(),
+                  viewport: {
+                    designWidth: project?.width ?? 1024,
+                    designHeight: project?.height ?? 1024,
+                    mode: (webglViewportPreset === 'fill' ? 'fill' : 'fixed') as 'fill' | 'fixed'
+                  },
+                  fps: Math.max(1, Math.floor(webglFps)),
+                  totalFrames: webglTotalFrames,
+                  durationSeconds: webglEffectiveDuration,
+                  perfectLoop: webglAutoFrames,
+                  includeHiddenLayers: webglIncludeHidden,
+                  embedCanvasFallback: webglEmbedFallback,
+                  minify: webglMinify,
+                  filenameBase,
+                  bundleFormat: webglBundleFormat,
+                  enableGobletDiagnostics: webglEnableDiagnostics,
+                  compositeLayersToCanvas,
+                  htmlTitle: webglHtmlTitle
+                },
+                bundleFormat: webglBundleFormat,
+                htmlTitle: webglHtmlTitle
+              }
+            }
+            : {
+              kind: 'video' as const,
+              filenameBase,
+              scale,
+              frameProvider,
+              options: {
+                fps: videoFps,
+                durationSeconds: videoDuration,
+                mimeType: videoMime,
+                bitrateKbps: videoBitrate
+              }
+            };
+
+      const result = await runExport(request, (progress) => setProgress(progress.percent), controller.signal);
+
+      if (result.kind === 'webgl') {
+        addNotification({
+          type: 'success',
+          title: 'Goblet bundle saved',
+          message: `Exported ${result.metadata.layers.length} layer${result.metadata.layers.length === 1 ? '' : 's'} to ${BUNDLE_FORMAT_LABELS[webglBundleFormat]}`,
+          timestamp: new Date(),
+          duration: 5000
+        });
+      } else {
+        if (result.kind === 'gif') {
+          setGifPaletteCount(result.paletteSize);
+        }
+        downloadBlob(result.blob, result.filename);
+      }
       onClose();
     } catch (e) {
       alert(`Export failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setIsExporting(false);
       setProgress(0);
-      cancelRef.current.cancelled = false;
+      exportAbortRef.current = null;
     }
   };
 
@@ -1774,7 +1255,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           {/* Actions */}
           <div className="flex justify-end gap-2">
             {isExporting ? (
-              <Button variant="secondary" onClick={() => { cancelRef.current.cancelled = true; }}>
+              <Button variant="secondary" onClick={() => { exportAbortRef.current?.abort(); }}>
                 Cancel
               </Button>
             ) : (
