@@ -8,10 +8,10 @@ import { debugWarn } from '../utils/debug';
 // Debug logs suppressed for color cycle GPU path
 import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
-import { WebGLColorCycleRenderer } from './colorCycle/rendering/WebGLColorCycleRenderer';
-import { canvasPool } from '../utils/canvasPool';
-
-import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
+import { PaletteController } from '@/lib/colorCycle/PaletteController';
+import { Renderer2D } from '@/lib/colorCycle/Renderer2D';
+import { RendererWebGL } from '@/lib/colorCycle/rendering/RendererWebGL';
+import { FlowMode, StrokeOrderTracker } from '@/lib/colorCycle/StrokeOrderTracker';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -50,171 +50,70 @@ export interface ColorCycleAnimatorConfig {
 
 export class ColorCycleAnimator {
   private indexBuffer: IndexBuffer;
-  private gradientPalette: GradientPalette;
   private animationController: AnimationController;
-  
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
-  private imageData: ImageData | null;
+  private paletteController: PaletteController;
+  private renderer2D: Renderer2D;
   // GPU renderer (optional)
-  private glRenderer: WebGLColorCycleRenderer | null = null;
+  private glRenderer: RendererWebGL | null = null;
   private glCanvas: HTMLCanvasElement | null = null;
   // One-time render path log guard
   private _renderPathLogged: boolean = false;
   // Palette upload guard for GPU renderer
-  private _glPaletteReady: boolean = false;
   // One-time sample log guard
   private _renderSampledOnce: boolean = false;
   // Track when index buffer changed to avoid re-uploading every frame
   private _glIndexDirty: boolean = true;
   // Rendering mode flag
   private forceCanvas2D: boolean = false;
-  
-  // Stroke tracking for directional flow
-  private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
-  private currentStrokeIndex: number = 1;
-  private maxStrokeIndex: number = 0;
-  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'reverse'; // Flow direction mode
-  private lastControllerOffset: number = 0;
-  private pingPongAscending: boolean = true;
-  private gradientSignature: string | null = null;
-  private paletteSignaturesBySlot: Array<string | null> = new Array(256).fill(null);
-  private palettesBySlot: Uint32Array[] = Array.from({ length: 256 }, () => new Uint32Array(256));
-  private paletteRGBABySlot: Array<Uint8ClampedArray | Uint8Array | null> = new Array(256).fill(null);
-  private glPaletteSignaturesBySlot: Array<string | null> = new Array(256).fill(null);
-  private activeGradientSlot: number = 0;
+  private strokeTracker: StrokeOrderTracker;
   
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
-  
-  private paletteHandle: PaletteHandle | null = null;
   private directFillDepth: number = 0;
   
   constructor(config: ColorCycleAnimatorConfig) {
     this.forceCanvas2D = Boolean(config.forceCanvas2D);
 
-    // If lazy init, defer heavy initialization
-    if (config.lazyInit) {
-      // Create minimal buffers first
-      this.indexBuffer = new IndexBuffer(config.width, config.height);
-      this.gradientPalette = config.gradientStops 
-        ? new GradientPalette(config.gradientStops)
-        : GradientPalette.createDefault();
-      this.gradientSignature = config.gradientStops
-        ? ColorCycleAnimator.computeGradientSignature(config.gradientStops)
-        : 'preset:bw-stripes';
-      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
-      // Use canvas pool for better performance
-      this.canvas = canvasPool.acquire(config.width, config.height);
-      const ctx = this.canvas.getContext('2d', {
-        willReadFrequently: false, // Changed to false for lazy init
-        alpha: true
-      });
-      
-      if (!ctx) {
-        throw new Error('Failed to create canvas context');
-      }
-      
-      this.ctx = ctx;
-      this.ctx.imageSmoothingEnabled = false;
-      
-      // Defer image data creation until first use
-      this.imageData = null; // Will be created on first paint
-      
-      // Try to prepare GPU renderer lazily
-      if (!this.forceCanvas2D && typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
-        try {
-          this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
-          this.glCanvas = this.glRenderer.getCanvas();
-          // quiet
-          this._glPaletteReady = false;
-        } catch (error) {
-          if (error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
-            this.forceCanvas2D = true;
-            debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted during lazy init; using Canvas2D');
-          } else {
-            debugWarn('cc-render', '[ColorCycleAnimator] Failed to init WebGL renderer (lazy):', error);
-          }
-          this.glRenderer = null;
-          this.glCanvas = null;
+    const isLazy = Boolean(config.lazyInit);
+    this.indexBuffer = new IndexBuffer(config.width, config.height);
+    this.paletteController = new PaletteController({ gradientStops: config.gradientStops });
+    this.renderer2D = new Renderer2D({
+      width: config.width,
+      height: config.height,
+      lazyImageData: isLazy,
+      willReadFrequently: !isLazy,
+    });
+    this.strokeTracker = new StrokeOrderTracker(
+      isLazy ? 0 : config.width,
+      isLazy ? 0 : config.height
+    );
+
+    if (!this.forceCanvas2D && typeof window !== 'undefined' && RendererWebGL.isSupported()) {
+      try {
+        this.glRenderer = new RendererWebGL({ width: config.width, height: config.height });
+        this.glCanvas = this.glRenderer.getCanvas();
+      } catch (error) {
+        if (error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
+          this.forceCanvas2D = true;
+          debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted; using Canvas2D');
+        } else {
+          debugWarn('cc-render', '[ColorCycleAnimator] Failed to init WebGL renderer:', error);
         }
-      } else {
-        // quiet
+        this.glRenderer = null;
+        this.glCanvas = null;
       }
-      
-      // Use smaller stroke order buffer initially
-      this.strokeOrder = new Uint16Array(0); // Start empty
-      
-      // Initialize animation controller with lazy settings
-      this.animationController = new AnimationController({
-        fps: config.fps || 30,
-        speed: config.speed || 0.1,
-        autoStart: false, // Never auto-start in lazy mode
-        onFrame: this.handleAnimationFrame.bind(this)
-      });
-      
-      // Defer palette update
+    }
+
+    this.animationController = new AnimationController({
+      fps: config.fps || 30,
+      speed: config.speed || 0.1,
+      autoStart: isLazy ? false : config.autoStart || false,
+      onFrame: this.handleAnimationFrame.bind(this),
+    });
+
+    if (isLazy) {
       requestAnimationFrame(() => this.updateIndexBufferPalette());
     } else {
-      // Normal initialization path
-      this.indexBuffer = new IndexBuffer(config.width, config.height);
-      this.gradientPalette = config.gradientStops 
-        ? new GradientPalette(config.gradientStops)
-        : GradientPalette.createDefault();
-      this.gradientSignature = config.gradientStops
-        ? ColorCycleAnimator.computeGradientSignature(config.gradientStops)
-        : 'preset:bw-stripes';
-      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
-      
-      // Use canvas pool for better performance
-      this.canvas = canvasPool.acquire(config.width, config.height);
-      
-      const ctx = this.canvas.getContext('2d', {
-        willReadFrequently: true,
-        alpha: true
-      });
-      
-      if (!ctx) {
-        throw new Error('Failed to create canvas context');
-      }
-      
-      this.ctx = ctx;
-      this.ctx.imageSmoothingEnabled = false;
-      this.imageData = ctx.createImageData(config.width, config.height);
-      
-      // Initialize GPU renderer if possible
-      if (!this.forceCanvas2D && typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
-        try {
-          this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
-          this.glCanvas = this.glRenderer.getCanvas();
-          // quiet
-          this._glPaletteReady = false;
-        } catch (error) {
-          if (error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
-            this.forceCanvas2D = true;
-            debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted; using Canvas2D');
-          } else {
-            debugWarn('cc-render', '[ColorCycleAnimator] Failed to init WebGL renderer:', error);
-          }
-          this.glRenderer = null;
-          this.glCanvas = null;
-        }
-      } else {
-        // quiet
-      }
-      
-      // Initialize stroke order buffer
-      this.strokeOrder = new Uint16Array(config.width * config.height);
-      
-      // Initialize animation controller
-      this.animationController = new AnimationController({
-        fps: config.fps || 30,
-        speed: config.speed || 0.1,
-        autoStart: config.autoStart || false,
-        onFrame: this.handleAnimationFrame.bind(this)
-      });
-      
-      // Update IndexBuffer palette
       this.updateIndexBufferPalette();
     }
   }
@@ -231,10 +130,7 @@ export class ColorCycleAnimator {
     this.renderFrame(offset);
     
     // Notify all callbacks
-    if (!this.imageData) {
-      this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-    }
-    const frameImageData = this.imageData;
+    const frameImageData = this.renderer2D.ensureImageData();
     this.onFrameCallbacks.forEach(callback => {
       callback(frameImageData);
     });
@@ -244,22 +140,15 @@ export class ColorCycleAnimator {
    * Update IndexBuffer palette from gradient
    */
   private updateIndexBufferPalette() {
-    const paletteStrings = this.gradientPalette.getPaletteStrings();
+    const paletteStrings = this.paletteController.getPaletteStrings();
     this.indexBuffer.setPalette(paletteStrings);
-    this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
-    const handle = this.paletteHandle;
-    this.palettesBySlot[0] = handle.uint32;
-    this.paletteRGBABySlot[0] = handle.rgba;
-    this.paletteSignaturesBySlot[0] = this.gradientSignature ?? 'slot:0';
+    const handle = this.paletteController.getPaletteHandle();
     // If GPU renderer exists, upload palette once (as base palette)
     if (!this.forceCanvas2D && this.glRenderer) {
       try {
-        this.glRenderer.setPaletteRow(0, handle.rgba);
-        this.glPaletteSignaturesBySlot[0] = this.paletteSignaturesBySlot[0];
-        this._glPaletteReady = true;
+        const signature = this.paletteController.getSignatureForSlot(0);
+        this.glRenderer.setPaletteRow(0, handle.rgba, signature ?? undefined);
       } catch {}
-    } else {
-      this._glPaletteReady = false;
     }
   }
 
@@ -267,24 +156,10 @@ export class ColorCycleAnimator {
     if (this.forceCanvas2D || !this.glRenderer) {
       return;
     }
-    for (let slot = 0; slot < 256; slot++) {
-      const signature = this.paletteSignaturesBySlot[slot];
-      if (!signature) {
-        continue;
-      }
-      if (this.glPaletteSignaturesBySlot[slot] === signature) {
-        continue;
-      }
-      const rgba = this.paletteRGBABySlot[slot];
-      if (!rgba) {
-        continue;
-      }
-      try {
-        this.glRenderer.setPaletteRow(slot, rgba);
-        this.glPaletteSignaturesBySlot[slot] = signature;
-      } catch {}
-    }
-    this._glPaletteReady = this.glPaletteSignaturesBySlot[0] === this.paletteSignaturesBySlot[0];
+    this.glRenderer.syncPaletteAtlas(
+      this.paletteController.getPaletteSignaturesBySlot(),
+      this.paletteController.getPaletteRGBABySlot()
+    );
   }
 
   /**
@@ -294,12 +169,6 @@ export class ColorCycleAnimator {
     return !this.forceCanvas2D && !!this.glRenderer;
   }
 
-  private getPaletteHandle(): PaletteHandle {
-    if (!this.paletteHandle) {
-      this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
-    }
-    return this.paletteHandle;
-  }
 
   setForceCanvas2D(force: boolean) {
     if (this.forceCanvas2D === force) {
@@ -316,15 +185,13 @@ export class ColorCycleAnimator {
       }
       this.glRenderer = null;
       this.glCanvas = null;
-      this._glPaletteReady = false;
-      this.glPaletteSignaturesBySlot.fill(null);
       this._glIndexDirty = true;
       this._renderSampledOnce = false;
-    } else if (!this.glRenderer && typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
+    } else if (!this.glRenderer && typeof window !== 'undefined' && RendererWebGL.isSupported()) {
       try {
-        this.glRenderer = new WebGLColorCycleRenderer({ width: this.canvas.width, height: this.canvas.height });
+        const canvas = this.renderer2D.getCanvas();
+        this.glRenderer = new RendererWebGL({ width: canvas.width, height: canvas.height });
         this.glCanvas = this.glRenderer.getCanvas();
-        this._glPaletteReady = false;
         this._glIndexDirty = true;
         this._renderSampledOnce = false;
         this.syncPaletteAtlasToGPU();
@@ -372,6 +239,7 @@ export class ColorCycleAnimator {
       }
 
       const modeValue = options.mode === 'linear' ? 1 : 0;
+      const canvas = this.renderer2D.getCanvas();
       const result = this.glRenderer.fillPolygonConcentric({
         vertices: flat,
         bands: options.bands,
@@ -379,7 +247,7 @@ export class ColorCycleAnimator {
         colorStep: options.colorStep,
         maxDist: Math.max(1, options.maxDist ?? 1),
         bbox: options.bbox,
-        canvasHeight: this.canvas.height,
+        canvasHeight: canvas.height,
         mode: modeValue,
         direction: options.direction,
         directionOrigin: options.directionOrigin,
@@ -393,7 +261,7 @@ export class ColorCycleAnimator {
 
       const data = this.indexBuffer.getDirectData();
       const gradientId = this.indexBuffer.getDirectGradientIdData();
-      const width = this.canvas.width;
+      const width = canvas.width;
       const { minX, minY, width: bw, height: bh } = options.bbox;
       const clampedSlot = Math.max(0, Math.min(255, Math.round(gradientSlot)));
 
@@ -439,11 +307,12 @@ export class ColorCycleAnimator {
 
   beginDirectFill(): DirectFillHandle {
     this.directFillDepth += 1;
+    const canvas = this.renderer2D.getCanvas();
     return {
       data: this.indexBuffer.getDirectData(),
       gradientId: this.indexBuffer.getDirectGradientIdData(),
-      width: this.canvas.width,
-      height: this.canvas.height,
+      width: canvas.width,
+      height: canvas.height,
     };
   }
 
@@ -471,89 +340,65 @@ export class ColorCycleAnimator {
    */
   private renderFrame(offset: number = 0) {
     try {
+      const phase = this.strokeTracker.computePhase(offset);
       // GPU path if available
       if (!this.forceCanvas2D && this.glRenderer && this.glCanvas) {
-        // Ensure palette is available on GPU (lazy init can defer initial upload)
-        if (!this._glPaletteReady) {
+        const baseSignature = this.paletteController.getSignatureForSlot(0);
+        if (!this.glRenderer.isPaletteReady(baseSignature)) {
           try {
-            const paletteHandle = this.getPaletteHandle();
-            this.glRenderer.setPaletteRow(0, paletteHandle.rgba);
-            this.paletteRGBABySlot[0] = paletteHandle.rgba;
-            this.glPaletteSignaturesBySlot[0] = this.paletteSignaturesBySlot[0];
-            this._glPaletteReady = true;
-            // quiet
+            const paletteHandle = this.paletteController.getPaletteHandle();
+            this.glRenderer.ensureBasePalette(paletteHandle.rgba, baseSignature ?? undefined);
           } catch {}
         }
         if (!this._renderPathLogged) { this._renderPathLogged = true; }
-        // Upload index data and render with offset
         const indexData = this.indexBuffer.getDirectData();
         const gradientIdData = this.indexBuffer.getDirectGradientIdData();
         if (!indexData) return;
 
-        // Compute forward/backward offset in [0,1)
-        const phase = this.computePhase(offset);
-
-        // Upload index/gid textures only when data changed (dirty rects)
         const dirtyBounds = this.indexBuffer.getDirtyBounds();
         if (this._glIndexDirty || dirtyBounds) {
-          const rect = dirtyBounds ?? { x: 0, y: 0, width: this.canvas.width, height: this.canvas.height };
+          const canvas = this.renderer2D.getCanvas();
+          const rect = dirtyBounds ?? { x: 0, y: 0, width: canvas.width, height: canvas.height };
           this.glRenderer.setIndexData(indexData, gradientIdData, rect);
           this.indexBuffer.clearDirtyBounds();
           this._glIndexDirty = false;
         }
         this.glRenderer.render(phase);
 
-        // Optional one-time sample to verify visible output by drawing into the 2D canvas
         if (!this._renderSampledOnce) {
           try {
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            this.ctx.drawImage(this.glCanvas, 0, 0);
-            const w = Math.min(4, this.canvas.width);
-            const h = Math.min(4, this.canvas.height);
-            this.ctx.getImageData(0, 0, w, h);
-            // quiet
+            const ctx = this.renderer2D.getContext();
+            const canvas = this.renderer2D.getCanvas();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(this.glCanvas, 0, 0);
+            const w = Math.min(4, canvas.width);
+            const h = Math.min(4, canvas.height);
+            ctx.getImageData(0, 0, w, h);
           } catch {}
           this._renderSampledOnce = true;
         }
 
-        // Keep an ImageData placeholder allocated to satisfy callbacks consumers
-        if (!this.imageData) {
-          this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-        }
+        this.renderer2D.ensureImageData();
         return;
       }
 
-      // Fallback CPU path
       if (!this._renderPathLogged) { this._renderPathLogged = true; }
 
       const indexData = this.indexBuffer.getDirectData();
       const gradientIdData = this.indexBuffer.getDirectGradientIdData();
       if (!indexData) return;
 
-      if (!this.imageData) {
-        this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-      }
+      const basePalette32 = this.paletteController.getSignatureForSlot(0)
+        ? this.paletteController.getPaletteForSlot(0)
+        : this.paletteController.getPaletteHandle().uint32;
 
-      const phase = this.computePhase(offset);
-      const shift = (phase * 256) | 0;
-
-      const pixels32 = new Uint32Array(this.imageData.data.buffer);
-      const basePalette32 = this.paletteSignaturesBySlot[0]
-        ? this.palettesBySlot[0]
-        : this.getPaletteHandle().uint32;
-
-      for (let i = 0; i < indexData.length; i++) {
-        const colorIndex = indexData[i];
-        if (colorIndex === 0) {
-          pixels32[i] = 0;
-          continue;
-        }
-        const slot = gradientIdData ? gradientIdData[i] : 0;
-        const palette = this.palettesBySlot[slot] ?? basePalette32;
-        pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
-      }
-
-      this.ctx.putImageData(this.imageData, 0, 0);
+      this.renderer2D.render({
+        indexData,
+        gradientIdData,
+        paletteSlots: this.paletteController.getPalettesBySlot(),
+        basePalette: basePalette32,
+        phase,
+      });
 
     } catch (error) {
       debugWarn('cc-render', '[ColorCycleAnimator] Error in renderFrame:', error);
@@ -572,7 +417,7 @@ export class ColorCycleAnimator {
   paint(x: number, y: number, brushSize: number, colorIndex?: number, gradientSlot?: number) {
     // Use provided index or auto-increment
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-    const slot = gradientSlot ?? this.activeGradientSlot;
+    const slot = gradientSlot ?? this.paletteController.getActiveSlot();
     // Paint to index buffer using numeric index
     this.indexBuffer.paintWithIndex(x, y, brushSize, index, slot);
     this._glIndexDirty = true;
@@ -600,7 +445,7 @@ export class ColorCycleAnimator {
       }
 
       const clamped = Math.max(1, Math.min(255, Math.round(colorIndex)));
-      const slot = gradientSlot ?? this.activeGradientSlot;
+      const slot = gradientSlot ?? this.paletteController.getActiveSlot();
       this.indexBuffer.setPixel(x, y, clamped, slot);
       this._glIndexDirty = true;
     } catch {
@@ -625,7 +470,7 @@ export class ColorCycleAnimator {
     try {
       // Use provided color index or auto-increment
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-      const slot = gradientSlot ?? this.activeGradientSlot;
+      const slot = gradientSlot ?? this.paletteController.getActiveSlot();
       
       // Paint to index buffer with the specific color index - NO RENDERING
       this.indexBuffer.paintSquareWithIndex(
@@ -664,7 +509,7 @@ export class ColorCycleAnimator {
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-      const slot = gradientSlot ?? this.activeGradientSlot;
+      const slot = gradientSlot ?? this.paletteController.getActiveSlot();
       this.indexBuffer.paintTriangleWithIndex(
         x,
         y,
@@ -698,7 +543,7 @@ export class ColorCycleAnimator {
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-      const slot = gradientSlot ?? this.activeGradientSlot;
+      const slot = gradientSlot ?? this.paletteController.getActiveSlot();
       this.indexBuffer.paintCircleWithIndex(
         x,
         y,
@@ -732,7 +577,7 @@ export class ColorCycleAnimator {
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-      const slot = gradientSlot ?? this.activeGradientSlot;
+      const slot = gradientSlot ?? this.paletteController.getActiveSlot();
       this.indexBuffer.paintDiamondWithIndex(
         x,
         y,
@@ -763,7 +608,7 @@ export class ColorCycleAnimator {
     gradientSlot?: number
   ) {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-    const slot = gradientSlot ?? this.activeGradientSlot;
+    const slot = gradientSlot ?? this.paletteController.getActiveSlot();
     
     this.indexBuffer.paintLineWithIndex(x0, y0, x1, y1, brushSize, index, slot);
     this._glIndexDirty = true;
@@ -776,7 +621,7 @@ export class ColorCycleAnimator {
    */
   fill(x: number, y: number, colorIndex?: number, gradientSlot?: number) {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-    const slot = gradientSlot ?? this.activeGradientSlot;
+    const slot = gradientSlot ?? this.paletteController.getActiveSlot();
     
     this.indexBuffer.fillWithIndex(x, y, index, slot);
     this._glIndexDirty = true;
@@ -793,7 +638,7 @@ export class ColorCycleAnimator {
   private getNextColorIndex(): number {
     const index = this.nextIndex;
     try {
-      const paletteHandle = this.getPaletteHandle();
+      const paletteHandle = this.paletteController.getPaletteHandle();
       const paletteSpan = Math.max(1, Math.min(255, paletteHandle.uint32.length));
       this.nextIndex = (this.nextIndex % paletteSpan) + 1;
     } catch {
@@ -830,10 +675,7 @@ export class ColorCycleAnimator {
     this.indexBuffer.clear();
     this._glIndexDirty = true;
     this.nextIndex = 1;
-    this.currentStrokeIndex = 1;
-    this.maxStrokeIndex = 0;
-    // Clear stroke order buffer
-    this.strokeOrder.fill(0);
+    this.strokeTracker.reset();
     this.renderFrame();
   }
   
@@ -865,44 +707,34 @@ export class ColorCycleAnimator {
 
   setGradientSlot(slot: number, stops: GradientStop[]) {
     const clampedSlot = Math.max(0, Math.min(255, Math.round(slot)));
-    const signature = ColorCycleAnimator.computeGradientSignature(stops);
-    if (this.paletteSignaturesBySlot[clampedSlot] === signature) {
+    const result = this.paletteController.setGradientSlot(clampedSlot, stops);
+    if (!result.changed) {
       return;
     }
-    this.paletteSignaturesBySlot[clampedSlot] = signature;
 
     if (clampedSlot === 0) {
-      this.gradientSignature = signature;
-      this.gradientPalette.updateFromGradient(stops);
       // Reset palette progression so the next stamp starts at the beginning
       this.nextIndex = 1;
-      this.currentStrokeIndex = 1;
       this.updateIndexBufferPalette();
       this.renderFrame(this.animationController.getOffset());
       return;
     }
 
-    const handle = ensurePalette({ stops });
-    this.palettesBySlot[clampedSlot] = handle.uint32;
-    this.paletteRGBABySlot[clampedSlot] = handle.rgba;
-    if (!this.forceCanvas2D && this.glRenderer) {
+    const rgba = this.paletteController.getPaletteRGBAForSlot(clampedSlot);
+    if (!this.forceCanvas2D && this.glRenderer && rgba) {
       try {
-        this.glRenderer.setPaletteRow(clampedSlot, handle.rgba);
-        this.glPaletteSignaturesBySlot[clampedSlot] = signature;
+        this.glRenderer.setPaletteRow(clampedSlot, rgba, result.signature);
       } catch {}
     }
-    if (clampedSlot === this.activeGradientSlot) {
+    if (clampedSlot === this.paletteController.getActiveSlot()) {
       this.renderFrame(this.animationController.getOffset());
     }
   }
 
   setActiveGradientSlot(slot: number) {
-    const clamped = Math.max(0, Math.min(255, Math.round(slot)));
-    if (this.activeGradientSlot === clamped) {
-      return;
+    if (this.paletteController.setActiveSlot(slot)) {
+      this.renderFrame(this.animationController.getOffset());
     }
-    this.activeGradientSlot = clamped;
-    this.renderFrame(this.animationController.getOffset());
   }
 
   markGradientSlotUsed(slot: number) {
@@ -917,10 +749,6 @@ export class ColorCycleAnimator {
   setPresetGradient(preset: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale') {
     let palette: GradientPalette;
     const signature = `preset:${preset}`;
-
-    if (this.gradientSignature === signature) {
-      return;
-    }
     
     switch (preset) {
       case 'bw-stripes':
@@ -944,10 +772,10 @@ export class ColorCycleAnimator {
         break;
     }
     
-    this.gradientPalette = palette;
-    this.gradientSignature = signature;
-    this.updateIndexBufferPalette();
-    this.renderFrame(this.animationController.getOffset());
+    if (this.paletteController.setPresetPalette(palette, signature)) {
+      this.updateIndexBufferPalette();
+      this.renderFrame(this.animationController.getOffset());
+    }
   }
   
   /**
@@ -1059,24 +887,21 @@ export class ColorCycleAnimator {
    * Get canvas
    */
   getCanvas(): HTMLCanvasElement {
-    return this.glCanvas || this.canvas;
+    return this.glCanvas || this.renderer2D.getCanvas();
   }
   
   /**
    * Get current image data
    */
   getImageData(): ImageData {
-    if (!this.imageData) {
-      this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-    }
-    return this.imageData;
+    return this.renderer2D.getImageData();
   }
   
   /**
    * Draw to another context
    */
   drawTo(ctx: CanvasRenderingContext2D, x: number = 0, y: number = 0) {
-    const src = this.glCanvas || this.canvas;
+    const src = this.glCanvas || this.renderer2D.getCanvas();
     ctx.drawImage(src, x, y);
   }
   
@@ -1084,45 +909,19 @@ export class ColorCycleAnimator {
    * Resize
    */
   resize(width: number, height: number) {
+    const canvas = this.renderer2D.getCanvas();
     // Skip if dimensions haven't changed
-    if (this.canvas.width === width && this.canvas.height === height) {
+    if (canvas.width === width && canvas.height === height) {
       return;
     }
     
-    // Preserve existing data if possible
-    const oldWidth = this.canvas.width;
-    const oldHeight = this.canvas.height;
-    const needsDataPreservation = oldWidth > 0 && oldHeight > 0 && this.imageData;
-    
-    // Save current image data if needed
-    let savedImageData: ImageData | null = null;
-    if (needsDataPreservation && this.imageData) {
-      savedImageData = this.ctx.getImageData(0, 0, Math.min(oldWidth, width), Math.min(oldHeight, height));
-    }
-    
+    const needsDataPreservation = canvas.width > 0 && canvas.height > 0 && this.renderer2D.hasImageData();
+
     // Resize index buffer
     this.indexBuffer.resize(width, height);
     this._glIndexDirty = true;
-    
-    // Get a new canvas from pool with proper dimensions
-    const oldCanvas = this.canvas;
-    this.canvas = canvasPool.acquire(width, height);
-    
-    // Get new context
-    const ctx = this.canvas.getContext('2d', {
-      willReadFrequently: !!(this.imageData), // Only if we were already using image data
-      alpha: true
-    });
-    
-    if (!ctx) {
-      throw new Error('Failed to get context after resize');
-    }
-    
-    this.ctx = ctx;
-    this.ctx.imageSmoothingEnabled = false;
-    
-    // Create new image data
-    this.imageData = this.ctx.createImageData(width, height);
+
+    this.renderer2D.resize(width, height, { preserveImageData: needsDataPreservation });
 
     // Resize GPU renderer
     if (!this.forceCanvas2D && this.glRenderer) {
@@ -1132,23 +931,7 @@ export class ColorCycleAnimator {
       } catch {}
     }
     
-    // Resize stroke order buffer only if dimensions actually changed
-    if (width * height !== this.strokeOrder.length) {
-      this.strokeOrder = new Uint16Array(width * height);
-      // Don't reset indices if we're just resizing
-      if (!needsDataPreservation) {
-        this.currentStrokeIndex = 1;
-        this.maxStrokeIndex = 0;
-      }
-    }
-    
-    // Restore saved data if available
-    if (savedImageData) {
-      this.ctx.putImageData(savedImageData, 0, 0);
-    }
-    
-    // Return old canvas to pool
-    canvasPool.release(oldCanvas);
+    this.strokeTracker.resize(width, height, { preserveIndices: needsDataPreservation });
     
     this.renderFrame();
   }
@@ -1156,17 +939,10 @@ export class ColorCycleAnimator {
   /**
    * Set flow direction
    */
-  setFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
-    if (mode === this.flowMode) {
-      return;
+  setFlowMode(mode: FlowMode) {
+    if (this.strokeTracker.setFlowMode(mode, this.animationController.getOffset())) {
+      this.forceRender();
     }
-    this.flowMode = mode;
-    if (mode === 'pingpong') {
-      this.lastControllerOffset = this.animationController.getOffset();
-      this.pingPongAscending = true;
-    }
-    // Always re-render to show the change immediately
-    this.forceRender();
   }
 
   setFlowDirection(direction: 'forward' | 'backward') {
@@ -1177,22 +953,23 @@ export class ColorCycleAnimator {
    * Get flow direction
    */
   getFlowDirection(): 'forward' | 'backward' {
-    return this.flowMode === 'reverse' ? 'backward' : 'forward';
+    return this.strokeTracker.getFlowDirection();
   }
 
-  getFlowMode(): 'forward' | 'reverse' | 'pingpong' {
-    return this.flowMode;
+  getFlowMode(): FlowMode {
+    return this.strokeTracker.getFlowMode();
   }
   
   /**
    * Toggle flow direction
    */
   toggleFlowDirection() {
-    if (this.flowMode === 'pingpong') {
+    const mode = this.strokeTracker.getFlowMode();
+    if (mode === 'pingpong') {
       this.setFlowMode('forward');
       return;
     }
-    this.setFlowMode(this.flowMode === 'forward' ? 'reverse' : 'forward');
+    this.setFlowMode(mode === 'forward' ? 'reverse' : 'forward');
   }
 
   get flowDirection(): 'forward' | 'backward' {
@@ -1203,34 +980,6 @@ export class ColorCycleAnimator {
     this.setFlowDirection(direction);
   }
 
-  private computePhase(offset: number): number {
-    if (this.flowMode === 'pingpong') {
-      // Detect wrap-around of controller offset to flip direction
-      if (this.lastControllerOffset - offset > 0.5) {
-        this.pingPongAscending = !this.pingPongAscending;
-      }
-      this.lastControllerOffset = offset;
-
-      return this.pingPongAscending ? offset : 1 - offset;
-    }
-
-    this.lastControllerOffset = offset;
-
-    const dir = this.flowMode === 'reverse' ? -1 : 1;
-    const signed = offset * dir;
-    return ((signed % 1) + 1) % 1;
-  }
-
-  private static rotatePalette256(palette: Uint32Array, shift: number): Uint32Array {
-    const rotated = new Uint32Array(256);
-    const mask = 255;
-    const normalizedShift = shift & mask;
-    for (let i = 0; i < 256; i++) {
-      rotated[i] = palette[(i + normalizedShift) & mask];
-    }
-    return rotated;
-  }
-  
   /**
    * Get dimensions
    */
@@ -1289,7 +1038,7 @@ export class ColorCycleAnimator {
   serialize() {
     return {
       indexBuffer: this.indexBuffer.serialize(),
-      gradient: this.gradientPalette.serialize(),
+      gradient: this.paletteController.getGradientPalette().serialize(),
       animation: {
         offset: this.animationController.getOffset(),
         stats: this.animationController.getStats()
@@ -1395,17 +1144,12 @@ export class ColorCycleAnimator {
       } finally {
         this.glRenderer = null;
         this.glCanvas = null;
-        this._glPaletteReady = false;
-        this.glPaletteSignaturesBySlot.fill(null);
         this._glIndexDirty = true;
         this._renderSampledOnce = false;
       }
     }
     
-    // Return canvas to pool
-    if (this.canvas) {
-      canvasPool.release(this.canvas);
-    }
+    this.renderer2D.cleanup();
   }
   
   /**
@@ -1415,23 +1159,4 @@ export class ColorCycleAnimator {
     this.cleanup();
   }
 
-  private static computeGradientSignature(stops: GradientStop[]): string {
-    if (!stops || stops.length === 0) {
-      return '[]';
-    }
-
-    return stops
-      .map((stop) => {
-        const pos = Number.isFinite(stop.position) ? stop.position.toFixed(6) : 'NaN';
-        if (typeof stop.color === 'string') {
-          return `${pos}:${stop.color}`;
-        }
-        if (stop.color && typeof stop.color === 'object') {
-          const { r = 0, g = 0, b = 0 } = stop.color as { r?: number; g?: number; b?: number };
-          return `${pos}:${Math.round(r)}-${Math.round(g)}-${Math.round(b)}`;
-        }
-        return `${pos}:?`;
-      })
-      .join('|');
-  }
 }

@@ -54,23 +54,23 @@ Split `src/lib/ColorCycleAnimator.ts` into focused, testable modules without cha
 
 ## Migration Steps
 
-1. **Extract palette logic** into `PaletteController`.
-2. **Extract 2D rendering** into `Renderer2D`.
-3. **Wrap WebGL renderer** with a minimal adapter.
-4. **Extract stroke tracking** into `StrokeOrderTracker`.
-5. **Define serialization boundary** and lock existing formats with tests.
-6. **Refactor ColorCycleAnimator** to delegate and slim down.
-7. **Run existing tests** + targeted new tests for palette and renderer modules.
+1. [x] **Extract palette logic** into `PaletteController`.
+2. [x] **Extract 2D rendering** into `Renderer2D`.
+3. [x] **Wrap WebGL renderer** with a minimal adapter.
+4. [x] **Extract stroke tracking** into `StrokeOrderTracker`.
+5. [x] **Define serialization boundary** and lock existing formats with tests.
+6. [x] **Refactor ColorCycleAnimator** to delegate and slim down.
+7. [x] **Run existing tests** + targeted new tests for palette and renderer modules. (`npm test`, `npm run type-check`, `npm run lint` — lint reported pre-existing warnings)
 
 ---
 
 ## Testing Strategy
 - Keep existing tests under `src/lib/__tests__` and `src/lib/colorCycle/__tests__`.
-- Add unit tests for:
-  - Palette slot selection
-  - Signature stability
-  - Stroke order serialization
-- Add a parity test that renders a known IndexBuffer and compares output frames.
+- [x] Add unit tests for:
+  - [x] Palette slot selection
+  - [x] Signature stability
+  - [x] Stroke order serialization
+- [x] Add a parity test that renders a known IndexBuffer and compares output frames.
 
 ---
 
