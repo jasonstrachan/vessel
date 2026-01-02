@@ -113,23 +113,6 @@ class AutosaveService {
     }
   }
 
-  private buildFallbackCompositeCanvas(store: AppState): HTMLCanvasElement | null {
-    if (typeof document === 'undefined' || !store.project) {
-      return null;
-    }
-
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = store.project.width;
-      canvas.height = store.project.height;
-      store.compositeLayersToCanvas(canvas);
-      return canvas;
-    } catch (error) {
-      autosaveLog.warn('Failed to build fallback composite canvas for autosave.', { error });
-      return null;
-    }
-  }
-
   private async performAutosave(): Promise<void> {
     if (this.inProgress) {
       autosaveLog.debug('Autosave already running; skipping overlapping invocation.');
@@ -188,23 +171,6 @@ class AutosaveService {
         fileHandleName: store.autosave.fileBackup.fileHandle?.name ?? null,
       });
 
-      if (!activeLayerIsColorCycle) {
-        const isHistoryCapturing = store.history?.isCapturing ?? false;
-        let sourceCanvas = store.currentOffscreenCanvas;
-
-        if (!sourceCanvas && !isHistoryCapturing) {
-          sourceCanvas = this.buildFallbackCompositeCanvas(store);
-        }
-
-        if (sourceCanvas && !isHistoryCapturing) {
-          await store.captureCanvasToActiveLayer(sourceCanvas);
-          autosaveLog.debug('Autosave capture complete');
-        } else {
-          autosaveLog.warn('Autosave skipped: no capture source available.');
-          return;
-        }
-      }
-      
       // Get fresh state after capture
       const freshState = useAppStore.getState();
       if (!freshState.project) return;

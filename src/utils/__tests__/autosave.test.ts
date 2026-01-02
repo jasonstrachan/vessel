@@ -194,7 +194,6 @@ describe('AutosaveService', () => {
 
     await autosaveService.triggerAutosave();
 
-    expect(store.captureCanvasToActiveLayer).toHaveBeenCalled();
     expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledWith(
       expect.objectContaining({ palette: store.palette }),
       store.layers
