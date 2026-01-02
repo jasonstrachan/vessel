@@ -155,14 +155,11 @@ class AutosaveService {
     this.inProgress = true;
 
     try {
-      const activeLayerId = store.activeLayerId ?? store.layers[0]?.id ?? null;
-      const activeLayer = activeLayerId
-        ? store.layers.find((layer) => layer.id === activeLayerId) ?? null
-        : null;
-      const activeLayerIsColorCycle = activeLayer?.layerType === 'color-cycle';
       autosaveLog.debug('Autosave capture setup', {
-        activeLayerId,
-        activeLayerType: activeLayer?.layerType,
+        activeLayerId: store.activeLayerId ?? store.layers[0]?.id ?? null,
+        activeLayerType:
+          store.layers.find((layer) => layer.id === (store.activeLayerId ?? store.layers[0]?.id))
+            ?.layerType ?? null,
         hasOffscreen: Boolean(store.currentOffscreenCanvas),
         isHistoryCapturing: store.history?.isCapturing,
         projectFilename: store.projectFilename ?? null,
