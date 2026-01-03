@@ -13,6 +13,7 @@ import {
   createDefaultExportLayout,
   createDefaultPalette,
 } from '@/utils/layoutDefaults';
+import { normalizeCanvasShape } from '@/utils/canvasShape';
 import { createProjectLifecycle } from '@/stores/helpers/projectLifecycle';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
@@ -203,6 +204,7 @@ export const createProjectSlice =
           width,
           height,
           updatedAt: new Date(),
+          canvasShape: normalizeCanvasShape(state.project.canvasShape, width, height),
         };
 
         const nextLayers = syncPercentOffsetsFromPixels(state.layers, updatedProject);
@@ -276,6 +278,7 @@ export const createProjectSlice =
           width,
           height,
           updatedAt: new Date(),
+          canvasShape: normalizeCanvasShape(current.project.canvasShape, width, height),
         };
 
         const nextLayers = syncPercentOffsetsFromPixels(resizedLayers, updatedProject);

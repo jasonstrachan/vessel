@@ -11,6 +11,7 @@ import type {
   Project
 } from '@/types';
 import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
+import { normalizeCanvasShape } from '@/utils/canvasShape';
 
 const normalizeHorizontalAxis = (value?: string): LayerHorizontalAlignment => {
   switch (value) {
@@ -199,6 +200,7 @@ export const normalizeProject = (project: Project): Project => {
     defaultCustomBrushId,
     exportLayout: cloneExportLayout(project.exportLayout),
     layers: normalizeLayers(project.layers),
-    palette: normalizePalette(project.palette)
+    palette: normalizePalette(project.palette),
+    canvasShape: normalizeCanvasShape(project.canvasShape, project.width, project.height),
   };
 };

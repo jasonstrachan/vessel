@@ -3,6 +3,7 @@
 ## Table of Contents
 
 - [Recent Updates](#recent-updates)
+  - [Canvas Shape Masks](#canvas-shape-masks-2026-01-03)
   - [2D Unified Rendering Pipeline](#2d-unified-rendering-pipeline-2025-08-28)
   - [Canvas2D Performance Enhancements](#canvas2d-performance-enhancements-2025-08-28)
   - [Wacom Stylus Pressure Sensitivity Support](#wacom-stylus-pressure-sensitivity-support-2025-08-21)
@@ -35,6 +36,13 @@
   - [Future Considerations](#future-considerations)
 
 ## Recent Updates
+
+### Canvas Shape Masks (2026-01-03)
+- **New canvas mask workflow**: documents can define non-rectangular bounds (rectangle, circle, freehand).
+- **UX entry point**: `DocumentModal` now offers canvas shape tools; picking one closes the modal and enters a draw-to-define mode.
+- **Rendering behavior**: active canvas shape is clipped during draw, selection, and floating paste; a visible outline indicates bounds.
+- **Export behavior**: PNG export and project thumbnails apply the mask, preserving transparency outside the shape.
+- **State/persistence**: shape definitions are serialized with the project and normalized on load/resize.
 
 ### 2D Unified Rendering Pipeline (2025-08-28)
 - **Implemented unified Canvas2D rendering pipeline** replacing WebGL with an efficient indexed color system that maintains full API compatibility while improving performance and browser compatibility

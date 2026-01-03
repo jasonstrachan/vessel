@@ -83,6 +83,28 @@ export interface PaletteState {
   activeSlot: 'foreground' | 'background';
 }
 
+export type CanvasShapeTool = 'rectangle' | 'circle' | 'freehand';
+
+export interface CanvasRectangleShape {
+  kind: 'rectangle';
+  bounds: Rectangle;
+}
+
+export interface CanvasCircleShape {
+  kind: 'circle';
+  center: { x: number; y: number };
+  radius: number;
+  bounds: Rectangle;
+}
+
+export interface CanvasFreehandShape {
+  kind: 'freehand';
+  points: ShapePoint[];
+  bounds: Rectangle;
+}
+
+export type CanvasShape = CanvasRectangleShape | CanvasCircleShape | CanvasFreehandShape;
+
 export interface Project {
   id: string;
   name: string;
@@ -94,6 +116,7 @@ export interface Project {
   updatedAt: Date;
   customBrushes: CustomBrush[];
   defaultCustomBrushId?: string | null;
+  canvasShape?: CanvasShape;
   // Canvas view state
   viewState?: {
     zoom: number;

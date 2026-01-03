@@ -213,6 +213,8 @@ import type {
   CustomBrush,
   HistoryState,
   CanvasSnapshot,
+  CanvasShape,
+  CanvasShapeTool,
   ShapeState,
   ShapePoint,
   PolygonGradientState,
@@ -259,6 +261,7 @@ import {
 import { createSelectionSlice } from '@/stores/slices/selectionSlice';
 import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
+import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
@@ -347,6 +350,14 @@ export interface AppState {
   resizeCanvas: (width: number, height: number) => Promise<void>;
   setSelection: (selection: CanvasState['selection']) => void;
   setCursor: (cursor: CanvasState['cursor']) => void;
+
+  // Canvas Shape Editor
+  canvasShapeEditor: CanvasShapeEditorState;
+  beginCanvasShapeEdit: (tool: CanvasShapeTool) => void;
+  setCanvasShapeDraft: (shape: CanvasShape | null) => void;
+  commitCanvasShape: () => void;
+  cancelCanvasShapeEdit: () => void;
+  setCanvasShape: (shape: CanvasShape) => void;
   
   // Selection State
   selectionStart: { x: number; y: number } | null;
@@ -640,6 +651,7 @@ export const useAppStore = createVesselStore<AppState>(
       const uiSlice = createUiSlice()(set, get, store);
 
       const canvasSlice = createCanvasSlice(set, get, store);
+      const canvasShapeSlice = createCanvasShapeSlice(set, get, store);
       const selectionSlice = createSelectionSlice(set, get, store);
       const cropSlice = createCropSlice({
         colorCycleBrushManager,
@@ -659,6 +671,7 @@ export const useAppStore = createVesselStore<AppState>(
         ...layersSlice,
         ...uiSlice,
         ...canvasSlice,
+        ...canvasShapeSlice,
         ...selectionSlice,
         ...cropSlice,
         ...toolsSlice,

@@ -203,6 +203,12 @@ describe('projectIO serialize/deserialize layering', () => {
       backgroundColor: '#000000',
       layers: [layer1, layer2],
       customBrushes: [],
+      canvasShape: {
+        kind: 'circle',
+        center: { x: 1, y: 1 },
+        radius: 1,
+        bounds: { x: 0, y: 0, width: 2, height: 2 },
+      },
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
       updatedAt: new Date('2025-01-01T00:00:00.000Z'),
     };
@@ -215,5 +221,6 @@ describe('projectIO serialize/deserialize layering', () => {
 
     expect(readPixel(restoredLayer1.imageData, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(readPixel(restoredLayer2.imageData, 0, 0)).toEqual([0, 0, 255, 255]);
+    expect(restored.canvasShape?.kind).toBe('circle');
   });
 });

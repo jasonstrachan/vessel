@@ -13,6 +13,7 @@ import type {
 import JSZip from 'jszip';
 import { gunzipSync } from 'fflate';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
+import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import {
   LEGACY_PROJECT_FILE_EXTENSION,
@@ -141,6 +142,7 @@ export interface VesselProject {
     globalBrushSize?: number;
     exportLayout?: ExportContainerLayout;
     palette?: PaletteState;
+    canvasShape?: Project['canvasShape'];
   };
 }
 
@@ -1117,6 +1119,9 @@ export function generateProjectThumbnail(
       }
     }
   }
+
+  const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
+  applyCanvasShapeMask(ctx, shape);
   
   return canvas.toDataURL('image/png', 0.8);
 }
@@ -1154,7 +1159,8 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
       exportLayout: cloneExportLayout(project.exportLayout),
-      palette: normalizePalette(project.palette)
+      palette: normalizePalette(project.palette),
+      canvasShape: project.canvasShape,
     }
   };
 
@@ -1279,7 +1285,8 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
     brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
     globalBrushSize: serializedProject.globalBrushSize,
     exportLayout: cloneExportLayout(serializedProject.exportLayout),
-    palette: normalizePalette(serializedProject.palette)
+    palette: normalizePalette(serializedProject.palette),
+    canvasShape: serializedProject.canvasShape,
   };
 }
 
@@ -1656,6 +1663,9 @@ export async function exportProjectAsPNG(
       ctx.drawImage(layerCanvas, 0, 0);
     }
   }
+
+  const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
+  applyCanvasShapeMask(ctx, shape);
   
   // Save as PNG
   canvas.toBlob((blob) => {

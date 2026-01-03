@@ -29,7 +29,7 @@ import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '@/hooks/useDrawingHandlers';
 import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
 import { useCropState } from '@/hooks/useCropState';
-import { BrushShape, type BrushSettings } from '@/types';
+import { BrushShape, type BrushSettings, type ShapePoint } from '@/types';
 import type { Layer, Tool } from '@/types';
 import type { FloatingPaste as FloatingPasteState } from '@/hooks/canvas/utils/types';
 import BrushCursor, { type BrushCursorHandle } from './BrushCursor';
@@ -52,6 +52,15 @@ import { viewPerformanceTracker } from '@/utils/viewPerformanceTracker';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
 import { getColorCycleCompositorClient } from '@/workers/colorCycleCompositorClient';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
+import {
+  applyCanvasShapeClip,
+  buildCanvasShapeFromTool,
+  buildFreehandShape,
+  getCanvasBounds,
+  isPointInCanvasShape,
+  normalizeCanvasShape,
+  strokeCanvasShapeOutline,
+} from '@/utils/canvasShape';
 
 type GradientStop = { position: number; color: string };
 
@@ -229,6 +238,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
+  const canvasShapeEditor = useAppStore((state) => state.canvasShapeEditor);
+  const setCanvasShapeDraft = useAppStore((state) => state.setCanvasShapeDraft);
+  const commitCanvasShape = useAppStore((state) => state.commitCanvasShape);
+  const cancelCanvasShapeEdit = useAppStore((state) => state.cancelCanvasShapeEdit);
   const layers = useAppStore(selectLayers);
   const referenceLayerId = useAppStore(selectReferenceLayerId);
   const preferReferenceSampling = useAppStore((state) => state.colorPickerPreferReferenceLayer);
@@ -281,6 +294,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const { crop, commitCrop, cancelCrop } = useCropState();
 
   const displayProjectName = projectFilename ?? project?.name ?? 'Untitled';
+
+  const activeCanvasShape = useMemo(
+    () => (project ? normalizeCanvasShape(project.canvasShape, project.width, project.height) : null),
+    [project]
+  );
+  const canvasBounds = useMemo(
+    () => (project ? getCanvasBounds(project.width, project.height) : null),
+    [project]
+  );
+  const canvasShapeEditRef = useRef<{ isDrawing: boolean; start: ShapePoint | null }>({
+    isDrawing: false,
+    start: null,
+  });
+  const freehandPointsRef = useRef<ShapePoint[]>([]);
   
   // Get functions separately (they don't change)
   const setLayersNeedRecomposition = useAppStore(selectSetLayersNeedRecomposition);
@@ -459,8 +486,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return false;
     const { x, y } = mousePositionRef.current;
-    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-  }, []);
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      return false;
+    }
+    if (!activeCanvasShape) {
+      return true;
+    }
+    const localX = x - rect.left;
+    const localY = y - rect.top;
+    const worldX = (localX - (canvasOffsetX ?? 0)) / (canvasZoom || 1);
+    const worldY = (localY - (canvasOffsetY ?? 0)) / (canvasZoom || 1);
+    return isPointInCanvasShape(activeCanvasShape, { x: worldX, y: worldY });
+  }, [activeCanvasShape, canvasOffsetX, canvasOffsetY, canvasZoom]);
   
   // Determine cursor style based on tool and brush shape
   const defaultCursorStyle = useMemo(() => {
@@ -1065,6 +1102,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
+      const hasCanvasShape = Boolean(activeCanvasShape);
+      if (hasCanvasShape && activeCanvasShape) {
+        ctx.save();
+        applyCanvasShapeClip(ctx, activeCanvasShape);
+      }
 
       const checkerSize = 10;
       const checkerTileSize = checkerSize * 2;
@@ -1356,15 +1398,34 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       // Note: Color cycle animation is now rendered to the drawing canvas
       // in useDrawingHandlers, so it gets composited in the correct layer order
+      if (hasCanvasShape) {
+        ctx.restore();
+      }
       ctx.restore();
 
       // Draw subtle border matching background to mask checker anti-alias fringe
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
-      ctx.strokeStyle = '#141514';
-      ctx.lineWidth = 2 / scale;
-      ctx.strokeRect(0, 0, project.width, project.height);
+      const outlineWidth = 2 / scale;
+      if (activeCanvasShape) {
+        strokeCanvasShapeOutline(ctx, activeCanvasShape, {
+          strokeStyle: '#141514',
+          lineWidth: outlineWidth,
+        });
+      } else {
+        ctx.strokeStyle = '#141514';
+        ctx.lineWidth = outlineWidth;
+        ctx.strokeRect(0, 0, project.width, project.height);
+      }
+
+      if (canvasShapeEditor.active && canvasShapeEditor.draft) {
+        strokeCanvasShapeOutline(ctx, canvasShapeEditor.draft, {
+          strokeStyle: '#C7D7F8',
+          lineWidth: Math.max(1 / scale, 0.75),
+          dash: [6 / scale, 4 / scale],
+        });
+      }
       ctx.restore();
       
       // Draw floating paste if active
@@ -1415,9 +1476,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
           // Draw the floating paste clipped to the project bounds
           ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, project.width, project.height);
-          ctx.clip();
+          if (activeCanvasShape) {
+            applyCanvasShapeClip(ctx, activeCanvasShape);
+          } else {
+            ctx.beginPath();
+            ctx.rect(0, 0, project.width, project.height);
+            ctx.clip();
+          }
 
           ctx.drawImage(
             pasteCanvas,
@@ -1459,6 +1524,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         ctx.save();
         ctx.translate(offsetX, offsetY);
         ctx.scale(scale, scale);
+        if (activeCanvasShape) {
+          applyCanvasShapeClip(ctx, activeCanvasShape);
+        }
 
         const start = selectionStart || selectionStartRef;
         const end = selectionEnd || { x: 0, y: 0 };
@@ -1520,7 +1588,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     compositeBitmap,
     activeLayerId,
     renderSplitComposites,
-    drawNonActiveVisibleLayers
+    drawNonActiveVisibleLayers,
+    activeCanvasShape,
+    canvasShapeEditor.active,
+    canvasShapeEditor.draft
   ]);
   
   // Use custom hooks
@@ -2008,6 +2079,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       setFeedbackCallback(showFeedback);
     }
   }, [showFeedback, setFeedbackCallback]);
+
+  useEffect(() => {
+    if (canvasShapeEditor.active) return;
+    canvasShapeEditRef.current.isDrawing = false;
+    canvasShapeEditRef.current.start = null;
+    freehandPointsRef.current = [];
+  }, [canvasShapeEditor.active]);
+
+  useEffect(() => {
+    if (!canvasShapeEditor.active || !showFeedback) return;
+    const toolLabel = canvasShapeEditor.tool === 'freehand'
+      ? 'Freehand'
+      : canvasShapeEditor.tool === 'circle'
+        ? 'Circle'
+        : 'Rectangle';
+    showFeedback(`${toolLabel} canvas bounds: draw on the canvas. Enter to confirm, Esc to cancel.`);
+  }, [canvasShapeEditor.active, canvasShapeEditor.tool, showFeedback]);
   
   const updateColorCycleGradientRef = useRef(brushEngine.updateColorCycleGradient);
   const setColorCycleFlowModeRef = useRef(brushEngine.setColorCycleFlowMode);
@@ -2559,6 +2647,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     },
     onEnterPressed: async () => {
+      if (canvasShapeEditor.active) {
+        if (canvasShapeEditor.draft) {
+          commitCanvasShape();
+        } else {
+          cancelCanvasShapeEdit();
+        }
+        setNeedsRedraw((prev) => prev + 1);
+        return;
+      }
+
       if (tools.currentTool === 'color-adjust' && colorAdjustActive) {
         await applyColorAdjust();
         return;
@@ -2585,6 +2683,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     },
     onEscapePressed: () => {
+      if (canvasShapeEditor.active) {
+        cancelCanvasShapeEdit();
+        setNeedsRedraw((prev) => prev + 1);
+        return;
+      }
+
       if (tools.currentTool === 'color-adjust' && colorAdjustActive) {
         cancelColorAdjust();
         const fallbackTool = (previousTool ?? 'brush') as Tool;
@@ -2659,6 +2763,43 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       y: event.clientY - rect.top,
     };
   }, []);
+
+  const clampPointToCanvasBounds = useCallback(
+    (point: ShapePoint): ShapePoint => {
+      if (!canvasBounds) {
+        return point;
+      }
+      const maxX = canvasBounds.x + canvasBounds.width;
+      const maxY = canvasBounds.y + canvasBounds.height;
+      return {
+        x: Math.min(Math.max(point.x, canvasBounds.x), maxX),
+        y: Math.min(Math.max(point.y, canvasBounds.y), maxY),
+      };
+    },
+    [canvasBounds]
+  );
+
+  const getWorldPointFromPointerEvent = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>): ShapePoint | null => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      const localX = event.clientX - rect.left;
+      const localY = event.clientY - rect.top;
+      return {
+        x: (localX - (canvasOffsetX ?? 0)) / (canvasZoom || 1),
+        y: (localY - (canvasOffsetY ?? 0)) / (canvasZoom || 1),
+      };
+    },
+    [canvasOffsetX, canvasOffsetY, canvasZoom]
+  );
+
+  const isWorldPointInsideCanvasShape = useCallback(
+    (point: ShapePoint): boolean => {
+      if (!activeCanvasShape) return true;
+      return isPointInCanvasShape(activeCanvasShape, point);
+    },
+    [activeCanvasShape]
+  );
   
   // Use modular event handlers
   const eventHandlers = useCanvasEventHandlers({
@@ -2774,16 +2915,241 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     // Surface errors consistently in pointer handlers too
     feedback: showFeedback
   });
+
+  const updateCanvasShapeDraft = useCallback(
+    (shape: ReturnType<typeof buildCanvasShapeFromTool> | null) => {
+      setCanvasShapeDraft(shape);
+      setNeedsRedraw((prev) => prev + 1);
+    },
+    [setCanvasShapeDraft, setNeedsRedraw]
+  );
+
+  const handleCanvasShapePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!canvasShapeEditor.active || !canvasShapeEditor.tool || !canvasBounds) {
+        return;
+      }
+      if (event.button !== 0) {
+        return;
+      }
+      const world = getWorldPointFromPointerEvent(event);
+      if (!world) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const clamped = clampPointToCanvasBounds(world);
+      canvasShapeEditRef.current.isDrawing = true;
+      canvasShapeEditRef.current.start = clamped;
+      freehandPointsRef.current = [clamped];
+
+      const shape = buildCanvasShapeFromTool(
+        canvasShapeEditor.tool,
+        clamped,
+        clamped,
+        freehandPointsRef.current,
+        canvasBounds
+      );
+      updateCanvasShapeDraft(shape);
+      canvasRef.current?.setPointerCapture?.(event.pointerId);
+    },
+    [
+      canvasBounds,
+      canvasShapeEditor.active,
+      canvasShapeEditor.tool,
+      clampPointToCanvasBounds,
+      getWorldPointFromPointerEvent,
+      updateCanvasShapeDraft,
+    ]
+  );
+
+  const handleCanvasShapePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!canvasShapeEditor.active || !canvasShapeEditor.tool || !canvasBounds) {
+        return;
+      }
+      if (!canvasShapeEditRef.current.isDrawing) {
+        return;
+      }
+      const world = getWorldPointFromPointerEvent(event);
+      if (!world) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const clamped = clampPointToCanvasBounds(world);
+      const start = canvasShapeEditRef.current.start ?? clamped;
+
+      if (canvasShapeEditor.tool === 'freehand') {
+        const last = freehandPointsRef.current[freehandPointsRef.current.length - 1];
+        const dx = clamped.x - (last?.x ?? clamped.x);
+        const dy = clamped.y - (last?.y ?? clamped.y);
+        if (dx * dx + dy * dy >= 1) {
+          freehandPointsRef.current.push(clamped);
+        }
+      }
+
+      const shape = buildCanvasShapeFromTool(
+        canvasShapeEditor.tool,
+        start,
+        clamped,
+        freehandPointsRef.current,
+        canvasBounds
+      );
+      updateCanvasShapeDraft(shape);
+    },
+    [
+      canvasBounds,
+      canvasShapeEditor.active,
+      canvasShapeEditor.tool,
+      clampPointToCanvasBounds,
+      getWorldPointFromPointerEvent,
+      updateCanvasShapeDraft,
+    ]
+  );
+
+  const handleCanvasShapePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!canvasShapeEditor.active || !canvasShapeEditor.tool || !canvasBounds) {
+        return;
+      }
+      if (!canvasShapeEditRef.current.isDrawing) {
+        return;
+      }
+      const world = getWorldPointFromPointerEvent(event);
+      if (!world) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const clamped = clampPointToCanvasBounds(world);
+      const start = canvasShapeEditRef.current.start ?? clamped;
+
+      let shape: ReturnType<typeof buildCanvasShapeFromTool>;
+      if (canvasShapeEditor.tool === 'freehand') {
+        if (freehandPointsRef.current.length === 0) {
+          freehandPointsRef.current = [clamped];
+        }
+        shape = buildFreehandShape(freehandPointsRef.current, canvasBounds);
+      } else {
+        shape = buildCanvasShapeFromTool(
+          canvasShapeEditor.tool,
+          start,
+          clamped,
+          freehandPointsRef.current,
+          canvasBounds
+        );
+      }
+
+      canvasShapeEditRef.current.isDrawing = false;
+      canvasShapeEditRef.current.start = null;
+      updateCanvasShapeDraft(shape);
+      canvasRef.current?.releasePointerCapture?.(event.pointerId);
+    },
+    [
+      canvasBounds,
+      canvasShapeEditor.active,
+      canvasShapeEditor.tool,
+      clampPointToCanvasBounds,
+      getWorldPointFromPointerEvent,
+      updateCanvasShapeDraft,
+    ]
+  );
   
   // Extract handlers from modular system
   const {
-    handlePointerDown,
-    handlePointerMove, 
-    handlePointerUp,
-    handlePointerEnter,
-    handlePointerLeave,
-    handlePointerCancel
+    handlePointerDown: basePointerDown,
+    handlePointerMove: basePointerMove,
+    handlePointerUp: basePointerUp,
+    handlePointerEnter: basePointerEnter,
+    handlePointerLeave: basePointerLeave,
+    handlePointerCancel: basePointerCancel,
   } = eventHandlers;
+
+  const shouldBlockPointerDownForShape = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>): boolean => {
+      if (isSpacePressedRef.current) {
+        return false;
+      }
+      const world = getWorldPointFromPointerEvent(event);
+      if (!world) return false;
+      return !isWorldPointInsideCanvasShape(world);
+    },
+    [getWorldPointFromPointerEvent, isWorldPointInsideCanvasShape]
+  );
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (canvasShapeEditor.active && !isSpacePressedRef.current) {
+        handleCanvasShapePointerDown(event);
+        return;
+      }
+      if (!canvasShapeEditor.active && shouldBlockPointerDownForShape(event)) {
+        return;
+      }
+      basePointerDown(event);
+    },
+    [
+      basePointerDown,
+      canvasShapeEditor.active,
+      handleCanvasShapePointerDown,
+      shouldBlockPointerDownForShape,
+    ]
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (canvasShapeEditor.active && !isSpacePressedRef.current) {
+        handleCanvasShapePointerMove(event);
+        return;
+      }
+      basePointerMove(event);
+    },
+    [basePointerMove, canvasShapeEditor.active, handleCanvasShapePointerMove]
+  );
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (canvasShapeEditor.active && !isSpacePressedRef.current) {
+        handleCanvasShapePointerUp(event);
+        return;
+      }
+      basePointerUp(event);
+    },
+    [basePointerUp, canvasShapeEditor.active, handleCanvasShapePointerUp]
+  );
+
+  const handlePointerEnter = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (canvasShapeEditor.active && !isSpacePressedRef.current) {
+        return;
+      }
+      basePointerEnter(event);
+    },
+    [basePointerEnter, canvasShapeEditor.active]
+  );
+
+  const handlePointerLeave = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (canvasShapeEditor.active && !isSpacePressedRef.current) {
+        return;
+      }
+      basePointerLeave(event);
+    },
+    [basePointerLeave, canvasShapeEditor.active]
+  );
+
+  const handlePointerCancel = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (canvasShapeEditor.active && !isSpacePressedRef.current) {
+        canvasShapeEditRef.current.isDrawing = false;
+        canvasShapeEditRef.current.start = null;
+        return;
+      }
+      basePointerCancel(event);
+    },
+    [basePointerCancel, canvasShapeEditor.active]
+  );
   
   // Effects
   

@@ -35,7 +35,7 @@ const calculateMemoryUsage = (width: number, height: number): number => {
 export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose }) => {
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
-  const { project, newProject, resizeCanvas } = useAppStore();
+  const { project, newProject, resizeCanvas, beginCanvasShapeEdit } = useAppStore();
   
   const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 2000);
   const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 2000);
@@ -117,6 +117,11 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
   const handleNewDocument = () => {
     newProject(newWidth, newHeight);
+    onClose();
+  };
+
+  const handleCanvasShapeTool = (tool: 'rectangle' | 'circle' | 'freehand') => {
+    beginCanvasShapeEdit(tool);
     onClose();
   };
 
@@ -222,6 +227,43 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                 </Button>
               </div>
             </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-[#555]"></div>
+
+          {/* Canvas Shape Section */}
+          <div>
+            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Canvas Shape</h3>
+            <p className="text-xs text-[#9AA0A6] mb-3">
+              Pick a shape tool, then draw the new canvas bounds directly on the canvas.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => handleCanvasShapeTool('rectangle')}
+                variant="secondary"
+                size="sm"
+              >
+                Rectangular
+              </Button>
+              <Button
+                onClick={() => handleCanvasShapeTool('circle')}
+                variant="secondary"
+                size="sm"
+              >
+                Circle
+              </Button>
+              <Button
+                onClick={() => handleCanvasShapeTool('freehand')}
+                variant="secondary"
+                size="sm"
+              >
+                Freehand
+              </Button>
+            </div>
+            <p className="text-[11px] text-[#8B8B8B] mt-2">
+              Press Enter to confirm, Esc to cancel.
+            </p>
           </div>
 
           {/* Divider */}
