@@ -548,8 +548,11 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private computeColorBandIndex(strokeData: LayerStrokeState): number {
-    const bandIndex = strokeData.stampCounter % 255;
-    return Math.max(1, Math.min(255, bandIndex + 1));
+    const bands = Math.max(2, Math.min(254, Math.floor(this.gradientBands || 12)));
+    const phaseIndex = Math.max(0, Math.min(254, strokeData.stampCounter % 255));
+    const normalized = bands <= 1 ? 0 : phaseIndex / 254;
+    const bandIndex = Math.max(0, Math.min(bands - 1, Math.round(normalized * (bands - 1))));
+    return this.mapBandIndexToPaletteIndex(bandIndex, bands);
   }
 
   private resolveStampDitherCoverage(phase: number, colorIndex: number): number {
@@ -3468,8 +3471,14 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private deriveBandCountFromDistance(distance: number, spacing?: number): number {
+    const fixedBands = Number.isFinite(this.gradientBands)
+      ? Math.max(2, Math.min(254, Math.floor(this.gradientBands)))
+      : null;
+    if (fixedBands !== null) {
+      return fixedBands;
+    }
     if (!Number.isFinite(distance) || distance <= 0) {
-      return Math.max(2, this.gradientBands || 12);
+      return 12;
     }
     const spacingPx = this.normalizeBandSpacingValue(spacing);
     const raw = Math.max(2, distance / spacingPx);

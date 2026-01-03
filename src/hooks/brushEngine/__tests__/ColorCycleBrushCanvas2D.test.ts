@@ -292,6 +292,56 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(snapshot?.hasContent).toBe(true);
   });
 
+  it('prefers gradientBands over distance-derived bands', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setGradientBands(18);
+    const derived = (brush as any).deriveBandCountFromDistance(320, 8);
+
+    expect(derived).toBe(18);
+  });
+
+  it('maps stroke band indices using gradientBands', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const strokeData = (brush as any).ensureStrokeState('layer-1');
+
+    brush.setGradientBands(4);
+    strokeData.stampCounter = 0;
+    const first = (brush as any).computeColorBandIndex(strokeData);
+
+    strokeData.stampCounter = 85;
+    const mid = (brush as any).computeColorBandIndex(strokeData);
+
+    strokeData.stampCounter = 170;
+    const nearEnd = (brush as any).computeColorBandIndex(strokeData);
+
+    expect(first).not.toBe(mid);
+    expect(mid).not.toBe(nearEnd);
+  });
+
+  it('keeps total cycle length constant when bands change', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const strokeData = (brush as any).ensureStrokeState('layer-1');
+
+    brush.setGradientBands(4);
+    strokeData.stampCounter = 0;
+    const band4Start = (brush as any).computeColorBandIndex(strokeData);
+    strokeData.stampCounter = 127;
+    const band4Mid = (brush as any).computeColorBandIndex(strokeData);
+
+    brush.setGradientBands(12);
+    strokeData.stampCounter = 0;
+    const band12Start = (brush as any).computeColorBandIndex(strokeData);
+    strokeData.stampCounter = 127;
+    const band12Mid = (brush as any).computeColorBandIndex(strokeData);
+
+    expect(band4Mid).not.toBe(band4Start);
+    expect(band12Mid).not.toBe(band12Start);
+  });
+
   it('clamps dither settings', () => {
     const brush = new ColorCycleBrushCanvas2D(makeCanvas());
     brush.setDitherStrength(2);
