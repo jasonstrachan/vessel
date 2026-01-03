@@ -155,6 +155,11 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
           Math.max(1, Math.floor(currentSettings.colorCycleStampDitherPixelSize))
         );
       }
+      if (typeof brush.setStampDitherPressureLinked === 'function') {
+        brush.setStampDitherPressureLinked(
+          Boolean(currentSettings.colorCycleStampDitherPressureLinked)
+        );
+      }
       if (typeof brush.setStampDitherClears === 'function') {
         brush.setStampDitherClears(
           Boolean(currentSettings.colorCycleStampDitherClears)

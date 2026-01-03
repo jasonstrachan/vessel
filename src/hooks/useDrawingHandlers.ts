@@ -339,6 +339,12 @@ export function useDrawingHandlers({
   void _screenToWorld;
   void _viewTransformRef;
   void _canvasRef;
+  const cancelAnimationFrameSafe = useMemo(() => {
+    if (typeof window === 'undefined' || typeof window.cancelAnimationFrame !== 'function') {
+      return (_handle: number) => {};
+    }
+    return window.cancelAnimationFrame.bind(window);
+  }, []);
   const brushEngine = useBrushEngineSimplified();
   const ensureActiveColorCycleGradientSlot = useCallback((
     state: AppState,
@@ -987,7 +993,7 @@ export function useDrawingHandlers({
       getColorCycleBrushManager,
       continuousColorCycleAnimationRef,
       continuousColorCycleAnimationActiveRef,
-      cancelAnimationFrame,
+      cancelAnimationFrame: cancelAnimationFrameSafe,
       ccGroup,
       ccGroupEnd,
       ccLog,
@@ -1962,7 +1968,7 @@ export function useDrawingHandlers({
         }, {
           brushEngine,
           userBrushEngine,
-          cancelAnimationFrame,
+          cancelAnimationFrame: cancelAnimationFrameSafe,
         });
 
         if (activeLayer) {

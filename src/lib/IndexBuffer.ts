@@ -237,7 +237,9 @@ export class IndexBuffer {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     this.paintCircleInternalMasked(
       x,
@@ -248,7 +250,9 @@ export class IndexBuffer {
       maskTileSize,
       maskClears,
       secondaryIndex,
-      gradientSlot
+      gradientSlot,
+      maskOriginX,
+      maskOriginY
     );
     this.isDirty = true;
   }
@@ -262,7 +266,9 @@ export class IndexBuffer {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     this.paintDiamondInternal(
       x,
@@ -273,7 +279,9 @@ export class IndexBuffer {
       maskTileSize,
       maskClears,
       secondaryIndex,
-      gradientSlot
+      gradientSlot,
+      maskOriginX,
+      maskOriginY
     );
     this.isDirty = true;
   }
@@ -313,7 +321,9 @@ export class IndexBuffer {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     this.paintSquareInternal(
       x,
@@ -324,7 +334,9 @@ export class IndexBuffer {
       maskTileSize,
       maskClears,
       secondaryIndex,
-      gradientSlot
+      gradientSlot,
+      maskOriginX,
+      maskOriginY
     );
     this.isDirty = true;
   }
@@ -338,7 +350,9 @@ export class IndexBuffer {
     maskTileSize: number = 0,
     maskClears: boolean = false,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
@@ -353,6 +367,8 @@ export class IndexBuffer {
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;
+    const maskBaseX = useMask ? (Number.isFinite(maskOriginX) ? Math.floor(maskOriginX as number) : minX) : 0;
+    const maskBaseY = useMask ? (Number.isFinite(maskOriginY) ? Math.floor(maskOriginY as number) : minY) : 0;
 
     this.markDirtyRect(minX, minY, maxX, maxY);
 
@@ -360,10 +376,10 @@ export class IndexBuffer {
       for (let px = minX; px <= maxX; px++) {
         const dataIndex = py * this.width + px;
         if (useMask) {
-          const localY = py - minY;
-          const localX = px - minX;
-          const sampleY = localY % maskTileSize;
-          const sampleX = localX % maskTileSize;
+          const localY = py - maskBaseY;
+          const localX = px - maskBaseX;
+          const sampleY = ((localY % maskTileSize) + maskTileSize) % maskTileSize;
+          const sampleX = ((localX % maskTileSize) + maskTileSize) % maskTileSize;
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
@@ -395,7 +411,9 @@ export class IndexBuffer {
     maskTileSize: number = 0,
     maskClears: boolean = false,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
@@ -411,6 +429,8 @@ export class IndexBuffer {
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;
+    const maskBaseX = useMask ? (Number.isFinite(maskOriginX) ? Math.floor(maskOriginX as number) : minX) : 0;
+    const maskBaseY = useMask ? (Number.isFinite(maskOriginY) ? Math.floor(maskOriginY as number) : minY) : 0;
 
     this.markDirtyRect(minX, minY, maxX, maxY);
 
@@ -423,10 +443,10 @@ export class IndexBuffer {
         }
         const dataIndex = py * this.width + px;
         if (useMask) {
-          const localY = py - minY;
-          const localX = px - minX;
-          const sampleY = localY % maskTileSize;
-          const sampleX = localX % maskTileSize;
+          const localY = py - maskBaseY;
+          const localX = px - maskBaseX;
+          const sampleY = ((localY % maskTileSize) + maskTileSize) % maskTileSize;
+          const sampleX = ((localX % maskTileSize) + maskTileSize) % maskTileSize;
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
@@ -458,7 +478,9 @@ export class IndexBuffer {
     maskTileSize: number = 0,
     maskClears: boolean = false,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
@@ -473,6 +495,8 @@ export class IndexBuffer {
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;
+    const maskBaseX = useMask ? (Number.isFinite(maskOriginX) ? Math.floor(maskOriginX as number) : minX) : 0;
+    const maskBaseY = useMask ? (Number.isFinite(maskOriginY) ? Math.floor(maskOriginY as number) : minY) : 0;
 
     this.markDirtyRect(minX, minY, maxX, maxY);
 
@@ -485,10 +509,10 @@ export class IndexBuffer {
         }
         const dataIndex = py * this.width + px;
         if (useMask) {
-          const localY = py - minY;
-          const localX = px - minX;
-          const sampleY = localY % maskTileSize;
-          const sampleX = localX % maskTileSize;
+          const localY = py - maskBaseY;
+          const localX = px - maskBaseX;
+          const sampleY = ((localY % maskTileSize) + maskTileSize) % maskTileSize;
+          const sampleX = ((localX % maskTileSize) + maskTileSize) % maskTileSize;
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
@@ -546,7 +570,9 @@ export class IndexBuffer {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     this.paintTriangleInternal(
       x,
@@ -557,7 +583,9 @@ export class IndexBuffer {
       maskTileSize,
       maskClears,
       secondaryIndex,
-      gradientSlot
+      gradientSlot,
+      maskOriginX,
+      maskOriginY
     );
     this.isDirty = true;
   }
@@ -571,7 +599,9 @@ export class IndexBuffer {
     maskTileSize: number = 0,
     maskClears: boolean = false,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
@@ -596,6 +626,8 @@ export class IndexBuffer {
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;
+    const maskBaseX = useMask ? (Number.isFinite(maskOriginX) ? Math.floor(maskOriginX as number) : minX) : 0;
+    const maskBaseY = useMask ? (Number.isFinite(maskOriginY) ? Math.floor(maskOriginY as number) : minY) : 0;
 
     this.markDirtyRect(minX, minY, maxX, maxY);
 
@@ -611,10 +643,10 @@ export class IndexBuffer {
         if ((b1 === b2) && (b2 === b3)) {
           const dataIndex = py * this.width + px;
           if (useMask) {
-            const localY = py - minY;
-            const localX = px - minX;
-            const sampleYMask = localY % maskTileSize;
-            const sampleXMask = localX % maskTileSize;
+            const localY = py - maskBaseY;
+            const localX = px - maskBaseX;
+            const sampleYMask = ((localY % maskTileSize) + maskTileSize) % maskTileSize;
+            const sampleXMask = ((localX % maskTileSize) + maskTileSize) % maskTileSize;
             const maskIdx = sampleYMask * maskTileSize + sampleXMask;
             if (maskTile![maskIdx] === 0) {
               if (shouldClearMaskedPixels) {

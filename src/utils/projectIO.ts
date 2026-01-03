@@ -356,6 +356,7 @@ interface ColorCycleBrushState {
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
   stampDitherClears?: boolean;
+  stampDitherPressureLinked?: boolean;
 }
 
 type SerializedColorCycleWebGLState = NonNullable<SerializedLayer['colorCycleData']>['webGLState'];

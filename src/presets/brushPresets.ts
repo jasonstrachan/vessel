@@ -81,6 +81,7 @@ export const pixelBrushSettings: BrushSettings = {
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherClears: false,
+  colorCycleStampDitherPressureLinked: false,
   colorCycleStampShape: 'square',
   colorCycleUseForegroundGradient: false,
   colorCycleFgLightness: 50,
@@ -170,6 +171,7 @@ export const defaultBrushSettings: BrushSettings = {
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherClears: false,
+  colorCycleStampDitherPressureLinked: false,
   customBrushColorCycle: false,
   autoSampleColor: false,
   // Auto-sample gradient for color cycle brushes (off by default)

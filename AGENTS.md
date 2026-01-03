@@ -1,350 +1,312 @@
-# AGENTS.md — Vessel
+# AGENTS.md - Vessel
 
 Purpose
 
-- Guide Codex agents/orchestrators to assign the right specialists and execute changes safely and efficiently in this repo.
-- Establish conventions, scope, and decision heuristics that all agents must follow.
+Motto:
+
+> Every mission assigned is delivered with 100% quality and state-of-the-art execution - no hacks, no workarounds, no partial deliverables and no mock-driven confidence. Mocks/stubs may exist in unit tests for I/O boundaries, but final validation must rely on real integration and end-to-end tests.
+
+You always:
+
+- Deliver end-to-end, production-like solutions with clean, modular, and maintainable architecture.
+- Take full ownership of the task: you do not abandon work because it is complex or tedious; you only pause when requirements are truly contradictory or when critical clarification is needed.
+- Are proactive and efficient: you avoid repeatedly asking for confirmation like “Can I proceed?” and instead move logically to next steps, asking focused questions only when they unblock progress.
+- Follow the full engineering cycle for significant tasks: **understand → design → implement → (conceptually) test → refine → document**, using all relevant tools and environment capabilities appropriately.
+- Respect both functional and non-functional requirements and, when the user’s technical ideas are unclear or suboptimal, you propose better, modern, state-of-the-art alternatives that still satisfy their business goals.
+- Manage context efficiently and avoid abrupt, low-value interruptions; when you must stop due to platform limits, you clearly summarize what was done and what remains.
 
 Scope
 
-- Applies to the entire repository unless a deeper, directory‑local AGENTS.md overrides specific guidance.
+- Applies to the entire repository unless a deeper, directory-local AGENTS.md overrides it.
 
-Research & Discovery Expectations
+Research and Discovery
 
-- Read the existing narrative before coding. Start with `README.md` and any topic-specific doc under `docs/` to understand prior decisions and open footguns.
-- Map the execution path you are touching: inspect `src/app/page.tsx`, the relevant component/hook/service, and associated store slices before introducing changes. Follow imports using the `@/*` alias so you understand how data flows end to end.
-- Use `rg` (e.g., `rg symbolName src/`) to locate current implementations, historical helpers, and tests. If similar logic already exists (often in `src/utils`, `src/lib`, `src/components/retroui`, or `src/hooks/brushEngine`), extend it instead of recreating it.
-- Check nearby tests (`tests/`, `src/**/__tests__/`) and fixtures (`assets/`, `public/`) to see how behavior is validated. Update or add cases in the same area when you change logic.
-- When reviving or pruning features, look in `refactor/`, `agents/`, and `docs/` for prior art so that new work aligns with recent architecture refactors.
+- Read README.md and relevant docs/ before coding.
+- Map the execution path you touch: start with src/app/page.tsx, then follow imports via @/*.
+- Use rg to find existing implementations before adding new ones.
+- Check nearby tests (tests/, src/**/__tests__/) and fixtures (assets/, public/).
+- When reviving/pruning features, check refactor/, agents/, and docs/ for prior art.
 
 Project Overview
 
-- Tech: Next.js + TypeScript. Static export for GitHub Pages with `basePath='/vessel'`.
-- Path alias: `@/*` (see `tsconfig.json`).
-- Structure: `src/` (app/components/brushes/hooks/lib/stores/utils/styles/workers/presets/pages), `tests/`, `public/`, `assets/`, `scripts/`, `docs/`.
+- Tech: Next.js + TypeScript. Static export for GitHub Pages with basePath='/vessel'.
+- Path alias: @/* (tsconfig.json).
+- Structure: src/ (app/components/brushes/hooks/lib/stores/utils/styles/workers/presets/pages), tests/, public/, assets/, scripts/, docs/.
 
-Structure & Architecture
+Structure and Architecture
 
-- Entrypoints
-  - `src/app/layout.tsx` — root layout; imports global styles; wraps the App Router tree.
-  - `src/app/page.tsx` — main UI composition (toolbars, panels, modals, `DrawingCanvas`). Uses `useAppStore` and utilities (`autosaveService`, `preloadRisographTexture`).
-  - `src/pages/` — legacy/auxiliary routes for testing and performance (`PerformanceTest.tsx`, `TestRunner.tsx`). App Router is primary.
+Entrypoints
+- src/app/layout.tsx - root layout, global styles, app router.
+- src/app/page.tsx - main UI composition (toolbars, panels, modals, DrawingCanvas).
+- src/pages/ - legacy/aux routes (PerformanceTest.tsx, TestRunner.tsx). App Router is primary.
 
-- UI Components (`src/components/`)
-  - Top-level components: `LeftToolbar.tsx`, `BrushLibrary.tsx`, `ControlsPanel.tsx`, `MinimalLayerList.tsx`, `FeedbackStrip.tsx`, `BrushEditorUI.tsx` (inline editor).
-  - Canvas suite (`src/components/canvas/`): `DrawingCanvas.tsx` (core renderer and input surface), `BrushCursor.tsx`, `SimplifiedColorCycleManager.ts`.
-  - Subfolders: `brushes/`, `colorCycle/`, `toolbar/`, `ui/`, `icons/`, `modals/`, `panels/`, `retroui/` (UI composition helpers).
+UI Components (src/components/)
+- Top-level: LeftToolbar.tsx, BrushLibrary.tsx, ControlsPanel.tsx, MinimalLayerList.tsx, FeedbackStrip.tsx, BrushEditorUI.tsx.
+- Canvas suite: src/components/canvas/DrawingCanvas.tsx, BrushCursor.tsx, SimplifiedColorCycleManager.ts.
+- Subfolders: brushes/, colorCycle/, toolbar/, ui/, icons/, modals/, panels/, retroui/.
 
-- Brushes System (`src/brushes/`)
-  - `BrushPlugin.ts` — plugin interface/types for brushes.
-  - `BrushRegistry.ts` — registration/discovery of brush plugins.
-  - `plugins/`, `shapes/` — concrete brush implementations and shape primitives.
+Brushes System (src/brushes/)
+- BrushPlugin.ts - plugin interface/types.
+- BrushRegistry.ts - registration/discovery.
+- plugins/, shapes/ - implementations.
 
-- Hooks (`src/hooks/`)
-  - High-level engine: `useBrushEngineSimplified.ts` (+ backup), state machines: `useCanvasStateMachine.ts`, `useToolStateMachine.ts`.
-  - Input/interaction: `useDrawingHandlers.ts`, `useCanvasInteraction.ts`, keyboard: `useComprehensiveKeyboard.ts`, `useKeyboardScope.ts`, panning: `useSimplePan.ts`.
-  - Namespaced helpers in `hooks/brushEngine/` and `hooks/canvas/` support decomposition of canvas logic.
+Hooks (src/hooks/)
+- Core engine: useBrushEngineSimplified.ts (+ backup), state machines: useCanvasStateMachine.ts, useToolStateMachine.ts.
+- Input/interaction: useDrawingHandlers.ts, useCanvasInteraction.ts, useComprehensiveKeyboard.ts, useKeyboardScope.ts, useSimplePan.ts.
+- Namespaced helpers in hooks/brushEngine/ and hooks/canvas/.
 
-- State Management (`src/stores/`)
-  - `useAppStore.ts` — centralized app state implemented with Zustand; manages project, layers, tools, brush presets/settings, history, selection, shape/gradient states, UI panels/modals, autosave.
-  - `colorCycleBrushManager.ts` — lifecycle/instance manager for color-cycle brush objects, coordinated with `useAppStore`.
+State (src/stores/)
+- useAppStore.ts - Zustand store for project/layers/tools/presets/history/selection/UI/autosave.
+- colorCycleBrushManager.ts - color-cycle brush lifecycle manager.
 
-- Core Libraries (`src/lib/`)
-  - Rendering/animation: `AnimationController.ts`, `ColorCycleAnimator.ts`, `ColorCycleRenderer.ts`.
-  - Color and palettes: `GradientPalette.ts`, `lib/colorCycle/**`.
-  - Utilities and examples namespaces; `index.ts` re-exports library surface.
+Core Libraries (src/lib/)
+- Rendering: AnimationController.ts, ColorCycleAnimator.ts, ColorCycleRenderer.ts.
+- Color/palettes: GradientPalette.ts, lib/colorCycle/**.
+- index.ts re-exports library surface.
 
-- Utilities (`src/utils/`)
-  - Canvas/data ops: `canvasPool.ts`, `canvasSnapshot.ts`, `floodFill.ts`, `imageProcessing.ts`, `pixelComparison.ts`.
-  - Brush helpers: `brushCache.ts`, `scaledBrushCache.ts`, `pressureCurve.ts`, `pressureOptimizer.ts`, `brushThumbnailGenerator.ts`.
-  - App services: `autosave.ts`, `crashRecovery.ts`, `projectIO.ts`, `fileBackupService.ts`, `performanceMonitor.ts`, `memoryCleanup.ts`.
-  - Color/gradients: `colorAnalysis.ts`, `colorAnalyzer.ts`, `colorCycleGradients.ts`, `gradientPresets.ts`.
-  - UX/dev: `gridSnap.ts`, `angleSnap.ts`, `detectWacom.ts`, `shapeMaker.ts`, `shapeUtils.ts`, `zoomUtils.ts`, `devLog.ts`, `debug.ts`.
-  - Tests live in `src/utils/__tests__/` for utility units.
+Utilities (src/utils/)
+- Canvas/data: canvasPool.ts, canvasSnapshot.ts, floodFill.ts, imageProcessing.ts, pixelComparison.ts.
+- Brush helpers: brushCache.ts, scaledBrushCache.ts, pressureCurve.ts, pressureOptimizer.ts, brushThumbnailGenerator.ts.
+- Services: autosave.ts, crashRecovery.ts, projectIO.ts, fileBackupService.ts, performanceMonitor.ts, memoryCleanup.ts.
+- Color/gradients: colorAnalysis.ts, colorAnalyzer.ts, colorCycleGradients.ts, gradientPresets.ts.
+- UX/dev: gridSnap.ts, angleSnap.ts, detectWacom.ts, shapeMaker.ts, shapeUtils.ts, zoomUtils.ts, devLog.ts, debug.ts.
 
-- Workers (`src/workers/`)
-  - `gradientWorker.ts` — off-main-thread gradient-related computation to keep UI responsive.
+Workers (src/workers/)
+- gradientWorker.ts - off-main-thread gradient computation.
 
-- Presets/Config/Types
-  - `src/presets/brushPresets.ts` — default and user-editable brush preset definitions and helpers.
-  - `src/constants/` — cross-module constants (e.g., canvas defaults).
-  - `src/types/` and `src/types.ts` — shared TypeScript types and enums (e.g., `BrushShape`).
+Presets/Config/Types
+- src/presets/brushPresets.ts - default/user-editable presets.
+- src/constants/ - shared constants.
+- src/types/ and src/types.ts - shared types/enums.
 
-- Styling
-  - `src/app/globals.css` + `tailwind.config.ts` and `postcss.config.mjs` provide the styling pipeline; `src/styles/gradient-editor.css` for specific editor styles.
+Styling
+- src/app/globals.css + tailwind.config.ts + postcss.config.mjs.
+- src/styles/gradient-editor.css for editor-specific CSS.
 
-- Public/Assets/Docs
-  - `public/` — static assets bundled with the app; `assets/` — project media/examples and external fixtures.
-  - `docs/` — architecture notes, troubleshooting guides (e.g., pixel-perfect rendering, testing brushes).
+Runtime Data Flow (high level)
+- Input -> Engine -> Render.
+- Hooks capture input; store actions update state; brush engine computes strokes; renderers draw.
+- Heavy gradient work can run in gradientWorker.
 
-- Scripts/Dev
-  - `scripts/` — monitored dev server and helpers; root `proxy-server.js` and shell scripts for local workflows.
-
-Runtime Data Flow (High level)
-
-- Input → Engine → Render
-  - Pointer/keyboard input captured by hooks (`useDrawingHandlers`, `useCanvasInteraction`, `useComprehensiveKeyboard`).
-  - Actions update `useAppStore` slices (tools, canvas, history, selection, layers).
-  - Brush engine (`useBrushEngineSimplified`) resolves active brush/preset, computes stroke primitives, and delegates to renderers.
-  - Rendering uses `ColorCycleRenderer`/`Animator` and canvas utilities; heavy gradient work may bounce to `gradientWorker`.
-
-- State & Persistence
-  - Global state in `useAppStore` drives UI and canvas; history (`undo/redo`) stores `CanvasSnapshot`s.
-  - Persistence via `utils/projectIO.ts` (save/load/export), plus `autosaveService` and safe caches (`brushCache`, `scaledBrushCache`).
-
-Component Relationships
-
-- `app/page.tsx` lays out the shell: `LeftToolbar` (tools), central `DrawingCanvas` (render surface + handlers), right column with `ColorPickerPanel`, `BrushLibrary`, `ControlsPanel`.
-- `BrushEditorUI` now renders inside the Brush Settings panel; `DocumentModal` and `SettingsModal` still mount at root via `useAppStore.ui.modals`.
-- `MinimalLayerList` reflects `useAppStore.layers` and provides quick operations; composition triggers via `layersNeedRecomposition` flag.
-
-Key Conventions & Couplings
-
-- `basePath` and `assetPrefix` from `next.config.ts` must be respected when referencing images/fonts/links.
-- All modules import via `@/*` alias; avoid relative path chains like `../../..`.
-- Components should select minimal state from `useAppStore` to avoid re-renders; prefer selector functions over broad object picks.
-- Brush plugins register through `BrushRegistry` and operate against public types from `src/types`.
-- Worker messages should be small, transferable objects; avoid sending large `ImageData` repeatedly without consideration.
+Key Conventions
+- Respect basePath/assetPrefix (next.config.ts) for assets and links.
+- Use @/* alias; avoid deep relative paths.
+- Use Zustand selectors to minimize re-renders.
+- Keep worker messages small and transferable.
 
 Clean, Reusable Code
 
-- Principles
-  - Single Responsibility: keep modules/functions focused; one reason to change.
-  - Rule of Three: repeat twice is fine; on the third time, extract a helper.
-  - Composition over inheritance: compose small components and hooks for reuse.
-  - Pure by default: utilities should be side‑effect free and deterministic.
+Principles
+- Single responsibility.
+- Rule of three: extract on the third repeat.
+- Composition over inheritance.
+- Pure by default.
 
-- Reuse & Decommission
-  - Prefer extending the nearest existing module over adding a new one. For UI, reach into `src/components/retroui`/`ui`; for brush logic, lean on `BrushRegistry`, `BrushPlugin`, or helpers in `src/brushes/plugins` before introducing a new abstraction.
-  - When new code replaces an older path, delete or adapt the superseded code in the same patch (components, hooks, styles, docs, and tests). Do not leave parallel implementations in place.
-  - Keep new modules small and composable; expose typed helpers from `src/lib` or `src/utils` and import them via `@/*` to avoid deep relative paths.
-  - If you must diverge from an established pattern, document why in code comments and AGENTS notes, and file a follow-up in `DEBUG_PLAN.md` so future work stays consistent.
+Reuse and Decommission
+- Extend existing modules (retroui/ui, BrushRegistry/BrushPlugin, utils/lib) before creating new abstractions.
+- If replacing older code, delete or adapt the old path in the same change.
+- Keep new modules small; import via @/*.
+- If diverging from established patterns, document why and add a follow-up in DEBUG_PLAN.md.
 
-- Types First
-  - Model domain with explicit types/interfaces and discriminated unions.
-  - Prefer narrow, precise types; avoid `any`. Use generics where it improves reuse.
-  - For many parameters, pass a typed options object (`opts`) to keep call sites clear.
+Types First
+- Model with explicit types and discriminated unions.
+- Avoid any; use generics where helpful.
+- Prefer options objects for many parameters.
 
-- React Reuse Patterns
-  - Extract cross‑cutting logic into hooks (`useX`) instead of HOCs or mixins.
-  - Keep presentational components stateless; inject data/handlers via props.
-  - Minimize prop surfaces; pass primitives/functions, not large objects. Stabilize with `useMemo/useCallback` when passed down.
-  - Avoid duplicating global state locally; derive from `useAppStore` selectors.
+React Patterns
+- Extract shared logic into hooks.
+- Keep presentational components stateless.
+- Pass primitives/functions, not large objects; memoize when it reduces work.
+- Avoid duplicating global state locally.
 
-- API Design
-  - Keep function signatures small; return new values rather than mutating inputs.
-  - Use clear names and document pre/post‑conditions in JSDoc for non‑trivial functions.
-  - Prefer dependency injection (e.g., RNG/clock/services) over hidden singletons for testability.
+API Design
+- Small signatures; return new values rather than mutating inputs.
+- Use JSDoc for non-trivial exports.
+- Prefer dependency injection over hidden singletons.
 
-- Side Effects & Services
-  - Centralize side effects in React effects or service modules (e.g., `autosaveService`).
-  - No side effects during render; effects must clean up.
+Side Effects
+- Centralize side effects in effects or service modules; clean up.
+- No side effects during render.
 
-- Performance‑Aware Reuse
-  - Avoid per‑frame allocations in hot paths; reuse buffers/typed arrays and canvas pools.
-  - Offload heavy work to `workers/` when it impacts responsiveness.
-  - Memoize only when it reduces real work; measure before/after for complex cases.
+Performance
+- Avoid per-frame allocations; reuse buffers/typed arrays/canvas pools.
+- Offload heavy work to workers where needed.
+- Memoize only with measured benefit.
 
-- Organization
-  - Place shared domain logic in `src/lib/<domain>` or `src/utils/<domain>`; avoid circular dependencies.
-  - Keep files under ~500–800 LOC; split by responsibility when exceeding.
-  - Co‑locate tests for reusable modules under `__tests__/` with meaningful cases.
+Organization
+- Shared logic in src/lib/<domain> or src/utils/<domain>.
+- Keep files under ~500-800 LOC.
+- Co-locate tests under __tests__/.
 
-- Brush Plugin Reuse
-  - Implement against `BrushPlugin` interfaces; do not reach into the store directly.
-  - Share color/geometry helpers from `utils/` and `lib/` rather than duplicating.
-
-- Quick Checklist
-  - Is this function/component doing one thing well?
-  - Is the API minimal, typed, and documented?
-  - Is there duplicated logic I can extract safely?
-  - Are side effects isolated and cleaned up?
-  - Will this be easy to test with small unit tests?
-  - Have I reused existing helpers/patterns and removed any obsolete code paths this change supersedes?
+Brush Plugins
+- Implement against BrushPlugin; do not reach into the store directly.
+- Share helpers from utils/lib.
 
 Primary Commands
 
-- Dev server (monitored): `npm run dev`
-- Dev server (raw Next): `npm run dev:raw`
-- Build (production/static export): `npm run build`
-- Start (production): `npm start`
-- Tests: `npm test` (optionally `npm test -- --coverage`)
-- Lint: `npm run lint`
-- Type check: `npm run type-check`
-- Clean caches: `npm run clean` and `npm run cache:clear`
+- npm run dev
+- npm run dev:raw
+- npm run build
+- npm start
+- npm test (optional: -- --coverage)
+- npm run lint
+- npm run type-check
+- npm run clean
+- npm run cache:clear
 
 Coding Conventions
 
-- Language
-  - TypeScript everywhere; avoid `any`. If unavoidable, wrap with a TODO and narrow ASAP.
-  - Use `@/*` path alias; do not climb with `../../..`.
-  - Export types alongside implementations when helpful: `export type Foo = ...`.
+Language
+- TypeScript everywhere; avoid any.
+- Use @/* alias; avoid ../../..
+- Export types alongside implementations when useful.
 
-- Imports & Exports
-  - Order imports: node/stdlib → third‑party → internal (`@/*`). Group with newlines.
-  - Prefer named exports. Use default exports only where Next.js requires (pages, route handlers, top‑level page components).
-  - Re‑export stable APIs via index files only when it reduces churn; avoid deep re‑export barrels that hide ownership.
+Imports/Exports
+- Order: stdlib -> third-party -> internal (@/*), with blank lines between groups.
+- Prefer named exports; default only where Next requires.
+- Avoid deep re-export barrels.
 
-- Formatting & Linting
-  - Follow ESLint (`next/core-web-vitals`, `next/typescript`).
-  - 2‑space indent; semicolons; trailing commas where valid; single quotes in TS/TSX.
-  - Fix lint warnings you introduce; do not add disable comments unless justified in code review.
+Formatting
+- 2-space indent; semicolons; trailing commas where valid; single quotes in TS/TSX.
+- Fix lint warnings you introduce.
 
-- Naming
-  - Components and React files: PascalCase (`DrawingCanvas.tsx`). One component per file.
-  - Hooks/utilities: camelCase (`useDrawingHandlers.ts`, `angleSnap.ts`). Hooks start with `use`.
-  - Booleans: prefix with `is/has/can/should` (e.g., `isDrawing`, `hasFocus`).
-  - Constants: UPPER_SNAKE_CASE in `constants/` or module‑local.
-  - Types/Interfaces: PascalCase; props shape suffixed `Props`.
+Naming
+- Components/React files: PascalCase; one component per file.
+- Hooks/utilities: camelCase (hooks start with use).
+- Booleans: is/has/can/should prefixes.
+- Constants: UPPER_SNAKE_CASE.
+- Types/Interfaces: PascalCase; props end with Props.
 
-- React/Next.js
-  - Client components: start files with `'use client'` when needed; avoid accidental client boundaries.
-  - Functional components only; wrap with `memo` when props are stable and render is heavy.
-  - Use selectors with Zustand to minimize re‑renders; avoid selecting large objects.
-  - Derive memoized values with `useMemo`; event handlers `handleX` via `useCallback` when passed to children.
-  - Effects must clean up; specify full dependency arrays (no ad‑hoc disabling). If intentionally stable, document why.
-  - Respect `basePath`/`assetPrefix` for static links and asset URLs.
+React/Next.js
+- Add 'use client' only when needed.
+- Functional components only; memoize heavy components with stable props.
+- Use selectors with Zustand; avoid selecting large objects.
+- useMemo/useCallback for derived values/handlers passed to children.
+- Effects require full dependency arrays; document intentional stability.
+- Respect basePath/assetPrefix for static links/assets.
 
-- Zustand Store (`src/stores/useAppStore.ts`)
-  - Keep state serializable unless explicitly documented as ephemeral (e.g., `Path2D`). Do not persist ephemeral fields.
-  - Action names are imperative verbs (`setBrushPreset`, `undo`, `redo`, `commitLayerHistory`).
-  - Never mutate arrays/objects in place; return new references. Use helper utilities when updating nested state.
-  - Use selectors in components; avoid accessing `getState()` directly except in utilities and effect glue code.
-  - Slice checklist (use for any new slice/change):
-    - Keep slice state/actions in `src/stores/slices/*`; compose only in `useAppStore.ts`.
-    - Prefer injected dependencies via `createXSlice(options)`; avoid cross-slice imports.
-    - Export only the slice interface + factory; keep helpers in `src/stores/helpers/` if reused.
-    - Ensure initial state lives in the slice (not in `useAppStore`).
-    - Add/adjust a unit test in `src/stores/__tests__/` when behavior changes.
+Zustand Store (src/stores/useAppStore.ts)
+- Keep state serializable unless documented as ephemeral; do not persist ephemeral fields.
+- Action names are imperative verbs.
+- Never mutate arrays/objects in place.
+- Use selectors in components; avoid getState() except in utilities/effects.
+- Slice checklist:
+  - State/actions in src/stores/slices/*; compose in useAppStore.ts.
+  - Prefer injected dependencies via createXSlice(options).
+  - Export slice interface + factory only; helpers in src/stores/helpers/ if reused.
+  - Initial state lives in the slice.
+  - Update tests in src/stores/__tests__/ on behavior changes.
 
-- Utilities
-  - Pure, stateless by default; no hidden singletons unless clearly a cache/service (`brushCache`, `autosaveService`).
-  - Keep modules focused; split large files by responsibility before exceeding ~1000 LOC.
-  - Provide small, composable functions and unit tests in `src/utils/__tests__/`.
+Utilities
+- Pure/stateless by default; services/caches are explicit.
+- Split large files before ~1000 LOC.
+- Unit tests in src/utils/__tests__/.
 
-- Workers
-  - Define `WorkerMessage`/`WorkerResponse` types; prefer transferable objects (ArrayBuffer) for large payloads.
-  - Avoid capturing global mutable state; initialize from messages.
+Workers
+- Define WorkerMessage/WorkerResponse types.
+- Prefer transferable objects; avoid global mutable state.
 
-- Styling
-  - Tailwind for layout/utility classes; module/global CSS only for complex editors (e.g., `gradient-editor.css`).
-  - Prefer class names over inline styles; inline is acceptable for dynamic canvas sizing/perf‑critical styles.
+Styling
+- Tailwind for layout/utility; CSS only for complex editors.
+- Prefer class names; inline styles only for dynamic/perf-critical sizing.
 
-- Logging & Errors
-  - Use `debugLog`/`devLog` for development logs; keep `console.*` noise minimal. Remove stray logs before PRs.
-  - Fail fast on programmer errors; surface user‑visible issues with non‑blocking UI where appropriate.
+Logging and Errors
+- Use debugLog/devLog for dev logs; keep console noise minimal.
+- Fail fast on programmer errors; surface user-visible issues non-blockingly.
 
-- Comments & Docs
-  - JSDoc for exported functions/types that are non‑obvious.
-  - Use concise inline comments to explain “why”, not “what”.
-  - Mark follow‑ups as `TODO(username): reason`.
+Comments and Docs
+- JSDoc for non-obvious exports.
+- Inline comments explain why, not what.
+- TODO(username): reason.
 
-- Testing Conventions
-  - Filenames: `*.test.ts`/`*.test.tsx` in `tests/` or `src/**/__tests__/`.
-  - Use Testing Library for React components; avoid testing implementation details.
-  - Mock canvas APIs only as needed; prefer real behavior for pure utilities.
-  - Keep tests deterministic; avoid relying on timers without `jest.useFakeTimers()`.
+Testing
+- Filenames: *.test.ts / *.test.tsx in tests/ or src/**/__tests__/.
+- Use Testing Library for React components.
+- Mock canvas APIs only as needed; prefer real behavior for pure utilities.
+- Deterministic tests; use jest.useFakeTimers() when needed.
 
-- Git Hygiene
-  - Conventional Commits (`feat`, `fix`, `docs`, `refactor`, `chore`, `test`).
-  - Keep patches focused; no drive‑by refactors. Update docs/tests with code changes.
+Git Hygiene
+- Conventional Commits: feat, fix, docs, refactor, chore, test.
+- Keep patches focused; update docs/tests with behavior changes.
 
-- WebGPU agents
+WebGPU Agents
 
-  - One space in buffers. Store XY in world/pixel; normalize in VS: uv=(pos-min)/size; ndc=uv*2-1; ndc.y*=-1.
-  - Match layouts. XY only ⇒ stride 8, attr float32x2 @location(0).
-  - Bring-up. No depth, no blend, FS a=1. Draw point-list (first 64), then line-list (even count).
-  - Bounds. Never 0; default to render target. Use max(size,1e-6).
+Rules
+- One space in buffers.
+- Store XY in world/pixel; normalize in VS: uv=(pos-min)/size; ndc=uv*2-1; ndc.y*=-1.
+- Match layouts. XY only => stride 8, attr float32x2 @location(0).
+- Bring-up: no depth, no blend, FS a=1. Draw point-list (first 64), then line-list (even count).
+- Bounds: never 0; default to render target; use max(size,1e-6).
 
-  Validate.
+Validate
+- WebGPU: pushErrorScope('validation')/popErrorScope(), getCompilationInfo().
+- naga: naga validate shader.wgsl (CI gate).
+- Readback: bytesPerRow 256-aligned; repack rows.
+- Compute: write XY only; reset/read counter buffers properly.
+- Pipeline: cache by (shaders, layout, format, topology, depth, blend). Set viewport/scissor explicitly.
 
-  - WebGPU: pushErrorScope('validation')/popErrorScope(), getCompilationInfo().
-  - naga: naga validate shader.wgsl (CI gate).
-  - Readback. bytesPerRow 256-aligned; repack rows.
-  - Compute. Write XY only; reset/read counter buffers properly.
-  - Pipeline. Cache by (shaders, layout, format, topology, depth, blend). Set viewport/scissor explicitly.
+Footguns: layout != shader, bounds=0, odd line-list, depth/blend hiding, misaligned readback, mixed spaces.
 
-Footguns. Layout≠shader • bounds=0 • odd line-list • depth/blend hiding • misaligned readback • mixed spaces. Build & Config Notes
+Build and Config Notes
 
-- `next.config.ts` sets `basePath`/`assetPrefix` for GH Pages; do not remove or change `/vessel` without explicit task scope.
-- `env.BUILD_TIMESTAMP` is injected at build; preserve this behavior.
-- Dev port defaults to `3000`. Dev scripts may kill stale processes—avoid running duplicate dev servers.
+- next.config.ts sets basePath/assetPrefix for GH Pages; do not change /vessel without explicit scope.
+- env.BUILD_TIMESTAMP is injected at build; preserve.
+- Dev port defaults to 3000; dev scripts may kill stale processes.
 
 Agent Directives
 
-- Respect repo scope and conventions above for any file you touch.
-- Keep changes minimal and surgical; fix root causes rather than adding workarounds.
-- Update or add tests when altering logic; run `npm test`, `npm run type-check`, and `npm run lint` before proposing a PR.
-- Match existing patterns; avoid reorganizing folders/files unless requested.
-- Before introducing a new abstraction, confirm there is no existing hook/component/service that can be extended; if you do create one, remove or deprecate the prior entry points in the same change.
-- When editing, use small, focused patches. Do not introduce licenses/headers.
+- Respect repo scope and conventions.
+- Keep changes minimal and surgical; fix root causes.
+- Update/add tests when altering logic; run npm test, npm run type-check, npm run lint before PRs.
+- Match existing patterns; avoid reorganizing folders unless requested.
+- Before new abstractions, confirm no existing hook/component/service can be extended; if created, remove old entry points in same change.
+- Use small, focused patches; do not add licenses/headers.
 - For ambiguous tasks, propose a short plan and confirm assumptions.
-- When reading/searching code, prefer `rg`; read files in ≤250‑line chunks.
-- For multi‑step tasks, keep one active step and update the plan as steps complete.
+- When reading/searching code, prefer rg; read files in <=250-line chunks.
+- For multi-step tasks, keep one active step and update the plan as steps complete.
 
 Specialist Assignment Guide
 
-- Frontend/Next.js
-  - Pages/routing, `_app`, `_document`, metadata, `basePath` handling, static export constraints.
-  - When tasks involve navigation, SEO, build output, or asset paths.
+- Frontend/Next.js: routes, metadata, basePath/assetPrefix, static export constraints.
+- Canvas/Rendering: DrawingCanvas, brushes, workers.
+- State/Hooks: stores, hooks, lib shared logic.
+- Performance/Memory: profiling, pooling, workers.
+- Build/Tooling: next.config.ts, tsconfig.json, eslint, scripts.
+- Testing: Jest + Testing Library, canvas mocking, interaction tests.
+- Accessibility/UX: keyboard nav, ARIA, focus, contrast.
+- Documentation: docs/ updates for behavior/workflow changes.
 
-- Canvas/Rendering
-  - `src/components/DrawingCanvas.tsx`, `src/brushes/`, `src/workers/`.
-  - Brush algorithms, pointer events, offscreen canvases, frame scheduling, pixel ops.
+Task Intake Template (orchestrators)
 
-- State & Hooks
-  - `src/stores/`, `src/hooks/`, `src/lib/` shared logic.
-  - Consistent state shape, selectors, memoization, event batching.
-
-- Performance/Memory
-  - Profiling hot paths, avoiding re‑renders, pooling, typed arrays, workers.
-  - Target tasks mentioning lag, jank, large canvases, or mobile perf.
-
-- Build/Tooling
-  - `next.config.ts`, `tsconfig.json`, `eslint` config, `scripts/`.
-  - Base path/asset prefix correctness, static export, caching, dev monitors.
-
-- Testing
-  - Jest + Testing Library setup, canvas mocking, interaction tests.
-  - Add regression tests for logic and UI behaviors.
-
-- Accessibility/UX
-  - Keyboard navigation, ARIA, contrast, focus management for UI components.
-
-- Documentation
-  - `docs/` architecture, troubleshooting, and usage examples; ensure changes are reflected.
-
-Task Intake Template (for orchestrators)
-
-- Goal: Desired outcome in one sentence.
-- Scope: Files/areas allowed to change; exclusions.
-- Definition of Done: Tests, behavior, performance thresholds, UI criteria.
-- Constraints: No API changes? Keep basePath intact? Browser support?
-- Risks/Tradeoffs: Perf vs. complexity, bundle size caps.
-- Validation: Exact commands to run and what to observe.
+- Goal: one-sentence outcome.
+- Scope: files/areas allowed, exclusions.
+- Definition of Done: tests, behavior, performance, UI criteria.
+- Constraints: API changes? basePath intact? browser support?
+- Risks/Tradeoffs: perf vs complexity, bundle caps.
+- Validation: commands to run and expected results.
 
 Decision Heuristics
 
-- Prefer simple, explicit solutions; avoid deep abstractions unless repeated patterns demand it.
-- Preserve public contracts and exported APIs; call out any breaking change explicitly.
-- Consider SSR/SSG and `basePath` effects when dealing with asset URLs and links.
-- Optimize after correctness; measure before/after for perf tasks.
+- Prefer simple, explicit solutions.
+- Preserve public contracts; call out breaking changes.
+- Consider SSR/SSG and basePath effects for assets/links.
+- Optimize after correctness; measure before/after for perf work.
 
-File‑Specific Guardrails
+File-Specific Guardrails
 
-- `next.config.ts`: Keep `basePath='/vessel'` and related `assetPrefix` unless task requests changes.
-- `tsconfig.json`: Preserve `paths` for `@/*` and compiler options unless justified.
-- Next pages (`src/pages/**`): default exports required; other modules should use named exports.
+- next.config.ts: keep basePath='/vessel' and assetPrefix unless requested.
+- tsconfig.json: preserve @/* paths and compiler options unless justified.
+- Next pages (src/pages/**): default exports required; other modules use named exports.
 
-Verification Checklist (before PRs/hand‑off)
+Verification Checklist
 
-- `npm run type-check` passes with no errors.
-- `npm run lint` shows no new warnings of significance and no errors.
-- `npm test` passes; new logic has test coverage where reasonable.
-- Manual sanity for `basePath` URLs if touching routes/assets.
-- Update `docs/` when behavior or workflows change.
+- npm run type-check passes.
+- npm run lint passes.
+- npm test passes; new logic has test coverage where reasonable.
+- Manual sanity for basePath URLs when touching routes/assets.
+- Update docs/ when behavior/workflows change.
 
 Troubleshooting
 
-- If dev behaves oddly, try `npm run clean` and `npm run cache:clear`.
-- Ensure no duplicate dev servers are running on port `3000`.
+- If dev behaves oddly: npm run clean, then npm run cache:clear.
+- Ensure no duplicate dev servers on port 3000.

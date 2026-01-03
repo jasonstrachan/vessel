@@ -202,7 +202,10 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setStampShape('triangle');
     brush.setStampDitherEnabled(true);
     brush.setStampDitherPixelSize(3);
+    brush.setStampDitherAlgorithm('pattern');
+    brush.setStampDitherPatternStyle('crosshatch');
     brush.setStampDitherClears(true);
+    brush.setStampDitherPressureLinked(true);
 
     const serialized = brush.serialize();
 
@@ -212,12 +215,18 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(strokeData?.paintBuffer.byteLength).toBe(paint.byteLength);
     expect(serialized.stampShape).toBe('triangle');
     expect(serialized.stampDitherPixelSize).toBe(3);
+    expect(serialized.stampDitherAlgorithm).toBe('pattern');
+    expect(serialized.stampDitherPatternStyle).toBe('crosshatch');
     expect(serialized.stampDitherClears).toBe(true);
+    expect(serialized.stampDitherPressureLinked).toBe(true);
 
     const roundTripped = ColorCycleBrushCanvas2D.deserialize(serialized, makeCanvas());
     const snapshot = roundTripped.getLayerSnapshot('layer-1');
     expect(snapshot?.strokeCounter).toBe(7);
     expect(new Uint8Array(snapshot!.paintBuffer)[0]).toBe(5);
+    expect(roundTripped.serialize().stampDitherAlgorithm).toBe('pattern');
+    expect(roundTripped.serialize().stampDitherPatternStyle).toBe('crosshatch');
+    expect(roundTripped.serialize().stampDitherPressureLinked).toBe(true);
   });
 
   it('applies layer snapshot with size mismatch and updates animator buffer', () => {

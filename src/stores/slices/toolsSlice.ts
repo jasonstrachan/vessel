@@ -711,12 +711,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleStampDitherPixelSize !== undefined) {
         settingsToSave.colorCycleStampDitherPixelSize = newSettings.colorCycleStampDitherPixelSize;
       }
-  if (settings.colorCycleStampDitherClears !== undefined) {
-    settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
-  }
-  if (settings.colorCycleStampShape !== undefined) {
-    settingsToSave.colorCycleStampShape = newSettings.colorCycleStampShape;
-  }
+      if (settings.colorCycleStampDitherClears !== undefined) {
+        settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
+      }
+      if (settings.colorCycleStampDitherPressureLinked !== undefined) {
+        settingsToSave.colorCycleStampDitherPressureLinked = newSettings.colorCycleStampDitherPressureLinked;
+      }
+      if (settings.colorCycleStampShape !== undefined) {
+        settingsToSave.colorCycleStampShape = newSettings.colorCycleStampShape;
+      }
       if (settings.pressureLinkedFillResolution !== undefined) {
         settingsToSave.pressureLinkedFillResolution = newSettings.pressureLinkedFillResolution;
       }

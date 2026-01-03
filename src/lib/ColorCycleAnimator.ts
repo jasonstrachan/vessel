@@ -465,7 +465,9 @@ export class ColorCycleAnimator {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     try {
       // Use provided color index or auto-increment
@@ -482,7 +484,9 @@ export class ColorCycleAnimator {
         maskTileSize,
         maskClears,
         secondaryIndex,
-        slot
+        slot,
+        maskOriginX,
+        maskOriginY
       );
       this._glIndexDirty = true;
       
@@ -505,7 +509,9 @@ export class ColorCycleAnimator {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
@@ -519,7 +525,9 @@ export class ColorCycleAnimator {
         maskTileSize,
         maskClears,
         secondaryIndex,
-        slot
+        slot,
+        maskOriginX,
+        maskOriginY
       );
       this._glIndexDirty = true;
     } catch (error) {
@@ -539,7 +547,9 @@ export class ColorCycleAnimator {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
@@ -553,7 +563,9 @@ export class ColorCycleAnimator {
         maskTileSize,
         maskClears,
         secondaryIndex,
-        slot
+        slot,
+        maskOriginX,
+        maskOriginY
       );
       this._glIndexDirty = true;
     } catch (error) {
@@ -573,7 +585,9 @@ export class ColorCycleAnimator {
     maskTileSize?: number,
     maskClears?: boolean,
     secondaryIndex?: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
   ) {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
@@ -587,7 +601,9 @@ export class ColorCycleAnimator {
         maskTileSize,
         maskClears,
         secondaryIndex,
-        slot
+        slot,
+        maskOriginX,
+        maskOriginY
       );
       this._glIndexDirty = true;
     } catch (error) {

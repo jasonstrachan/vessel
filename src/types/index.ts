@@ -608,6 +608,8 @@ export interface BrushSettings {
   colorCycleStampDitherEnabled?: boolean;
   colorCycleStampDitherPixelSize?: number;
   colorCycleStampDitherClears?: boolean;
+  /** Link color cycle stamp dither resolution/pixel size to input pressure */
+  colorCycleStampDitherPressureLinked?: boolean;
   colorCycleStampShape?: 'square' | 'round' | 'triangle' | 'diamond';
   // Resampler brush settings
   continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start

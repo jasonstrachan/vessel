@@ -61,11 +61,22 @@ import type { BrushSettings } from '@/types';
 // Lightweight mocks to keep the test focused on wiring
 jest.mock('@/components/ui/ProgressSlider', () => ({
   __esModule: true,
-  default: ({ value, onChange, 'aria-label': ariaLabel }: { value: number; onChange: (v: number) => void; 'aria-label'?: string }) => (
+  default: ({
+    value,
+    onChange,
+    disabled,
+    'aria-label': ariaLabel,
+  }: {
+    value: number;
+    onChange: (v: number) => void;
+    disabled?: boolean;
+    'aria-label'?: string;
+  }) => (
     <input
       type="range"
       aria-label={ariaLabel}
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(Number(e.target.value))}
     />
   ),
@@ -201,6 +212,7 @@ jest.mock('@/stores/useAppStore', () => {
     customBrushColorCycle: false,
     colorCycleSpeed: 0.1,
     colorCycleStampShape: 'square',
+    colorCycleStampDitherPressureLinked: false,
     colorCycleUseForegroundGradient: false,
     colorCycleFgLightness: 50,
     colorCycleFgVariance: 0,
@@ -337,5 +349,24 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     await user.click(diamondButton);
 
     expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond');
+  });
+
+  it('disables stamp dither resolution when pressure-linked', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherPressureLinked: true,
+        },
+      },
+    }));
+
+    render(<BrushControls />);
+
+    const slider = screen.getByLabelText('Stamp Dither Resolution') as HTMLInputElement;
+    expect(slider.disabled).toBe(true);
   });
 });
