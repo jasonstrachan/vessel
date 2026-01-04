@@ -8,7 +8,7 @@ import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 // Debug logs suppressed for color cycle brush
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
-import { applyDithering, applyDitheringWithFillResolution } from './dithering';
+import { applyDitheringWithFillResolution } from './dithering';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
@@ -19,7 +19,12 @@ import { getMaskManager } from '@/layers/MaskManager';
 import { recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
 import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
-import { BAYER_8x8_MATRIX } from '@/utils/ditherAlgorithms';
+import {
+  applyPressureDither,
+  BAYER_8x8_MATRIX,
+  BLUE_NOISE_16x16,
+  VOID_CLUSTER_8x8,
+} from '@/utils/ditherAlgorithms';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
 import type { DerivedGradientSpec } from '@/types';
@@ -72,6 +77,7 @@ type LayerStrokeState = {
   stampDitherLockedBucket?: number;
   stampDitherStrokeScale?: number;
   stampDitherOriginUnits?: { x: number; y: number } | null; // 0..TILE-1, scale-free
+  stampDitherOriginBaseSize?: number;
   stampDitherBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null;
   stampDitherLastTileScale?: number | null;
   stampFlowMode?: FlowMode;
@@ -167,7 +173,9 @@ const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
 const STAMP_DITHER_BUCKETS = 64;
-const STAMP_DITHER_TILE_SIZE = 16;
+const STAMP_DITHER_TILE_BASE_MIN = 64;
+const STAMP_DITHER_TILE_BASE_MAX = 128;
+const STAMP_DITHER_TILE_TARGET = 128;
 const STAMP_DITHER_PHASE_STEPS = 8;
 const STAMP_DITHER_COVERAGE_MIN = 0.25;
 const STAMP_DITHER_COVERAGE_MAX = 0.75;
@@ -796,7 +804,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.stampDitherStrokeScale = tileScale;
       }
       const tileScaleInt = tileScale;
-      let tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE * tileScaleInt : undefined;
+      let tileSize = useStampDither ? STAMP_DITHER_TILE_BASE_MIN * tileScaleInt : undefined;
       let primaryIndex = colorIndex;
       let tile: Uint8Array | undefined;
       let maskOriginX: number | undefined;
@@ -822,22 +830,51 @@ export class ColorCycleBrushCanvas2D {
         }
 
         const lastScale = strokeData.stampDitherLastTileScale;
-        if (lastScale == null) {
-          strokeData.stampDitherLastTileScale = tileScaleInt;
-        } else if (lastScale !== tileScaleInt) {
-          strokeData.stampDitherLastTileScale = tileScaleInt;
-          this.recomposeStampDitherOverlay(strokeData, animator, flowSlot, tileScaleInt);
+      if (lastScale == null) {
+        strokeData.stampDitherLastTileScale = tileScaleInt;
+      } else if (lastScale !== tileScaleInt) {
+        strokeData.stampDitherLastTileScale = tileScaleInt;
+        this.recomposeStampDitherOverlay(strokeData, animator, flowSlot, tileScaleInt);
+      }
+
+        const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
+        const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
+        if (algo === 'pattern') {
+          const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
+          if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
+            const seed = strokeData.stampDitherSeed ?? 0;
+            strokeData.stampDitherOriginUnits = {
+              x: (seed % baseSize) | 0,
+              y: ((seed >>> 16) % baseSize) | 0,
+            };
+            strokeData.stampDitherOriginBaseSize = baseSize;
+          }
+          tileSize = baseSize * tileScaleInt;
+          const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+          maskOriginX = -originU.x * tileScaleInt;
+          maskOriginY = -originU.y * tileScaleInt;
+          strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
+
+          const bucket = strokeData.stampDitherLockedBucket ?? 1;
+          tile = this.getStampDitherTile(bucket, tileScaleInt, baseSize, 'pattern', this.stampDitherPatternStyle);
+        } else {
+          const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
+          if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
+            const seed = strokeData.stampDitherSeed ?? 0;
+            strokeData.stampDitherOriginUnits = {
+              x: (seed % baseSize) | 0,
+              y: ((seed >>> 16) % baseSize) | 0,
+            };
+            strokeData.stampDitherOriginBaseSize = baseSize;
+          }
+          tileSize = baseSize * tileScaleInt;
+          const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+          maskOriginX = -originU.x * tileScaleInt;
+          maskOriginY = -originU.y * tileScaleInt;
+          strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
+          const bucket = strokeData.stampDitherLockedBucket ?? 1;
+          tile = this.getStampDitherTile(bucket, tileScaleInt, baseSize, 'sierra-lite');
         }
-
-        const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
-        maskOriginX = -originU.x * tileScaleInt;
-        maskOriginY = -originU.y * tileScaleInt;
-        strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
-
-        const bucket = strokeData.stampDitherLockedBucket ?? 1;
-        const tileClamp = STAMP_DITHER_TILE_SIZE * tileScaleInt;
-        tileSize = tileClamp;
-        tile = this.getStampDitherTile(bucket, tileScaleInt);
 
         const nextSeq = (strokeData.stampDitherStampSeq ?? 0) + 1;
         strokeData.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
@@ -1281,6 +1318,53 @@ export class ColorCycleBrushCanvas2D {
     return Math.round(clamped * (STAMP_DITHER_BUCKETS - 1));
   }
 
+  private resolveStampDitherBaseSize(tileScale: number): number {
+    const scale = Math.max(1, Math.floor(tileScale));
+    const raw = Math.ceil(STAMP_DITHER_TILE_TARGET / scale);
+    const clamped = Math.max(STAMP_DITHER_TILE_BASE_MIN, Math.min(STAMP_DITHER_TILE_BASE_MAX, raw));
+    const rounded = Math.ceil(clamped / 8) * 8;
+    return Math.max(STAMP_DITHER_TILE_BASE_MIN, Math.min(STAMP_DITHER_TILE_BASE_MAX, rounded));
+  }
+
+  private resolveStampDitherTileSample(
+    tile: Uint8Array,
+    tileSize: number,
+    worldX: number,
+    worldY: number,
+    originX: number,
+    originY: number,
+    seed: number
+  ): number {
+    const size = Math.max(1, Math.floor(tileSize));
+    const relX = worldX - originX;
+    const relY = worldY - originY;
+    const blockX = Math.floor(relX / size);
+    const blockY = Math.floor(relY / size);
+    let h = seed ^ Math.imul(blockX + 1, 0x27d4eb2d) ^ Math.imul(blockY + 1, 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+    h ^= h >>> 12;
+    const flipX = (h & 1) === 1;
+    const flipY = (h & 2) === 2;
+    const swap = (h & 4) === 4;
+    const offsetX = (h >>> 3) % size;
+    const offsetY = (h >>> 19) % size;
+
+    let x = ((relX % size) + size) % size;
+    let y = ((relY % size) + size) % size;
+    x = (x + offsetX) % size;
+    y = (y + offsetY) % size;
+    if (swap) {
+      const tmp = x;
+      x = y;
+      y = tmp;
+    }
+    if (flipX) x = size - 1 - x;
+    if (flipY) y = size - 1 - y;
+
+    const idx = (y * size + x) % tile.length;
+    return tile[idx] ? 0.0 : 1.0;
+  }
+
   private resolveStampDitherSecondaryIndex(primaryIndex: number): number {
     const offset = 64;
     if (!Number.isFinite(primaryIndex)) {
@@ -1325,12 +1409,30 @@ export class ColorCycleBrushCanvas2D {
     const base = strokeData.stampDitherBaseIdx;
     const baseG = strokeData.stampDitherBaseGid;
     if (!bounds || !owner || !primary || !base) return;
-    const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
-    const originX = -originU.x * tileScale;
-    const originY = -originU.y * tileScale;
-    const tileClamp = STAMP_DITHER_TILE_SIZE * tileScale;
+    const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
+    const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
     const bucket = strokeData.stampDitherLockedBucket ?? 1;
-    const tile = this.getStampDitherTile(bucket, tileScale);
+    const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+    const seed = strokeData.stampDitherSeed ?? 0;
+    let tile: Uint8Array | undefined;
+    let tileClamp = 1;
+    let originX = 0;
+    let originY = 0;
+    if (algo === 'pattern') {
+      const baseSize = this.resolveStampDitherBaseSize(tileScale);
+      if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
+        strokeData.stampDitherOriginUnits = {
+          x: (seed % baseSize) | 0,
+          y: ((seed >>> 16) % baseSize) | 0,
+        };
+        strokeData.stampDitherOriginBaseSize = baseSize;
+      }
+      const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+      originX = -originU.x * tileScale;
+      originY = -originU.y * tileScale;
+      tileClamp = baseSize * tileScale;
+      tile = this.getStampDitherTile(bucket, tileScale, baseSize);
+    }
     const bgFillOff = !this.stampDitherBgFill;
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
 
@@ -1354,7 +1456,11 @@ export class ColorCycleBrushCanvas2D {
         const localX = ((x - originX) % tileClamp + tileClamp) % tileClamp;
         const tIdx = tileRow + localX;
         const p = primary[idx];
-        if (tile[tIdx] === 1) {
+        const usePrimary =
+          algo === 'pattern'
+            ? (tile ? tile[tIdx] === 1 : false)
+            : (tile ? this.resolveStampDitherTileSample(tile, tileClamp, x, y, originX, originY, seed) <= coverage : false);
+        if (usePrimary) {
           data[idx] = p;
           gid[idx] = p === 0 ? 0 : flowSlot;
           continue;
@@ -1550,13 +1656,16 @@ export class ColorCycleBrushCanvas2D {
     return { minX, minY, maxX, maxY };
   }
 
-  private buildBaseStampDitherTile(bucket: number): Uint8Array {
-    const tileSize = STAMP_DITHER_TILE_SIZE;
+  private buildBaseStampDitherTile(
+    bucket: number,
+    baseSize: number,
+    algo: DitherAlgorithm,
+    pattern: PatternStyle
+  ): Uint8Array {
+    const tileSize = Math.max(1, Math.floor(baseSize));
     const clampedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket));
     const coverage = clampedBucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
-    const algo = this.stampDitherAlgorithm || 'sierra-lite';
     if (algo === 'pattern') {
-      const pattern = this.stampDitherPatternStyle || 'dots';
       const mod = (value: number, base: number) => ((value % base) + base) % base;
       const result = new Uint8Array(tileSize * tileSize);
       for (let y = 0; y < tileSize; y += 1) {
@@ -1622,45 +1731,59 @@ export class ColorCycleBrushCanvas2D {
       }
       return result;
     }
-    const targetValue = Math.round(coverage * 255);
-    const buffer = new Uint8ClampedArray(tileSize * tileSize * 4);
-    for (let i = 0; i < buffer.length; i += 4) {
-      buffer[i] = targetValue;
-      buffer[i + 1] = targetValue;
-      buffer[i + 2] = targetValue;
-      buffer[i + 3] = 255;
-    }
-    const imageData = new ImageData(buffer, tileSize, tileSize);
-    const dithered = applyDithering(
-      imageData,
-      2,
-      this.stampDitherAlgorithm,
-      this.stampDitherPatternStyle,
-      ['#000000', '#ffffff']
-    );
     const result = new Uint8Array(tileSize * tileSize);
-    let hasZero = false;
-    let hasOne = false;
-    for (let i = 0; i < result.length; i += 1) {
-      const idx = i * 4;
-      const value = dithered.data[idx] > 127 ? 1 : 0;
-      result[i] = value;
-      if (value === 0) {
-        hasZero = true;
-      } else {
-        hasOne = true;
-      }
-    }
-    if (!hasZero || !hasOne) {
-      const matrix = BAYER_8x8_MATRIX;
+    const fillFromMatrix = (matrix: number[][]) => {
       const matrixSize = matrix.length;
       for (let y = 0; y < tileSize; y += 1) {
         const row = matrix[y % matrixSize];
         for (let x = 0; x < tileSize; x += 1) {
           const threshold = row[x % matrixSize];
-          result[y * tileSize + x] = threshold < coverage ? 1 : 0;
+          result[y * tileSize + x] = threshold <= coverage ? 1 : 0;
         }
       }
+    };
+
+    if (algo === 'bayer') {
+      fillFromMatrix(BAYER_8x8_MATRIX);
+      return result;
+    }
+    if (algo === 'blue-noise') {
+      fillFromMatrix(BLUE_NOISE_16x16);
+      return result;
+    }
+    if (algo === 'void-and-cluster') {
+      fillFromMatrix(VOID_CLUSTER_8x8);
+      return result;
+    }
+    const ramp = new Uint8ClampedArray(tileSize * tileSize * 4);
+    for (let y = 0; y < tileSize; y += 1) {
+      for (let x = 0; x < tileSize; x += 1) {
+        const idx = (y * tileSize + x) * 4;
+        const base = (x + y) / (2 * (tileSize - 1));
+        const value = Math.round(Math.min(1, Math.max(0, base * 0.85 + 0.075)) * 255);
+        ramp[idx] = value;
+        ramp[idx + 1] = value;
+        ramp[idx + 2] = value;
+        ramp[idx + 3] = 255;
+      }
+    }
+    const dithered = applyPressureDither(
+      new ImageData(ramp, tileSize, tileSize),
+      {
+        algorithm: algo,
+        pressure: 0.5,
+        intensity: 1.0,
+        bayerMatrixSize: 8,
+        palette: [
+          [0, 0, 0],
+          [255, 255, 255],
+        ],
+      }
+    );
+    for (let i = 0; i < result.length; i += 1) {
+      const idx = i * 4;
+      const value = (dithered.data[idx] + dithered.data[idx + 1] + dithered.data[idx + 2]) / 3;
+      result[i] = value <= coverage * 255 ? 1 : 0;
     }
     return result;
   }
@@ -1694,6 +1817,10 @@ export class ColorCycleBrushCanvas2D {
     const tileClamp = Math.max(1, Math.floor(tileSize));
     const bgFillOff = !this.stampDitherBgFill;
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
+    const algo = this.stampDitherAlgorithm === 'pattern' ? 'pattern' : 'sierra-lite';
+    const bucket = strokeData.stampDitherLockedBucket ?? 1;
+    const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+    const seed = strokeData.stampDitherSeed ?? 0;
 
     for (let py = minY; py <= maxY; py++) {
       const rowOffset = py * width;
@@ -1704,7 +1831,11 @@ export class ColorCycleBrushCanvas2D {
         if (mask[idx] === 0 || owner[idx] !== stampSeq) continue;
         const localX = ((px - maskOriginX) % tileClamp + tileClamp) % tileClamp;
         const tileIdx = tileRow + localX;
-        if (bgFillOff && tile[tileIdx] !== 1) {
+        const usePrimary =
+          algo === 'pattern'
+            ? (tile ? tile[tileIdx] === 1 : false)
+            : (tile ? this.resolveStampDitherTileSample(tile, tileClamp, px, py, maskOriginX, maskOriginY, seed) <= coverage : false);
+        if (bgFillOff && !usePrimary) {
           const base = strokeData.stampDitherBaseIdx;
           const baseG = strokeData.stampDitherBaseGid;
           if (base && base.length === data.length) {
@@ -1722,7 +1853,6 @@ export class ColorCycleBrushCanvas2D {
           }
           continue;
         }
-        const usePrimary = tile[tileIdx] === 1;
         const primaryIndex = primary[idx];
 
         if (usePrimary) {
@@ -1744,8 +1874,6 @@ export class ColorCycleBrushCanvas2D {
     console.log('[CC] stamp-check', {
       test: { x: testX, y: testY },
       mask: mask[testIdx],
-      tile: tile[(((testY - maskOriginY) % tileClamp + tileClamp) % tileClamp) * tileClamp +
-        (((testX - maskOriginX) % tileClamp + tileClamp) % tileClamp)],
       data: data[testIdx],
       gid: gradientId[testIdx],
     });
@@ -1760,47 +1888,60 @@ export class ColorCycleBrushCanvas2D {
     });
   }
 
-  private scaleStampDitherTile(base: Uint8Array, scale: number): Uint8Array {
+  private scaleStampDitherTile(base: Uint8Array, scale: number, baseSize: number): Uint8Array {
     if (scale <= 1) {
       return base;
     }
-    const baseSize = STAMP_DITHER_TILE_SIZE;
-    const scaledSize = baseSize * scale;
+    const baseTileSize = Math.max(1, Math.floor(baseSize));
+    const scaledSize = baseTileSize * scale;
     const scaled = new Uint8Array(scaledSize * scaledSize);
     for (let y = 0; y < scaledSize; y++) {
       const baseY = Math.floor(y / scale);
       for (let x = 0; x < scaledSize; x++) {
         const baseX = Math.floor(x / scale);
-        const baseIdx = baseY * baseSize + baseX;
+        const baseIdx = baseY * baseTileSize + baseX;
         scaled[y * scaledSize + x] = base[baseIdx];
       }
     }
     return scaled;
   }
 
-  private getBaseStampDitherTile(bucket: number): Uint8Array {
+  private getBaseStampDitherTile(
+    bucket: number,
+    baseSize: number,
+    algoOverride?: DitherAlgorithm,
+    patternOverride?: PatternStyle
+  ): Uint8Array {
     const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
-    const algo = this.stampDitherAlgorithm || 'sierra-lite';
-    const pattern = this.stampDitherPatternStyle || 'dots';
-    const cacheKey = `${algo}|${pattern}|${normalizedBucket}`;
+    const algo = algoOverride ?? this.stampDitherAlgorithm ?? 'sierra-lite';
+    const pattern = patternOverride ?? this.stampDitherPatternStyle ?? 'dots';
+    const sizeKey = Math.max(1, Math.floor(baseSize));
+    const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${sizeKey}`;
     let tile = this.stampDitherBaseTiles.get(cacheKey);
     if (!tile) {
-      tile = this.buildBaseStampDitherTile(normalizedBucket);
+      tile = this.buildBaseStampDitherTile(normalizedBucket, sizeKey, algo, pattern);
       this.stampDitherBaseTiles.set(cacheKey, tile);
     }
     return tile;
   }
 
-  private getStampDitherTile(bucket: number, overrideScale?: number): Uint8Array {
+  private getStampDitherTile(
+    bucket: number,
+    overrideScale: number,
+    baseSize: number,
+    algoOverride?: DitherAlgorithm,
+    patternOverride?: PatternStyle
+  ): Uint8Array {
     const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
-    const algo = this.stampDitherAlgorithm || 'sierra-lite';
-    const pattern = this.stampDitherPatternStyle || 'dots';
-    const scale = Math.max(1, Math.floor(overrideScale ?? this.stampDitherPixelSize));
-    const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${scale}`;
+    const algo = algoOverride ?? this.stampDitherAlgorithm ?? 'sierra-lite';
+    const pattern = patternOverride ?? this.stampDitherPatternStyle ?? 'dots';
+    const scale = Math.max(1, Math.floor(overrideScale));
+    const sizeKey = Math.max(1, Math.floor(baseSize));
+    const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${sizeKey}|${scale}`;
     let tile = this.stampDitherTiles.get(cacheKey);
     if (!tile) {
-      const baseTile = this.getBaseStampDitherTile(normalizedBucket);
-      tile = scale === 1 ? baseTile : this.scaleStampDitherTile(baseTile, scale);
+      const baseTile = this.getBaseStampDitherTile(normalizedBucket, sizeKey, algo, pattern);
+      tile = scale === 1 ? baseTile : this.scaleStampDitherTile(baseTile, scale, sizeKey);
       this.stampDitherTiles.set(cacheKey, tile);
     }
     return tile;
@@ -1916,10 +2057,8 @@ export class ColorCycleBrushCanvas2D {
       strokeData.stampDitherLastTileScale = null;
       strokeData.stampDitherStrokeScale = undefined;
       const seed = strokeData.stampDitherSeed ?? 0;
-      strokeData.stampDitherOriginUnits = {
-        x: (seed % STAMP_DITHER_TILE_SIZE) | 0,
-        y: ((seed >>> 16) % STAMP_DITHER_TILE_SIZE) | 0,
-      };
+      strokeData.stampDitherOriginUnits = null;
+      strokeData.stampDitherOriginBaseSize = undefined;
       strokeData.stampDitherLockedBucket = undefined;
       if (this.stampDitherEnabled) {
         this.ensureStampDitherBuffers(strokeData);

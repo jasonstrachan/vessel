@@ -71,7 +71,7 @@ const ensureScratchU16 = (key: keyof typeof lostEdgeScratchU16, size: number) =>
 
 // Pre-computed 16x16 blue noise pattern for dithering
 // This provides organic-looking dithering without visible patterns
-const BLUE_NOISE_16x16 = [
+export const BLUE_NOISE_16x16 = [
   [0.12, 0.94, 0.41, 0.73, 0.18, 0.87, 0.51, 0.65, 0.08, 0.91, 0.35, 0.78, 0.22, 0.96, 0.45, 0.69],
   [0.59, 0.28, 0.82, 0.04, 0.61, 0.31, 0.75, 0.14, 0.55, 0.24, 0.88, 0.02, 0.63, 0.37, 0.84, 0.10],
   [0.71, 0.47, 0.16, 0.92, 0.43, 0.98, 0.20, 0.49, 0.76, 0.39, 0.67, 0.29, 0.90, 0.06, 0.53, 0.25],
