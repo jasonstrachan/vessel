@@ -51,6 +51,7 @@ interface CustomStampInput {
 
 type RgbColor = { r: number; g: number; b: number };
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
+type StrokeFillHandle = ReturnType<ColorCycleAnimator['beginDirectFill']>;
 
 type LayerStrokeState = {
   paintBuffer: Uint8Array;
@@ -86,6 +87,7 @@ type LayerStrokeState = {
   stampDitherRecomposeLastMs?: number;
   stampDitherRecomposePending?: boolean;
   stampDitherRecomposeScale?: number;
+  stampDitherFillHandle?: StrokeFillHandle;
   stampFlowMode?: FlowMode;
   stampFlowEncoded?: boolean;
 };
@@ -787,7 +789,7 @@ export class ColorCycleBrushCanvas2D {
       let tileScale = baseTileScale;
       if (useStampDither && this.stampDitherPressureLinked) {
         const pressureState =
-          strokeData.stampDitherPressureState ?? createPressureResolutionState(baseTileScale);
+          strokeData.stampDitherPressureState ?? createPressureResolutionState(1);
         strokeData.stampDitherPressureState = pressureState;
         const computed = computePressureResolution(
           baseTileScale,
@@ -797,7 +799,7 @@ export class ColorCycleBrushCanvas2D {
           undefined,
           Math.max(1, baseTileScale * 4)
         );
-        tileScale = Math.max(1, Math.ceil(computed));
+        tileScale = Math.max(1, Math.round(computed));
       } else {
         strokeData.stampDitherPressureState = null;
       }
@@ -1655,7 +1657,8 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    const handle = animator.beginDirectFill();
+    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
+    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
     const data = handle.data;
     const gid = handle.gradientId;
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
@@ -1696,8 +1699,10 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    const needsUpload = animator.hasWebGL?.() ?? false;
-    animator.endDirectFill({ markDirty: needsUpload });
+    if (shouldCloseHandle) {
+      const needsUpload = animator.hasWebGL?.() ?? false;
+      animator.endDirectFill({ markDirty: needsUpload });
+    }
     animator.markDirtyBounds({
       minX,
       minY,
@@ -1763,7 +1768,8 @@ export class ColorCycleBrushCanvas2D {
     const lut = this.buildStampSeqToTileScale(strokeData, fallbackScale);
     const tileCache = new Map<number, { tile: Uint8Array; tileClamp: number; originX: number; originY: number }>();
 
-    const handle = animator.beginDirectFill();
+    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
+    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
     const data = handle.data;
     const gid = handle.gradientId;
     const w = handle.width;
@@ -1841,8 +1847,10 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    const needsUpload = animator.hasWebGL?.() ?? false;
-    animator.endDirectFill({ markDirty: needsUpload });
+    if (shouldCloseHandle) {
+      const needsUpload = animator.hasWebGL?.() ?? false;
+      animator.endDirectFill({ markDirty: needsUpload });
+    }
     animator.markDirtyBounds({
       minX,
       minY,
@@ -2020,7 +2028,6 @@ export class ColorCycleBrushCanvas2D {
     const maxX = Math.min(this.width - 1, Math.floor(x + halfSize));
     const minY = Math.max(0, Math.floor(y - halfSize));
     const maxY = Math.min(this.height - 1, Math.floor(y + halfSize));
-    this.clearStampMaskRect(strokeData, minX, minY, maxX, maxY);
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const idx = py * this.width + px;
@@ -2182,7 +2189,8 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
-    const handle = animator.beginDirectFill();
+    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
+    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
     const data = handle.data;
     const gradientId = handle.gradientId;
     const width = handle.width;
@@ -2193,24 +2201,23 @@ export class ColorCycleBrushCanvas2D {
     const tileClamp = Math.max(1, Math.floor(tileSize));
     const bgFillOff = !this.stampDitherBgFill;
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-    const algo = this.stampDitherAlgorithm === 'pattern' ? 'pattern' : 'sierra-lite';
     const bucket = strokeData.stampDitherLockedBucket ?? 1;
     const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
-    const seed = strokeData.stampDitherSeed ?? 0;
 
     for (let py = minY; py <= maxY; py++) {
       const rowOffset = py * width;
       const localY = ((py - maskOriginY) % tileClamp + tileClamp) % tileClamp;
       const tileRow = localY * tileClamp;
+      let localX = ((minX - maskOriginX) % tileClamp + tileClamp) % tileClamp;
       for (let px = minX; px <= maxX; px++) {
         const idx = rowOffset + px;
-        if (owner[idx] !== stampSeq) continue;
-        const localX = ((px - maskOriginX) % tileClamp + tileClamp) % tileClamp;
+        if (owner[idx] !== stampSeq) {
+          localX += 1;
+          if (localX === tileClamp) localX = 0;
+          continue;
+        }
         const tileIdx = tileRow + localX;
-        const usePrimary =
-          algo === 'pattern'
-            ? (tile ? tile[tileIdx] === 1 : false)
-            : (tile ? this.resolveStampDitherTileSample(tile, tileClamp, px, py, maskOriginX, maskOriginY, seed) <= coverage : false);
+        const usePrimary = tile ? (tile[tileIdx] === 1) : false;
         if (bgFillOff && !usePrimary) {
           const base = strokeData.stampDitherBaseIdx;
           const baseG = strokeData.stampDitherBaseGid;
@@ -2226,8 +2233,12 @@ export class ColorCycleBrushCanvas2D {
               gradientId[idx] = flowSlot;
             }
           } else {
+            localX += 1;
+            if (localX === tileClamp) localX = 0;
             continue;
           }
+          localX += 1;
+          if (localX === tileClamp) localX = 0;
           continue;
         }
         const primaryIndex = primary[idx];
@@ -2235,17 +2246,23 @@ export class ColorCycleBrushCanvas2D {
         if (usePrimary) {
           data[idx] = primaryIndex;
           gradientId[idx] = primaryIndex === 0 ? 0 : flowSlot;
+          localX += 1;
+          if (localX === tileClamp) localX = 0;
           continue;
         }
 
         const secondary = this.resolveStampDitherSecondaryIndex(primaryIndex);
         data[idx] = secondary;
         gradientId[idx] = secondary === 0 ? 0 : flowSlot;
+        localX += 1;
+        if (localX === tileClamp) localX = 0;
       }
     }
 
-    const needsUpload = animator.hasWebGL?.() ?? false;
-    animator.endDirectFill({ markDirty: needsUpload });
+    if (shouldCloseHandle) {
+      const needsUpload = animator.hasWebGL?.() ?? false;
+      animator.endDirectFill({ markDirty: needsUpload });
+    }
     animator.markDirtyBounds({
       minX,
       minY,
@@ -2428,6 +2445,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.stampDitherPrimaryBuffer?.fill(0);
         strokeData.stampDitherOwner?.fill(0);
         strokeData.stampDitherStampSeq = 0;
+        strokeData.stampDitherFillHandle = animator.beginDirectFill();
         if (!this.stampDitherBgFill) {
           this.ensureStampDitherBaseBuffers(strokeData);
         } else {
@@ -2449,6 +2467,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.stampDitherBaseGid = undefined;
         strokeData.stampDitherBaseMask = undefined;
         strokeData.stampDitherOwner = undefined;
+        strokeData.stampDitherFillHandle = undefined;
       }
       
       // Keep stamp counter continuous across strokes for flowing gradients (unless cleared above)
@@ -2480,6 +2499,11 @@ export class ColorCycleBrushCanvas2D {
         const activeSlot = strokeData.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
         this.finalizeStrokeErrorDiffusion(animator, strokeData, activeSlot);
       }
+    }
+    if (strokeData?.stampDitherFillHandle) {
+      const needsUpload = animator.hasWebGL?.() ?? false;
+      animator.endDirectFill({ markDirty: needsUpload });
+      strokeData.stampDitherFillHandle = undefined;
     }
     animator.endStroke();
     animator.forceRender(); // Force render on stroke end
