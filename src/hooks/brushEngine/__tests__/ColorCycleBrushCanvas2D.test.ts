@@ -3,18 +3,29 @@ import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as {
   setIndexBufferFromArrayMock: jest.Mock;
   deserializeSpy: jest.Mock;
+  beginDirectFillMock: jest.Mock;
+  endDirectFillMock: jest.Mock;
+  markDirtyBoundsMock: jest.Mock;
+  endStrokeMock: jest.Mock;
+  forceRenderMock: jest.Mock;
 };
 
 jest.mock('@/lib/ColorCycleAnimator', () => {
   const setIndexBufferFromArrayMock = jest.fn();
 
   const deserializeSpy = jest.fn();
+  const beginDirectFillMock = jest.fn();
+  const endDirectFillMock = jest.fn();
+  const markDirtyBoundsMock = jest.fn();
+  const endStrokeMock = jest.fn();
+  const forceRenderMock = jest.fn();
 
   class MockAnimator {
     width: number;
     height: number;
     fps: number;
     indexBuffer?: Uint8Array;
+    gradientId?: Uint8Array;
 
     constructor(opts: { width: number; height: number; fps?: number }) {
       this.width = opts.width;
@@ -65,6 +76,9 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
 
     setIndexBufferFromArray(arr: Uint8Array, gradientId?: Uint8Array) {
       this.indexBuffer = arr;
+      if (gradientId) {
+        this.gradientId = gradientId;
+      }
       setIndexBufferFromArrayMock(arr, gradientId);
     }
 
@@ -84,11 +98,55 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       })) as any;
       return canvas;
     }
+
+    beginDirectFill() {
+      beginDirectFillMock();
+      if (!this.indexBuffer) {
+        this.indexBuffer = new Uint8Array(this.width * this.height);
+      }
+      if (!this.gradientId) {
+        this.gradientId = new Uint8Array(this.width * this.height);
+      }
+      return {
+        data: this.indexBuffer,
+        gradientId: this.gradientId,
+        width: this.width,
+        height: this.height,
+      };
+    }
+
+    endDirectFill() {
+      endDirectFillMock();
+    }
+
+    markDirtyBounds() {
+      markDirtyBoundsMock();
+    }
+
+    endStroke() {
+      endStrokeMock();
+    }
+
+    forceRender() {
+      forceRenderMock();
+    }
+
+    hasWebGL() {
+      return false;
+    }
   }
 
   return {
     ColorCycleAnimator: MockAnimator,
-    __mocks__: { setIndexBufferFromArrayMock, deserializeSpy },
+    __mocks__: {
+      setIndexBufferFromArrayMock,
+      deserializeSpy,
+      beginDirectFillMock,
+      endDirectFillMock,
+      markDirtyBoundsMock,
+      endStrokeMock,
+      forceRenderMock,
+    },
   };
 });
 
@@ -250,6 +308,23 @@ describe('ColorCycleBrushCanvas2D', () => {
     const snapshot = brush.getLayerSnapshot('layer-small');
     expect(snapshot?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
     expect(snapshot?.strokeCounter).toBe(2);
+  });
+
+  it('finalizes error diffusion stamp dithering on endStroke', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+
+    brush.setStampDitherEnabled(true);
+    brush.setStampDitherAlgorithm('sierra-lite');
+    brush.setStampDitherPixelSize(2);
+    brush.setStampDitherBgFill(false);
+
+    brush.startStroke('layer-1');
+    brush.paint(2, 2, 'layer-1', 1);
+    brush.endStroke('layer-1');
+
+    expect(animatorMocks.beginDirectFillMock).toHaveBeenCalled();
+    expect(animatorMocks.beginDirectFillMock.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('rebuilds animator from index snapshot via deserialize', () => {
