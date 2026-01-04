@@ -23,6 +23,7 @@ import { BAYER_8x8_MATRIX } from '@/utils/ditherAlgorithms';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
 import type { DerivedGradientSpec } from '@/types';
+import { FLOW_SLOT_MASK, encodeFlowSlot, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 
 type ColorCycleBrushCanvas2DOptions = {
   brushSize?: number;
@@ -73,6 +74,8 @@ type LayerStrokeState = {
   stampDitherOriginUnits?: { x: number; y: number } | null; // 0..TILE-1, scale-free
   stampDitherBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null;
   stampDitherLastTileScale?: number | null;
+  stampFlowMode?: FlowMode;
+  stampFlowEncoded?: boolean;
 };
     
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
@@ -265,6 +268,7 @@ export class ColorCycleBrushCanvas2D {
   private stampCounter: number = 0;
   private totalGradientSteps: number = 256; // Total colors in gradient
   private flowMode: 'forward' | 'reverse' | 'pingpong' = 'reverse';
+  private legacyFlowMode: FlowMode = 'reverse';
   
   // Batched rendering
   private renderScheduled: boolean = false;
@@ -425,7 +429,7 @@ export class ColorCycleBrushCanvas2D {
         forceCanvas2D: this.forceCanvas2D
       });
       // quiet
-      animator.setFlowMode(this.flowMode);
+      animator.setFlowMode(this.legacyFlowMode);
       
       // Defer full initialization until first paint
       this.deferredAnimatorSizes.set(animator, { width: this.width, height: this.height });
@@ -483,6 +487,16 @@ export class ColorCycleBrushCanvas2D {
     }
     
     return animator;
+  }
+
+  private resolveFlowSlot(strokeData: LayerStrokeState | null | undefined, activeSlot: number): number {
+    if (!strokeData?.stampFlowEncoded || !strokeData.stampFlowMode) {
+      return activeSlot;
+    }
+    if (activeSlot > FLOW_SLOT_MASK) {
+      return activeSlot;
+    }
+    return encodeFlowSlot(activeSlot, strokeData.stampFlowMode);
   }
   
   /**
@@ -743,6 +757,7 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData) {
       const colorIndex = this.computeColorBandIndex(strokeData);
       const activeSlot = strokeData.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
+      const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
       
       // Calculate pressure-modulated brush size using smooth curve
       const pressureSize = this.pressureEnabled 
@@ -811,7 +826,7 @@ export class ColorCycleBrushCanvas2D {
           strokeData.stampDitherLastTileScale = tileScaleInt;
         } else if (lastScale !== tileScaleInt) {
           strokeData.stampDitherLastTileScale = tileScaleInt;
-          this.recomposeStampDitherOverlay(strokeData, animator, activeSlot, tileScaleInt);
+          this.recomposeStampDitherOverlay(strokeData, animator, flowSlot, tileScaleInt);
         }
 
         const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
@@ -851,11 +866,11 @@ export class ColorCycleBrushCanvas2D {
             tileSize,
             maskOriginX ?? stampBounds.minX,
             maskOriginY ?? stampBounds.minY,
-            activeSlot,
+            flowSlot,
             strokeData.stampDitherStampSeq ?? 1
           );
         } else {
-          animator.paintTriangle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
+          animator.paintTriangle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
         }
       } else if (this.stampShape === 'round') {
         if (useStampDither && tile && tileSize && stampBounds) {
@@ -868,11 +883,11 @@ export class ColorCycleBrushCanvas2D {
             tileSize,
             maskOriginX ?? stampBounds.minX,
             maskOriginY ?? stampBounds.minY,
-            activeSlot,
+            flowSlot,
             strokeData.stampDitherStampSeq ?? 1
           );
         } else {
-          animator.paintCircle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
+          animator.paintCircle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
         }
       } else if (this.stampShape === 'diamond') {
         if (useStampDither && tile && tileSize && stampBounds) {
@@ -885,11 +900,11 @@ export class ColorCycleBrushCanvas2D {
             tileSize,
             maskOriginX ?? stampBounds.minX,
             maskOriginY ?? stampBounds.minY,
-            activeSlot,
+            flowSlot,
             strokeData.stampDitherStampSeq ?? 1
           );
         } else {
-          animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
+          animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
         }
       } else if (useStampDither && tile && tileSize && stampBounds) {
         const bounds = stampBounds;
@@ -901,11 +916,11 @@ export class ColorCycleBrushCanvas2D {
           tileSize,
           maskOriginX ?? stampBounds.minX,
           maskOriginY ?? stampBounds.minY,
-          activeSlot,
+          flowSlot,
           strokeData.stampDitherStampSeq ?? 1
         );
       } else {
-        animator.paintSquare(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
+        animator.paintSquare(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
       }
       
       // Update tracking
@@ -1036,7 +1051,8 @@ export class ColorCycleBrushCanvas2D {
         if (targetX < 0 || targetX >= this.width) continue;
         if (alpha[rowOffset + px] < 16) continue;
         this.logSetIndexSample(id, targetX, targetY);
-        animator.setIndex(targetX, targetY, colorIndex, strokeData.activeGradientSlot);
+        const flowSlot = this.resolveFlowSlot(strokeData, strokeData.activeGradientSlot ?? 0);
+        animator.setIndex(targetX, targetY, colorIndex, flowSlot);
       }
     }
 
@@ -1316,6 +1332,7 @@ export class ColorCycleBrushCanvas2D {
     const bucket = strokeData.stampDitherLockedBucket ?? 1;
     const tile = this.getStampDitherTile(bucket, tileScale);
     const bgFillOff = !this.stampDitherBgFill;
+    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
 
     const handle = animator.beginDirectFill();
     const data = handle.data;
@@ -1339,7 +1356,7 @@ export class ColorCycleBrushCanvas2D {
         const p = primary[idx];
         if (tile[tIdx] === 1) {
           data[idx] = p;
-          gid[idx] = p === 0 ? 0 : activeSlot;
+          gid[idx] = p === 0 ? 0 : flowSlot;
           continue;
         }
         if (bgFillOff) {
@@ -1351,14 +1368,14 @@ export class ColorCycleBrushCanvas2D {
             } else if (baseG && baseG.length === gid.length) {
               gid[idx] = baseG[idx];
             } else {
-              gid[idx] = activeSlot;
+              gid[idx] = flowSlot;
             }
           }
           continue;
         }
         const secondary = this.resolveStampDitherSecondaryIndex(p);
         data[idx] = secondary;
-        gid[idx] = secondary === 0 ? 0 : activeSlot;
+        gid[idx] = secondary === 0 ? 0 : flowSlot;
       }
     }
 
@@ -1676,6 +1693,7 @@ export class ColorCycleBrushCanvas2D {
     const maxY = Math.max(0, Math.min(handle.height - 1, bounds.maxY));
     const tileClamp = Math.max(1, Math.floor(tileSize));
     const bgFillOff = !this.stampDitherBgFill;
+    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
 
     for (let py = minY; py <= maxY; py++) {
       const rowOffset = py * width;
@@ -1697,7 +1715,7 @@ export class ColorCycleBrushCanvas2D {
             } else if (baseG && baseG.length === gradientId.length) {
               gradientId[idx] = baseG[idx];
             } else {
-              gradientId[idx] = activeSlot;
+              gradientId[idx] = flowSlot;
             }
           } else {
             continue;
@@ -1709,13 +1727,13 @@ export class ColorCycleBrushCanvas2D {
 
         if (usePrimary) {
           data[idx] = primaryIndex;
-          gradientId[idx] = primaryIndex === 0 ? 0 : activeSlot;
+          gradientId[idx] = primaryIndex === 0 ? 0 : flowSlot;
           continue;
         }
 
         const secondary = this.resolveStampDitherSecondaryIndex(primaryIndex);
         data[idx] = secondary;
-        gradientId[idx] = secondary === 0 ? 0 : activeSlot;
+        gradientId[idx] = secondary === 0 ? 0 : flowSlot;
       }
     }
 
@@ -1878,6 +1896,8 @@ export class ColorCycleBrushCanvas2D {
         } catch {}
       }
       strokeData.activeGradientSlot = this.activeGradientSlots.get(id) ?? strokeData.activeGradientSlot ?? 0;
+      strokeData.stampFlowMode = this.flowMode;
+      strokeData.stampFlowEncoded = true;
       strokeData.stampDitherSeed = (this.strokeCounter * 2654435761) >>> 0;
       if (clearBuffer && !this._isHistoryRestore) {
         const preservedStampCounter = strokeData.stampCounter;
@@ -2104,7 +2124,10 @@ export class ColorCycleBrushCanvas2D {
     const activeSlot = strokeData?.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
     if (strokeData) {
       strokeData.activeGradientSlot = activeSlot;
+      strokeData.stampFlowMode = this.flowMode;
+      strokeData.stampFlowEncoded = true;
     }
+    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
     
     // Ensure animator is at full resolution
     const deferredSize = this.deferredAnimatorSizes.get(animator);
@@ -2218,7 +2241,7 @@ export class ColorCycleBrushCanvas2D {
             ditherStrength,
             ditherPixelSize,
             noiseSeed,
-          }, activeSlot);
+          }, flowSlot);
           if (ok) {
             this.stampCounter += numBands;
             if (strokeData) strokeData.stampCounter = this.stampCounter;
@@ -2258,7 +2281,7 @@ export class ColorCycleBrushCanvas2D {
       const clamped = Math.max(0, Math.min(255, colorIndex | 0));
       const idx = y * linearBufferWidth + x;
       linearBuffer[idx] = clamped;
-      linearGradientId[idx] = clamped === 0 ? 0 : activeSlot;
+      linearGradientId[idx] = clamped === 0 ? 0 : flowSlot;
     };
 
     try {
@@ -2747,7 +2770,10 @@ export class ColorCycleBrushCanvas2D {
     const activeSlot = strokeData?.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
     if (strokeData) {
       strokeData.activeGradientSlot = activeSlot;
+      strokeData.stampFlowMode = this.flowMode;
+      strokeData.stampFlowEncoded = true;
     }
+    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
 
     const animator = this.getAnimator(id);
 
@@ -2848,7 +2874,7 @@ export class ColorCycleBrushCanvas2D {
               ditherStrength: ditherStrengthGpu,
               ditherPixelSize: ditherPixelSizeGpu,
               noiseSeed,
-        }, activeSlot);
+        }, flowSlot);
         if (ok) {
           this.stampCounter += numBands;
           if (strokeData) strokeData.stampCounter = this.stampCounter;
@@ -2901,7 +2927,7 @@ export class ColorCycleBrushCanvas2D {
       const clamped = Math.max(0, Math.min(255, colorIndex | 0));
       const idx = y * concentricWidth + x;
       concentricBuffer[idx] = clamped;
-      concentricGradientId[idx] = clamped === 0 ? 0 : activeSlot;
+      concentricGradientId[idx] = clamped === 0 ? 0 : flowSlot;
     };
     const blitLocalBuffer = (local: Uint8Array) => {
       const bw = bbox.width;
@@ -2918,7 +2944,7 @@ export class ColorCycleBrushCanvas2D {
           if (destX < 0 || destX >= concentricWidth) continue;
           const destIndex = destRowOffset + destX;
           concentricBuffer[destIndex] = value;
-          concentricGradientId[destIndex] = value === 0 ? 0 : activeSlot;
+          concentricGradientId[destIndex] = value === 0 ? 0 : flowSlot;
         }
       }
     };
@@ -4100,6 +4126,10 @@ export class ColorCycleBrushCanvas2D {
    */
   setFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
     this.flowMode = mode;
+  }
+
+  setLegacyFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
+    this.legacyFlowMode = mode;
     this.animators.forEach(animator => animator.setFlowMode(mode));
   }
 
@@ -4123,7 +4153,11 @@ export class ColorCycleBrushCanvas2D {
    * Toggle flow direction (API compatible)
    */
   toggleFlowDirection() {
-    this.animators.forEach(animator => animator.toggleFlowDirection());
+    if (this.flowMode === 'pingpong') {
+      this.setFlowMode('forward');
+      return;
+    }
+    this.setFlowMode(this.flowMode === 'forward' ? 'reverse' : 'forward');
   }
   
   /**

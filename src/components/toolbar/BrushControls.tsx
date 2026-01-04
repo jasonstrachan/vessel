@@ -1118,8 +1118,8 @@ const BrushControls = () => {
             </label>
             <ButtonGroup
               options={[
-                { label: 'Fwd', value: 'forward' },
-                { label: 'Rev', value: 'reverse' },
+                { label: 'Fwd', value: 'reverse' },
+                { label: 'Rev', value: 'forward' },
                 { label: 'Ping', value: 'pingpong' },
               ]}
               value={activeSettings.colorCycleFlowMode || 'reverse'}
@@ -1127,7 +1127,6 @@ const BrushControls = () => {
                 const next: 'forward' | 'reverse' | 'pingpong' =
                   value === 'forward' || value === 'pingpong' ? value : 'reverse';
                 setActiveSettings({ colorCycleFlowMode: next });
-                colorCycleRuntimeHandlers?.setFlowMode?.(next);
               }}
               className="flex-1"
               size="sm"

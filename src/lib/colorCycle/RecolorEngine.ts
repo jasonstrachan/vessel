@@ -296,7 +296,7 @@ export class RecolorEngine {
           offset = ((offset % 1) + 1) % 1;
 
           this.glRenderer.setIndexData(settings.indexBuffer!);
-          this.glRenderer.render(offset);
+          this.glRenderer.render(offset, offset);
 
           colorCycleData.mode = 'recolor';
           colorCycleData.canvas = this.glRenderer.getCanvas();

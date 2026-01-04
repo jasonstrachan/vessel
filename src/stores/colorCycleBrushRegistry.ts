@@ -180,9 +180,14 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         brushWithOptionalControls.setSpeed?.(perLayerSpeed);
       }
       const perLayerFlowMode =
-        layer?.colorCycleData?.flowMode ??
         currentSettings.colorCycleFlowMode ??
+        layer?.colorCycleData?.flowMode ??
         'reverse';
+      const legacyFlowMode = layer?.colorCycleData?.flowMode ?? perLayerFlowMode;
+
+      if (typeof (brushWithOptionalControls as { setLegacyFlowMode?: (mode: typeof perLayerFlowMode) => void }).setLegacyFlowMode === 'function') {
+        (brushWithOptionalControls as { setLegacyFlowMode: (mode: typeof perLayerFlowMode) => void }).setLegacyFlowMode(legacyFlowMode);
+      }
 
       if (typeof brushWithOptionalControls.setFlowMode === 'function') {
         brushWithOptionalControls.setFlowMode(perLayerFlowMode);

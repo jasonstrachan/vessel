@@ -340,7 +340,8 @@ export class ColorCycleAnimator {
    */
   private renderFrame(offset: number = 0) {
     try {
-      const phase = this.strokeTracker.computePhase(offset);
+      const legacyPhase = this.strokeTracker.computePhase(offset);
+      const baseOffset = offset;
       // GPU path if available
       if (!this.forceCanvas2D && this.glRenderer && this.glCanvas) {
         const baseSignature = this.paletteController.getSignatureForSlot(0);
@@ -363,7 +364,7 @@ export class ColorCycleAnimator {
           this.indexBuffer.clearDirtyBounds();
           this._glIndexDirty = false;
         }
-        this.glRenderer.render(phase);
+        this.glRenderer.render(baseOffset, legacyPhase);
 
         if (!this._renderSampledOnce) {
           try {
@@ -397,7 +398,8 @@ export class ColorCycleAnimator {
         gradientIdData,
         paletteSlots: this.paletteController.getPalettesBySlot(),
         basePalette: basePalette32,
-        phase,
+        phase: legacyPhase,
+        baseOffset,
       });
 
     } catch (error) {

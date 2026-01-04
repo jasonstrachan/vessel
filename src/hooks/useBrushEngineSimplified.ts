@@ -3843,7 +3843,11 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setActiveGradientSlot(activeLayerId, activeSlot);
       
       const layerFlowMode = activeLayer?.colorCycleData?.flowMode;
-      const flowMode = layerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'reverse';
+      const flowMode = tools.brushSettings.colorCycleFlowMode ?? layerFlowMode ?? 'reverse';
+      const legacyFlowMode = layerFlowMode ?? flowMode;
+      if (typeof (colorCycleBrush as { setLegacyFlowMode?: (mode: typeof flowMode) => void }).setLegacyFlowMode === 'function') {
+        (colorCycleBrush as { setLegacyFlowMode: (mode: typeof flowMode) => void }).setLegacyFlowMode(legacyFlowMode);
+      }
       if (typeof colorCycleBrush.setFlowMode === 'function') {
         colorCycleBrush.setFlowMode(flowMode);
       } else {
@@ -3898,7 +3902,7 @@ export const useBrushEngineSimplified = () => {
     if (!colorCycleBrush) {
       return;
     }
-    const flowMode = activeLayerFlowMode ?? tools.brushSettings.colorCycleFlowMode ?? 'reverse';
+    const flowMode = tools.brushSettings.colorCycleFlowMode ?? activeLayerFlowMode ?? 'reverse';
     if (typeof colorCycleBrush.setFlowMode === 'function') {
       colorCycleBrush.setFlowMode(flowMode);
     } else {

@@ -70,12 +70,6 @@ jest.mock('@/components/ui/ProgressSlider', () => {
   return { __esModule: true, default: ProgressSliderMock };
 });
 
-jest.mock('@/components/ui/ButtonGroup', () => {
-  const ButtonGroupMock = () => <div data-testid="button-group" />;
-  ButtonGroupMock.displayName = 'ButtonGroupMock';
-  return { __esModule: true, default: ButtonGroupMock };
-});
-
 import AnimationControlsPanel from '@/components/panels/AnimationControlsPanel';
 import { useAppStore } from '@/stores/useAppStore';
 

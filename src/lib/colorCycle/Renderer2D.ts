@@ -1,4 +1,10 @@
 import { canvasPool } from '@/utils/canvasPool';
+import {
+  FLOW_MODE_LEGACY,
+  FLOW_MODE_PINGPONG,
+  FLOW_MODE_REVERSE,
+  FLOW_SLOT_MASK,
+} from '@/lib/colorCycle/flowEncoding';
 
 export interface Renderer2DOptions {
   width: number;
@@ -57,10 +63,15 @@ export class Renderer2D {
     paletteSlots: Uint32Array[];
     basePalette: Uint32Array;
     phase: number;
+    baseOffset: number;
   }) {
     const imageData = this.ensureImageData();
     const pixels32 = new Uint32Array(imageData.data.buffer);
-    const shift = (options.phase * 256) | 0;
+    const legacyShift = (options.phase * 256) | 0;
+    const baseShift = (options.baseOffset * 256) | 0;
+    const offset = options.baseOffset;
+    const pingPhase = offset <= 0.5 ? offset * 2 : (1 - offset) * 2;
+    const pingShift = (pingPhase * 256) | 0;
     const gradientIdData = options.gradientIdData;
 
     for (let i = 0; i < options.indexData.length; i++) {
@@ -69,8 +80,18 @@ export class Renderer2D {
         pixels32[i] = 0;
         continue;
       }
-      const slot = gradientIdData ? gradientIdData[i] : 0;
+      const gid = gradientIdData ? gradientIdData[i] : 0;
+      const slot = gid & FLOW_SLOT_MASK;
+      const flowBits = gradientIdData ? (gid >> 6) : FLOW_MODE_LEGACY;
       const palette = options.paletteSlots[slot] ?? options.basePalette;
+      const shift =
+        flowBits === FLOW_MODE_REVERSE
+          ? -baseShift
+          : flowBits === FLOW_MODE_PINGPONG
+            ? pingShift
+            : flowBits === FLOW_MODE_LEGACY
+              ? legacyShift
+              : baseShift;
       pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
     }
 

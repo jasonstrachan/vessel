@@ -1578,6 +1578,24 @@ export function useDrawingHandlers({
             const colorCycleBrushManager = getColorCycleBrushManager();
             const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
             ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
+            const strokeFlowMode = currentState.tools.brushSettings.colorCycleFlowMode ?? 'reverse';
+            if (colorCycleBrush) {
+              if (typeof colorCycleBrush.setFlowMode === 'function') {
+                colorCycleBrush.setFlowMode(strokeFlowMode);
+              } else if (typeof colorCycleBrush.setFlowDirection === 'function') {
+                colorCycleBrush.setFlowDirection(strokeFlowMode === 'reverse' ? 'backward' : 'forward');
+              }
+            }
+            if (!activeLayer.colorCycleData?.flowMode) {
+              try {
+                currentState.updateLayer(activeLayer.id, {
+                  colorCycleData: {
+                    ...(activeLayer.colorCycleData ?? {}),
+                    flowMode: strokeFlowMode,
+                  },
+                });
+              } catch {}
+            }
           }
 
           const rawSpacing = currentState.tools.brushSettings.spacing || 1;

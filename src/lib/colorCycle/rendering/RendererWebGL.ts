@@ -89,8 +89,8 @@ export class RendererWebGL {
     this.renderer.setIndexData(data, gradientId, rect);
   }
 
-  render(phase: number) {
-    this.renderer.render(phase);
+  render(phase: number, legacyPhase: number = phase) {
+    this.renderer.render(phase, legacyPhase);
   }
 
   resize(width: number, height: number) {

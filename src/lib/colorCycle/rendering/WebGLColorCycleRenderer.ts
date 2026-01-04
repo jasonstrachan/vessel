@@ -68,6 +68,7 @@ export class WebGLColorCycleRenderer {
   private uPaletteTexLoc: WebGLUniformLocation | null = null;
   private uPaletteSizeLoc: WebGLUniformLocation | null = null;
   private uOffsetLoc: WebGLUniformLocation | null = null;
+  private uLegacyOffsetLoc: WebGLUniformLocation | null = null;
 
   private indexTex: WebGLTexture | null = null;
   private gidTex: WebGLTexture | null = null;
@@ -289,13 +290,14 @@ export class WebGLColorCycleRenderer {
     );
   }
 
-  render(offset: number) {
+  render(offset: number, legacyOffset: number) {
     const gl = this.gl;
     gl.viewport(0, 0, this.width, this.height);
     gl.useProgram(this.program);
 
     // Set uniforms
     if (this.uOffsetLoc) gl.uniform1f(this.uOffsetLoc, offset);
+    if (this.uLegacyOffsetLoc) gl.uniform1f(this.uLegacyOffsetLoc, legacyOffset);
     if (this.uPaletteSizeLoc) gl.uniform1f(this.uPaletteSizeLoc, this.paletteSize);
 
     // Bind textures to texture units 0 (index), 1 (gid), 2 (palette)
@@ -399,7 +401,8 @@ export class WebGLColorCycleRenderer {
       uniform sampler2D u_gidTex;
       uniform sampler2D u_paletteTex;
       uniform float u_paletteSize; // 256
-      uniform float u_offset;       // cycles in [0,1)
+      uniform float u_offset;       // cycles in [0,1) base forward
+      uniform float u_legacyOffset; // cycles in [0,1) legacy/global
 
       void main() {
         // Flip Y to match Canvas/ImageData top-left origin
@@ -418,12 +421,26 @@ export class WebGLColorCycleRenderer {
 
         // Convert to palette index in [0, paletteSize)
         float base = (fIdx - 1.0);
-        // Apply cyclic offset in palette space
-        float shift = u_offset * u_paletteSize;
+        float flowBits = floor(fGid / 64.0);
+        float slot = mod(fGid, 64.0);
+
+        float shift;
+        if (flowBits < 0.5) {
+          shift = u_legacyOffset * u_paletteSize;
+        } else if (flowBits < 1.5) {
+          shift = u_offset * u_paletteSize;
+        } else if (flowBits < 2.5) {
+          shift = -u_offset * u_paletteSize;
+        } else {
+          float t = u_offset;
+          float ping = t <= 0.5 ? (t * 2.0) : ((1.0 - t) * 2.0);
+          shift = ping * u_paletteSize;
+        }
+
         float pIdx = mod(base + shift + u_paletteSize * 4.0, u_paletteSize);
         // Sample palette with NEAREST by addressing the center of the texel
         float u = (floor(pIdx) + 0.5) / u_paletteSize;
-        float gid = clamp(fGid, 0.0, u_paletteSize - 1.0);
+        float gid = clamp(slot, 0.0, u_paletteSize - 1.0);
         float v = (gid + 0.5) / u_paletteSize;
         vec4 color = texture2D(u_paletteTex, vec2(u, v));
         gl_FragColor = color;
@@ -818,6 +835,7 @@ export class WebGLColorCycleRenderer {
     this.uPaletteTexLoc = gl.getUniformLocation(this.program, 'u_paletteTex');
     this.uPaletteSizeLoc = gl.getUniformLocation(this.program, 'u_paletteSize');
     this.uOffsetLoc = gl.getUniformLocation(this.program, 'u_offset');
+    this.uLegacyOffsetLoc = gl.getUniformLocation(this.program, 'u_legacyOffset');
   }
 
   private createTextures() {

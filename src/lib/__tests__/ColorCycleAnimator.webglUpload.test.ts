@@ -22,7 +22,7 @@ jest.mock('../colorCycle/rendering/WebGLColorCycleRenderer', () => {
     ) {
       uploads.push({ rect });
     }
-    render() {}
+    render(_offset?: number, _legacyOffset?: number) {}
     getCanvas() {
       const canvas = document.createElement('canvas');
       canvas.width = this.width;

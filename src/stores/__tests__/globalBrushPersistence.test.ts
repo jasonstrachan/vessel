@@ -138,6 +138,54 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('persists color cycle stroke settings per brush', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'color-cycle-stroke': {
+          colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherPixelSize: 6,
+          colorCycleStampDitherPressureLinked: true,
+          colorCycleStampDitherBgFill: false,
+          colorCycleFlowMode: 'pingpong',
+          colorCycleStampShape: 'triangle',
+        },
+      },
+    });
+
+    const { colorCycleStrokeBrushPreset } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    store.setBrushPreset(colorCycleStrokeBrushPreset);
+    const active = useAppStore.getState().tools.brushSettings;
+    expect(active.colorCycleStampDitherEnabled).toBe(true);
+    expect(active.colorCycleStampDitherPixelSize).toBe(6);
+    expect(active.colorCycleStampDitherPressureLinked).toBe(true);
+    expect(active.colorCycleStampDitherBgFill).toBe(false);
+    expect(active.colorCycleFlowMode).toBe('pingpong');
+    expect(active.colorCycleStampShape).toBe('triangle');
+
+    store.setBrushSettings({
+      colorCycleStampDitherEnabled: false,
+      colorCycleStampDitherPixelSize: 4,
+      colorCycleStampDitherPressureLinked: false,
+      colorCycleStampDitherBgFill: true,
+      colorCycleFlowMode: 'reverse',
+      colorCycleStampShape: 'square',
+    });
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['color-cycle-stroke']).toEqual(
+      expect.objectContaining({
+        colorCycleStampDitherEnabled: false,
+        colorCycleStampDitherPixelSize: 4,
+        colorCycleStampDitherPressureLinked: false,
+        colorCycleStampDitherBgFill: true,
+        colorCycleFlowMode: 'reverse',
+        colorCycleStampShape: 'square',
+      })
+    );
+  });
+
   it('persists last used brush id', async () => {
     loadMock.mockReturnValue(null);
 

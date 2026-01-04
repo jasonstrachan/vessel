@@ -135,18 +135,16 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       }
     }
 
-    const desiredFlowMode =
-      flowMode ??
-      storeSnapshot.tools?.brushSettings?.colorCycleFlowMode ??
-      'forward';
-    if (previous.flowMode !== desiredFlowMode) {
+    if (flowMode && previous.flowMode !== flowMode) {
       try {
-        if (typeof brush.setFlowMode === 'function') {
-          brush.setFlowMode(desiredFlowMode);
+        if (typeof (brush as { setLegacyFlowMode?: (mode: typeof flowMode) => void }).setLegacyFlowMode === 'function') {
+          (brush as { setLegacyFlowMode: (mode: typeof flowMode) => void }).setLegacyFlowMode(flowMode);
+        } else if (typeof brush.setFlowMode === 'function') {
+          brush.setFlowMode(flowMode);
         } else if (typeof brush.setFlowDirection === 'function') {
-          brush.setFlowDirection(desiredFlowMode === 'reverse' ? 'backward' : 'forward');
+          brush.setFlowDirection(flowMode === 'reverse' ? 'backward' : 'forward');
         }
-        nextSnapshot.flowMode = desiredFlowMode;
+        nextSnapshot.flowMode = flowMode;
       } catch {}
     }
 
