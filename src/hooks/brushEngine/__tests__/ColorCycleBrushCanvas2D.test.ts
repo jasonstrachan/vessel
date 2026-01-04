@@ -204,7 +204,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setStampDitherPixelSize(3);
     brush.setStampDitherAlgorithm('pattern');
     brush.setStampDitherPatternStyle('crosshatch');
-    brush.setStampDitherClears(true);
+    brush.setStampDitherBgFill(false);
     brush.setStampDitherPressureLinked(true);
 
     const serialized = brush.serialize();
@@ -217,6 +217,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(serialized.stampDitherPixelSize).toBe(3);
     expect(serialized.stampDitherAlgorithm).toBe('pattern');
     expect(serialized.stampDitherPatternStyle).toBe('crosshatch');
+    expect(serialized.stampDitherBgFill).toBe(false);
     expect(serialized.stampDitherClears).toBe(true);
     expect(serialized.stampDitherPressureLinked).toBe(true);
 

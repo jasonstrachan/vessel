@@ -160,10 +160,14 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
           Boolean(currentSettings.colorCycleStampDitherPressureLinked)
         );
       }
-      if (typeof brush.setStampDitherClears === 'function') {
-        brush.setStampDitherClears(
-          Boolean(currentSettings.colorCycleStampDitherClears)
-        );
+      const stampBgFill =
+        typeof currentSettings.colorCycleStampDitherBgFill === 'boolean'
+          ? currentSettings.colorCycleStampDitherBgFill
+          : !Boolean(currentSettings.colorCycleStampDitherClears);
+      if (typeof (brush as { setStampDitherBgFill?: (v: boolean) => void }).setStampDitherBgFill === 'function') {
+        (brush as { setStampDitherBgFill: (v: boolean) => void }).setStampDitherBgFill(stampBgFill);
+      } else if (typeof brush.setStampDitherClears === 'function') {
+        brush.setStampDitherClears(!stampBgFill);
       }
 
       const brushWithOptionalControls: BrushWithOptionalControls = brush;

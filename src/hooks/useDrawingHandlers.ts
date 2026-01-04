@@ -389,6 +389,9 @@ export function useDrawingHandlers({
       baseColor: foregroundColor,
       lightness: brushSettings.colorCycleFgLightness,
       variance: brushSettings.colorCycleFgVariance,
+      hueShift: brushSettings.colorCycleFgHueShift,
+      saturationShift: brushSettings.colorCycleFgSaturationShift,
+      lightnessPush: brushSettings.colorCycleFgLightnessPush,
       bands,
     });
     const derivedStops = deriveForegroundGradientStops(derivedSpec);

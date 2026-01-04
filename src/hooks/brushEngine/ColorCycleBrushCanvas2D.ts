@@ -22,6 +22,7 @@ import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import { BAYER_8x8_MATRIX } from '@/utils/ditherAlgorithms';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
+import type { DerivedGradientSpec } from '@/types';
 
 type ColorCycleBrushCanvas2DOptions = {
   brushSize?: number;
@@ -60,10 +61,18 @@ type LayerStrokeState = {
   stampDitherOrigin?: { x: number; y: number } | null;
   stampDitherSeed?: number;
   stampDitherPressureState?: ReturnType<typeof createPressureResolutionState> | null;
+  stampDitherOwner?: Uint16Array;
+  stampDitherStampSeq?: number;
   stampDitherMask?: Uint8Array;
   stampDitherPrimaryBuffer?: Uint8Array;
+  stampDitherBaseIdx?: Uint8Array;
+  stampDitherBaseGid?: Uint8Array;
+  stampDitherDebugSample?: { x: number; y: number };
+  stampDitherLockedBucket?: number;
+  stampDitherStrokeScale?: number;
+  stampDitherOriginUnits?: { x: number; y: number } | null; // 0..TILE-1, scale-free
   stampDitherBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null;
-  stampDitherLastScale?: number | null;
+  stampDitherLastTileScale?: number | null;
 };
     
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
@@ -95,15 +104,7 @@ interface SerializedLayerState {
   derivedGradients?: Array<{
     key: string;
     slot: number;
-    spec: {
-      mode: 'fg-derived';
-      baseColor: string;
-      lightness: number;
-      variance: number;
-      bands: number;
-      algoVersion: number;
-      key: string;
-    };
+    spec: DerivedGradientSpec;
   }>;
   activeGradientId?: string;
 }
@@ -129,6 +130,7 @@ interface ColorCycleBrushCanvasState {
   stampDitherPixelSize?: number;
   stampDitherAlgorithm?: DitherAlgorithm;
   stampDitherPatternStyle?: PatternStyle;
+  stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
   [key: string]: unknown;
@@ -146,6 +148,7 @@ interface ColorCycleBrushCanvasSerialized {
   stampDitherPixelSize?: number;
   stampDitherAlgorithm?: DitherAlgorithm;
   stampDitherPatternStyle?: PatternStyle;
+  stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
 }
@@ -292,7 +295,7 @@ export class ColorCycleBrushCanvas2D {
   private stampDitherPatternStyle: PatternStyle = 'dots';
   private stampDitherBaseTiles: Map<string, Uint8Array> = new Map();
   private stampDitherTiles: Map<string, Uint8Array> = new Map();
-  private stampDitherClears: boolean = false;
+  private stampDitherBgFill: boolean = true;
   private stampDitherPressureLinked: boolean = false;
   private performanceOptions: Required<
     Pick<
@@ -370,10 +373,14 @@ export class ColorCycleBrushCanvas2D {
         hasExternalBase: false,
         stampDitherOrigin: null,
         stampDitherPressureState: null,
+        stampDitherOwner: undefined,
+        stampDitherStampSeq: 0,
         stampDitherMask: undefined,
         stampDitherPrimaryBuffer: undefined,
+        stampDitherBaseIdx: undefined,
+        stampDitherBaseGid: undefined,
         stampDitherBounds: null,
-        stampDitherLastScale: null
+        stampDitherLastTileScale: null
       };
       this.layerStrokes.set(layerId, strokeData);
     }
@@ -442,10 +449,14 @@ export class ColorCycleBrushCanvas2D {
           hasExternalBase: false,
           stampDitherOrigin: null,
           stampDitherPressureState: null,
+          stampDitherOwner: undefined,
+          stampDitherStampSeq: 0,
           stampDitherMask: undefined,
           stampDitherPrimaryBuffer: undefined,
+          stampDitherBaseIdx: undefined,
+          stampDitherBaseGid: undefined,
           stampDitherBounds: null,
-          stampDitherLastScale: null
+          stampDitherLastTileScale: null
         });
       }
       // quiet
@@ -496,10 +507,14 @@ export class ColorCycleBrushCanvas2D {
         hasExternalBase: false,
         stampDitherOrigin: null,
         stampDitherPressureState: null,
+        stampDitherOwner: undefined,
+        stampDitherStampSeq: 0,
         stampDitherMask: undefined,
         stampDitherPrimaryBuffer: undefined,
+        stampDitherBaseIdx: undefined,
+        stampDitherBaseGid: undefined,
         stampDitherBounds: null,
-        stampDitherLastScale: null
+        stampDitherLastTileScale: null
       };
       this.layerStrokes.set(id, strokeData);
     } else if (!strokeData.hasContent) {
@@ -748,12 +763,25 @@ export class ColorCycleBrushCanvas2D {
         const pressureState =
           strokeData.stampDitherPressureState ?? createPressureResolutionState(baseTileScale);
         strokeData.stampDitherPressureState = pressureState;
-        tileScale = computePressureResolution(baseTileScale, pressure, true, pressureState);
-      } else if (strokeData.stampDitherPressureState) {
+        const computed = computePressureResolution(
+          baseTileScale,
+          pressure,
+          true,
+          pressureState,
+          undefined,
+          Math.max(1, baseTileScale * 4)
+        );
+        tileScale = Math.max(1, Math.ceil(computed));
+      } else {
         strokeData.stampDitherPressureState = null;
       }
-      tileScale = Math.max(1, Math.round(tileScale));
-      const tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE * tileScale : undefined;
+      if (strokeData.stampDitherStrokeScale == null) {
+        strokeData.stampDitherStrokeScale = tileScale;
+      } else {
+        strokeData.stampDitherStrokeScale = tileScale;
+      }
+      const tileScaleInt = tileScale;
+      let tileSize = useStampDither ? STAMP_DITHER_TILE_SIZE * tileScaleInt : undefined;
       let primaryIndex = colorIndex;
       let tile: Uint8Array | undefined;
       let maskOriginX: number | undefined;
@@ -761,43 +789,60 @@ export class ColorCycleBrushCanvas2D {
       let stampBounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
 
       if (useStampDither) {
-        const phase = typeof animator.getOffset === 'function' ? animator.getOffset() : 0;
-        const coverage = this.resolveStampDitherCoverage(phase, colorIndex);
-        const rawBucket = this.resolveStampDitherBucket(coverage);
-        const bucket = Math.min(STAMP_DITHER_BUCKETS - 2, Math.max(1, rawBucket));
-        primaryIndex = colorIndex;
-        tile = this.getStampDitherTile(bucket, tileScale);
-        if (!strokeData.stampDitherOrigin) {
-          const seed = strokeData.stampDitherSeed ?? 0;
-          const jitterTileSize = STAMP_DITHER_TILE_SIZE * baseTileScale;
-          const jitterX = jitterTileSize ? (seed % jitterTileSize) : 0;
-          const jitterY = jitterTileSize ? ((seed >>> 16) % jitterTileSize) : 0;
-          strokeData.stampDitherOrigin = {
-            x: Math.floor(x - pressureSize / 2) - jitterX,
-            y: Math.floor(y - pressureSize / 2) - jitterY,
-          };
+        if (!strokeData.stampDitherBaseIdx || strokeData.stampDitherBaseIdx.length !== strokeData.paintBuffer.length) {
+          strokeData.stampDitherBaseIdx = strokeData.paintBuffer.slice();
+          strokeData.stampDitherBaseGid = strokeData.gradientIdBuffer
+            ? strokeData.gradientIdBuffer.slice()
+            : undefined;
         }
-        maskOriginX = strokeData.stampDitherOrigin?.x;
-        maskOriginY = strokeData.stampDitherOrigin?.y;
+        if (strokeData.stampDitherLockedBucket == null) {
+          const phaseForMask = 0.5;
+          const idxForMask = this.computeColorBandIndex(strokeData);
+          const coverage = this.resolveStampDitherCoverage(phaseForMask, idxForMask);
+          const rawBucket = this.resolveStampDitherBucket(coverage);
+          strokeData.stampDitherLockedBucket = Math.min(
+            STAMP_DITHER_BUCKETS - 2,
+            Math.max(1, rawBucket)
+          );
+        }
+
+        const lastScale = strokeData.stampDitherLastTileScale;
+        if (lastScale == null) {
+          strokeData.stampDitherLastTileScale = tileScaleInt;
+        } else if (lastScale !== tileScaleInt) {
+          strokeData.stampDitherLastTileScale = tileScaleInt;
+          this.recomposeStampDitherOverlay(strokeData, animator, activeSlot, tileScaleInt);
+        }
+
+        const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+        maskOriginX = -originU.x * tileScaleInt;
+        maskOriginY = -originU.y * tileScaleInt;
+        strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
+
+        const bucket = strokeData.stampDitherLockedBucket ?? 1;
+        const tileClamp = STAMP_DITHER_TILE_SIZE * tileScaleInt;
+        tileSize = tileClamp;
+        tile = this.getStampDitherTile(bucket, tileScaleInt);
+
+        const nextSeq = (strokeData.stampDitherStampSeq ?? 0) + 1;
+        strokeData.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
+        const stampSeq = strokeData.stampDitherStampSeq ?? 1;
+
         stampBounds = this.applyStampDitherMask(
           strokeData,
           this.stampShape,
           x,
           y,
           pressureSize,
-          primaryIndex
+          primaryIndex,
+          stampSeq
         );
       }
 
       // Paint with specific color index and pressure-modulated size
       if (this.stampShape === 'triangle') {
         if (useStampDither && tile && tileSize && stampBounds) {
-          const scaleChanged =
-            strokeData.stampDitherLastScale == null || strokeData.stampDitherLastScale !== tileScale;
-          strokeData.stampDitherLastScale = tileScale;
-          const bounds = scaleChanged && strokeData.stampDitherBounds
-            ? strokeData.stampDitherBounds
-            : stampBounds;
+          const bounds = stampBounds;
           this.applyStampDitherToRegion(
             strokeData,
             animator,
@@ -806,19 +851,15 @@ export class ColorCycleBrushCanvas2D {
             tileSize,
             maskOriginX ?? stampBounds.minX,
             maskOriginY ?? stampBounds.minY,
-            activeSlot
+            activeSlot,
+            strokeData.stampDitherStampSeq ?? 1
           );
         } else {
           animator.paintTriangle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
         }
       } else if (this.stampShape === 'round') {
         if (useStampDither && tile && tileSize && stampBounds) {
-          const scaleChanged =
-            strokeData.stampDitherLastScale == null || strokeData.stampDitherLastScale !== tileScale;
-          strokeData.stampDitherLastScale = tileScale;
-          const bounds = scaleChanged && strokeData.stampDitherBounds
-            ? strokeData.stampDitherBounds
-            : stampBounds;
+          const bounds = stampBounds;
           this.applyStampDitherToRegion(
             strokeData,
             animator,
@@ -827,19 +868,15 @@ export class ColorCycleBrushCanvas2D {
             tileSize,
             maskOriginX ?? stampBounds.minX,
             maskOriginY ?? stampBounds.minY,
-            activeSlot
+            activeSlot,
+            strokeData.stampDitherStampSeq ?? 1
           );
         } else {
           animator.paintCircle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
         }
       } else if (this.stampShape === 'diamond') {
         if (useStampDither && tile && tileSize && stampBounds) {
-          const scaleChanged =
-            strokeData.stampDitherLastScale == null || strokeData.stampDitherLastScale !== tileScale;
-          strokeData.stampDitherLastScale = tileScale;
-          const bounds = scaleChanged && strokeData.stampDitherBounds
-            ? strokeData.stampDitherBounds
-            : stampBounds;
+          const bounds = stampBounds;
           this.applyStampDitherToRegion(
             strokeData,
             animator,
@@ -848,18 +885,14 @@ export class ColorCycleBrushCanvas2D {
             tileSize,
             maskOriginX ?? stampBounds.minX,
             maskOriginY ?? stampBounds.minY,
-            activeSlot
+            activeSlot,
+            strokeData.stampDitherStampSeq ?? 1
           );
         } else {
           animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
         }
       } else if (useStampDither && tile && tileSize && stampBounds) {
-        const scaleChanged =
-          strokeData.stampDitherLastScale == null || strokeData.stampDitherLastScale !== tileScale;
-        strokeData.stampDitherLastScale = tileScale;
-        const bounds = scaleChanged && strokeData.stampDitherBounds
-          ? strokeData.stampDitherBounds
-          : stampBounds;
+        const bounds = stampBounds;
         this.applyStampDitherToRegion(
           strokeData,
           animator,
@@ -868,7 +901,8 @@ export class ColorCycleBrushCanvas2D {
           tileSize,
           maskOriginX ?? stampBounds.minX,
           maskOriginY ?? stampBounds.minY,
-          activeSlot
+          activeSlot,
+          strokeData.stampDitherStampSeq ?? 1
         );
       } else {
         animator.paintSquare(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, activeSlot);
@@ -907,6 +941,24 @@ export class ColorCycleBrushCanvas2D {
             const animator = this.animators.get(layerId);
             if (animator) {
               animator.forceRender();
+              const strokeData = this.layerStrokes.get(layerId);
+              const sample = strokeData?.stampDitherDebugSample;
+              if (sample) {
+                try {
+                  const serialized = animator.serialize();
+                  const buf = serialized?.indexBuffer?.data;
+                  const gid = serialized?.indexBuffer?.gradientId;
+                  const width = serialized?.indexBuffer?.width ?? 0;
+                  if (buf && gid && width > 0) {
+                    const testIdx = sample.y * width + sample.x;
+                    console.log('[CC] stamp-check-after', {
+                      test: { x: sample.x, y: sample.y },
+                      data: buf[testIdx],
+                      gid: gid[testIdx],
+                    });
+                  }
+                } catch {}
+              }
             }
           });
           
@@ -1238,6 +1290,109 @@ export class ColorCycleBrushCanvas2D {
     }
   }
 
+  private ensureStampDitherOwner(strokeData: LayerStrokeState) {
+    const size = Math.max(1, this.width * this.height);
+    if (!strokeData.stampDitherOwner || strokeData.stampDitherOwner.length !== size) {
+      strokeData.stampDitherOwner = new Uint16Array(size);
+    }
+  }
+
+  private recomposeStampDitherOverlay(
+    strokeData: LayerStrokeState,
+    animator: ColorCycleAnimator,
+    activeSlot: number,
+    tileScale: number
+  ) {
+    const bounds = strokeData.stampDitherBounds;
+    const owner = strokeData.stampDitherOwner;
+    const primary = strokeData.stampDitherPrimaryBuffer;
+    const base = strokeData.stampDitherBaseIdx;
+    const baseG = strokeData.stampDitherBaseGid;
+    if (!bounds || !owner || !primary || !base) return;
+    const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+    const originX = -originU.x * tileScale;
+    const originY = -originU.y * tileScale;
+    const tileClamp = STAMP_DITHER_TILE_SIZE * tileScale;
+    const bucket = strokeData.stampDitherLockedBucket ?? 1;
+    const tile = this.getStampDitherTile(bucket, tileScale);
+    const bgFillOff = !this.stampDitherBgFill;
+
+    const handle = animator.beginDirectFill();
+    const data = handle.data;
+    const gid = handle.gradientId;
+    const w = handle.width;
+    const h = handle.height;
+    const minX = Math.max(0, Math.min(w - 1, bounds.minX));
+    const maxX = Math.max(0, Math.min(w - 1, bounds.maxX));
+    const minY = Math.max(0, Math.min(h - 1, bounds.minY));
+    const maxY = Math.max(0, Math.min(h - 1, bounds.maxY));
+
+    for (let y = minY; y <= maxY; y += 1) {
+      const row = y * w;
+      const localY = ((y - originY) % tileClamp + tileClamp) % tileClamp;
+      const tileRow = localY * tileClamp;
+      for (let x = minX; x <= maxX; x += 1) {
+        const idx = row + x;
+        if (owner[idx] === 0) continue;
+        const localX = ((x - originX) % tileClamp + tileClamp) % tileClamp;
+        const tIdx = tileRow + localX;
+        const p = primary[idx];
+        if (tile[tIdx] === 1) {
+          data[idx] = p;
+          gid[idx] = p === 0 ? 0 : activeSlot;
+          continue;
+        }
+        if (bgFillOff) {
+          if (base.length === data.length) {
+            const v = base[idx];
+            data[idx] = v;
+            if (v === 0) {
+              gid[idx] = 0;
+            } else if (baseG && baseG.length === gid.length) {
+              gid[idx] = baseG[idx];
+            } else {
+              gid[idx] = activeSlot;
+            }
+          }
+          continue;
+        }
+        const secondary = this.resolveStampDitherSecondaryIndex(p);
+        data[idx] = secondary;
+        gid[idx] = secondary === 0 ? 0 : activeSlot;
+      }
+    }
+
+    const needsUpload = animator.hasWebGL?.() ?? false;
+    animator.endDirectFill({ markDirty: needsUpload });
+    animator.markDirtyBounds({
+      minX,
+      minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+    });
+  }
+
+  private clearStampMaskRect(
+    strokeData: LayerStrokeState,
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number
+  ) {
+    const mask = strokeData.stampDitherMask!;
+    const w = this.width;
+    const clampedMinX = Math.max(0, Math.min(w - 1, minX));
+    const clampedMaxX = Math.max(0, Math.min(w - 1, maxX));
+    const clampedMinY = Math.max(0, Math.min(this.height - 1, minY));
+    const clampedMaxY = Math.max(0, Math.min(this.height - 1, maxY));
+    for (let y = clampedMinY; y <= clampedMaxY; y += 1) {
+      const row = y * w;
+      const start = row + clampedMinX;
+      const end = row + clampedMaxX + 1;
+      mask.fill(0, start, end);
+    }
+  }
+
   private updateStampDitherBounds(
     strokeData: LayerStrokeState,
     minX: number,
@@ -1270,11 +1425,14 @@ export class ColorCycleBrushCanvas2D {
     x: number,
     y: number,
     brushSize: number,
-    primaryIndex: number
+    primaryIndex: number,
+    stampSeq: number
   ): { minX: number; minY: number; maxX: number; maxY: number } {
     this.ensureStampDitherBuffers(strokeData);
+    this.ensureStampDitherOwner(strokeData);
     const mask = strokeData.stampDitherMask!;
     const primary = strokeData.stampDitherPrimaryBuffer!;
+    const owner = strokeData.stampDitherOwner!;
 
     if (shape === 'triangle') {
       const halfSize = brushSize / 2;
@@ -1288,6 +1446,7 @@ export class ColorCycleBrushCanvas2D {
       const maxX = Math.min(this.width - 1, Math.floor(Math.max(leftX, rightX, topX)));
       const minY = Math.max(0, Math.floor(Math.min(topY, leftY, rightY)));
       const maxY = Math.min(this.height - 1, Math.floor(Math.max(topY, leftY, rightY)));
+      this.clearStampMaskRect(strokeData, minX, minY, maxX, maxY);
       const sign = (px: number, py: number, ax: number, ay: number, bx: number, by: number) =>
         (px - bx) * (ay - by) - (ax - bx) * (py - by);
 
@@ -1302,6 +1461,7 @@ export class ColorCycleBrushCanvas2D {
             const idx = py * this.width + px;
             mask[idx] = 1;
             primary[idx] = primaryIndex;
+            owner[idx] = stampSeq;
           }
         }
       }
@@ -1316,6 +1476,7 @@ export class ColorCycleBrushCanvas2D {
       const maxX = Math.min(this.width - 1, Math.ceil(x + radius));
       const minY = Math.max(0, Math.floor(y - radius));
       const maxY = Math.min(this.height - 1, Math.ceil(y + radius));
+      this.clearStampMaskRect(strokeData, minX, minY, maxX, maxY);
       for (let py = minY; py <= maxY; py++) {
         for (let px = minX; px <= maxX; px++) {
           const dx = px + 0.5 - x;
@@ -1324,6 +1485,7 @@ export class ColorCycleBrushCanvas2D {
           const idx = py * this.width + px;
           mask[idx] = 1;
           primary[idx] = primaryIndex;
+          owner[idx] = stampSeq;
         }
       }
       this.updateStampDitherBounds(strokeData, minX, minY, maxX, maxY);
@@ -1336,6 +1498,7 @@ export class ColorCycleBrushCanvas2D {
       const maxX = Math.min(this.width - 1, Math.floor(x + radius));
       const minY = Math.max(0, Math.floor(y - radius));
       const maxY = Math.min(this.height - 1, Math.floor(y + radius));
+      this.clearStampMaskRect(strokeData, minX, minY, maxX, maxY);
       for (let py = minY; py <= maxY; py++) {
         for (let px = minX; px <= maxX; px++) {
           const dx = Math.abs(px + 0.5 - x);
@@ -1344,6 +1507,7 @@ export class ColorCycleBrushCanvas2D {
           const idx = py * this.width + px;
           mask[idx] = 1;
           primary[idx] = primaryIndex;
+          owner[idx] = stampSeq;
         }
       }
       this.updateStampDitherBounds(strokeData, minX, minY, maxX, maxY);
@@ -1356,11 +1520,13 @@ export class ColorCycleBrushCanvas2D {
     const maxX = Math.min(this.width - 1, Math.floor(x + halfSize));
     const minY = Math.max(0, Math.floor(y - halfSize));
     const maxY = Math.min(this.height - 1, Math.floor(y + halfSize));
+    this.clearStampMaskRect(strokeData, minX, minY, maxX, maxY);
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const idx = py * this.width + px;
         mask[idx] = 1;
         primary[idx] = primaryIndex;
+        owner[idx] = stampSeq;
       }
     }
     this.updateStampDitherBounds(strokeData, minX, minY, maxX, maxY);
@@ -1490,11 +1656,13 @@ export class ColorCycleBrushCanvas2D {
     tileSize: number,
     maskOriginX: number,
     maskOriginY: number,
-    activeSlot: number
+    activeSlot: number,
+    stampSeq: number
   ) {
     const mask = strokeData.stampDitherMask;
     const primary = strokeData.stampDitherPrimaryBuffer;
-    if (!mask || !primary) {
+    const owner = strokeData.stampDitherOwner;
+    if (!mask || !primary || !owner) {
       return;
     }
 
@@ -1507,6 +1675,7 @@ export class ColorCycleBrushCanvas2D {
     const minY = Math.max(0, Math.min(handle.height - 1, bounds.minY));
     const maxY = Math.max(0, Math.min(handle.height - 1, bounds.maxY));
     const tileClamp = Math.max(1, Math.floor(tileSize));
+    const bgFillOff = !this.stampDitherBgFill;
 
     for (let py = minY; py <= maxY; py++) {
       const rowOffset = py * width;
@@ -1514,20 +1683,57 @@ export class ColorCycleBrushCanvas2D {
       const tileRow = localY * tileClamp;
       for (let px = minX; px <= maxX; px++) {
         const idx = rowOffset + px;
-        if (mask[idx] === 0) continue;
+        if (mask[idx] === 0 || owner[idx] !== stampSeq) continue;
         const localX = ((px - maskOriginX) % tileClamp + tileClamp) % tileClamp;
         const tileIdx = tileRow + localX;
+        if (bgFillOff && tile[tileIdx] !== 1) {
+          const base = strokeData.stampDitherBaseIdx;
+          const baseG = strokeData.stampDitherBaseGid;
+          if (base && base.length === data.length) {
+            const v = base[idx];
+            data[idx] = v;
+            if (v === 0) {
+              gradientId[idx] = 0;
+            } else if (baseG && baseG.length === gradientId.length) {
+              gradientId[idx] = baseG[idx];
+            } else {
+              gradientId[idx] = activeSlot;
+            }
+          } else {
+            continue;
+          }
+          continue;
+        }
         const usePrimary = tile[tileIdx] === 1;
         const primaryIndex = primary[idx];
-        const nextIndex = usePrimary
-          ? primaryIndex
-          : (this.stampDitherClears ? 0 : this.resolveStampDitherSecondaryIndex(primaryIndex));
-        data[idx] = nextIndex;
-        gradientId[idx] = nextIndex === 0 ? 0 : activeSlot;
+
+        if (usePrimary) {
+          data[idx] = primaryIndex;
+          gradientId[idx] = primaryIndex === 0 ? 0 : activeSlot;
+          continue;
+        }
+
+        const secondary = this.resolveStampDitherSecondaryIndex(primaryIndex);
+        data[idx] = secondary;
+        gradientId[idx] = secondary === 0 ? 0 : activeSlot;
       }
     }
 
-    animator.endDirectFill({ markDirty: false });
+    const testX = minX + ((maxX - minX) >> 1);
+    const testY = minY + ((maxY - minY) >> 1);
+    const testIdx = testY * width + testX;
+    strokeData.stampDitherDebugSample = { x: testX, y: testY };
+    console.log('[CC] stamp-check', {
+      test: { x: testX, y: testY },
+      mask: mask[testIdx],
+      tile: tile[(((testY - maskOriginY) % tileClamp + tileClamp) % tileClamp) * tileClamp +
+        (((testX - maskOriginX) % tileClamp + tileClamp) % tileClamp)],
+      data: data[testIdx],
+      gid: gradientId[testIdx],
+    });
+
+    const needsUpload = animator.hasWebGL?.() ?? false;
+    animator.endDirectFill({ markDirty: needsUpload });
     animator.markDirtyBounds({
       minX,
       minY,
@@ -1662,6 +1868,15 @@ export class ColorCycleBrushCanvas2D {
       strokeData.hasContent = true;
     }
     if (strokeData) {
+      const expected = this.width * this.height;
+      if (strokeData.paintBuffer.length === expected) {
+        try {
+          animator.setIndexBufferFromArray(
+            new Uint8Array(strokeData.paintBuffer),
+            strokeData.gradientIdBuffer ? new Uint8Array(strokeData.gradientIdBuffer) : undefined
+          );
+        } catch {}
+      }
       strokeData.activeGradientSlot = this.activeGradientSlots.get(id) ?? strokeData.activeGradientSlot ?? 0;
       strokeData.stampDitherSeed = (this.strokeCounter * 2654435761) >>> 0;
       if (clearBuffer && !this._isHistoryRestore) {
@@ -1678,12 +1893,38 @@ export class ColorCycleBrushCanvas2D {
       strokeData.stampDitherOrigin = null;
       strokeData.stampDitherPressureState = null;
       strokeData.stampDitherBounds = null;
-      strokeData.stampDitherLastScale = null;
-      if (strokeData.stampDitherMask) {
-        strokeData.stampDitherMask.fill(0);
-      }
-      if (strokeData.stampDitherPrimaryBuffer) {
-        strokeData.stampDitherPrimaryBuffer.fill(0);
+      strokeData.stampDitherLastTileScale = null;
+      strokeData.stampDitherStrokeScale = undefined;
+      const seed = strokeData.stampDitherSeed ?? 0;
+      strokeData.stampDitherOriginUnits = {
+        x: (seed % STAMP_DITHER_TILE_SIZE) | 0,
+        y: ((seed >>> 16) % STAMP_DITHER_TILE_SIZE) | 0,
+      };
+      strokeData.stampDitherLockedBucket = undefined;
+      if (this.stampDitherEnabled) {
+        this.ensureStampDitherBuffers(strokeData);
+        this.ensureStampDitherOwner(strokeData);
+        strokeData.stampDitherMask?.fill(0);
+        strokeData.stampDitherPrimaryBuffer?.fill(0);
+        strokeData.stampDitherOwner?.fill(0);
+        strokeData.stampDitherStampSeq = 0;
+        strokeData.stampDitherBaseIdx = strokeData.paintBuffer.slice();
+        strokeData.stampDitherBaseGid = strokeData.gradientIdBuffer
+          ? strokeData.gradientIdBuffer.slice()
+          : undefined;
+        const phaseForMask = 0.5;
+        const idxForMask = this.computeColorBandIndex(strokeData);
+        const coverage = this.resolveStampDitherCoverage(phaseForMask, idxForMask);
+        const rawBucket = this.resolveStampDitherBucket(coverage);
+        strokeData.stampDitherLockedBucket = Math.min(
+          STAMP_DITHER_BUCKETS - 2,
+          Math.max(1, rawBucket)
+        );
+        strokeData.hasExternalBase = false;
+      } else {
+        strokeData.stampDitherBaseIdx = undefined;
+        strokeData.stampDitherBaseGid = undefined;
+        strokeData.stampDitherOwner = undefined;
       }
       
       // Keep stamp counter continuous across strokes for flowing gradients (unless cleared above)
@@ -1726,18 +1967,19 @@ export class ColorCycleBrushCanvas2D {
         const serializedAnimator = animator.serialize();
         const bufferData = serializedAnimator?.indexBuffer?.data;
         const gradientIdData = serializedAnimator?.indexBuffer?.gradientId;
+        let liveBuffer: Uint8Array | undefined;
         if (bufferData) {
-          const liveBuffer = bufferData.slice();
+          liveBuffer = bufferData.slice();
           strokeData.paintBuffer = liveBuffer;
           snapshotBuffer = liveBuffer.byteLength > 0
-            ? liveBuffer.buffer.slice(0)
+            ? liveBuffer.slice().buffer
             : new ArrayBuffer(0);
         }
         if (gradientIdData) {
           const liveGradientId = gradientIdData.slice();
           strokeData.gradientIdBuffer = liveGradientId;
           snapshotGradientIdBuffer = liveGradientId.byteLength > 0
-            ? liveGradientId.buffer.slice(0)
+            ? liveGradientId.slice().buffer
             : new ArrayBuffer(0);
         }
       } catch (error) {
@@ -1752,6 +1994,11 @@ export class ColorCycleBrushCanvas2D {
         hasContent: true,
         strokeCounter: this.strokeCounter
       };
+      strokeData.stampDitherBaseIdx = undefined;
+      strokeData.stampDitherBaseGid = undefined;
+      strokeData.stampDitherOwner = undefined;
+      strokeData.stampDitherStampSeq = 0;
+      strokeData.stampDitherBounds = null;
 
       try {
         const storeState = useAppStore.getState();
@@ -1830,10 +2077,14 @@ export class ColorCycleBrushCanvas2D {
         activeGradientSlot: 0,
         stampDitherOrigin: null,
         stampDitherPressureState: null,
+        stampDitherOwner: undefined,
+        stampDitherStampSeq: 0,
         stampDitherMask: undefined,
         stampDitherPrimaryBuffer: undefined,
+        stampDitherBaseIdx: undefined,
+        stampDitherBaseGid: undefined,
         stampDitherBounds: null,
-        stampDitherLastScale: null
+        stampDitherLastTileScale: null
       });
     }
     
@@ -2470,10 +2721,14 @@ export class ColorCycleBrushCanvas2D {
         activeGradientSlot: 0,
         stampDitherOrigin: null,
         stampDitherPressureState: null,
+        stampDitherOwner: undefined,
+        stampDitherStampSeq: 0,
         stampDitherMask: undefined,
         stampDitherPrimaryBuffer: undefined,
+        stampDitherBaseIdx: undefined,
+        stampDitherBaseGid: undefined,
         stampDitherBounds: null,
-        stampDitherLastScale: null
+        stampDitherLastTileScale: null
       });
     }
     
@@ -2948,17 +3203,16 @@ export class ColorCycleBrushCanvas2D {
     // Draw to webgl canvas (actually just a regular canvas)
     const webglCtx = this.webglCanvas.getContext('2d') as CanvasRenderingContext2D | null;
     if (webglCtx) {
-      // Do NOT clear the layer canvas here; draw over existing pixels so
-      // previously committed strokes remain persistent between strokes.
-      // However, when stamp dithering is configured to punch holes we need to
-      // clear before drawing so transparent pixels actually erase instead of
-      // simply revealing whatever was already on the preview canvas.
-      const shouldClearLayerSurface = this.stampDitherClears;
-      if (shouldClearLayerSurface) {
-        webglCtx.clearRect(0, 0, this.width, this.height);
-      }
       webglCtx.globalAlpha = 1.0;
-      webglCtx.drawImage(this.compositeCanvas, 0, 0);
+      const prevOp = webglCtx.globalCompositeOperation;
+      if (this.isDrawing) {
+        webglCtx.globalCompositeOperation = 'copy';
+        webglCtx.drawImage(this.compositeCanvas, 0, 0);
+      } else {
+        webglCtx.globalCompositeOperation = 'source-over';
+        webglCtx.drawImage(this.compositeCanvas, 0, 0);
+      }
+      webglCtx.globalCompositeOperation = prevOp;
       webglCtx.globalAlpha = 1.0;
     }
     
@@ -3139,7 +3393,8 @@ export class ColorCycleBrushCanvas2D {
     const srcCanvas = animator.getCanvas();
 
     const strokeData = this.layerStrokes.get(layerId);
-    if (strokeData?.hasExternalBase) {
+    const hadExternalBase = Boolean(strokeData?.hasExternalBase);
+    if (hadExternalBase && strokeData) {
       const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
       if (srcCtx) {
         const prevMode = srcCtx.globalCompositeOperation;
@@ -3173,7 +3428,7 @@ export class ColorCycleBrushCanvas2D {
       try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      if (!strokeData?.hasExternalBase) {
+      if (!hadExternalBase) {
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
       }
 
@@ -3590,9 +3845,14 @@ export class ColorCycleBrushCanvas2D {
     });
   }
 
-  /** Toggle whether stamp dithering should clear skipped pixels. */
+  /** Toggle whether stamp dithering keeps background fill. */
+  setStampDitherBgFill(enabled: boolean) {
+    this.stampDitherBgFill = !!enabled;
+  }
+
+  /** Toggle whether stamp dithering should clear skipped pixels (legacy alias). */
   setStampDitherClears(enabled: boolean) {
-    this.stampDitherClears = !!enabled;
+    this.stampDitherBgFill = !enabled;
   }
   
   /**
@@ -3785,10 +4045,14 @@ export class ColorCycleBrushCanvas2D {
           activeGradientSlot: 0,
           stampDitherOrigin: null,
           stampDitherPressureState: null,
+          stampDitherOwner: undefined,
+          stampDitherStampSeq: 0,
           stampDitherMask: undefined,
           stampDitherPrimaryBuffer: undefined,
+          stampDitherBaseIdx: undefined,
+          stampDitherBaseGid: undefined,
           stampDitherBounds: null,
-          stampDitherLastScale: null
+          stampDitherLastTileScale: null
         };
         this.layerStrokes.set(this.activeLayerId, layerData);
       }
@@ -3898,7 +4162,9 @@ export class ColorCycleBrushCanvas2D {
       if (state.stampDitherPatternStyle) {
         this.setStampDitherPatternStyle(state.stampDitherPatternStyle);
       }
-      if (typeof state.stampDitherClears === 'boolean') {
+      if (typeof state.stampDitherBgFill === 'boolean') {
+        this.setStampDitherBgFill(state.stampDitherBgFill);
+      } else if (typeof state.stampDitherClears === 'boolean') {
         this.setStampDitherClears(state.stampDitherClears);
       }
       if (typeof state.stampDitherPressureLinked === 'boolean') {
@@ -4102,7 +4368,8 @@ export class ColorCycleBrushCanvas2D {
       stampDitherPixelSize: this.stampDitherPixelSize,
       stampDitherAlgorithm: this.stampDitherAlgorithm,
       stampDitherPatternStyle: this.stampDitherPatternStyle,
-      stampDitherClears: this.stampDitherClears,
+      stampDitherBgFill: this.stampDitherBgFill,
+      stampDitherClears: !this.stampDitherBgFill,
       stampDitherPressureLinked: this.stampDitherPressureLinked
     };
   }
@@ -4138,7 +4405,9 @@ export class ColorCycleBrushCanvas2D {
     if (typeof data.stampDitherPressureLinked === 'boolean') {
       instance.setStampDitherPressureLinked(data.stampDitherPressureLinked);
     }
-    if (typeof data.stampDitherClears === 'boolean') {
+    if (typeof data.stampDitherBgFill === 'boolean') {
+      instance.setStampDitherBgFill(data.stampDitherBgFill);
+    } else if (typeof data.stampDitherClears === 'boolean') {
       instance.setStampDitherClears(data.stampDitherClears);
     }
 
@@ -4252,10 +4521,14 @@ export class ColorCycleBrushCanvas2D {
       hasExternalBase: false,
       stampDitherOrigin: null,
       stampDitherPressureState: null,
+      stampDitherOwner: undefined,
+      stampDitherStampSeq: 0,
       stampDitherMask: undefined,
       stampDitherPrimaryBuffer: undefined,
+      stampDitherBaseIdx: undefined,
+      stampDitherBaseGid: undefined,
       stampDitherBounds: null,
-      stampDitherLastScale: null
+      stampDitherLastTileScale: null
     };
     if (strokeData.paintBuffer.length !== expectedSize) {
       strokeData.paintBuffer = new Uint8Array(expectedSize);

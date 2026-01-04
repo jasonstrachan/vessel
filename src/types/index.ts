@@ -133,7 +133,10 @@ export type DerivedGradientSpec = {
   mode: 'fg-derived';
   baseColor: string;
   lightness: number;
-  variance: number;
+  variance?: number;
+  hueShift?: number;
+  saturationShift?: number;
+  lightnessPush?: number;
   bands: number;
   algoVersion: number;
   key: string;
@@ -630,6 +633,9 @@ export interface BrushSettings {
   // Color Cycle stamp dithering
   colorCycleStampDitherEnabled?: boolean;
   colorCycleStampDitherPixelSize?: number;
+  /** Keep a solid fill behind stamp dither (true) vs holes revealing base (false). */
+  colorCycleStampDitherBgFill?: boolean;
+  /** @deprecated Use colorCycleStampDitherBgFill (false == BG Fill OFF). */
   colorCycleStampDitherClears?: boolean;
   /** Link color cycle stamp dither resolution/pixel size to input pressure */
   colorCycleStampDitherPressureLinked?: boolean;
@@ -718,7 +724,10 @@ export interface BrushSettings {
   // Foreground-derived gradient controls for Color Cycle brushes
   colorCycleUseForegroundGradient?: boolean; // true = derive gradient from foreground color per stroke
   colorCycleFgLightness?: number; // 0-100 center lightness for derived gradient
-  colorCycleFgVariance?: number; // 0-100 lightness variance for derived gradient
+  colorCycleFgVariance?: number; // 0-100 lightness variance for derived gradient (legacy)
+  colorCycleFgHueShift?: number; // -60 to 60 hue shift for derived gradient
+  colorCycleFgSaturationShift?: number; // -45 to 45 saturation shift for derived gradient
+  colorCycleFgLightnessPush?: number; // -70 to 70 lightness push for derived gradient
   colorCycleFgStops?: number; // 2-6 stops for derived foreground gradient
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas

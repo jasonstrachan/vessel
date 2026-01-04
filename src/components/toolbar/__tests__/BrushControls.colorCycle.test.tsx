@@ -216,6 +216,9 @@ jest.mock('@/stores/useAppStore', () => {
     colorCycleUseForegroundGradient: false,
     colorCycleFgLightness: 50,
     colorCycleFgVariance: 0,
+    colorCycleFgHueShift: 0,
+    colorCycleFgSaturationShift: 0,
+    colorCycleFgLightnessPush: 0,
     colorCycleFgStops: 2,
     colorCycleGradient: [
       { position: 0, color: '#000' },

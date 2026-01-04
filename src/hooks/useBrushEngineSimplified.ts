@@ -2061,9 +2061,6 @@ export const useBrushEngineSimplified = () => {
             dCtx.canvas?.width ?? 0,
             dCtx.canvas?.height ?? 0
           );
-          if (tools.brushSettings.ditherBackgroundFill === false) {
-            visibleCtx.clearRect(bx, by, bw, bh);
-          }
           const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
           if (isPixelDitherNoBg) {
             visibleCtx.drawImage(
@@ -2707,9 +2704,6 @@ export const useBrushEngineSimplified = () => {
 
       const { x, y, width, height } = region;
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-      if (tools.brushSettings.ditherBackgroundFill === false) {
-        ctx.clearRect(x, y, width, height);
-      }
       if (isPixelDitherNoBg) {
         ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
       } else {
@@ -4505,10 +4499,14 @@ useEffect(() => {
             !!tools.brushSettings.colorCycleStampDitherPressureLinked
           );
         }
-        if (typeof colorCycleBrush.setStampDitherClears === 'function') {
-          colorCycleBrush.setStampDitherClears(
-            !!tools.brushSettings.colorCycleStampDitherClears
-          );
+        const stampBgFill =
+          typeof tools.brushSettings.colorCycleStampDitherBgFill === 'boolean'
+            ? tools.brushSettings.colorCycleStampDitherBgFill
+            : !Boolean(tools.brushSettings.colorCycleStampDitherClears);
+        if (typeof (colorCycleBrush as { setStampDitherBgFill?: (v: boolean) => void }).setStampDitherBgFill === 'function') {
+          (colorCycleBrush as { setStampDitherBgFill: (v: boolean) => void }).setStampDitherBgFill(stampBgFill);
+        } else if (typeof colorCycleBrush.setStampDitherClears === 'function') {
+          colorCycleBrush.setStampDitherClears(!stampBgFill);
         }
       } catch (error) {
         void error;
@@ -4518,6 +4516,7 @@ useEffect(() => {
   }, [
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.colorCycleStampDitherEnabled,
+    tools.brushSettings.colorCycleStampDitherBgFill,
     tools.brushSettings.colorCycleStampDitherClears,
     tools.brushSettings.colorCycleStampDitherPressureLinked,
     tools.brushSettings.ditherAlgorithm,

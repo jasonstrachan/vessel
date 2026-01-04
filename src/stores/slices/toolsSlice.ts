@@ -167,6 +167,8 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   minPressure: settings.minPressure,
   maxPressure: settings.maxPressure,
   colorCycleStampShape: settings.colorCycleStampShape,
+  colorCycleStampDitherBgFill: settings.colorCycleStampDitherBgFill,
+  colorCycleStampDitherClears: settings.colorCycleStampDitherClears,
   pressureLinkedFillResolution: settings.pressureLinkedFillResolution,
   pressureDitherSmoosh: settings.pressureDitherSmoosh,
   pigmentLiftEnabled: settings.pigmentLiftEnabled,
@@ -711,6 +713,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleStampDitherPixelSize !== undefined) {
         settingsToSave.colorCycleStampDitherPixelSize = newSettings.colorCycleStampDitherPixelSize;
       }
+      if (settings.colorCycleStampDitherBgFill !== undefined) {
+        settingsToSave.colorCycleStampDitherBgFill = newSettings.colorCycleStampDitherBgFill;
+      }
       if (settings.colorCycleStampDitherClears !== undefined) {
         settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
       }
@@ -753,6 +758,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.colorCycleFgVariance !== undefined) {
         settingsToSave.colorCycleFgVariance = newSettings.colorCycleFgVariance;
+      }
+      if (settings.colorCycleFgHueShift !== undefined) {
+        settingsToSave.colorCycleFgHueShift = newSettings.colorCycleFgHueShift;
+      }
+      if (settings.colorCycleFgSaturationShift !== undefined) {
+        settingsToSave.colorCycleFgSaturationShift = newSettings.colorCycleFgSaturationShift;
+      }
+      if (settings.colorCycleFgLightnessPush !== undefined) {
+        settingsToSave.colorCycleFgLightnessPush = newSettings.colorCycleFgLightnessPush;
       }
       if (settings.colorCycleFgStops !== undefined) {
         settingsToSave.colorCycleFgStops = newSettings.colorCycleFgStops;

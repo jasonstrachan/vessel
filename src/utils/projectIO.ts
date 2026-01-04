@@ -357,6 +357,7 @@ interface ColorCycleBrushState {
   stampShape?: 'square' | 'round' | 'triangle' | 'diamond';
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
+  stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
 }
