@@ -317,6 +317,7 @@ export class ColorCycleBrushCanvas2D {
   private stampDitherTiles: Map<string, Uint8Array> = new Map();
   private stampDitherBgFill: boolean = true;
   private stampDitherPressureLinked: boolean = false;
+  private preserveGradientPhaseOnChange: boolean = false;
   private performanceOptions: Required<
     Pick<
       ColorCycleBrushCanvas2DOptions,
@@ -1131,7 +1132,7 @@ export class ColorCycleBrushCanvas2D {
       this.currentGradientStops = Array.isArray(stops) && stops.length > 0 ? [...stops] : this.currentGradientStops;
     } catch {}
     
-    if (gradientChanged) {
+    if (gradientChanged && !this.preserveGradientPhaseOnChange) {
       // Reset stamp sequencing so the new gradient starts from the first band
       this.stampCounter = 0;
 
@@ -1142,6 +1143,11 @@ export class ColorCycleBrushCanvas2D {
         strokeData.gradientLayerIndices.push(strokeData.currentGradientIndex);
       }
     }
+  }
+
+  /** Preserve gradient phase when swapping gradient stops (foreground-derived mode). */
+  setPreserveGradientPhase(enabled: boolean) {
+    this.preserveGradientPhaseOnChange = !!enabled;
   }
 
   /**

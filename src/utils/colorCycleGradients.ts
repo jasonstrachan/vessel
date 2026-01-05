@@ -264,11 +264,10 @@ const FG_DERIVED_LIGHTNESS_STEP = 5;
 const FG_DERIVED_VARIANCE_STEP = 5;
 const FG_DERIVED_HUE_SHIFT_STEP = 5;
 const FG_DERIVED_SAT_SHIFT_STEP = 5;
-const FG_DERIVED_LIGHTNESS_PUSH_STEP = 5;
+const FG_DERIVED_OPACITY_STEP = 5;
 const FG_DERIVED_MAX_BANDS = 6;
-const FG_DERIVED_HUE_SHIFT_RANGE = 60;
+const FG_DERIVED_HUE_SHIFT_RANGE = 320;
 const FG_DERIVED_SAT_SHIFT_RANGE = 45;
-const FG_DERIVED_LIGHTNESS_PUSH_RANGE = 70;
 
 export const DEFAULT_FG_DERIVED_LIGHTNESS = 50;
 export const DEFAULT_FG_DERIVED_VARIANCE = 0;
@@ -308,18 +307,18 @@ export const buildForegroundDerivedGradientSpec = (params: {
   variance?: number;
   hueShift?: number;
   saturationShift?: number;
-  lightnessPush?: number;
+  opacity?: number;
   bands?: number;
   algoVersion?: number;
 }): DerivedGradientSpec => {
   const parsed = parseCssColor(params.baseColor, { r: 255, g: 255, b: 255, a: 255 });
   const normalizedBase = rgbToHex(parsed.r, parsed.g, parsed.b);
   const lightness = clamp(Math.round(params.lightness ?? DEFAULT_FG_DERIVED_LIGHTNESS), 0, 100);
+  const opacity = clamp(Math.round(params.opacity ?? 100), 0, 100);
   const bands = clampForegroundDerivedBands(params.bands);
   const hasExplicitShift =
     Number.isFinite(params.hueShift) ||
-    Number.isFinite(params.saturationShift) ||
-    Number.isFinite(params.lightnessPush);
+    Number.isFinite(params.saturationShift);
 
   if (hasExplicitShift) {
     const hueShift = clamp(
@@ -332,11 +331,6 @@ export const buildForegroundDerivedGradientSpec = (params: {
       -FG_DERIVED_SAT_SHIFT_RANGE,
       FG_DERIVED_SAT_SHIFT_RANGE
     );
-    const lightnessPush = clamp(
-      Math.round(params.lightnessPush ?? 0),
-      -FG_DERIVED_LIGHTNESS_PUSH_RANGE,
-      FG_DERIVED_LIGHTNESS_PUSH_RANGE
-    );
     const algoVersion = params.algoVersion ?? FG_DERIVED_ALGO_VERSION_SEPARATE;
     const key = [
       'fg',
@@ -345,18 +339,13 @@ export const buildForegroundDerivedGradientSpec = (params: {
       quantizeChannel(parsed.g, FG_DERIVED_COLOR_BITS),
       quantizeChannel(parsed.b, FG_DERIVED_COLOR_BITS),
       quantizeStep(lightness, FG_DERIVED_LIGHTNESS_STEP),
+      quantizeStep(opacity, FG_DERIVED_OPACITY_STEP),
       quantizeSignedStep(hueShift, FG_DERIVED_HUE_SHIFT_STEP, -FG_DERIVED_HUE_SHIFT_RANGE, FG_DERIVED_HUE_SHIFT_RANGE),
       quantizeSignedStep(
         saturationShift,
         FG_DERIVED_SAT_SHIFT_STEP,
         -FG_DERIVED_SAT_SHIFT_RANGE,
         FG_DERIVED_SAT_SHIFT_RANGE
-      ),
-      quantizeSignedStep(
-        lightnessPush,
-        FG_DERIVED_LIGHTNESS_PUSH_STEP,
-        -FG_DERIVED_LIGHTNESS_PUSH_RANGE,
-        FG_DERIVED_LIGHTNESS_PUSH_RANGE
       ),
       bands,
     ].join(':');
@@ -367,7 +356,7 @@ export const buildForegroundDerivedGradientSpec = (params: {
       lightness,
       hueShift,
       saturationShift,
-      lightnessPush,
+      opacity,
       bands,
       algoVersion,
       key,
@@ -384,6 +373,7 @@ export const buildForegroundDerivedGradientSpec = (params: {
     quantizeChannel(parsed.g, FG_DERIVED_COLOR_BITS),
     quantizeChannel(parsed.b, FG_DERIVED_COLOR_BITS),
     quantizeStep(lightness, FG_DERIVED_LIGHTNESS_STEP),
+    quantizeStep(opacity, FG_DERIVED_OPACITY_STEP),
     quantizeStep(variance, FG_DERIVED_VARIANCE_STEP),
     bands,
   ].join(':');
@@ -393,6 +383,7 @@ export const buildForegroundDerivedGradientSpec = (params: {
     baseColor: normalizedBase,
     lightness,
     variance,
+    opacity,
     bands,
     algoVersion,
     key,
@@ -403,11 +394,12 @@ export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<
   const parsed = parseCssColor(spec.baseColor, { r: 255, g: 255, b: 255, a: 255 });
   const [baseH, baseS, baseL] = rgbToHsl(parsed.r, parsed.g, parsed.b);
   const bands = Math.max(2, Math.round(spec.bands));
-  const lightnessAdjust = spec.lightness - 50;
-  const baseLAdjusted = clamp(baseL + lightnessAdjust, 0, 100);
+  const baseLAdjusted = clamp(baseL, 0, 100);
   let derivedH = baseH;
   let derivedS = baseS;
-  let derivedL = baseLAdjusted;
+  let derivedL = clamp(spec.lightness, 0, 100);
+
+  const opacity = clamp(spec.opacity ?? 100, 0, 100) / 100;
 
   if (spec.algoVersion >= FG_DERIVED_ALGO_VERSION_SEPARATE) {
     const hueShift = clamp(
@@ -420,14 +412,9 @@ export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<
       -FG_DERIVED_SAT_SHIFT_RANGE,
       FG_DERIVED_SAT_SHIFT_RANGE
     );
-    const lightnessPush = clamp(
-      spec.lightnessPush ?? 0,
-      -FG_DERIVED_LIGHTNESS_PUSH_RANGE,
-      FG_DERIVED_LIGHTNESS_PUSH_RANGE
-    );
     derivedH = (baseH + hueShift + 360) % 360;
     derivedS = clamp(Math.max(10, baseS + satShift + (baseS < 25 ? 20 : 0)), 0, 100);
-    derivedL = clamp(baseLAdjusted + lightnessPush, 0, 100);
+    derivedL = clamp(spec.lightness, 0, 100);
   } else {
     const variance = clamp(spec.variance ?? DEFAULT_FG_DERIVED_VARIANCE, 0, 100);
     const varianceRange = clamp((variance / 100) * 70, 0, 70);
@@ -436,11 +423,13 @@ export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<
     derivedH = (baseH + hueShift) % 360;
     derivedS = clamp(Math.max(10, baseS + satShift + (baseS < 25 ? 20 : 0)), 0, 100);
     const lPush = baseLAdjusted >= 50 ? -varianceRange : varianceRange;
-    derivedL = clamp(baseLAdjusted + lPush, 0, 100);
+    derivedL = clamp(spec.lightness + lPush, 0, 100);
   }
   const [derivedR, derivedG, derivedB] = hslToRgb(derivedH, derivedS, derivedL);
   const baseColor = rgbToHex(parsed.r, parsed.g, parsed.b);
-  const derivedColor = rgbToHex(derivedR, derivedG, derivedB);
+  const derivedColor = opacity >= 1
+    ? rgbToHex(derivedR, derivedG, derivedB)
+    : `rgba(${derivedR}, ${derivedG}, ${derivedB}, ${opacity})`;
   const stops: Array<{ position: number; color: string }> = [];
 
   for (let i = 0; i < bands; i += 1) {

@@ -337,7 +337,7 @@ const BrushControls = () => {
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
-  const fgDerivedLightnessPush = activeSettings.colorCycleFgLightnessPush ?? 0;
+  const fgDerivedOpacity = activeSettings.colorCycleFgOpacity ?? 100;
   const fgDerivedBands = clampForegroundDerivedBands(activeSettings.colorCycleFgStops);
   const foregroundDerivedSpec = React.useMemo(
     () =>
@@ -346,10 +346,10 @@ const BrushControls = () => {
         lightness: fgDerivedLightness,
         hueShift: fgDerivedHueShift,
         saturationShift: fgDerivedSaturationShift,
-        lightnessPush: fgDerivedLightnessPush,
+        opacity: fgDerivedOpacity,
         bands: fgDerivedBands,
       }),
-    [fgColor, fgDerivedBands, fgDerivedLightness, fgDerivedHueShift, fgDerivedSaturationShift, fgDerivedLightnessPush]
+    [fgColor, fgDerivedBands, fgDerivedLightness, fgDerivedHueShift, fgDerivedSaturationShift, fgDerivedOpacity]
   );
   const foregroundDerivedStops = React.useMemo(
     () => deriveForegroundGradientStops(foregroundDerivedSpec),
@@ -1025,11 +1025,11 @@ const BrushControls = () => {
                   </label>
                   <ProgressSlider
                     value={fgDerivedHueShift}
-                    min={-60}
-                    max={60}
+                    min={-320}
+                    max={320}
                     step={1}
                     onChange={(value) =>
-                      setActiveSettings({ colorCycleFgHueShift: Math.max(-60, Math.min(60, Math.round(value))) })
+                      setActiveSettings({ colorCycleFgHueShift: Math.max(-320, Math.min(320, Math.round(value))) })
                     }
                     aria-label="Foreground Gradient Hue Shift"
                     className="flex-1"
@@ -1057,17 +1057,17 @@ const BrushControls = () => {
               <div className="mb-2">
                 <div className="flex items-center gap-2">
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Push
+                    Opacity
                   </label>
                   <ProgressSlider
-                    value={fgDerivedLightnessPush}
-                    min={-70}
-                    max={70}
+                    value={fgDerivedOpacity}
+                    min={0}
+                    max={100}
                     step={1}
                     onChange={(value) =>
-                      setActiveSettings({ colorCycleFgLightnessPush: Math.max(-70, Math.min(70, Math.round(value))) })
+                      setActiveSettings({ colorCycleFgOpacity: Math.max(0, Math.min(100, Math.round(value))) })
                     }
-                    aria-label="Foreground Gradient Lightness Push"
+                    aria-label="Foreground Gradient Opacity"
                     className="flex-1"
                   />
                 </div>

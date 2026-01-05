@@ -136,7 +136,7 @@ export type DerivedGradientSpec = {
   variance?: number;
   hueShift?: number;
   saturationShift?: number;
-  lightnessPush?: number;
+  opacity?: number;
   bands: number;
   algoVersion: number;
   key: string;
@@ -727,7 +727,7 @@ export interface BrushSettings {
   colorCycleFgVariance?: number; // 0-100 lightness variance for derived gradient (legacy)
   colorCycleFgHueShift?: number; // -60 to 60 hue shift for derived gradient
   colorCycleFgSaturationShift?: number; // -45 to 45 saturation shift for derived gradient
-  colorCycleFgLightnessPush?: number; // -70 to 70 lightness push for derived gradient
+  colorCycleFgOpacity?: number; // 0-100 opacity for derived foreground gradient
   colorCycleFgStops?: number; // 2-6 stops for derived foreground gradient
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas

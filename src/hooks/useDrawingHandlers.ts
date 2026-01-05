@@ -363,6 +363,9 @@ export function useDrawingHandlers({
     } = resolveActiveColorCycleGradient(layer, brushSettings);
 
     if (!useForegroundGradient) {
+      if (brush && typeof (brush as { setPreserveGradientPhase?: (enabled: boolean) => void }).setPreserveGradientPhase === 'function') {
+        (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(false);
+      }
       if (needsBootstrap) {
         try {
           state.updateLayer(layer.id, {
@@ -383,6 +386,9 @@ export function useDrawingHandlers({
       return;
     }
 
+    if (brush && typeof (brush as { setPreserveGradientPhase?: (enabled: boolean) => void }).setPreserveGradientPhase === 'function') {
+      (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(true);
+    }
     const foregroundColor = state.palette.foregroundColor ?? brushSettings.color ?? '#ffffff';
     const bands = clampForegroundDerivedBands(brushSettings.colorCycleFgStops);
     const derivedSpec = buildForegroundDerivedGradientSpec({
@@ -391,7 +397,7 @@ export function useDrawingHandlers({
       variance: brushSettings.colorCycleFgVariance,
       hueShift: brushSettings.colorCycleFgHueShift,
       saturationShift: brushSettings.colorCycleFgSaturationShift,
-      lightnessPush: brushSettings.colorCycleFgLightnessPush,
+      opacity: brushSettings.colorCycleFgOpacity,
       bands,
     });
     const derivedStops = deriveForegroundGradientStops(derivedSpec);

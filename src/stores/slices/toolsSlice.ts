@@ -768,8 +768,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleFgSaturationShift !== undefined) {
         settingsToSave.colorCycleFgSaturationShift = newSettings.colorCycleFgSaturationShift;
       }
-      if (settings.colorCycleFgLightnessPush !== undefined) {
-        settingsToSave.colorCycleFgLightnessPush = newSettings.colorCycleFgLightnessPush;
+      if (settings.colorCycleFgOpacity !== undefined) {
+        settingsToSave.colorCycleFgOpacity = newSettings.colorCycleFgOpacity;
       }
       if (settings.colorCycleFgStops !== undefined) {
         settingsToSave.colorCycleFgStops = newSettings.colorCycleFgStops;
