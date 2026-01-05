@@ -32,6 +32,10 @@ describe('canvasShape', () => {
       ],
       bounds
     );
+    expect(shape.kind).toBe('freehand');
+    if (shape.kind !== 'freehand') {
+      throw new Error('Expected freehand shape');
+    }
     expect(shape.points[0]).toEqual(shape.points[shape.points.length - 1]);
     expect(isPointInCanvasShape(shape, { x: 30, y: 30 })).toBe(true);
     expect(isPointInCanvasShape(shape, { x: 80, y: 80 })).toBe(false);

@@ -646,7 +646,10 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
         ? colorCycleData.derivedGradients.map((entry) => ({
             key: entry.key,
             slot: entry.slot,
-            spec: { ...entry.spec },
+            spec: {
+              ...entry.spec,
+              variance: entry.spec.variance ?? 0,
+            },
           }))
         : undefined,
       activeGradientId: colorCycleData.activeGradientId,

@@ -1097,6 +1097,29 @@ const BrushControls = () => {
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Color Cycle Speed
+            </label>
+            <ProgressSlider
+              value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
+              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+              step={COLOR_CYCLE_SPEED_STEP}
+              onChange={(value) => {
+                const clamped = Math.max(
+                  MIN_BRUSH_COLOR_CYCLE_SPEED,
+                  Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
+                );
+                setActiveSettings({ colorCycleSpeed: clamped });
+              }}
+              aria-label="Color Cycle Speed"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Bands
             </label>
             <ProgressSlider

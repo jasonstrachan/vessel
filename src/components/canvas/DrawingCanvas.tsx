@@ -238,7 +238,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
-  const canvasShapeEditor = useAppStore((state) => state.canvasShapeEditor);
+  const fallbackCanvasShapeEditor = useMemo(
+    () => ({
+      active: false,
+      tool: null,
+      draft: null,
+    }),
+    []
+  );
+  const canvasShapeEditor =
+    useAppStore((state) => state.canvasShapeEditor) ?? fallbackCanvasShapeEditor;
   const setCanvasShapeDraft = useAppStore((state) => state.setCanvasShapeDraft);
   const commitCanvasShape = useAppStore((state) => state.commitCanvasShape);
   const cancelCanvasShapeEdit = useAppStore((state) => state.cancelCanvasShapeEdit);
@@ -3120,21 +3129,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   );
 
   const handlePointerEnter = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    () => {
       if (canvasShapeEditor.active && !isSpacePressedRef.current) {
         return;
       }
-      basePointerEnter(event);
+      basePointerEnter();
     },
     [basePointerEnter, canvasShapeEditor.active]
   );
 
   const handlePointerLeave = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    () => {
       if (canvasShapeEditor.active && !isSpacePressedRef.current) {
         return;
       }
-      basePointerLeave(event);
+      basePointerLeave();
     },
     [basePointerLeave, canvasShapeEditor.active]
   );

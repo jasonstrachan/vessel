@@ -811,7 +811,7 @@ export class ColorCycleBrushCanvas2D {
       }
       const tileScaleInt = tileScale;
       let tileSize = useStampDither ? STAMP_DITHER_TILE_BASE_MIN * tileScaleInt : undefined;
-      let primaryIndex = colorIndex;
+      const primaryIndex = colorIndex;
       let tile: Uint8Array | undefined;
       let maskOriginX: number | undefined;
       let maskOriginY: number | undefined;
@@ -1663,8 +1663,11 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
-    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
+    const needsFreshHandle = Boolean(strokeData.stampDitherFillHandle);
+    const handle = needsFreshHandle
+      ? animator.beginDirectFill()
+      : (strokeData.stampDitherFillHandle ?? animator.beginDirectFill());
+    const shouldCloseHandle = needsFreshHandle || !strokeData.stampDitherFillHandle;
     const data = handle.data;
     const gid = handle.gradientId;
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
@@ -2207,8 +2210,6 @@ export class ColorCycleBrushCanvas2D {
     const tileClamp = Math.max(1, Math.floor(tileSize));
     const bgFillOff = !this.stampDitherBgFill;
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-    const bucket = strokeData.stampDitherLockedBucket ?? 1;
-    const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
 
     for (let py = minY; py <= maxY; py++) {
       const rowOffset = py * width;
@@ -2391,7 +2392,9 @@ export class ColorCycleBrushCanvas2D {
     if (clearBuffer && !this._isHistoryRestore) {
       try { animator.clear(); } catch {}
     }
-    animator.startStroke();
+    if (typeof animator.startStroke === 'function') {
+      animator.startStroke();
+    }
     
     const strokeData = this.layerStrokes.get(id);
     if (strokeData && !strokeData.hasContent) {

@@ -341,7 +341,7 @@ export function useDrawingHandlers({
   void _canvasRef;
   const cancelAnimationFrameSafe = useMemo(() => {
     if (typeof window === 'undefined' || typeof window.cancelAnimationFrame !== 'function') {
-      return (_handle: number) => {};
+      return () => {};
     }
     return window.cancelAnimationFrame.bind(window);
   }, []);
@@ -1009,6 +1009,7 @@ export function useDrawingHandlers({
       dumpLayerFlags,
     });
   }, [
+    cancelAnimationFrameSafe,
     getEffectiveColorCyclePlaying,
     storeRef,
   ]);
@@ -2320,6 +2321,7 @@ export function useDrawingHandlers({
     resetAutoSampleState,
     commitRasterOverlay,
     computeAutoSampleStops,
+    cancelAnimationFrameSafe,
     getEffectiveColorCyclePlaying,
     storeRef,
     endMaskHealingStroke,

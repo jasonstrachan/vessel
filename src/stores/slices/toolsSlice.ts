@@ -1326,6 +1326,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete userOverrides.minPressure;
       delete userOverrides.maxPressure;
     }
+    const hasUserColorCycleSpeed = userOverrides?.colorCycleSpeed !== undefined;
+    const hasUserColorCycleFlowMode = userOverrides?.colorCycleFlowMode !== undefined;
+    const hasUserColorCycleFPS = userOverrides?.colorCycleFPS !== undefined;
+    const hasUserColorCycleFillMode = userOverrides?.colorCycleFillMode !== undefined;
     const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
     const currentSettings = state.tools.brushSettings;
     let updatedBrushSpecificSettings = state.brushSpecificSettings;
@@ -1359,16 +1363,16 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
     // Preserve Color Cycle dynamics across preset switches unless user changes them
     // This keeps animation feel consistent between Color Cycle variants
-    if (currentSettings.colorCycleSpeed !== undefined) {
+    if (currentSettings.colorCycleSpeed !== undefined && !hasUserColorCycleSpeed) {
       newBrushSettings.colorCycleSpeed = currentSettings.colorCycleSpeed;
     }
-    if (currentSettings.colorCycleFlowMode !== undefined) {
+    if (currentSettings.colorCycleFlowMode !== undefined && !hasUserColorCycleFlowMode) {
       newBrushSettings.colorCycleFlowMode = currentSettings.colorCycleFlowMode;
     }
-    if (currentSettings.colorCycleFPS !== undefined) {
+    if (currentSettings.colorCycleFPS !== undefined && !hasUserColorCycleFPS) {
       newBrushSettings.colorCycleFPS = currentSettings.colorCycleFPS;
     }
-    if (currentSettings.colorCycleFillMode !== undefined) {
+    if (currentSettings.colorCycleFillMode !== undefined && !hasUserColorCycleFillMode) {
       newBrushSettings.colorCycleFillMode = currentSettings.colorCycleFillMode;
     }
 

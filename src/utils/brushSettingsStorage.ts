@@ -24,25 +24,29 @@ export const __setBrushSettingsStorageOverride = (storage: Storage | null): void
   storageOverride = storage;
 };
 
+const isValidStorage = (candidate: Storage | null | undefined): candidate is Storage => {
+  if (!candidate) {
+    return false;
+  }
+  return (
+    typeof candidate.getItem === 'function' &&
+    typeof candidate.setItem === 'function'
+  );
+};
+
 const getLocalStorage = (): Storage | null => {
   if (storageOverride) {
-    return storageOverride;
+    return isValidStorage(storageOverride) ? storageOverride : null;
   }
-  try {
-    const globalWindow = (globalThis as { window?: Window }).window;
-    if (globalWindow?.localStorage) {
-      return globalWindow.localStorage;
-    }
-  } catch {
-    // ignore window access errors
-  }
-
-  try {
-    const globalStorage = (globalThis as { localStorage?: Storage }).localStorage;
-    return globalStorage ?? null;
-  } catch {
+  if (typeof window === 'undefined') {
     return null;
   }
+  try {
+    return isValidStorage(window.localStorage) ? window.localStorage : null;
+  } catch {
+    // ignore storage access errors
+  }
+  return null;
 };
 
 export const loadGlobalBrushSettings = (): GlobalBrushSettingsPayload | null => {

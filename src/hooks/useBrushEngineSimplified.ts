@@ -338,8 +338,13 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
 };
 
 
-const normalizePressureSettings = (settings: BrushSettings) => {
-  const range = resolveBrushPressureRange(settings);
+type PressureSettingsSnapshot = Pick<
+  BrushSettings,
+  'pressureEnabled' | 'minPressure' | 'maxPressure' | 'brushShape'
+>;
+
+const normalizePressureSettings = (settings: PressureSettingsSnapshot) => {
+  const range = resolveBrushPressureRange(settings as BrushSettings);
   return {
     enabled: range.enabled,
     min: range.enabled ? range.minPercent : 100,
@@ -1246,15 +1251,26 @@ export const useBrushEngineSimplified = () => {
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const { pressureEnabled, minPressure, maxPressure, brushShape } = brushSettings;
   const brushSizePendingRef = useRef(Math.max(1, Math.round(brushSettings.size || 1)));
-  const brushPressurePendingRef = useRef(normalizePressureSettings(brushSettings));
+  const brushPressurePendingRef = useRef(normalizePressureSettings({
+    pressureEnabled,
+    minPressure,
+    maxPressure,
+    brushShape
+  }));
   const normalizedPressureSettings = useMemo(
-    () => normalizePressureSettings(brushSettings),
+    () => normalizePressureSettings({
+      pressureEnabled,
+      minPressure,
+      maxPressure,
+      brushShape
+    }),
     [
-      brushSettings.pressureEnabled,
-      brushSettings.minPressure,
-      brushSettings.maxPressure,
-      brushSettings.brushShape
+      pressureEnabled,
+      minPressure,
+      maxPressure,
+      brushShape
     ]
   );
   type StrokePressureState = {
@@ -4589,10 +4605,7 @@ useEffect(() => {
     };
   }, [
     brushSettings.size,
-    normalizedPressureSettings.enabled,
-    normalizedPressureSettings.min,
-    normalizedPressureSettings.max,
-    brushSettings.brushShape,
+    normalizedPressureSettings,
     applyPendingBrushSizing,
     activeLayerId,
   ]);

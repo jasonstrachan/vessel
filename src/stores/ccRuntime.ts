@@ -65,7 +65,6 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
   }
 
   const manager = getColorCycleBrushManager();
-  const storeSnapshot = useAppStore.getState();
   let shouldRequestStart = false;
   let shouldNotifyFrameUpdate = false;
 
