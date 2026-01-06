@@ -89,9 +89,20 @@ jest.mock('@/components/ui/Dropdown', () => ({
 
 jest.mock('@/components/ui/CustomSwitch', () => ({
   __esModule: true,
-  default: ({ checked, onChange, 'aria-label': ariaLabel }: { checked: boolean; onChange: (v: boolean) => void; 'aria-label'?: string }) => (
+  default: ({
+    checked,
+    onChange,
+    id,
+    'aria-label': ariaLabel,
+  }: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    id?: string;
+    'aria-label'?: string;
+  }) => (
     <input
       type="checkbox"
+      id={id}
       aria-label={ariaLabel}
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
@@ -370,5 +381,16 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
 
     const slider = screen.getByLabelText('Stamp Dither Resolution') as HTMLInputElement;
     expect(slider.disabled).toBe(true);
+  });
+
+  it('exposes dashed toggle for color cycle stroke', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const dashedToggle = screen.getByRole('checkbox', { name: 'Dashed' });
+    expect(dashedToggle).toBeInTheDocument();
+
+    await user.click(dashedToggle);
+    expect(useAppStore.getState().tools.brushSettings.dashedEnabled).toBe(true);
   });
 });

@@ -1365,7 +1365,64 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Dashed removed for Color Cycle brushes */}
+        {/* Dashed - only for stroke variants */}
+        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="dashed-enabled-color-cycle"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Dashed
+              </label>
+              <CustomSwitch
+                id="dashed-enabled-color-cycle"
+                checked={activeSettings.dashedEnabled || false}
+                onChange={(checked) =>
+                  setActiveSettings({ dashedEnabled: checked })
+                }
+              />
+              {(activeSettings.dashedEnabled || false) && (
+                <>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                    L
+                  </span>
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={activeSettings.dashLength || 3}
+                    onChange={(e) =>
+                      setActiveSettings({
+                        dashLength: parseInt(e.target.value) || 3,
+                      })
+                    }
+                    min="1"
+                    max="20"
+                    className="w-12 bg-transparent text-right"
+                    title="Length multiplier (×brush size)"
+                  />
+                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                    G
+                  </span>
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={activeSettings.dashGap || 2}
+                    onChange={(e) =>
+                      setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
+                    }
+                    min="1"
+                    max="20"
+                    className="w-12 bg-transparent text-right"
+                    title="Gap multiplier (×brush size)"
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Grid Snap removed for Color Cycle brushes */}
       </div>
