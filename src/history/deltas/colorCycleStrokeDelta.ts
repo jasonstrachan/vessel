@@ -104,7 +104,10 @@ const cloneState = (
                     return layer.strokeData.paintBuffer.slice(0, desiredLength);
                   }
                   return layer.strokeData.paintBuffer.slice(0);
-                })()
+                })(),
+                speedBuffer: layer.strokeData?.speedBuffer
+                  ? layer.strokeData.speedBuffer.slice(0)
+                  : layer.strokeData?.speedBuffer
               }
             : undefined
         }))
@@ -126,7 +129,9 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
     this.backwardState = options.backwardState;
     const sizeOf = (state: ColorCycleBrushState | null) =>
       state?.layers?.reduce((sum: number, layer: ColorCycleSerializedLayer) => {
-        return sum + (layer.strokeData?.paintBuffer?.byteLength ?? 0);
+        return sum
+          + (layer.strokeData?.paintBuffer?.byteLength ?? 0)
+          + (layer.strokeData?.speedBuffer?.byteLength ?? 0);
       }, 0) ?? 0;
     this.approxBytes = sizeOf(this.forwardState) + sizeOf(this.backwardState);
   }

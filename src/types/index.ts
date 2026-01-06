@@ -814,6 +814,7 @@ export interface ColorCycleSnapshot {
     layerId: string;
     paintBuffer: ArrayBuffer;
     gradientIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
     strokeLength: number;

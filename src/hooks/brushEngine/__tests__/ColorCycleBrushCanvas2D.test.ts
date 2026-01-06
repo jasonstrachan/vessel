@@ -26,6 +26,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     fps: number;
     indexBuffer?: Uint8Array;
     gradientId?: Uint8Array;
+    speedData?: Uint8Array;
 
     constructor(opts: { width: number; height: number; fps?: number }) {
       this.width = opts.width;
@@ -39,6 +40,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
           width: this.width,
           height: this.height,
           data: new Uint8Array(this.width * this.height),
+          speedData: new Uint8Array(this.width * this.height),
           palette: [] as string[],
         },
         gradient: {
@@ -74,12 +76,15 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       this.height = h;
     }
 
-    setIndexBufferFromArray(arr: Uint8Array, gradientId?: Uint8Array) {
+    setIndexBufferFromArray(arr: Uint8Array, gradientId?: Uint8Array, speedData?: Uint8Array) {
       this.indexBuffer = arr;
       if (gradientId) {
         this.gradientId = gradientId;
       }
-      setIndexBufferFromArrayMock(arr, gradientId);
+      if (speedData) {
+        this.speedData = speedData;
+      }
+      setIndexBufferFromArrayMock(arr, gradientId, speedData);
     }
 
     setFlowMode() {}
@@ -107,9 +112,13 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       if (!this.gradientId) {
         this.gradientId = new Uint8Array(this.width * this.height);
       }
+      if (!this.speedData) {
+        this.speedData = new Uint8Array(this.width * this.height);
+      }
       return {
         data: this.indexBuffer,
         gradientId: this.gradientId,
+        speedData: this.speedData,
         width: this.width,
         height: this.height,
       };

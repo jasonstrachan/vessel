@@ -1881,9 +1881,6 @@ export const createLayersSlice = (
         customBrushColorCycle: true,
         ...(gradientForBrushSettings ? { colorCycleGradient: gradientForBrushSettings } : {})
       };
-      if (typeof layer.colorCycleData?.brushSpeed === 'number') {
-        nextBrushSettings.colorCycleSpeed = layer.colorCycleData.brushSpeed;
-      }
       const resolvedFlowMode = layer.colorCycleData?.flowMode ?? state.tools.brushSettings.colorCycleFlowMode ?? 'reverse';
       nextBrushSettings.colorCycleFlowMode = resolvedFlowMode;
 
@@ -2160,8 +2157,6 @@ export const createLayersSlice = (
               colorCycleBrush: existingBrush,
               // Keep current animation state if present; default to true for responsiveness
               isAnimating: l.colorCycleData?.isAnimating ?? true,
-              // Ensure per-layer brush speed exists
-              brushSpeed: l.colorCycleData?.brushSpeed ?? (state.tools.brushSettings.colorCycleSpeed || 0.1),
               flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'reverse'),
               canvas,
               canvasWidth: safeWidth,
@@ -2265,8 +2260,6 @@ export const createLayersSlice = (
           gradientIdBuffer,
           colorCycleBrush,
           isAnimating: true,
-          // Initialize per-layer brush speed from current brush settings
-          brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
           flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'reverse',
           canvas: layerCanvas ?? (colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined),
           eraseMask,

@@ -1638,6 +1638,7 @@ export const useBrushEngineSimplified = () => {
     if (!id) return false;
     return id === 'pixel-dither' || id === 'polygon-dither' || id === 'shape-dither';
   }, [currentBrushPreset]);
+  const isDitherStrokeBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
 
   const isPixelDitherNoBg = useMemo(() => {
     return (
@@ -2061,6 +2062,9 @@ export const useBrushEngineSimplified = () => {
             dCtx.canvas?.width ?? 0,
             dCtx.canvas?.height ?? 0
           );
+          if (isDitherStrokeBrush && tools.brushSettings.ditherBackgroundFill === false) {
+            visibleCtx.clearRect(bx, by, bw, bh);
+          }
           const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
           if (isPixelDitherNoBg) {
             visibleCtx.drawImage(
@@ -2142,6 +2146,7 @@ export const useBrushEngineSimplified = () => {
     applyStrokeDither,
     applyStrokeRisographOverlay,
     isPixelDitherNoBg,
+    isDitherStrokeBrush,
     shouldApplyStrokeDither,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.pressureLinkedFillResolution,
@@ -2704,6 +2709,9 @@ export const useBrushEngineSimplified = () => {
 
       const { x, y, width, height } = region;
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
+      if (isDitherStrokeBrush && bgOff) {
+        ctx.clearRect(x, y, width, height);
+      }
       if (isPixelDitherNoBg) {
         ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
       } else {
@@ -2774,6 +2782,7 @@ export const useBrushEngineSimplified = () => {
     applyLostEdgeMaskInRegion,
     ditherRegionWithCurrentPressure,
     getStrokeDitherPixelSize,
+    isDitherStrokeBrush,
     isPixelDitherNoBg,
     shouldApplyStrokeDither,
     tools.brushSettings.ditherBackgroundFill,

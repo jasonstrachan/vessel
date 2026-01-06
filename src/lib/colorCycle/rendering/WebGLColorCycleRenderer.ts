@@ -18,6 +18,10 @@
  */
 
 // Debug logs suppressed for GPU renderer
+import {
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 export interface GLRendererConfig {
   width: number;
@@ -65,23 +69,29 @@ export class WebGLColorCycleRenderer {
 
   private uIndexTexLoc: WebGLUniformLocation | null = null;
   private uGidTexLoc: WebGLUniformLocation | null = null;
+  private uSpeedTexLoc: WebGLUniformLocation | null = null;
   private uPaletteTexLoc: WebGLUniformLocation | null = null;
   private uPaletteSizeLoc: WebGLUniformLocation | null = null;
   private uOffsetLoc: WebGLUniformLocation | null = null;
   private uLegacyOffsetLoc: WebGLUniformLocation | null = null;
+  private uSpeedMinLoc: WebGLUniformLocation | null = null;
+  private uSpeedMaxLoc: WebGLUniformLocation | null = null;
 
   private indexTex: WebGLTexture | null = null;
   private gidTex: WebGLTexture | null = null;
+  private speedTex: WebGLTexture | null = null;
   private paletteTex: WebGLTexture | null = null;
   private width: number;
   private height: number;
   private indexTexAllocated: boolean = false;
   private gidTexAllocated: boolean = false;
+  private speedTexAllocated: boolean = false;
 
   private paletteSize: number = 256;
   private paletteUploaded: boolean = false;
   private paletteTexAllocated: boolean = false;
   private zeroGradientIdBuffer: Uint8Array | null = null;
+  private zeroSpeedBuffer: Uint8Array | null = null;
 
   // Offscreen resources for compute-style polygon fills
   private fillProgram: WebGLProgram | null = null;
@@ -219,6 +229,7 @@ export class WebGLColorCycleRenderer {
     // Palette texture remains 256x256
     this.indexTexAllocated = false;
     this.gidTexAllocated = false;
+    this.speedTexAllocated = false;
   }
 
   setPaletteColors(paletteRGBA: Uint8Array | Uint8ClampedArray) {
@@ -252,11 +263,12 @@ export class WebGLColorCycleRenderer {
   setIndexData(
     indexData: Uint8Array,
     gradientIdData?: Uint8Array,
+    speedData?: Uint8Array,
     rect?: { x: number; y: number; width: number; height: number } | null
   ) {
     const gl = this.gl;
     gl.useProgram(this.program);
-    if (!this.indexTex || !this.gidTex) this.createTextures();
+    if (!this.indexTex || !this.gidTex || !this.speedTex) this.createTextures();
 
     const uploadRect = this.normalizeRect(rect);
     const x = uploadRect.x;
@@ -265,6 +277,7 @@ export class WebGLColorCycleRenderer {
     const h = uploadRect.height;
     const isFull = x === 0 && y === 0 && w === this.width && h === this.height;
     const gidData = gradientIdData ?? this.getZeroGradientIdBuffer();
+    const spdData = speedData ?? this.getZeroSpeedBuffer();
 
     this.uploadSingleChannelTexture(
       this.indexTex,
@@ -275,7 +288,7 @@ export class WebGLColorCycleRenderer {
       x,
       y,
       isFull,
-      true
+      'index'
     );
     this.uploadSingleChannelTexture(
       this.gidTex,
@@ -286,7 +299,18 @@ export class WebGLColorCycleRenderer {
       x,
       y,
       isFull,
-      false
+      'gid'
+    );
+    this.uploadSingleChannelTexture(
+      this.speedTex,
+      3,
+      spdData,
+      w,
+      h,
+      x,
+      y,
+      isFull,
+      'speed'
     );
   }
 
@@ -299,10 +323,13 @@ export class WebGLColorCycleRenderer {
     if (this.uOffsetLoc) gl.uniform1f(this.uOffsetLoc, offset);
     if (this.uLegacyOffsetLoc) gl.uniform1f(this.uLegacyOffsetLoc, legacyOffset);
     if (this.uPaletteSizeLoc) gl.uniform1f(this.uPaletteSizeLoc, this.paletteSize);
+    if (this.uSpeedMinLoc) gl.uniform1f(this.uSpeedMinLoc, MIN_BRUSH_COLOR_CYCLE_SPEED);
+    if (this.uSpeedMaxLoc) gl.uniform1f(this.uSpeedMaxLoc, MAX_BRUSH_COLOR_CYCLE_SPEED);
 
-    // Bind textures to texture units 0 (index), 1 (gid), 2 (palette)
+    // Bind textures to texture units 0 (index), 1 (gid), 2 (palette), 3 (speed)
     if (this.uIndexTexLoc) gl.uniform1i(this.uIndexTexLoc, 0);
     if (this.uGidTexLoc) gl.uniform1i(this.uGidTexLoc, 1);
+    if (this.uSpeedTexLoc) gl.uniform1i(this.uSpeedTexLoc, 3);
     if (this.uPaletteTexLoc) gl.uniform1i(this.uPaletteTexLoc, 2);
     if (this.indexTex) {
       gl.activeTexture(gl.TEXTURE0);
@@ -311,6 +338,10 @@ export class WebGLColorCycleRenderer {
     if (this.gidTex) {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, this.gidTex);
+    }
+    if (this.speedTex) {
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, this.speedTex);
     }
     if (this.paletteTex) {
       gl.activeTexture(gl.TEXTURE2);
@@ -335,6 +366,7 @@ export class WebGLColorCycleRenderer {
     if (this.indexTex) { gl.deleteTexture(this.indexTex); this.indexTex = null; }
     if (this.gidTex) { gl.deleteTexture(this.gidTex); this.gidTex = null; }
     if (this.paletteTex) { gl.deleteTexture(this.paletteTex); this.paletteTex = null; }
+    if (this.speedTex) { gl.deleteTexture(this.speedTex); this.speedTex = null; }
     this.indexTexAllocated = false;
     this.gidTexAllocated = false;
     this.paletteTexAllocated = false;
@@ -399,10 +431,13 @@ export class WebGLColorCycleRenderer {
       varying vec2 v_uv;
       uniform sampler2D u_indexTex;
       uniform sampler2D u_gidTex;
+      uniform sampler2D u_speedTex;
       uniform sampler2D u_paletteTex;
       uniform float u_paletteSize; // 256
-      uniform float u_offset;       // cycles in [0,1) base forward
+      uniform float u_offset;       // elapsed time in seconds
       uniform float u_legacyOffset; // cycles in [0,1) legacy/global
+      uniform float u_speedMin;
+      uniform float u_speedMax;
 
       void main() {
         // Flip Y to match Canvas/ImageData top-left origin
@@ -410,8 +445,10 @@ export class WebGLColorCycleRenderer {
         // Index texture is single channel (0..1). Convert to 0..255 with rounding.
         float idxN = texture2D(u_indexTex, uv).r;
         float gidN = texture2D(u_gidTex, uv).r;
+        float spdN = texture2D(u_speedTex, uv).r;
         float fIdx = floor(idxN * 255.0 + 0.5);
         float fGid = floor(gidN * 255.0 + 0.5);
+        float fSpd = floor(spdN * 255.0 + 0.5);
 
         // Index 0 = transparent
         if (fIdx < 0.5) {
@@ -425,16 +462,30 @@ export class WebGLColorCycleRenderer {
         float slot = mod(fGid, 64.0);
 
         float shift;
-        if (flowBits < 0.5) {
-          shift = u_legacyOffset * u_paletteSize;
-        } else if (flowBits < 1.5) {
-          shift = u_offset * u_paletteSize;
-        } else if (flowBits < 2.5) {
-          shift = -u_offset * u_paletteSize;
+        if (fSpd < 0.5) {
+          if (flowBits < 0.5) {
+            shift = u_legacyOffset * u_paletteSize;
+          } else if (flowBits < 1.5) {
+            shift = u_legacyOffset * u_paletteSize;
+          } else if (flowBits < 2.5) {
+            shift = -u_legacyOffset * u_paletteSize;
+          } else {
+            float t = u_legacyOffset;
+            float ping = t <= 0.5 ? (t * 2.0) : ((1.0 - t) * 2.0);
+            shift = ping * u_paletteSize;
+          }
         } else {
-          float t = u_offset;
-          float ping = t <= 0.5 ? (t * 2.0) : ((1.0 - t) * 2.0);
-          shift = ping * u_paletteSize;
+          float tNorm = (fSpd - 1.0) / 254.0;
+          float speed = mix(u_speedMin, u_speedMax, clamp(tNorm, 0.0, 1.0));
+          float t = mod(u_offset * speed, 1.0);
+          if (flowBits < 1.5) {
+            shift = t * u_paletteSize;
+          } else if (flowBits < 2.5) {
+            shift = -t * u_paletteSize;
+          } else {
+            float ping = t <= 0.5 ? (t * 2.0) : ((1.0 - t) * 2.0);
+            shift = ping * u_paletteSize;
+          }
         }
 
         float pIdx = mod(base + shift + u_paletteSize * 4.0, u_paletteSize);
@@ -832,10 +883,13 @@ export class WebGLColorCycleRenderer {
     gl.useProgram(this.program);
     this.uIndexTexLoc = gl.getUniformLocation(this.program, 'u_indexTex');
     this.uGidTexLoc = gl.getUniformLocation(this.program, 'u_gidTex');
+    this.uSpeedTexLoc = gl.getUniformLocation(this.program, 'u_speedTex');
     this.uPaletteTexLoc = gl.getUniformLocation(this.program, 'u_paletteTex');
     this.uPaletteSizeLoc = gl.getUniformLocation(this.program, 'u_paletteSize');
     this.uOffsetLoc = gl.getUniformLocation(this.program, 'u_offset');
     this.uLegacyOffsetLoc = gl.getUniformLocation(this.program, 'u_legacyOffset');
+    this.uSpeedMinLoc = gl.getUniformLocation(this.program, 'u_speedMin');
+    this.uSpeedMaxLoc = gl.getUniformLocation(this.program, 'u_speedMax');
   }
 
   private createTextures() {
@@ -855,6 +909,15 @@ export class WebGLColorCycleRenderer {
     this.gidTex = gl.createTexture();
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.gidTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Speed texture (8-bit single channel)
+    this.speedTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.speedTex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -891,6 +954,14 @@ export class WebGLColorCycleRenderer {
     return this.zeroGradientIdBuffer;
   }
 
+  private getZeroSpeedBuffer(): Uint8Array {
+    const size = this.width * this.height;
+    if (!this.zeroSpeedBuffer || this.zeroSpeedBuffer.length !== size) {
+      this.zeroSpeedBuffer = new Uint8Array(size);
+    }
+    return this.zeroSpeedBuffer;
+  }
+
   private ensurePaletteTexture() {
     if (this.paletteTexAllocated) {
       return;
@@ -917,23 +988,30 @@ export class WebGLColorCycleRenderer {
     rectX: number,
     rectY: number,
     isFull: boolean,
-    isIndex: boolean
+    textureKind: 'index' | 'gid' | 'speed'
   ) {
     if (!texture) return;
     const gl = this.gl;
-    gl.activeTexture(textureUnit === 0 ? gl.TEXTURE0 : gl.TEXTURE1);
+    gl.activeTexture(gl.TEXTURE0 + textureUnit);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
     if (this.isWebGL2) {
       const gl2 = gl as WebGL2RenderingContext;
-      const needsAlloc = isIndex ? !this.indexTexAllocated : !this.gidTexAllocated;
+      const needsAlloc =
+        textureKind === 'index'
+          ? !this.indexTexAllocated
+          : textureKind === 'gid'
+            ? !this.gidTexAllocated
+            : !this.speedTexAllocated;
       if (needsAlloc) {
         gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.R8, this.width, this.height, 0, gl2.RED, gl2.UNSIGNED_BYTE, null);
-        if (isIndex) {
+        if (textureKind === 'index') {
           this.indexTexAllocated = true;
-        } else {
+        } else if (textureKind === 'gid') {
           this.gidTexAllocated = true;
+        } else {
+          this.speedTexAllocated = true;
         }
       }
 
@@ -965,13 +1043,20 @@ export class WebGLColorCycleRenderer {
         gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, 0);
       }
     } else {
-      const needsAlloc = isIndex ? !this.indexTexAllocated : !this.gidTexAllocated;
+      const needsAlloc =
+        textureKind === 'index'
+          ? !this.indexTexAllocated
+          : textureKind === 'gid'
+            ? !this.gidTexAllocated
+            : !this.speedTexAllocated;
       if (needsAlloc) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width, this.height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
-        if (isIndex) {
+        if (textureKind === 'index') {
           this.indexTexAllocated = true;
-        } else {
+        } else if (textureKind === 'gid') {
           this.gidTexAllocated = true;
+        } else {
+          this.speedTexAllocated = true;
         }
       }
 

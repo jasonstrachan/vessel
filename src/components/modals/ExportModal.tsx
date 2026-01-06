@@ -268,7 +268,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       // Gather per-layer speeds for brush-mode CC layers (fallback to current UI speed if undefined)
       const brushSpeeds: number[] = layers
         .filter(l => l.layerType === 'color-cycle' && (l.colorCycleData?.mode !== 'recolor'))
-        .map(l => (l.colorCycleData?.brushSpeed ?? store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
+        .map(() => (store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
         .filter(s => Number.isFinite(s) && s > 0);
       const speeds = [...recolorSpeeds, ...brushSpeeds];
 
@@ -341,7 +341,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         .filter(s => Number.isFinite(s) && s > 0);
       const brushSpeeds: number[] = layers
         .filter(l => l.layerType === 'color-cycle' && (l.colorCycleData?.mode !== 'recolor'))
-        .map(l => (l.colorCycleData?.brushSpeed ?? store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
+        .map(() => (store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
         .filter(s => Number.isFinite(s) && s > 0);
       const speeds = [...recolorSpeeds, ...brushSpeeds];
 

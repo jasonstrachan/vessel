@@ -465,6 +465,7 @@ export function readLayerSourcesForCrop(
       let strokeSnapshot:
         | {
             paintBuffer: ArrayBuffer;
+            speedBuffer?: ArrayBuffer;
             hasContent: boolean;
             strokeCounter: number;
           }
@@ -487,8 +488,17 @@ export function readLayerSourcesForCrop(
               );
               const hasContent =
                 Boolean(rawSnapshot.hasContent) && croppedBuffer.some((value) => value !== 0);
+              let croppedSpeed: ArrayBuffer | undefined;
+              if (rawSnapshot.speedBuffer) {
+                const speedSource = new Uint8Array(rawSnapshot.speedBuffer);
+                if (speedSource.length === srcWidth * srcHeight) {
+                  const speedCrop = copyScalarRegion(speedSource, srcWidth, srcHeight, rect);
+                  croppedSpeed = speedCrop.buffer.slice(0) as ArrayBuffer;
+                }
+              }
               strokeSnapshot = {
                 paintBuffer: croppedBuffer.buffer.slice(0) as ArrayBuffer,
+                speedBuffer: croppedSpeed,
                 hasContent,
                 strokeCounter: rawSnapshot.strokeCounter
               };
@@ -522,11 +532,17 @@ export function readLayerSourcesForCrop(
                 gradientFull && gradientFull.length === expectedLength
                   ? copyScalarRegion(gradientFull, sw, colorCycleReadbackCanvas.height, rect)
                   : null;
+              const speedFull = idx.speedData ? new Uint8Array(idx.speedData) : null;
+              const speedOut =
+                speedFull && speedFull.length === expectedLength
+                  ? copyScalarRegion(speedFull, sw, colorCycleReadbackCanvas.height, rect)
+                  : null;
               croppedAnimatorIndex = {
                 width: targetWidth,
                 height: targetHeight,
                 data: out.buffer as ArrayBuffer,
                 gradientIdData: gradientOut?.buffer as ArrayBuffer | undefined,
+                speedData: speedOut?.buffer as ArrayBuffer | undefined,
                 gradientStops: layerState?.data?.gradient?.gradientStops
               };
             }

@@ -114,6 +114,8 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       canvas.width = width;
       canvas.height = height;
 
+      const layer = getLayers().find(candidate => candidate.id === layerId);
+
       const currentSettings = getBrushSettings();
       const BrushCanvas = deps.getBrushClass();
       const brush = new BrushCanvas(canvas, {
@@ -174,10 +176,8 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       brushWithOptionalControls.setLayerId?.(layerId);
       brushWithOptionalControls.setTargetCanvas?.(canvas);
 
-      const layer = getLayers().find(candidate => candidate.id === layerId);
-      const perLayerSpeed = layer?.colorCycleData?.brushSpeed;
-      if (typeof perLayerSpeed === 'number') {
-        brushWithOptionalControls.setSpeed?.(perLayerSpeed);
+      if (typeof currentSettings.colorCycleSpeed === 'number') {
+        brushWithOptionalControls.setSpeed?.(currentSettings.colorCycleSpeed);
       }
       const perLayerFlowMode =
         currentSettings.colorCycleFlowMode ??

@@ -84,13 +84,14 @@ export class RendererWebGL {
   setIndexData(
     data: Uint8Array,
     gradientId?: Uint8Array,
+    speedData?: Uint8Array,
     rect?: { x: number; y: number; width: number; height: number }
   ) {
-    this.renderer.setIndexData(data, gradientId, rect);
+    this.renderer.setIndexData(data, gradientId, speedData, rect);
   }
 
-  render(phase: number, legacyPhase: number = phase) {
-    this.renderer.render(phase, legacyPhase);
+  render(timeSeconds: number, legacyPhase: number = timeSeconds) {
+    this.renderer.render(timeSeconds, legacyPhase);
   }
 
   resize(width: number, height: number) {

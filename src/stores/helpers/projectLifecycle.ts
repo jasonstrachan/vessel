@@ -560,8 +560,6 @@ export const createProjectLifecycle = ({
       position: stop.position,
       color: stop.color,
     }));
-    const initialColorCycleSpeed =
-      currentState.tools?.brushSettings?.colorCycleSpeed ?? 0.1;
 
     const colorCycleLayer: Layer = {
       id: colorCycleLayerId,
@@ -580,7 +578,6 @@ export const createProjectLifecycle = ({
         mode: 'brush',
         gradient: initialColorCycleGradient,
         isAnimating: true,
-        brushSpeed: initialColorCycleSpeed,
         flowMode: currentState.tools?.brushSettings?.colorCycleFlowMode ?? 'reverse',
         canvas: colorCycleCanvas,
       },

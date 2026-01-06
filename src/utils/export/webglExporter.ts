@@ -280,6 +280,7 @@ interface WebGLSerializedBrushState {
   height: number;
   indexBuffer: number[] | string;
   gradientIdBuffer?: number[] | string;
+  speedBuffer?: number[] | string;
   gradientStops: SerializedGradientStops;
   palette?: Array<string | number>;
   animationOffset: number;
@@ -1127,6 +1128,11 @@ const extractBrushStateFromBrushProperties = (brush: unknown, layer: Layer): Web
     ?? (rawIndexSource as { gradientId?: unknown } | undefined)?.gradientId
     ?? (dimensionSource as { gradientIdBuffer?: unknown } | undefined)?.gradientIdBuffer;
   const gradientIdBuffer = toSerializableNumberArray(gradientIdSource);
+  const speedSource =
+    brushAny?.speedBuffer
+    ?? (rawIndexSource as { speedData?: unknown } | undefined)?.speedData
+    ?? (dimensionSource as { speedBuffer?: unknown } | undefined)?.speedBuffer;
+  const speedBuffer = toSerializableNumberArray(speedSource);
 
   const widthRaw = Number(
     brushAny?.width
@@ -1157,6 +1163,7 @@ const extractBrushStateFromBrushProperties = (brush: unknown, layer: Layer): Web
     height,
     indexBuffer,
     gradientIdBuffer: gradientIdBuffer.length > 0 ? gradientIdBuffer : undefined,
+    speedBuffer: speedBuffer.length > 0 ? speedBuffer : undefined,
     gradientStops,
     animationOffset: 0
   };
@@ -1223,6 +1230,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       data?: Uint8Array | number[];
       palette?: string[];
       gradientId?: Uint8Array | number[];
+      speedData?: Uint8Array | number[];
     } | undefined;
     if ((!indexBuffer || !indexBuffer.data) && animatorAny.indexBuffer) {
       try {
@@ -1233,6 +1241,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
               data?: Uint8Array | number[];
               palette?: string[];
               gradientId?: Uint8Array | number[];
+              speedData?: Uint8Array | number[];
             }
           : undefined;
         if (fromIndexBuffer?.data) {
@@ -1243,13 +1252,15 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
           width: animatorAny.indexBuffer.width,
           height: animatorAny.indexBuffer.height,
           data: directData,
-          palette: animatorAny.indexBuffer.palette
+          palette: animatorAny.indexBuffer.palette,
+          speedData: (animatorAny.indexBuffer as { getDirectSpeedData?: () => Uint8Array }).getDirectSpeedData?.()
         } as {
           width?: number;
           height?: number;
           data?: Uint8Array;
           palette?: string[];
           gradientId?: Uint8Array | number[];
+          speedData?: Uint8Array | number[];
         };
         }
       } catch (error) {
@@ -1293,6 +1304,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
     const paletteValues = indexBuffer.palette ? toSerializablePaletteArray(indexBuffer.palette) : undefined;
     const gradientIdValues = toSerializableNumberArray(indexBuffer.gradientId);
     const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : undefined;
+    const speedValues = toSerializableNumberArray(indexBuffer.speedData);
+    const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
     const palette = paletteValues && paletteValues.length > 0 ? paletteValues : undefined;
 
     if (gobletDiagnosticsActive) {
@@ -1310,6 +1323,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       height,
       indexBuffer: indexBufferData,
       gradientIdBuffer,
+      speedBuffer,
       gradientStops,
       palette,
       animationOffset,
@@ -2009,7 +2023,31 @@ const isBrushInstanceAnimating = (brush: unknown): boolean => {
   return false;
 };
 
-const shouldExportLayerAsAnimating = (layer: Layer): boolean => {
+const hasNonZeroSpeedBuffer = (buffer: unknown): boolean => {
+  if (!buffer) {
+    return false;
+  }
+
+  if (buffer instanceof ArrayBuffer) {
+    const view = new Uint8Array(buffer);
+    return view.some((value) => value !== 0);
+  }
+
+  if (Array.isArray(buffer)) {
+    return buffer.some((value) => Number(value) !== 0);
+  }
+
+  if (buffer instanceof Uint8Array) {
+    return buffer.some((value) => value !== 0);
+  }
+
+  return false;
+};
+
+const shouldExportLayerAsAnimating = (
+  layer: Layer,
+  brushState?: WebGLSerializedBrushState
+): boolean => {
   const data = layer.colorCycleData;
   if (!data) {
     return false;
@@ -2023,7 +2061,11 @@ const shouldExportLayerAsAnimating = (layer: Layer): boolean => {
     return true;
   }
 
-  if (hasNonZeroMagnitude(data.brushSpeed)) {
+  if (brushState?.speedBuffer && hasNonZeroSpeedBuffer(brushState.speedBuffer)) {
+    return true;
+  }
+
+  if (!brushState?.speedBuffer && hasNonZeroMagnitude(data.brushSpeed)) {
     return true;
   }
 
@@ -2058,7 +2100,15 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
     }
   }
 
-  const shouldAnimate = shouldExportLayerAsAnimating(layer);
+  let brushState: WebGLSerializedBrushState | undefined;
+  if (!data.recolorSettings) {
+    brushState = serializeBrushState(layer);
+    if (!brushState) {
+      console.warn('[webglExporter] No brush state could be extracted for layer', layer.id);
+    }
+  }
+
+  const shouldAnimate = shouldExportLayerAsAnimating(layer, brushState);
   const serialized: WebGLSerializedColorCycle = {
     mode: data.mode ?? 'brush',
     gradient: data.gradient,
@@ -2074,7 +2124,8 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
       brushSpeed: data.brushSpeed,
       recolorSpeed: data.recolorSettings?.animation?.speed,
       animationWasPlaying: data.recolorSettings?.animation?.isPlaying,
-      exportedIsAnimating: shouldAnimate
+      exportedIsAnimating: shouldAnimate,
+      hasSpeedBuffer: Boolean(brushState?.speedBuffer?.length)
     });
   }
 
@@ -2124,15 +2175,6 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
       }));
     }
   }
-
-  let brushState: WebGLSerializedBrushState | undefined;
-  if (!data.recolorSettings) {
-    brushState = serializeBrushState(layer);
-    if (!brushState) {
-      console.warn('[webglExporter] No brush state could be extracted for layer', layer.id);
-    }
-  }
-
 
   const recolorSurface = data.recolorSettings ? resolveRecolorSurfaceSize(layer, project) : undefined;
 
@@ -2192,10 +2234,12 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
   if (brushState) {
     const encodedIndexBuffer = await packNumericArrayForExport(brushState.indexBuffer);
     const encodedGradientIdBuffer = await packNumericArrayForExport(brushState.gradientIdBuffer ?? undefined);
+    const encodedSpeedBuffer = await packNumericArrayForExport(brushState.speedBuffer ?? undefined);
     const preparedBrushState: WebGLSerializedBrushState = {
       ...brushState,
       indexBuffer: encodedIndexBuffer ?? [],
-      gradientIdBuffer: encodedGradientIdBuffer ?? brushState.gradientIdBuffer
+      gradientIdBuffer: encodedGradientIdBuffer ?? brushState.gradientIdBuffer,
+      speedBuffer: encodedSpeedBuffer ?? brushState.speedBuffer
     };
 
     serialized.brushState = preparedBrushState;

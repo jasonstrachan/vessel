@@ -332,7 +332,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     render(<BrushControls />);
 
     expect(screen.getByTestId('gradient-editor')).toBeInTheDocument();
-    expect(screen.getByLabelText('Color Cycle Speed')).toBeInTheDocument();
+    expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
 
     // Flow buttons should be present and toggle-able

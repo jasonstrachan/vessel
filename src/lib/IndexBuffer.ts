@@ -6,6 +6,7 @@
 export class IndexBuffer {
   private data: Uint8Array;
   private gradientId: Uint8Array;
+  private speedData: Uint8Array;
   private width: number;
   private height: number;
   private palette: string[];
@@ -17,6 +18,7 @@ export class IndexBuffer {
   private dirtyMaxY: number = -1;
   private hasDirtyBounds: boolean = false;
   private hasNonZeroGradientIds: boolean = false;
+  private hasNonZeroSpeed: boolean = false;
   
   // Cache for converted RGBA values
   private rgbaCache: Map<number, [number, number, number, number]> = new Map();
@@ -31,6 +33,7 @@ export class IndexBuffer {
     // Initialize with zeros (transparent/no color)
     this.data = new Uint8Array(width * height);
     this.gradientId = new Uint8Array(width * height);
+    this.speedData = new Uint8Array(width * height);
     this.palette = ['rgba(0,0,0,0)']; // Index 0 = transparent
     this.maxPaletteIndex = 0;
     
@@ -174,15 +177,24 @@ export class IndexBuffer {
     return Math.max(0, Math.min(255, Math.round(slot as number)));
   }
 
+  private normalizeSpeedByte(speedByte?: number): number {
+    if (!Number.isFinite(speedByte)) {
+      return 0;
+    }
+    return Math.max(0, Math.min(255, Math.round(speedByte as number)));
+  }
+
   private paintCircleInternal(
     x: number,
     y: number,
     brushSize: number,
     colorIndex: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    speedByte?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const normalizedSpeed = normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const radius = brushSize / 2;
     const radiusSq = radius * radius;
 
@@ -205,11 +217,15 @@ export class IndexBuffer {
           const dataIndex = py * this.width + px;
           this.data[dataIndex] = normalizedIndex;
           this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+          this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
         }
       }
     }
     if (normalizedSlot !== 0 && normalizedIndex !== 0) {
       this.hasNonZeroGradientIds = true;
+    }
+    if (normalizedSpeed !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroSpeed = true;
     }
   }
 
@@ -223,8 +239,15 @@ export class IndexBuffer {
     this.isDirty = true;
   }
 
-  paintWithIndex(x: number, y: number, brushSize: number, colorIndex: number, gradientSlot?: number) {
-    this.paintCircleInternal(x, y, brushSize, colorIndex, gradientSlot);
+  paintWithIndex(
+    x: number,
+    y: number,
+    brushSize: number,
+    colorIndex: number,
+    gradientSlot?: number,
+    speedByte?: number
+  ) {
+    this.paintCircleInternal(x, y, brushSize, colorIndex, gradientSlot, speedByte);
     this.isDirty = true;
   }
 
@@ -239,7 +262,8 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     this.paintCircleInternalMasked(
       x,
@@ -252,7 +276,8 @@ export class IndexBuffer {
       secondaryIndex,
       gradientSlot,
       maskOriginX,
-      maskOriginY
+      maskOriginY,
+      speedByte
     );
     this.isDirty = true;
   }
@@ -268,7 +293,8 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     this.paintDiamondInternal(
       x,
@@ -281,7 +307,8 @@ export class IndexBuffer {
       secondaryIndex,
       gradientSlot,
       maskOriginX,
-      maskOriginY
+      maskOriginY,
+      speedByte
     );
     this.isDirty = true;
   }
@@ -323,7 +350,8 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     this.paintSquareInternal(
       x,
@@ -336,7 +364,8 @@ export class IndexBuffer {
       secondaryIndex,
       gradientSlot,
       maskOriginX,
-      maskOriginY
+      maskOriginY,
+      speedByte
     );
     this.isDirty = true;
   }
@@ -352,12 +381,14 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const normalizedSpeed = normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const halfSize = brushSize / 2;
 
     const minX = Math.max(0, Math.floor(x - halfSize));
@@ -385,20 +416,26 @@ export class IndexBuffer {
             if (shouldClearMaskedPixels) {
               this.data[dataIndex] = 0;
               this.gradientId[dataIndex] = 0;
+              this.speedData[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
               this.data[dataIndex] = normalizedSecondaryIndex;
               this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
+              this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSpeed;
             }
             continue;
           }
         }
         this.data[dataIndex] = normalizedIndex;
         this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+        this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
       }
     }
     if (normalizedSlot !== 0 && normalizedIndex !== 0) {
       this.hasNonZeroGradientIds = true;
+    }
+    if (normalizedSpeed !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroSpeed = true;
     }
   }
 
@@ -413,12 +450,14 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const normalizedSpeed = normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const radius = brushSize / 2;
     const radiusSq = radius * radius;
 
@@ -452,20 +491,26 @@ export class IndexBuffer {
             if (shouldClearMaskedPixels) {
               this.data[dataIndex] = 0;
               this.gradientId[dataIndex] = 0;
+              this.speedData[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
               this.data[dataIndex] = normalizedSecondaryIndex;
               this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
+              this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSpeed;
             }
             continue;
           }
         }
         this.data[dataIndex] = normalizedIndex;
         this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+        this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
       }
     }
     if (normalizedSlot !== 0 && normalizedIndex !== 0) {
       this.hasNonZeroGradientIds = true;
+    }
+    if (normalizedSpeed !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroSpeed = true;
     }
   }
 
@@ -480,12 +525,14 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const normalizedSpeed = normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const radius = brushSize / 2;
 
     const minX = Math.max(0, Math.floor(x - radius));
@@ -518,20 +565,26 @@ export class IndexBuffer {
             if (shouldClearMaskedPixels) {
               this.data[dataIndex] = 0;
               this.gradientId[dataIndex] = 0;
+              this.speedData[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
               this.data[dataIndex] = normalizedSecondaryIndex;
               this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
+              this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSpeed;
             }
             continue;
           }
         }
         this.data[dataIndex] = normalizedIndex;
         this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+        this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
       }
     }
     if (normalizedSlot !== 0 && normalizedIndex !== 0) {
       this.hasNonZeroGradientIds = true;
+    }
+    if (normalizedSpeed !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroSpeed = true;
     }
   }
 
@@ -572,7 +625,8 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     this.paintTriangleInternal(
       x,
@@ -585,7 +639,8 @@ export class IndexBuffer {
       secondaryIndex,
       gradientSlot,
       maskOriginX,
-      maskOriginY
+      maskOriginY,
+      speedByte
     );
     this.isDirty = true;
   }
@@ -601,12 +656,14 @@ export class IndexBuffer {
     secondaryIndex?: number,
     gradientSlot?: number,
     maskOriginX?: number,
-    maskOriginY?: number
+    maskOriginY?: number,
+    speedByte?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const normalizedSpeed = normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const halfSize = brushSize / 2;
 
     const topX = x;
@@ -652,21 +709,27 @@ export class IndexBuffer {
               if (shouldClearMaskedPixels) {
                 this.data[dataIndex] = 0;
                 this.gradientId[dataIndex] = 0;
+                this.speedData[dataIndex] = 0;
               }
               if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
                 this.data[dataIndex] = normalizedSecondaryIndex;
                 this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
+                this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSpeed;
               }
               continue;
             }
           }
           this.data[dataIndex] = normalizedIndex;
           this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+          this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
         }
       }
     }
     if (normalizedSlot !== 0 && normalizedIndex !== 0) {
       this.hasNonZeroGradientIds = true;
+    }
+    if (normalizedSpeed !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroSpeed = true;
     }
   }
 
@@ -687,9 +750,10 @@ export class IndexBuffer {
     y1: number,
     brushSize: number,
     colorIndex: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    speedByte?: number
   ) {
-    this.paintLineInternal(x0, y0, x1, y1, brushSize, colorIndex, gradientSlot);
+    this.paintLineInternal(x0, y0, x1, y1, brushSize, colorIndex, gradientSlot, speedByte);
     this.isDirty = true;
   }
 
@@ -700,7 +764,8 @@ export class IndexBuffer {
     y1: number,
     brushSize: number,
     colorIndex: number,
-    gradientSlot?: number
+    gradientSlot?: number,
+    speedByte?: number
   ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const dx = Math.abs(x1 - x0);
@@ -713,7 +778,7 @@ export class IndexBuffer {
     let y = y0;
 
     while (true) {
-      this.paintCircleInternal(x, y, brushSize, normalizedIndex, gradientSlot);
+      this.paintCircleInternal(x, y, brushSize, normalizedIndex, gradientSlot, speedByte);
 
       if (x === x1 && y === y1) {
         break;
@@ -742,13 +807,25 @@ export class IndexBuffer {
     }
   }
 
-  fillWithIndex(x: number, y: number, colorIndex: number, gradientSlot?: number) {
-    if (this.fillInternal(x, y, colorIndex, gradientSlot)) {
+  fillWithIndex(
+    x: number,
+    y: number,
+    colorIndex: number,
+    gradientSlot?: number,
+    speedByte?: number
+  ) {
+    if (this.fillInternal(x, y, colorIndex, gradientSlot, speedByte)) {
       this.isDirty = true;
     }
   }
 
-  private fillInternal(x: number, y: number, colorIndex: number, gradientSlot?: number): boolean {
+  private fillInternal(
+    x: number,
+    y: number,
+    colorIndex: number,
+    gradientSlot?: number,
+    speedByte?: number
+  ): boolean {
     x = Math.floor(x);
     y = Math.floor(y);
 
@@ -758,6 +835,7 @@ export class IndexBuffer {
 
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const normalizedSpeed = normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const targetIndex = this.data[y * this.width + x];
 
     if (targetIndex === normalizedIndex) {
@@ -781,6 +859,7 @@ export class IndexBuffer {
 
       this.data[dataIndex] = normalizedIndex;
       this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+      this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
       filled = true;
       minX = Math.min(minX, fx);
       maxX = Math.max(maxX, fx);
@@ -799,6 +878,9 @@ export class IndexBuffer {
     if (normalizedSlot !== 0 && normalizedIndex !== 0) {
       this.hasNonZeroGradientIds = true;
     }
+    if (normalizedSpeed !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroSpeed = true;
+    }
     return filled;
   }
   
@@ -809,6 +891,8 @@ export class IndexBuffer {
     this.data.fill(0);
     this.gradientId.fill(0);
     this.hasNonZeroGradientIds = false;
+    this.speedData.fill(0);
+    this.hasNonZeroSpeed = false;
     this.markDirtyRect(0, 0, this.width - 1, this.height - 1);
     this.isDirty = true;
   }
@@ -827,6 +911,7 @@ export class IndexBuffer {
         const idx = py * this.width + px;
         this.data[idx] = 0;
         this.gradientId[idx] = 0;
+        this.speedData[idx] = 0;
       }
     }
     
@@ -903,17 +988,22 @@ export class IndexBuffer {
   /**
    * Set pixel index at position
    */
-  setPixel(x: number, y: number, colorIndex: number, gradientSlot?: number) {
+  setPixel(x: number, y: number, colorIndex: number, gradientSlot?: number, speedByte?: number) {
     if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
       return;
     }
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSlot = normalizedIndex === 0 ? 0 : this.normalizeGradientSlot(gradientSlot);
+    const normalizedSpeed = normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const index = y * this.width + x;
     this.data[index] = normalizedIndex;
     this.gradientId[index] = normalizedIndex === 0 ? 0 : normalizedSlot;
+    this.speedData[index] = normalizedIndex === 0 ? 0 : normalizedSpeed;
     if (normalizedSlot !== 0) {
       this.hasNonZeroGradientIds = true;
+    }
+    if (normalizedSpeed !== 0) {
+      this.hasNonZeroSpeed = true;
     }
     this.markDirtyRect(x, y, x, y);
     this.isDirty = true;
@@ -970,6 +1060,7 @@ export class IndexBuffer {
   resize(newWidth: number, newHeight: number) {
     const newData = new Uint8Array(newWidth * newHeight);
     const newGradientId = new Uint8Array(newWidth * newHeight);
+    const newSpeedData = new Uint8Array(newWidth * newHeight);
     
     // Copy existing data
     const copyWidth = Math.min(this.width, newWidth);
@@ -981,14 +1072,17 @@ export class IndexBuffer {
         const newIndex = y * newWidth + x;
         newData[newIndex] = this.data[oldIndex];
         newGradientId[newIndex] = this.gradientId[oldIndex];
+        newSpeedData[newIndex] = this.speedData[oldIndex];
       }
     }
     
     this.data = newData;
     this.gradientId = newGradientId;
+    this.speedData = newSpeedData;
     this.width = newWidth;
     this.height = newHeight;
     this.hasNonZeroGradientIds = this.gradientId.some((value) => value !== 0);
+    this.hasNonZeroSpeed = this.speedData.some((value) => value !== 0);
     this.markDirtyRect(0, 0, newWidth - 1, newHeight - 1);
     this.isDirty = true;
   }
@@ -1005,12 +1099,20 @@ export class IndexBuffer {
     return this.gradientId;
   }
 
+  getDirectSpeedData(): Uint8Array {
+    return this.speedData;
+  }
+
   getIndexData(): Uint8Array {
     return this.data;
   }
 
   getGradientIdData(): Uint8Array {
     return this.gradientId;
+  }
+
+  getSpeedData(): Uint8Array {
+    return this.speedData;
   }
 
   getDirtyBounds(): { x: number; y: number; width: number; height: number } | null {
@@ -1034,12 +1136,24 @@ export class IndexBuffer {
     return this.hasNonZeroGradientIds;
   }
 
+  getHasNonZeroSpeed(): boolean {
+    return this.hasNonZeroSpeed;
+  }
+
   markHasNonZeroGradientIds() {
     this.hasNonZeroGradientIds = true;
   }
 
   setHasNonZeroGradientIds(value: boolean) {
     this.hasNonZeroGradientIds = value;
+  }
+
+  markHasNonZeroSpeed() {
+    this.hasNonZeroSpeed = true;
+  }
+
+  setHasNonZeroSpeed(value: boolean) {
+    this.hasNonZeroSpeed = value;
   }
 
   markDirtyBounds(minX: number, minY: number, maxX: number, maxY: number) {
@@ -1055,6 +1169,7 @@ export class IndexBuffer {
     height: number;
     data: Uint8Array;
     gradientId: Uint8Array;
+    speedData: Uint8Array;
     palette: string[];
   } {
     return {
@@ -1062,6 +1177,7 @@ export class IndexBuffer {
       height: this.height,
       data: new Uint8Array(this.data),
       gradientId: new Uint8Array(this.gradientId),
+      speedData: new Uint8Array(this.speedData),
       palette: [...this.palette]
     };
   }
@@ -1074,6 +1190,7 @@ export class IndexBuffer {
     height: number;
     data: Uint8Array;
     gradientId?: Uint8Array;
+    speedData?: Uint8Array;
     palette: string[];
   }): IndexBuffer {
     const buffer = new IndexBuffer(data.width, data.height);
@@ -1081,9 +1198,13 @@ export class IndexBuffer {
     buffer.gradientId = data.gradientId
       ? new Uint8Array(data.gradientId)
       : new Uint8Array(data.width * data.height);
+    buffer.speedData = data.speedData
+      ? new Uint8Array(data.speedData)
+      : new Uint8Array(data.width * data.height);
     buffer.palette = [...data.palette];
     buffer.isDirty = true;
     buffer.hasNonZeroGradientIds = buffer.gradientId.some((value) => value !== 0);
+    buffer.hasNonZeroSpeed = buffer.speedData.some((value) => value !== 0);
     
     // Rebuild cache
     for (let i = 0; i < buffer.palette.length; i++) {

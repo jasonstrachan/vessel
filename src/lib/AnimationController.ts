@@ -23,6 +23,7 @@ export class AnimationController {
   private lastFrameTime: number = 0;
   private startTime: number = 0;
   private totalElapsedTime: number = 0;
+  private realElapsedTime: number = 0;
   private frameCount: number = 0;
   
   // Performance tracking
@@ -113,6 +114,7 @@ export class AnimationController {
     this.lastFrameTime = performance.now();
     this.startTime = this.lastFrameTime;
     this.totalElapsedTime = 0;
+    this.realElapsedTime = 0;
     this.frameCount = 0;
     this.frameTimeHistory = [];
     
@@ -182,6 +184,7 @@ export class AnimationController {
   reset() {
     this.offset = 0;
     this.totalElapsedTime = 0;
+    this.realElapsedTime = 0;
     this.frameCount = 0;
     this.frameTimeHistory = [];
   }
@@ -214,14 +217,16 @@ export class AnimationController {
       this.adjustQuality();
     }
     
+    const rawDeltaSeconds = rawDeltaTime / 1000;
     // Calculate actual delta time with speed modifier
-    const deltaTime = (rawDeltaTime / 1000) * this.speed; // Convert to seconds and apply speed
+    const deltaTime = rawDeltaSeconds * this.speed; // Convert to seconds and apply speed
     
     // Update offset for cycling animations
     this.offset = (this.offset + deltaTime) % 1;
     
     // Update total elapsed time
     this.totalElapsedTime += deltaTime;
+    this.realElapsedTime += rawDeltaSeconds;
     
     // Call frame callback
     if (this.onFrame) {
@@ -290,6 +295,7 @@ export class AnimationController {
     actualFPS: number;
     frameCount: number;
     totalTime: number;
+    realTime: number;
     averageFrameTime: number;
     isAnimating: boolean;
   } {
@@ -302,9 +308,32 @@ export class AnimationController {
       actualFPS: this.getActualFPS(),
       frameCount: this.frameCount,
       totalTime: this.totalElapsedTime,
+      realTime: this.realElapsedTime,
       averageFrameTime: avgFrameTime,
       isAnimating: this.isAnimating
     };
+  }
+
+  /**
+   * Get elapsed time in seconds without speed scaling.
+   */
+  getElapsedTime(): number {
+    return this.realElapsedTime;
+  }
+
+  /**
+   * Advance time manually for external render loops.
+   * deltaSeconds is real time; speed applies only to offset/totalTime.
+   */
+  advanceExternalFrame(deltaSeconds: number) {
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+      return;
+    }
+    const deltaWithSpeed = deltaSeconds * this.speed;
+    this.offset = (this.offset + deltaWithSpeed) % 1;
+    this.totalElapsedTime += deltaWithSpeed;
+    this.realElapsedTime += deltaSeconds;
+    this.frameCount += 1;
   }
   
   /**

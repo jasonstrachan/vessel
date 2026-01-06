@@ -366,6 +366,9 @@ export const createHistorySnapshotFromState = (
           layerId: layerSnapshot.layerId,
           paintBuffer: paintBufferCopy,
           gradientIdBuffer: gradientBufferCopy,
+          speedBuffer: layerSnapshot.strokeData?.speedBuffer
+            ? new Uint8Array(layerSnapshot.strokeData.speedBuffer).slice().buffer
+            : undefined,
           hasContent: Boolean(layerSnapshot.strokeData?.hasContent) || hasNonZeroIndex,
           strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
           strokeLength: 0,

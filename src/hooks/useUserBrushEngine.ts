@@ -165,11 +165,11 @@ export const useUserBrushEngine = () => {
     if (!brush || points.length === 0) return;
 
     // Start with first point
-    startStroke(ctx, points[0].x, points[0].y, points[0].pressure || 1);
+    startStroke(ctx, points[0].x, points[0].y, points[0].pressure ?? 1);
 
     // Continue with remaining points
     for (let i = 1; i < points.length; i++) {
-      continueStroke(ctx, points[i].x, points[i].y, points[i].pressure || 1);
+      continueStroke(ctx, points[i].x, points[i].y, points[i].pressure ?? 1);
     }
 
     // End stroke

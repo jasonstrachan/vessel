@@ -131,6 +131,7 @@ export function rebuildCCLayerAfterCrop({
               entry.id,
               {
                 paintBuffer: snapshotBuffer,
+                speedBuffer: entry.strokeSnapshot?.speedBuffer,
                 hasContent: entry.strokeSnapshot.hasContent,
                 strokeCounter: entry.strokeSnapshot.strokeCounter
               },

@@ -2737,7 +2737,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
               }
             }
           }
-          const coalescedPressure = coalescedEvent.pressure || 0.5;
+          const coalescedPressure = coalescedEvent.pressure ?? 0.5;
           
           // Draw with the intermediate position and pressure
           if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {

@@ -1097,7 +1097,7 @@ const BrushControls = () => {
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Color Cycle Speed
+              Speed
             </label>
             <ProgressSlider
               value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
@@ -1111,7 +1111,7 @@ const BrushControls = () => {
                 );
                 setActiveSettings({ colorCycleSpeed: clamped });
               }}
-              aria-label="Color Cycle Speed"
+              aria-label="Speed"
               className="flex-1"
             />
           </div>

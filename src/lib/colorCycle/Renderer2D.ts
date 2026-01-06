@@ -5,6 +5,7 @@ import {
   FLOW_MODE_REVERSE,
   FLOW_SLOT_MASK,
 } from '@/lib/colorCycle/flowEncoding';
+import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
 export interface Renderer2DOptions {
   width: number;
@@ -60,10 +61,12 @@ export class Renderer2D {
   render(options: {
     indexData: Uint8Array;
     gradientIdData?: Uint8Array;
+    speedData?: Uint8Array;
     paletteSlots: Uint32Array[];
     basePalette: Uint32Array;
     phase: number;
     baseOffset: number;
+    baseTime: number;
   }) {
     const imageData = this.ensureImageData();
     const pixels32 = new Uint32Array(imageData.data.buffer);
@@ -73,6 +76,8 @@ export class Renderer2D {
     const pingPhase = offset <= 0.5 ? offset * 2 : (1 - offset) * 2;
     const pingShift = (pingPhase * 256) | 0;
     const gradientIdData = options.gradientIdData;
+    const speedData = options.speedData;
+    const baseTime = options.baseTime;
 
     for (let i = 0; i < options.indexData.length; i++) {
       const colorIndex = options.indexData[i];
@@ -83,15 +88,19 @@ export class Renderer2D {
       const gid = gradientIdData ? gradientIdData[i] : 0;
       const slot = gid & FLOW_SLOT_MASK;
       const flowBits = gradientIdData ? (gid >> 6) : FLOW_MODE_LEGACY;
+      const speedByte = speedData ? speedData[i] : 0;
+      const hasSpeed = speedByte > 0;
+      const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
+      const speedOffset = hasSpeed ? (baseTime * speed) % 1 : offset;
       const palette = options.paletteSlots[slot] ?? options.basePalette;
       const shift =
         flowBits === FLOW_MODE_REVERSE
-          ? -baseShift
+          ? -((speedOffset * 256) | 0)
           : flowBits === FLOW_MODE_PINGPONG
-            ? pingShift
+            ? (((speedOffset <= 0.5 ? speedOffset * 2 : (1 - speedOffset) * 2) * 256) | 0)
             : flowBits === FLOW_MODE_LEGACY
-              ? legacyShift
-              : baseShift;
+              ? (hasSpeed ? ((speedOffset * 256) | 0) : legacyShift)
+              : ((speedOffset * 256) | 0);
       pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
     }
 

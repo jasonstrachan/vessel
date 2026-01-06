@@ -1,14 +1,9 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
-import {
-  MAX_RECOLOR_COLOR_CYCLE_SPEED,
-  MIN_RECOLOR_COLOR_CYCLE_SPEED,
-} from '@/constants/colorCycle';
 
 type RuntimeSnapshot = {
   gradientKey?: string;
-  brushSpeed?: number;
   isAnimating?: boolean;
   flowMode?: 'forward' | 'reverse' | 'pingpong';
 };
@@ -18,13 +13,6 @@ const lastRuntimeState = new Map<string, RuntimeSnapshot>();
 const gradientKeyForStops = (
   stops: Array<{ position: number; color: string }>
 ): string => stops.map(stop => `${stop.position}:${stop.color}`).join('|');
-
-const speedsAreEqual = (a: number | undefined, b: number | undefined): boolean => {
-  if (a === undefined || b === undefined) {
-    return a === b;
-  }
-  return Math.abs(a - b) < 0.0001;
-};
 
 /**
  * Synchronize color-cycle runtime state from layer data into live brush instances.
@@ -73,22 +61,21 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
-    if (logCC) {
-      console.log('[ccRuntime] syncCCRuntimes', {
-        cause,
-        layerId: layer.id,
-        gradientStops: layer.colorCycleData.gradient?.length ?? 0,
-        brushSpeed: layer.colorCycleData.brushSpeed,
-        isAnimating: layer.colorCycleData.isAnimating,
-      });
-    }
+      if (logCC) {
+        console.log('[ccRuntime] syncCCRuntimes', {
+          cause,
+          layerId: layer.id,
+          gradientStops: layer.colorCycleData.gradient?.length ?? 0,
+          isAnimating: layer.colorCycleData.isAnimating,
+        });
+      }
 
     const brush = manager.getBrush(layer.id);
     if (!brush) {
       continue;
     }
 
-    const { gradient, brushSpeed, isAnimating, flowMode } = layer.colorCycleData;
+    const { gradient, isAnimating, flowMode } = layer.colorCycleData;
     const previous = lastRuntimeState.get(layer.id) ?? {};
     const nextSnapshot: RuntimeSnapshot = { ...previous };
 
@@ -99,19 +86,6 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
           brush.setGradient?.(gradient, layer.id);
           nextSnapshot.gradientKey = gradientKey;
           shouldNotifyFrameUpdate = true;
-        } catch {}
-      }
-    }
-
-    if (typeof brushSpeed === 'number') {
-      const clampedSpeed = Math.max(
-        MIN_RECOLOR_COLOR_CYCLE_SPEED,
-        Math.min(MAX_RECOLOR_COLOR_CYCLE_SPEED, brushSpeed)
-      );
-      if (!speedsAreEqual(previous.brushSpeed, clampedSpeed)) {
-        try {
-          brush.setSpeed?.(clampedSpeed);
-          nextSnapshot.brushSpeed = clampedSpeed;
         } catch {}
       }
     }

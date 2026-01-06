@@ -9,22 +9,15 @@ import {
   selectActiveLayerId,
   selectSelectedLayerIds,
   selectLayerIdsDescending,
-  selectActiveLayer,
 } from '@/stores/selectors/layersSelectors';
 import { Layer, BrushShape } from '../types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
-import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { recordBreadcrumb } from '../utils/debug';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
 import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 import { selectProjectDimensions } from '@/stores/selectors/projectSelectors';
-import {
-  COLOR_CYCLE_SPEED_STEP,
-  MAX_BRUSH_COLOR_CYCLE_SPEED,
-  MIN_BRUSH_COLOR_CYCLE_SPEED,
-} from '@/constants/colorCycle';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 export const LAYER_TAG_CLASS = 'px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]';
@@ -307,12 +300,8 @@ const MinimalLayerList = () => {
   // Store subscriptions
   const displayedLayerIds = useAppStore(selectLayerIdsDescending, shallow);
   const activeLayerId = useAppStore(selectActiveLayerId);
-  const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const layersRef = useStoreSelectorRef(selectLayers);
   const selectedLayerIdsRef = useStoreSelectorRef(selectSelectedLayerIds);
-  const brushSettings = useAppStore(selectBrushSettings);
-  const globalColorCycleSpeed = brushSettings.colorCycleSpeed ?? 0.1;
-  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const brushSettingsRef = useStoreSelectorRef(selectBrushSettings);
   const projectSizeRef = useStoreSelectorRef(selectProjectDimensions);
   // Actions
@@ -323,11 +312,6 @@ const MinimalLayerList = () => {
   const removeLayer = useAppStore((state) => state.removeLayer);
   const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
-  const activeLayer = useAppStore(selectActiveLayer);
-  const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
-  const colorCycleSpeedValue = isCCBrushLayer && typeof activeLayer?.colorCycleData?.brushSpeed === 'number'
-    ? activeLayer.colorCycleData.brushSpeed
-    : globalColorCycleSpeed;
   const canDeleteLayer = displayedLayerIds.length > 1;
   
   // Remove local overrides; animation state comes from store + unified event
@@ -410,7 +394,6 @@ const MinimalLayerList = () => {
       colorCycleData: {
         gradient: currentGradient,
         isAnimating: isGlobalPlaying,
-        brushSpeed: brushSettingsRef.current.colorCycleSpeed || 0.1,
         flowMode: brushSettingsRef.current.colorCycleFlowMode ?? 'reverse'
       }
     };
@@ -698,51 +681,6 @@ const MinimalLayerList = () => {
       
       <div className="border-t border-[#424242]">
         <LayerAlignmentControls />
-
-        {/* Color Cycle speed slider duplicated from brush controls for quick access */}
-        <div className="border-t border-[#424242] px-2 py-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-              speed
-            </span>
-            <ProgressSlider
-              value={colorCycleSpeedValue}
-              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
-              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-              step={COLOR_CYCLE_SPEED_STEP}
-              onChange={(value) => {
-                const clampedValue = Math.max(
-                  MIN_BRUSH_COLOR_CYCLE_SPEED,
-                  Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, value)
-                );
-                setBrushSettings({ colorCycleSpeed: clampedValue });
-
-                if (isCCBrushLayer && activeLayerId && activeLayer?.colorCycleData) {
-                  const targetLayerIds = selectedLayerIds.length > 1 && activeLayerId && selectedLayerIds.includes(activeLayerId)
-                    ? selectedLayerIds
-                    : [activeLayerId];
-
-                  const layers = layersRef.current;
-                  targetLayerIds.forEach((layerId) => {
-                    const targetLayer = layers.find(l => l.id === layerId);
-                    if (targetLayer?.layerType === 'color-cycle' && targetLayer.colorCycleData) {
-                      if (targetLayer.colorCycleData.brushSpeed !== clampedValue) {
-                        updateLayer(layerId, {
-                          colorCycleData: {
-                            ...targetLayer.colorCycleData,
-                            brushSpeed: clampedValue
-                          }
-                        });
-                      }
-                    }
-                  });
-                }
-              }}
-              aria-label="Color Cycle Speed"
-              className="flex-1"
-            />
-          </div>
-        </div>
 
         {/* Bottom Controls: Play/Pause for Color Cycle animation only */}
         <div className="border-t border-[#424242] p-2">
