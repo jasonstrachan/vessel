@@ -1639,6 +1639,21 @@ export const useBrushEngineSimplified = () => {
     return id === 'pixel-dither' || id === 'polygon-dither' || id === 'shape-dither';
   }, [currentBrushPreset]);
   const isDitherStrokeBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
+  const ditherStrokeGuardWarnedRef = useRef(false);
+  const warnIfDitherStrokePath = useCallback((context: string) => {
+    if (process.env.NODE_ENV === 'production') {
+      return;
+    }
+    if (isDitherStrokeBrush || ditherStrokeGuardWarnedRef.current) {
+      return;
+    }
+    ditherStrokeGuardWarnedRef.current = true;
+    console.warn('[Dither] Legacy Dither Stroke path hit by non-dither brush', {
+      context,
+      brushShape: tools.brushSettings.brushShape,
+      presetId: currentBrushPreset?.id ?? null,
+    });
+  }, [currentBrushPreset?.id, isDitherStrokeBrush, tools.brushSettings.brushShape]);
 
   const isPixelDitherNoBg = useMemo(() => {
     return (
@@ -2062,8 +2077,11 @@ export const useBrushEngineSimplified = () => {
             dCtx.canvas?.width ?? 0,
             dCtx.canvas?.height ?? 0
           );
+          // Legacy Dither Stroke BG-off compositor; keep isolated from other brushes.
           if (isDitherStrokeBrush && tools.brushSettings.ditherBackgroundFill === false) {
             visibleCtx.clearRect(bx, by, bw, bh);
+          } else if (tools.brushSettings.ditherBackgroundFill === false) {
+            warnIfDitherStrokePath('preview-clear');
           }
           const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
           if (isPixelDitherNoBg) {
@@ -2150,6 +2168,7 @@ export const useBrushEngineSimplified = () => {
     shouldApplyStrokeDither,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.pressureLinkedFillResolution,
+    warnIfDitherStrokePath,
     withAlphaLock
   ]);
 
@@ -2709,8 +2728,11 @@ export const useBrushEngineSimplified = () => {
 
       const { x, y, width, height } = region;
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
+      // Legacy Dither Stroke BG-off compositor; keep isolated from other brushes.
       if (isDitherStrokeBrush && bgOff) {
         ctx.clearRect(x, y, width, height);
+      } else if (bgOff) {
+        warnIfDitherStrokePath('finalize-clear');
       }
       if (isPixelDitherNoBg) {
         ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
@@ -2788,6 +2810,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.lostEdge,
     tools.brushSettings.pressureLinkedFillResolution,
+    warnIfDitherStrokePath,
     withAlphaLock
   ]);
 
