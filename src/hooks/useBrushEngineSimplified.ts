@@ -9,7 +9,6 @@ import {
   selectEffectiveColorCyclePlaying,
   useAppStore
 } from '../stores/useAppStore';
-import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape, type Layer, type BrushSettings } from '../types';
 import {
@@ -338,13 +337,8 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
 };
 
 
-type PressureSettingsSnapshot = Pick<
-  BrushSettings,
-  'pressureEnabled' | 'minPressure' | 'maxPressure' | 'brushShape'
->;
-
-const normalizePressureSettings = (settings: PressureSettingsSnapshot) => {
-  const range = resolveBrushPressureRange(settings as BrushSettings);
+const normalizePressureSettings = (settings: BrushSettings) => {
+  const range = resolveBrushPressureRange(settings);
   return {
     enabled: range.enabled,
     min: range.enabled ? range.minPercent : 100,
@@ -622,9 +616,7 @@ const renderBrushToLayerCanvas = (
 };
 
 export const useBrushEngineSimplified = () => {
-  const brushSettings = useAppStore(selectBrushSettings);
-  const project = useAppStore((state) => state.project);
-  const activeLayerId = useAppStore((state) => state.activeLayerId);
+  const { tools, project, activeLayerId } = useAppStore();
   const layers = useAppStore((state) => state.layers);
   // Track per-layer CC brush speed for the active layer
   const activeLayerBrushSpeed = useAppStore((state) => {
@@ -719,9 +711,9 @@ export const useBrushEngineSimplified = () => {
 
   const setBlendIfUnlocked = useCallback((ctx: CanvasRenderingContext2D) => {
     if (!activeLayerTransparencyLock) {
-      ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+      ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
     }
-  }, [activeLayerTransparencyLock, brushSettings.blendMode]);
+  }, [activeLayerTransparencyLock, tools.brushSettings.blendMode]);
 
   const setMultiplyIfUnlocked = useCallback((ctx: CanvasRenderingContext2D) => {
     if (!activeLayerTransparencyLock) {
@@ -892,7 +884,7 @@ export const useBrushEngineSimplified = () => {
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
     strokePressureResStateRef.current = createPressureResolutionState(1);
-  }, [brushSettings.pressureLinkedFillResolution]);
+  }, [tools.brushSettings.pressureLinkedFillResolution]);
 
   const layerHasAnyAlpha = useCallback(() => {
     const mask = getActiveLayerBitmapCanvas();
@@ -1137,7 +1129,7 @@ export const useBrushEngineSimplified = () => {
       const scratchPost = sampleRGBA(sctx as unknown as CanvasRenderingContext2D, scratchSampleX, scratchSampleY);
       AL('MASK', { scratchRGBA_afterMask: scratchPost, region });
 
-      const blendMode = (brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
+      const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
       dstCtx.save();
       dstCtx.globalCompositeOperation = blendMode;
       dstCtx.drawImage(scratch, region.x, region.y);
@@ -1155,7 +1147,7 @@ export const useBrushEngineSimplified = () => {
     } finally {
       canvasPool.release(scratch);
     }
-  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha, brushSettings.blendMode]);
+  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha, tools.brushSettings.blendMode]);
 
   const renderCCWithBlendAndLock = useCallback((
     targetCtx: CanvasRenderingContext2D,
@@ -1251,28 +1243,8 @@ export const useBrushEngineSimplified = () => {
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const { pressureEnabled, minPressure, maxPressure, brushShape } = brushSettings;
-  const brushSizePendingRef = useRef(Math.max(1, Math.round(brushSettings.size || 1)));
-  const brushPressurePendingRef = useRef(normalizePressureSettings({
-    pressureEnabled,
-    minPressure,
-    maxPressure,
-    brushShape
-  }));
-  const normalizedPressureSettings = useMemo(
-    () => normalizePressureSettings({
-      pressureEnabled,
-      minPressure,
-      maxPressure,
-      brushShape
-    }),
-    [
-      pressureEnabled,
-      minPressure,
-      maxPressure,
-      brushShape
-    ]
-  );
+  const brushSizePendingRef = useRef(Math.max(1, Math.round(tools.brushSettings.size || 1)));
+  const brushPressurePendingRef = useRef(normalizePressureSettings(tools.brushSettings));
   type StrokePressureState = {
     min: number;
     max: number;
@@ -1331,11 +1303,11 @@ export const useBrushEngineSimplified = () => {
   
   // Performance: Cache expensive computations
   const isPixelBrush = useMemo(() =>
-    brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
-    brushSettings.brushShape === BrushShape.PIXEL_DITHER ||
-    (brushSettings.brushShape === BrushShape.SQUARE &&
-     !brushSettings.antialiasing),
-    [brushSettings.brushShape, brushSettings.antialiasing]
+    tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+    tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER ||
+    (tools.brushSettings.brushShape === BrushShape.SQUARE &&
+     !tools.brushSettings.antialiasing),
+    [tools.brushSettings.brushShape, tools.brushSettings.antialiasing]
   );
   
   // Pattern temp context getter - also returns the canvas
@@ -1515,8 +1487,8 @@ export const useBrushEngineSimplified = () => {
       isResampler?: boolean;
     }
   ): Rect => {
-    const brushSettingsLocal = brushSettings;
-    const brushSize = Math.max(brushSettingsLocal.size || 1, 1);
+    const brushSettings = tools.brushSettings;
+    const brushSize = Math.max(brushSettings.size || 1, 1);
     const pressureFactor = Number.isFinite(pressure) ? Math.max(pressure, 1) : 1;
     let effectiveSize = brushSize * pressureFactor;
 
@@ -1531,8 +1503,8 @@ export const useBrushEngineSimplified = () => {
     }
 
     if (
-      brushSettingsLocal.brushShape === BrushShape.PIXEL_DITHER &&
-      brushSettingsLocal.ditherStrokeTipShape === 'diamond'
+      brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
+      brushSettings.ditherStrokeTipShape === 'diamond'
     ) {
       effectiveSize *= Math.SQRT2;
     }
@@ -1556,12 +1528,12 @@ export const useBrushEngineSimplified = () => {
       },
       padding
     );
-  }, [brushSettings]);
+  }, [tools.brushSettings]);
 
   // Create brush engine facade - only recreate when structural dependencies change
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
-      brushSettings: brushSettings,
+      brushSettings: tools.brushSettings,
       transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
@@ -1572,12 +1544,12 @@ export const useBrushEngineSimplified = () => {
     };
     
     return createBrushEngineFacade(config);
-  }, [brushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, activeLayerTransparencyLock]);
+  }, [tools.brushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, activeLayerTransparencyLock]);
 
   // Update engine config when settings change
   useEffect(() => {
     brushEngine.updateConfig({
-      brushSettings: brushSettings,
+      brushSettings: tools.brushSettings,
       transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
@@ -1585,15 +1557,15 @@ export const useBrushEngineSimplified = () => {
     });
 
     // Initialize spam text when the Spam Text brush is selected
-    if (brushSettings.brushShape === BrushShape.SPAM_TEXT) {
-      const contentType = brushSettings.spamContentType || 'mixed';
-      const customText = brushSettings.spamCustomText;
+    if (tools.brushSettings.brushShape === BrushShape.SPAM_TEXT) {
+      const contentType = tools.brushSettings.spamContentType || 'mixed';
+      const customText = tools.brushSettings.spamCustomText;
       brushEngine.initializeSpamText(contentType, customText);
     }
-  }, [brushEngine, brushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
+  }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
 
   const shouldApplyStrokeDither = useMemo(() => {
-    const shape = brushSettings.brushShape;
+    const shape = tools.brushSettings.brushShape;
     if (isColorCycleBrush(shape)) {
       return false;
     }
@@ -1604,17 +1576,17 @@ export const useBrushEngineSimplified = () => {
     ) {
       return false;
     }
-    return Boolean(brushSettings.ditherEnabled);
-  }, [brushSettings.brushShape, brushSettings.ditherEnabled]);
+    return Boolean(tools.brushSettings.ditherEnabled);
+  }, [tools.brushSettings.brushShape, tools.brushSettings.ditherEnabled]);
 
   const strokeDitherPalette = useMemo(() => {
     const basePalette = buildDitherPalette(
-      brushSettings.color || '#000',
-      brushSettings.ditherPaletteSpread ?? 0
+      tools.brushSettings.color || '#000',
+      tools.brushSettings.ditherPaletteSpread ?? 0
     );
 
     // For BG-fill-off, force a 2-ink palette (darkest + lightest) so one ink always becomes transparent
-    if (brushSettings.ditherBackgroundFill === false && basePalette.length >= 2) {
+    if (tools.brushSettings.ditherBackgroundFill === false && basePalette.length >= 2) {
       const luminance = (rgb: string): number => {
         const [r, g, b] = parseColor(rgb || '#000');
         return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -1638,7 +1610,7 @@ export const useBrushEngineSimplified = () => {
     }
 
     return basePalette;
-  }, [brushSettings.color, brushSettings.ditherPaletteSpread, brushSettings.ditherBackgroundFill]);
+  }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread, tools.brushSettings.ditherBackgroundFill]);
 
   // Pick a single palette entry to represent "off"/transparent ink: choose the darkest ink for stability
   const transparentInk = useMemo(() => {
@@ -1671,20 +1643,20 @@ export const useBrushEngineSimplified = () => {
     return (
       isDitherPreset &&
       shouldApplyStrokeDither &&
-      brushSettings.ditherBackgroundFill === false
+      tools.brushSettings.ditherBackgroundFill === false
     );
-  }, [isDitherPreset, shouldApplyStrokeDither, brushSettings.ditherBackgroundFill]);
+  }, [isDitherPreset, shouldApplyStrokeDither, tools.brushSettings.ditherBackgroundFill]);
 
   const computePressureScaledResolution = useCallback((pressure: number) => {
     return computePressureResolution(
-      brushSettings.fillResolution || 1,
+      tools.brushSettings.fillResolution || 1,
       pressure,
-      brushSettings.pressureLinkedFillResolution ?? false,
+      tools.brushSettings.pressureLinkedFillResolution ?? false,
       strokePressureResStateRef.current,
       undefined,
       PRESSURE_RESOLUTION_MAX_PX
     );
-  }, [brushSettings.fillResolution, brushSettings.pressureLinkedFillResolution]);
+  }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
 
   const getStrokeDitherPixelSize = useCallback(() => {
     const stats = strokePressureRef.current;
@@ -1780,14 +1752,14 @@ export const useBrushEngineSimplified = () => {
     const overridePressure = options?.overridePressure;
     const overridePixelSize = options?.overridePixelSize;
     // For shape-mode dither presets we need to respect the BG Fill toggle just like strokes
-    const fillBackground = brushSettings.ditherBackgroundFill !== false;
+    const fillBackground = tools.brushSettings.ditherBackgroundFill !== false;
     const bgOffMode = options?.bgOffMode ?? 'accumulate';
     const bgOffComposite = options?.bgOffComposite ?? 'source-over';
     const [bgR, bgG, bgB] = (() => {
       const candidate =
         strokeDitherPalette[1] ??
         strokeDitherPalette[0] ??
-        brushSettings.color ??
+        tools.brushSettings.color ??
         '#000';
       const [r, g, b] = parseColor(candidate);
       return [r, g, b] as [number, number, number];
@@ -1807,14 +1779,14 @@ export const useBrushEngineSimplified = () => {
     }
 
     // Decide whether we’re in pressure-linked mode
-    const pressureMode = !!brushSettings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
+    const pressureMode = !!tools.brushSettings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
 
     // Algorithm/pattern always come from the dropdown
-    const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
-    const patternStyle = brushSettings.patternStyle || 'dots';
+    const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+    const patternStyle = tools.brushSettings.patternStyle || 'dots';
 
     // Base pixel size from slider
-    const baseFillRes = Math.max(1, Math.round(brushSettings.fillResolution || 1));
+    const baseFillRes = Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
 
     // Pressure-resolved pixel size (hard override takes precedence)
     const resolvedOverridePixelSize = overridePixelSize != null
@@ -1836,8 +1808,8 @@ export const useBrushEngineSimplified = () => {
       overridePixelSize,
       resolvedOverridePixelSize,
       overridePressure,
-      settingsFillRes: brushSettings.fillResolution,
-      pressureLinkedFillResolution: brushSettings.pressureLinkedFillResolution,
+      settingsFillRes: tools.brushSettings.fillResolution,
+      pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
       baseFillRes,
       pressureFillRes,
       pixelSizeBeforeClamp: pixelSize
@@ -1852,12 +1824,12 @@ export const useBrushEngineSimplified = () => {
     });
 
     // Erode stroke coverage before dithering so the pattern stays clean.
-    if (brushSettings.lostEdge && brushSettings.lostEdge > 0) {
+    if (tools.brushSettings.lostEdge && tools.brushSettings.lostEdge > 0) {
       applyLostEdgeToStrokeAlpha(
         src.data,
         width,
         height,
-        brushSettings.lostEdge
+        tools.brushSettings.lostEdge
       );
     }
 
@@ -1997,13 +1969,13 @@ export const useBrushEngineSimplified = () => {
     applyLostEdgeToStrokeAlpha,
     computePressureScaledResolution,
     getStrokeDitherPixelSize,
-    brushSettings.color,
-    brushSettings.pressureLinkedFillResolution,
-    brushSettings.fillResolution,
-    brushSettings.ditherAlgorithm,
-    brushSettings.patternStyle,
-    brushSettings.lostEdge,
-    brushSettings.ditherBackgroundFill,
+    tools.brushSettings.color,
+    tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.fillResolution,
+    tools.brushSettings.ditherAlgorithm,
+    tools.brushSettings.patternStyle,
+    tools.brushSettings.lostEdge,
+    tools.brushSettings.ditherBackgroundFill,
     transparentInk,
     strokeDitherPalette,
     ensureBgOffHole,
@@ -2029,7 +2001,7 @@ export const useBrushEngineSimplified = () => {
   }, [ditherRegionWithCurrentPressure, shouldApplyStrokeDither]);
 
   const applyStrokeRisographOverlay = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, source?: HTMLCanvasElement | null) => {
-    const intensity = brushSettings.risographIntensity || 0;
+    const intensity = tools.brushSettings.risographIntensity || 0;
     if (!bounds || !ctx || intensity <= 0) {
       return;
     }
@@ -2048,7 +2020,7 @@ export const useBrushEngineSimplified = () => {
       ctx.globalCompositeOperation = prevOp;
       ctx.globalAlpha = prevAlpha;
     }
-  }, [brushSettings.risographIntensity]);
+  }, [tools.brushSettings.risographIntensity]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
     liveRenderScheduledRef.current = false;
@@ -2076,7 +2048,7 @@ export const useBrushEngineSimplified = () => {
     // Pressure-linked path: only blit the newly dithered region; do NOT re-dither old stamps.
     if (
       shouldApplyStrokeDither &&
-      brushSettings.pressureLinkedFillResolution &&
+      tools.brushSettings.pressureLinkedFillResolution &&
       ditherCanvas
     ) {
       const regionToBlit = liveDirtyRectRef.current ?? strokeBounds;
@@ -2121,7 +2093,7 @@ export const useBrushEngineSimplified = () => {
           dCtx.canvas?.height ?? 0
         );
 
-        if (brushSettings.ditherBackgroundFill !== false) {
+        if (tools.brushSettings.ditherBackgroundFill !== false) {
           // BG fill on: redraw raw patch then dither full dirty rect
           dCtx.drawImage(rawCanvas as CanvasImageSource, dx, dy, dw, dh, dx, dy, dw, dh);
           applyStrokeDither(dCtx, ditherRegion, rawCtx);
@@ -2171,8 +2143,8 @@ export const useBrushEngineSimplified = () => {
     applyStrokeRisographOverlay,
     isPixelDitherNoBg,
     shouldApplyStrokeDither,
-    brushSettings.ditherBackgroundFill,
-    brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.pressureLinkedFillResolution,
     withAlphaLock
   ]);
 
@@ -2317,9 +2289,9 @@ export const useBrushEngineSimplified = () => {
     // Track what changed since last preview frame.
     // Inflate to reduce diffusion edge seams.
     const pixelSizeForOverlap =
-      brushSettings.ditherBackgroundFill === false
-        ? Math.max(1, Math.round(brushSettings.fillResolution || 1))
-        : Math.max(1, Math.round(brushSettings.fillResolution || 1));
+      tools.brushSettings.ditherBackgroundFill === false
+        ? Math.max(1, Math.round(tools.brushSettings.fillResolution || 1))
+        : Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
 
     const OVERLAP = Math.max(8, pixelSizeForOverlap * 2);
     const dirty = inflateRect(segmentBounds, OVERLAP);
@@ -2334,18 +2306,18 @@ export const useBrushEngineSimplified = () => {
     // Apply lost-edge fade even when dithering is disabled (stroke brushes)
     if (
       !shouldApplyStrokeDither &&
-      brushSettings.lostEdge &&
-      brushSettings.lostEdge > 0
+      tools.brushSettings.lostEdge &&
+      tools.brushSettings.lostEdge > 0
     ) {
       const region = inflateRect(segmentBounds, 2);
-      applyLostEdgeMaskInRegion(rawCtx, region, brushSettings.lostEdge);
+      applyLostEdgeMaskInRegion(rawCtx, region, tools.brushSettings.lostEdge);
     }
 
     // Pressure-linked dither: re-dither the entire stroke so far, but throttled
-    if (brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
+    if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
       const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
       const fullBounds = strokeBoundsRef.current ?? segmentBounds;
-      const bgOff = brushSettings.ditherBackgroundFill === false;
+      const bgOff = tools.brushSettings.ditherBackgroundFill === false;
 
       if (ditherCtx && rawCtx && fullBounds) {
         const canvasW = ditherCtx.canvas?.width ?? 0;
@@ -2452,10 +2424,10 @@ export const useBrushEngineSimplified = () => {
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
     getStrokeDitherPixelSize,
-    brushSettings.fillResolution,
-    brushSettings.ditherBackgroundFill,
-    brushSettings.pressureLinkedFillResolution,
-    brushSettings.lostEdge,
+    tools.brushSettings.fillResolution,
+    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
     applyLostEdgeMaskInRegion,
@@ -2541,9 +2513,9 @@ export const useBrushEngineSimplified = () => {
     // Track what changed since last preview frame.
     // Inflate to reduce diffusion edge seams.
     const pixelSizeForOverlap =
-      brushSettings.ditherBackgroundFill === false
-        ? Math.max(1, Math.round(brushSettings.fillResolution || 1))
-        : Math.max(1, Math.round(brushSettings.fillResolution || 1));
+      tools.brushSettings.ditherBackgroundFill === false
+        ? Math.max(1, Math.round(tools.brushSettings.fillResolution || 1))
+        : Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
 
     const OVERLAP = Math.max(8, pixelSizeForOverlap * 2);
     const dirty = inflateRect(segmentBounds, OVERLAP);
@@ -2562,17 +2534,17 @@ export const useBrushEngineSimplified = () => {
     // Apply lost-edge fade even without dithering
     if (
       !shouldApplyStrokeDither &&
-      brushSettings.lostEdge &&
-      brushSettings.lostEdge > 0
+      tools.brushSettings.lostEdge &&
+      tools.brushSettings.lostEdge > 0
     ) {
       const region = inflateRect(segmentBounds, 2);
-      applyLostEdgeMaskInRegion(rawCtx, region, brushSettings.lostEdge);
+      applyLostEdgeMaskInRegion(rawCtx, region, tools.brushSettings.lostEdge);
     }
 
-    if (brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
+    if (tools.brushSettings.pressureLinkedFillResolution && shouldApplyStrokeDither) {
       const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
       const fullBounds = strokeBoundsRef.current ?? segmentBounds;
-      const bgOff = brushSettings.ditherBackgroundFill === false;
+      const bgOff = tools.brushSettings.ditherBackgroundFill === false;
 
       if (ditherCtx && rawCtx && fullBounds) {
         const canvasW = ditherCtx.canvas?.width ?? 0;
@@ -2643,10 +2615,10 @@ export const useBrushEngineSimplified = () => {
     estimateStrokeBounds,
     scheduleLiveStrokeRender,
     getStrokeDitherPixelSize,
-    brushSettings.fillResolution,
-    brushSettings.ditherBackgroundFill,
-    brushSettings.pressureLinkedFillResolution,
-    brushSettings.lostEdge,
+    tools.brushSettings.fillResolution,
+    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
     applyLostEdgeMaskInRegion,
@@ -2686,8 +2658,8 @@ export const useBrushEngineSimplified = () => {
       region.width > 0 &&
       region.height > 0
     ) {
-      if (brushSettings.lostEdge && brushSettings.lostEdge > 0) {
-        applyLostEdgeMaskInRegion(rawCtx, inflateRect(region, 2), brushSettings.lostEdge);
+      if (tools.brushSettings.lostEdge && tools.brushSettings.lostEdge > 0) {
+        applyLostEdgeMaskInRegion(rawCtx, inflateRect(region, 2), tools.brushSettings.lostEdge);
       }
       const { x, y, width, height } = region;
       withAlphaLock(ctx, (targetCtx) => {
@@ -2704,7 +2676,7 @@ export const useBrushEngineSimplified = () => {
     }
 
     if (
-      brushSettings.pressureLinkedFillResolution &&
+      tools.brushSettings.pressureLinkedFillResolution &&
       shouldApplyStrokeDither &&
       strokeBounds &&
       ditherCanvas &&
@@ -2717,7 +2689,7 @@ export const useBrushEngineSimplified = () => {
         committedPixelSizeRef.current ??
         lastPressureDitherPixelSizeRef.current ??
         getStrokeDitherPixelSize();
-      const bgOff = brushSettings.ditherBackgroundFill === false;
+      const bgOff = tools.brushSettings.ditherBackgroundFill === false;
       if (rawCtxForFinal && ditherCtxForFinal) {
         const { x, y, width, height } = region;
         if (!bgOff) {
@@ -2746,9 +2718,9 @@ export const useBrushEngineSimplified = () => {
       return strokeBounds ? { ...strokeBounds } : null;
     }
 
-    if (!brushSettings.pressureLinkedFillResolution && strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
+    if (!tools.brushSettings.pressureLinkedFillResolution && strokeBounds && region && region.width > 0 && region.height > 0 && rawCtx && ditherCtx) {
       const { x, y, width, height } = region;
-      if (brushSettings.ditherBackgroundFill === false) {
+      if (tools.brushSettings.ditherBackgroundFill === false) {
         // BG fill off: re-dither the whole stroke region before commit to avoid stamp seams
         ditherCtx.clearRect(x, y, width, height);
         ditherRegionWithCurrentPressure(ditherCtx, region, rawCtx, { mergeExisting: false });
@@ -2804,9 +2776,9 @@ export const useBrushEngineSimplified = () => {
     getStrokeDitherPixelSize,
     isPixelDitherNoBg,
     shouldApplyStrokeDither,
-    brushSettings.ditherBackgroundFill,
-    brushSettings.lostEdge,
-    brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.lostEdge,
+    tools.brushSettings.pressureLinkedFillResolution,
     withAlphaLock
   ]);
 
@@ -2898,7 +2870,7 @@ export const useBrushEngineSimplified = () => {
     ctx.imageSmoothingEnabled = !isPixelBrush;
     
     // Apply opacity and blend mode
-    ctx.globalAlpha = brushSettings.opacity;
+    ctx.globalAlpha = tools.brushSettings.opacity;
     setBlendIfUnlocked(ctx);
 
     // Create gradient - use actual start/end positions to respect direction
@@ -2919,7 +2891,7 @@ export const useBrushEngineSimplified = () => {
       }
     } else {
       // Fallback to default color
-      const defaultColor = brushSettings.color;
+      const defaultColor = tools.brushSettings.color;
       gradient.addColorStop(0, defaultColor);
       gradient.addColorStop(1, defaultColor);
     }
@@ -2933,7 +2905,7 @@ export const useBrushEngineSimplified = () => {
     ctx.fill();
     
     // Apply dithering if enabled, using clipping to preserve clean edges
-    if (brushSettings.ditherEnabled && !isPreview) {
+    if (tools.brushSettings.ditherEnabled && !isPreview) {
       const minX = Math.floor(Math.min(...corners.map(c => c.x)));
       const minY = Math.floor(Math.min(...corners.map(c => c.y)));
       const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
@@ -2962,9 +2934,9 @@ export const useBrushEngineSimplified = () => {
               // For single color, add it at both start and end
               localGradient.addColorStop(0, colors[0]);
               localGradient.addColorStop(1, colors[0]);
-            } else if (brushSettings.gradientBands && brushSettings.gradientBands > 0) {
+            } else if (tools.brushSettings.gradientBands && tools.brushSettings.gradientBands > 0) {
               // Create stepped gradient for visible bands
-              const bandCount = Math.min(brushSettings.gradientBands, colors.length);
+              const bandCount = Math.min(tools.brushSettings.gradientBands, colors.length);
               for (let i = 0; i < bandCount; i++) {
                 const colorIndex = Math.floor((i / Math.max(1, bandCount - 1)) * (colors.length - 1));
                 const color = colors[colorIndex];
@@ -2994,7 +2966,7 @@ export const useBrushEngineSimplified = () => {
               });
             }
           } else {
-            const defaultColor = brushSettings.color;
+            const defaultColor = tools.brushSettings.color;
             localGradient.addColorStop(0, defaultColor);
             localGradient.addColorStop(1, defaultColor);
           }
@@ -3006,13 +2978,13 @@ export const useBrushEngineSimplified = () => {
           // Get and dither the full gradient
           const imageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
           
-          const numColors = brushSettings.gradientBands || brushSettings.colors || 2;
-          const fillResolution = brushSettings.fillResolution || 1;
-          const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
-          const patternStyle = brushSettings.patternStyle || 'dots';
+          const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
+          const fillResolution = tools.brushSettings.fillResolution || 1;
+          const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+          const patternStyle = tools.brushSettings.patternStyle || 'dots';
           
           // Pass the gradient colors to dithering
-          const paletteColors = colors.length > 0 ? colors : [brushSettings.color];
+          const paletteColors = colors.length > 0 ? colors : [tools.brushSettings.color];
           const ditheredData = fillResolution > 1 
             ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors)
             : applyDitheringImport(imageData, numColors, algorithm, patternStyle, paletteColors);
@@ -3043,7 +3015,7 @@ export const useBrushEngineSimplified = () => {
     }
     
     // Apply risograph effect if enabled (matching monolithic)
-    const risographIntensity = brushSettings.risographIntensity || 0;
+    const risographIntensity = tools.brushSettings.risographIntensity || 0;
     if (risographIntensity > 0 && !isPreview) {
       const pattern = getRisographPattern(ctx);
       
@@ -3073,8 +3045,8 @@ export const useBrushEngineSimplified = () => {
           const filter = isPixelBrush
             ? 'none'
             : getRisographFilter(
-                brushSettings.color || '#000',
-                brushSettings.risographColorShift ?? 3,
+                tools.brushSettings.color || '#000',
+                tools.brushSettings.risographColorShift ?? 3,
                 rng
               );
 
@@ -3156,7 +3128,7 @@ export const useBrushEngineSimplified = () => {
     // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, brushSettings.color, brushSettings.risographIntensity, brushSettings.ditherEnabled, brushSettings.colors, brushSettings.gradientBands, brushSettings.fillResolution, brushSettings.ditherAlgorithm, brushSettings.patternStyle, brushSettings.opacity, brushSettings.risographColorShift, isPixelBrush]);
+  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.risographColorShift, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -3196,8 +3168,8 @@ export const useBrushEngineSimplified = () => {
       const filter = isPixelBrush
         ? 'none'
         : getRisographFilter(
-            brushSettings.color || '#000',
-            brushSettings.risographColorShift ?? 3,
+            tools.brushSettings.color || '#000',
+            tools.brushSettings.risographColorShift ?? 3,
             rng
           );
 
@@ -3276,14 +3248,14 @@ export const useBrushEngineSimplified = () => {
       // Restore state
       ctx.restore();
     }
-  }, [setMultiplyIfUnlocked, isPixelBrush, brushSettings.color, brushSettings.risographColorShift]);
+  }, [setMultiplyIfUnlocked, isPixelBrush, tools.brushSettings.color, tools.brushSettings.risographColorShift]);
 
   const applyColorCycleRisographOverlay = useCallback((
     ctx: CanvasRenderingContext2D,
     sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
     outputOpacity: number
   ) => {
-    const intensity = brushSettings.risographIntensity || 0;
+    const intensity = tools.brushSettings.risographIntensity || 0;
     if (intensity <= 0) {
       return;
     }
@@ -3305,7 +3277,7 @@ export const useBrushEngineSimplified = () => {
     }
     const normalizedIntensity = Math.max(0, Math.min(1, intensity / 100));
     const overlayBase = outputOpacity * (0.12 + normalizedIntensity * 0.08);
-    const overlayStrength = Math.min(1, brushSettings.ditherEnabled ? Math.max(overlayBase, 0.28) : overlayBase);
+    const overlayStrength = Math.min(1, tools.brushSettings.ditherEnabled ? Math.max(overlayBase, 0.28) : overlayBase);
     if (overlayStrength <= 0.01) {
       return;
     }
@@ -3327,15 +3299,15 @@ export const useBrushEngineSimplified = () => {
     tempCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
     tempCtx.fillRect(0, 0, width, height);
 
-    const seed = hashNumbers(width, height, intensity, brushSettings.risographColorShift ?? 3);
+    const seed = hashNumbers(width, height, intensity, tools.brushSettings.risographColorShift ?? 3);
     const rng = createSeededRng(seed);
     const misregX = (rng() - 0.5) * effect.jitter;
     const misregY = (rng() - 0.5) * effect.jitter;
     const rotation = (rng() - 0.5) * 0.08;
     const scale = 1 + (rng() - 0.5) * 0.04;
     const filter = getRisographFilter(
-      brushSettings.color || '#000',
-      brushSettings.risographColorShift ?? 3,
+      tools.brushSettings.color || '#000',
+      tools.brushSettings.risographColorShift ?? 3,
       rng
     );
 
@@ -3361,7 +3333,7 @@ export const useBrushEngineSimplified = () => {
     ctx.restore();
 
     canvasPool.release(tempCanvas);
-  }, [brushSettings.risographIntensity, brushSettings.risographColorShift, brushSettings.color, brushSettings.ditherEnabled]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.risographColorShift, tools.brushSettings.color, tools.brushSettings.ditherEnabled]);
 
   /**
    * Draw polygon with gradient - DEBUG VERSION
@@ -3432,7 +3404,7 @@ export const useBrushEngineSimplified = () => {
 
     if (validColors.length === 0) {
       // Fallback to current brush color
-      const defaultColor = brushSettings.color || '#000000';
+      const defaultColor = tools.brushSettings.color || '#000000';
       gradient.addColorStop(0, defaultColor);
       gradient.addColorStop(1, defaultColor);
     } else if (validColors.length === validVertices.length) {
@@ -3465,10 +3437,10 @@ export const useBrushEngineSimplified = () => {
       
       // Get the number of colors to use from brush settings
       // Use gradientBands if available, otherwise fall back to colors setting
-      const numColors = brushSettings.gradientBands || brushSettings.colors || orderedUniqueColors.length;
+      const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || orderedUniqueColors.length;
       
       // Create stepped gradient for visible bands effect
-      if (brushSettings.gradientBands && brushSettings.gradientBands > 0) {
+      if (tools.brushSettings.gradientBands && tools.brushSettings.gradientBands > 0) {
         // Create hard-edged bands by duplicating color stops
         const bandCount = Math.min(numColors, orderedUniqueColors.length);
         for (let i = 0; i < bandCount; i++) {
@@ -3526,11 +3498,11 @@ export const useBrushEngineSimplified = () => {
     ctx.save();
     
     // Apply opacity and blend mode
-    ctx.globalAlpha = brushSettings.opacity;
+    ctx.globalAlpha = tools.brushSettings.opacity;
     setBlendIfUnlocked(ctx);
       
       // Check if we'll be applying dithering
-      const willApplyDithering = brushSettings.ditherEnabled && !isPreview;
+      const willApplyDithering = tools.brushSettings.ditherEnabled && !isPreview;
       
       if (willApplyDithering && boundWidth > 0 && boundHeight > 0) {
         // Create temp canvas for dithering - add padding for antialiasing
@@ -3552,7 +3524,7 @@ export const useBrushEngineSimplified = () => {
           
           // Add color stops (same as main gradient) - use ordered unique colors
           if (validColors.length === 0) {
-            const defaultColor = brushSettings.color || '#000000';
+            const defaultColor = tools.brushSettings.color || '#000000';
             localGradient.addColorStop(0, defaultColor);
             localGradient.addColorStop(1, defaultColor);
           } else if (validColors.length === validVertices.length) {
@@ -3580,7 +3552,7 @@ export const useBrushEngineSimplified = () => {
               }
             }
             
-            const numColors = brushSettings.gradientBands || brushSettings.colors || orderedUniqueColors.length;
+            const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || orderedUniqueColors.length;
             
             if (orderedUniqueColors.length <= numColors) {
               orderedUniqueColors.forEach((item, index) => {
@@ -3613,10 +3585,10 @@ export const useBrushEngineSimplified = () => {
           const gradientImageData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
           
           // Apply dithering
-          const numColors = brushSettings.gradientBands || brushSettings.colors || 2;
-          const fillResolution = brushSettings.fillResolution || 1;
-          const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
-          const patternStyle = brushSettings.patternStyle || 'dots';
+          const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
+          const fillResolution = tools.brushSettings.fillResolution || 1;
+          const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+          const patternStyle = tools.brushSettings.patternStyle || 'dots';
           
           // Pass the gradient colors directly to the dithering function
           const ditheredData = fillResolution > 1 
@@ -3665,7 +3637,7 @@ export const useBrushEngineSimplified = () => {
           canvasPool.release(tempCanvas);
 
           // Apply risograph effect if enabled
-          const risographIntensity = brushSettings.risographIntensity || 0;
+          const risographIntensity = tools.brushSettings.risographIntensity || 0;
           if (risographIntensity > 0 && !isPreview) {
             applyRisographEffect(ctx, validVertices, risographIntensity);
           }
@@ -3698,7 +3670,7 @@ export const useBrushEngineSimplified = () => {
         // quiet
         
         // Apply risograph effect if enabled
-        const risographIntensity = brushSettings.risographIntensity || 0;
+        const risographIntensity = tools.brushSettings.risographIntensity || 0;
         if (risographIntensity > 0 && !isPreview) {
           applyRisographEffect(ctx, validVertices, risographIntensity);
         }
@@ -3707,7 +3679,7 @@ export const useBrushEngineSimplified = () => {
       // Restore context state
       ctx.restore();
     });
-  }, [withTransparencyLock, setBlendIfUnlocked, brushSettings.risographIntensity, brushSettings.opacity, brushSettings.ditherEnabled, brushSettings.colors, brushSettings.gradientBands, brushSettings.fillResolution, brushSettings.ditherAlgorithm, brushSettings.patternStyle, brushSettings.color, applyRisographEffect]);
+  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
 
 
   /**
@@ -3810,34 +3782,34 @@ export const useBrushEngineSimplified = () => {
       }
       
       // Apply settings (for both new and existing brushes)
-      colorCycleBrush.setBrushSize(brushSettings.size || 20);
-      if (brushSettings.colorCycleFPS) {
-        colorCycleBrush.setFPS(brushSettings.colorCycleFPS);
+      colorCycleBrush.setBrushSize(tools.brushSettings.size || 20);
+      if (tools.brushSettings.colorCycleFPS) {
+        colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
       }
       // Prefer per-layer CC brush speed when available; fallback to global brush setting
       try {
         const state = useAppStore.getState();
         const activeLayer = state.layers.find(l => l.id === activeLayerId);
         const perLayerSpeed = activeLayer?.colorCycleData?.brushSpeed;
-        const speed = perLayerSpeed ?? brushSettings.colorCycleSpeed;
+        const speed = perLayerSpeed ?? tools.brushSettings.colorCycleSpeed;
         if (speed) {
           colorCycleBrush.setSpeed(speed);
         }
       } catch {}
-      if (brushSettings.gradientBands) {
-        colorCycleBrush.setGradientBands(brushSettings.gradientBands);
+      if (tools.brushSettings.gradientBands) {
+        colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
       }
-      const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
       const resolvedBandSpacing = clampColorCycleBandSpacing(
         useShapeSpacing
-          ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
-          : brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+          ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+          : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
       );
       colorCycleBrush.setBandSpacing(resolvedBandSpacing);
       // Set pressure enabled state and min/max values
       // quiet
       try {
-        const { enabled, minPercent, maxPercent } = resolveBrushPressureRange(brushSettings);
+        const { enabled, minPercent, maxPercent } = resolveBrushPressureRange(tools.brushSettings);
         colorCycleBrush.setPressureEnabled(enabled);
         colorCycleBrush.setMinPressure(enabled ? minPercent : 100);
         colorCycleBrush.setMaxPressure(enabled ? maxPercent : 100);
@@ -3847,9 +3819,9 @@ export const useBrushEngineSimplified = () => {
 
       try {
         const stampShape =
-          brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
             ? 'triangle'
-            : (brushSettings.colorCycleStampShape ?? 'square');
+            : (tools.brushSettings.colorCycleStampShape ?? 'square');
         colorCycleBrush.setStampShape(stampShape);
       } catch (error) {
         console.error('[CC Init] Failed to set stamp shape:', error);
@@ -3860,7 +3832,7 @@ export const useBrushEngineSimplified = () => {
       const activeLayer = storeSnapshot.layers.find(l => l.id === activeLayerId);
       const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
         activeLayer,
-        brushSettings
+        tools.brushSettings
       );
       slotPalettes.forEach((entry, index) => {
         const stops =
@@ -3871,7 +3843,7 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setActiveGradientSlot(activeLayerId, activeSlot);
       
       const layerFlowMode = activeLayer?.colorCycleData?.flowMode;
-      const flowMode = brushSettings.colorCycleFlowMode ?? layerFlowMode ?? 'reverse';
+      const flowMode = tools.brushSettings.colorCycleFlowMode ?? layerFlowMode ?? 'reverse';
       const legacyFlowMode = layerFlowMode ?? flowMode;
       if (typeof (colorCycleBrush as { setLegacyFlowMode?: (mode: typeof flowMode) => void }).setLegacyFlowMode === 'function') {
         (colorCycleBrush as { setLegacyFlowMode: (mode: typeof flowMode) => void }).setLegacyFlowMode(legacyFlowMode);
@@ -3888,7 +3860,7 @@ export const useBrushEngineSimplified = () => {
       return null;
     }
   }, [
-    brushSettings,
+    tools.brushSettings,
     project?.width,
     project?.height,
     activeLayerId,
@@ -3930,13 +3902,13 @@ export const useBrushEngineSimplified = () => {
     if (!colorCycleBrush) {
       return;
     }
-    const flowMode = brushSettings.colorCycleFlowMode ?? activeLayerFlowMode ?? 'reverse';
+    const flowMode = tools.brushSettings.colorCycleFlowMode ?? activeLayerFlowMode ?? 'reverse';
     if (typeof colorCycleBrush.setFlowMode === 'function') {
       colorCycleBrush.setFlowMode(flowMode);
     } else {
       colorCycleBrush.setFlowDirection(flowMode === 'reverse' ? 'backward' : 'forward');
     }
-  }, [getActiveLayerColorCycleBrush, brushSettings.colorCycleFlowMode, activeLayerId, activeLayerFlowMode]);
+  }, [getActiveLayerColorCycleBrush, tools.brushSettings.colorCycleFlowMode, activeLayerId, activeLayerFlowMode]);
 
   /**
    * Render Color Cycle output onto the provided context.
@@ -3973,11 +3945,11 @@ export const useBrushEngineSimplified = () => {
 
     const previousComposite = ctx.globalCompositeOperation;
     const previousAlpha = ctx.globalAlpha;
-    const drawOpacity = applyOpacity ? (brushSettings.opacity ?? 1) : 1;
+    const drawOpacity = applyOpacity ? (tools.brushSettings.opacity ?? 1) : 1;
     const shouldApplyOverlay = options?.withOverlay ?? true;
 
     try {
-      const blendMode = (brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
+      const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
       ctx.globalAlpha = drawOpacity;
 
       if (activeLayerTransparencyLock) {
@@ -3998,8 +3970,8 @@ export const useBrushEngineSimplified = () => {
   }, [
     activeLayerId,
     getActiveLayerColorCycleBrush,
-    brushSettings.opacity,
-    brushSettings.blendMode,
+    tools.brushSettings.opacity,
+    tools.brushSettings.blendMode,
     activeLayerTransparencyLock,
     renderCCWithBlendAndLock,
     applyColorCycleRisographOverlay
@@ -4017,8 +3989,8 @@ export const useBrushEngineSimplified = () => {
     options?: DrawColorCycleOptions
   ) => {
     // Compute effective pressure settings shared with raster brushes
-    const baseBrushSize = Math.max(1, Math.round(brushSettings.size || 1));
-    const pressureRange = resolveBrushPressureRange(brushSettings);
+    const baseBrushSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
+    const pressureRange = resolveBrushPressureRange(tools.brushSettings);
     const pressureActive = pressureRange.enabled;
     const minPercent = pressureActive ? pressureRange.minPercent : 100;
     const maxPercent = pressureActive ? pressureRange.maxPercent : 100;
@@ -4055,9 +4027,9 @@ export const useBrushEngineSimplified = () => {
 
       try {
         const stampShape =
-          brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
             ? 'triangle'
-            : (brushSettings.colorCycleStampShape ?? 'square');
+            : (tools.brushSettings.colorCycleStampShape ?? 'square');
         colorCycleBrush.setStampShape(stampShape);
       } catch (error) {
         console.error('[CC DrawCycle] Error setting stamp shape:', error);
@@ -4067,9 +4039,9 @@ export const useBrushEngineSimplified = () => {
       if (options?.customStamp) {
         const stamp = options.customStamp;
         if (stamp.isResampler) {
-          brushSizeSetting = brushSettings.size || brushSizeSetting;
+          brushSizeSetting = tools.brushSettings.size || brushSizeSetting;
         } else {
-          const sizeValue = brushSettings.size;
+          const sizeValue = tools.brushSettings.size;
           brushSizeSetting = Math.max(1, typeof sizeValue === 'number' ? sizeValue : Math.max(stamp.width, stamp.height) || 1);
         }
       }
@@ -4095,7 +4067,7 @@ export const useBrushEngineSimplified = () => {
           const scaleToMaskY = mask.height / canvasHeight;
           const mx = Math.floor(x * scaleToMaskX);
           const my = Math.floor(y * scaleToMaskY);
-          const brushSize = brushSettings.size || 1;
+          const brushSize = tools.brushSettings.size || 1;
           let radius = Math.max(
             1,
             Math.round(brushSize * Math.max(scaleToMaskX, scaleToMaskY) * 0.5)
@@ -4172,7 +4144,7 @@ export const useBrushEngineSimplified = () => {
     // Don't composite here - let renderColorCycle handle all rendering
     // This prevents visible brush stamps and ensures only animated strokes show
   }, [
-    brushSettings,
+    tools.brushSettings,
     activeLayerId,
     getActiveLayerColorCycleBrush,
     getActiveLayerBitmapCanvas,
@@ -4295,7 +4267,7 @@ export const useBrushEngineSimplified = () => {
         const layer = state.layers.find((entry) => entry.id === layerId);
         const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
           layer,
-          brushSettings
+          tools.brushSettings
         );
         slotPalettes.forEach((entry, index) => {
           const stops =
@@ -4307,13 +4279,13 @@ export const useBrushEngineSimplified = () => {
       }
       
       // Ensure bands are set before filling
-      const bands = brushSettings.gradientBands || 12;
+      const bands = tools.brushSettings.gradientBands || 12;
       brush.setGradientBands(bands);
-      const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
       const bandSpacingPx = clampColorCycleBandSpacing(
         useShapeSpacing
-          ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
-          : brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+          ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+          : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
       );
       brush.setBandSpacing(bandSpacingPx);
       
@@ -4332,7 +4304,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     initializeColorCycleBrush,
     activeLayerId,
-    brushSettings,
+    tools.brushSettings,
   ]);
   
   /**
@@ -4363,7 +4335,7 @@ export const useBrushEngineSimplified = () => {
         const layer = state.layers.find((entry) => entry.id === layerId);
         const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
           layer,
-          brushSettings
+          tools.brushSettings
         );
         slotPalettes.forEach((entry, index) => {
           const stops =
@@ -4375,7 +4347,7 @@ export const useBrushEngineSimplified = () => {
       }
       
       // Ensure bands are set before filling
-      const bands = brushSettings.gradientBands || 12;
+      const bands = tools.brushSettings.gradientBands || 12;
       brush.setGradientBands(bands);
       
       // The vertices are already in the correct coordinate space
@@ -4385,7 +4357,7 @@ export const useBrushEngineSimplified = () => {
       // quiet
       // Fill the shape with layer ID and spacing
       const bandSpacingPx = clampColorCycleBandSpacing(
-        brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+        tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
       );
       await Promise.resolve(brush.fillShape?.(vertices, layerId, bandSpacingPx));
 
@@ -4400,7 +4372,7 @@ export const useBrushEngineSimplified = () => {
   }, [
     initializeColorCycleBrush,
     activeLayerId,
-    brushSettings,
+    tools.brushSettings,
   ]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
@@ -4419,10 +4391,10 @@ export const useBrushEngineSimplified = () => {
   // Update color cycle FPS when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && brushSettings.colorCycleFPS) {
-      colorCycleBrush.setFPS(brushSettings.colorCycleFPS);
+    if (colorCycleBrush && tools.brushSettings.colorCycleFPS) {
+      colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
     }
-  }, [brushSettings.colorCycleFPS, activeLayerId, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.colorCycleFPS, activeLayerId, getActiveLayerColorCycleBrush]);
   
   // Update gradient bands when it changes
   useEffect(() => {
@@ -4440,7 +4412,7 @@ export const useBrushEngineSimplified = () => {
       }
       
       if (colorCycleBrush) {
-        const bands = brushSettings.gradientBands || 12;
+        const bands = tools.brushSettings.gradientBands || 12;
         colorCycleBrush.setGradientBands(bands);
         // quiet
         
@@ -4451,7 +4423,7 @@ export const useBrushEngineSimplified = () => {
         window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
       }
     }
-  }, [brushSettings.gradientBands, getActiveLayerColorCycleBrush, activeLayerId, initializeColorCycleBrush]);
+  }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush, activeLayerId, initializeColorCycleBrush]);
 
   useEffect(() => {
     const state = useAppStore.getState();
@@ -4465,11 +4437,11 @@ export const useBrushEngineSimplified = () => {
       }
 
       if (colorCycleBrush) {
-        const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         const spacingValue = clampColorCycleBandSpacing(
           useShapeSpacing
-            ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
-            : brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+            ? tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
+            : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
         );
         colorCycleBrush.setBandSpacing(spacingValue);
         renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
@@ -4477,9 +4449,9 @@ export const useBrushEngineSimplified = () => {
       }
     }
   }, [
-    brushSettings.colorCycleBandSpacingPx,
-    brushSettings.spacing,
-    brushSettings.brushShape,
+    tools.brushSettings.colorCycleBandSpacingPx,
+    tools.brushSettings.spacing,
+    tools.brushSettings.brushShape,
     getActiveLayerColorCycleBrush,
     activeLayerId,
     initializeColorCycleBrush,
@@ -4487,7 +4459,7 @@ export const useBrushEngineSimplified = () => {
   
 // Update band spacing when it changes
 useEffect(() => {
-  const { spacing, colorCycleBandSpacingPx, brushShape } = brushSettings;
+  const { spacing, colorCycleBandSpacingPx, brushShape } = tools.brushSettings;
   const colorCycleBrush = getActiveLayerColorCycleBrush();
   if (colorCycleBrush && spacing) {
     const useShapeSpacing = brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -4499,10 +4471,10 @@ useEffect(() => {
     colorCycleBrush.setBandSpacing(resolvedBandSpacing);
   }
 }, [
-  brushSettings,
-  brushSettings.spacing,
-  brushSettings.colorCycleBandSpacingPx,
-  brushSettings.brushShape,
+  tools.brushSettings,
+  tools.brushSettings.spacing,
+  tools.brushSettings.colorCycleBandSpacingPx,
+  tools.brushSettings.brushShape,
   activeLayerId,
   getActiveLayerColorCycleBrush,
 ]);
@@ -4512,29 +4484,29 @@ useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush) {
       try {
-        colorCycleBrush.setDitherEnabled(!!brushSettings.ditherEnabled);
+        colorCycleBrush.setDitherEnabled(!!tools.brushSettings.ditherEnabled);
         colorCycleBrush.setStampDitherEnabled(
-          !!brushSettings.colorCycleStampDitherEnabled
+          !!tools.brushSettings.colorCycleStampDitherEnabled
         );
         if (typeof colorCycleBrush.setStampDitherAlgorithm === 'function') {
           colorCycleBrush.setStampDitherAlgorithm(
-            brushSettings.ditherAlgorithm ?? 'sierra-lite'
+            tools.brushSettings.ditherAlgorithm ?? 'sierra-lite'
           );
         }
         if (typeof colorCycleBrush.setStampDitherPatternStyle === 'function') {
           colorCycleBrush.setStampDitherPatternStyle(
-            brushSettings.patternStyle ?? 'dots'
+            tools.brushSettings.patternStyle ?? 'dots'
           );
         }
         if (typeof colorCycleBrush.setStampDitherPressureLinked === 'function') {
           colorCycleBrush.setStampDitherPressureLinked(
-            !!brushSettings.colorCycleStampDitherPressureLinked
+            !!tools.brushSettings.colorCycleStampDitherPressureLinked
           );
         }
         const stampBgFill =
-          typeof brushSettings.colorCycleStampDitherBgFill === 'boolean'
-            ? brushSettings.colorCycleStampDitherBgFill
-            : !Boolean(brushSettings.colorCycleStampDitherClears);
+          typeof tools.brushSettings.colorCycleStampDitherBgFill === 'boolean'
+            ? tools.brushSettings.colorCycleStampDitherBgFill
+            : !Boolean(tools.brushSettings.colorCycleStampDitherClears);
         if (typeof (colorCycleBrush as { setStampDitherBgFill?: (v: boolean) => void }).setStampDitherBgFill === 'function') {
           (colorCycleBrush as { setStampDitherBgFill: (v: boolean) => void }).setStampDitherBgFill(stampBgFill);
         } else if (typeof colorCycleBrush.setStampDitherClears === 'function') {
@@ -4546,13 +4518,13 @@ useEffect(() => {
       }
     }
   }, [
-    brushSettings.ditherEnabled,
-    brushSettings.colorCycleStampDitherEnabled,
-    brushSettings.colorCycleStampDitherBgFill,
-    brushSettings.colorCycleStampDitherClears,
-    brushSettings.colorCycleStampDitherPressureLinked,
-    brushSettings.ditherAlgorithm,
-    brushSettings.patternStyle,
+    tools.brushSettings.ditherEnabled,
+    tools.brushSettings.colorCycleStampDitherEnabled,
+    tools.brushSettings.colorCycleStampDitherBgFill,
+    tools.brushSettings.colorCycleStampDitherClears,
+    tools.brushSettings.colorCycleStampDitherPressureLinked,
+    tools.brushSettings.ditherAlgorithm,
+    tools.brushSettings.patternStyle,
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);
@@ -4560,12 +4532,12 @@ useEffect(() => {
   // Update dither pixel size (fillResolution) for color-cycle shape fills
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && brushSettings.fillResolution) {
+    if (colorCycleBrush && tools.brushSettings.fillResolution) {
       try {
-        colorCycleBrush.setDitherPixelSize(Math.max(1, Math.floor(brushSettings.fillResolution)));
+        colorCycleBrush.setDitherPixelSize(Math.max(1, Math.floor(tools.brushSettings.fillResolution)));
       } catch {}
     }
-  }, [brushSettings.fillResolution, activeLayerId, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.fillResolution, activeLayerId, getActiveLayerColorCycleBrush]);
 
   // Update stamp dithering pixel size for color-cycle strokes
   useEffect(() => {
@@ -4574,13 +4546,13 @@ useEffect(() => {
       try {
         const resolution = Math.max(
           1,
-          Math.floor(brushSettings.colorCycleStampDitherPixelSize ?? 1)
+          Math.floor(tools.brushSettings.colorCycleStampDitherPixelSize ?? 1)
         );
         colorCycleBrush.setStampDitherPixelSize(resolution);
       } catch {}
     }
   }, [
-    brushSettings.colorCycleStampDitherPixelSize,
+    tools.brushSettings.colorCycleStampDitherPixelSize,
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);
@@ -4589,9 +4561,9 @@ useEffect(() => {
   
   // Sync brush size + pressure with debounce so rapid slider changes don't stall UI
   useEffect(() => {
-    const targetSize = Math.max(1, Math.round(brushSettings.size || 1));
+    const targetSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
     brushSizePendingRef.current = targetSize;
-    brushPressurePendingRef.current = normalizedPressureSettings;
+    brushPressurePendingRef.current = normalizePressureSettings(tools.brushSettings);
 
     cancelDeferred(brushSizeDeferredHandleRef.current);
     brushSizeDeferredHandleRef.current = scheduleDeferred(() => {
@@ -4604,8 +4576,12 @@ useEffect(() => {
       brushSizeDeferredHandleRef.current = null;
     };
   }, [
-    brushSettings.size,
-    normalizedPressureSettings,
+    tools.brushSettings,
+    tools.brushSettings.size,
+    tools.brushSettings.pressureEnabled,
+    tools.brushSettings.minPressure,
+    tools.brushSettings.maxPressure,
+    tools.brushSettings.brushShape,
     applyPendingBrushSizing,
     activeLayerId,
   ]);
