@@ -1769,8 +1769,15 @@ export const useBrushEngineSimplified = () => {
     const overridePixelSize = options?.overridePixelSize;
     // For shape-mode dither presets we need to respect the BG Fill toggle just like strokes
     const fillBackground = tools.brushSettings.ditherBackgroundFill !== false;
-    const bgOffMode = options?.bgOffMode ?? 'accumulate';
-    const bgOffComposite = options?.bgOffComposite ?? 'source-over';
+    const pressureMode = !!tools.brushSettings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
+    let bgOffMode = options?.bgOffMode ?? 'accumulate';
+    let bgOffComposite = options?.bgOffComposite ?? 'source-over';
+
+    // If BG is off and pixel size can change, don't accumulate hole masks (stale holes).
+    if (!fillBackground && pressureMode && options?.bgOffMode == null) {
+      bgOffMode = 'direct';
+      bgOffComposite = 'copy';
+    }
     const [bgR, bgG, bgB] = (() => {
       const candidate =
         strokeDitherPalette[1] ??
@@ -1793,9 +1800,6 @@ export const useBrushEngineSimplified = () => {
       console.warn('[Dither] Failed to sample region for pressure dither:', err);
       return;
     }
-
-    // Decide whether we’re in pressure-linked mode
-    const pressureMode = !!tools.brushSettings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
 
     // Algorithm/pattern always come from the dropdown
     const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
