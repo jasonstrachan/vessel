@@ -40,6 +40,25 @@ const getDestinationRect = (
   };
 };
 
+const getRotatedBoundingRect = (rect: FloatRect, rotation: number): FloatRect => {
+  if (!rotation) {
+    return rect;
+  }
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const bboxWidth = Math.abs(rect.width * cos) + Math.abs(rect.height * sin);
+  const bboxHeight = Math.abs(rect.width * sin) + Math.abs(rect.height * cos);
+  const centerX = rect.x + rect.width / 2;
+  const centerY = rect.y + rect.height / 2;
+  return {
+    x: centerX - bboxWidth / 2,
+    y: centerY - bboxHeight / 2,
+    width: bboxWidth,
+    height: bboxHeight,
+  };
+};
+
 const intersectWithProject = (rect: FloatRect, project: { width: number; height: number }): CaptureROI | null => {
   const x = Math.max(rect.x, 0);
   const y = Math.max(rect.y, 0);
@@ -125,6 +144,8 @@ export const createSelectionPasteHelpers = ({
 
     try {
       const destinationRect = getDestinationRect(floatingPaste);
+      const rotation = floatingPaste.rotation ?? 0;
+      const rotatedBounds = getRotatedBoundingRect(destinationRect, rotation);
       const colorCycleDestRect: Rectangle = {
         x: Math.round(floatingPaste.position.x),
         y: Math.round(floatingPaste.position.y),
@@ -230,7 +251,7 @@ export const createSelectionPasteHelpers = ({
         return;
       }
 
-      const captureArea = intersectWithProject(destinationRect, project);
+      const captureArea = intersectWithProject(rotatedBounds, project);
       if (!captureArea) {
         set({ floatingPaste: null });
         return;
@@ -262,28 +283,46 @@ export const createSelectionPasteHelpers = ({
         try {
           pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
         } catch {}
-        const sourceCrop = deriveSourceCrop(
-          captureArea,
-          destinationRect,
-          floatingPaste.width,
-          floatingPaste.height
-        );
-        if (!sourceCrop) {
-          set({ floatingPaste: null });
-          return;
-        }
 
-        tempCtx.drawImage(
-          pasteCanvas,
-          sourceCrop.x,
-          sourceCrop.y,
-          sourceCrop.width,
-          sourceCrop.height,
-          captureArea.x,
-          captureArea.y,
-          captureArea.width,
-          captureArea.height
-        );
+        if (rotation) {
+          const centerX = destinationRect.x + destinationRect.width / 2;
+          const centerY = destinationRect.y + destinationRect.height / 2;
+          const radians = (rotation * Math.PI) / 180;
+          tempCtx.save();
+          tempCtx.translate(centerX, centerY);
+          tempCtx.rotate(radians);
+          tempCtx.drawImage(
+            pasteCanvas,
+            -destinationRect.width / 2,
+            -destinationRect.height / 2,
+            destinationRect.width,
+            destinationRect.height
+          );
+          tempCtx.restore();
+        } else {
+          const sourceCrop = deriveSourceCrop(
+            captureArea,
+            destinationRect,
+            floatingPaste.width,
+            floatingPaste.height
+          );
+          if (!sourceCrop) {
+            set({ floatingPaste: null });
+            return;
+          }
+
+          tempCtx.drawImage(
+            pasteCanvas,
+            sourceCrop.x,
+            sourceCrop.y,
+            sourceCrop.width,
+            sourceCrop.height,
+            captureArea.x,
+            captureArea.y,
+            captureArea.width,
+            captureArea.height
+          );
+        }
       }
 
       await captureCanvasToActiveLayer(tempCanvas, captureArea);

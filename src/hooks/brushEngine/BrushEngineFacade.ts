@@ -63,6 +63,8 @@ export interface BrushStrokeParams {
  * Main brush engine facade that combines all modules
  */
 export class BrushEngineFacade {
+  private lastStrokePressure: number | null = null;
+  private lastCustomBrushData: BrushStrokeParams['customBrushData'] | null = null;
   private strokeProcessor: ReturnType<typeof createStrokeProcessor>;
   private _shapeDrawer: ReturnType<typeof createShapeDrawer>;
   private utilities: ReturnType<typeof createBrushUtilities>;
@@ -194,6 +196,9 @@ export class BrushEngineFacade {
     // Calculate opacity (already in 0-1 range)
     const baseOpacity = brushSettings.opacity;
     const opacity = this.utilities.calculatePressureOpacity(baseOpacity, pressure);
+
+    this.lastStrokePressure = pressure;
+    this.lastCustomBrushData = customBrushData ?? null;
 
     // Calculate spacing
     const spacing = this.utilities.calculateBrushSpacing(size);
@@ -579,17 +584,28 @@ export class BrushEngineFacade {
         this.pixelQueue.initialized && 
         (this.pixelQueue.waitingPixelX !== this.pixelQueue.lastDrawnX ||
          this.pixelQueue.waitingPixelY !== this.pixelQueue.lastDrawnY)) {
+      const { brushSettings } = this.config;
+      let baseSize = brushSettings.size;
+      if (this.lastCustomBrushData && !this.lastCustomBrushData.isResampler) {
+        const maxDimension = Math.max(this.lastCustomBrushData.width, this.lastCustomBrushData.height);
+        baseSize = Math.max(1, brushSettings.size ?? maxDimension);
+      } else if (this.lastCustomBrushData?.isResampler) {
+        baseSize = brushSettings.size;
+      }
+      const pressure = this.lastStrokePressure ?? 1;
+      const size = this.utilities.calculatePressureSize(baseSize, pressure);
+      const opacity = this.utilities.calculatePressureOpacity(brushSettings.opacity, pressure);
       // Draw the waiting pixel if it's different from the last drawn pixel
       const settings: RenderSettings = {
-        size: this.config.brushSettings.size,
-        opacity: this.config.brushSettings.opacity,
-        color: this.config.brushSettings.color,
+        size,
+        opacity,
+        color: brushSettings.color,
         antiAliasing: false, // Pixel-perfect mode
         pixelAlignment: true, // Always align for pixel-perfect
-        spacing: this.config.brushSettings.spacing,
+        spacing: brushSettings.spacing,
         rotation: 0,
-        shape: this.config.brushSettings.brushShape || BrushShape.ROUND,
-        risographIntensity: this.config.brushSettings.risographIntensity || 0,
+        shape: brushSettings.brushShape || BrushShape.ROUND,
+        risographIntensity: brushSettings.risographIntensity || 0,
         blendMode: ctx.globalCompositeOperation
       };
       
@@ -617,6 +633,8 @@ export class BrushEngineFacade {
   resetStroke(): void {
     this.strokeProcessor.resetPixelQueue(this.pixelQueue);
     this.strokeProcessor.reset();
+    this.lastStrokePressure = null;
+    this.lastCustomBrushData = null;
   }
 
   /**

@@ -54,6 +54,7 @@ function createBaseState(): AppState {
   clearSelection: jest.fn(),
   setFloatingPaste: jest.fn(),
   updateFloatingPastePosition: jest.fn(),
+  updateFloatingPasteRotation: jest.fn(),
   commitFloatingPaste: jest.fn(),
   cancelFloatingPaste: jest.fn(),
   setCurrentOffscreenCanvas: jest.fn(),

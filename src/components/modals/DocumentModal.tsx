@@ -12,6 +12,36 @@ interface DocumentModalProps {
 
 // Canvas size presets
 const CANVAS_PRESETS = [
+  {
+    name: '1:1 Square (2048×2048)',
+    width: 2048,
+    height: 2048,
+    description: 'Standard for Procreate "Square" preset.',
+  },
+  {
+    name: '3:4 Tablet/Portrait (2048×2732)',
+    width: 2048,
+    height: 2732,
+    description: 'Native resolution of an iPad Pro 12.9".',
+  },
+  {
+    name: '2:3 Vertical Art (2000×3000)',
+    width: 2000,
+    height: 3000,
+    description: 'Great for high-res mobile wallpapers.',
+  },
+  {
+    name: '16:9 Cinematic (2560×1440)',
+    width: 2560,
+    height: 1440,
+    description: 'QHD / 2K resolution; very crisp for monitors.',
+  },
+  {
+    name: '1:√2 A2 Preview (2000×2828)',
+    width: 2000,
+    height: 2828,
+    description: 'Perfect for checking composition on your A2 project.',
+  },
   { name: 'HD (1920×1080)', width: 1920, height: 1080 },
   { name: 'Full HD (1920×1200)', width: 1920, height: 1200 },
   { name: '4K (3840×2160)', width: 3840, height: 2160 },
@@ -283,7 +313,10 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                     setNewHeight(preset.height);
                   }}
                   className="px-2 py-1 text-xs bg-[#444] hover:bg-[#555] text-[#D9D9D9] rounded transition-colors"
-                  title={`${preset.width}×${preset.height} (${calculateMemoryUsage(preset.width, preset.height)}MB)`}
+                  title={[
+                    `${preset.width}×${preset.height} (${calculateMemoryUsage(preset.width, preset.height)}MB)`,
+                    preset.description,
+                  ].filter(Boolean).join(' ')}
                 >
                   {preset.name}
                 </button>

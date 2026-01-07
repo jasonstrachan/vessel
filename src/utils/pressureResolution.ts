@@ -70,7 +70,10 @@ export const computePressureResolution = (
   const desired = Math.max(PRESSURE_RESOLUTION_MIN_PX, Math.min(maxSize, state.smoothed));
   const delta = desired - state.output;
 
-  if (Math.abs(delta) >= PRESSURE_RESOLUTION_HYSTERESIS) {
+  if (delta < 0) {
+    // Allow immediate decreases to prevent resolution from "sticking" at large sizes.
+    state.output = desired;
+  } else if (Math.abs(delta) >= PRESSURE_RESOLUTION_HYSTERESIS) {
     state.output = desired;
   }
 

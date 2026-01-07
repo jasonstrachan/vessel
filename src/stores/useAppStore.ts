@@ -400,6 +400,7 @@ export interface AppState {
     height: number;
     displayWidth: number;
     displayHeight: number;
+    rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
   } | null;
@@ -410,12 +411,14 @@ export interface AppState {
     height: number;
     displayWidth?: number;
     displayHeight?: number;
+    rotation?: number;
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
+  updateFloatingPasteRotation: (rotation: number) => void;
   commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
   

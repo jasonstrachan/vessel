@@ -37,6 +37,7 @@ export interface SelectionSlice {
     height: number;
     displayWidth: number;
     displayHeight: number;
+    rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
   } | null;
@@ -47,12 +48,14 @@ export interface SelectionSlice {
     height: number;
     displayWidth?: number;
     displayHeight?: number;
+    rotation?: number;
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
+  updateFloatingPasteRotation: (rotation: number) => void;
   commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
   copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
@@ -397,19 +400,20 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
 
         return {
           floatingPaste: paste
-            ? {
-                active: true,
-                imageData: paste.imageData,
-                position: paste.position,
-                originalPosition: paste.originalPosition ?? paste.position,
-                width: paste.width,
-                height: paste.height,
-                displayWidth: paste.displayWidth ?? paste.width,
-                displayHeight: paste.displayHeight ?? paste.height,
-                sourceLayerId: paste.sourceLayerId ?? null,
-                colorCycleIndices: paste.colorCycleIndices ?? null,
-              }
-            : null,
+              ? {
+                  active: true,
+                  imageData: paste.imageData,
+                  position: paste.position,
+                  originalPosition: paste.originalPosition ?? paste.position,
+                  width: paste.width,
+                  height: paste.height,
+                  displayWidth: paste.displayWidth ?? paste.width,
+                  displayHeight: paste.displayHeight ?? paste.height,
+                  rotation: paste.colorCycleIndices ? 0 : (paste.rotation ?? 0),
+                  sourceLayerId: paste.sourceLayerId ?? null,
+                  colorCycleIndices: paste.colorCycleIndices ?? null,
+                }
+              : null,
         };
       }),
     updateFloatingPastePosition: (position) =>
@@ -429,6 +433,15 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               position: { x: rect.x, y: rect.y },
               displayWidth: rect.width,
               displayHeight: rect.height,
+            }
+          : null,
+      })),
+    updateFloatingPasteRotation: (rotation) =>
+      set((state) => ({
+        floatingPaste: state.floatingPaste
+          ? {
+              ...state.floatingPaste,
+              rotation,
             }
           : null,
       })),

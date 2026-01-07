@@ -365,6 +365,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         height: paste.height,
         displayWidth: paste.displayWidth ?? paste.width,
         displayHeight: paste.displayHeight ?? paste.height,
+        rotation: paste.rotation ?? 0,
         originalPosition: paste.originalPosition ?? paste.position,
         sourceLayerId: paste.sourceLayerId ?? null,
         colorCycleIndices: paste.colorCycleIndices ?? null,
@@ -1447,13 +1448,24 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const pasteY = floatingPaste.position.y;
         const renderWidth = floatingPaste.displayWidth ?? floatingPaste.width;
         const renderHeight = floatingPaste.displayHeight ?? floatingPaste.height;
+        const rotation = floatingPaste.rotation ?? 0;
+        const rotationRad = (rotation * Math.PI) / 180;
 
-        // Skip draw when the entire rectangle sits outside the project bounds
+        const centerX = pasteX + renderWidth / 2;
+        const centerY = pasteY + renderHeight / 2;
+        const cos = Math.cos(rotationRad);
+        const sin = Math.sin(rotationRad);
+        const bboxWidth = Math.abs(renderWidth * cos) + Math.abs(renderHeight * sin);
+        const bboxHeight = Math.abs(renderWidth * sin) + Math.abs(renderHeight * cos);
+        const bboxX = centerX - bboxWidth / 2;
+        const bboxY = centerY - bboxHeight / 2;
+
+        // Skip draw when the entire bounding box sits outside the project bounds
         const fullyOutside =
-          pasteX + renderWidth <= 0 ||
-          pasteY + renderHeight <= 0 ||
-          pasteX >= project.width ||
-          pasteY >= project.height;
+          bboxX + bboxWidth <= 0 ||
+          bboxY + bboxHeight <= 0 ||
+          bboxX >= project.width ||
+          bboxY >= project.height;
 
         if (!fullyOutside) {
           // Ensure we have a reusable paste canvas
@@ -1493,33 +1505,58 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             ctx.clip();
           }
 
-          ctx.drawImage(
-            pasteCanvas,
-            floatingPaste.position.x,
-            floatingPaste.position.y,
-            renderWidth,
-            renderHeight
-          );
+          if (rotation !== 0) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(rotationRad);
+            ctx.drawImage(pasteCanvas, -renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
+            ctx.restore();
+          } else {
+            ctx.drawImage(
+              pasteCanvas,
+              floatingPaste.position.x,
+              floatingPaste.position.y,
+              renderWidth,
+              renderHeight
+            );
+          }
 
           // Draw marching ants selection border around the paste (clipped to canvas bounds)
-          const x = floatingPaste.position.x;
-          const y = floatingPaste.position.y;
-          const width = renderWidth;
-          const height = renderHeight;
-
-          // White background line
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2 / scale;
-          ctx.setLineDash([]);
-          ctx.strokeRect(x, y, width, height);
-
-          // Black dashed line for marching ants
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1 / scale;
+          const borderLineWidth = 2 / scale;
+          const dashLineWidth = 1 / scale;
           const dashLength = 5 / scale;
-          ctx.setLineDash([dashLength, dashLength]);
-          ctx.lineDashOffset = -marchingAntsOffset / scale;
-          ctx.strokeRect(x, y, width, height);
+
+          if (rotation !== 0) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(rotationRad);
+
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = borderLineWidth;
+            ctx.setLineDash([]);
+            ctx.strokeRect(-renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
+
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = dashLineWidth;
+            ctx.setLineDash([dashLength, dashLength]);
+            ctx.lineDashOffset = -marchingAntsOffset / scale;
+            ctx.strokeRect(-renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
+            ctx.restore();
+          } else {
+            const x = floatingPaste.position.x;
+            const y = floatingPaste.position.y;
+
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = borderLineWidth;
+            ctx.setLineDash([]);
+            ctx.strokeRect(x, y, renderWidth, renderHeight);
+
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = dashLineWidth;
+            ctx.setLineDash([dashLength, dashLength]);
+            ctx.lineDashOffset = -marchingAntsOffset / scale;
+            ctx.strokeRect(x, y, renderWidth, renderHeight);
+          }
 
           ctx.restore();
         }

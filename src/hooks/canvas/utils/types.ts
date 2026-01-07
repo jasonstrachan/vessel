@@ -22,6 +22,7 @@ export interface FloatingPaste {
   height: number;
   displayWidth: number;
   displayHeight: number;
+  rotation: number;
   sourceLayerId?: string | null;
   colorCycleIndices?: Uint8Array | null;
 }

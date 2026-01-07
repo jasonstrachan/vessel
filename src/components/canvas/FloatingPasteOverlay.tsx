@@ -27,7 +27,8 @@ interface FloatingPasteOverlayProps {
 type InteractionState =
   | { type: 'idle' }
   | { type: 'resizing'; start: Point; initialRect: Rectangle; handle: CropHandle }
-  | { type: 'moving'; start: Point; initialRect: Rectangle };
+  | { type: 'moving'; start: Point; initialRect: Rectangle }
+  | { type: 'rotating'; startAngle: number; initialRotation: number };
 
 const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
   projectWidth,
@@ -38,6 +39,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
 }) => {
   const floatingPaste = useAppStore(selectFloatingPaste);
   const updateFloatingPasteRect = useAppStore((state) => state.updateFloatingPasteRect);
+  const updateFloatingPasteRotation = useAppStore((state) => state.updateFloatingPasteRotation);
   const overlayRef = useRef<HTMLDivElement>(null);
   const interactionRef = useRef<InteractionState>({ type: 'idle' });
 
@@ -87,6 +89,11 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
     },
     [updateFloatingPasteRect]
   );
+
+  const normalizeRotation = useCallback((rotation: number) => {
+    const normalized = rotation % 360;
+    return normalized < 0 ? normalized + 360 : normalized;
+  }, []);
 
   const handleMovePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -155,6 +162,40 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
     interactionRef.current = { type: 'idle' };
   }, []);
 
+  const toLocalPoint = useCallback(
+    (world: Point, center: Point, rotation: number): Point => {
+      if (!rotation) {
+        return { x: world.x - center.x, y: world.y - center.y };
+      }
+      const radians = (-rotation * Math.PI) / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      const dx = world.x - center.x;
+      const dy = world.y - center.y;
+      return {
+        x: dx * cos - dy * sin,
+        y: dx * sin + dy * cos,
+      };
+    },
+    []
+  );
+
+  const toWorldPoint = useCallback(
+    (local: Point, center: Point, rotation: number): Point => {
+      if (!rotation) {
+        return { x: local.x + center.x, y: local.y + center.y };
+      }
+      const radians = (rotation * Math.PI) / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      return {
+        x: local.x * cos - local.y * sin + center.x,
+        y: local.x * sin + local.y * cos + center.y,
+      };
+    },
+    []
+  );
+
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (interactionRef.current.type === 'idle' || !rect) {
@@ -165,6 +206,8 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
       if (!worldPoint) {
         return;
       }
+
+      const rotation = floatingPaste?.rotation ?? 0;
 
       if (interactionRef.current.type === 'moving') {
         const next = moveRect(
@@ -177,29 +220,71 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
         );
         applyRectUpdate(next);
       } else if (interactionRef.current.type === 'resizing') {
-        let next = resizeRect(
-          interactionRef.current.initialRect,
+        const center = {
+          x: interactionRef.current.initialRect.x + interactionRef.current.initialRect.width / 2,
+          y: interactionRef.current.initialRect.y + interactionRef.current.initialRect.height / 2,
+        };
+        const localPointer = toLocalPoint(worldPoint, center, rotation);
+        const localStartRect: Rectangle = {
+          x: -interactionRef.current.initialRect.width / 2,
+          y: -interactionRef.current.initialRect.height / 2,
+          width: interactionRef.current.initialRect.width,
+          height: interactionRef.current.initialRect.height,
+        };
+
+        let nextLocal = resizeRect(
+          localStartRect,
           interactionRef.current.handle,
-          worldPoint,
-          projectWidth,
-          projectHeight,
+          localPointer,
+          Number.POSITIVE_INFINITY,
+          Number.POSITIVE_INFINITY,
           { clampToBounds: false }
         );
         if (isCornerHandle(interactionRef.current.handle)) {
-          next = applyCornerAspectLock({
+          nextLocal = applyCornerAspectLock({
             handle: interactionRef.current.handle,
-            initialRect: interactionRef.current.initialRect,
-            currentRect: next,
+            initialRect: localStartRect,
+            currentRect: nextLocal,
             boundsWidth: Number.POSITIVE_INFINITY,
             boundsHeight: Number.POSITIVE_INFINITY,
           });
         }
-        applyRectUpdate(next);
+        // Keep the rotation origin (center) stable to avoid jumps.
+        const nextCenterWorld = center;
+        applyRectUpdate({
+          x: nextCenterWorld.x - nextLocal.width / 2,
+          y: nextCenterWorld.y - nextLocal.height / 2,
+          width: nextLocal.width,
+          height: nextLocal.height,
+        });
+      } else if (interactionRef.current.type === 'rotating') {
+        const centerX = rect.x + rect.width / 2;
+        const centerY = rect.y + rect.height / 2;
+        const angle = Math.atan2(worldPoint.y - centerY, worldPoint.x - centerX);
+        const startAngle = interactionRef.current.startAngle;
+        const delta = ((angle - startAngle) * 180) / Math.PI;
+        let nextRotation = interactionRef.current.initialRotation + delta;
+        if (event.shiftKey) {
+          const snap = 15;
+          nextRotation = Math.round(nextRotation / snap) * snap;
+        }
+        updateFloatingPasteRotation(normalizeRotation(nextRotation));
       }
 
       event.preventDefault();
     },
-    [applyRectUpdate, getWorldPoint, projectHeight, projectWidth, rect]
+    [
+      applyRectUpdate,
+      floatingPaste?.rotation,
+      getWorldPoint,
+      normalizeRotation,
+      projectHeight,
+      projectWidth,
+      rect,
+      toLocalPoint,
+      toWorldPoint,
+      updateFloatingPasteRotation,
+    ]
   );
 
   const handlePointerUp = useCallback(
@@ -235,6 +320,10 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
   const { left, top, width, height } = marqueeScreenRect;
   const centerX = left + width / 2;
   const centerY = top + height / 2;
+  const rotateHandleOffset = 26;
+  const rotateHandleSize = 12;
+  const canRotate = !floatingPaste.colorCycleIndices;
+  const rotation = floatingPaste.rotation ?? 0;
 
   return (
     <div
@@ -248,50 +337,121 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
       <div
         className="absolute"
         style={{
-          left,
-          top,
+          left: centerX,
+          top: centerY,
           width,
           height,
-          border: '1px solid transparent',
-          boxShadow: 'none',
-          pointerEvents: 'auto',
-          cursor: handleCursor('center'),
+          transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+          transformOrigin: 'center',
+          pointerEvents: 'none',
         }}
-        onPointerDown={handleMovePointerDown}
-      />
-      {handleDefinitions.map(({ handle, offsetX: ox, offsetY: oy }) => {
-        const positionX = handle.includes('left')
-          ? left
-          : handle.includes('right')
-            ? left + width
-            : centerX;
-        const positionY = handle.includes('top')
-          ? top
-          : handle.includes('bottom')
-            ? top + height
-            : centerY;
+      >
+        <div
+          style={{
+            position: 'absolute' as const,
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%',
+            border: '1px solid transparent',
+            boxShadow: 'none',
+            pointerEvents: 'auto',
+            cursor: handleCursor('center'),
+          }}
+          onPointerDown={handleMovePointerDown}
+        />
+        {canRotate ? (
+          <>
+            <div
+              style={{
+                position: 'absolute' as const,
+                left: '50%',
+                top: -rotateHandleOffset + rotateHandleSize / 2,
+                width: 2,
+                height: rotateHandleOffset - rotateHandleSize / 2,
+                transform: 'translateX(-50%)',
+                backgroundColor: '#FFFFFF',
+                opacity: 0.7,
+                pointerEvents: 'none',
+              }}
+            />
+            <div
+              role="presentation"
+              style={{
+                position: 'absolute' as const,
+                width: rotateHandleSize,
+                height: rotateHandleSize,
+                left: '50%',
+                top: -rotateHandleOffset,
+                transform: 'translateX(-50%)',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #0F172A',
+                borderRadius: '999px',
+                boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
+                cursor: 'grab',
+                pointerEvents: 'auto',
+              }}
+              onPointerDown={(event) => {
+                if (!rect) {
+                  return;
+                }
+                const overlayEl = overlayRef.current;
+                if (!overlayEl) {
+                  return;
+                }
+                const worldPoint = getWorldPoint(event.nativeEvent);
+                if (!worldPoint) {
+                  return;
+                }
+                overlayEl.setPointerCapture(event.pointerId);
+                const centerWorldX = rect.x + rect.width / 2;
+                const centerWorldY = rect.y + rect.height / 2;
+                const startAngle = Math.atan2(worldPoint.y - centerWorldY, worldPoint.x - centerWorldX);
+                interactionRef.current = {
+                  type: 'rotating',
+                  startAngle,
+                  initialRotation: floatingPaste.rotation ?? 0,
+                };
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            />
+          </>
+        ) : null}
+        {handleDefinitions.map(({ handle, offsetX: ox, offsetY: oy }) => {
+          const positionX = handle.includes('left')
+            ? 0
+            : handle.includes('right')
+              ? width
+              : width / 2;
+          const positionY = handle.includes('top')
+            ? 0
+            : handle.includes('bottom')
+              ? height
+              : height / 2;
 
-        return (
-          <div
-            key={handle}
-            role="presentation"
-            style={{
-              position: 'absolute' as const,
-              width: HANDLE_SIZE,
-              height: HANDLE_SIZE,
-              left: positionX + ox * HANDLE_SIZE - HANDLE_SIZE / 2,
-              top: positionY + oy * HANDLE_SIZE - HANDLE_SIZE / 2,
-              backgroundColor: '#FFFFFF',
-              border: '1px solid #0F172A',
-              borderRadius: 2,
-              boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
-              cursor: handleCursor(handle),
-              pointerEvents: 'auto',
-            }}
-            onPointerDown={handleResizePointerDown(handle)}
-          />
-        );
-      })}
+          return (
+            <div
+              key={handle}
+              role="presentation"
+              style={{
+                position: 'absolute' as const,
+                width: HANDLE_SIZE,
+                height: HANDLE_SIZE,
+                left: positionX + ox * HANDLE_SIZE - HANDLE_SIZE / 2,
+                top: positionY + oy * HANDLE_SIZE - HANDLE_SIZE / 2,
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #0F172A',
+                borderRadius: 2,
+                boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
+                cursor: handleCursor(handle),
+                pointerEvents: 'auto',
+              }}
+              onPointerDown={handleResizePointerDown(handle)}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 };

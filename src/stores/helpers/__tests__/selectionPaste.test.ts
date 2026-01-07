@@ -89,6 +89,7 @@ const setupHelpers = (
     height: 12,
     displayWidth: 16,
     displayHeight: 12,
+    rotation: 0,
     sourceLayerId: layer.id,
   };
 

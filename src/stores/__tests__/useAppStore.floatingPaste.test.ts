@@ -23,6 +23,7 @@ describe('floating paste transform state', () => {
     expect(floatingPaste).not.toBeNull();
     expect(floatingPaste?.displayWidth).toBe(8);
     expect(floatingPaste?.displayHeight).toBe(12);
+    expect(floatingPaste?.rotation).toBe(0);
   });
 
   it('updateFloatingPasteRect adjusts position and display size together', () => {

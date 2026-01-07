@@ -2358,14 +2358,20 @@ export const useBrushEngineSimplified = () => {
           const desiredPixelSize = Math.max(1, Math.round(getStrokeDitherPixelSize()));
           const committedPixelSize = committedPixelSizeRef.current ?? desiredPixelSize;
           if (desiredPixelSize !== committedPixelSize) {
-            if (pendingPixelSizeRef.current !== desiredPixelSize) {
-              pendingPixelSizeRef.current = desiredPixelSize;
-              pendingSinceRef.current = now;
-            }
-            const STABLE_MS = 70;
-            if (now - pendingSinceRef.current >= STABLE_MS) {
+            if (desiredPixelSize < committedPixelSize) {
+              // Allow immediate resolution decreases to avoid "stuck large pixels".
               committedPixelSizeRef.current = desiredPixelSize;
               pendingPixelSizeRef.current = null;
+            } else {
+              if (pendingPixelSizeRef.current !== desiredPixelSize) {
+                pendingPixelSizeRef.current = desiredPixelSize;
+                pendingSinceRef.current = now;
+              }
+              const STABLE_MS = 70;
+              if (now - pendingSinceRef.current >= STABLE_MS) {
+                committedPixelSizeRef.current = desiredPixelSize;
+                pendingPixelSizeRef.current = null;
+              }
             }
           } else {
             pendingPixelSizeRef.current = null;
@@ -2585,14 +2591,19 @@ export const useBrushEngineSimplified = () => {
           const desiredPixelSize = Math.max(1, Math.round(getStrokeDitherPixelSize()));
           const committedPixelSize = committedPixelSizeRef.current ?? desiredPixelSize;
           if (desiredPixelSize !== committedPixelSize) {
-            if (pendingPixelSizeRef.current !== desiredPixelSize) {
-              pendingPixelSizeRef.current = desiredPixelSize;
-              pendingSinceRef.current = now;
-            }
-            const STABLE_MS = 70;
-            if (now - pendingSinceRef.current >= STABLE_MS) {
+            if (desiredPixelSize < committedPixelSize) {
               committedPixelSizeRef.current = desiredPixelSize;
               pendingPixelSizeRef.current = null;
+            } else {
+              if (pendingPixelSizeRef.current !== desiredPixelSize) {
+                pendingPixelSizeRef.current = desiredPixelSize;
+                pendingSinceRef.current = now;
+              }
+              const STABLE_MS = 70;
+              if (now - pendingSinceRef.current >= STABLE_MS) {
+                committedPixelSizeRef.current = desiredPixelSize;
+                pendingPixelSizeRef.current = null;
+              }
             }
           } else {
             pendingPixelSizeRef.current = null;

@@ -1936,6 +1936,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             height: floatingData.height,
             displayWidth: floatingData.displayWidth,
             displayHeight: floatingData.displayHeight,
+            rotation: 0,
             originalPosition: floatingData.position,
             sourceLayerId: floatingData.layerId,
             colorCycleIndices: floatingData.colorCycleIndices ?? null,
