@@ -30,7 +30,7 @@ const PROJECT_VERSION = '1.0.0';
 export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
 
 const PROJECT_ARCHIVE_ENTRY = 'project.json';
-const DEFAULT_PROJECT_THUMBNAIL_SIZE = 512;
+const DEFAULT_PROJECT_THUMBNAIL_SIZE = 1024;
 
 function isZipBytes(bytes: Uint8Array): boolean {
   if (bytes.length < 4) {
@@ -595,6 +595,54 @@ const resolveLayerImageDataForSave = (layer: Layer): ImageData | null => {
   return layerImageData;
 };
 
+const resolveColorCycleCanvasImageDataForSave = async (
+  layer: Layer
+): Promise<ImageData | undefined> => {
+  const colorCycleData = layer.colorCycleData;
+  if (!colorCycleData) {
+    return undefined;
+  }
+
+  const fromCanvas =
+    colorCycleData.canvasImageData ?? captureCanvasImageData(colorCycleData.canvas ?? null);
+  if (fromCanvas) {
+    return fromCanvas;
+  }
+
+  const brush = colorCycleData.colorCycleBrush as
+    | { renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void }
+    | undefined;
+  if (!brush?.renderDirectToCanvas || typeof document === 'undefined') {
+    return undefined;
+  }
+
+  const width =
+    colorCycleData.canvasWidth ??
+    colorCycleData.canvas?.width ??
+    layer.imageData?.width ??
+    (layer.framebuffer as { width?: number } | null)?.width ??
+    1;
+  const height =
+    colorCycleData.canvasHeight ??
+    colorCycleData.canvas?.height ??
+    layer.imageData?.height ??
+    (layer.framebuffer as { height?: number } | null)?.height ??
+    1;
+
+  const renderCanvas = document.createElement('canvas');
+  renderCanvas.width = Math.max(1, width);
+  renderCanvas.height = Math.max(1, height);
+
+  try {
+    brush.renderDirectToCanvas(renderCanvas, layer.id);
+  } catch (error) {
+    console.warn('[projectIO] Failed to render color cycle canvas for save:', error);
+    return undefined;
+  }
+
+  return captureCanvasImageData(renderCanvas) ?? undefined;
+};
+
 // Serialize a layer for saving
 async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
   let imageDataUrl = '';
@@ -624,7 +672,10 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
   // Serialize color cycle data if present
   if (layer.layerType === 'color-cycle') {
     const sourceColorCycleData = layer.colorCycleData || {};
-    const canvasImageData = sourceColorCycleData.canvasImageData ?? captureCanvasImageData(sourceColorCycleData.canvas ?? null);
+    const canvasImageData =
+      sourceColorCycleData.canvasImageData ??
+      captureCanvasImageData(sourceColorCycleData.canvas ?? null) ??
+      (await resolveColorCycleCanvasImageDataForSave(layer));
     const eraseMaskImageData = sourceColorCycleData.eraseMaskImageData ?? captureCanvasImageData(sourceColorCycleData.eraseMask ?? null);
     const colorCycleData = {
       ...sourceColorCycleData,
@@ -1072,36 +1123,24 @@ export function generateProjectThumbnail(
   layers: Layer[],
   maxSize: number = DEFAULT_PROJECT_THUMBNAIL_SIZE
 ): string {
-  const canvas = document.createElement('canvas');
-  const aspectRatio = project.width / project.height;
-  
-  if (aspectRatio > 1) {
-    canvas.width = maxSize;
-    canvas.height = Math.round(maxSize / aspectRatio);
-  } else {
-    canvas.width = Math.round(maxSize * aspectRatio);
-    canvas.height = maxSize;
-  }
-  
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-  if (!ctx) return '';
-  
-  const scaleX = canvas.width / project.width;
-  const scaleY = canvas.height / project.height;
-  
-  ctx.scale(scaleX, scaleY);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  
-  ctx.fillStyle = project.backgroundColor;
-  ctx.fillRect(0, 0, project.width, project.height);
-  
+  const fullCanvas = document.createElement('canvas');
+  fullCanvas.width = project.width;
+  fullCanvas.height = project.height;
+  const fullCtx = fullCanvas.getContext('2d', { colorSpace: 'srgb' });
+  if (!fullCtx) return '';
+
+  fullCtx.imageSmoothingEnabled = true;
+  fullCtx.imageSmoothingQuality = 'high';
+
+  fullCtx.fillStyle = project.backgroundColor;
+  fullCtx.fillRect(0, 0, project.width, project.height);
+
   const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
   for (const layer of sortedLayers) {
     if (!layer.visible) continue;
 
-    ctx.globalAlpha = layer.opacity;
-    ctx.globalCompositeOperation = layer.blendMode;
+    fullCtx.globalAlpha = layer.opacity;
+    fullCtx.globalCompositeOperation = layer.blendMode;
 
     const drawImageData = (imageData: ImageData) => {
       const layerCanvas = document.createElement('canvas');
@@ -1110,13 +1149,16 @@ export function generateProjectThumbnail(
       const layerCtx = layerCanvas.getContext('2d', { colorSpace: 'srgb' });
       if (layerCtx) {
         layerCtx.putImageData(imageData, 0, 0);
-        ctx.drawImage(layerCanvas, 0, 0);
+        fullCtx.drawImage(layerCanvas, 0, 0);
       }
     };
 
-    if (layer.imageData) {
-      drawImageData(layer.imageData);
-      continue;
+    if (layer.layerType !== 'color-cycle') {
+      const resolvedImageData = resolveLayerImageDataForSave(layer);
+      if (resolvedImageData) {
+        drawImageData(resolvedImageData);
+        continue;
+      }
     }
 
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
@@ -1127,15 +1169,43 @@ export function generateProjectThumbnail(
       }
 
       if (colorCycleData.canvas) {
-        ctx.drawImage(colorCycleData.canvas, 0, 0);
+        fullCtx.drawImage(colorCycleData.canvas, 0, 0);
       }
     }
   }
 
   const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
-  applyCanvasShapeMask(ctx, shape);
-  
-  return canvas.toDataURL('image/png', 0.8);
+  applyCanvasShapeMask(fullCtx, shape);
+
+  const thumbCanvas = document.createElement('canvas');
+  const aspectRatio = project.width / project.height;
+
+  if (aspectRatio > 1) {
+    thumbCanvas.width = maxSize;
+    thumbCanvas.height = Math.round(maxSize / aspectRatio);
+  } else {
+    thumbCanvas.width = Math.round(maxSize * aspectRatio);
+    thumbCanvas.height = maxSize;
+  }
+
+  const thumbCtx = thumbCanvas.getContext('2d', { colorSpace: 'srgb' });
+  if (!thumbCtx) return '';
+
+  thumbCtx.imageSmoothingEnabled = true;
+  thumbCtx.imageSmoothingQuality = 'high';
+  thumbCtx.drawImage(
+    fullCanvas,
+    0,
+    0,
+    fullCanvas.width,
+    fullCanvas.height,
+    0,
+    0,
+    thumbCanvas.width,
+    thumbCanvas.height
+  );
+
+  return thumbCanvas.toDataURL('image/png', 0.8);
 }
 
 // Serialize a project for saving
@@ -1320,11 +1390,21 @@ export async function saveProjectToFile(
   };
 
   const writeToHandle = async (handle: FileSystemFileHandle): Promise<void> => {
-    const writable = await handle.createWritable();
-    const data = await ensureProjectData();
-    const buffer = toArrayBuffer(data);
-    await writable.write(buffer);
-    await writable.close();
+    const writable = await handle.createWritable({ keepExistingData: true });
+    try {
+      const data = await ensureProjectData();
+      const buffer = toArrayBuffer(data);
+      await writable.write({ type: 'write', position: 0, data: buffer });
+      await writable.truncate(buffer.byteLength);
+      await writable.close();
+    } catch (error) {
+      try {
+        await writable.abort();
+      } catch {
+        // best effort cleanup
+      }
+      throw error;
+    }
   };
 
   if (existingHandle) {

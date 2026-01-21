@@ -154,6 +154,7 @@ describe('project slice lifecycle flows', () => {
     const notifySpy = useAppStore.getState().addNotification as jest.Mock;
     captureSpy.mockClear();
     notifySpy.mockClear();
+    useAppStore.setState({ currentOffscreenCanvas: document.createElement('canvas') });
 
     (saveProjectToFile as jest.Mock).mockResolvedValue({
       fileName: 'poster.vessel',
@@ -181,6 +182,32 @@ describe('project slice lifecycle flows', () => {
     expect(notifySpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', title: 'Project Saved' })
     );
+  });
+
+  it('forces a save dialog when requested even if a file handle exists', async () => {
+    useAppStore.setState((state) => ({
+      projectFilename: 'existing.vessel',
+      projectFileHandle: { id: 'handle-existing' },
+      autosave: {
+        ...state.autosave,
+        fileBackup: {
+          ...state.autosave.fileBackup,
+          fileHandle: { id: 'handle-existing' },
+        },
+      },
+    }));
+
+    (saveProjectToFile as jest.Mock).mockResolvedValue({
+      fileName: 'new-file.vessel',
+      fileHandle: { id: 'handle-new' },
+    });
+
+    await useAppStore.getState().saveProject({ forceDialog: true });
+
+    const [, , , existingHandleArg] = (saveProjectToFile as jest.Mock).mock.calls[0];
+    expect(existingHandleArg).toBeNull();
+    expect(useAppStore.getState().projectFilename).toBe('new-file.vessel');
+    expect(useAppStore.getState().projectFileHandle).toEqual({ id: 'handle-new' });
   });
 
   it('imports a project payload via helper and resets file metadata', async () => {

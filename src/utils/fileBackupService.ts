@@ -98,13 +98,13 @@ export class FileBackupService {
       return { success: false, error: 'No backup directory selected' };
     }
 
+    let filename: string | null = null;
+    let fileHandle: FileSystemFileHandle | null = null;
+
     try {
       // Use the same serialization as manual saves for compatibility
       const { serializeProject } = await import('./projectIO');
       const projectData = await serializeProject(project, layers);
-
-      let filename: string;
-      let fileHandle: FileSystemFileHandle;
 
       if (mode === 'single-file') {
         // Use the selected file, overwriting it
@@ -118,13 +118,35 @@ export class FileBackupService {
       }
 
       // Write the project data (already JSON string from serializeProject)
-      const writable = await fileHandle.createWritable();
-      await writable.write(projectData);
-      await writable.close();
+      const writable = await fileHandle.createWritable({ keepExistingData: true });
+      try {
+        await writable.write({ type: 'write', position: 0, data: projectData });
+        await writable.truncate(projectData.byteLength);
+        await writable.close();
+      } catch (error) {
+        try {
+          await writable.abort();
+        } catch {
+          // best effort cleanup
+        }
+        throw error;
+      }
 
       // Project backed up as: ${filename}
-      return { success: true, filename };
+      return { success: true, filename: filename ?? undefined };
     } catch (error) {
+      if (
+        mode === 'timestamped-files' &&
+        filename &&
+        this.directoryHandle &&
+        typeof this.directoryHandle.removeEntry === 'function'
+      ) {
+        try {
+          await this.directoryHandle.removeEntry(filename);
+        } catch {
+          // Best-effort cleanup of partially written autosave files.
+        }
+      }
       console.error('[FileBackup] Failed to save backup:', error);
       return { success: false, error: `Failed to save backup: ${error instanceof Error ? error.message : 'Unknown error'}` };
     }

@@ -14,7 +14,7 @@ import {
   createDefaultPalette,
 } from '@/utils/layoutDefaults';
 import { normalizeCanvasShape } from '@/utils/canvasShape';
-import { createProjectLifecycle } from '@/stores/helpers/projectLifecycle';
+import { createProjectLifecycle, type SaveProjectRequest } from '@/stores/helpers/projectLifecycle';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
@@ -130,7 +130,7 @@ export interface ProjectSlice {
   updateProject: (updates: Partial<Project>) => void;
   setExportLayout: (layout: ExportContainerLayout) => void;
   updateWebglExportSettings: (settings: Partial<WebGLExportSettings>) => void;
-  saveProject: (filename?: string) => Promise<void>;
+  saveProject: (request?: SaveProjectRequest) => Promise<void>;
   loadProject: () => Promise<void>;
   importProject: (
     project: Project,

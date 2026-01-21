@@ -8,6 +8,7 @@ const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as 
   markDirtyBoundsMock: jest.Mock;
   endStrokeMock: jest.Mock;
   forceRenderMock: jest.Mock;
+  resizeMock: jest.Mock;
 };
 
 jest.mock('@/lib/ColorCycleAnimator', () => {
@@ -19,6 +20,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
   const markDirtyBoundsMock = jest.fn();
   const endStrokeMock = jest.fn();
   const forceRenderMock = jest.fn();
+  const resizeMock = jest.fn();
 
   class MockAnimator {
     width: number;
@@ -72,6 +74,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     }
 
     resize(w: number, h: number) {
+      resizeMock(w, h);
       this.width = w;
       this.height = h;
     }
@@ -155,6 +158,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       markDirtyBoundsMock,
       endStrokeMock,
       forceRenderMock,
+      resizeMock,
     },
   };
 });
@@ -329,7 +333,6 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setStampDitherBgFill(false);
 
     brush.startStroke('layer-1');
-    brush.paint(2, 2, 'layer-1', 1);
     brush.endStroke('layer-1');
 
     expect(animatorMocks.beginDirectFillMock).toHaveBeenCalled();
@@ -375,6 +378,65 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(animatorMocks.setIndexBufferFromArrayMock).toHaveBeenCalled();
     const snapshot = brush.getLayerSnapshot('layer-deser');
     expect(snapshot?.hasContent).toBe(true);
+  });
+
+  it('normalizes ArrayBuffer animator data on endStroke', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+    const animator = (brush as any).getAnimator('layer-1') as { serialize: () => unknown };
+    jest.spyOn(animator, 'serialize').mockReturnValue({
+      indexBuffer: {
+        width: canvas.width,
+        height: canvas.height,
+        data: new Uint8Array(canvas.width * canvas.height).buffer,
+        gradientId: new Uint8Array(canvas.width * canvas.height).buffer,
+        speedData: new Uint8Array(canvas.width * canvas.height).buffer,
+        palette: [] as string[],
+      },
+      gradient: {
+        gradientStops: [],
+        paletteSize: 256,
+      },
+      animation: {
+        offset: 0,
+        stats: {
+          targetFPS: 0,
+          actualFPS: 0,
+          frameCount: 0,
+          totalTime: 0,
+          averageFrameTime: 0,
+          isAnimating: false,
+        },
+      },
+    });
+
+    brush.startStroke('layer-1');
+    brush.paint(2, 2, 'layer-1', 1);
+    brush.endStroke('layer-1');
+
+    const snapshot = brush.getLayerSnapshot('layer-1');
+    expect(snapshot?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
+    const serialized = brush.serialize();
+    expect(serialized.layers[0].strokeData?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
+  });
+
+  it('forces full-size animator before restore upload', () => {
+    const canvas = makeCanvas();
+    canvas.width = 512;
+    canvas.height = 512;
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const full = new Uint8Array(canvas.width * canvas.height);
+    full[0] = 1;
+
+    brush.applyLayerSnapshot('layer-restore', {
+      paintBuffer: full.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    expect(animatorMocks.resizeMock).toHaveBeenCalledWith(canvas.width, canvas.height);
+    const applied = animatorMocks.setIndexBufferFromArrayMock.mock.calls.slice(-1)[0][0] as Uint8Array;
+    expect(applied.length).toBe(canvas.width * canvas.height);
   });
 
   it('prefers gradientBands over distance-derived bands', () => {

@@ -581,7 +581,7 @@ export interface AppState {
   markAllCompositeSegmentsDirty: () => void;
   
   // Project Save/Load Management
-  saveProject: (filename?: string) => Promise<void>;
+  saveProject: (request?: string | { filename?: string; forceDialog?: boolean }) => Promise<void>;
   loadProject: () => Promise<void>;
   importProject: (
     project: Project,

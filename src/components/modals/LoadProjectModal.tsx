@@ -193,6 +193,43 @@ const formatFileSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const isThumbnailEffectivelyBlank = async (thumbnail: string): Promise<boolean> => {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+  try {
+    const image = new Image();
+    const loadPromise = new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Failed to load thumbnail'));
+    });
+    image.src = thumbnail;
+    await loadPromise;
+    const width = Math.max(1, image.naturalWidth || image.width);
+    const height = Math.max(1, image.naturalHeight || image.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+    if (!ctx) {
+      return false;
+    }
+    ctx.drawImage(image, 0, 0);
+    const data = ctx.getImageData(0, 0, width, height).data;
+    const totalPixels = width * height;
+    const step = Math.max(4, Math.floor(totalPixels / 4096)) * 4;
+    for (let i = 3; i < data.length; i += step) {
+      if (data[i] !== 0) {
+        return false;
+      }
+    }
+    return true;
+  } catch (error) {
+    console.warn('[LoadProjectModal] Failed to inspect thumbnail', error);
+    return false;
+  }
+};
+
 const compareEntries = (a: DirectoryProjectEntry, b: DirectoryProjectEntry) => {
   const aTime = a.lastModified ?? 0;
   const bTime = b.lastModified ?? 0;
@@ -285,7 +322,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
   const [previewOffset, setPreviewOffset] = useState({ x: 0, y: 0 });
   const [previewScale, setPreviewScale] = useState(1);
   const [isPreviewPanning, setIsPreviewPanning] = useState(false);
-  const [modalDimensions, setModalDimensions] = useState({ width: 960, height: 720 });
+  const [modalDimensions, setModalDimensions] = useState({ width: 1120, height: 820 });
   const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 });
   const [isDraggingModal, setIsDraggingModal] = useState(false);
   const directoryEntriesRef = useRef(directoryEntries);
@@ -516,6 +553,13 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     }
 
     try {
+      if (file.size === 0) {
+        setError('File is empty or incomplete. Autosave may have failed to write the file.');
+        setProjectData(null);
+        setPreview(null);
+        setCachedProject(null);
+        return;
+      }
       const buffer = await file.arrayBuffer();
       const vesselProject = await readProjectManifest(buffer);
       const { project, metadata } = vesselProject;
@@ -546,13 +590,15 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         return hydratedProject;
       };
 
-      if (!project.thumbnail) {
+      const thumbnailIsBlank = project.thumbnail ? await isThumbnailEffectivelyBlank(project.thumbnail) : false;
+
+      if (!project.thumbnail || thumbnailIsBlank) {
         try {
           const hydrated = await ensureHydratedProject();
           const thumbnail = generateProjectThumbnail(
             hydrated,
             hydrated.layers ?? [],
-            256
+            512
           );
           setCachedProject(hydrated);
           setPreview(prev => prev ? {
@@ -733,6 +779,9 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
           let lastModified: number | undefined;
           try {
             const file = await fileHandle.getFile();
+            if (file.size === 0) {
+              continue;
+            }
             lastModified = file.lastModified;
           } catch (err) {
             console.warn('[LoadProjectModal] Unable to inspect file timestamp', err);
@@ -752,6 +801,9 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
           let lastModified: number | undefined;
           try {
             const file = await fileHandle.getFile();
+            if (file.size === 0) {
+              continue;
+            }
             lastModified = file.lastModified;
           } catch (err) {
             console.warn('[LoadProjectModal] Unable to inspect file timestamp', err);
@@ -1137,11 +1189,24 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         </div>
       );
     } else {
+      const checkerboardStyle: React.CSSProperties = {
+        backgroundImage:
+          'linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%),' +
+          'linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%),' +
+          'linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%),' +
+          'linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)',
+        backgroundSize: '24px 24px',
+        backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0',
+      };
+
       previewPanel = (
         <div
           ref={previewWrapperRef}
           className={`flex-1 min-h-0 rounded-lg border border-[#3A3A3A] bg-[#101110] overflow-hidden relative ${preview.thumbnail ? (isPreviewPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
-          style={preview?.thumbnail ? { touchAction: 'none' } : undefined}
+          style={{
+            ...(preview?.thumbnail ? { touchAction: 'none' } : undefined),
+            ...checkerboardStyle,
+          }}
           onPointerDown={preview?.thumbnail ? handlePreviewPointerDown : undefined}
           onPointerMove={preview?.thumbnail ? handlePreviewPointerMove : undefined}
           onPointerUp={preview?.thumbnail ? handlePreviewPointerUp : undefined}
@@ -1176,8 +1241,8 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     }
 
     return (
-      <div className="flex flex-1 gap-6 min-h-0">
-        <div className="flex-1 flex flex-col gap-4 min-h-0">
+      <div className="flex flex-1 gap-6 min-h-0 min-w-0">
+        <div className="flex-1 flex flex-col gap-4 min-h-0 min-w-0">
           {previewPanel}
           <div className="rounded-lg border border-[#2A2A2A] bg-[#161716] p-4 text-sm flex-shrink-0">
             {preview ? (() => {
@@ -1202,7 +1267,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
             )}
           </div>
         </div>
-        <div className="w-72 flex flex-col text-sm min-h-0">
+        <div className="w-64 flex flex-col text-sm min-h-0">
           <div className="flex items-center justify-between mb-2 flex-shrink-0">
             <div className="text-[#8C8C8C] uppercase tracking-wide text-xs">Folder Files</div>
             <Button

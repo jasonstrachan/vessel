@@ -2567,29 +2567,29 @@ export class ColorCycleBrushCanvas2D {
 
       try {
         const serializedAnimator = animator.serialize();
-        const bufferData = serializedAnimator?.indexBuffer?.data;
-        const gradientIdData = serializedAnimator?.indexBuffer?.gradientId;
-        const speedData = serializedAnimator?.indexBuffer?.speedData;
-        let liveBuffer: Uint8Array | undefined;
-        if (bufferData) {
-          liveBuffer = bufferData.slice();
-          strokeData.paintBuffer = liveBuffer;
-          snapshotBuffer = liveBuffer.byteLength > 0
-            ? liveBuffer.slice().buffer
+        const ib = serializedAnimator?.indexBuffer;
+        const livePaint = this.toU8(ib?.data);
+        const liveGid = this.toU8(ib?.gradientId);
+        const liveSpd = this.toU8(ib?.speedData);
+        if (livePaint) {
+          const paintCopy = livePaint.slice();
+          strokeData.paintBuffer = paintCopy;
+          snapshotBuffer = paintCopy.byteLength > 0
+            ? paintCopy.slice().buffer
             : new ArrayBuffer(0);
         }
-        if (gradientIdData) {
-          const liveGradientId = gradientIdData.slice();
-          strokeData.gradientIdBuffer = liveGradientId;
-          snapshotGradientIdBuffer = liveGradientId.byteLength > 0
-            ? liveGradientId.slice().buffer
+        if (liveGid) {
+          const gidCopy = liveGid.slice();
+          strokeData.gradientIdBuffer = gidCopy;
+          snapshotGradientIdBuffer = gidCopy.byteLength > 0
+            ? gidCopy.slice().buffer
             : new ArrayBuffer(0);
         }
-        if (speedData) {
-          const liveSpeed = speedData.slice();
-          strokeData.speedBuffer = liveSpeed;
-          snapshotSpeedBuffer = liveSpeed.byteLength > 0
-            ? liveSpeed.slice().buffer
+        if (liveSpd) {
+          const spdCopy = liveSpd.slice();
+          strokeData.speedBuffer = spdCopy;
+          snapshotSpeedBuffer = spdCopy.byteLength > 0
+            ? spdCopy.slice().buffer
             : new ArrayBuffer(0);
         }
       } catch (error) {
@@ -2635,6 +2635,51 @@ export class ColorCycleBrushCanvas2D {
 
     // Final render
     this.render(false);
+  }
+
+  private snapshotFromAnimator(animator: ColorCycleAnimator, strokeData: LayerStrokeState) {
+    const serialized = animator.serialize();
+    const indexBuffer = serialized?.indexBuffer;
+    const paintData = this.toU8(indexBuffer?.data);
+    if (!paintData) {
+      return;
+    }
+
+    const paint = paintData.slice();
+    const gid = this.toU8(indexBuffer?.gradientId)?.slice();
+    const spd = this.toU8(indexBuffer?.speedData)?.slice();
+
+    strokeData.paintBuffer = paint;
+    if (gid) {
+      strokeData.gradientIdBuffer = gid;
+    }
+    if (spd) {
+      strokeData.speedBuffer = spd;
+    }
+
+    strokeData.lastSnapshot = {
+      paintBuffer: paint.slice().buffer,
+      gradientIdBuffer: gid ? gid.slice().buffer : undefined,
+      speedBuffer: spd ? spd.slice().buffer : undefined,
+      hasContent: true,
+      strokeCounter: strokeData.strokeCounter,
+    };
+  }
+
+  private toU8(value: unknown): Uint8Array | undefined {
+    if (!value) {
+      return undefined;
+    }
+    if (value instanceof Uint8Array) {
+      return value;
+    }
+    if (value instanceof ArrayBuffer) {
+      return new Uint8Array(value);
+    }
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    return undefined;
   }
 
   /**
@@ -2856,6 +2901,9 @@ export class ColorCycleBrushCanvas2D {
               area: bbox.width * bbox.height,
               vertices: gpuVertices.length,
             });
+            if (strokeData) {
+              this.snapshotFromAnimator(animator, strokeData);
+            }
             return;
           }
           ccWarn('[ColorCycleBrush] Linear GPU fill returned empty result', {
@@ -3022,6 +3070,9 @@ export class ColorCycleBrushCanvas2D {
             this.dirtyLayers.add(id);
             animator.forceRender();
             this.render(false);
+            if (strokeData) {
+              this.snapshotFromAnimator(animator, strokeData);
+            }
             logCpuLinear();
             return;
           } catch (error) {
@@ -3054,6 +3105,9 @@ export class ColorCycleBrushCanvas2D {
         this.dirtyLayers.add(id);
         animator.forceRender();
         this.render(false);
+        if (strokeData) {
+          this.snapshotFromAnimator(animator, strokeData);
+        }
         logCpuLinear();
         return;
       } catch {
@@ -3304,6 +3358,9 @@ export class ColorCycleBrushCanvas2D {
     // Force immediate render
     animator.forceRender();
     this.render(false);
+    if (strokeData) {
+      this.snapshotFromAnimator(animator, strokeData);
+    }
     logCpuLinear();
     } finally {
       animator.endDirectFill();
@@ -3496,6 +3553,9 @@ export class ColorCycleBrushCanvas2D {
             area: bbox.width * bbox.height,
             vertices: gpuVertices.length,
           });
+          if (strokeData) {
+            this.snapshotFromAnimator(animator, strokeData);
+          }
           return;
         }
           } catch (error) {
@@ -3713,6 +3773,9 @@ export class ColorCycleBrushCanvas2D {
           animator2.forceRender();
           this.render(false);
           logConcentricFill('cpu');
+          if (strokeData) {
+            this.snapshotFromAnimator(animator2, strokeData);
+          }
           return;
         } catch {
           // fall back to index-space path
@@ -3747,6 +3810,9 @@ export class ColorCycleBrushCanvas2D {
             const buffer = new Uint8Array(workerResult.indices);
             blitLocalBuffer(buffer);
             finalizeFill('worker');
+            if (strokeData) {
+              this.snapshotFromAnimator(animator, strokeData);
+            }
             return;
           }
         } catch (error) {
@@ -3775,6 +3841,9 @@ export class ColorCycleBrushCanvas2D {
         }
       );
       finalizeFill('cpu');
+      if (strokeData) {
+        this.snapshotFromAnimator(animator, strokeData);
+      }
     } finally {
       animator.endDirectFill();
     }
@@ -4946,28 +5015,34 @@ export class ColorCycleBrushCanvas2D {
 
     this.animators.forEach((animator, layerId) => {
       const strokeData = this.layerStrokes.get(layerId);
+      const hadSnapshot = Boolean(strokeData?.lastSnapshot?.paintBuffer?.byteLength);
+      if (strokeData?.hasContent && !hadSnapshot) {
+        this.snapshotFromAnimator(animator, strokeData);
+      }
       const snapshot = strokeData?.lastSnapshot;
-
       const hasContent = snapshot?.hasContent ?? strokeData?.hasContent ?? false;
 
       let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
       let gradientIdBuffer: ArrayBuffer | undefined = undefined;
       let speedBuffer: ArrayBuffer | undefined = undefined;
+      const paintU8 = strokeData?.paintBuffer instanceof Uint8Array ? strokeData.paintBuffer : undefined;
+      const gidU8 = strokeData?.gradientIdBuffer instanceof Uint8Array ? strokeData.gradientIdBuffer : undefined;
+      const spdU8 = strokeData?.speedBuffer instanceof Uint8Array ? strokeData.speedBuffer : undefined;
       if (hasContent) {
         if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
           paintBuffer = snapshot.paintBuffer.slice(0);
-        } else if (strokeData?.paintBuffer && strokeData.paintBuffer.length > 0) {
-          paintBuffer = strokeData.paintBuffer.slice().buffer;
+        } else if (paintU8 && paintU8.length > 0) {
+          paintBuffer = paintU8.slice().buffer;
         }
         if (snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0) {
           gradientIdBuffer = snapshot.gradientIdBuffer.slice(0);
-        } else if (strokeData?.gradientIdBuffer && strokeData.gradientIdBuffer.length > 0) {
-          gradientIdBuffer = strokeData.gradientIdBuffer.slice().buffer;
+        } else if (gidU8 && gidU8.length > 0) {
+          gradientIdBuffer = gidU8.slice().buffer;
         }
         if (snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0) {
           speedBuffer = snapshot.speedBuffer.slice(0);
-        } else if (strokeData?.speedBuffer && strokeData.speedBuffer.length > 0) {
-          speedBuffer = strokeData.speedBuffer.slice().buffer;
+        } else if (spdU8 && spdU8.length > 0) {
+          speedBuffer = spdU8.slice().buffer;
         }
       }
       const strokeCounter = strokeData?.strokeCounter ?? snapshot?.strokeCounter ?? this.strokeCounter;
@@ -5167,9 +5242,23 @@ export class ColorCycleBrushCanvas2D {
     if (!animator) {
       animator = this.getAnimator(layerId);
     }
-    const buffer = snapshot.paintBuffer || new ArrayBuffer(0);
-    const gradientBuffer = snapshot.gradientIdBuffer ?? animatorIndex?.gradientIdData;
-    const speedBuffer = snapshot.speedBuffer ?? animatorIndex?.speedData;
+    // Ensure full-size animator during restore; avoid 256×256 lazy init artifacts.
+    try {
+      animator.resize(this.width, this.height);
+      this.deferredAnimatorSizes.delete(animator);
+    } catch {}
+    const buffer =
+      snapshot.paintBuffer && snapshot.paintBuffer.byteLength > 0
+        ? snapshot.paintBuffer
+        : (animatorIndex?.data ?? new ArrayBuffer(0));
+    const gradientBuffer =
+      snapshot.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0
+        ? snapshot.gradientIdBuffer
+        : animatorIndex?.gradientIdData;
+    const speedBuffer =
+      snapshot.speedBuffer && snapshot.speedBuffer.byteLength > 0
+        ? snapshot.speedBuffer
+        : animatorIndex?.speedData;
     const existing = this.layerStrokes.get(layerId);
     const expectedSize = this.width * this.height;
     const incoming = new Uint8Array(buffer);
@@ -5294,15 +5383,28 @@ export class ColorCycleBrushCanvas2D {
     strokeData.strokeLength = 0;
     strokeData.lastPoint = null;
     strokeData.stampCounter = 0;
+    const liveHandle = animator ? animator.beginDirectFill() : null;
+    const livePaint = animatorIndex?.data
+      ? new Uint8Array(animatorIndex.data)
+      : liveHandle?.data ?? strokeData.paintBuffer;
+    const liveGid = animatorIndex?.gradientIdData
+      ? new Uint8Array(animatorIndex.gradientIdData)
+      : liveHandle?.gradientId ?? strokeData.gradientIdBuffer;
+    const liveSpeed = animatorIndex?.speedData
+      ? new Uint8Array(animatorIndex.speedData)
+      : liveHandle?.speedData ?? strokeData.speedBuffer;
+    if (liveHandle) {
+      animator?.endDirectFill({ markDirty: false });
+    }
     strokeData.lastSnapshot = {
-      paintBuffer: hasLayerContent
-        ? strokeData.paintBuffer.slice().buffer
+      paintBuffer: hasLayerContent && livePaint && livePaint.length > 0
+        ? livePaint.slice().buffer
         : new ArrayBuffer(0),
-      gradientIdBuffer: hasLayerContent && strokeData.gradientIdBuffer
-        ? strokeData.gradientIdBuffer.slice().buffer
+      gradientIdBuffer: hasLayerContent && liveGid && liveGid.length > 0
+        ? liveGid.slice().buffer
         : snapshot.gradientIdBuffer?.slice(0),
-      speedBuffer: hasLayerContent && strokeData.speedBuffer
-        ? strokeData.speedBuffer.slice().buffer
+      speedBuffer: hasLayerContent && liveSpeed && liveSpeed.length > 0
+        ? liveSpeed.slice().buffer
         : snapshot.speedBuffer?.slice(0),
       hasContent: hasLayerContent,
       strokeCounter: strokeData.strokeCounter
@@ -5317,11 +5419,19 @@ export class ColorCycleBrushCanvas2D {
       const speedArray = animatorIndex?.speedData
         ? new Uint8Array(animatorIndex.speedData)
         : strokeData.speedBuffer ?? undefined;
-      animator?.setIndexBufferFromArray(
-        new Uint8Array(strokeData.paintBuffer),
-        gradientIdArray,
-        speedArray
-      );
+      const uploadPaint = incoming.length === expectedSize ? incoming : strokeData.paintBuffer;
+      const uploadGid = incomingGradient ?? strokeData.gradientIdBuffer ?? undefined;
+      const uploadSpd = incomingSpeed ?? strokeData.speedBuffer ?? undefined;
+      animator?.setIndexBufferFromArray(uploadPaint, uploadGid, uploadSpd);
+      if (hasLayerContent) {
+        strokeData.lastSnapshot = {
+          paintBuffer: strokeData.paintBuffer.slice().buffer,
+          gradientIdBuffer: strokeData.gradientIdBuffer?.slice().buffer,
+          speedBuffer: strokeData.speedBuffer?.slice().buffer,
+          hasContent: hasLayerContent,
+          strokeCounter: strokeData.strokeCounter
+        };
+      }
       const dims = animator?.getDimensions?.();
       if (dims) {
         animator.markDirtyBounds({ minX: 0, minY: 0, width: dims.width, height: dims.height });

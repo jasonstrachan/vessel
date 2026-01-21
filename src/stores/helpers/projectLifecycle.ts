@@ -22,6 +22,7 @@ import {
 } from '../colorCycleBrushManager';
 import { setActiveHistoryDocument } from '@/history/historyService';
 import { logError } from '@/utils/debug';
+import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { devLog } from '@/utils/devLog';
 import { updateToolsWithPalette } from './paletteState';
 
@@ -29,6 +30,13 @@ type AppState = import('../useAppStore').AppState;
 
 type StoreSet = StoreApi<AppState>['setState'];
 type StoreGet = StoreApi<AppState>['getState'];
+
+export type SaveProjectRequest =
+  | string
+  | {
+      filename?: string;
+      forceDialog?: boolean;
+    };
 
 type CustomBrushSnapshot = {
   brushes: CustomBrush[];
@@ -304,16 +312,75 @@ export const createProjectLifecycle = ({
     });
   };
 
-  const saveProject = async (filename?: string): Promise<void> => {
+  const saveProject = async (request?: SaveProjectRequest): Promise<void> => {
     const state = get();
     if (!state.project) {
       throw new Error('No project to save');
     }
 
     try {
-      await captureCanvasToActiveLayer();
+      const captureSource = state.currentOffscreenCanvas ?? undefined;
+      if (captureSource) {
+        await captureCanvasToActiveLayer(captureSource);
+      }
 
       const freshState = get();
+      const requestOptions =
+        typeof request === 'string' ? { filename: request } : request ?? {};
+      const layersForSave = await Promise.all(
+        freshState.layers.map(async (layer) => {
+          if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+            return layer;
+          }
+          const colorCycleData = layer.colorCycleData;
+          let canvasImageData =
+            colorCycleData.canvasImageData ??
+            captureCanvasImageData(colorCycleData.canvas ?? null);
+
+          if (!canvasImageData) {
+            const brush = colorCycleBrushManager?.getLayerColorCycleBrush(layer.id) as
+              | { renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void }
+              | null
+              | undefined;
+            if (brush?.renderDirectToCanvas && typeof document !== 'undefined') {
+              const width =
+                colorCycleData.canvasWidth ??
+                colorCycleData.canvas?.width ??
+                freshState.project?.width ??
+                1;
+              const height =
+                colorCycleData.canvasHeight ??
+                colorCycleData.canvas?.height ??
+                freshState.project?.height ??
+                1;
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = Math.max(1, width);
+              tempCanvas.height = Math.max(1, height);
+              try {
+                brush.renderDirectToCanvas(tempCanvas, layer.id);
+                canvasImageData = captureCanvasImageData(tempCanvas) ?? undefined;
+              } catch {
+                // best effort; keep existing state
+              }
+            }
+          }
+
+          if (!canvasImageData) {
+            return layer;
+          }
+
+          return {
+            ...layer,
+            colorCycleData: {
+              ...colorCycleData,
+              canvasImageData,
+              canvasWidth: colorCycleData.canvasWidth ?? canvasImageData.width,
+              canvasHeight: colorCycleData.canvasHeight ?? canvasImageData.height,
+            },
+          };
+        })
+      );
+
       const projectWithViewState = {
         ...freshState.project!,
         viewState: {
@@ -324,12 +391,13 @@ export const createProjectLifecycle = ({
         palette: freshState.palette,
       };
 
-      const preferredName = filename ?? state.projectFilename ?? state.project.name;
+      const preferredName =
+        requestOptions.filename ?? state.projectFilename ?? state.project.name;
       const { fileName: savedFileName, fileHandle } = await saveProjectToFile(
         projectWithViewState,
         preferredName,
-        freshState.layers,
-        state.projectFileHandle ?? undefined
+        layersForSave,
+        requestOptions.forceDialog ? null : state.projectFileHandle ?? undefined
       );
 
       const nextFileHandle = fileHandle ?? state.projectFileHandle ?? null;

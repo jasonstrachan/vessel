@@ -57,8 +57,7 @@ const LeftToolbar = () => {
       toggleModal('document');
     } else if (toolId === 'save') {
       try {
-        
-        await saveProject();
+        await saveProject({ forceDialog: true });
       } catch (error) {
         alert(`Save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }

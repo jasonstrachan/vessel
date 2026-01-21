@@ -207,6 +207,8 @@ export const applyCanvasShapeClip = (ctx: CanvasRenderingContext2D, shape: Canva
 export const applyCanvasShapeMask = (ctx: CanvasRenderingContext2D, shape: CanvasShape): void => {
   ctx.save();
   ctx.globalCompositeOperation = 'destination-in';
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#fff';
   drawCanvasShapePath(ctx, shape);
   ctx.fill();
   ctx.restore();
