@@ -774,8 +774,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleFgStops !== undefined) {
         settingsToSave.colorCycleFgStops = newSettings.colorCycleFgStops;
       }
+      if (settings.colorCycleSpeed !== undefined) {
+        settingsToSave.colorCycleSpeed = newSettings.colorCycleSpeed;
+      }
       if (settings.colorCycleFlowMode !== undefined) {
         settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
+      }
+      if (settings.gradientBands !== undefined) {
+        settingsToSave.gradientBands = newSettings.gradientBands;
       }
       if (settings.gradientLength !== undefined) {
         settingsToSave.gradientLength = newSettings.gradientLength;

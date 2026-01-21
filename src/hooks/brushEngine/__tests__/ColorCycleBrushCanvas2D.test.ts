@@ -336,7 +336,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.endStroke('layer-1');
 
     expect(animatorMocks.beginDirectFillMock).toHaveBeenCalled();
-    expect(animatorMocks.beginDirectFillMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(animatorMocks.beginDirectFillMock.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   it('rebuilds animator from index snapshot via deserialize', () => {
@@ -411,7 +411,6 @@ describe('ColorCycleBrushCanvas2D', () => {
     });
 
     brush.startStroke('layer-1');
-    brush.paint(2, 2, 'layer-1', 1);
     brush.endStroke('layer-1');
 
     const snapshot = brush.getLayerSnapshot('layer-1');

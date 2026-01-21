@@ -17,7 +17,9 @@ import {
   selectShapeMode,
 } from '@/stores/selectors/toolsSelectors';
 import { BrushShape, type BrushSettings } from "@/types";
+import CommittedNumberInput from "../ui/CommittedNumberInput";
 import Input from "../ui/Input";
+import CommittedProgressSlider from "../ui/CommittedProgressSlider";
 import ProgressSlider from "../ui/ProgressSlider";
 // Using ProgressSlider to match pixel square brush opacity style
 import Dropdown from "../ui/Dropdown";
@@ -70,7 +72,7 @@ const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffi
         <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
           Riso
         </label>
-        <ProgressSlider
+        <NonCcSlider
           value={settings.risographIntensity || 0}
           min={0}
           max={100}
@@ -87,7 +89,7 @@ const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffi
             <label className={`${CONTROL_LABEL_CLASS} text-xs`}>
               Hue Jitter
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={settings.risographColorShift ?? 3}
               min={0}
               max={10}
@@ -150,7 +152,7 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
             <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
               Strength
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={strength}
               min={0}
               max={1}
@@ -165,7 +167,7 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
             <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
               Feather
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={feather}
               min={0}
               max={12}
@@ -180,7 +182,7 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
             <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
               Texture
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={noise}
               min={0}
               max={1}
@@ -260,9 +262,49 @@ const BrushControls = () => {
   const canDitherForShape = (shape?: BrushShape) =>
     capability.canDither !== undefined ? capability.canDither : supportsDither(shape ?? BrushShape.ROUND);
 
+  const NonCcSlider = isColorCycleBrush(activeSettings.brushShape)
+    ? ProgressSlider
+    : CommittedProgressSlider;
+
   // Use the appropriate settings and setter based on current tool
   const setActiveSettings =
     currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
+
+  const useCommittedSliderValue = (
+    value: number,
+    onCommitValue: (next: number) => void
+  ) => {
+    const [localValue, setLocalValue] = React.useState(value);
+    const isEditingRef = React.useRef(false);
+    const latestRef = React.useRef(value);
+
+    React.useEffect(() => {
+      latestRef.current = localValue;
+    }, [localValue]);
+
+    React.useEffect(() => {
+      if (!isEditingRef.current) {
+        setLocalValue(value);
+      }
+    }, [value]);
+
+    const handleChange = React.useCallback((next: number) => {
+      isEditingRef.current = true;
+      setLocalValue(next);
+    }, []);
+
+    const handleCommit = React.useCallback(() => {
+      const next = latestRef.current;
+      if (isEditingRef.current) {
+        isEditingRef.current = false;
+        if (next !== value) {
+          onCommitValue(next);
+        }
+      }
+    }, [onCommitValue, value]);
+
+    return { value: localValue, onChange: handleChange, onCommit: handleCommit };
+  };
 
   // Shared dither gradient palette helpers (kept outside branches to preserve hook order)
   const clampStopCount = React.useCallback((count: number) => Math.min(6, Math.max(2, Math.round(count))), []);
@@ -338,6 +380,65 @@ const BrushControls = () => {
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
   const fgDerivedOpacity = activeSettings.colorCycleFgOpacity ?? 100;
+
+  const sizeSlider = useCommittedSliderValue(globalBrushSize, (nextRaw) => {
+    const next = Math.min(500, Math.max(1, Math.round(nextRaw)));
+    setGlobalBrushSize(next);
+    if (currentTool === 'eraser') {
+      setEraserSettings({ size: next });
+    }
+  });
+
+  const spacingSlider = useCommittedSliderValue(activeSettings.spacing ?? 1, (nextRaw) => {
+    const next = Math.max(1, Math.round(nextRaw));
+    setActiveSettings({ spacing: next });
+  });
+
+  const fgLightSlider = useCommittedSliderValue(fgDerivedLightness, (nextRaw) => {
+    const next = Math.max(0, Math.min(100, Math.round(nextRaw)));
+    setActiveSettings({ colorCycleFgLightness: next });
+  });
+
+  const fgHueSlider = useCommittedSliderValue(fgDerivedHueShift, (nextRaw) => {
+    const next = Math.max(-320, Math.min(320, Math.round(nextRaw)));
+    setActiveSettings({ colorCycleFgHueShift: next });
+  });
+
+  const fgSatSlider = useCommittedSliderValue(fgDerivedSaturationShift, (nextRaw) => {
+    const next = Math.max(-45, Math.min(45, Math.round(nextRaw)));
+    setActiveSettings({ colorCycleFgSaturationShift: next });
+  });
+
+  const fgOpacitySlider = useCommittedSliderValue(fgDerivedOpacity, (nextRaw) => {
+    const next = Math.max(0, Math.min(100, Math.round(nextRaw)));
+    setActiveSettings({ colorCycleFgOpacity: next });
+  });
+
+  const fgStopsSlider = useCommittedSliderValue(activeSettings.colorCycleFgStops ?? 2, (nextRaw) => {
+    const next = Math.max(2, Math.min(6, Math.round(nextRaw)));
+    setActiveSettings({ colorCycleFgStops: next });
+  });
+
+  const speedSlider = useCommittedSliderValue(
+    activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED,
+    (nextRaw) => {
+      const next = Math.max(
+        MIN_BRUSH_COLOR_CYCLE_SPEED,
+        Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(nextRaw))
+      );
+      setActiveSettings({ colorCycleSpeed: next });
+    }
+  );
+
+  const bandsSlider = useCommittedSliderValue(activeSettings.gradientBands ?? 12, (nextRaw) => {
+    const next = Math.max(2, Math.min(64, Math.round(nextRaw)));
+    setActiveSettings({ gradientBands: next });
+  });
+
+  const lostEdgeSlider = useCommittedSliderValue(activeSettings.lostEdge ?? 0, (nextRaw) => {
+    const next = Math.max(0, Math.min(100, Math.round(nextRaw)));
+    setActiveSettings({ lostEdge: next });
+  });
   const fgDerivedBands = clampForegroundDerivedBands(activeSettings.colorCycleFgStops);
   const foregroundDerivedSpec = React.useMemo(
     () =>
@@ -956,18 +1057,15 @@ const BrushControls = () => {
                 <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                   Size {sizeUnit}
                 </label>
-                <ProgressSlider
-                  value={globalBrushSize}
+                <NonCcSlider
+                  value={sizeSlider.value}
                   min={1}
                   max={500}
                   step={1}
                   onChange={(value) => {
-                    const next = Math.min(500, Math.max(1, Math.round(value)));
-                    setGlobalBrushSize(next);
-                    if (currentTool === 'eraser') {
-                      setEraserSettings({ size: next });
-                    }
+                    sizeSlider.onChange(Math.min(500, Math.max(1, Math.round(value))));
                   }}
+                  onCommit={sizeSlider.onCommit}
                   aria-label={`Brush Size (${sizeUnit})`}
                   className="flex-1"
                 />
@@ -979,14 +1077,15 @@ const BrushControls = () => {
                 <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                   Spacing
                 </label>
-                <ProgressSlider
-                  value={activeSettings.spacing ?? 1}
+                <NonCcSlider
+                  value={spacingSlider.value}
                   min={1}
                   max={64}
                   step={1}
                   onChange={(value) =>
-                    setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+                    spacingSlider.onChange(Math.max(1, Math.round(value)))
                   }
+                  onCommit={spacingSlider.onCommit}
                   aria-label="Stamp Spacing"
                   className="flex-1"
                 />
@@ -1005,14 +1104,15 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Light
                   </label>
-                  <ProgressSlider
-                    value={fgDerivedLightness}
+                  <NonCcSlider
+                    value={fgLightSlider.value}
                     min={0}
                     max={100}
                     step={1}
                     onChange={(value) =>
-                      setActiveSettings({ colorCycleFgLightness: Math.max(0, Math.min(100, Math.round(value))) })
+                      fgLightSlider.onChange(Math.max(0, Math.min(100, Math.round(value))))
                     }
+                    onCommit={fgLightSlider.onCommit}
                     aria-label="Foreground Gradient Lightness"
                     className="flex-1"
                   />
@@ -1023,14 +1123,15 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Hue
                   </label>
-                  <ProgressSlider
-                    value={fgDerivedHueShift}
+                  <NonCcSlider
+                    value={fgHueSlider.value}
                     min={-320}
                     max={320}
                     step={1}
                     onChange={(value) =>
-                      setActiveSettings({ colorCycleFgHueShift: Math.max(-320, Math.min(320, Math.round(value))) })
+                      fgHueSlider.onChange(Math.max(-320, Math.min(320, Math.round(value))))
                     }
+                    onCommit={fgHueSlider.onCommit}
                     aria-label="Foreground Gradient Hue Shift"
                     className="flex-1"
                   />
@@ -1041,14 +1142,15 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Sat
                   </label>
-                  <ProgressSlider
-                    value={fgDerivedSaturationShift}
+                  <NonCcSlider
+                    value={fgSatSlider.value}
                     min={-45}
                     max={45}
                     step={1}
                     onChange={(value) =>
-                      setActiveSettings({ colorCycleFgSaturationShift: Math.max(-45, Math.min(45, Math.round(value))) })
+                      fgSatSlider.onChange(Math.max(-45, Math.min(45, Math.round(value))))
                     }
+                    onCommit={fgSatSlider.onCommit}
                     aria-label="Foreground Gradient Saturation Shift"
                     className="flex-1"
                   />
@@ -1059,14 +1161,15 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Opacity
                   </label>
-                  <ProgressSlider
-                    value={fgDerivedOpacity}
+                  <NonCcSlider
+                    value={fgOpacitySlider.value}
                     min={0}
                     max={100}
                     step={1}
                     onChange={(value) =>
-                      setActiveSettings({ colorCycleFgOpacity: Math.max(0, Math.min(100, Math.round(value))) })
+                      fgOpacitySlider.onChange(Math.max(0, Math.min(100, Math.round(value))))
                     }
+                    onCommit={fgOpacitySlider.onCommit}
                     aria-label="Foreground Gradient Opacity"
                     className="flex-1"
                   />
@@ -1077,14 +1180,15 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Stops
                   </label>
-                  <ProgressSlider
-                    value={activeSettings.colorCycleFgStops ?? 2}
+                  <NonCcSlider
+                    value={fgStopsSlider.value}
                     min={2}
                     max={6}
                     step={1}
                     onChange={(value) =>
-                      setActiveSettings({ colorCycleFgStops: Math.max(2, Math.min(6, Math.round(value))) })
+                      fgStopsSlider.onChange(Math.max(2, Math.min(6, Math.round(value))))
                     }
+                    onCommit={fgStopsSlider.onCommit}
                     aria-label="Foreground Gradient Stops"
                     className="flex-1"
                   />
@@ -1099,18 +1203,20 @@ const BrushControls = () => {
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Speed
             </label>
-            <ProgressSlider
-              value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
+            <NonCcSlider
+              value={speedSlider.value}
               min={MIN_BRUSH_COLOR_CYCLE_SPEED}
               max={MAX_BRUSH_COLOR_CYCLE_SPEED}
               step={COLOR_CYCLE_SPEED_STEP}
               onChange={(value) => {
-                const clamped = Math.max(
-                  MIN_BRUSH_COLOR_CYCLE_SPEED,
-                  Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
+                speedSlider.onChange(
+                  Math.max(
+                    MIN_BRUSH_COLOR_CYCLE_SPEED,
+                    Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
+                  )
                 );
-                setActiveSettings({ colorCycleSpeed: clamped });
               }}
+              onCommit={speedSlider.onCommit}
               aria-label="Speed"
               className="flex-1"
             />
@@ -1122,12 +1228,13 @@ const BrushControls = () => {
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Bands
             </label>
-            <ProgressSlider
-              value={activeSettings.gradientBands ?? 12}
+            <NonCcSlider
+              value={bandsSlider.value}
               min={2}
               max={64}
               step={1}
-              onChange={(value) => setActiveSettings({ gradientBands: Math.round(value) })}
+              onChange={(value) => bandsSlider.onChange(Math.round(value))}
+              onCommit={bandsSlider.onCommit}
               aria-label="Gradient Bands"
               className="flex-1"
             />
@@ -1209,7 +1316,7 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Res
                   </label>
-                  <ProgressSlider
+                  <NonCcSlider
                     value={activeSettings.colorCycleStampDitherPixelSize ?? 1}
                     min={1}
                     max={32}
@@ -1349,16 +1456,15 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Lostedge
             </label>
-            <ProgressSlider
-              value={activeSettings.lostEdge ?? 0}
+            <NonCcSlider
+              value={lostEdgeSlider.value}
               min={0}
               max={100}
               step={1}
               onChange={(value) =>
-                setActiveSettings({
-                  lostEdge: Math.max(0, Math.min(100, Math.round(value)))
-                })
+                lostEdgeSlider.onChange(Math.max(0, Math.min(100, Math.round(value))))
               }
+              onCommit={lostEdgeSlider.onCommit}
               aria-label="Lost Edge"
               className="flex-1"
             />
@@ -1389,32 +1495,22 @@ const BrushControls = () => {
                   <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                     L
                   </span>
-                  <Input
-                    type="number"
-                    variant="compact"
+                  <CommittedNumberInput
                     value={activeSettings.dashLength || 3}
-                    onChange={(e) =>
-                      setActiveSettings({
-                        dashLength: parseInt(e.target.value) || 3,
-                      })
-                    }
-                    min="1"
-                    max="20"
+                    onCommit={(next) => setActiveSettings({ dashLength: next })}
+                    min={1}
+                    max={20}
                     className="w-12 bg-transparent text-right"
                     title="Length multiplier (×brush size)"
                   />
                   <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                     G
                   </span>
-                  <Input
-                    type="number"
-                    variant="compact"
+                  <CommittedNumberInput
                     value={activeSettings.dashGap || 2}
-                    onChange={(e) =>
-                      setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
-                    }
-                    min="1"
-                    max="20"
+                    onCommit={(next) => setActiveSettings({ dashGap: next })}
+                    min={1}
+                    max={20}
                     className="w-12 bg-transparent text-right"
                     title="Gap multiplier (×brush size)"
                   />
@@ -1512,7 +1608,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Size px
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={globalBrushSize}
               min={8}
               max={72}
@@ -1536,7 +1632,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Opacity
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.opacity}
               min={0}
               max={1}
@@ -1554,7 +1650,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Spacing
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.spacing}
               min={1}
               max={40}
@@ -1574,7 +1670,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Lostedge
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.lostEdge ?? 0}
               min={0}
               max={100}
@@ -1713,7 +1809,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Interval
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.resampleInterval || 5}
               min={1}
               max={10}
@@ -1733,7 +1829,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Size {sizeUnit}
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
               min={isActiveCustomBrush ? 5 : 1}
               max={isActiveCustomBrush ? 1000 : 500}
@@ -1768,7 +1864,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Opacity
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.opacity}
               min={0}
               max={1}
@@ -1786,7 +1882,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Spacing
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.spacing}
               min={1}
               max={40}
@@ -1939,32 +2035,22 @@ const BrushControls = () => {
                   <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                     L
                   </span>
-                  <Input
-                    type="number"
-                    variant="compact"
+                  <CommittedNumberInput
                     value={activeSettings.dashLength || 3}
-                    onChange={(e) =>
-                      setActiveSettings({
-                        dashLength: parseInt(e.target.value) || 3,
-                      })
-                    }
-                    min="1"
-                    max="20"
+                    onCommit={(next) => setActiveSettings({ dashLength: next })}
+                    min={1}
+                    max={20}
                     className="w-12 bg-transparent text-right"
                     title="Length multiplier (×brush size)"
                   />
                   <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                     G
                   </span>
-                  <Input
-                    type="number"
-                    variant="compact"
+                  <CommittedNumberInput
                     value={activeSettings.dashGap || 2}
-                    onChange={(e) =>
-                      setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
-                    }
-                    min="1"
-                    max="20"
+                    onCommit={(next) => setActiveSettings({ dashGap: next })}
+                    min={1}
+                    max={20}
                     className="w-12 bg-transparent text-right"
                     title="Gap multiplier (×brush size)"
                   />
@@ -2012,7 +2098,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Sides
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.polygonSides || 6}
               min={3}
               max={12}
@@ -2032,7 +2118,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Dither
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.polygonDitherResolution || 3}
               min={1}
               max={32}
@@ -2071,7 +2157,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Size px
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={globalBrushSize}
               min={1}
               max={500}
@@ -2094,7 +2180,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Opacity
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.opacity}
               min={1}
               max={100}
@@ -2111,7 +2197,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Lostedge
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.lostEdge ?? 0}
               min={0}
               max={100}
@@ -2196,7 +2282,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Colors
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.colors || 2}
               min={activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ? 2 : 1}
               max={activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ? 64 : 10}
@@ -2237,7 +2323,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Lostedge
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.lostEdge ?? 0}
               min={0}
               max={100}
@@ -2310,7 +2396,7 @@ const BrushControls = () => {
                   <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
                     Length
                   </label>
-                  <ProgressSlider
+                  <NonCcSlider
                     value={activeSettings.gradientLength ?? 100}
                     min={20}
                     max={200}
@@ -2371,7 +2457,7 @@ const BrushControls = () => {
                   <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
                     Colors
                   </label>
-                  <ProgressSlider
+                  <NonCcSlider
                     value={currentStops.length}
                     min={2}
                     max={6}
@@ -2404,7 +2490,7 @@ const BrushControls = () => {
                   <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
                     Trans
                   </label>
-                  <ProgressSlider
+                  <NonCcSlider
                     value={transValue}
                     min={0}
                     max={6}
@@ -2429,7 +2515,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
               Opacity
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.opacity}
               min={0}
               max={1}
@@ -2523,7 +2609,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Size {sizeUnit}
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
               min={isActiveCustomBrush ? 5 : 1}
               max={isActiveCustomBrush ? 1000 : 500}
@@ -2559,7 +2645,7 @@ const BrushControls = () => {
           <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
             Opacity
           </label>
-          <ProgressSlider
+          <NonCcSlider
             value={activeSettings.opacity}
             min={0}
             max={1}
@@ -2578,7 +2664,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Spacing
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.spacing}
               min={1}
               max={40}
@@ -2600,7 +2686,7 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Lostedge
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.lostEdge ?? 0}
               min={0}
               max={100}
@@ -2626,7 +2712,7 @@ const BrushControls = () => {
             >
               Sprd
             </label>
-            <ProgressSlider
+            <NonCcSlider
               value={activeSettings.ditherPaletteSpread ?? 0}
               min={0}
               max={100}
@@ -2821,35 +2907,25 @@ const BrushControls = () => {
                 <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                   L
                 </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.dashLength || 3}
-                  onChange={(e) =>
-                    setActiveSettings({
-                      dashLength: parseInt(e.target.value) || 3,
-                    })
-                  }
-                  min="1"
-                  max="20"
-                  className="w-12 bg-transparent text-right"
-                  title="Length multiplier (×brush size)"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
-                  G
-                </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.dashGap || 2}
-                  onChange={(e) =>
-                    setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
-                  }
-                  min="1"
-                  max="20"
-                  className="w-12 bg-transparent text-right"
-                  title="Gap multiplier (×brush size)"
-                />
+                  <CommittedNumberInput
+                    value={activeSettings.dashLength || 3}
+                    onCommit={(next) => setActiveSettings({ dashLength: next })}
+                    min={1}
+                    max={20}
+                    className="w-12 bg-transparent text-right"
+                    title="Length multiplier (×brush size)"
+                  />
+                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                    G
+                  </span>
+                  <CommittedNumberInput
+                    value={activeSettings.dashGap || 2}
+                    onCommit={(next) => setActiveSettings({ dashGap: next })}
+                    min={1}
+                    max={20}
+                    className="w-12 bg-transparent text-right"
+                    title="Gap multiplier (×brush size)"
+                  />
               </>
             )}
           </div>

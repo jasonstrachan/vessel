@@ -8,6 +8,7 @@ interface ProgressSliderProps {
   max: number;
   step?: number;
   onChange: (value: number) => void;
+  onCommit?: () => void;
   'aria-label'?: string;
   className?: string;
   disabled?: boolean;
@@ -19,10 +20,12 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
   max,
   step = 1,
   onChange,
+  onCommit,
   disabled = false,
   'aria-label': ariaLabel,
   className = ''
 }) => {
+  const isDraggingRef = React.useRef(false);
   const percentage = ((value - min) / (max - min)) * 100;
 
   // Format value for display - show decimals only if step < 1
@@ -69,6 +72,26 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         step={step}
         disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        onPointerDown={() => {
+          isDraggingRef.current = true;
+        }}
+        onPointerUp={() => {
+          if (isDraggingRef.current) {
+            isDraggingRef.current = false;
+            onCommit?.();
+          }
+        }}
+        onPointerCancel={() => {
+          if (isDraggingRef.current) {
+            isDraggingRef.current = false;
+            onCommit?.();
+          }
+        }}
+        onBlur={() => {
+          if (!isDraggingRef.current) {
+            onCommit?.();
+          }
+        }}
         aria-label={ariaLabel}
       />
     </div>

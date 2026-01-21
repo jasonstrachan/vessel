@@ -3,6 +3,7 @@ const saveMock = jest.fn();
 
 describe('global brush persistence', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.resetModules();
     loadMock.mockReset();
     saveMock.mockReset();
@@ -10,6 +11,11 @@ describe('global brush persistence', () => {
       loadGlobalBrushSettings: loadMock,
       saveGlobalBrushSettings: saveMock,
     }));
+  });
+
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
   });
 
   it('hydrates stored brush metadata on startup', async () => {
@@ -42,6 +48,7 @@ describe('global brush persistence', () => {
     const store = useAppStore.getState();
     store.saveBrushSettings('pixel-brush', { spacing: 9 });
 
+    jest.advanceTimersByTime(300);
     expect(saveMock).toHaveBeenCalled();
   });
 
@@ -67,6 +74,7 @@ describe('global brush persistence', () => {
 
     // Changing the toggle should write back to persistence payload
     store.setBrushSettings({ continuousSampling: true, resampleInterval: 2 });
+    jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
     expect(payload?.brushSpecificSettings?.['resampler-brush']).toEqual(
       expect.objectContaining({ continuousSampling: true, resampleInterval: 2 })
@@ -94,6 +102,7 @@ describe('global brush persistence', () => {
 
     // Changing it back on should persist
     store.setBrushSettings({ polygonSampleColors: true });
+    jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
     expect(payload?.brushSpecificSettings?.['polygon-gradient-brush']).toEqual(
       expect.objectContaining({ polygonSampleColors: true })
@@ -128,6 +137,7 @@ describe('global brush persistence', () => {
       ditherGradStops: ['#aaaaaa', '#bbbbbb'],
       trans: 0,
     });
+    jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
     expect(payload?.brushSpecificSettings?.['dither-gradient-brush']).toEqual(
       expect.objectContaining({
@@ -171,8 +181,11 @@ describe('global brush persistence', () => {
       colorCycleStampDitherPressureLinked: false,
       colorCycleStampDitherBgFill: true,
       colorCycleFlowMode: 'reverse',
+      colorCycleSpeed: 0.25,
+      gradientBands: 16,
       colorCycleStampShape: 'square',
     });
+    jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
     expect(payload?.brushSpecificSettings?.['color-cycle-stroke']).toEqual(
       expect.objectContaining({
@@ -181,6 +194,8 @@ describe('global brush persistence', () => {
         colorCycleStampDitherPressureLinked: false,
         colorCycleStampDitherBgFill: true,
         colorCycleFlowMode: 'reverse',
+        colorCycleSpeed: 0.25,
+        gradientBands: 16,
         colorCycleStampShape: 'square',
       })
     );
@@ -195,11 +210,13 @@ describe('global brush persistence', () => {
 
     // initial set to pixel brush (already default) then switch
     store.setBrushPreset(roundSquare6Preset);
+    jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
     expect(payload?.lastBrushId).toBe(roundSquare6Preset.id);
 
     // switching back should update
     store.setBrushPreset(pixelBrushPreset);
+    jest.advanceTimersByTime(300);
     const updated = saveMock.mock.calls.at(-1)?.[0];
     expect(updated?.lastBrushId).toBe(pixelBrushPreset.id);
   });
@@ -211,6 +228,7 @@ describe('global brush persistence', () => {
 
     store.setPressureSettings({ enabled: true, min: 15, max: 220 });
 
+    jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
     expect(payload?.pressureSettings).toEqual({ enabled: true, min: 15, max: 220 });
     expect(payload?.brushSpecificSettings).toBeDefined();

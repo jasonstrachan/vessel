@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import ColorPicker from '../ui/ColorPicker';
-import PaletteSwatches from '../ui/PaletteSwatches';
-import ColorSwatches from '../toolbar/ColorSwatches';
+
 import { useAppStore } from '../../stores/useAppStore';
+import ColorPicker from '../ui/ColorPicker';
+import ColorSwatches from '../toolbar/ColorSwatches';
+import PaletteSwatches from '../ui/PaletteSwatches';
 
 const ColorPickerPanel = React.memo(() => {
   // Use individual selectors to avoid unstable object references  
@@ -34,6 +35,7 @@ const ColorPickerPanel = React.memo(() => {
     activeSlider: null,
     pointerId: null
   });
+  const [isColorPickerDragging, setIsColorPickerDragging] = useState(false);
 
   // Convert hex to RGB (memoized)
   const hexToRgb = useCallback((hex: string) => {
@@ -75,12 +77,20 @@ const ColorPickerPanel = React.memo(() => {
   const scheduleActiveColorUpdate = useCallback((color: string, isDragging: boolean) => {
     pendingColorRef.current = color;
 
-    // When dithering is on and user is scrubbing, debounce to ~120ms to avoid engine churn.
+    // When dragging, debounce to avoid churning the engine; dither uses a longer window.
     if (ditherEnabled && isDragging && typeof window !== 'undefined') {
       if (debounceHandleRef.current !== null) {
         window.clearTimeout(debounceHandleRef.current);
       }
       debounceHandleRef.current = window.setTimeout(flushPendingColor, 120);
+      return;
+    }
+
+    if (isDragging && typeof window !== 'undefined') {
+      if (debounceHandleRef.current !== null) {
+        window.clearTimeout(debounceHandleRef.current);
+      }
+      debounceHandleRef.current = window.setTimeout(flushPendingColor, 32);
       return;
     }
 
@@ -162,8 +172,21 @@ const ColorPickerPanel = React.memo(() => {
 
   // Stable color change handlers - directly call appropriate setter to avoid re-render loops
   const handleColorChange = useCallback((color: string) => {
-    setActiveColor(color);
-  }, [setActiveColor]);
+    scheduleActiveColorUpdate(color, isColorPickerDragging);
+  }, [isColorPickerDragging, scheduleActiveColorUpdate]);
+
+  const handleColorPickerCommit = useCallback(() => {
+    flushPendingColor();
+    requestDitherWarmup();
+  }, [flushPendingColor, requestDitherWarmup]);
+
+  const handleColorPickerDragStart = useCallback(() => {
+    setIsColorPickerDragging(true);
+  }, []);
+
+  const handleColorPickerDragEnd = useCallback(() => {
+    setIsColorPickerDragging(false);
+  }, []);
 
   // Stable color select handler for ColorSwatches
   const handleColorSelect = useCallback((color: string) => {
@@ -178,7 +201,9 @@ const ColorPickerPanel = React.memo(() => {
         <ColorPicker
           color={activeColor}
           onChange={handleColorChange}
-          onCommit={requestDitherWarmup}
+          onCommit={handleColorPickerCommit}
+          onInteractionStart={handleColorPickerDragStart}
+          onInteractionEnd={handleColorPickerDragEnd}
           className="w-full"
         />
       </div>

@@ -263,6 +263,7 @@ import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
+import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 
@@ -888,6 +889,31 @@ const hydrateGlobalBrushSettings = (): void => {
 };
 
 const subscribeToGlobalBrushPersistence = (): void => {
+  let pendingPayload: GlobalBrushSettingsPayload | null = null;
+  let debounceHandle: number | null = null;
+
+  const flushPending = () => {
+    if (!pendingPayload) {
+      return;
+    }
+    const payload = pendingPayload;
+    pendingPayload = null;
+    debounceHandle = null;
+    saveGlobalBrushSettings(payload);
+  };
+
+  const scheduleSave = (payload: GlobalBrushSettingsPayload) => {
+    pendingPayload = payload;
+    if (typeof window === 'undefined') {
+      flushPending();
+      return;
+    }
+    if (debounceHandle !== null) {
+      window.clearTimeout(debounceHandle);
+    }
+    debounceHandle = window.setTimeout(flushPending, 250);
+  };
+
   storeSubscribeWithSelector(
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
@@ -905,7 +931,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
         return;
       }
 
-      saveGlobalBrushSettings({
+      scheduleSave({
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
         pressureSettings: next.pressureSettings,
@@ -920,6 +946,11 @@ const subscribeToGlobalBrushPersistence = (): void => {
         a.lastBrushId === b.lastBrushId,
     }
   );
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushPending);
+    window.addEventListener('pagehide', flushPending);
+  }
 };
 
 hydrateGlobalBrushSettings();
