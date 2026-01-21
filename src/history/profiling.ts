@@ -22,8 +22,6 @@ const metrics: ColorCycleMetrics = {
   lastLayerId: null,
 };
 
-const LARGE_DELTA_WARN_BYTES = 10 * 1024 * 1024;
-
 const shouldProfileEntry = (entry: HistoryEntry): boolean =>
   entry.deltas.some((delta) => delta._tag === 'color-cycle-stroke');
 
@@ -65,14 +63,6 @@ export const recordHistoryEntryMetrics = (entry: HistoryEntry): void => {
   metrics.lastEntryId = entry.id;
   metrics.lastLayerId = typeof entry.meta?.layerId === 'string' ? (entry.meta.layerId as string) : null;
 
-  if (approxBytes >= LARGE_DELTA_WARN_BYTES) {
-    console.warn('[history] Large color-cycle delta', {
-      approxBytes,
-      tileCount,
-      entryId: entry.id,
-      layerId: metrics.lastLayerId,
-    });
-  }
 };
 
 export const getColorCycleHistoryMetrics = (): Readonly<{

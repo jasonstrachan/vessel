@@ -387,6 +387,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const colorCycleWorkerEnabled = useFeatureFlag('useColorCycleWorker');
   const colorCycleWorkerSupport = useMemo(() => detectColorCycleWorkerSupport(), []);
   const shouldUseColorCycleWorker = colorCycleWorkerEnabled && colorCycleWorkerSupport.supported;
+  const hasWarnedColorCycleWorkerRef = useRef(false);
 
   const setCursorScreenPosition = useCallback((screenX: number, screenY: number) => {
     mousePositionRef.current = { x: screenX, y: screenY };
@@ -413,8 +414,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         return client.ping();
       })
       .catch((error) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[ColorCycleWorker] init failed', error);
+        if (!hasWarnedColorCycleWorkerRef.current) {
+          hasWarnedColorCycleWorkerRef.current = true;
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              '[ColorCycleWorker] init failed; falling back to main-thread compositing.',
+              error
+            );
+          }
         }
       });
     return () => {

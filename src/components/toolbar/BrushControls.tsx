@@ -58,21 +58,23 @@ import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPr
 const PRESSURE_MIN_BOUND = 0;
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
 const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
+type SliderComponent = React.ComponentType<React.ComponentProps<typeof ProgressSlider>>;
 
 type RisoControlsProps = {
   settings: BrushSettings;
   onChange: (updates: Partial<BrushSettings>) => void;
   idSuffix: string;
+  Slider: SliderComponent;
 };
 
-const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffix }) => {
+const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffix, Slider }) => {
   return (
     <div className="mb-2">
       <div className="flex items-center gap-2">
         <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
           Riso
         </label>
-        <NonCcSlider
+        <Slider
           value={settings.risographIntensity || 0}
           min={0}
           max={100}
@@ -89,7 +91,7 @@ const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffi
             <label className={`${CONTROL_LABEL_CLASS} text-xs`}>
               Hue Jitter
             </label>
-            <NonCcSlider
+            <Slider
               value={settings.risographColorShift ?? 3}
               min={0}
               max={10}
@@ -122,9 +124,10 @@ type PigmentLiftControlsProps = {
   settings: BrushSettings;
   onChange: (updates: Partial<BrushSettings>) => void;
   idSuffix: string;
+  Slider: SliderComponent;
 };
 
-const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onChange, idSuffix }) => {
+const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onChange, idSuffix, Slider }) => {
   const strength = settings.pigmentLiftStrength ?? 0.18;
   const feather = settings.pigmentLiftFeather ?? 3;
   const noise = settings.pigmentLiftNoise ?? 0.4;
@@ -152,7 +155,7 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
             <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
               Strength
             </label>
-            <NonCcSlider
+            <Slider
               value={strength}
               min={0}
               max={1}
@@ -167,7 +170,7 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
             <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
               Feather
             </label>
-            <NonCcSlider
+            <Slider
               value={feather}
               min={0}
               max={12}
@@ -182,7 +185,7 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
             <label className={`${CONTROL_LABEL_CLASS} text-xs`} style={CONTROL_LABEL_STYLE}>
               Texture
             </label>
-            <NonCcSlider
+            <Slider
               value={noise}
               min={0}
               max={1}
@@ -394,20 +397,18 @@ const BrushControls = () => {
     setActiveSettings({ spacing: next });
   });
 
-  const fgLightSlider = useCommittedSliderValue(fgDerivedLightness, (nextRaw) => {
-    const next = Math.max(0, Math.min(100, Math.round(nextRaw)));
-    setActiveSettings({ colorCycleFgLightness: next });
-  });
-
-  const fgHueSlider = useCommittedSliderValue(fgDerivedHueShift, (nextRaw) => {
-    const next = Math.max(-320, Math.min(320, Math.round(nextRaw)));
-    setActiveSettings({ colorCycleFgHueShift: next });
-  });
-
-  const fgSatSlider = useCommittedSliderValue(fgDerivedSaturationShift, (nextRaw) => {
-    const next = Math.max(-45, Math.min(45, Math.round(nextRaw)));
-    setActiveSettings({ colorCycleFgSaturationShift: next });
-  });
+  const clampFgLightness = React.useCallback(
+    (next: number) => Math.max(0, Math.min(100, Math.round(next))),
+    []
+  );
+  const clampFgHueShift = React.useCallback(
+    (next: number) => Math.max(-320, Math.min(320, Math.round(next))),
+    []
+  );
+  const clampFgSatShift = React.useCallback(
+    (next: number) => Math.max(-45, Math.min(45, Math.round(next))),
+    []
+  );
 
   const fgOpacitySlider = useCommittedSliderValue(fgDerivedOpacity, (nextRaw) => {
     const next = Math.max(0, Math.min(100, Math.round(nextRaw)));
@@ -1104,15 +1105,14 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Light
                   </label>
-                  <NonCcSlider
-                    value={fgLightSlider.value}
+                  <ProgressSlider
+                    value={fgDerivedLightness}
                     min={0}
                     max={100}
                     step={1}
                     onChange={(value) =>
-                      fgLightSlider.onChange(Math.max(0, Math.min(100, Math.round(value))))
+                      setActiveSettings({ colorCycleFgLightness: clampFgLightness(value) })
                     }
-                    onCommit={fgLightSlider.onCommit}
                     aria-label="Foreground Gradient Lightness"
                     className="flex-1"
                   />
@@ -1123,15 +1123,14 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Hue
                   </label>
-                  <NonCcSlider
-                    value={fgHueSlider.value}
+                  <ProgressSlider
+                    value={fgDerivedHueShift}
                     min={-320}
                     max={320}
                     step={1}
                     onChange={(value) =>
-                      fgHueSlider.onChange(Math.max(-320, Math.min(320, Math.round(value))))
+                      setActiveSettings({ colorCycleFgHueShift: clampFgHueShift(value) })
                     }
-                    onCommit={fgHueSlider.onCommit}
                     aria-label="Foreground Gradient Hue Shift"
                     className="flex-1"
                   />
@@ -1142,15 +1141,14 @@ const BrushControls = () => {
                   <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                     Sat
                   </label>
-                  <NonCcSlider
-                    value={fgSatSlider.value}
+                  <ProgressSlider
+                    value={fgDerivedSaturationShift}
                     min={-45}
                     max={45}
                     step={1}
                     onChange={(value) =>
-                      fgSatSlider.onChange(Math.max(-45, Math.min(45, Math.round(value))))
+                      setActiveSettings({ colorCycleFgSaturationShift: clampFgSatShift(value) })
                     }
-                    onCommit={fgSatSlider.onCommit}
                     aria-label="Foreground Gradient Saturation Shift"
                     className="flex-1"
                   />
@@ -1908,6 +1906,7 @@ const BrushControls = () => {
                 settings={activeSettings}
                 onChange={setActiveSettings}
                 idSuffix="resampler"
+                Slider={NonCcSlider}
               />
             }
           />
@@ -1916,6 +1915,7 @@ const BrushControls = () => {
           settings={activeSettings}
           onChange={setActiveSettings}
           idSuffix="resampler"
+          Slider={NonCcSlider}
         />
 
         {/* Shape Mode - Draw closed polygon shapes */}
@@ -2145,6 +2145,7 @@ const BrushControls = () => {
                 settings={activeSettings}
                 onChange={setActiveSettings}
                 idSuffix="polygon"
+                Slider={NonCcSlider}
               />
             }
             hideLostEdge
@@ -2351,6 +2352,7 @@ const BrushControls = () => {
                 settings={activeSettings}
                 onChange={setActiveSettings}
                 idSuffix="gradient"
+                Slider={NonCcSlider}
               />
             }
             hideLostEdge
@@ -2361,6 +2363,7 @@ const BrushControls = () => {
           settings={activeSettings}
           onChange={setActiveSettings}
           idSuffix="gradient"
+          Slider={NonCcSlider}
         />
 
         {/* Test Swatches Button */}
@@ -2782,6 +2785,7 @@ const BrushControls = () => {
               settings={activeSettings}
               onChange={setActiveSettings}
               idSuffix="default"
+              Slider={NonCcSlider}
             />
           }
         />
@@ -2791,6 +2795,7 @@ const BrushControls = () => {
         settings={activeSettings}
         onChange={setActiveSettings}
         idSuffix="default"
+        Slider={NonCcSlider}
       />
 
       {/* Shape Mode - Draw closed polygon shapes */}
