@@ -47,10 +47,12 @@ jest.mock('@/stores/useAppStore', () => {
 
 jest.mock('@/hooks/brushEngine/BrushEngineFacade', () => {
   const drawStroke = jest.fn();
+  const renderBrushStroke = jest.fn();
   const reset = jest.fn();
   return {
     createBrushEngineFacade: () => ({
       drawStroke,
+      renderBrushStroke,
       reset,
       dispose: jest.fn(),
       setBrush: jest.fn(),

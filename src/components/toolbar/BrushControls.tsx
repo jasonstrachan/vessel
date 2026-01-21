@@ -383,8 +383,9 @@ const BrushControls = () => {
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
   const fgDerivedOpacity = activeSettings.colorCycleFgOpacity ?? 100;
+  const effectiveGlobalBrushSize = globalBrushSize ?? activeSettings.size ?? 1;
 
-  const sizeSlider = useCommittedSliderValue(globalBrushSize, (nextRaw) => {
+  const sizeSlider = useCommittedSliderValue(effectiveGlobalBrushSize, (nextRaw) => {
     const next = Math.min(500, Math.max(1, Math.round(nextRaw)));
     setGlobalBrushSize(next);
     if (currentTool === 'eraser') {
@@ -1607,7 +1608,7 @@ const BrushControls = () => {
               Size px
             </label>
             <NonCcSlider
-              value={globalBrushSize}
+              value={effectiveGlobalBrushSize}
               min={8}
               max={72}
               step={1}
@@ -1828,7 +1829,7 @@ const BrushControls = () => {
               Size {sizeUnit}
             </label>
             <NonCcSlider
-              value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
+              value={isActiveCustomBrush ? customBrushPercent : effectiveGlobalBrushSize}
               min={isActiveCustomBrush ? 5 : 1}
               max={isActiveCustomBrush ? 1000 : 500}
               step={isActiveCustomBrush ? 5 : 1}
@@ -2159,7 +2160,7 @@ const BrushControls = () => {
               Size px
             </label>
             <NonCcSlider
-              value={globalBrushSize}
+              value={effectiveGlobalBrushSize}
               min={1}
               max={500}
               step={1}
@@ -2613,7 +2614,7 @@ const BrushControls = () => {
               Size {sizeUnit}
             </label>
             <NonCcSlider
-              value={isActiveCustomBrush ? customBrushPercent : globalBrushSize}
+              value={isActiveCustomBrush ? customBrushPercent : effectiveGlobalBrushSize}
               min={isActiveCustomBrush ? 5 : 1}
               max={isActiveCustomBrush ? 1000 : 500}
               step={isActiveCustomBrush ? 5 : 1}

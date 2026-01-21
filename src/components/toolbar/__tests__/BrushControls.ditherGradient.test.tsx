@@ -193,6 +193,7 @@ describe('BrushControls – Dither Gradient', () => {
     const slider = screen.getByLabelText('Dither Gradient Colors');
 
     fireEvent.change(slider, { target: { value: '3' } });
+    fireEvent.blur(slider);
 
     const store = useAppStore.getState();
     expect(store.setBrushSettings).toHaveBeenCalledWith({
@@ -205,6 +206,7 @@ describe('BrushControls – Dither Gradient', () => {
     const slider = screen.getByLabelText('Transparent Colors');
 
     fireEvent.change(slider, { target: { value: '2' } });
+    fireEvent.blur(slider);
 
     const store = useAppStore.getState();
     expect(store.setBrushSettings).toHaveBeenCalledWith({ trans: 1 });
@@ -215,6 +217,7 @@ describe('BrushControls – Dither Gradient', () => {
     const slider = screen.getByLabelText('Gradient Length (%)');
 
     fireEvent.change(slider, { target: { value: '150' } });
+    fireEvent.blur(slider);
 
     const store = useAppStore.getState();
     expect(store.setBrushSettings).toHaveBeenCalledWith({ gradientLength: 150 });
@@ -247,6 +250,7 @@ describe('BrushControls – Dither Gradient', () => {
     const slider = screen.getByLabelText('Dither Gradient Colors');
 
     fireEvent.change(slider, { target: { value: '2' } });
+    fireEvent.blur(slider);
 
     const store = useAppStore.getState();
     expect(store.setBrushSettings).toHaveBeenCalledWith({

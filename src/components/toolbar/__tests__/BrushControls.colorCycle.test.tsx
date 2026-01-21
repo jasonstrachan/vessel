@@ -84,7 +84,19 @@ jest.mock('@/components/ui/ProgressSlider', () => ({
 
 jest.mock('@/components/ui/Dropdown', () => ({
   __esModule: true,
-  default: ({ value }: { value: string }) => <select aria-label="dropdown" value={value} />,
+  default: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange?: (value: string) => void;
+  }) => (
+    <select
+      aria-label="dropdown"
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
+  ),
 }));
 
 jest.mock('@/components/ui/CustomSwitch', () => ({

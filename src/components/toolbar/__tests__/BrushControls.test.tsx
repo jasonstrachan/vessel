@@ -62,6 +62,7 @@ describe('BrushControls', () => {
     const sizeSlider = screen.getAllByLabelText(/Brush Size/i)[0];
 
     fireEvent.change(sizeSlider, { target: { value: '20' } });
+    fireEvent.blur(sizeSlider);
 
     expect(mockStore.setGlobalBrushSize).toHaveBeenCalled();
   });
