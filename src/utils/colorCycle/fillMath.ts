@@ -1,4 +1,4 @@
-export const EDGE_PADDING_EPSILON = 1e-3;
+export const EDGE_PADDING_EPSILON = 0;
 
 export const applyEdgePadding = (value: number): number => {
   const clamped = Math.max(0, Math.min(1, value));

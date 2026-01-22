@@ -12,7 +12,7 @@ import { applyDitheringWithFillResolution } from './dithering';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
-import { fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
+import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
 import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { getMaskManager } from '@/layers/MaskManager';
@@ -854,52 +854,41 @@ export class ColorCycleBrushCanvas2D {
           );
         }
 
-      const lastScale = strokeData.stampDitherLastTileScale;
-      if (lastScale == null) {
-        strokeData.stampDitherLastTileScale = tileScaleInt;
-      } else if (lastScale !== tileScaleInt) {
-        strokeData.stampDitherLastTileScale = tileScaleInt;
-        this.scheduleStampDitherRecompose(strokeData, animator, flowSlot, tileScaleInt);
-      }
-
-        const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
-        const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
-        if (algo === 'pattern') {
-          const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
-          if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
-            const seed = strokeData.stampDitherSeed ?? 0;
-            strokeData.stampDitherOriginUnits = {
-              x: (seed % baseSize) | 0,
-              y: ((seed >>> 16) % baseSize) | 0,
-            };
-            strokeData.stampDitherOriginBaseSize = baseSize;
-          }
-          tileSize = baseSize * tileScaleInt;
-          const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
-          maskOriginX = -originU.x * tileScaleInt;
-          maskOriginY = -originU.y * tileScaleInt;
-          strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
-
-          const bucket = strokeData.stampDitherLockedBucket ?? 1;
-          tile = this.getStampDitherTile(bucket, tileScaleInt, baseSize, 'pattern', this.stampDitherPatternStyle);
-        } else {
-          const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
-          if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
-            const seed = strokeData.stampDitherSeed ?? 0;
-            strokeData.stampDitherOriginUnits = {
-              x: (seed % baseSize) | 0,
-              y: ((seed >>> 16) % baseSize) | 0,
-            };
-            strokeData.stampDitherOriginBaseSize = baseSize;
-          }
-          tileSize = baseSize * tileScaleInt;
-          const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
-          maskOriginX = -originU.x * tileScaleInt;
-          maskOriginY = -originU.y * tileScaleInt;
-          strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
-          const bucket = strokeData.stampDitherLockedBucket ?? 1;
-          tile = this.getStampDitherTile(bucket, tileScaleInt, baseSize, 'sierra-lite');
+      const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
+      const isErrorDiffusion = this.isErrorDiffusionAlgorithm(rawAlgo);
+      if (!isErrorDiffusion) {
+        const lastScale = strokeData.stampDitherLastTileScale;
+        if (lastScale == null) {
+          strokeData.stampDitherLastTileScale = tileScaleInt;
+        } else if (lastScale !== tileScaleInt) {
+          strokeData.stampDitherLastTileScale = tileScaleInt;
+          this.scheduleStampDitherRecompose(strokeData, animator, flowSlot, tileScaleInt);
         }
+
+        const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
+        if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
+          const seed = strokeData.stampDitherSeed ?? 0;
+          strokeData.stampDitherOriginUnits = {
+            x: (seed % baseSize) | 0,
+            y: ((seed >>> 16) % baseSize) | 0,
+          };
+          strokeData.stampDitherOriginBaseSize = baseSize;
+        }
+        tileSize = baseSize * tileScaleInt;
+        const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+        maskOriginX = -originU.x * tileScaleInt;
+        maskOriginY = -originU.y * tileScaleInt;
+        strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
+
+        const bucket = strokeData.stampDitherLockedBucket ?? 1;
+        tile = this.getStampDitherTile(
+          bucket,
+          tileScaleInt,
+          baseSize,
+          rawAlgo === 'pattern' ? 'pattern' : rawAlgo,
+          this.stampDitherPatternStyle
+        );
+      }
 
         const nextSeq = (strokeData.stampDitherStampSeq ?? 0) + 1;
         strokeData.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
@@ -1381,17 +1370,11 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private resolveStampDitherSecondaryIndex(primaryIndex: number): number {
-    const offset = 64;
     if (!Number.isFinite(primaryIndex)) {
       return 1;
     }
-    let next = Math.round(primaryIndex + offset);
-    while (next > 255) {
-      next -= 255;
-    }
-    if (next === primaryIndex) {
-      next = primaryIndex > 1 ? primaryIndex - 1 : Math.min(255, primaryIndex + 1);
-    }
+    const clamped = Math.max(1, Math.min(255, Math.round(primaryIndex)));
+    const next = clamped < 255 ? clamped + 1 : clamped - 1;
     return Math.max(1, Math.min(255, next));
   }
 
@@ -1609,7 +1592,7 @@ export class ColorCycleBrushCanvas2D {
     const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
     const kernel = this.getErrorDiffusionKernel(algo);
     const errorIntensity = Math.max(0, Math.min(1, this.ditherStrength)) * kernel.errorScale;
-    const jitterScale = 0.1 * errorIntensity;
+    const jitterScale = 0;
     const seed = strokeData.stampDitherSeed ?? 0;
 
     for (const [scale, scaleBound] of scaleBounds) {
@@ -1649,13 +1632,14 @@ export class ColorCycleBrushCanvas2D {
 
         for (let cx = xStart; cx !== xEnd; cx += xStep) {
           const cellIdx = cy * gridW + cx;
-          if (cellMask[cellIdx] === 0) continue;
           const globalCellX = cx + minCellX;
           const globalCellY = cy + minCellY;
           const jitter = jitterScale > 0 ? (this.hashCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale : 0;
           const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
           const quant = value >= 0.5 ? 1 : 0;
-          cellChoice[cellIdx] = quant;
+          if (cellMask[cellIdx] === 1) {
+            cellChoice[cellIdx] = quant;
+          }
           const error = (value - quant) * errorIntensity;
           if (error === 0) continue;
           for (const tap of kernel.taps) {
@@ -1663,7 +1647,6 @@ export class ColorCycleBrushCanvas2D {
             const ny = cy + tap.dy;
             if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
             const nIdx = ny * gridW + nx;
-            if (cellMask[nIdx] === 0) continue;
             errBuf[nIdx] += (error * tap.weight) / kernel.divisor;
           }
         }
@@ -1789,7 +1772,10 @@ export class ColorCycleBrushCanvas2D {
     const baseMask = strokeData.stampDitherBaseMask;
     if (!bounds || !owner || !primary) return;
     const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
-    const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
+    if (this.isErrorDiffusionAlgorithm(rawAlgo)) {
+      return;
+    }
+    const algo = rawAlgo === 'pattern' ? 'pattern' : rawAlgo;
     const bucket = strokeData.stampDitherLockedBucket ?? 1;
     const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
     const seed = strokeData.stampDitherSeed ?? 0;
@@ -1836,7 +1822,7 @@ export class ColorCycleBrushCanvas2D {
             bucket,
             seqScale,
             baseSize,
-            algo === 'pattern' ? undefined : 'sierra-lite',
+            algo === 'pattern' ? 'pattern' : algo,
             this.stampDitherPatternStyle
           );
           tileEntry = { tile, tileClamp, originX, originY };
@@ -2834,7 +2820,10 @@ export class ColorCycleBrushCanvas2D {
       maxProjection = Math.max(maxProjection, projection);
     }
     
-    const projectionRange = maxProjection - minProjection;
+    const projectionPadding = 0.5 * (Math.abs(dirX) + Math.abs(dirY));
+    const paddedMinProjection = minProjection - projectionPadding;
+    const paddedMaxProjection = maxProjection + projectionPadding;
+    const projectionRange = paddedMaxProjection - paddedMinProjection;
     const safeProjectionRange = Math.abs(projectionRange) < 1e-6 ? 1 : projectionRange;
     const spacingValue = this.normalizeBandSpacingValue(spacing);
     const projectionSpan = Math.max(1, Math.abs(safeProjectionRange));
@@ -2893,7 +2882,7 @@ export class ColorCycleBrushCanvas2D {
             bbox,
             direction: dirNorm,
             directionOrigin: { x: centerX, y: centerY },
-            directionRange: { min: minProjection, range: safeProjectionRange },
+            directionRange: { min: paddedMinProjection, range: safeProjectionRange },
             ditherStrength,
             ditherPixelSize,
             noiseSeed,
@@ -3003,7 +2992,10 @@ export class ColorCycleBrushCanvas2D {
           const dx = v.x - centerX; const dy = v.y - centerY;
           const p = dx * dirX + dy * dirY; if (p < minProj) minProj = p; if (p > maxProj) maxProj = p;
         }
-        const projRange = Math.max(1e-6, maxProj - minProj);
+        const projPadding = 0.5 * (Math.abs(dirX) + Math.abs(dirY));
+        const paddedMinProj = minProj - projPadding;
+        const paddedMaxProj = maxProj + projPadding;
+        const projRange = Math.max(1e-6, paddedMaxProj - paddedMinProj);
 
         const useBlockQuantization = this.ditherEnabled && Math.max(1, this.ditherPixelSize) > 1;
         const blockSize = Math.max(1, this.ditherPixelSize);
@@ -3026,7 +3018,7 @@ export class ColorCycleBrushCanvas2D {
               const sampleY = quantizeSample(y, y0, height);
               const dx = sampleX - centerX; const dy = sampleY - centerY;
               const proj = dx * dirX + dy * dirY;
-              const r = applyEdgePadding((proj - minProj) / Math.max(projRange, 1e-6));
+              const r = applyEdgePadding((proj - paddedMinProj) / Math.max(projRange, 1e-6));
               const { r: R, g: G, b: B } = this.colorAtPosition(r);
               const idx = (yy * width + xx) * 4;
               data[idx] = R; data[idx + 1] = G; data[idx + 2] = B; data[idx + 3] = 255;
@@ -3206,9 +3198,9 @@ export class ColorCycleBrushCanvas2D {
         const evaluateNormalized = (rawX: number, rawY: number, quantize: boolean) => {
           const px = quantize && cellSize > 1 ? quantizeCoord(rawX, ixBase, maxX) : rawX;
           const py = quantize && cellSize > 1 ? quantizeCoord(rawY, iyBase, maxY) : rawY;
-          const proj = (px - centerX) * dirX + (py - centerY) * dirY;
-          return clamp01((proj - minProjection) / safeProjectionRange);
-        };
+      const proj = (px - centerX) * dirX + (py - centerY) * dirY;
+      return clamp01((proj - paddedMinProjection) / safeProjectionRange);
+    };
 
         if (this.ditherEnabled && cellSize > 1) {
           // Block-based Sierra Lite dithering with crisp edge clipping
@@ -3238,8 +3230,9 @@ export class ColorCycleBrushCanvas2D {
               }
 
               const quantLevels = Math.max(2, bands);
-              const qStep = 1 / quantLevels;
-              const scaled = r * quantLevels;
+              const denom = Math.max(1, quantLevels - 1);
+              const qStep = 1 / denom;
+              const scaled = r * denom;
               const kLower = Math.min(quantLevels - 1, Math.floor(scaled));
               const lowerPos = kLower * qStep;
               const upperPos = Math.min(1, (kLower + 1) * qStep);
@@ -3281,7 +3274,8 @@ export class ColorCycleBrushCanvas2D {
         } else if (this.ditherEnabled) {
           // Per-pixel Sierra Lite dithering with serpentine scanning
           const quantLevels = Math.max(2, bands);
-          const qStep = 1 / quantLevels;
+          const denom = Math.max(1, quantLevels - 1);
+          const qStep = 1 / denom;
 
           if (!serpentine) {
             for (let x = startX; x <= endX; x++) {
@@ -3292,7 +3286,7 @@ export class ColorCycleBrushCanvas2D {
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
-              const scaled = r * quantLevels;
+              const scaled = r * denom;
               const kLower = Math.min(quantLevels - 1, Math.floor(scaled));
               const lowerPos = kLower * qStep;
               const upperPos = Math.min(1, (kLower + 1) * qStep);
@@ -3319,7 +3313,7 @@ export class ColorCycleBrushCanvas2D {
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
-              const scaled = r * quantLevels;
+              const scaled = r * denom;
               const kLower = Math.min(quantLevels - 1, Math.floor(scaled));
               const lowerPos = kLower * qStep;
               const upperPos = Math.min(1, (kLower + 1) * qStep);
@@ -3341,12 +3335,13 @@ export class ColorCycleBrushCanvas2D {
         } else {
           // No dithering: banded quantization anchored to gradient ends
           // Respect gradientBands so the UI "Bands" slider affects linear fills.
-          const quantLevels = bands;
+          const quantLevels = Math.max(2, bands);
+          const denom = Math.max(1, quantLevels - 1);
           for (let x = startX; x <= endX; x++) {
             const r = evaluateNormalized(x + 0.5, y + 0.5, false);
-            const scaled = r * quantLevels;
+            const scaled = r * denom;
             const k = Math.min(quantLevels - 1, Math.floor(scaled)); // ensure exactly quantLevels unique bands
-            const pos = k / quantLevels; // 0..1 range without duplicating endpoints
+            const pos = k / denom; // 0..1 range including endpoints
             const outIdx = indexFromNormalized(pos);
             this.logSetIndexSample(id, x, y);
             writeLinearIndex(x, y, outIdx);
@@ -3500,13 +3495,8 @@ export class ColorCycleBrushCanvas2D {
       height: Math.max(1, bboxHeight),
     };
     // Hoist invariants
-    const shapeWidth = maxX - minX;
-    const shapeHeight = maxY - minY;
-    const shapeSize = Math.max(shapeWidth, shapeHeight);
     const spacingValue = this.normalizeBandSpacingValue(spacing);
-    const baseSpacing = this.normalizeBandSpacingValue(this.bandSpacing);
-    const spacingScalar = spacingValue / Math.max(1, baseSpacing);
-    const maxDist = Math.max(50, (shapeSize / 2) * spacingScalar);
+    const maxDist = computeConcentricMaxDistance(vertices, bbox);
     const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
 
@@ -3689,10 +3679,7 @@ export class ColorCycleBrushCanvas2D {
           }
 
           // Precompute distance parameters (edge to center bands)
-          const shapeWidth2 = maxX - minX;
-          const shapeHeight2 = maxY - minY;
-          const shapeSize2 = Math.max(shapeWidth2, shapeHeight2);
-          const maxDist2 = Math.max(50, shapeSize2 / 2);
+          const maxDist2 = Math.max(1e-6, maxDist);
 
           const useBlockQuantization = this.ditherEnabled && Math.max(1, this.ditherPixelSize) > 1;
           const blockSize = Math.max(1, this.ditherPixelSize);

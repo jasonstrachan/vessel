@@ -224,6 +224,31 @@ const computeDistanceField = (mask: Uint8Array, width: number, height: number) =
   return distances;
 };
 
+export const computeConcentricMaxDistance = (vertices: Point[], bbox: BBox): number => {
+  if (!vertices.length || vertices.length < 3) {
+    return 1e-6;
+  }
+  const width = Math.max(1, Math.floor(bbox.width));
+  const height = Math.max(1, Math.floor(bbox.height));
+  if (width <= 0 || height <= 0) {
+    return 1e-6;
+  }
+  const { mask, maskWidth, maskHeight, coverage } = buildMaskAndRowSpans(vertices, bbox, width, height);
+  if (!coverage || maskWidth <= 0 || maskHeight <= 0 || mask.length === 0) {
+    return 1e-6;
+  }
+  const distanceField = computeDistanceField(mask, maskWidth, maskHeight);
+  let maxDist = 0;
+  for (let i = 0; i < distanceField.length; i++) {
+    if (!mask[i]) continue;
+    const value = distanceField[i];
+    if (value > maxDist) {
+      maxDist = value;
+    }
+  }
+  return Math.max(1e-6, maxDist);
+};
+
 export async function fillConcentricIndices(
   params: ConcentricFillParams,
   hooks: ConcentricFillHooks
