@@ -2859,6 +2859,9 @@ export class ColorCycleBrushCanvas2D {
     try {
       const hasGL = animator.hasWebGL();
       if (hasGL) {
+        if (this.ditherEnabled && this.perceptualDither) {
+          throw new Error('Perceptual dither requires CPU fill');
+        }
         const runtimeMax = animator.getGLFillMaxVerts() || 256;
         const GPU_MAX_VERTS = Math.max(8, Math.min(256, runtimeMax));
         let gpuVertices = vertices;

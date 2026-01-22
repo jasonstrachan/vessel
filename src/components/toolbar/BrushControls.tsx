@@ -433,7 +433,7 @@ const BrushControls = () => {
   );
 
   const bandsSlider = useCommittedSliderValue(activeSettings.gradientBands ?? 12, (nextRaw) => {
-    const next = Math.max(2, Math.min(64, Math.round(nextRaw)));
+    const next = Math.max(2, Math.min(128, Math.round(nextRaw)));
     setActiveSettings({ gradientBands: next });
   });
 

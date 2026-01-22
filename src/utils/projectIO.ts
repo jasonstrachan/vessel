@@ -380,6 +380,7 @@ interface ColorCycleBrushState {
     gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
     slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
     fgActiveSlot?: number;
+    fgDerivedKey?: string;
     fgDerivedGradients?: Array<{
       key: string;
       slot: number;

@@ -733,7 +733,7 @@ export const colorCycleGradientBrushPreset: BrushPreset = {
     spacing: 4,
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
-    gradientBands: 26,
+    gradientBands: 64,
     pressureEnabled: false,
     minPressure: 0,
     maxPressure: 0,

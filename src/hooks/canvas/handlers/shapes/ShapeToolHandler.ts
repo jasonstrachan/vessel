@@ -2682,7 +2682,6 @@ export const createShapeToolHandler = (
                 overlayCtx.globalAlpha = 0.8;
               } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
                 if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
-                  const axis = computeAxisOpposingEnds([...pts, previewPoint]);
                   const useForegroundDerived = Boolean(
                     tools.brushSettings.colorCycleUseForegroundGradient
                   );
@@ -2712,6 +2711,7 @@ export const createShapeToolHandler = (
                       : tools.brushSettings.colorCycleGradient?.length
                         ? tools.brushSettings.colorCycleGradient
                         : DEFAULT_COLOR_CYCLE_GRADIENT;
+                  const axis = computeAxisOpposingEnds([...pts, previewPoint]);
                   const gradient = overlayCtx.createLinearGradient(
                     axis.start.x,
                     axis.start.y,
