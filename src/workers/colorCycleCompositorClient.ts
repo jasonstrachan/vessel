@@ -8,36 +8,22 @@ import type {
   ColorCycleCompositorResponse,
 } from './colorCycleCompositorTypes';
 
-const resolveWorkerUrl = () => {
-  try {
-    // Avoid import.meta syntax errors under CommonJS (Jest)
-    const fn = new Function(
-      'return (typeof import !== "undefined" && import.meta && import.meta.url) ? new URL("./colorCycleCompositor.worker.ts", import.meta.url) : null;'
-    );
-    return fn();
-  } catch {
-    return null;
-  }
-};
+const WORKER_URL = new URL('./colorCycleCompositor.worker.ts', import.meta.url);
 
 const createWorker = (preferModule = true) => {
-  const url = resolveWorkerUrl();
   // Prefer module workers; fall back to classic workers when the environment
   // refuses module type (some embedded webviews) so we fail gracefully instead
   // of emitting opaque "worker error undefined" logs.
-  if (!url) {
-    return new Worker('./colorCycleCompositor.worker.ts');
-  }
   if (!preferModule) {
-    return new Worker(url);
+    return new Worker(WORKER_URL);
   }
-    try {
-      return new Worker(url, { type: 'module' });
-    } catch {
-      // Classic fallback keeps us functional on older browsers; the worker code
-      // is simple enough to run in either mode.
-      return new Worker(url);
-    }
+  try {
+    return new Worker(WORKER_URL, { type: 'module' });
+  } catch {
+    // Classic fallback keeps us functional on older browsers; the worker code
+    // is simple enough to run in either mode.
+    return new Worker(WORKER_URL);
+  }
 };
 
 type PendingRequest = {

@@ -4,11 +4,16 @@ import { renderHook, act } from '@testing-library/react';
 import { useDrawingHandlers } from '../useDrawingHandlers';
 import type { BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
+import { buildForegroundDerivedGradientSpec, clampForegroundDerivedBands } from '@/utils/colorCycleGradients';
 
 type TestBrushSettings = Partial<BrushSettings> & {
   brushShape: string;
   size: number;
   pressureEnabled: boolean;
+};
+
+const mockColorCycleBrushManager = {
+  getBrush: jest.fn(),
 };
 
 // Minimal store mock
@@ -34,6 +39,8 @@ const storeState = {
   polygonGradientState: { drawingState: 'idle' },
   recolorSampling: { active: false, start: null, end: null, samples: 0, target: 'recolor' },
   currentBrushPreset: null,
+  updateLayer: jest.fn(),
+  initColorCycleForLayer: jest.fn(),
   setCanvasCursor: jest.fn(),
   setBrushSettings: jest.fn(),
   setEraserSettings: jest.fn(),
@@ -84,12 +91,15 @@ jest.mock('@/hooks/useBrushEngineSimplified', () => ({
     finalizeStroke: jest.fn(),
     cancelStroke: jest.fn(),
     drawBrush: jest.fn(),
+    resetColorCycle: jest.fn(),
     isBusy: false,
   }),
 }));
 
 jest.mock('@/hooks/useUserBrushEngine', () => ({ useUserBrushEngine: () => null }));
-jest.mock('@/stores/colorCycleBrushManager', () => ({ getColorCycleBrushManager: () => null }));
+jest.mock('@/stores/colorCycleBrushManager', () => ({
+  getColorCycleBrushManager: () => mockColorCycleBrushManager,
+}));
 jest.mock('@/layers/MaskManager', () => ({
   configureMaskManager: jest.fn(),
   getMaskManager: jest.fn(() => ({ applyMask: jest.fn() })),
@@ -98,7 +108,7 @@ jest.mock('@/history/helpers/layerHistory', () => ({ commitLayerHistory: jest.fn
 jest.mock('@/history/helpers/colorCycle', () => ({ captureColorCycleBrushState: jest.fn() }));
 jest.mock('@/history/selectionState', () => ({ captureSelectionSnapshot: jest.fn() }));
 jest.mock('@/utils/risographTexture', () => ({ getRisographPattern: jest.fn(), getRisographEffectSettings: jest.fn() }));
-jest.mock('@/utils/debug', () => ({ logError: jest.fn(), debugWarn: jest.fn() }));
+jest.mock('@/utils/debug', () => ({ logError: jest.fn(), debugWarn: jest.fn(), debugLog: jest.fn() }));
 jest.mock('@/utils/customBrushCapture', () => ({ captureBrushFromCanvas: jest.fn() }));
 
 const makeCanvas = () => {
@@ -125,6 +135,9 @@ describe('useDrawingHandlers stroke harness', () => {
       now += 200;
       return now;
     });
+    mockColorCycleBrushManager.getBrush.mockReset();
+    mockColorCycleBrushManager.getBrush.mockReturnValue(null);
+    storeState.updateLayer.mockClear();
   });
 
   afterEach(() => {
@@ -344,5 +357,90 @@ describe('useDrawingHandlers stroke harness', () => {
     });
 
     expect(storeState.setBrushSettings).not.toHaveBeenCalled();
+  });
+
+  it('avoids redundant FG-derived updates when key unchanged', () => {
+    const layerId = 'layer-cc-1';
+    const fgColor = '#33aa88';
+    const bands = clampForegroundDerivedBands(4);
+    const derivedSpec = buildForegroundDerivedGradientSpec({
+      baseColor: fgColor,
+      lightness: 50,
+      variance: 0,
+      hueShift: 0,
+      saturationShift: 0,
+      opacity: 100,
+      bands,
+    });
+    const fgSlot = 2;
+    const fgStops = [
+      { position: 0, color: fgColor },
+      { position: 1, color: fgColor },
+    ];
+
+    storeState.activeLayerId = layerId;
+    storeState.layers = [{
+      id: layerId,
+      name: 'CC Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        flowMode: 'reverse',
+        gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+        activeGradientId: 'g0',
+        slotPalettes: [
+          { slot: 0, stops: fgStops },
+          { slot: fgSlot, stops: fgStops },
+        ],
+        fgActiveSlot: fgSlot,
+        fgDerivedKey: derivedSpec.key,
+        fgDerivedGradients: [{ key: derivedSpec.key, slot: fgSlot, spec: derivedSpec }],
+      },
+    }] as any;
+    storeState.tools = {
+      ...storeState.tools,
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleUseForegroundGradient: true,
+        colorCycleFgStops: bands,
+        colorCycleFgLightness: 50,
+        colorCycleFgVariance: 0,
+        colorCycleFgHueShift: 0,
+        colorCycleFgSaturationShift: 0,
+        colorCycleFgOpacity: 100,
+      } as TestBrushSettings,
+    };
+    storeState.palette = {
+      ...storeState.palette,
+      foregroundColor: fgColor,
+    };
+
+    const brush = {
+      setGradientSlot: jest.fn(),
+      setActiveGradientSlot: jest.fn(),
+      getActiveGradientSlot: jest.fn(() => fgSlot),
+      commitCurrentStroke: jest.fn(),
+      flush: jest.fn(),
+      setFlowMode: jest.fn(),
+    };
+    mockColorCycleBrushManager.getBrush.mockReturnValue(brush);
+
+    const canvasRef = { current: makeCanvas() } as React.RefObject<HTMLCanvasElement>;
+    const { result } = renderHook(() => useDrawingHandlers({
+      project: storeState.project,
+      screenToWorld: (x, y) => ({ x, y }),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      canvasRef,
+    }));
+
+    act(() => {
+      result.current.startDrawing({ x: 2, y: 2 }, 0.7);
+    });
+
+    expect(storeState.updateLayer).not.toHaveBeenCalled();
+    expect(brush.setGradientSlot).not.toHaveBeenCalled();
   });
 });

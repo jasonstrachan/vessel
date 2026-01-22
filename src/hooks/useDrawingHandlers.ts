@@ -402,7 +402,6 @@ export function useDrawingHandlers({
       opacity: brushSettings.colorCycleFgOpacity,
       bands,
     });
-    const derivedStops = deriveForegroundGradientStops(derivedSpec);
     const prevKey = layer.colorCycleData?.fgDerivedKey ?? null;
     const nextKey = derivedSpec.key;
     if (prevKey !== nextKey) {
@@ -413,6 +412,29 @@ export function useDrawingHandlers({
       layer.colorCycleData?.derivedGradients ??
       [];
     const existingDerived = derivedGradients.find((entry) => entry.key === derivedSpec.key);
+    const existingSlot = existingDerived?.slot ?? null;
+    const fgActiveSlot = layer.colorCycleData?.fgActiveSlot ?? null;
+
+    if (prevKey === nextKey && existingSlot !== null && fgActiveSlot === existingSlot) {
+      if (brush) {
+        const currentSlot =
+          typeof brush.getActiveGradientSlot === 'function'
+            ? brush.getActiveGradientSlot(layer.id)
+            : undefined;
+        const shouldSwitch = typeof currentSlot === 'number' ? currentSlot !== existingSlot : true;
+        if (shouldSwitch) {
+          try {
+            brush.commitCurrentStroke?.(layer.id);
+            brush.flush?.(layer.id);
+          } catch {}
+          brush.setActiveGradientSlot(layer.id, existingSlot);
+        }
+      }
+      setFgPending(layer.id, false);
+      return;
+    }
+
+    const derivedStops = deriveForegroundGradientStops(derivedSpec);
     let nextSlotPalettes = slotPalettes;
     let nextDerivedGradients = derivedGradients;
     let targetSlot: number | null = existingDerived?.slot ?? null;

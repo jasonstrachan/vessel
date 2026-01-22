@@ -31,6 +31,7 @@ This document captures prioritized, actionable recommendations to make Vessel ea
 - IndexBuffer efficiency: Reuse a single `ImageData` buffer for `putImageData`; avoid per‑frame `createImageData` where possible.
 - Consolidate color‑cycle path: Ensure a single color‑cycle renderer/animator path is used; avoid mixed setTimeout + RAF scheduling. Respect target FPS and event backpressure.
 - Avoid object churn: Cache `Path2D` and other objects during shape tools; invalidate only on state changes.
+- Foreground-derived CC gradients: when FG-derived key is unchanged, skip slot/palette updates to avoid per-pointer `updateLayer` churn (see `src/hooks/useDrawingHandlers.ts`).
 
 ## Type Safety & Code Quality
 - Replace `any`/casts in hot paths: Define a shared `ColorCycleData` interface and `ColorCycleBrushImplementation` and use across store/components/hooks.
