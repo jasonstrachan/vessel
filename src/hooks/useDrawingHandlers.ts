@@ -13,6 +13,7 @@ import { FF } from '@/config/ccFeatureFlags';
 import {
   setLayerColorCycleGradient,
   setSharedColorCycleGradient,
+  setFgPending,
   buildForegroundDerivedGradientSpec,
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
@@ -402,6 +403,11 @@ export function useDrawingHandlers({
       bands,
     });
     const derivedStops = deriveForegroundGradientStops(derivedSpec);
+    const prevKey = layer.colorCycleData?.fgDerivedKey ?? null;
+    const nextKey = derivedSpec.key;
+    if (prevKey !== nextKey) {
+      setFgPending(layer.id, true);
+    }
     const derivedGradients =
       layer.colorCycleData?.fgDerivedGradients ??
       layer.colorCycleData?.derivedGradients ??
@@ -440,25 +446,14 @@ export function useDrawingHandlers({
     // Do not overwrite the layer-global gradient when using FG-derived stops.
 
     if (targetSlot === null) {
-      if (needsBootstrap) {
-        try {
-          state.updateLayer(layer.id, {
-            colorCycleData: {
-              ...(layer.colorCycleData ?? {}),
-              gradientDefs,
-              slotPalettes,
-              activeGradientId,
-              gradient: activeStops
-            }
-          });
-        } catch {}
+      if (prevKey !== nextKey) {
+        setFgPending(layer.id, false);
       }
       return;
     }
 
     const fgSlotChanged = layer.colorCycleData?.fgActiveSlot !== targetSlot;
     if (
-      needsBootstrap ||
       nextSlotPalettes !== slotPalettes ||
       nextDerivedGradients !== derivedGradients ||
       fgSlotChanged
@@ -468,10 +463,9 @@ export function useDrawingHandlers({
           colorCycleData: {
             ...(layer.colorCycleData ?? {}),
             slotPalettes: nextSlotPalettes,
-            activeGradientId,
             fgActiveSlot: targetSlot,
+            fgDerivedKey: nextKey,
             fgDerivedGradients: nextDerivedGradients,
-            ...(needsBootstrap ? { gradient: activeStops } : {})
           }
         });
       } catch {}
@@ -493,6 +487,17 @@ export function useDrawingHandlers({
       if (shouldSwitch) {
         brush.setActiveGradientSlot(layer.id, targetSlot);
       }
+      try {
+        const canvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+        if (canvas) {
+          brush.setTargetCanvas?.(canvas);
+          brush.renderDirectToCanvas?.(canvas, layer.id);
+        }
+      } catch {}
+      try {
+        setFgPending(layer.id, false);
+        window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate', { detail: { onlyActiveLayer: true } }));
+      } catch {}
     }
   }, []);
   const resetShapePressureState = useCallback(() => {

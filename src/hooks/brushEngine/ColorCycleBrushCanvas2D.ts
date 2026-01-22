@@ -123,6 +123,7 @@ interface SerializedLayerState {
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
   fgActiveSlot?: number;
+  fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
     key: string;
     slot: number;
@@ -5076,6 +5077,7 @@ export class ColorCycleBrushCanvas2D {
         : undefined;
       const activeGradientId = colorCycleMeta?.activeGradientId;
       const fgActiveSlot = colorCycleMeta?.fgActiveSlot;
+      const fgDerivedKey = colorCycleMeta?.fgDerivedKey;
 
       layers.push({
         layerId,
@@ -5083,6 +5085,7 @@ export class ColorCycleBrushCanvas2D {
         gradientDefs,
         slotPalettes,
         fgActiveSlot,
+        fgDerivedKey,
         fgDerivedGradients: derivedGradients,
         derivedGradients,
         activeGradientId,

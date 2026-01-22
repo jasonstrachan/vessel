@@ -13,6 +13,15 @@ import type { DerivedGradientSpec } from '@/types';
 
 export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
 
+const fgPendingByLayer = new Map<string, boolean>();
+
+export const setFgPending = (layerId: string, value: boolean): void => {
+  fgPendingByLayer.set(layerId, value);
+};
+
+export const isFgPending = (layerId: string): boolean =>
+  fgPendingByLayer.get(layerId) === true;
+
 /**
  * Get the current shared gradient for color cycle brushes
  */
@@ -53,6 +62,10 @@ const applySelectedCCGradient = (
   nextSlot: number,
   nextStops: Array<{ position: number; color: string }>
 ): void => {
+  const st = useAppStore.getState();
+  if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+    return;
+  }
   const state = useAppStore.getState();
   const layer = state.layers.find(l => l.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle') {

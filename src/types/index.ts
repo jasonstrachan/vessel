@@ -201,6 +201,10 @@ export interface Layer {
      */
     fgActiveSlot?: number;
     /**
+     * Last FG-derived spec key applied to this layer.
+     */
+    fgDerivedKey?: string;
+    /**
      * FG-derived gradient metadata keyed by spec hash.
      */
     fgDerivedGradients?: Array<{

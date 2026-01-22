@@ -1,6 +1,7 @@
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import { useAppStore } from '@/stores/useAppStore';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 
@@ -85,6 +86,17 @@ export const finalizeColorCycleShapeFillLinear = async (
 
     const colorCycleBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
+      const st = useAppStore.getState();
+      if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+        const layer = st.layers.find((candidate) => candidate.id === args.activeLayerId);
+        const fgSlot = layer?.colorCycleData?.fgActiveSlot;
+        const fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
+        if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
+          return;
+        }
+        colorCycleBrush.setGradientSlot(args.activeLayerId, fgSlot, fgPalette.stops);
+        colorCycleBrush.setActiveGradientSlot(args.activeLayerId, fgSlot);
+      }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
       deps.timeSync('cc:shape:render', () => {
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
@@ -160,6 +172,17 @@ export const finalizeColorCycleShapeFillConcentric = async (
 
     const colorCycleBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
+      const st = useAppStore.getState();
+      if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+        const layer = st.layers.find((candidate) => candidate.id === args.activeLayerId);
+        const fgSlot = layer?.colorCycleData?.fgActiveSlot;
+        const fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
+        if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
+          return;
+        }
+        colorCycleBrush.setGradientSlot(args.activeLayerId, fgSlot, fgPalette.stops);
+        colorCycleBrush.setActiveGradientSlot(args.activeLayerId, fgSlot);
+      }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
       deps.timeSync('cc:shape:render', () => {
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);

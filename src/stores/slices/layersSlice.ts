@@ -595,6 +595,7 @@ const cloneColorCycleData = (
     slotPalettes,
     activeGradientId,
     fgActiveSlot: data.fgActiveSlot,
+    fgDerivedKey: data.fgDerivedKey,
     fgDerivedGradients: (data.fgDerivedGradients ?? data.derivedGradients)
       ? (data.fgDerivedGradients ?? data.derivedGradients)?.map((entry) => ({
           key: entry.key,

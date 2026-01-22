@@ -204,6 +204,7 @@ interface SerializedBrushLayerSnapshot {
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
   fgActiveSlot?: number;
+  fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
     key: string;
     slot: number;
@@ -277,6 +278,7 @@ interface SerializedColorCycleLayerData {
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
   fgActiveSlot?: number;
+  fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
     key: string;
     slot: number;
@@ -756,6 +758,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
           }))
         : undefined,
       fgActiveSlot: colorCycleData.fgActiveSlot,
+      fgDerivedKey: colorCycleData.fgDerivedKey,
       fgDerivedGradients: fgDerivedGradients
         ? fgDerivedGradients.map((entry) => ({
             key: entry.key,
@@ -947,6 +950,9 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
     if (typeof layer.fgActiveSlot === 'number') {
       snapshot.fgActiveSlot = layer.fgActiveSlot;
     }
+    if (typeof layer.fgDerivedKey === 'string') {
+      snapshot.fgDerivedKey = layer.fgDerivedKey;
+    }
     if (layer.activeGradientId) {
       snapshot.activeGradientId = layer.activeGradientId;
     }
@@ -1033,6 +1039,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       gradientDefs: serializedLayer.colorCycleData.gradientDefs,
       slotPalettes: serializedLayer.colorCycleData.slotPalettes,
       fgActiveSlot: serializedLayer.colorCycleData.fgActiveSlot,
+      fgDerivedKey: serializedLayer.colorCycleData.fgDerivedKey,
       fgDerivedGradients: (serializedLayer.colorCycleData.fgDerivedGradients ?? serializedLayer.colorCycleData.derivedGradients)
         ? (serializedLayer.colorCycleData.fgDerivedGradients ?? serializedLayer.colorCycleData.derivedGradients)?.map((entry) => ({
             key: entry.key,

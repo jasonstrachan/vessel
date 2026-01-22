@@ -33,6 +33,7 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                     }))
                   : undefined,
                 fgActiveSlot: layer.fgActiveSlot,
+                fgDerivedKey: layer.fgDerivedKey,
                 fgDerivedGradients: (layer.fgDerivedGradients ?? layer.derivedGradients)
                   ? (layer.fgDerivedGradients ?? layer.derivedGradients)?.map((entry) => ({
                       key: entry.key,

@@ -186,6 +186,7 @@ const cloneLayerForHistory = (
           }))
         : undefined,
       fgActiveSlot: existingColorCycleData.fgActiveSlot,
+      fgDerivedKey: existingColorCycleData.fgDerivedKey,
       fgDerivedGradients: (existingColorCycleData.fgDerivedGradients ?? existingColorCycleData.derivedGradients)
         ? (existingColorCycleData.fgDerivedGradients ?? existingColorCycleData.derivedGradients)?.map((entry) => ({
             key: entry.key,

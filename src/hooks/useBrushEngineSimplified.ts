@@ -38,6 +38,7 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
   isColorCycleBrush,
+  isFgPending,
 } from '@/utils/colorCycleGradients';
 import { debugLog } from '@/utils/debug';
 
@@ -101,12 +102,6 @@ const resolveColorCycleGradientsForLayer = (
       bands,
     });
     const stops = deriveForegroundGradientStops(derivedSpec);
-    console.log('[cc-gradient] baseColor', baseColor);
-    console.log('[cc-gradient] bands(clamped)', bands);
-    console.log('[cc-gradient] derivedStopsLen', stops?.length);
-    console.log('[cc-gradient] derivedStops', stops);
-    console.log('[cc-gradient] layerGradientLen', layer?.colorCycleData?.gradient?.length);
-    console.log('[cc-gradient] brushGradientLen', brushSettings.colorCycleGradient?.length);
     derivedStops = stops.length >= 2 ? stops : null;
   }
 
@@ -120,7 +115,6 @@ const resolveColorCycleGradientsForLayer = (
     layer?.colorCycleData?.gradient ? 'layer' :
     brushSettings.colorCycleGradient ? 'brush' :
     'default';
-  console.log('[cc-gradient] chosen', chosen);
   const gradientDefs = layer?.colorCycleData?.gradientDefs?.length
     ? layer.colorCycleData.gradientDefs
     : [{ id: 'g0', currentSlot: 0 }];
@@ -652,6 +646,24 @@ const renderBrushToLayerCanvas = (
   if (!brush || !layerId) {
     return;
   }
+  try {
+    const st = useAppStore.getState();
+    if (isFgPending(layerId)) {
+      return;
+    }
+    if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+      const layer = st.layers.find((candidate) => candidate.id === layerId);
+      const fgSlot = layer?.colorCycleData?.fgActiveSlot;
+      if (fgSlot == null) {
+        return;
+      }
+      const fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
+      if (typeof fgSlot === 'number' && fgPalette?.stops?.length) {
+        brush.setGradientSlot(layerId, fgSlot, fgPalette.stops);
+        brush.setActiveGradientSlot(layerId, fgSlot);
+      }
+    }
+  } catch {}
   const layerCanvas = refreshLayerCCSurface(brush, layerId);
   if (!layerCanvas) {
     return;
@@ -4024,6 +4036,9 @@ export const useBrushEngineSimplified = () => {
     if (!colorCycleBrush || !activeLayerId) {
       return;
     }
+    if (isFgPending(activeLayerId)) {
+      return;
+    }
 
     const layerCanvas = refreshLayerCCSurface(colorCycleBrush, activeLayerId);
     if (!layerCanvas) {
@@ -4034,6 +4049,22 @@ export const useBrushEngineSimplified = () => {
 
     try {
       bindBrushToCanvas(colorCycleBrush, layerCanvas);
+      try {
+        if (tools.brushSettings.colorCycleUseForegroundGradient) {
+          const layer = useAppStore
+            .getState()
+            .layers.find((candidate) => candidate.id === activeLayerId);
+          const fgSlot = layer?.colorCycleData?.fgActiveSlot;
+          if (fgSlot == null) {
+            return;
+          }
+          const fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
+          if (typeof fgSlot === 'number' && fgPalette?.stops?.length) {
+            colorCycleBrush.setGradientSlot(activeLayerId, fgSlot, fgPalette.stops);
+            colorCycleBrush.setActiveGradientSlot(activeLayerId, fgSlot);
+          }
+        }
+      } catch {}
       colorCycleBrush.renderDirectToCanvas(layerCanvas, activeLayerId);
     } catch (error) {
       console.warn('[ColorCycle] Failed to render to layer canvas:', error);
