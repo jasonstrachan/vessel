@@ -3544,8 +3544,15 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         // Check if we need to enter direction selection mode for linear gradient
         const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';
+        const brushPresetId = getDynamicDeps().currentBrushPresetId;
+        const isColorCycleGradientPreset = brushPresetId === 'color-cycle-gradient';
         
-        if (isColorCycleShape && isLinearFill && !drawingHandlers.isSelectingDirectionRef?.current) {
+        if (
+          isColorCycleShape &&
+          isLinearFill &&
+          !isColorCycleGradientPreset &&
+          !drawingHandlers.isSelectingDirectionRef?.current
+        ) {
           // Don't finalize yet - enter direction selection mode
           
           // Call finalizeShapeDrawing which will set up direction selection mode

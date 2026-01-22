@@ -91,6 +91,10 @@ const applyColorCycleGradientEdit = (
   layerId?: string,
   options?: { fork?: boolean }
 ): void => {
+  const st = useAppStore.getState();
+  if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+    return;
+  }
   const state = useAppStore.getState();
   const updateLayer = state.updateLayer;
   const targetLayerId = layerId ?? state.activeLayerId;
@@ -175,6 +179,21 @@ const applyColorCycleGradientEdit = (
 };
 
 /**
+ * Update a color-cycle layer's gradient without mutating global brush settings.
+ */
+export function setLayerColorCycleGradient(
+  gradient: Array<{ position: number; color: string }>,
+  layerId?: string,
+  options?: { fork?: boolean }
+): void {
+  const state = useAppStore.getState();
+  if (state.tools.brushSettings.colorCycleUseForegroundGradient) {
+    return;
+  }
+  applyColorCycleGradientEdit(gradient, layerId, options);
+}
+
+/**
  * Set the shared gradient for both color cycle brushes.
  * Editing in the UI forks the active gradient once, then updates the fork in place.
  */
@@ -183,12 +202,15 @@ export function setSharedColorCycleGradient(
   options?: { fork?: boolean }
 ): void {
   const state = useAppStore.getState();
+  if (state.tools.brushSettings.colorCycleUseForegroundGradient) {
+    return;
+  }
   const setBrushSettings = state.setBrushSettings;
   const setEraserSettings = state.setEraserSettings;
   const activeLayerId = state.activeLayerId;
   
   // Update brush settings
-  setBrushSettings({ colorCycleGradient: gradient });
+  setBrushSettings({ ...state.tools.brushSettings, colorCycleGradient: gradient });
   
   // Also update eraser settings if using color cycle
   const eraserSettings = state.tools.eraserSettings;
@@ -335,6 +357,7 @@ export const buildForegroundDerivedGradientSpec = (params: {
     const key = [
       'fg',
       algoVersion,
+      normalizedBase,
       quantizeChannel(parsed.r, FG_DERIVED_COLOR_BITS),
       quantizeChannel(parsed.g, FG_DERIVED_COLOR_BITS),
       quantizeChannel(parsed.b, FG_DERIVED_COLOR_BITS),
@@ -369,6 +392,7 @@ export const buildForegroundDerivedGradientSpec = (params: {
   const key = [
     'fg',
     algoVersion,
+    normalizedBase,
     quantizeChannel(parsed.r, FG_DERIVED_COLOR_BITS),
     quantizeChannel(parsed.g, FG_DERIVED_COLOR_BITS),
     quantizeChannel(parsed.b, FG_DERIVED_COLOR_BITS),

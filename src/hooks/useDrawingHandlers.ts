@@ -11,6 +11,7 @@ import { logError, debugWarn, debugLog } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { FF } from '@/config/ccFeatureFlags';
 import {
+  setLayerColorCycleGradient,
   setSharedColorCycleGradient,
   buildForegroundDerivedGradientSpec,
   clampForegroundDerivedBands,
@@ -401,7 +402,10 @@ export function useDrawingHandlers({
       bands,
     });
     const derivedStops = deriveForegroundGradientStops(derivedSpec);
-    const derivedGradients = layer.colorCycleData?.derivedGradients ?? [];
+    const derivedGradients =
+      layer.colorCycleData?.fgDerivedGradients ??
+      layer.colorCycleData?.derivedGradients ??
+      [];
     const existingDerived = derivedGradients.find((entry) => entry.key === derivedSpec.key);
     let nextSlotPalettes = slotPalettes;
     let nextDerivedGradients = derivedGradients;
@@ -410,11 +414,14 @@ export function useDrawingHandlers({
 
     if (targetSlot !== null) {
       const existingPalette = slotPalettes.find((entry) => entry.slot === targetSlot);
-      if (existingPalette?.stops?.length) {
-        stopsToApply = existingPalette.stops;
+      if (existingPalette) {
+        nextSlotPalettes = slotPalettes.map((entry) =>
+          entry.slot === targetSlot ? { slot: targetSlot, stops: cloneStops(derivedStops) } : entry
+        );
       } else {
         nextSlotPalettes = [...slotPalettes, { slot: targetSlot, stops: cloneStops(derivedStops) }];
       }
+      stopsToApply = derivedStops;
     } else {
       const usedSlots = new Set<number>();
       slotPalettes.forEach((entry) => usedSlots.add(entry.slot));
@@ -429,6 +436,8 @@ export function useDrawingHandlers({
         ];
       }
     }
+
+    // Do not overwrite the layer-global gradient when using FG-derived stops.
 
     if (targetSlot === null) {
       if (needsBootstrap) {
@@ -447,15 +456,21 @@ export function useDrawingHandlers({
       return;
     }
 
-    if (needsBootstrap || nextSlotPalettes !== slotPalettes || nextDerivedGradients !== derivedGradients) {
+    const fgSlotChanged = layer.colorCycleData?.fgActiveSlot !== targetSlot;
+    if (
+      needsBootstrap ||
+      nextSlotPalettes !== slotPalettes ||
+      nextDerivedGradients !== derivedGradients ||
+      fgSlotChanged
+    ) {
       try {
         state.updateLayer(layer.id, {
           colorCycleData: {
             ...(layer.colorCycleData ?? {}),
-            gradientDefs,
             slotPalettes: nextSlotPalettes,
             activeGradientId,
-            derivedGradients: nextDerivedGradients,
+            fgActiveSlot: targetSlot,
+            fgDerivedGradients: nextDerivedGradients,
             ...(needsBootstrap ? { gradient: activeStops } : {})
           }
         });
@@ -712,7 +727,7 @@ export function useDrawingHandlers({
         ? eraserSettings.size ?? brushSize
         : brushSize;
     return Math.max(1, effectiveSize ?? 1) / 2;
-  }, [storeRef]);
+  }, [storeRef, setLayerColorCycleGradient, setSharedColorCycleGradient]);
   const getColorCycleBrushEraserSettings = useCallback(() => {
     const state = storeRef.current;
     return getColorCycleBrushEraserSettingsExternal({
@@ -911,8 +926,15 @@ export function useDrawingHandlers({
     if (!stops) {
       return;
     }
-    setSharedColorCycleGradient(stops);
-  }, []);
+    const currentState = storeRef.current;
+    const activeLayerId = currentState.activeLayerId;
+    const activeLayer = currentState.layers.find((layer) => layer.id === activeLayerId);
+    if (activeLayer?.layerType === 'color-cycle' && activeLayerId) {
+      setLayerColorCycleGradient(stops, activeLayerId, { fork: autoSampleForkRef.current });
+      return;
+    }
+    setSharedColorCycleGradient(stops, { fork: autoSampleForkRef.current });
+  }, [storeRef]);
 
   const renderBrushSamplingPreview = useCallback((points: PolyPoint[]) => {
     renderBrushSamplingPreviewExternal({
@@ -1584,6 +1606,11 @@ export function useDrawingHandlers({
           {
             const colorCycleBrushManager = getColorCycleBrushManager();
             const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+            debugLog('[cc] stroke-start settings', {
+              useForegroundGradient: currentState.tools.brushSettings.colorCycleUseForegroundGradient,
+              fgStops: currentState.tools.brushSettings.colorCycleFgStops,
+              gradientStops: currentState.tools.brushSettings.colorCycleGradient?.length ?? 0,
+            });
             ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
             const strokeFlowMode = currentState.tools.brushSettings.colorCycleFlowMode ?? 'reverse';
             if (colorCycleBrush) {
@@ -2549,6 +2576,7 @@ export function useDrawingHandlers({
     finalizeRasterShapeFill,
     runColorCycleShapeFill,
     computeFallbackLinearDirection,
+    ensureActiveColorCycleGradientSlot,
     captureRegionFromPoints,
     boundingBoxToCaptureRegion,
     commitRasterShapeFill,

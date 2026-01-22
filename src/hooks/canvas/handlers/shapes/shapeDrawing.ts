@@ -164,6 +164,11 @@ type ShapeDrawingDeps = {
     debugTimeEnd: (label: string) => void;
   }) => Promise<void>;
   computeFallbackLinearDirection: (points: Array<{ x: number; y: number }>) => { x: number; y: number };
+  ensureActiveColorCycleGradientSlot: (
+    state: AppState,
+    layer: Layer,
+    brush?: ColorCycleBrushImplementation | null
+  ) => void;
   captureRegionFromPoints: (points: Array<{ x: number; y: number }>, padding: number, project: { width: number; height: number } | null) => CaptureRegion | undefined;
   boundingBoxToCaptureRegion: (
     bbox: BoundingBox | null,
@@ -662,6 +667,10 @@ export const finalizeShapeDrawing = async (
 
           const activeLayerId = deps.storeRef.current.activeLayerId;
           if (isColorCycleLayer && activeLayerCanvas && activeLayerId) {
+            const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+            if (activeLayer) {
+              deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, ccBrush);
+            }
             deps.runIdle(() => {
               void deps.runColorCycleShapeFill({
                 mode: 'linear',
@@ -810,6 +819,10 @@ export const finalizeShapeDrawing = async (
 
               const activeLayerId = deps.storeRef.current.activeLayerId;
               if (activeLayerId && activeLayerCanvas) {
+                const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+                if (activeLayer) {
+                  deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
+                }
                 deps.runIdle(() => {
                   void deps.runColorCycleShapeFill({
                     mode: fillMode === 'linear' ? 'linear' : 'concentric',

@@ -91,7 +91,7 @@ describe('useBrushEngineSimplified harness', () => {
     state.tools.brushSettings.fillResolution = 4;
 
     if (typeof ImageData === 'undefined') {
-      (global as { ImageData?: typeof ImageData }).ImageData = class ImageData {
+      (global as unknown as { ImageData?: typeof ImageData }).ImageData = class ImageData {
         data: Uint8ClampedArray;
         width: number;
         height: number;
@@ -127,9 +127,12 @@ describe('useBrushEngineSimplified harness', () => {
     const targetCtx = createMockCtx();
     const otherCtx = createMockCtx();
 
-    const getContextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function getContext(this: HTMLCanvasElement) {
-      return (this === targetCanvas ? targetCtx : otherCtx) as unknown as CanvasRenderingContext2D;
-    });
+    const getContextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      function getContext(this: HTMLCanvasElement, _contextId: unknown) {
+        void _contextId;
+        return (this === targetCanvas ? targetCtx : otherCtx) as unknown as ReturnType<HTMLCanvasElement['getContext']>;
+      }
+    );
 
     const originalRaf = global.requestAnimationFrame;
     global.requestAnimationFrame = (cb: FrameRequestCallback) => {
@@ -161,7 +164,7 @@ describe('useBrushEngineSimplified harness', () => {
     state.tools.brushSettings.fillResolution = 4;
 
     if (typeof ImageData === 'undefined') {
-      (global as { ImageData?: typeof ImageData }).ImageData = class ImageData {
+      (global as unknown as { ImageData?: typeof ImageData }).ImageData = class ImageData {
         data: Uint8ClampedArray;
         width: number;
         height: number;
@@ -197,9 +200,12 @@ describe('useBrushEngineSimplified harness', () => {
     const targetCtx = createMockCtx();
     const otherCtx = createMockCtx();
 
-    const getContextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function getContext(this: HTMLCanvasElement) {
-      return (this === targetCanvas ? targetCtx : otherCtx) as unknown as CanvasRenderingContext2D;
-    });
+    const getContextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      function getContext(this: HTMLCanvasElement, _contextId: unknown) {
+        void _contextId;
+        return (this === targetCanvas ? targetCtx : otherCtx) as unknown as ReturnType<HTMLCanvasElement['getContext']>;
+      }
+    );
 
     const originalRaf = global.requestAnimationFrame;
     global.requestAnimationFrame = (cb: FrameRequestCallback) => {

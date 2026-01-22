@@ -1378,7 +1378,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     if (currentSettings.colorCycleFPS !== undefined && !hasUserColorCycleFPS) {
       newBrushSettings.colorCycleFPS = currentSettings.colorCycleFPS;
     }
-    if (currentSettings.colorCycleFillMode !== undefined && !hasUserColorCycleFillMode) {
+    if (
+      currentSettings.colorCycleFillMode !== undefined &&
+      !hasUserColorCycleFillMode &&
+      presetDefaults.colorCycleFillMode === undefined
+    ) {
       newBrushSettings.colorCycleFillMode = currentSettings.colorCycleFillMode;
     }
 

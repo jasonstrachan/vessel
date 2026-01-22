@@ -516,7 +516,7 @@ export function readLayerSourcesForCrop(
             (l: { layerId?: string }) => l.layerId === layer.id
           ) as {
             data?: {
-              indexBuffer?: { data?: ArrayBuffer; gradientId?: ArrayBuffer };
+              indexBuffer?: { data?: ArrayBuffer; gradientId?: ArrayBuffer; speedData?: ArrayBuffer };
               gradient?: { gradientStops?: Array<{ position: number; color: string }> };
             };
           } | undefined;

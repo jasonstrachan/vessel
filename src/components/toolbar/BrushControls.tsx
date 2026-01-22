@@ -961,11 +961,14 @@ const BrushControls = () => {
               { label: 'Round', value: 'round' },
               { label: 'Diamond', value: 'diamond' },
               { label: 'Triangle', value: 'triangle' },
-              { label: 'Shape', value: 'shape' }
+              { label: 'Shape', value: 'shape' },
+              { label: 'Gradient', value: 'gradient' }
             ]}
             value={
-              activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
-                ? 'shape'
+              currentBrushPresetId === 'color-cycle-gradient'
+                ? 'gradient'
+                : activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+                  ? 'shape'
                 : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
                   ? 'triangle'
                   : activeSettings.colorCycleStampShape === 'round'
@@ -978,7 +981,11 @@ const BrushControls = () => {
               const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
               const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
               const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
-              if (value === 'shape' && shapePreset) {
+              const gradientPreset = brushPresets.find(p => p.id === 'color-cycle-gradient');
+              if (value === 'gradient' && gradientPreset) {
+                setBrushPreset(gradientPreset, true);
+                setActiveSettings({ colorCycleStampShape: 'square' });
+              } else if (value === 'shape' && shapePreset) {
                 setBrushPreset(shapePreset, true);
                 setActiveSettings({ colorCycleStampShape: 'square' });
               } else if (value === 'triangle' && trianglePreset) {

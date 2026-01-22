@@ -203,6 +203,23 @@ interface SerializedBrushLayerSnapshot {
   animator?: SerializedAnimatorSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  fgActiveSlot?: number;
+  fgDerivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: {
+      mode: 'fg-derived';
+      baseColor: string;
+      lightness: number;
+      variance: number;
+      hueShift?: number;
+      saturationShift?: number;
+      opacity?: number;
+      bands: number;
+      algoVersion: number;
+      key: string;
+    };
+  }>;
   derivedGradients?: Array<{
     key: string;
     slot: number;
@@ -211,6 +228,9 @@ interface SerializedBrushLayerSnapshot {
       baseColor: string;
       lightness: number;
       variance: number;
+      hueShift?: number;
+      saturationShift?: number;
+      opacity?: number;
       bands: number;
       algoVersion: number;
       key: string;
@@ -256,6 +276,23 @@ interface SerializedColorCycleLayerData {
   gradient?: Array<{ position: number; color: string }>;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  fgActiveSlot?: number;
+  fgDerivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: {
+      mode: 'fg-derived';
+      baseColor: string;
+      lightness: number;
+      variance: number;
+      hueShift?: number;
+      saturationShift?: number;
+      opacity?: number;
+      bands: number;
+      algoVersion: number;
+      key: string;
+    };
+  }>;
   derivedGradients?: Array<{
     key: string;
     slot: number;
@@ -340,6 +377,23 @@ interface ColorCycleBrushState {
     };
     gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
     slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+    fgActiveSlot?: number;
+    fgDerivedGradients?: Array<{
+      key: string;
+      slot: number;
+      spec: {
+        mode: 'fg-derived';
+        baseColor: string;
+        lightness: number;
+        variance: number;
+        hueShift?: number;
+        saturationShift?: number;
+        opacity?: number;
+        bands: number;
+        algoVersion: number;
+        key: string;
+      };
+    }>;
     derivedGradients?: Array<{
       key: string;
       slot: number;
@@ -348,6 +402,9 @@ interface ColorCycleBrushState {
         baseColor: string;
         lightness: number;
         variance: number;
+        hueShift?: number;
+        saturationShift?: number;
+        opacity?: number;
         bands: number;
         algoVersion: number;
         key: string;
@@ -682,6 +739,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       canvasImageData: canvasImageData ?? sourceColorCycleData.canvasImageData,
       eraseMaskImageData: eraseMaskImageData ?? sourceColorCycleData.eraseMaskImageData
     };
+    const fgDerivedGradients = colorCycleData.fgDerivedGradients ?? colorCycleData.derivedGradients;
     const serializedColorCycle: SerializedColorCycleLayerData = {
       gradient: colorCycleData.gradient,
       gradientDefs: colorCycleData.gradientDefs
@@ -697,8 +755,19 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
           }))
         : undefined,
-      derivedGradients: colorCycleData.derivedGradients
-        ? colorCycleData.derivedGradients.map((entry) => ({
+      fgActiveSlot: colorCycleData.fgActiveSlot,
+      fgDerivedGradients: fgDerivedGradients
+        ? fgDerivedGradients.map((entry) => ({
+            key: entry.key,
+            slot: entry.slot,
+            spec: {
+              ...entry.spec,
+              variance: entry.spec.variance ?? 0,
+            },
+          }))
+        : undefined,
+      derivedGradients: fgDerivedGradients
+        ? fgDerivedGradients.map((entry) => ({
             key: entry.key,
             slot: entry.slot,
             spec: {
@@ -862,12 +931,21 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
         stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
       }));
     }
-    if (layer.derivedGradients) {
-      snapshot.derivedGradients = layer.derivedGradients.map((entry) => ({
+    const fgDerivedGradients = layer.fgDerivedGradients ?? layer.derivedGradients;
+    if (fgDerivedGradients) {
+      snapshot.fgDerivedGradients = fgDerivedGradients.map((entry) => ({
         key: entry.key,
         slot: entry.slot,
         spec: { ...entry.spec },
       }));
+      snapshot.derivedGradients = fgDerivedGradients.map((entry) => ({
+        key: entry.key,
+        slot: entry.slot,
+        spec: { ...entry.spec },
+      }));
+    }
+    if (typeof layer.fgActiveSlot === 'number') {
+      snapshot.fgActiveSlot = layer.fgActiveSlot;
     }
     if (layer.activeGradientId) {
       snapshot.activeGradientId = layer.activeGradientId;
@@ -954,8 +1032,9 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       gradient: serializedLayer.colorCycleData.gradient,
       gradientDefs: serializedLayer.colorCycleData.gradientDefs,
       slotPalettes: serializedLayer.colorCycleData.slotPalettes,
-      derivedGradients: serializedLayer.colorCycleData.derivedGradients
-        ? serializedLayer.colorCycleData.derivedGradients.map((entry) => ({
+      fgActiveSlot: serializedLayer.colorCycleData.fgActiveSlot,
+      fgDerivedGradients: (serializedLayer.colorCycleData.fgDerivedGradients ?? serializedLayer.colorCycleData.derivedGradients)
+        ? (serializedLayer.colorCycleData.fgDerivedGradients ?? serializedLayer.colorCycleData.derivedGradients)?.map((entry) => ({
             key: entry.key,
             slot: entry.slot,
             spec: { ...entry.spec },

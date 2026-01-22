@@ -33,7 +33,13 @@ import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import { isColorCycleBrush } from '@/utils/colorCycleGradients';
+import {
+  buildForegroundDerivedGradientSpec,
+  clampForegroundDerivedBands,
+  deriveForegroundGradientStops,
+  isColorCycleBrush,
+} from '@/utils/colorCycleGradients';
+import { debugLog } from '@/utils/debug';
 
 declare global {
   interface Window {
@@ -80,20 +86,68 @@ const resolveColorCycleGradientsForLayer = (
   activeStops: GradientStop[];
   fallbackStops: GradientStop[];
 } => {
+  let derivedStops: GradientStop[] | null = null;
+  if (brushSettings.colorCycleUseForegroundGradient) {
+    const palette = useAppStore.getState().palette;
+    const baseColor = palette?.foregroundColor ?? brushSettings.color ?? '#ffffff';
+    const bands = clampForegroundDerivedBands(brushSettings.colorCycleFgStops);
+    const derivedSpec = buildForegroundDerivedGradientSpec({
+      baseColor,
+      lightness: brushSettings.colorCycleFgLightness,
+      variance: brushSettings.colorCycleFgVariance,
+      hueShift: brushSettings.colorCycleFgHueShift,
+      saturationShift: brushSettings.colorCycleFgSaturationShift,
+      opacity: brushSettings.colorCycleFgOpacity,
+      bands,
+    });
+    const stops = deriveForegroundGradientStops(derivedSpec);
+    console.log('[cc-gradient] baseColor', baseColor);
+    console.log('[cc-gradient] bands(clamped)', bands);
+    console.log('[cc-gradient] derivedStopsLen', stops?.length);
+    console.log('[cc-gradient] derivedStops', stops);
+    console.log('[cc-gradient] layerGradientLen', layer?.colorCycleData?.gradient?.length);
+    console.log('[cc-gradient] brushGradientLen', brushSettings.colorCycleGradient?.length);
+    derivedStops = stops.length >= 2 ? stops : null;
+  }
+
   const fallbackStops =
+    derivedStops ??
     layer?.colorCycleData?.gradient ??
     brushSettings.colorCycleGradient ??
     DEFAULT_CC_GRADIENT;
+  const chosen =
+    derivedStops ? 'derived' :
+    layer?.colorCycleData?.gradient ? 'layer' :
+    brushSettings.colorCycleGradient ? 'brush' :
+    'default';
+  console.log('[cc-gradient] chosen', chosen);
   const gradientDefs = layer?.colorCycleData?.gradientDefs?.length
     ? layer.colorCycleData.gradientDefs
     : [{ id: 'g0', currentSlot: 0 }];
-  const slotPalettes = layer?.colorCycleData?.slotPalettes?.length
+  let slotPalettes = layer?.colorCycleData?.slotPalettes?.length
     ? layer.colorCycleData.slotPalettes
     : [{ slot: 0, stops: fallbackStops }];
+  const fgOn = Boolean(brushSettings.colorCycleUseForegroundGradient);
   const activeGradientId = layer?.colorCycleData?.activeGradientId ?? gradientDefs[0].id;
   const activeDef =
     gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
-  const activeSlot = activeDef?.currentSlot ?? 0;
+  const activeSlot = fgOn
+    ? (layer?.colorCycleData?.fgActiveSlot ?? 0)
+    : (activeDef?.currentSlot ?? 0);
+  if (derivedStops && derivedStops.length >= 2) {
+    const hasSlot = slotPalettes.some((entry) => entry.slot === activeSlot);
+    slotPalettes = hasSlot
+      ? slotPalettes.map((entry) =>
+          entry.slot === activeSlot ? { ...entry, stops: derivedStops } : entry
+        )
+      : [...slotPalettes, { slot: activeSlot, stops: derivedStops }];
+  }
+  if (derivedStops && derivedStops.length >= 2) {
+    // Ensure the active slot reflects FG-derived stops for brush init.
+    slotPalettes = slotPalettes.map((entry) =>
+      entry.slot === activeSlot ? { ...entry, stops: derivedStops } : entry
+    );
+  }
   const activePalette = slotPalettes.find((entry) => entry.slot === activeSlot);
   const activeStops =
     activePalette?.stops && activePalette.stops.length > 0

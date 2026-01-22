@@ -18,6 +18,7 @@ export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
   'color-cycle-stroke': { canDither: false },
   'color-cycle-shape': { canDither: false },
   'color-cycle-triangle': { canDither: false },
+  'color-cycle-gradient': { canDither: false },
   'shape-fill-brush': { canDither: false },
 };
 
@@ -683,6 +684,74 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
   }
 };
 
+// Color Cycle Gradient Brush Components (shape mode ON, linear fill)
+export const colorCycleGradientBrushComponents: BrushComponent[] = [
+  {
+    id: 'color-cycle-gradient-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 500,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-gradient-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.5
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-gradient-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.COLOR_CYCLE_SHAPE
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const colorCycleGradientBrushPreset: BrushPreset = {
+  id: 'color-cycle-gradient',
+  name: 'Color Cycle Gradient',
+  category: 'Special',
+  components: colorCycleGradientBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['color', 'cycle', 'gradient', 'special', 'shape'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 20,
+    opacity: 1,
+    spacing: 4,
+    colorCycleSpeed: 0.1,
+    colorCycleFPS: 30,
+    gradientBands: 26,
+    pressureEnabled: false,
+    minPressure: 0,
+    maxPressure: 0,
+    colorCycleUseForegroundGradient: false,
+    colorCycleFgLightness: 50,
+    colorCycleFgVariance: 0,
+    colorCycleFgHueShift: 0,
+    colorCycleFgSaturationShift: 0,
+    colorCycleFgStops: 2,
+    colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
+    colorCycleFillMode: 'linear',
+    shapeEnabled: true,
+    ditherEnabled: true,
+    ditherAlgorithm: 'bayer',
+    fillResolution: 6
+  }
+};
+
 // Rectangle Gradient Brush Components
 export const rectangleGradientBrushComponents: BrushComponent[] = [
   {
@@ -1064,6 +1133,7 @@ export const brushPresets: BrushPreset[] = [
   colorCycleStrokeBrushPreset,
   colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,
+  colorCycleGradientBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   shapeFillBrushPreset,

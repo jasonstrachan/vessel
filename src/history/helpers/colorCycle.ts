@@ -32,8 +32,16 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                       stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
                     }))
                   : undefined,
-                derivedGradients: layer.derivedGradients
-                  ? layer.derivedGradients.map((entry) => ({
+                fgActiveSlot: layer.fgActiveSlot,
+                fgDerivedGradients: (layer.fgDerivedGradients ?? layer.derivedGradients)
+                  ? (layer.fgDerivedGradients ?? layer.derivedGradients)?.map((entry) => ({
+                      key: entry.key,
+                      slot: entry.slot,
+                      spec: { ...entry.spec },
+                    }))
+                  : undefined,
+                derivedGradients: (layer.fgDerivedGradients ?? layer.derivedGradients)
+                  ? (layer.fgDerivedGradients ?? layer.derivedGradients)?.map((entry) => ({
                       key: entry.key,
                       slot: entry.slot,
                       spec: { ...entry.spec },

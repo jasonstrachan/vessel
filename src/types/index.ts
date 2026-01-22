@@ -197,7 +197,19 @@ export interface Layer {
       stops: Array<{ position: number; color: string }>;
     }>;
     /**
-     * Derived foreground gradient metadata keyed by spec hash.
+     * Active slot for FG-derived gradients (kept separate from manual gradient defs).
+     */
+    fgActiveSlot?: number;
+    /**
+     * FG-derived gradient metadata keyed by spec hash.
+     */
+    fgDerivedGradients?: Array<{
+      key: string;
+      slot: number;
+      spec: DerivedGradientSpec;
+    }>;
+    /**
+     * @deprecated Legacy FG-derived metadata (use fgDerivedGradients).
      */
     derivedGradients?: Array<{
       key: string;

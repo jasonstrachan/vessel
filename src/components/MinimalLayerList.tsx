@@ -312,6 +312,7 @@ const MinimalLayerList = () => {
   const removeLayer = useAppStore((state) => state.removeLayer);
   const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const canDeleteLayer = displayedLayerIds.length > 1;
   
   // Remove local overrides; animation state comes from store + unified event

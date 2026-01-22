@@ -185,8 +185,16 @@ const cloneLayerForHistory = (
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
           }))
         : undefined,
-      derivedGradients: existingColorCycleData.derivedGradients
-        ? existingColorCycleData.derivedGradients.map((entry) => ({
+      fgActiveSlot: existingColorCycleData.fgActiveSlot,
+      fgDerivedGradients: (existingColorCycleData.fgDerivedGradients ?? existingColorCycleData.derivedGradients)
+        ? (existingColorCycleData.fgDerivedGradients ?? existingColorCycleData.derivedGradients)?.map((entry) => ({
+            key: entry.key,
+            slot: entry.slot,
+            spec: { ...entry.spec },
+          }))
+        : undefined,
+      derivedGradients: (existingColorCycleData.fgDerivedGradients ?? existingColorCycleData.derivedGradients)
+        ? (existingColorCycleData.fgDerivedGradients ?? existingColorCycleData.derivedGradients)?.map((entry) => ({
             key: entry.key,
             slot: entry.slot,
             spec: { ...entry.spec },
@@ -234,6 +242,23 @@ interface SerializedColorCycleLayerSnapshot {
   };
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  fgActiveSlot?: number;
+  fgDerivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: {
+      mode: 'fg-derived';
+      baseColor: string;
+      lightness: number;
+      variance: number;
+      hueShift?: number;
+      saturationShift?: number;
+      opacity?: number;
+      bands: number;
+      algoVersion: number;
+      key: string;
+    };
+  }>;
   derivedGradients?: Array<{
     key: string;
     slot: number;
@@ -242,6 +267,9 @@ interface SerializedColorCycleLayerSnapshot {
       baseColor: string;
       lightness: number;
       variance: number;
+      hueShift?: number;
+      saturationShift?: number;
+      opacity?: number;
       bands: number;
       algoVersion: number;
       key: string;

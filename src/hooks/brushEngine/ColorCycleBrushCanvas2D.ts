@@ -122,6 +122,12 @@ interface SerializedLayerState {
   strokeData?: StrokeDataSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
+  fgActiveSlot?: number;
+  fgDerivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: DerivedGradientSpec;
+  }>;
   derivedGradients?: Array<{
     key: string;
     slot: number;
@@ -5060,20 +5066,24 @@ export class ColorCycleBrushCanvas2D {
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
           }))
         : undefined;
-      const derivedGradients = colorCycleMeta?.derivedGradients
-        ? colorCycleMeta.derivedGradients.map((entry) => ({
+      const fgDerivedGradients = colorCycleMeta?.fgDerivedGradients ?? colorCycleMeta?.derivedGradients;
+      const derivedGradients = fgDerivedGradients
+        ? fgDerivedGradients.map((entry) => ({
             key: entry.key,
             slot: entry.slot,
             spec: { ...entry.spec },
           }))
         : undefined;
       const activeGradientId = colorCycleMeta?.activeGradientId;
+      const fgActiveSlot = colorCycleMeta?.fgActiveSlot;
 
       layers.push({
         layerId,
         data: animator.serialize(),
         gradientDefs,
         slotPalettes,
+        fgActiveSlot,
+        fgDerivedGradients: derivedGradients,
         derivedGradients,
         activeGradientId,
         strokeData: {

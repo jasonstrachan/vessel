@@ -594,8 +594,16 @@ const cloneColorCycleData = (
     gradientDefs,
     slotPalettes,
     activeGradientId,
-    derivedGradients: data.derivedGradients
-      ? data.derivedGradients.map((entry) => ({
+    fgActiveSlot: data.fgActiveSlot,
+    fgDerivedGradients: (data.fgDerivedGradients ?? data.derivedGradients)
+      ? (data.fgDerivedGradients ?? data.derivedGradients)?.map((entry) => ({
+          key: entry.key,
+          slot: entry.slot,
+          spec: { ...entry.spec },
+        }))
+      : undefined,
+    derivedGradients: (data.fgDerivedGradients ?? data.derivedGradients)
+      ? (data.fgDerivedGradients ?? data.derivedGradients)?.map((entry) => ({
           key: entry.key,
           slot: entry.slot,
           spec: { ...entry.spec },

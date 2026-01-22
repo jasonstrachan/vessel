@@ -28,6 +28,12 @@ import {
   PRESSURE_RESOLUTION_MAX_PX,
   type PressureResolutionState,
 } from '@/utils/pressureResolution';
+import {
+  DEFAULT_COLOR_CYCLE_GRADIENT,
+  buildForegroundDerivedGradientSpec,
+  clampForegroundDerivedBands,
+  deriveForegroundGradientStops,
+} from '@/utils/colorCycleGradients';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -2634,6 +2640,14 @@ export const createShapeToolHandler = (
 
             if (vertexCount >= 3) {
               const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
+              const dynamicPresetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
+              const isColorCycleGradientPreset =
+                tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+                (dynamicPresetId === 'color-cycle-gradient' ||
+                  context.deps.currentBrushPresetId === 'color-cycle-gradient');
+              const isColorCycleGradientPreview =
+                tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+                tools.brushSettings.colorCycleFillMode === 'linear';
               const strokePreviewOutline = () => {
                 drawHighContrastStroke(
                   overlayCtx,
@@ -2657,8 +2671,53 @@ export const createShapeToolHandler = (
                 overlayCtx.lineWidth = 2 / viewTransformRef.current.scale;
                 overlayCtx.globalAlpha = 0.8;
               } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
-                overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-                overlayCtx.globalAlpha = 1.0;
+                if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
+                  const axis = computeAxisOpposingEnds([...pts, previewPoint]);
+                  const useForegroundDerived = Boolean(
+                    tools.brushSettings.colorCycleUseForegroundGradient
+                  );
+                  const fgBaseColor =
+                    context.deps.palette?.foregroundColor ??
+                    tools.brushSettings.color ??
+                    '#000';
+                  const derivedSpec = useForegroundDerived
+                    ? buildForegroundDerivedGradientSpec({
+                        baseColor: fgBaseColor,
+                        lightness: tools.brushSettings.colorCycleFgLightness,
+                        variance: tools.brushSettings.colorCycleFgVariance,
+                        hueShift: tools.brushSettings.colorCycleFgHueShift,
+                        saturationShift: tools.brushSettings.colorCycleFgSaturationShift,
+                        opacity: tools.brushSettings.colorCycleFgOpacity,
+                        bands: clampForegroundDerivedBands(
+                          tools.brushSettings.colorCycleFgStops
+                        ),
+                      })
+                    : null;
+                  const derivedStops = derivedSpec
+                    ? deriveForegroundGradientStops(derivedSpec)
+                    : null;
+                  const stops =
+                    derivedStops && derivedStops.length >= 2
+                      ? derivedStops
+                      : tools.brushSettings.colorCycleGradient?.length
+                        ? tools.brushSettings.colorCycleGradient
+                        : DEFAULT_COLOR_CYCLE_GRADIENT;
+                  const gradient = overlayCtx.createLinearGradient(
+                    axis.start.x,
+                    axis.start.y,
+                    axis.end.x,
+                    axis.end.y
+                  );
+                  stops.forEach((stop) => {
+                    const pos = Number.isFinite(stop.position) ? stop.position : 0;
+                    gradient.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
+                  });
+                  overlayCtx.fillStyle = gradient;
+                  overlayCtx.globalAlpha = 1.0;
+                } else {
+                  overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                  overlayCtx.globalAlpha = 1.0;
+                }
               } else if (isShapeFill) {
                 overlayCtx.fillStyle = tools.brushSettings.color ?? 'rgba(255,255,255,1)';
                 overlayCtx.globalAlpha = 0.35;

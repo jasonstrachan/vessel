@@ -145,7 +145,8 @@ export const percentFromPixelSize = (
 export const COLOR_CYCLE_PRESET_IDS = [
   'color-cycle-stroke',
   'color-cycle-triangle',
-  'color-cycle-shape'
+  'color-cycle-shape',
+  'color-cycle-gradient'
 ] as const;
 
 export const isColorCyclePresetId = (

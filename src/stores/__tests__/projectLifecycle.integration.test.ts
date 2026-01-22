@@ -187,12 +187,12 @@ describe('project slice lifecycle flows', () => {
   it('forces a save dialog when requested even if a file handle exists', async () => {
     useAppStore.setState((state) => ({
       projectFilename: 'existing.vessel',
-      projectFileHandle: { id: 'handle-existing' },
+      projectFileHandle: { id: 'handle-existing' } as unknown as FileSystemFileHandle,
       autosave: {
         ...state.autosave,
         fileBackup: {
           ...state.autosave.fileBackup,
-          fileHandle: { id: 'handle-existing' },
+          fileHandle: { id: 'handle-existing' } as unknown as FileSystemFileHandle,
         },
       },
     }));

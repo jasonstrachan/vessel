@@ -18,29 +18,40 @@ export type ColorCycleShapeFillDeps = {
 export const computeFallbackLinearDirection = (
   points: Array<{ x: number; y: number }>
 ): { x: number; y: number } => {
-  if (!points.length) {
+  const n = points.length;
+  if (n === 0) {
     return { x: 1, y: 0 };
   }
-  let minX = points[0].x;
-  let maxX = points[0].x;
-  let minY = points[0].y;
-  let maxY = points[0].y;
-  for (let i = 1; i < points.length; i += 1) {
-    const pt = points[i];
-    if (pt.x < minX) minX = pt.x;
-    if (pt.x > maxX) maxX = pt.x;
-    if (pt.y < minY) minY = pt.y;
-    if (pt.y > maxY) maxY = pt.y;
+  if (n === 1) {
+    return { x: 1, y: 0 };
   }
-  const width = Math.max(1e-3, maxX - minX);
-  const height = Math.max(1e-3, maxY - minY);
-  const primaryHorizontal = width >= height;
-  const fallback = primaryHorizontal
-    ? { x: width / 2, y: 0 }
-    : { x: 0, y: height / 2 };
-  return (Number.isFinite(fallback.x) && Number.isFinite(fallback.y))
-    ? fallback
-    : { x: 1, y: 0 };
+
+  let bestD2 = -1;
+  let ax = points[0];
+  let bx = points[1];
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j < n; j += 1) {
+      const dx = points[j].x - points[i].x;
+      const dy = points[j].y - points[i].y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > bestD2) {
+        bestD2 = d2;
+        ax = points[i];
+        bx = points[j];
+      }
+    }
+  }
+
+  let dx = bx.x - ax.x;
+  let dy = bx.y - ax.y;
+  const len = Math.hypot(dx, dy);
+  if (!Number.isFinite(len) || len < 1e-6) {
+    return { x: 1, y: 0 };
+  }
+  dx /= len;
+  dy /= len;
+
+  return { x: dx, y: dy };
 };
 
 export type ColorCycleShapeLinearArgs = {
