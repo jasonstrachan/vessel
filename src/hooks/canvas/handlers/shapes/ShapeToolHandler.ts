@@ -2571,7 +2571,12 @@ export const createShapeToolHandler = (
 
     if (isShapeFill) {
       if ((event.buttons & 1) === 1 && drawingHandlers.isDrawingShapeRef.current) {
-        drawingHandlers.continueShapeDrawing(previewWorld);
+        const pressure = computePointerPressure(event);
+        const nowTs =
+          typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure);
       }
 
       const store = useAppStore.getState();
@@ -2597,7 +2602,12 @@ export const createShapeToolHandler = (
         // Keep animation running during hover previews for CC shapes.
         restartColorCycleAnimation?.();
       }
-      drawingHandlers.continueShapeDrawing(previewWorld);
+      const pressure = computePointerPressure(event);
+      const nowTs =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+      drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure);
       shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
     } else if (isPolygonGradient || isContourPolygon) {
       shouldShowPreview = appendPolygonGradientPoint(previewWorld);

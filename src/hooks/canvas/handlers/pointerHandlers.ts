@@ -3,6 +3,12 @@
 import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
+import {
+  DEFAULT_COLOR_CYCLE_GRADIENT,
+  buildForegroundDerivedGradientSpec,
+  clampForegroundDerivedBands,
+  deriveForegroundGradientStops,
+} from '@/utils/colorCycleGradients';
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
 
@@ -249,6 +255,35 @@ const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
   brushShape === BrushShape.DITHER_GRADIENT ||
   brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
   brushShape === BrushShape.SHAPE_FILL;
+
+const computeOpposingAxis = (points: Array<{ x: number; y: number }>) => {
+  if (points.length < 2) {
+    return {
+      start: { x: 0, y: 0 },
+      end: { x: 1, y: 0 },
+    };
+  }
+
+  let maxDist = -Infinity;
+  let endA = points[0];
+  let endB = points[0];
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i];
+    for (let j = i + 1; j < points.length; j += 1) {
+      const b = points[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const d = dx * dx + dy * dy;
+      if (d > maxDist) {
+        maxDist = d;
+        endA = a;
+        endB = b;
+      }
+    }
+  }
+
+  return { start: endA, end: endB };
+};
 
 export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHandlers => {
   // Cap overlay previews to 30 FPS to reduce main-thread load during drag
@@ -803,6 +838,43 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       } else {
         bufferCtx.fillStyle = strokeColor;
       }
+    } else if (isColorCycleShapePreview && brushSettings.colorCycleFillMode === 'linear') {
+      const { palette } = getDynamicDeps();
+      const useForegroundDerived = Boolean(brushSettings.colorCycleUseForegroundGradient);
+      const fgBaseColor =
+        palette?.foregroundColor ??
+        brushSettings.color ??
+        '#000';
+      const derivedSpec = useForegroundDerived
+        ? buildForegroundDerivedGradientSpec({
+            baseColor: fgBaseColor,
+            lightness: brushSettings.colorCycleFgLightness,
+            variance: brushSettings.colorCycleFgVariance,
+            hueShift: brushSettings.colorCycleFgHueShift,
+            saturationShift: brushSettings.colorCycleFgSaturationShift,
+            opacity: brushSettings.colorCycleFgOpacity,
+            bands: clampForegroundDerivedBands(brushSettings.colorCycleFgStops),
+          })
+        : null;
+      const derivedStops = derivedSpec ? deriveForegroundGradientStops(derivedSpec) : null;
+      const stops =
+        derivedStops && derivedStops.length >= 2
+          ? derivedStops
+          : brushSettings.colorCycleGradient?.length
+            ? brushSettings.colorCycleGradient
+            : DEFAULT_COLOR_CYCLE_GRADIENT;
+      const axis = computeOpposingAxis(points);
+      const gradient = bufferCtx.createLinearGradient(
+        axis.start.x,
+        axis.start.y,
+        axis.end.x,
+        axis.end.y
+      );
+      stops.forEach((stop) => {
+        const pos = Number.isFinite(stop.position) ? stop.position : 0;
+        gradient.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
+      });
+      bufferCtx.fillStyle = gradient;
     } else {
       bufferCtx.fillStyle = strokeColor;
     }
@@ -3781,4 +3853,5 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 export const __TESTING__ = {
   shouldEnableContourDebug,
   isAdvancedShapeBrush,
+  computeOpposingAxis,
 };

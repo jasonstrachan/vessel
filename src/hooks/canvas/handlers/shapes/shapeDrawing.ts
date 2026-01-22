@@ -38,6 +38,25 @@ type ShapeDrawingRefs = {
   finalizeQueueRef: React.MutableRefObject<FinalizeQueue>;
 };
 
+const resolveColorCycleDitherPixelSize = ({
+  settings,
+  hadValidPressure,
+  lastStablePressure,
+  computeShapePixelSize,
+}: {
+  settings: BrushSettings;
+  hadValidPressure: boolean;
+  lastStablePressure: number;
+  computeShapePixelSize: (pressure: number) => number;
+}): { pixelSize: number; effectivePressure: number; usePressure: boolean } => {
+  const sliderBase = Math.max(1, Math.round(settings.fillResolution || 1));
+  const usePressure = Boolean(settings.pressureLinkedFillResolution && hadValidPressure);
+  const effectivePressure = usePressure ? lastStablePressure : 0;
+  let pixelSize = usePressure ? computeShapePixelSize(effectivePressure) : sliderBase;
+  pixelSize = Math.max(1, Math.round(pixelSize || 1));
+  return { pixelSize, effectivePressure, usePressure };
+};
+
 type ShapeDrawingDeps = {
   storeRef: React.MutableRefObject<AppState>;
   toolsRef: React.MutableRefObject<AppState['tools']>;
@@ -671,6 +690,16 @@ export const finalizeShapeDrawing = async (
             if (activeLayer) {
               deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, ccBrush);
             }
+            if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
+              const { pixelSize } = resolveColorCycleDitherPixelSize({
+                settings: activeSettings,
+                hadValidPressure: deps.hadValidShapePressureRef.current,
+                lastStablePressure: deps.lastStablePressureRef.current,
+                computeShapePixelSize: deps.computeShapePixelSize,
+              });
+              deps.latestShapePixelSizeRef.current = pixelSize;
+              (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
+            }
             deps.runIdle(() => {
               void deps.runColorCycleShapeFill({
                 mode: 'linear',
@@ -823,6 +852,16 @@ export const finalizeShapeDrawing = async (
                 if (activeLayer) {
                   deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
                 }
+                if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
+                  const { pixelSize } = resolveColorCycleDitherPixelSize({
+                    settings: liveBrushSettings,
+                    hadValidPressure: deps.hadValidShapePressureRef.current,
+                    lastStablePressure: deps.lastStablePressureRef.current,
+                    computeShapePixelSize: deps.computeShapePixelSize,
+                  });
+                  deps.latestShapePixelSizeRef.current = pixelSize;
+                  (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
+                }
                 deps.runIdle(() => {
                   void deps.runColorCycleShapeFill({
                     mode: fillMode === 'linear' ? 'linear' : 'concentric',
@@ -969,4 +1008,8 @@ export const finalizeShapeDrawing = async (
       deps.resetShapePressureState();
     }
   });
+};
+
+export const __TESTING__ = {
+  resolveColorCycleDitherPixelSize,
 };
