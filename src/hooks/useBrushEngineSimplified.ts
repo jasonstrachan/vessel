@@ -1702,7 +1702,7 @@ export const useBrushEngineSimplified = () => {
   const isDitherPreset = useMemo(() => {
     const id = currentBrushPreset?.id;
     if (!id) return false;
-    return id === 'pixel-dither' || id === 'polygon-dither' || id === 'shape-dither';
+    return id === 'dither-stroke' || id === 'dither-shape';
   }, [currentBrushPreset]);
   const isDitherStrokeBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
   const ditherStrokeGuardWarnedRef = useRef(false);

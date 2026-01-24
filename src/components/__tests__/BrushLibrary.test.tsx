@@ -89,8 +89,8 @@ const basePreset = {
 };
 
 const otherPreset = {
-  id: 'square-pixel-1',
-  name: 'Square Pixel',
+  id: 'pixel-square',
+  name: 'Pixel Square',
   isDefault: false,
   category: 'Pixel Art',
   components: [{ type: 'shape', parameters: { shape: BrushShape.SQUARE } }],

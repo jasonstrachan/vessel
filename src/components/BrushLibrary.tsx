@@ -98,7 +98,7 @@ const BrushLibrary = () => {
     // Sort brushes: Pixel Art first (with square brushes prioritized), then other categories
     return combined.sort((a, b) => {
       const getSortCategory = (preset: BrushPreset) =>
-        preset.id === 'dither-gradient-brush' ? 'Pixel Art' : preset.category;
+        preset.id === 'dither-grad' ? 'Pixel Art' : preset.category;
       const aCategory = getSortCategory(a);
       const bCategory = getSortCategory(b);
 
@@ -112,8 +112,8 @@ const BrushLibrary = () => {
       
       // Within Pixel Art, prioritize square brushes
       if (aCategory === 'Pixel Art' && bCategory === 'Pixel Art') {
-        const aIsSquare = a.name.toLowerCase().includes('square') || a.id === 'square-pixel-1';
-        const bIsSquare = b.name.toLowerCase().includes('square') || b.id === 'square-pixel-1';
+        const aIsSquare = a.name.toLowerCase().includes('square') || a.id === 'pixel-square';
+        const bIsSquare = b.name.toLowerCase().includes('square') || b.id === 'pixel-square';
         if (aIsSquare && !bIsSquare) return -1;
         if (bIsSquare && !aIsSquare) return 1;
       }
@@ -301,7 +301,7 @@ const BrushLibrary = () => {
       
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
         {allBrushes.map((preset) => {
-          const isSpamBrush = preset.id === 'spam-brush';
+          const isSpamBrush = preset.id === 'spam-text';
           const iconSizePx = BRUSH_ICON_SIZE;
           const textStyle = {
             fontSize: isSpamBrush ? '13px' : '12px',

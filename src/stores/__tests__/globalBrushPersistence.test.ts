@@ -22,9 +22,9 @@ describe('global brush persistence', () => {
     loadMock.mockReturnValue({
       globalBrushSize: 24,
       brushSpecificSettings: {
-        'pixel-brush': { ditherEnabled: true },
+        'pixel-square': { ditherEnabled: true },
       },
-      lastBrushId: 'pixel-brush',
+      lastBrushId: 'pixel-square',
       pressureSettings: { enabled: false, min: 25, max: 300 },
     });
 
@@ -33,9 +33,9 @@ describe('global brush persistence', () => {
 
     expect(loadMock).toHaveBeenCalled();
     expect(state.globalBrushSize).toBe(24);
-    expect(state.brushSpecificSettings['pixel-brush']?.ditherEnabled).toBe(true);
+    expect(state.brushSpecificSettings['pixel-square']?.ditherEnabled).toBe(true);
     expect(state.tools.brushSettings.ditherEnabled).toBe(true);
-    expect(state.currentBrushPreset?.id).toBe('pixel-brush');
+    expect(state.currentBrushPreset?.id).toBe('pixel-square');
     expect(state.pressureSettings).toEqual({ enabled: false, min: 25, max: 300 });
     expect(state.tools.brushSettings.minPressure).toBe(25);
     expect(state.tools.brushSettings.maxPressure).toBe(300);
@@ -46,7 +46,7 @@ describe('global brush persistence', () => {
 
     const { useAppStore } = await import('@/stores/useAppStore');
     const store = useAppStore.getState();
-    store.saveBrushSettings('pixel-brush', { spacing: 9 });
+    store.saveBrushSettings('pixel-square', { spacing: 9 });
 
     jest.advanceTimersByTime(300);
     expect(saveMock).toHaveBeenCalled();
@@ -55,7 +55,7 @@ describe('global brush persistence', () => {
   it('persists and restores sampling prefs for the resampler brush', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {
-        'resampler-brush': { continuousSampling: false, resampleInterval: 3 },
+        'resampler': { continuousSampling: false, resampleInterval: 3 },
       },
     });
 
@@ -64,7 +64,7 @@ describe('global brush persistence', () => {
     const store = useAppStore.getState();
 
     // Hydration should keep the stored toggle values
-    expect(store.brushSpecificSettings['resampler-brush']?.continuousSampling).toBe(false);
+    expect(store.brushSpecificSettings['resampler']?.continuousSampling).toBe(false);
 
     // Selecting the brush should apply the stored values to active settings
     store.setBrushPreset(resamplerBrushPreset);
@@ -76,7 +76,7 @@ describe('global brush persistence', () => {
     store.setBrushSettings({ continuousSampling: true, resampleInterval: 2 });
     jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
-    expect(payload?.brushSpecificSettings?.['resampler-brush']).toEqual(
+    expect(payload?.brushSpecificSettings?.['resampler']).toEqual(
       expect.objectContaining({ continuousSampling: true, resampleInterval: 2 })
     );
   });
@@ -84,7 +84,7 @@ describe('global brush persistence', () => {
   it('remembers polygon sampling toggle per brush', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {
-        'polygon-gradient-brush': { polygonSampleColors: false },
+        'shape-gradient': { polygonSampleColors: false },
       },
     });
 
@@ -93,7 +93,7 @@ describe('global brush persistence', () => {
     const store = useAppStore.getState();
 
     // Hydration keeps stored toggle
-    expect(store.brushSpecificSettings['polygon-gradient-brush']?.polygonSampleColors).toBe(false);
+    expect(store.brushSpecificSettings['shape-gradient']?.polygonSampleColors).toBe(false);
 
     // Selecting preset should apply stored off state
     store.setBrushPreset(polygonGradientBrushPreset);
@@ -104,7 +104,7 @@ describe('global brush persistence', () => {
     store.setBrushSettings({ polygonSampleColors: true });
     jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
-    expect(payload?.brushSpecificSettings?.['polygon-gradient-brush']).toEqual(
+    expect(payload?.brushSpecificSettings?.['shape-gradient']).toEqual(
       expect.objectContaining({ polygonSampleColors: true })
     );
   });
@@ -112,7 +112,7 @@ describe('global brush persistence', () => {
   it('persists dither gradient sampling settings per brush', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {
-        'dither-gradient-brush': {
+        'dither-grad': {
           ditherGradSampleEnabled: true,
           ditherGradStops: ['#111111', '#222222', '#333333'],
           trans: 1,
@@ -124,7 +124,7 @@ describe('global brush persistence', () => {
     const { useAppStore } = await import('@/stores/useAppStore');
     const store = useAppStore.getState();
 
-    expect(store.brushSpecificSettings['dither-gradient-brush']?.ditherGradSampleEnabled).toBe(true);
+    expect(store.brushSpecificSettings['dither-grad']?.ditherGradSampleEnabled).toBe(true);
 
     store.setBrushPreset(ditherGradientBrushPreset);
     const active = useAppStore.getState().tools.brushSettings;
@@ -139,7 +139,7 @@ describe('global brush persistence', () => {
     });
     jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
-    expect(payload?.brushSpecificSettings?.['dither-gradient-brush']).toEqual(
+    expect(payload?.brushSpecificSettings?.['dither-grad']).toEqual(
       expect.objectContaining({
         ditherGradSampleEnabled: false,
         ditherGradStops: ['#aaaaaa', '#bbbbbb'],

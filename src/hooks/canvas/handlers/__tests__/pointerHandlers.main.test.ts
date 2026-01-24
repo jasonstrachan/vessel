@@ -317,7 +317,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
   });
 
-  it('shows brush-size cursor for pixel-dither stroke (non-shape)', () => {
+  it('shows brush-size cursor for dither-stroke stroke (non-shape)', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
         ...baseDynamic.tools,
@@ -340,7 +340,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(true);
   });
 
-  it('uses crosshair cursor for pixel-dither shape mode', () => {
+  it('uses crosshair cursor for dither-stroke shape mode', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
         ...baseDynamic.tools,

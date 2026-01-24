@@ -171,8 +171,8 @@ jest.mock('@/stores/useAppStore', () => {
     selectedLayerIds: [],
     referenceLayerId: null,
     layersNeedRecomposition: false,
-    brushPresets: [{ id: 'pixel-dither', name: 'Dither Stroke' }],
-    currentBrushPreset: { id: 'pixel-dither', name: 'Dither Stroke' } as AppState['currentBrushPreset'],
+    brushPresets: [{ id: 'dither-stroke', name: 'Dither Stroke' }],
+    currentBrushPreset: { id: 'dither-stroke', name: 'Dither Stroke' } as AppState['currentBrushPreset'],
     temporaryCustomBrush: null,
     recolorSampling: { active: false, radius: 10, falloff: 0, start: null, end: null, samples: undefined, target: 'brush' },
     polygonGradientState: {

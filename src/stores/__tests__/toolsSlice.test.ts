@@ -84,7 +84,7 @@ describe('tools slice', () => {
 
   it('persists dither gradient sample settings per brush', () => {
     const store = useAppStore.getState();
-    const preset = brushPresets.find((candidate) => candidate.id === 'dither-gradient-brush');
+    const preset = brushPresets.find((candidate) => candidate.id === 'dither-grad');
     expect(preset).toBeTruthy();
     store.setBrushPreset(preset!, true);
 
@@ -280,13 +280,13 @@ describe('tools slice', () => {
       canvas.height = 128;
 
       const store = useAppStore.getState();
-      store.startBrushEdit('pixel-brush', canvas);
+      store.startBrushEdit('pixel-square', canvas);
 
       const nextState = useAppStore.getState();
       expect(nextState.brushEditor.status).toBe('EDITING');
-      expect(nextState.brushEditor.editingBrushId).toBe('pixel-brush');
+      expect(nextState.brushEditor.editingBrushId).toBe('pixel-square');
       expect(nextState.tools.brushSettings.brushShape).toBe(BrushShape.CUSTOM);
-      expect(nextState.tools.brushSettings.selectedCustomBrush).toBe('pixel-brush');
+      expect(nextState.tools.brushSettings.selectedCustomBrush).toBe('pixel-square');
       const editorBounds = nextState.brushEditor.editingBounds;
       const expectedCenter = ((nextState.project?.width ?? canvas.width) - 32) / 2;
       expect(editorBounds).toEqual({ x: expectedCenter, y: expectedCenter, width: 32, height: 32 });
@@ -300,7 +300,7 @@ describe('tools slice', () => {
       ctx?.fillRect(0, 0, 64, 64);
 
       const store = useAppStore.getState();
-      store.startBrushEdit('pixel-brush', canvas);
+      store.startBrushEdit('pixel-square', canvas);
       store.saveBrushEdit(canvas);
 
       const nextState = useAppStore.getState();
@@ -320,7 +320,7 @@ describe('tools slice', () => {
       canvas.height = 64;
 
       const store = useAppStore.getState();
-      store.startBrushEdit('pixel-brush', canvas);
+      store.startBrushEdit('pixel-square', canvas);
       store.cancelBrushEdit();
 
       const nextState = useAppStore.getState();

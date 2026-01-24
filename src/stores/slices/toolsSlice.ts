@@ -53,7 +53,7 @@ type RecolorSamplingState = AppState['recolorSampling'];
 
 const initialBrushPreset = pixelBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
-const DITHER_BRUSH_IDS = ['pixel-dither', 'polygon-dither', 'shape-dither']; // legacy alias maintained
+const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
 
 export const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
@@ -1530,8 +1530,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
                     newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
     const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
     const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
-    const forceShapeModePreset = preset.id === 'shape-dither';
-    const forceShapeOffPreset = preset.id === 'pixel-dither';
+    const forceShapeModePreset = preset.id === 'dither-shape';
+    const forceShapeOffPreset = preset.id === 'dither-stroke';
 
     let nextShapeMode: boolean;
     if (forceShapeModePreset) {
@@ -1639,7 +1639,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         if (tempCtx) {
           // Create a simple black brush shape based on the preset
           tempCtx.fillStyle = '#000000';
-          if (defaultBrush.id === 'pixel-brush' || defaultBrush.id.includes('pixel')) {
+          if (defaultBrush.id === 'pixel-square' || defaultBrush.id.includes('pixel')) {
             // Square pixel brush
             tempCtx.fillRect(0, 0, size, size);
           } else if (defaultBrush.id.includes('square')) {

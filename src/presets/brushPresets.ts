@@ -1,11 +1,6 @@
 import { BrushPreset, BrushComponent, ComponentType, BrushSettings, BrushShape } from '../types';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
-// Legacy → canonical brush ID mappings to keep saved projects loading
-const BRUSH_ID_ALIASES: Record<string, string> = {
-  'polygon-dither': 'pixel-dither',
-};
-
 export type BrushCapabilities = {
   canDither?: boolean;
   forceDither?: boolean;
@@ -13,21 +8,20 @@ export type BrushCapabilities = {
 
 // Brush capability flags keyed by canonical preset id
 export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
-  'pixel-dither': { canDither: true, forceDither: true },
-  'shape-dither': { canDither: true, forceDither: true },
+  'dither-stroke': { canDither: true, forceDither: true },
+  'dither-shape': { canDither: true, forceDither: true },
   'color-cycle-stroke': { canDither: false },
   'color-cycle-shape': { canDither: false },
   'color-cycle-triangle': { canDither: false },
   'color-cycle-gradient': { canDither: false },
-  'shape-fill-brush': { canDither: false },
+  'shape-fill': { canDither: false },
 };
 
 export const getPresetCapabilities = (
   id: string,
   preset?: Partial<{ capabilities?: BrushCapabilities }>
 ): BrushCapabilities => {
-  const canonicalId = BRUSH_ID_ALIASES[id] ?? id;
-  const base = BRUSH_PRESET_CAPABILITIES[canonicalId] || {};
+  const base = BRUSH_PRESET_CAPABILITIES[id] || {};
   const fromPreset = preset?.capabilities || {};
   return {
     canDither: fromPreset.canDither ?? base.canDither,
@@ -271,7 +265,7 @@ export const pixelBrushComponents: BrushComponent[] = [
 
 // Pixel brush preset
 export const pixelBrushPreset: BrushPreset = {
-  id: 'pixel-brush',
+  id: 'pixel-square',
   name: 'Pixel Square',
   category: 'Pixel Art',
   components: pixelBrushComponents,
@@ -347,7 +341,7 @@ export const defaultBrushComponents: BrushComponent[] = [
 
 // Default brush preset
 export const defaultBrushPreset: BrushPreset = {
-  id: 'default-brush',
+  id: 'soft-round',
   name: 'Soft Round',
   category: 'Digital Painting',
   components: defaultBrushComponents,
@@ -372,7 +366,7 @@ export const defaultBrushPreset: BrushPreset = {
 // Pixel Round Brush Components
 export const roundPixel4Components: BrushComponent[] = [
   {
-    id: 'round-pixel-4-size',
+    id: 'pixel-round-size',
     type: ComponentType.SIZE_MODIFIER,
     parameters: {
       minSize: 1,
@@ -383,7 +377,7 @@ export const roundPixel4Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-pixel-4-opacity',
+    id: 'pixel-round-opacity',
     type: ComponentType.OPACITY_MODIFIER,
     parameters: {
       pressureInfluence: 0
@@ -392,7 +386,7 @@ export const roundPixel4Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-pixel-4-antialiasing',
+    id: 'pixel-round-antialiasing',
     type: ComponentType.ANTI_ALIASING,
     parameters: {
       mode: 'pixel'
@@ -401,7 +395,7 @@ export const roundPixel4Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-pixel-4-shape',
+    id: 'pixel-round-shape',
     type: ComponentType.SHAPE_RENDERER,
     parameters: {
       shape: BrushShape.PIXEL_ROUND
@@ -413,7 +407,7 @@ export const roundPixel4Components: BrushComponent[] = [
 
 // Pixel Round Brush Preset
 export const roundPixel4Preset: BrushPreset = {
-  id: 'round-pixel-4',
+  id: 'pixel-round',
   name: 'Pixel Round',
   category: 'Pixel Art',
   components: roundPixel4Components,
@@ -438,7 +432,7 @@ export const roundPixel4Preset: BrushPreset = {
 // 6px Round Square Brush Components
 export const roundSquare6Components: BrushComponent[] = [
   {
-    id: 'round-square-6-size',
+    id: 'soft-square-size',
     type: ComponentType.SIZE_MODIFIER,
     parameters: {
       minSize: 1,
@@ -449,7 +443,7 @@ export const roundSquare6Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-square-6-opacity',
+    id: 'soft-square-opacity',
     type: ComponentType.OPACITY_MODIFIER,
     parameters: {
       pressureInfluence: 0.3
@@ -458,7 +452,7 @@ export const roundSquare6Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-square-6-antialiasing',
+    id: 'soft-square-antialiasing',
     type: ComponentType.ANTI_ALIASING,
     parameters: {
       mode: 'antialiased'
@@ -467,7 +461,7 @@ export const roundSquare6Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-square-6-shape',
+    id: 'soft-square-shape',
     type: ComponentType.SHAPE_RENDERER,
     parameters: {
       shape: BrushShape.SQUARE
@@ -479,7 +473,7 @@ export const roundSquare6Components: BrushComponent[] = [
 
 // 6px Round Square Brush Preset
 export const roundSquare6Preset: BrushPreset = {
-  id: 'round-square-6',
+  id: 'soft-square',
   name: 'Soft Square',
   category: 'Digital Painting',
   components: roundSquare6Components,
@@ -786,7 +780,7 @@ export const rectangleGradientBrushComponents: BrushComponent[] = [
 ];
 
 export const rectangleGradientBrushPreset: BrushPreset = {
-  id: 'rectangle-gradient-brush',
+  id: 'rectangle-gradient',
   name: 'Rectangle Gradient',
   category: 'Special',
   components: rectangleGradientBrushComponents,
@@ -833,7 +827,7 @@ const polygonGradientBrushComponents: BrushComponent[] = [
 ];
 
 export const polygonGradientBrushPreset: BrushPreset = {
-  id: 'polygon-gradient-brush',
+  id: 'shape-gradient',
   name: 'Shape Gradient',
   category: 'Special',
   components: polygonGradientBrushComponents,
@@ -881,7 +875,7 @@ const ditherGradientBrushComponents: BrushComponent[] = [
 ];
 
 export const ditherGradientBrushPreset: BrushPreset = {
-  id: 'dither-gradient-brush',
+  id: 'dither-grad',
   name: 'Dither Grad',
   category: 'Special',
   components: ditherGradientBrushComponents,
@@ -913,7 +907,7 @@ const shapeFillBrushComponents: BrushComponent[] = [
 ];
 
 export const shapeFillBrushPreset: BrushPreset = {
-  id: 'shape-fill-brush',
+  id: 'shape-fill',
   name: 'Shape Fill',
   category: 'Special',
   components: shapeFillBrushComponents,
@@ -962,7 +956,7 @@ const spamBrushComponents: BrushComponent[] = [
 ];
 
 export const spamBrushPreset: BrushPreset = {
-  id: 'spam-brush',
+  id: 'spam-text',
   name: 'Spam Text',
   category: 'Text',
   components: spamBrushComponents,
@@ -1026,7 +1020,7 @@ const resamplerBrushComponents: BrushComponent[] = [
 ];
 
 export const resamplerBrushPreset: BrushPreset = {
-  id: 'resampler-brush',
+  id: 'resampler',
   name: 'Resampler',
   category: 'Special',
   components: resamplerBrushComponents,
@@ -1058,7 +1052,7 @@ export const resamplerBrushPreset: BrushPreset = {
 
 // Pixel dither brush preset – pixel brush with dithering locked on
 export const pixelDitherPreset: BrushPreset = {
-  id: 'pixel-dither',
+  id: 'dither-stroke',
   name: 'Dither Stroke',
   category: 'Pixel Art',
   components: pixelBrushComponents,
@@ -1090,7 +1084,7 @@ export const pixelDitherPreset: BrushPreset = {
 
 // Shape dither brush preset – pixel dither defaults but forced into shape mode
 export const shapeDitherPreset: BrushPreset = {
-  id: 'shape-dither',
+  id: 'dither-shape',
   name: 'Dither Shape',
   category: 'Pixel Art',
   components: pixelBrushComponents,
@@ -1143,8 +1137,7 @@ export const brushPresets: BrushPreset[] = [
 
 // Helper functions
 export const getBrushPresetById = (id: string): BrushPreset | undefined => {
-  const canonicalId = BRUSH_ID_ALIASES[id] ?? id;
-  return brushPresets.find(preset => preset.id === canonicalId);
+  return brushPresets.find(preset => preset.id === id);
 };
 
 export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
@@ -1155,22 +1148,19 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   const settings: Partial<BrushSettings> = {};
   
   // FIRST: Apply only technical defaults (size and functional settings), not user preferences
-  if (preset.id === 'pixel-brush') {
+  if (preset.id === 'pixel-square') {
     settings.size = 1; // 1px default for pixel brush
     settings.antialiasing = false;
-  } else if (preset.id === 'default-brush') {
+  } else if (preset.id === 'soft-round') {
     settings.size = 5; // 5px default for default brush
     settings.antialiasing = true;
-  } else if (preset.id === 'square-pixel-1') {
-    settings.size = 1; // 1px default as per name
-    settings.antialiasing = false;
-  } else if (preset.id === 'round-pixel-4') {
+  } else if (preset.id === 'pixel-round') {
     settings.size = 4; // 4px default as per name
     settings.antialiasing = false;
-  } else if (preset.id === 'round-square-6') {
+  } else if (preset.id === 'soft-square') {
     settings.size = 6; // 6px default as per name
     settings.antialiasing = true;
-  } else if (preset.id === 'resampler-brush') {
+  } else if (preset.id === 'resampler') {
     settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;
     settings.pressureEnabled = false;

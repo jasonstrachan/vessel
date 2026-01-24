@@ -219,11 +219,10 @@ const BrushControls = () => {
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
   const isDitherPreset =
-    currentBrushPresetId === 'pixel-dither' ||
-    currentBrushPresetId === 'polygon-dither' ||
-    currentBrushPresetId === 'shape-dither';
-  const isDitherStrokePreset = currentBrushPresetId === 'pixel-dither';
-  const isDitherShapePreset = currentBrushPresetId === 'shape-dither';
+    currentBrushPresetId === 'dither-stroke' ||
+    currentBrushPresetId === 'dither-shape';
+  const isDitherStrokePreset = currentBrushPresetId === 'dither-stroke';
+  const isDitherShapePreset = currentBrushPresetId === 'dither-shape';
   const hideShapeToggle = isDitherStrokePreset || isDitherShapePreset;
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);

@@ -873,7 +873,7 @@ export const finalizeRasterShapeFill = ({
         const originalLinked = state.tools.brushSettings.pressureLinkedFillResolution;
 
         if (ccDebug?.on && ccDebug?.verbose) {
-          console.log('[shape-dither-finalize]', {
+          console.log('[dither-shape-finalize]', {
             effectivePressure,
             usePressure,
             forcedPixelSize
