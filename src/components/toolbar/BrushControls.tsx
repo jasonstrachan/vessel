@@ -983,7 +983,10 @@ const BrushControls = () => {
               const gradientPreset = brushPresets.find(p => p.id === 'color-cycle-gradient');
               if (value === 'gradient' && gradientPreset) {
                 setBrushPreset(gradientPreset, true);
-                setActiveSettings({ colorCycleStampShape: 'square' });
+                setActiveSettings({
+                  colorCycleStampShape: 'square',
+                  colorCycleFillMode: 'linear',
+                });
               } else if (value === 'shape' && shapePreset) {
                 setBrushPreset(shapePreset, true);
                 setActiveSettings({ colorCycleStampShape: 'square' });
