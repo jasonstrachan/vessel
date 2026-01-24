@@ -854,42 +854,58 @@ export class ColorCycleBrushCanvas2D {
           );
         }
 
+      const lastScale = strokeData.stampDitherLastTileScale;
+      if (lastScale == null) {
+        strokeData.stampDitherLastTileScale = tileScaleInt;
+      } else if (lastScale !== tileScaleInt) {
+        strokeData.stampDitherLastTileScale = tileScaleInt;
+        this.scheduleStampDitherRecompose(strokeData, animator, flowSlot, tileScaleInt);
+      }
+
       const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
-      const isErrorDiffusion = this.isErrorDiffusionAlgorithm(rawAlgo);
-      const previewAlgo: DitherAlgorithm = isErrorDiffusion ? 'bayer' : rawAlgo;
-      if (!isErrorDiffusion) {
-        const lastScale = strokeData.stampDitherLastTileScale;
-        if (lastScale == null) {
-          strokeData.stampDitherLastTileScale = tileScaleInt;
-        } else if (lastScale !== tileScaleInt) {
-          strokeData.stampDitherLastTileScale = tileScaleInt;
-          this.scheduleStampDitherRecompose(strokeData, animator, flowSlot, tileScaleInt);
+      const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
+      if (algo === 'pattern') {
+        const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
+        if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
+          const seed = strokeData.stampDitherSeed ?? 0;
+          strokeData.stampDitherOriginUnits = {
+            x: (seed % baseSize) | 0,
+            y: ((seed >>> 16) % baseSize) | 0,
+          };
+          strokeData.stampDitherOriginBaseSize = baseSize;
         }
-      }
+        tileSize = baseSize * tileScaleInt;
+        const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+        maskOriginX = -originU.x * tileScaleInt;
+        maskOriginY = -originU.y * tileScaleInt;
+        strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
 
-      const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
-      if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
-        const seed = strokeData.stampDitherSeed ?? 0;
-        strokeData.stampDitherOriginUnits = {
-          x: (seed % baseSize) | 0,
-          y: ((seed >>> 16) % baseSize) | 0,
-        };
-        strokeData.stampDitherOriginBaseSize = baseSize;
+        const bucket = strokeData.stampDitherLockedBucket ?? 1;
+        tile = this.getStampDitherTile(
+          bucket,
+          tileScaleInt,
+          baseSize,
+          'pattern',
+          this.stampDitherPatternStyle
+        );
+      } else {
+        const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
+        if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
+          const seed = strokeData.stampDitherSeed ?? 0;
+          strokeData.stampDitherOriginUnits = {
+            x: (seed % baseSize) | 0,
+            y: ((seed >>> 16) % baseSize) | 0,
+          };
+          strokeData.stampDitherOriginBaseSize = baseSize;
+        }
+        tileSize = baseSize * tileScaleInt;
+        const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
+        maskOriginX = -originU.x * tileScaleInt;
+        maskOriginY = -originU.y * tileScaleInt;
+        strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
+        const bucket = strokeData.stampDitherLockedBucket ?? 1;
+        tile = this.getStampDitherTile(bucket, tileScaleInt, baseSize, 'sierra-lite');
       }
-      tileSize = baseSize * tileScaleInt;
-      const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
-      maskOriginX = -originU.x * tileScaleInt;
-      maskOriginY = -originU.y * tileScaleInt;
-      strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
-
-      const bucket = strokeData.stampDitherLockedBucket ?? 1;
-      tile = this.getStampDitherTile(
-        bucket,
-        tileScaleInt,
-        baseSize,
-        previewAlgo === 'pattern' ? 'pattern' : previewAlgo,
-        this.stampDitherPatternStyle
-      );
 
         const nextSeq = (strokeData.stampDitherStampSeq ?? 0) + 1;
         strokeData.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
@@ -1371,11 +1387,17 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private resolveStampDitherSecondaryIndex(primaryIndex: number): number {
+    const offset = 64;
     if (!Number.isFinite(primaryIndex)) {
       return 1;
     }
-    const clamped = Math.max(1, Math.min(255, Math.round(primaryIndex)));
-    const next = clamped < 255 ? clamped + 1 : clamped - 1;
+    let next = Math.round(primaryIndex + offset);
+    while (next > 255) {
+      next -= 255;
+    }
+    if (next === primaryIndex) {
+      next = primaryIndex > 1 ? primaryIndex - 1 : Math.min(255, primaryIndex + 1);
+    }
     return Math.max(1, Math.min(255, next));
   }
 
@@ -1593,7 +1615,7 @@ export class ColorCycleBrushCanvas2D {
     const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
     const kernel = this.getErrorDiffusionKernel(algo);
     const errorIntensity = Math.max(0, Math.min(1, this.ditherStrength)) * kernel.errorScale;
-    const jitterScale = 0;
+    const jitterScale = 0.1 * errorIntensity;
     const seed = strokeData.stampDitherSeed ?? 0;
 
     for (const [scale, scaleBound] of scaleBounds) {
@@ -1633,14 +1655,13 @@ export class ColorCycleBrushCanvas2D {
 
         for (let cx = xStart; cx !== xEnd; cx += xStep) {
           const cellIdx = cy * gridW + cx;
+          if (cellMask[cellIdx] === 0) continue;
           const globalCellX = cx + minCellX;
           const globalCellY = cy + minCellY;
           const jitter = jitterScale > 0 ? (this.hashCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale : 0;
           const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
           const quant = value >= 0.5 ? 1 : 0;
-          if (cellMask[cellIdx] === 1) {
-            cellChoice[cellIdx] = quant;
-          }
+          cellChoice[cellIdx] = quant;
           const error = (value - quant) * errorIntensity;
           if (error === 0) continue;
           for (const tap of kernel.taps) {
@@ -1648,6 +1669,7 @@ export class ColorCycleBrushCanvas2D {
             const ny = cy + tap.dy;
             if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
             const nIdx = ny * gridW + nx;
+            if (cellMask[nIdx] === 0) continue;
             errBuf[nIdx] += (error * tap.weight) / kernel.divisor;
           }
         }
@@ -1773,10 +1795,7 @@ export class ColorCycleBrushCanvas2D {
     const baseMask = strokeData.stampDitherBaseMask;
     if (!bounds || !owner || !primary) return;
     const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
-    if (this.isErrorDiffusionAlgorithm(rawAlgo)) {
-      return;
-    }
-    const algo = rawAlgo === 'pattern' ? 'pattern' : rawAlgo;
+    const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
     const bucket = strokeData.stampDitherLockedBucket ?? 1;
     const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
     const seed = strokeData.stampDitherSeed ?? 0;
@@ -1823,7 +1842,7 @@ export class ColorCycleBrushCanvas2D {
             bucket,
             seqScale,
             baseSize,
-            algo === 'pattern' ? 'pattern' : algo,
+            algo === 'pattern' ? undefined : 'sierra-lite',
             this.stampDitherPatternStyle
           );
           tileEntry = { tile, tileClamp, originX, originY };
