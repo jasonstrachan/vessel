@@ -161,7 +161,7 @@ export default function ColorPicker({
       }
 
     },
-    [svSize],
+    [],
   );
 
   const drawHueCanvas = useCallback(() => {

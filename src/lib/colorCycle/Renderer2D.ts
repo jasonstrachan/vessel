@@ -71,10 +71,7 @@ export class Renderer2D {
     const imageData = this.ensureImageData();
     const pixels32 = new Uint32Array(imageData.data.buffer);
     const legacyShift = (options.phase * 256) | 0;
-    const baseShift = (options.baseOffset * 256) | 0;
     const offset = options.baseOffset;
-    const pingPhase = offset <= 0.5 ? offset * 2 : (1 - offset) * 2;
-    const pingShift = (pingPhase * 256) | 0;
     const gradientIdData = options.gradientIdData;
     const speedData = options.speedData;
     const baseTime = options.baseTime;

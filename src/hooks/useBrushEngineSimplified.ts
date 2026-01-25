@@ -40,7 +40,6 @@ import {
   isColorCycleBrush,
   isFgPending,
 } from '@/utils/colorCycleGradients';
-import { debugLog } from '@/utils/debug';
 
 declare global {
   interface Window {
@@ -110,11 +109,6 @@ const resolveColorCycleGradientsForLayer = (
     layer?.colorCycleData?.gradient ??
     brushSettings.colorCycleGradient ??
     DEFAULT_CC_GRADIENT;
-  const chosen =
-    derivedStops ? 'derived' :
-    layer?.colorCycleData?.gradient ? 'layer' :
-    brushSettings.colorCycleGradient ? 'brush' :
-    'default';
   const gradientDefs = layer?.colorCycleData?.gradientDefs?.length
     ? layer.colorCycleData.gradientDefs
     : [{ id: 'g0', currentSlot: 0 }];
@@ -1699,11 +1693,16 @@ export const useBrushEngineSimplified = () => {
   }, [strokeDitherPalette]);
 
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
+  const activeLayer = useMemo(() => {
+    return layers.find((layer) => layer.id === activeLayerId) ?? null;
+  }, [layers, activeLayerId]);
   const isDitherPreset = useMemo(() => {
     const id = currentBrushPreset?.id;
     if (!id) return false;
     return id === 'dither-stroke' || id === 'dither-shape';
   }, [currentBrushPreset]);
+  const isCCGradient = currentBrushPreset?.id === 'color-cycle-gradient';
+  const isCCGradientActiveLayer = isCCGradient && activeLayer?.layerType === 'color-cycle';
   const isDitherStrokeBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
   const ditherStrokeGuardWarnedRef = useRef(false);
   const warnIfDitherStrokePath = useCallback((context: string) => {
@@ -3919,6 +3918,26 @@ export const useBrushEngineSimplified = () => {
           : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
       );
       colorCycleBrush.setBandSpacing(resolvedBandSpacing);
+
+      try {
+        const ccGradientMode = isCCGradientActiveLayer;
+        const enable = ccGradientMode && !!tools.brushSettings.ditherEnabled;
+        colorCycleBrush.setDitherEnabled(enable);
+        if (ccGradientMode && typeof tools.brushSettings.fillResolution === 'number') {
+          const minSize = 1;
+          colorCycleBrush.setDitherPixelSize(
+            Math.max(minSize, Math.floor(tools.brushSettings.fillResolution))
+          );
+        }
+        if (typeof (colorCycleBrush as { setDitherStrength?: (v: number) => void }).setDitherStrength === 'function') {
+          (colorCycleBrush as { setDitherStrength: (v: number) => void }).setDitherStrength(enable ? 1 : 0);
+        }
+        colorCycleBrush.setStampDitherEnabled(
+          !ccGradientMode && !!tools.brushSettings.colorCycleStampDitherEnabled
+        );
+      } catch (error) {
+        console.error('[CC Init] Failed to set dither settings:', error);
+      }
       // Set pressure enabled state and min/max values
       // quiet
       try {
@@ -3977,7 +3996,8 @@ export const useBrushEngineSimplified = () => {
     project?.width,
     project?.height,
     activeLayerId,
-    getActiveLayerColorCycleBrush
+    getActiveLayerColorCycleBrush,
+    isCCGradientActiveLayer,
   ]);
 
   const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
@@ -4104,6 +4124,7 @@ export const useBrushEngineSimplified = () => {
     getActiveLayerColorCycleBrush,
     tools.brushSettings.opacity,
     tools.brushSettings.blendMode,
+    tools.brushSettings.colorCycleUseForegroundGradient,
     activeLayerTransparencyLock,
     renderCCWithBlendAndLock,
     applyColorCycleRisographOverlay
@@ -4378,7 +4399,8 @@ export const useBrushEngineSimplified = () => {
    */
   const fillColorCycleShapeLinear = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
-    direction: { x: number; y: number }
+    direction: { x: number; y: number },
+    options?: { ditherPixelSize?: number }
   ) => {
     // quiet
     
@@ -4411,7 +4433,9 @@ export const useBrushEngineSimplified = () => {
       }
       
       // Ensure bands are set before filling
-      const bands = tools.brushSettings.gradientBands || 12;
+      const ccGradientMode = isCCGradientActiveLayer;
+      const wantDither = ccGradientMode && !!tools.brushSettings.ditherEnabled;
+      const bands = ccGradientMode ? 254 : tools.brushSettings.gradientBands || 12;
       brush.setGradientBands(bands);
       const useShapeSpacing = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
       const bandSpacingPx = clampColorCycleBandSpacing(
@@ -4420,10 +4444,24 @@ export const useBrushEngineSimplified = () => {
           : tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
       );
       brush.setBandSpacing(bandSpacingPx);
+
+      const ditherLevels = wantDither
+        ? Math.max(2, Math.min(16, Math.round(tools.brushSettings.gradientBands ?? 16)))
+        : undefined;
+      if (wantDither && typeof options?.ditherPixelSize === 'number') {
+        brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
+      }
       
       // quiet
       // Fill the shape with linear gradient
-      await Promise.resolve(brush.fillShapeLinear?.(vertices, direction, layerId, bandSpacingPx));
+      await Promise.resolve(
+        brush.fillShapeLinear?.(vertices, direction, layerId, bandSpacingPx, {
+          continuous: ccGradientMode,
+          ccGradient: ccGradientMode,
+          ditherLevels,
+          ditherPixelSize: options?.ditherPixelSize,
+        })
+      );
 
       // quiet
       // End the stroke to ensure texture is updated
@@ -4437,12 +4475,16 @@ export const useBrushEngineSimplified = () => {
     initializeColorCycleBrush,
     activeLayerId,
     tools.brushSettings,
+    isCCGradientActiveLayer,
   ]);
   
   /**
    * Fill a shape with color cycle gradient from edges to center
    */
-  const fillColorCycleShape = useCallback(async (vertices: Array<{ x: number; y: number }>) => {
+  const fillColorCycleShape = useCallback(async (
+    vertices: Array<{ x: number; y: number }>,
+    options?: { ditherPixelSize?: number }
+  ) => {
     // quiet
     
     // Initialize brush if needed
@@ -4479,7 +4521,9 @@ export const useBrushEngineSimplified = () => {
       }
       
       // Ensure bands are set before filling
-      const bands = tools.brushSettings.gradientBands || 12;
+      const ccGradientMode = isCCGradientActiveLayer;
+      const wantDither = ccGradientMode && !!tools.brushSettings.ditherEnabled;
+      const bands = ccGradientMode ? 254 : tools.brushSettings.gradientBands || 12;
       brush.setGradientBands(bands);
       
       // The vertices are already in the correct coordinate space
@@ -4491,7 +4535,19 @@ export const useBrushEngineSimplified = () => {
       const bandSpacingPx = clampColorCycleBandSpacing(
         tools.brushSettings.colorCycleBandSpacingPx ?? tools.brushSettings.spacing ?? DEFAULT_CC_BAND_SPACING
       );
-      await Promise.resolve(brush.fillShape?.(vertices, layerId, bandSpacingPx));
+      const ditherLevels = wantDither
+        ? Math.max(2, Math.min(16, Math.round(tools.brushSettings.gradientBands ?? 16)))
+        : undefined;
+      if (wantDither && typeof options?.ditherPixelSize === 'number') {
+        brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
+      }
+      await Promise.resolve(
+        brush.fillShape?.(vertices, layerId, bandSpacingPx, {
+          ccGradient: ccGradientMode,
+          ditherLevels,
+          ditherPixelSize: options?.ditherPixelSize,
+        })
+      );
 
       // quiet
       // End the stroke to ensure texture is updated
@@ -4505,6 +4561,7 @@ export const useBrushEngineSimplified = () => {
     initializeColorCycleBrush,
     activeLayerId,
     tools.brushSettings,
+    isCCGradientActiveLayer,
   ]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
@@ -4614,42 +4671,48 @@ useEffect(() => {
   // Update dithering toggle for color-cycle shape fills
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush) {
-      try {
-        colorCycleBrush.setDitherEnabled(!!tools.brushSettings.ditherEnabled);
-        colorCycleBrush.setStampDitherEnabled(
-          !!tools.brushSettings.colorCycleStampDitherEnabled
-        );
-        if (typeof colorCycleBrush.setStampDitherAlgorithm === 'function') {
-          colorCycleBrush.setStampDitherAlgorithm(
-            tools.brushSettings.ditherAlgorithm ?? 'sierra-lite'
-          );
-        }
-        if (typeof colorCycleBrush.setStampDitherPatternStyle === 'function') {
-          colorCycleBrush.setStampDitherPatternStyle(
-            tools.brushSettings.patternStyle ?? 'dots'
-          );
-        }
-        if (typeof colorCycleBrush.setStampDitherPressureLinked === 'function') {
-          colorCycleBrush.setStampDitherPressureLinked(
-            !!tools.brushSettings.colorCycleStampDitherPressureLinked
-          );
-        }
-        const stampBgFill =
-          typeof tools.brushSettings.colorCycleStampDitherBgFill === 'boolean'
-            ? tools.brushSettings.colorCycleStampDitherBgFill
-            : !Boolean(tools.brushSettings.colorCycleStampDitherClears);
-        if (typeof (colorCycleBrush as { setStampDitherBgFill?: (v: boolean) => void }).setStampDitherBgFill === 'function') {
-          (colorCycleBrush as { setStampDitherBgFill: (v: boolean) => void }).setStampDitherBgFill(stampBgFill);
-        } else if (typeof colorCycleBrush.setStampDitherClears === 'function') {
-          colorCycleBrush.setStampDitherClears(!stampBgFill);
-        }
-      } catch (error) {
-        void error;
-        // Non-fatal; older brushes may not support dithering
+    if (!colorCycleBrush) return;
+
+    const enable = isCCGradientActiveLayer && !!tools.brushSettings.ditherEnabled;
+
+    try {
+      colorCycleBrush.setDitherEnabled(enable);
+      if (typeof (colorCycleBrush as { setDitherStrength?: (v: number) => void }).setDitherStrength === 'function') {
+        (colorCycleBrush as { setDitherStrength: (v: number) => void }).setDitherStrength(enable ? 1 : 0);
       }
+      colorCycleBrush.setStampDitherEnabled(
+        !isCCGradientActiveLayer && !!tools.brushSettings.colorCycleStampDitherEnabled
+      );
+      if (typeof colorCycleBrush.setStampDitherAlgorithm === 'function') {
+        colorCycleBrush.setStampDitherAlgorithm(
+          tools.brushSettings.ditherAlgorithm ?? 'sierra-lite'
+        );
+      }
+      if (typeof colorCycleBrush.setStampDitherPatternStyle === 'function') {
+        colorCycleBrush.setStampDitherPatternStyle(
+          tools.brushSettings.patternStyle ?? 'dots'
+        );
+      }
+      if (typeof colorCycleBrush.setStampDitherPressureLinked === 'function') {
+        colorCycleBrush.setStampDitherPressureLinked(
+          !!tools.brushSettings.colorCycleStampDitherPressureLinked
+        );
+      }
+      const stampBgFill =
+        typeof tools.brushSettings.colorCycleStampDitherBgFill === 'boolean'
+          ? tools.brushSettings.colorCycleStampDitherBgFill
+          : !Boolean(tools.brushSettings.colorCycleStampDitherClears);
+      if (typeof (colorCycleBrush as { setStampDitherBgFill?: (v: boolean) => void }).setStampDitherBgFill === 'function') {
+        (colorCycleBrush as { setStampDitherBgFill: (v: boolean) => void }).setStampDitherBgFill(stampBgFill);
+      } else if (typeof colorCycleBrush.setStampDitherClears === 'function') {
+        colorCycleBrush.setStampDitherClears(!stampBgFill);
+      }
+    } catch (error) {
+      void error;
+      // Non-fatal; older brushes may not support dithering
     }
   }, [
+    isCCGradientActiveLayer,
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.colorCycleStampDitherEnabled,
     tools.brushSettings.colorCycleStampDitherBgFill,
@@ -4664,12 +4727,22 @@ useEffect(() => {
   // Update dither pixel size (fillResolution) for color-cycle shape fills
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && tools.brushSettings.fillResolution) {
+    if (!colorCycleBrush) return;
+    if (tools.brushSettings.pressureLinkedFillResolution) return;
+    if (isCCGradientActiveLayer && tools.brushSettings.fillResolution) {
       try {
-        colorCycleBrush.setDitherPixelSize(Math.max(1, Math.floor(tools.brushSettings.fillResolution)));
+        const minSize = 1;
+        colorCycleBrush.setDitherPixelSize(Math.max(minSize, Math.floor(tools.brushSettings.fillResolution)));
       } catch {}
     }
-  }, [tools.brushSettings.fillResolution, activeLayerId, getActiveLayerColorCycleBrush]);
+  }, [
+    tools.brushSettings.fillResolution,
+    tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.ditherEnabled,
+    isCCGradientActiveLayer,
+    activeLayerId,
+    getActiveLayerColorCycleBrush,
+  ]);
 
   // Update stamp dithering pixel size for color-cycle strokes
   useEffect(() => {

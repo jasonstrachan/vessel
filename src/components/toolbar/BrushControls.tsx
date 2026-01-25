@@ -208,6 +208,7 @@ const BrushControls = () => {
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
+  const isColorCycleGradientPreset = currentBrushPresetId === 'color-cycle-gradient';
   const brushSettings = useAppStore(selectBrushSettings);
   const eraserSettings = useAppStore(selectEraserSettings);
   const currentTool = useAppStore(selectCurrentTool);
@@ -1048,6 +1049,103 @@ const BrushControls = () => {
           </div>
         )}
 
+        {useForegroundDerivedGradient && (
+          <div className="mb-3">
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Light
+                </label>
+                <ProgressSlider
+                  value={fgDerivedLightness}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ colorCycleFgLightness: clampFgLightness(value) })
+                  }
+                  aria-label="Foreground Gradient Lightness"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Hue
+                </label>
+                <ProgressSlider
+                  value={fgDerivedHueShift}
+                  min={-320}
+                  max={320}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ colorCycleFgHueShift: clampFgHueShift(value) })
+                  }
+                  aria-label="Foreground Gradient Hue Shift"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Sat
+                </label>
+                <ProgressSlider
+                  value={fgDerivedSaturationShift}
+                  min={-45}
+                  max={45}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ colorCycleFgSaturationShift: clampFgSatShift(value) })
+                  }
+                  aria-label="Foreground Gradient Saturation Shift"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Opacity
+                </label>
+                <NonCcSlider
+                  value={fgOpacitySlider.value}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    fgOpacitySlider.onChange(Math.max(0, Math.min(100, Math.round(value))))
+                  }
+                  onCommit={fgOpacitySlider.onCommit}
+                  aria-label="Foreground Gradient Opacity"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Stops
+                </label>
+                <NonCcSlider
+                  value={fgStopsSlider.value}
+                  min={2}
+                  max={6}
+                  step={1}
+                  onChange={(value) =>
+                    fgStopsSlider.onChange(Math.max(2, Math.min(6, Math.round(value))))
+                  }
+                  onCommit={fgStopsSlider.onCommit}
+                  aria-label="Foreground Gradient Stops"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Fill Mode Tabs - only for Color Cycle Shape, not for Color Cycle Stroke */}
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
           <DitherControls
@@ -1057,6 +1155,26 @@ const BrushControls = () => {
             forceOn={Boolean(capability.forceDither)}
             isDitherPreset={isDitherPreset}
             hideLostEdge
+            afterPresRes={
+              isColorCycleGradientPreset ? (
+                <div className="flex items-center gap-2 mt-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Colors
+                  </label>
+                  <ProgressSlider
+                    value={activeSettings.gradientBands ?? 16}
+                    min={2}
+                    max={16}
+                    step={1}
+                    onChange={(value) =>
+                      setActiveSettings({ gradientBands: Math.max(2, Math.round(value)) })
+                    }
+                    aria-label="Dither Colors"
+                    className="flex-1"
+                  />
+                </div>
+              ) : null
+            }
           />
         )}
 
@@ -1108,105 +1226,6 @@ const BrushControls = () => {
         {/* Animation + banding */}
 
         <div className="mb-2">
-          {useForegroundDerivedGradient && (
-            <>
-              <div className="mb-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Light
-                  </label>
-                  <ProgressSlider
-                    value={fgDerivedLightness}
-                    min={0}
-                    max={100}
-                    step={1}
-                    onChange={(value) =>
-                      setActiveSettings({ colorCycleFgLightness: clampFgLightness(value) })
-                    }
-                    aria-label="Foreground Gradient Lightness"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              <div className="mb-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Hue
-                  </label>
-                  <ProgressSlider
-                    value={fgDerivedHueShift}
-                    min={-320}
-                    max={320}
-                    step={1}
-                    onChange={(value) =>
-                      setActiveSettings({ colorCycleFgHueShift: clampFgHueShift(value) })
-                    }
-                    aria-label="Foreground Gradient Hue Shift"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              <div className="mb-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Sat
-                  </label>
-                  <ProgressSlider
-                    value={fgDerivedSaturationShift}
-                    min={-45}
-                    max={45}
-                    step={1}
-                    onChange={(value) =>
-                      setActiveSettings({ colorCycleFgSaturationShift: clampFgSatShift(value) })
-                    }
-                    aria-label="Foreground Gradient Saturation Shift"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              <div className="mb-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Opacity
-                  </label>
-                  <NonCcSlider
-                    value={fgOpacitySlider.value}
-                    min={0}
-                    max={100}
-                    step={1}
-                    onChange={(value) =>
-                      fgOpacitySlider.onChange(Math.max(0, Math.min(100, Math.round(value))))
-                    }
-                    onCommit={fgOpacitySlider.onCommit}
-                    aria-label="Foreground Gradient Opacity"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              <div className="mb-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Stops
-                  </label>
-                  <NonCcSlider
-                    value={fgStopsSlider.value}
-                    min={2}
-                    max={6}
-                    step={1}
-                    onChange={(value) =>
-                      fgStopsSlider.onChange(Math.max(2, Math.min(6, Math.round(value))))
-                    }
-                    onCommit={fgStopsSlider.onCommit}
-                    aria-label="Foreground Gradient Stops"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Speed
@@ -1231,23 +1250,25 @@ const BrushControls = () => {
           </div>
         </div>
 
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Bands
-            </label>
-            <NonCcSlider
-              value={bandsSlider.value}
-              min={2}
-              max={64}
-              step={1}
-              onChange={(value) => bandsSlider.onChange(Math.round(value))}
-              onCommit={bandsSlider.onCommit}
-              aria-label="Gradient Bands"
-              className="flex-1"
-            />
+        {!isColorCycleGradientPreset && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                Bands
+              </label>
+              <NonCcSlider
+                value={bandsSlider.value}
+                min={2}
+                max={64}
+                step={1}
+                onChange={(value) => bandsSlider.onChange(Math.round(value))}
+                onCommit={bandsSlider.onCommit}
+                aria-label="Gradient Bands"
+                className="flex-1"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mb-3">
           <div className="flex items-center gap-2">

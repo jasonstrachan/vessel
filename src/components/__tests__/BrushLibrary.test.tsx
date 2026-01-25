@@ -139,7 +139,7 @@ describe('BrushLibrary', () => {
   it('renders presets and selects a brush on click', () => {
     render(<BrushLibrary />);
 
-    const brushButton = screen.getByText('Square Pixel');
+    const brushButton = screen.getByText('Pixel Square');
     fireEvent.click(brushButton);
 
     // Smoke: ensure click succeeded and store still has a preset selected

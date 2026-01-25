@@ -229,6 +229,10 @@ jest.mock('../dithering', () => ({
   applyDitheringWithFillResolution: jest.fn(),
 }));
 
+const ditheringMocks = jest.requireMock('../dithering') as {
+  applyDitheringWithFillResolution: jest.Mock;
+};
+
 const makeCanvas = () => {
   const canvas = document.createElement('canvas');
   canvas.width = 8;
@@ -486,6 +490,49 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     expect(band4Mid).not.toBe(band4Start);
     expect(band12Mid).not.toBe(band12Start);
+  });
+
+  it('fills linear gradients continuously when requested', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setGradientBands(4);
+    brush.setDitherEnabled(false);
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 5 },
+      { x: 0, y: 5 },
+    ];
+
+    await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 4, { continuous: true });
+
+    const animator = (brush as any).getAnimator('layer-1');
+    const indexBuffer = animator?.indexBuffer as Uint8Array;
+    const unique = new Set(Array.from(indexBuffer || []).filter((v) => v > 0));
+
+    expect(unique.size).toBeGreaterThan(4);
+  });
+
+  it('applies perceptual dithering for continuous linear fills when enabled', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setDitherEnabled(true);
+    brush.setPerceptualDither(true);
+    ditheringMocks.applyDitheringWithFillResolution.mockClear();
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 5 },
+      { x: 0, y: 5 },
+    ];
+
+    await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 4, { continuous: true });
+
+    expect(ditheringMocks.applyDitheringWithFillResolution).toHaveBeenCalled();
   });
 
   it('clamps dither settings', () => {

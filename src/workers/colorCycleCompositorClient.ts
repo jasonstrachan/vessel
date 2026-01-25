@@ -7,22 +7,22 @@ import type {
   ColorCycleCompositorMessage,
   ColorCycleCompositorResponse,
 } from './colorCycleCompositorTypes';
-
-const WORKER_URL = new URL('./colorCycleCompositor.worker.ts', import.meta.url);
+import { getColorCycleCompositorWorkerUrl } from './colorCycleCompositorWorkerUrl';
 
 const createWorker = (preferModule = true) => {
+  const workerUrl = getColorCycleCompositorWorkerUrl();
   // Prefer module workers; fall back to classic workers when the environment
   // refuses module type (some embedded webviews) so we fail gracefully instead
   // of emitting opaque "worker error undefined" logs.
   if (!preferModule) {
-    return new Worker(WORKER_URL);
+    return new Worker(workerUrl);
   }
   try {
-    return new Worker(WORKER_URL, { type: 'module' });
+    return new Worker(workerUrl, { type: 'module' });
   } catch {
     // Classic fallback keeps us functional on older browsers; the worker code
     // is simple enough to run in either mode.
-    return new Worker(WORKER_URL);
+    return new Worker(workerUrl);
   }
 };
 

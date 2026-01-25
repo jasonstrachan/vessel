@@ -34,6 +34,7 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
+import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -192,6 +193,11 @@ type DitherGradPreviewState = {
   origin: { x: number; y: number } | null;
   lastPx: number;
   resState: PressureResolutionState;
+  ccJobInFlight: boolean;
+  ccJobDirty: boolean;
+  ccJobSeq: number;
+  ccLastCanvas?: HTMLCanvasElement;
+  ccLastOrigin?: { x: number; y: number };
 };
 
 const ditherGradPreviewStateByCanvas = new WeakMap<
@@ -210,6 +216,9 @@ const getDitherGradPreviewState = (
     origin: null,
     lastPx: -1,
     resState: createPressureResolutionState(1),
+    ccJobInFlight: false,
+    ccJobDirty: false,
+    ccJobSeq: 0,
   };
   ditherGradPreviewStateByCanvas.set(canvasRef, created);
   return created;
@@ -344,6 +353,14 @@ export const createShapeToolHandler = (
     ditherGradPreviewState.origin = null;
     ditherGradPreviewState.lastPx = -1;
     ditherGradPreviewState.resState = createPressureResolutionState(1);
+    ditherGradPreviewState.ccJobDirty = false;
+    ditherGradPreviewState.ccJobInFlight = false;
+    ditherGradPreviewState.ccJobSeq += 1;
+    if (ditherGradPreviewState.ccLastCanvas) {
+      canvasPool.release(ditherGradPreviewState.ccLastCanvas);
+    }
+    ditherGradPreviewState.ccLastCanvas = undefined;
+    ditherGradPreviewState.ccLastOrigin = undefined;
   };
 
   const {
@@ -2515,9 +2532,22 @@ export const createShapeToolHandler = (
     }
 
     if (isCCShape) {
+      resetDitherGradOrigin();
       drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-start');
       interaction.dispatch({ type: 'DRAWING_START' });
-      drawingHandlers.startShapeDrawing(worldPos, pressure);
+      const storeNow = useAppStore.getState();
+      const brushNow = storeNow.tools.brushSettings;
+      const isCCLinear = brushNow.colorCycleFillMode === 'linear';
+      const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
+      const isCCGradientPreset = presetId === 'color-cycle-gradient';
+      const shouldDitherPreview =
+        brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+        (isCCLinear || isCCGradientPreset) &&
+        Boolean(brushNow.ditherEnabled);
+      const suppressCCPreview = shouldDitherPreview && tools.shapeMode;
+      drawingHandlers.startShapeDrawing(worldPos, pressure, undefined, undefined, {
+        renderPreview: !suppressCCPreview,
+      });
       return true;
     }
 
@@ -2607,7 +2637,22 @@ export const createShapeToolHandler = (
         typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? performance.now()
           : Date.now();
-      drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure);
+      const storeNow = useAppStore.getState();
+      const brushNow = storeNow.tools.brushSettings;
+      const isCCLinear = brushNow.colorCycleFillMode === 'linear';
+      const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
+      const isCCGradientPreset = presetId === 'color-cycle-gradient';
+      const shouldDitherPreview =
+        brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+        (isCCLinear || isCCGradientPreset) &&
+        Boolean(brushNow.ditherEnabled);
+      const suppressCCPreview =
+        shouldDitherPreview &&
+        tools.shapeMode &&
+        drawingHandlers.isDrawingShapeRef.current;
+      drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure, {
+        renderPreview: !suppressCCPreview,
+      });
       shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
     } else if (isPolygonGradient || isContourPolygon) {
       shouldShowPreview = appendPolygonGradientPoint(previewWorld);
@@ -2627,7 +2672,7 @@ export const createShapeToolHandler = (
         }
 
         const previewPoint = { ...previewWorld };
-        previewAnimationFrameRef.current = requestAnimationFrame(() => {
+        previewAnimationFrameRef.current = requestAnimationFrame(async () => {
           context.setLastOverlayPreviewTs(performance.now());
           const overlayCanvas = overlayCanvasRef.current;
           const overlayCtx = overlayCanvas?.getContext('2d');
@@ -2637,7 +2682,6 @@ export const createShapeToolHandler = (
             : drawingHandlers.shapePointsRef.current;
 
           if (overlayCtx && overlayCanvas && points && points.length > 0) {
-            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
             overlayCtx.save();
             overlayCtx.imageSmoothingEnabled = false;
@@ -2650,14 +2694,33 @@ export const createShapeToolHandler = (
 
             if (vertexCount >= 3) {
               const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
+              const storeNow = useAppStore.getState();
+              const brushNow = storeNow.tools.brushSettings;
               const dynamicPresetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
-              const isColorCycleGradientPreset =
-                tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-                (dynamicPresetId === 'color-cycle-gradient' ||
-                  context.deps.currentBrushPresetId === 'color-cycle-gradient');
-              const isColorCycleGradientPreview =
-                tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-                tools.brushSettings.colorCycleFillMode === 'linear';
+              const presetId = dynamicPresetId ?? context.deps.currentBrushPresetId;
+              const isCCShape = brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+              const isCCLinear = brushNow.colorCycleFillMode === 'linear';
+              const isColorCycleGradientPreset = presetId === 'color-cycle-gradient';
+              const isColorCycleGradientPreview = isCCShape && isCCLinear;
+              const shouldDitherPreview =
+                isCCShape && (isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled);
+              
+              if (shouldDitherPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
+                overlayCtx.save();
+                overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                overlayCtx.restore();
+                overlayCtx.save();
+                overlayCtx.globalAlpha = 1;
+                overlayCtx.drawImage(
+                  ditherGradPreviewState.ccLastCanvas,
+                  ditherGradPreviewState.ccLastOrigin.x,
+                  ditherGradPreviewState.ccLastOrigin.y
+                );
+                overlayCtx.restore();
+              } else if (!shouldDitherPreview) {
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+              }
               const strokePreviewOutline = () => {
                 drawHighContrastStroke(
                   overlayCtx,
@@ -2682,23 +2745,21 @@ export const createShapeToolHandler = (
                 overlayCtx.globalAlpha = 0.8;
               } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
                 if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
-                  const useForegroundDerived = Boolean(
-                    tools.brushSettings.colorCycleUseForegroundGradient
-                  );
+                  const useForegroundDerived = Boolean(brushNow.colorCycleUseForegroundGradient);
                   const fgBaseColor =
                     context.deps.palette?.foregroundColor ??
-                    tools.brushSettings.color ??
+                    brushNow.color ??
                     '#000';
                   const derivedSpec = useForegroundDerived
                     ? buildForegroundDerivedGradientSpec({
                         baseColor: fgBaseColor,
-                        lightness: tools.brushSettings.colorCycleFgLightness,
-                        variance: tools.brushSettings.colorCycleFgVariance,
-                        hueShift: tools.brushSettings.colorCycleFgHueShift,
-                        saturationShift: tools.brushSettings.colorCycleFgSaturationShift,
-                        opacity: tools.brushSettings.colorCycleFgOpacity,
+                        lightness: brushNow.colorCycleFgLightness,
+                        variance: brushNow.colorCycleFgVariance,
+                        hueShift: brushNow.colorCycleFgHueShift,
+                        saturationShift: brushNow.colorCycleFgSaturationShift,
+                        opacity: brushNow.colorCycleFgOpacity,
                         bands: clampForegroundDerivedBands(
-                          tools.brushSettings.colorCycleFgStops
+                          brushNow.colorCycleFgStops
                         ),
                       })
                     : null;
@@ -2708,22 +2769,202 @@ export const createShapeToolHandler = (
                   const stops =
                     derivedStops && derivedStops.length >= 2
                       ? derivedStops
-                      : tools.brushSettings.colorCycleGradient?.length
-                        ? tools.brushSettings.colorCycleGradient
+                      : brushNow.colorCycleGradient?.length
+                        ? brushNow.colorCycleGradient
                         : DEFAULT_COLOR_CYCLE_GRADIENT;
-                  const axis = computeAxisOpposingEnds([...pts, previewPoint]);
-                  const gradient = overlayCtx.createLinearGradient(
-                    axis.start.x,
-                    axis.start.y,
-                    axis.end.x,
-                    axis.end.y
-                  );
-                  stops.forEach((stop) => {
-                    const pos = Number.isFinite(stop.position) ? stop.position : 0;
-                    gradient.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
-                  });
-                  overlayCtx.fillStyle = gradient;
-                  overlayCtx.globalAlpha = 1.0;
+                  if (shouldDitherPreview) {
+                    if (ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
+                      const { scale, offsetX, offsetY } = viewTransformRef.current;
+                      overlayCtx.save();
+                      overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+                      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                      overlayCtx.restore();
+                      overlayCtx.save();
+                      overlayCtx.translate(offsetX, offsetY);
+                      overlayCtx.scale(scale, scale);
+                      overlayCtx.globalAlpha = 1;
+                      overlayCtx.imageSmoothingEnabled = false;
+                      overlayCtx.drawImage(
+                        ditherGradPreviewState.ccLastCanvas,
+                        ditherGradPreviewState.ccLastOrigin.x,
+                        ditherGradPreviewState.ccLastOrigin.y
+                      );
+                      overlayCtx.restore();
+                      didCustomFill = true;
+                    } else {
+                      didCustomFill = true;
+                    }
+                    if (ditherGradPreviewState.ccJobInFlight) {
+                      ditherGradPreviewState.ccJobDirty = true;
+                    } else {
+                      ditherGradPreviewState.ccJobInFlight = true;
+                      ditherGradPreviewState.ccJobDirty = false;
+                      const mySeq = ++ditherGradPreviewState.ccJobSeq;
+                      const allPoints = [...pts, previewPoint];
+                      let roiMinX = allPoints[0].x;
+                      let roiMinY = allPoints[0].y;
+                      let roiMaxX = allPoints[0].x;
+                      let roiMaxY = allPoints[0].y;
+                      for (let i = 1; i < allPoints.length; i++) {
+                        const p = allPoints[i];
+                        if (p.x < roiMinX) roiMinX = p.x;
+                        if (p.y < roiMinY) roiMinY = p.y;
+                        if (p.x > roiMaxX) roiMaxX = p.x;
+                        if (p.y > roiMaxY) roiMaxY = p.y;
+                      }
+                      const PAD = 1;
+                      const origin = { x: Math.floor(roiMinX) - PAD, y: Math.floor(roiMinY) - PAD };
+                      const maxXInt = Math.ceil(roiMaxX) + PAD;
+                      const maxYInt = Math.ceil(roiMaxY) + PAD;
+                      const w = Math.max(1, maxXInt - origin.x + 1);
+                      const h = Math.max(1, maxYInt - origin.y + 1);
+                      const localVertices = allPoints.map(pt => ({
+                        x: pt.x - origin.x,
+                        y: pt.y - origin.y,
+                      }));
+                      const axis = computeAxisOpposingEnds(localVertices);
+                      let minProj = Infinity;
+                      let maxProj = -Infinity;
+                      for (const v of localVertices) {
+                        const proj = v.x * axis.dir.x + v.y * axis.dir.y;
+                        if (proj < minProj) minProj = proj;
+                        if (proj > maxProj) maxProj = proj;
+                      }
+                      const projRange = Math.max(1e-6, maxProj - minProj);
+                      const sortedStops = [...stops]
+                        .map(stop => ({
+                          position: Math.max(0, Math.min(1, Number.isFinite(stop.position) ? stop.position : 0)),
+                          rgba: parseCssColorToRgba(stop.color),
+                        }))
+                        .sort((a, b) => a.position - b.position);
+                      if (sortedStops.length === 0) {
+                        sortedStops.push({ position: 0, rgba: [0, 0, 0, 255] });
+                        sortedStops.push({ position: 1, rgba: [255, 255, 255, 255] });
+                      } else if (sortedStops.length === 1) {
+                        sortedStops.push({ position: 1, rgba: sortedStops[0].rgba });
+                      }
+                      const sampleGradient = (t: number): [number, number, number, number] => {
+                        const tt = Math.max(0, Math.min(1, t));
+                        let idx = 0;
+                        for (let i = 0; i < sortedStops.length - 1; i++) {
+                          if (tt >= sortedStops[i].position && tt <= sortedStops[i + 1].position) {
+                            idx = i;
+                            break;
+                          }
+                          if (tt > sortedStops[i + 1].position) idx = i + 1;
+                        }
+                        const a = sortedStops[Math.max(0, Math.min(sortedStops.length - 2, idx))];
+                        const b = sortedStops[Math.max(1, Math.min(sortedStops.length - 1, idx + 1))];
+                        const span = Math.max(1e-6, b.position - a.position);
+                        const localT = Math.max(0, Math.min(1, (tt - a.position) / span));
+                        const lerp = (v0: number, v1: number) => v0 + (v1 - v0) * localT;
+                        return [
+                          lerp(a.rgba[0], b.rgba[0]),
+                          lerp(a.rgba[1], b.rgba[1]),
+                          lerp(a.rgba[2], b.rgba[2]),
+                          lerp(a.rgba[3], b.rgba[3]),
+                        ];
+                      };
+                      const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
+                      const usePressure =
+                        Boolean(brushNow.pressureLinkedFillResolution) &&
+                        Boolean(drawingHandlers.hadValidShapePressureRef?.current);
+                      const pressurePixelSize = usePressure
+                        ? (drawingHandlers.latestShapePixelSizeRef?.current ??
+                          drawingHandlers.computeShapePixelSize?.(
+                            drawingHandlers.lastStablePressureRef?.current ?? 0.5
+                          ) ??
+                          basePixelSize)
+                        : basePixelSize;
+                      const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
+                      const levels = Math.max(2, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+                      const tempCanvas = canvasPool.acquire(w, h);
+                      const tempCtx = tempCanvas.getContext(
+                        '2d',
+                        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+                      );
+                      if (!tempCtx) {
+                        canvasPool.release(tempCanvas);
+                        ditherGradPreviewState.ccJobInFlight = false;
+                      } else {
+                        tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+                        tempCtx.globalCompositeOperation = 'source-over';
+                        tempCtx.globalAlpha = 1;
+                        tempCtx.imageSmoothingEnabled = false;
+                        tempCtx.clearRect(0, 0, w, h);
+                        const imageData = tempCtx.createImageData(w, h);
+                        const data = imageData.data;
+                        (async () => {
+                          try {
+                            await fillCcGradientDither({
+                              vertices: localVertices,
+                              minX: 0,
+                              minY: 0,
+                              maxX: w - 1,
+                              maxY: h - 1,
+                              pixelSize,
+                              levels,
+                              baseOffset: 0,
+                              sampleNormalized: (x, y) => {
+                                const proj = x * axis.dir.x + y * axis.dir.y;
+                                return (proj - minProj) / projRange;
+                              },
+                              writeIndex: (x, y, index) => {
+                                if (index <= 0) return;
+                                const t = (index - 1) / 254;
+                                const [r, g, b, a] = sampleGradient(t);
+                                const px = (y * w + x) * 4;
+                                data[px] = Math.round(r);
+                                data[px + 1] = Math.round(g);
+                                data[px + 2] = Math.round(b);
+                                data[px + 3] = Math.round(a);
+                              },
+                            });
+                            if (mySeq !== ditherGradPreviewState.ccJobSeq) return;
+                            tempCtx.putImageData(imageData, 0, 0);
+                            if (ditherGradPreviewState.ccLastCanvas) {
+                              canvasPool.release(ditherGradPreviewState.ccLastCanvas);
+                            }
+                            ditherGradPreviewState.ccLastCanvas = tempCanvas;
+                            ditherGradPreviewState.ccLastOrigin = { ...origin };
+                            const { scale, offsetX, offsetY } = viewTransformRef.current;
+                            overlayCtx.save();
+                            overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+                            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                            overlayCtx.restore();
+                            overlayCtx.save();
+                            overlayCtx.translate(offsetX, offsetY);
+                            overlayCtx.scale(scale, scale);
+                            overlayCtx.globalAlpha = 1;
+                            overlayCtx.imageSmoothingEnabled = false;
+                            overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
+                            overlayCtx.restore();
+                          } catch {
+                            canvasPool.release(tempCanvas);
+                          } finally {
+                            ditherGradPreviewState.ccJobInFlight = false;
+                            if (ditherGradPreviewState.ccJobDirty) {
+                              ditherGradPreviewState.ccJobDirty = false;
+                            }
+                          }
+                        })();
+                      }
+                    }
+                  } else {
+                    const axis = computeAxisOpposingEnds([...pts, previewPoint]);
+                    const gradient = overlayCtx.createLinearGradient(
+                      axis.start.x,
+                      axis.start.y,
+                      axis.end.x,
+                      axis.end.y
+                    );
+                    stops.forEach((stop) => {
+                      const pos = Number.isFinite(stop.position) ? stop.position : 0;
+                      gradient.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
+                    });
+                    overlayCtx.fillStyle = gradient;
+                    overlayCtx.globalAlpha = 1.0;
+                  }
                 } else {
                   overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                   overlayCtx.globalAlpha = 1.0;

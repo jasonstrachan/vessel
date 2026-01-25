@@ -68,6 +68,7 @@ export type ColorCycleShapeLinearArgs = {
   beforeColorState: DeferredSaveWithStateArgs['beforeColorState'];
   tool: DeferredSaveWithStateArgs['tool'];
   roi?: DeferredSaveWithStateArgs['roi'];
+  ditherPixelSize?: number;
 };
 
 export const finalizeColorCycleShapeFillLinear = async (
@@ -77,7 +78,9 @@ export const finalizeColorCycleShapeFillLinear = async (
   try {
     await deps.timeAsync('cc:shape:fill(linear)', async () => {
       deps.brushEngine.resetColorCycle(false);
-      await deps.brushEngine.fillColorCycleShapeLinear(args.shapePoints, args.direction);
+      await deps.brushEngine.fillColorCycleShapeLinear(args.shapePoints, args.direction, {
+        ditherPixelSize: args.ditherPixelSize,
+      });
     });
 
     deps.timeSync('cc:shape:texture', () => {
@@ -154,6 +157,7 @@ export type ColorCycleShapeConcentricArgs = {
   beforeColorState: DeferredSaveWithStateArgs['beforeColorState'];
   tool: DeferredSaveWithStateArgs['tool'];
   roi?: DeferredSaveWithStateArgs['roi'];
+  ditherPixelSize?: number;
 };
 
 export const finalizeColorCycleShapeFillConcentric = async (
@@ -163,7 +167,9 @@ export const finalizeColorCycleShapeFillConcentric = async (
   try {
     await deps.timeAsync('cc:shape:fill(concentric)', async () => {
       deps.brushEngine.resetColorCycle(false);
-      await deps.brushEngine.fillColorCycleShape(args.shapePoints);
+      await deps.brushEngine.fillColorCycleShape(args.shapePoints, {
+        ditherPixelSize: args.ditherPixelSize,
+      });
     });
 
     deps.timeSync('cc:shape:texture', () => {
@@ -238,6 +244,7 @@ export type RunColorCycleShapeFillArgs = {
   beforeColorState: DeferredSaveWithStateArgs['beforeColorState'];
   tool: DeferredSaveWithStateArgs['tool'];
   roi?: DeferredSaveWithStateArgs['roi'];
+  ditherPixelSize?: number;
 };
 
 export type RunColorCycleShapeFillDeps = ColorCycleShapeFillDeps & {
@@ -272,6 +279,7 @@ export const runColorCycleShapeFill = async (
       beforeColorState: args.beforeColorState,
       tool: args.tool,
       roi: args.roi,
+      ditherPixelSize: args.ditherPixelSize,
     }, deps);
   } else {
     await finalizeColorCycleShapeFillConcentric({
@@ -286,6 +294,7 @@ export const runColorCycleShapeFill = async (
       beforeColorState: args.beforeColorState,
       tool: args.tool,
       roi: args.roi,
+      ditherPixelSize: args.ditherPixelSize,
     }, deps);
   }
 

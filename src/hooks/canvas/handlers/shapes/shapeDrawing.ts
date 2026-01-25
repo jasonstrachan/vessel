@@ -155,6 +155,7 @@ type ShapeDrawingDeps = {
     beforeColorState: ColorCycleSerializedState | null;
     tool: Tool;
     roi?: CaptureRegion;
+    ditherPixelSize?: number;
   }, deps: {
     brushEngine: BrushEngine;
     getColorCycleBrushManager: ShapeDrawingDeps['getColorCycleBrushManager'];
@@ -296,10 +297,12 @@ export const startShapeDrawing = (
     rawPressure?: number;
     shapeMode: boolean;
     refs: ShapeDrawingRefs;
+    renderPreview?: boolean;
   },
   deps: ShapeDrawingDeps
 ): void => {
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
+  const renderPreview = args.renderPreview !== false;
   const isNewShape = !refs.isDrawingShapeRef.current || refs.shapePointsRef.current.length === 0;
 
   if (isNewShape) {
@@ -383,7 +386,9 @@ export const startShapeDrawing = (
     if (isAdvancedShape && refs.isDrawingShapeRef.current && refs.shapePointsRef.current.length > 0) {
       refs.shapePointsRef.current.push(worldPos);
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
-      deps.triggerSimpleShapePreview();
+      if (renderPreview) {
+        deps.triggerSimpleShapePreview();
+      }
       try {
         const st = deps.storeRef.current;
         if (
@@ -400,7 +405,9 @@ export const startShapeDrawing = (
       refs.shapeDragStartRef.current = worldPos;
       refs.shapeDragLastRef.current = worldPos;
       refs.shapeDragMovedRef.current = false;
-      deps.triggerSimpleShapePreview();
+      if (renderPreview) {
+        deps.triggerSimpleShapePreview();
+      }
       try {
         const st = deps.storeRef.current;
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -431,10 +438,12 @@ export const continueShapeDrawing = (
     rawPressure?: number;
     shapeMode: boolean;
     refs: ShapeDrawingRefs;
+    renderPreview?: boolean;
   },
   deps: ShapeDrawingDeps
 ): void => {
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
+  const renderPreview = args.renderPreview !== false;
   const rawVal = typeof rawPressure === 'number' ? rawPressure : pressure;
   deps.updateShapePressure(pressure, timestamp, rawVal);
 
@@ -521,8 +530,10 @@ export const continueShapeDrawing = (
     );
     if (added > 0 || refs.shapeDragMovedRef.current) {
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
-      deps.capturePendingShapeSnapshot();
-      deps.triggerSimpleShapePreview();
+      if (renderPreview) {
+        deps.capturePendingShapeSnapshot();
+        deps.triggerSimpleShapePreview();
+      }
       if (added > 0) {
         try {
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -690,6 +701,7 @@ export const finalizeShapeDrawing = async (
             if (activeLayer) {
               deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, ccBrush);
             }
+            let ditherPixelSize: number | undefined;
             if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
               const { pixelSize } = resolveColorCycleDitherPixelSize({
                 settings: activeSettings,
@@ -698,7 +710,7 @@ export const finalizeShapeDrawing = async (
                 computeShapePixelSize: deps.computeShapePixelSize,
               });
               deps.latestShapePixelSizeRef.current = pixelSize;
-              (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
+              ditherPixelSize = pixelSize;
             }
             deps.runIdle(() => {
               void deps.runColorCycleShapeFill({
@@ -715,6 +727,7 @@ export const finalizeShapeDrawing = async (
                 beforeColorState: shapeBeforeColorState,
                 tool: toolsSnapshot.currentTool,
                 roi: shapeCaptureRoi,
+                ditherPixelSize,
               }, {
                 brushEngine: deps.brushEngine,
                 getColorCycleBrushManager: deps.getColorCycleBrushManager,
@@ -852,6 +865,7 @@ export const finalizeShapeDrawing = async (
                 if (activeLayer) {
                   deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
                 }
+                let ditherPixelSize: number | undefined;
                 if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
                   const { pixelSize } = resolveColorCycleDitherPixelSize({
                     settings: liveBrushSettings,
@@ -860,7 +874,7 @@ export const finalizeShapeDrawing = async (
                     computeShapePixelSize: deps.computeShapePixelSize,
                   });
                   deps.latestShapePixelSizeRef.current = pixelSize;
-                  (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
+                  ditherPixelSize = pixelSize;
                 }
                 deps.runIdle(() => {
                   void deps.runColorCycleShapeFill({
@@ -879,6 +893,7 @@ export const finalizeShapeDrawing = async (
                     beforeColorState: shapeBeforeColorStateLocal,
                     tool: toolsSnapshot.currentTool,
                     roi: shapeCaptureRoi,
+                    ditherPixelSize,
                   }, {
                     brushEngine: deps.brushEngine,
                     getColorCycleBrushManager: deps.getColorCycleBrushManager,

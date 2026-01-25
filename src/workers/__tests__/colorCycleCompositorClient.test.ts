@@ -1,4 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+jest.mock('../colorCycleCompositorWorkerUrl', () => ({
+  getColorCycleCompositorWorkerUrl: () => new URL('http://localhost/colorCycleCompositor.worker.js'),
+}));
+
 import { ColorCycleCompositorClient } from '../colorCycleCompositorClient';
 
 class FakeWorker implements Worker {

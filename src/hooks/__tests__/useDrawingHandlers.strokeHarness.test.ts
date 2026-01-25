@@ -34,7 +34,7 @@ const storeState = {
     customBrushCapture: { sampleAllLayers: false, mode: 'idle', freehandPath: null },
   },
   layers: [],
-  activeLayerId: null,
+  activeLayerId: null as string | null,
   palette: { activeSlot: 'foreground', foregroundColor: '#000000', backgroundColor: '#ffffff' },
   polygonGradientState: { drawingState: 'idle' },
   recolorSampling: { active: false, start: null, end: null, samples: 0, target: 'recolor' },

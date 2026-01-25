@@ -12,6 +12,7 @@ import { applyDitheringWithFillResolution } from './dithering';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
+import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
 import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
@@ -2717,7 +2718,8 @@ export class ColorCycleBrushCanvas2D {
     vertices: Array<{ x: number; y: number }>,
     direction: { x: number; y: number },
     layerId: string,
-    spacing?: number
+    spacing?: number,
+    options?: { continuous?: boolean; ditherLevels?: number; ccGradient?: boolean; ditherPixelSize?: number }
   ) {
     if (!layerId) {
       throw new Error('fillShapeLinear requires a layerId');
@@ -2848,6 +2850,11 @@ export class ColorCycleBrushCanvas2D {
     const spacingValue = this.normalizeBandSpacingValue(spacing);
     const projectionSpan = Math.max(1, Math.abs(safeProjectionRange));
     const numBands = this.deriveBandCountFromDistance(projectionSpan, spacingValue);
+    const continuous = options?.continuous === true;
+    const ccGradient = options?.ccGradient === true;
+    const ditherLevels = Number.isFinite(options?.ditherLevels)
+      ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
+      : null;
     const baseOffset = this.stampCounter % 255;
     const indexFromNormalized = (pos: number): number => {
       const raw = Math.round(pos * 254);
@@ -2867,7 +2874,7 @@ export class ColorCycleBrushCanvas2D {
     // GPU path (linear fill) when available
     try {
       const hasGL = animator.hasWebGL();
-      if (hasGL) {
+      if (hasGL && !continuous) {
         if (this.ditherEnabled && this.perceptualDither) {
           throw new Error('Perceptual dither requires CPU fill');
         }
@@ -2888,7 +2895,7 @@ export class ColorCycleBrushCanvas2D {
         }
 
         if (gpuVertices.length >= 3 && gpuVertices.length <= GPU_MAX_VERTS) {
-          const ditherStrength = this.ditherEnabled ? this.ditherStrength : 0;
+      const ditherStrength = this.ditherEnabled ? this.ditherStrength : 0;
           const ditherPixelSize = this.ditherEnabled ? Math.max(1, this.ditherPixelSize) : 1;
           const noiseSeed = (this.stampCounter & 0xffff) / 65535;
           const colorStep = numBands > 1 ? 254 / (numBands - 1) : 254;
@@ -2971,6 +2978,51 @@ export class ColorCycleBrushCanvas2D {
         });
       };
 
+      if (ccGradient && this.ditherEnabled) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[CC fill] linear', {
+            ccGradient,
+            ditherEnabled: this.ditherEnabled,
+            pixelSizeUsed: options?.ditherPixelSize ?? this.ditherPixelSize,
+          });
+        }
+        const quantLevels = ditherLevels ?? Math.max(2, numBands);
+        const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
+        await fillCcGradientDither({
+          vertices,
+          minX,
+          minY,
+          maxX,
+          maxY,
+          pixelSize,
+          levels: quantLevels,
+          baseOffset,
+          sampleNormalized: (x, y) => {
+            const proj = (x - centerX) * dirX + (y - centerY) * dirY;
+            return clamp01((proj - paddedMinProjection) / safeProjectionRange);
+          },
+          writeIndex: (x, y, index) => {
+            writeLinearIndex(x, y, index);
+          },
+          logSetIndexSample: (x, y) => {
+            this.logSetIndexSample(id, x, y);
+          },
+          yieldIfNeeded,
+        });
+
+        this.stampCounter += quantLevels;
+        if (strokeData) strokeData.stampCounter = this.stampCounter;
+        this.dirtyLayers.add(id);
+        animator.markDirtyBounds(bbox);
+        animator.forceRender();
+        this.render(false);
+        if (strokeData) {
+          this.snapshotFromAnimator(animator, strokeData);
+        }
+        logCpuLinear();
+        return;
+      }
+
     // If using perceptual dithering, optionally offload dithering/mapping to worker
     if (this.ditherEnabled && this.perceptualDither) {
       try {
@@ -3046,7 +3098,7 @@ export class ColorCycleBrushCanvas2D {
           }
         }
 
-        const quantLevels = numBands;
+        const quantLevels = ditherLevels ?? numBands;
         const { css: paletteCss, mapRgbToIndex } = this.buildQuantizedGradientPalette(quantLevels);
         const paletteEntries = paletteEntriesFromMap(mapRgbToIndex);
         const workerEligible =
@@ -3102,7 +3154,14 @@ export class ColorCycleBrushCanvas2D {
           }
         }
 
-        const dithered: ImageData = applyDitheringWithFillResolution(img, quantLevels, Math.max(1, this.ditherPixelSize), 'sierra-lite', undefined, paletteCss);
+        const dithered: ImageData = applyDitheringWithFillResolution(
+          img,
+          quantLevels,
+          Math.max(1, this.ditherPixelSize),
+          'sierra-lite',
+          undefined,
+          paletteCss
+        );
         const out = dithered.data;
         for (let yy = 0; yy < height; yy++) {
           await yieldIfNeeded(yy);
@@ -3242,14 +3301,14 @@ export class ColorCycleBrushCanvas2D {
               let r = evaluateNormalized(rawSampleX, rawSampleY, true);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
-                const quantLevels = Math.max(2, bands);
+                const quantLevels = ditherLevels ?? Math.max(2, bands);
                 const noiseSeedX = Math.floor(rawSampleX);
                 const noiseSeedY = Math.floor(rawSampleY);
                 const j = (noiseAt(noiseSeedX, noiseSeedY) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
 
-              const quantLevels = Math.max(2, bands);
+              const quantLevels = ditherLevels ?? Math.max(2, bands);
               const denom = Math.max(1, quantLevels - 1);
               const qStep = 1 / denom;
               const scaled = r * denom;
@@ -3279,10 +3338,10 @@ export class ColorCycleBrushCanvas2D {
             const xTo = Math.min(endX, xBlock + cellSize - 1);
             const fillStart = Math.max(startX, xBlock);
             if (fillStart <= xTo) {
-                  for (let xx = fillStart; xx <= xTo; xx++) {
-                    this.logSetIndexSample(id, xx, y);
-                    writeLinearIndex(xx, y, cached);
-                  }
+              for (let xx = fillStart; xx <= xTo; xx++) {
+                this.logSetIndexSample(id, xx, y);
+                writeLinearIndex(xx, y, cached);
+              }
               }
             };
 
@@ -3293,7 +3352,7 @@ export class ColorCycleBrushCanvas2D {
           }
         } else if (this.ditherEnabled) {
           // Per-pixel Sierra Lite dithering with serpentine scanning
-          const quantLevels = Math.max(2, bands);
+          const quantLevels = ditherLevels ?? Math.max(2, bands);
           const denom = Math.max(1, quantLevels - 1);
           const qStep = 1 / denom;
 
@@ -3302,7 +3361,7 @@ export class ColorCycleBrushCanvas2D {
               let r = evaluateNormalized(x + 0.5, y + 0.5, false);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
-                const quantLevels = Math.max(2, bands);
+                const quantLevels = ditherLevels ?? Math.max(2, bands);
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
@@ -3329,7 +3388,7 @@ export class ColorCycleBrushCanvas2D {
               let r = evaluateNormalized(x + 0.5, y + 0.5, false);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
-                const quantLevels = Math.max(2, bands);
+                const quantLevels = ditherLevels ?? Math.max(2, bands);
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
@@ -3351,6 +3410,13 @@ export class ColorCycleBrushCanvas2D {
               this.logSetIndexSample(id, x, y);
               writeLinearIndex(x, y, outIdx);
             }
+          }
+        } else if (continuous) {
+          for (let x = startX; x <= endX; x++) {
+            const r = evaluateNormalized(x + 0.5, y + 0.5, false);
+            const outIdx = indexFromNormalized(r);
+            this.logSetIndexSample(id, x, y);
+            writeLinearIndex(x, y, outIdx);
           }
         } else {
           // No dithering: banded quantization anchored to gradient ends
@@ -3396,7 +3462,12 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Fill shape with smooth gradient bands from edge to center (concentric)
    */
-  async fillShape(vertices: Array<{ x: number; y: number }>, layerId: string, spacing?: number) {
+  async fillShape(
+    vertices: Array<{ x: number; y: number }>,
+    layerId: string,
+    spacing?: number,
+    options?: { continuous?: boolean; ditherLevels?: number; ccGradient?: boolean; ditherPixelSize?: number }
+  ) {
     if (!layerId) {
       throw new Error('fillShape requires a layerId');
     }
@@ -3517,6 +3588,10 @@ export class ColorCycleBrushCanvas2D {
     // Hoist invariants
     const spacingValue = this.normalizeBandSpacingValue(spacing);
     const maxDist = computeConcentricMaxDistance(vertices, bbox);
+    const ccGradient = options?.ccGradient === true;
+    const ditherLevels = Number.isFinite(options?.ditherLevels)
+      ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
+      : null;
     const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
 
@@ -3640,8 +3715,9 @@ export class ColorCycleBrushCanvas2D {
         }
       }
     };
-    const finalizeFill = (path: 'cpu' | 'worker') => {
-      this.stampCounter += numBands;
+    const finalizeFill = (path: 'cpu' | 'worker', countOverride?: number) => {
+      const count = countOverride ?? numBands;
+      this.stampCounter += count;
       if (strokeData) strokeData.stampCounter = this.stampCounter;
       this.dirtyLayers.add(id);
       animator.markDirtyBounds(bbox);
@@ -3651,6 +3727,36 @@ export class ColorCycleBrushCanvas2D {
     };
 
     try {
+      if (ccGradient && this.ditherEnabled) {
+        const quantLevels = ditherLevels ?? Math.max(2, numBands);
+        const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
+        await fillConcentricIndices(
+          {
+            vertices,
+            bbox,
+            bands: quantLevels,
+            baseOffset,
+            maxDist,
+            ditherEnabled: true,
+            ditherStrength: 1,
+            ditherPixelSize: pixelSize,
+            noiseSeed: 0,
+          },
+          {
+            writeSample: (x, y, colorIndex) => {
+              this.logSetIndexSample(id, x, y);
+              writeConcentricIndex(x, y, colorIndex);
+            },
+            yieldIfNeeded,
+          }
+        );
+        finalizeFill('cpu', quantLevels);
+        if (strokeData) {
+          this.snapshotFromAnimator(animator, strokeData);
+        }
+        return;
+      }
+
       // Perceptual dithering path for concentric fill
       if (this.ditherEnabled && this.perceptualDither) {
         try {
@@ -5436,12 +5542,6 @@ export class ColorCycleBrushCanvas2D {
 
     // Keep animator in sync with externally supplied paint buffer so renders reflect new data.
     try {
-      const gradientIdArray = animatorIndex?.gradientIdData
-        ? new Uint8Array(animatorIndex.gradientIdData)
-        : strokeData.gradientIdBuffer ?? undefined;
-      const speedArray = animatorIndex?.speedData
-        ? new Uint8Array(animatorIndex.speedData)
-        : strokeData.speedBuffer ?? undefined;
       const uploadPaint = incoming.length === expectedSize ? incoming : strokeData.paintBuffer;
       const uploadGid = incomingGradient ?? strokeData.gradientIdBuffer ?? undefined;
       const uploadSpd = incomingSpeed ?? strokeData.speedBuffer ?? undefined;

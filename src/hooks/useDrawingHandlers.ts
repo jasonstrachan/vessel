@@ -754,7 +754,7 @@ export function useDrawingHandlers({
         ? eraserSettings.size ?? brushSize
         : brushSize;
     return Math.max(1, effectiveSize ?? 1) / 2;
-  }, [storeRef, setLayerColorCycleGradient, setSharedColorCycleGradient]);
+  }, [storeRef]);
   const getColorCycleBrushEraserSettings = useCallback(() => {
     const state = storeRef.current;
     return getColorCycleBrushEraserSettingsExternal({
@@ -2673,10 +2673,17 @@ export function useDrawingHandlers({
     updateAutoSampledGradient,
     updateDitherGradSamples,
     updateShapePressure,
+    ensureActiveColorCycleGradientSlot,
   ]);
 
   const startShapeDrawing = useCallback(
-    (worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {
+    (
+      worldPos: { x: number; y: number },
+      pressure: number = 0,
+      timestamp?: number,
+      rawPressure?: number,
+      options?: { renderPreview?: boolean }
+    ) => {
       startShapeDrawingExternal({
         worldPos,
         pressure,
@@ -2684,13 +2691,20 @@ export function useDrawingHandlers({
         rawPressure,
         shapeMode,
         refs: shapeDrawingRefs,
+        renderPreview: options?.renderPreview,
       }, shapeDrawingDeps);
     },
     [shapeDrawingDeps, shapeDrawingRefs, shapeMode]
   );
   
   const continueShapeDrawing = useCallback(
-    (worldPos: { x: number; y: number }, pressure: number = 0, timestamp?: number, rawPressure?: number) => {
+    (
+      worldPos: { x: number; y: number },
+      pressure: number = 0,
+      timestamp?: number,
+      rawPressure?: number,
+      options?: { renderPreview?: boolean }
+    ) => {
       continueShapeDrawingExternal({
         worldPos,
         pressure,
@@ -2698,6 +2712,7 @@ export function useDrawingHandlers({
         rawPressure,
         shapeMode,
         refs: shapeDrawingRefs,
+        renderPreview: options?.renderPreview,
       }, shapeDrawingDeps);
     },
     [shapeDrawingDeps, shapeDrawingRefs, shapeMode]

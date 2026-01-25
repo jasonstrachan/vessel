@@ -13,7 +13,7 @@ describe('colorCycleCompositor.worker', () => {
     } as any;
 
     // Import after stubbing self so the listener registers
-    await import('../colorCycleCompositor.worker');
+    await import('../colorCycleCompositor.worker.js');
 
     // Dispatch a ping
     listeners.forEach((handler) => handler({ data: { type: 'ping', requestId: 1 } } as any));

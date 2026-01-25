@@ -180,22 +180,6 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
     []
   );
 
-  const toWorldPoint = useCallback(
-    (local: Point, center: Point, rotation: number): Point => {
-      if (!rotation) {
-        return { x: local.x + center.x, y: local.y + center.y };
-      }
-      const radians = (rotation * Math.PI) / 180;
-      const cos = Math.cos(radians);
-      const sin = Math.sin(radians);
-      return {
-        x: local.x * cos - local.y * sin + center.x,
-        y: local.x * sin + local.y * cos + center.y,
-      };
-    },
-    []
-  );
-
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (interactionRef.current.type === 'idle' || !rect) {
@@ -282,7 +266,6 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
       projectWidth,
       rect,
       toLocalPoint,
-      toWorldPoint,
       updateFloatingPasteRotation,
     ]
   );
