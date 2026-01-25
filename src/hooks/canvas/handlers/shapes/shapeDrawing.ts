@@ -156,6 +156,7 @@ type ShapeDrawingDeps = {
     tool: Tool;
     roi?: CaptureRegion;
     ditherPixelSize?: number;
+    keepOverlayAfter?: boolean;
   }, deps: {
     brushEngine: BrushEngine;
     getColorCycleBrushManager: ShapeDrawingDeps['getColorCycleBrushManager'];
@@ -695,9 +696,9 @@ export const finalizeShapeDrawing = async (
 
           deps.drawingCanvasHasContent.current = false;
 
-          const activeLayerId = deps.storeRef.current.activeLayerId;
-          if (isColorCycleLayer && activeLayerCanvas && activeLayerId) {
-            const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+            const activeLayerId = deps.storeRef.current.activeLayerId;
+            if (isColorCycleLayer && activeLayerCanvas && activeLayerId) {
+              const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
             if (activeLayer) {
               deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, ccBrush);
             }
@@ -712,6 +713,7 @@ export const finalizeShapeDrawing = async (
               deps.latestShapePixelSizeRef.current = pixelSize;
               ditherPixelSize = pixelSize;
             }
+            const keepOverlayAfter = Boolean(activeSettings.ditherEnabled);
             await deps.runColorCycleShapeFill({
               mode: 'linear',
               shapePoints: shapePointsSnapshot,
@@ -727,6 +729,7 @@ export const finalizeShapeDrawing = async (
               tool: toolsSnapshot.currentTool,
               roi: shapeCaptureRoi,
               ditherPixelSize,
+              keepOverlayAfter,
             }, {
               brushEngine: deps.brushEngine,
               getColorCycleBrushManager: deps.getColorCycleBrushManager,
@@ -858,11 +861,11 @@ export const finalizeShapeDrawing = async (
               deps.drawingCanvasHasContent.current = false;
 
               const activeLayerId = deps.storeRef.current.activeLayerId;
-              if (activeLayerId && activeLayerCanvas) {
-                const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
-                if (activeLayer) {
-                  deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
-                }
+                if (activeLayerId && activeLayerCanvas) {
+                  const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+                  if (activeLayer) {
+                    deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
+                  }
                 let ditherPixelSize: number | undefined;
                 if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
                   const { pixelSize } = resolveColorCycleDitherPixelSize({
@@ -874,6 +877,7 @@ export const finalizeShapeDrawing = async (
                   deps.latestShapePixelSizeRef.current = pixelSize;
                   ditherPixelSize = pixelSize;
                 }
+                const keepOverlayAfter = Boolean(liveBrushSettings.ditherEnabled);
                 await deps.runColorCycleShapeFill({
                   mode: fillMode === 'linear' ? 'linear' : 'concentric',
                   shapePoints: shapePointsSnapshot,
@@ -891,6 +895,7 @@ export const finalizeShapeDrawing = async (
                   tool: toolsSnapshot.currentTool,
                   roi: shapeCaptureRoi,
                   ditherPixelSize,
+                  keepOverlayAfter,
                 }, {
                   brushEngine: deps.brushEngine,
                   getColorCycleBrushManager: deps.getColorCycleBrushManager,

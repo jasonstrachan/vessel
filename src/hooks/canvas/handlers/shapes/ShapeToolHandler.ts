@@ -3567,6 +3567,9 @@ export const createShapeToolHandler = (
       source: 'polygon-complete',
       previewId: opController.latestPreviewId,
     });
+    const isCCPreview =
+      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+      Boolean(tools.brushSettings.ditherEnabled);
     finalizePromise.then(() => {
       logShapeFillEvent('shape-fill-finalize-success', {
         source: 'polygon-complete',
@@ -3584,6 +3587,15 @@ export const createShapeToolHandler = (
       if (restartColorCycleAnimation) {
         restartColorCycleAnimation();
       }
+      if (isCCPreview) {
+        requestAnimationFrame(() => {
+          clearCurrentPreview();
+          clearOverlayCanvas();
+          if (drawingHandlers.ccShapePreviewCacheRef) {
+            drawingHandlers.ccShapePreviewCacheRef.current = null;
+          }
+        });
+      }
     }).catch(error => {
       logShapeFillEvent('shape-fill-finalize-error', {
         source: 'polygon-complete',
@@ -3591,8 +3603,10 @@ export const createShapeToolHandler = (
       });
       throw error;
     }).finally(() => {
-      clearCurrentPreview();
-      clearOverlayCanvas();
+      if (!isCCPreview) {
+        clearCurrentPreview();
+        clearOverlayCanvas();
+      }
     });
 
     resetPolygonAdjustmentState();
@@ -3640,6 +3654,9 @@ export const createShapeToolHandler = (
       previewId: opController.latestPreviewId,
       finalSize,
     });
+    const isCCPreview =
+      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+      Boolean(tools.brushSettings.ditherEnabled);
     finalizePromise.then(() => {
       logShapeFillEvent('shape-fill-finalize-success', {
         source: 'triangle-size',
@@ -3658,6 +3675,15 @@ export const createShapeToolHandler = (
       if (restartColorCycleAnimation) {
         restartColorCycleAnimation();
       }
+      if (isCCPreview) {
+        requestAnimationFrame(() => {
+          clearCurrentPreview();
+          clearOverlayCanvas();
+          if (drawingHandlers.ccShapePreviewCacheRef) {
+            drawingHandlers.ccShapePreviewCacheRef.current = null;
+          }
+        });
+      }
     }).catch(error => {
       logShapeFillEvent('shape-fill-finalize-error', {
         source: 'triangle-size',
@@ -3665,8 +3691,10 @@ export const createShapeToolHandler = (
       });
       throw error;
     }).finally(() => {
-      clearCurrentPreview();
-      clearOverlayCanvas();
+      if (!isCCPreview) {
+        clearCurrentPreview();
+        clearOverlayCanvas();
+      }
     });
 
     interaction.dispatch({ type: 'DRAWING_END' });

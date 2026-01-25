@@ -69,6 +69,7 @@ export type ColorCycleShapeLinearArgs = {
   tool: DeferredSaveWithStateArgs['tool'];
   roi?: DeferredSaveWithStateArgs['roi'];
   ditherPixelSize?: number;
+  keepOverlayAfter?: boolean;
 };
 
 export const finalizeColorCycleShapeFillLinear = async (
@@ -138,7 +139,7 @@ export const finalizeColorCycleShapeFillLinear = async (
 
     const overlayCtx = args.overlayCtx;
     const overlayCanvas = args.overlayCanvas;
-    if (overlayCtx && overlayCanvas) {
+    if (!args.keepOverlayAfter && overlayCtx && overlayCanvas) {
       overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     }
   } catch (error) {
@@ -159,6 +160,7 @@ export type ColorCycleShapeConcentricArgs = {
   tool: DeferredSaveWithStateArgs['tool'];
   roi?: DeferredSaveWithStateArgs['roi'];
   ditherPixelSize?: number;
+  keepOverlayAfter?: boolean;
 };
 
 export const finalizeColorCycleShapeFillConcentric = async (
@@ -217,7 +219,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
 
     const overlayCtx = args.overlayCtx;
     const overlayCanvas = args.overlayCanvas;
-    if (overlayCtx && overlayCanvas && args.activeLayerCanvas) {
+    if (!args.keepOverlayAfter && overlayCtx && overlayCanvas && args.activeLayerCanvas) {
       deps.timeSync('cc:shape:renderOverlay', () => {
         overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         overlayCtx.globalAlpha = args.fallbackOpacity;
@@ -247,6 +249,7 @@ export type RunColorCycleShapeFillArgs = {
   tool: DeferredSaveWithStateArgs['tool'];
   roi?: DeferredSaveWithStateArgs['roi'];
   ditherPixelSize?: number;
+  keepOverlayAfter?: boolean;
 };
 
 export type RunColorCycleShapeFillDeps = ColorCycleShapeFillDeps & {
@@ -282,6 +285,7 @@ export const runColorCycleShapeFill = async (
       tool: args.tool,
       roi: args.roi,
       ditherPixelSize: args.ditherPixelSize,
+      keepOverlayAfter: args.keepOverlayAfter,
     }, deps);
   } else {
     await finalizeColorCycleShapeFillConcentric({
@@ -297,6 +301,7 @@ export const runColorCycleShapeFill = async (
       tool: args.tool,
       roi: args.roi,
       ditherPixelSize: args.ditherPixelSize,
+      keepOverlayAfter: args.keepOverlayAfter,
     }, deps);
   }
 

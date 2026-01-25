@@ -117,6 +117,10 @@ const BrushLibrary = () => {
         if (aIsSquare && !bIsSquare) return -1;
         if (bIsSquare && !aIsSquare) return 1;
       }
+
+      // Ensure Color Cycle Gradient appears directly below Color Cycle Stroke
+      if (a.id === 'color-cycle-stroke' && b.id === 'color-cycle-gradient') return -1;
+      if (a.id === 'color-cycle-gradient' && b.id === 'color-cycle-stroke') return 1;
       
       // Keep original order for other brushes
       return 0;
