@@ -2719,7 +2719,13 @@ export class ColorCycleBrushCanvas2D {
     direction: { x: number; y: number },
     layerId: string,
     spacing?: number,
-    options?: { continuous?: boolean; ditherLevels?: number; ccGradient?: boolean; ditherPixelSize?: number }
+    options?: {
+      continuous?: boolean;
+      ditherLevels?: number;
+      ccGradient?: boolean;
+      ditherPixelSize?: number;
+      roi?: { x: number; y: number; width: number; height: number };
+    }
   ) {
     if (!layerId) {
       throw new Error('fillShapeLinear requires a layerId');
@@ -2819,10 +2825,33 @@ export class ColorCycleBrushCanvas2D {
     maxX = Math.min(this.width - 1, Math.ceil(maxX));
     minY = Math.max(0, Math.floor(minY));
     maxY = Math.min(this.height - 1, Math.ceil(maxY));
+
+    const fullMinX = minX;
+    const fullMaxX = maxX;
+    const fullMinY = minY;
+    const fullMaxY = maxY;
+
+    let fillMinX = fullMinX;
+    let fillMaxX = fullMaxX;
+    let fillMinY = fullMinY;
+    let fillMaxY = fullMaxY;
+    if (options?.roi) {
+      const roiMinX = Math.floor(options.roi.x);
+      const roiMinY = Math.floor(options.roi.y);
+      const roiMaxX = Math.ceil(options.roi.x + options.roi.width - 1);
+      const roiMaxY = Math.ceil(options.roi.y + options.roi.height - 1);
+      fillMinX = Math.max(fillMinX, roiMinX);
+      fillMinY = Math.max(fillMinY, roiMinY);
+      fillMaxX = Math.min(fillMaxX, roiMaxX);
+      fillMaxY = Math.min(fillMaxY, roiMaxY);
+      if (fillMinX > fillMaxX || fillMinY > fillMaxY) {
+        return;
+      }
+    }
     
     // Calculate shape center for direction vector origin
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
+    const centerX = (fullMinX + fullMaxX) / 2;
+    const centerY = (fullMinY + fullMaxY) / 2;
     
     // Normalize direction vector
     const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
@@ -2864,10 +2893,10 @@ export class ColorCycleBrushCanvas2D {
     const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
     const bbox = {
-      minX: Math.floor(minX),
-      minY: Math.floor(minY),
-      width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1),
-      height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1)
+      minX: Math.floor(fillMinX),
+      minY: Math.floor(fillMinY),
+      width: Math.max(1, Math.ceil(fillMaxX) - Math.floor(fillMinX) + 1),
+      height: Math.max(1, Math.ceil(fillMaxY) - Math.floor(fillMinY) + 1)
     };
     const dirNorm = { x: dirX, y: dirY };
 
@@ -2990,10 +3019,10 @@ export class ColorCycleBrushCanvas2D {
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         await fillCcGradientDither({
           vertices,
-          minX,
-          minY,
-          maxX,
-          maxY,
+          minX: fillMinX,
+          minY: fillMinY,
+          maxX: fillMaxX,
+          maxY: fillMaxY,
           pixelSize,
           levels: quantLevels,
           baseOffset,
@@ -3466,7 +3495,13 @@ export class ColorCycleBrushCanvas2D {
     vertices: Array<{ x: number; y: number }>,
     layerId: string,
     spacing?: number,
-    options?: { continuous?: boolean; ditherLevels?: number; ccGradient?: boolean; ditherPixelSize?: number }
+    options?: {
+      continuous?: boolean;
+      ditherLevels?: number;
+      ccGradient?: boolean;
+      ditherPixelSize?: number;
+      roi?: { x: number; y: number; width: number; height: number };
+    }
   ) {
     if (!layerId) {
       throw new Error('fillShape requires a layerId');
@@ -3567,6 +3602,29 @@ export class ColorCycleBrushCanvas2D {
     maxX = Math.min(this.width - 1, Math.ceil(maxX));
     minY = Math.max(0, Math.floor(minY));
     maxY = Math.min(this.height - 1, Math.ceil(maxY));
+
+    const fullMinX = minX;
+    const fullMaxX = maxX;
+    const fullMinY = minY;
+    const fullMaxY = maxY;
+
+    let fillMinX = fullMinX;
+    let fillMaxX = fullMaxX;
+    let fillMinY = fullMinY;
+    let fillMaxY = fullMaxY;
+    if (options?.roi) {
+      const roiMinX = Math.floor(options.roi.x);
+      const roiMinY = Math.floor(options.roi.y);
+      const roiMaxX = Math.ceil(options.roi.x + options.roi.width - 1);
+      const roiMaxY = Math.ceil(options.roi.y + options.roi.height - 1);
+      fillMinX = Math.max(fillMinX, roiMinX);
+      fillMinY = Math.max(fillMinY, roiMinY);
+      fillMaxX = Math.min(fillMaxX, roiMaxX);
+      fillMaxY = Math.min(fillMaxY, roiMaxY);
+      if (fillMinX > fillMaxX || fillMinY > fillMaxY) {
+        return;
+      }
+    }
     
     // Use scanline fill with inline gradient calculation - simpler and more reliable
     // gradientBands represents number of color divisions
@@ -3577,17 +3635,25 @@ export class ColorCycleBrushCanvas2D {
     // Adaptive performance: for very large shapes, skip costly per-edge distance checks
     // and approximate distance using only span boundaries (left/right). This reduces
     // complexity from O(pixels * edges) to roughly O(pixels).
-    const bboxWidth = Math.max(0, Math.ceil(maxX) - Math.floor(minX) + 1);
-    const bboxHeight = Math.max(0, Math.ceil(maxY) - Math.floor(minY) + 1);
+    const fullBboxWidth = Math.max(0, Math.ceil(fullMaxX) - Math.floor(fullMinX) + 1);
+    const fullBboxHeight = Math.max(0, Math.ceil(fullMaxY) - Math.floor(fullMinY) + 1);
+    const fullBBox = {
+      minX: Math.floor(fullMinX),
+      minY: Math.floor(fullMinY),
+      width: Math.max(1, fullBboxWidth),
+      height: Math.max(1, fullBboxHeight),
+    };
+    const bboxWidth = Math.max(0, Math.ceil(fillMaxX) - Math.floor(fillMinX) + 1);
+    const bboxHeight = Math.max(0, Math.ceil(fillMaxY) - Math.floor(fillMinY) + 1);
     const bbox = {
-      minX: Math.floor(minX),
-      minY: Math.floor(minY),
+      minX: Math.floor(fillMinX),
+      minY: Math.floor(fillMinY),
       width: Math.max(1, bboxWidth),
       height: Math.max(1, bboxHeight),
     };
     // Hoist invariants
     const spacingValue = this.normalizeBandSpacingValue(spacing);
-    const maxDist = computeConcentricMaxDistance(vertices, bbox);
+    const maxDist = computeConcentricMaxDistance(vertices, fullBBox);
     const ccGradient = options?.ccGradient === true;
     const ditherLevels = Number.isFinite(options?.ditherLevels)
       ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))

@@ -3613,8 +3613,25 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             return;
           }
         }
-        // Check if we need to enter direction selection mode for linear gradient
+        const cachedPreview = drawingHandlers.ccShapePreviewCacheRef?.current ?? null;
         const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        if (cachedPreview && isColorCycleShape && tools.brushSettings.ditherEnabled) {
+          const state = useAppStore.getState();
+          const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+          const layerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
+          if (activeLayer?.layerType === 'color-cycle' && layerCanvas) {
+            const ctx = layerCanvas.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+              ctx.save();
+              ctx.globalCompositeOperation = 'source-over';
+              ctx.globalAlpha = 1;
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(cachedPreview.canvas, cachedPreview.origin.x, cachedPreview.origin.y);
+              ctx.restore();
+            }
+          }
+        }
+        // Check if we need to enter direction selection mode for linear gradient
         const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';
         const brushPresetId = getDynamicDeps().currentBrushPresetId;
         const isColorCycleGradientPreset = brushPresetId === 'color-cycle-gradient';
@@ -3664,23 +3681,29 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             }
           }
 
-          drawingHandlers.finalizeShapeDrawing();
-          // Signal that finalization is complete
-          stateMachine.finalizationComplete();
-          
-          // Force immediate composite regeneration after layer update
-          if (compositeCanvasRef.current && project) {
-            compositeLayersToCanvas(compositeCanvasRef.current);
-            setCurrentOffscreenCanvas(compositeCanvasRef.current);
-            compositeCanvasDirtyRef.current = false;
-          }
-          
-          setNeedsRedraw(prev => prev + 1);
-          
-          // Restart color cycle animation if needed
-          if (deps.restartColorCycleAnimation) {
-            deps.restartColorCycleAnimation();
-          }
+          const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+          finalizePromise.then(() => {
+            // Signal that finalization is complete
+            stateMachine.finalizationComplete();
+            
+            // Force immediate composite regeneration after layer update
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+            }
+            
+            setNeedsRedraw(prev => prev + 1);
+            
+            // Restart color cycle animation if needed
+            if (deps.restartColorCycleAnimation) {
+              deps.restartColorCycleAnimation();
+            }
+          }).finally(() => {
+            if (drawingHandlers.ccShapePreviewCacheRef) {
+              drawingHandlers.ccShapePreviewCacheRef.current = null;
+            }
+          });
         } else {
           
         }

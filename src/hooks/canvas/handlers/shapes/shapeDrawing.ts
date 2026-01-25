@@ -712,37 +712,35 @@ export const finalizeShapeDrawing = async (
               deps.latestShapePixelSizeRef.current = pixelSize;
               ditherPixelSize = pixelSize;
             }
-            deps.runIdle(() => {
-              void deps.runColorCycleShapeFill({
-                mode: 'linear',
-                shapePoints: shapePointsSnapshot,
-                direction: directionSnapshot,
-                activeLayerId,
-                activeLayerCanvas,
-                overlayCanvas: deps.drawingCanvasRef.current,
-                overlayCtx: deps.drawingCtxRef.current,
-                fallbackBlendMode: (activeSettings.blendMode || 'source-over') as GlobalCompositeOperation,
-                fallbackOpacity: activeSettings.opacity ?? 1,
-                shapeLayerId: shapeLayerIdString,
-                beforeColorState: shapeBeforeColorState,
-                tool: toolsSnapshot.currentTool,
-                roi: shapeCaptureRoi,
-                ditherPixelSize,
-              }, {
-                brushEngine: deps.brushEngine,
-                getColorCycleBrushManager: deps.getColorCycleBrushManager,
-                bindBrushToCanvas: deps.bindBrushToCanvas,
-                timeAsync: deps.timeAsync,
-                timeSync: deps.timeSync,
-                ccLog: deps.ccLog,
-                scheduleDeferredColorCycleSaveWithState: deps.scheduleDeferredColorCycleSaveWithState,
-                logError: deps.logError,
-                ccDebug: deps.ccDebug,
-                perfMark: deps.perfMark,
-                perfMeasure: deps.perfMeasure,
-                debugTime: deps.debugTime,
-                debugTimeEnd: deps.debugTimeEnd,
-              });
+            await deps.runColorCycleShapeFill({
+              mode: 'linear',
+              shapePoints: shapePointsSnapshot,
+              direction: directionSnapshot,
+              activeLayerId,
+              activeLayerCanvas,
+              overlayCanvas: deps.drawingCanvasRef.current,
+              overlayCtx: deps.drawingCtxRef.current,
+              fallbackBlendMode: (activeSettings.blendMode || 'source-over') as GlobalCompositeOperation,
+              fallbackOpacity: activeSettings.opacity ?? 1,
+              shapeLayerId: shapeLayerIdString,
+              beforeColorState: shapeBeforeColorState,
+              tool: toolsSnapshot.currentTool,
+              roi: shapeCaptureRoi,
+              ditherPixelSize,
+            }, {
+              brushEngine: deps.brushEngine,
+              getColorCycleBrushManager: deps.getColorCycleBrushManager,
+              bindBrushToCanvas: deps.bindBrushToCanvas,
+              timeAsync: deps.timeAsync,
+              timeSync: deps.timeSync,
+              ccLog: deps.ccLog,
+              scheduleDeferredColorCycleSaveWithState: deps.scheduleDeferredColorCycleSaveWithState,
+              logError: deps.logError,
+              ccDebug: deps.ccDebug,
+              perfMark: deps.perfMark,
+              perfMeasure: deps.perfMeasure,
+              debugTime: deps.debugTime,
+              debugTimeEnd: deps.debugTimeEnd,
             });
           }
         }
@@ -876,39 +874,37 @@ export const finalizeShapeDrawing = async (
                   deps.latestShapePixelSizeRef.current = pixelSize;
                   ditherPixelSize = pixelSize;
                 }
-                deps.runIdle(() => {
-                  void deps.runColorCycleShapeFill({
-                    mode: fillMode === 'linear' ? 'linear' : 'concentric',
-                    shapePoints: shapePointsSnapshot,
-                    direction: fillMode === 'linear'
-                      ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
-                      : undefined,
-                    activeLayerId,
-                    activeLayerCanvas,
-                    overlayCanvas,
-                    overlayCtx,
-                    fallbackBlendMode,
-                    fallbackOpacity,
-                    shapeLayerId: shapeLayerIdString,
-                    beforeColorState: shapeBeforeColorStateLocal,
-                    tool: toolsSnapshot.currentTool,
-                    roi: shapeCaptureRoi,
-                    ditherPixelSize,
-                  }, {
-                    brushEngine: deps.brushEngine,
-                    getColorCycleBrushManager: deps.getColorCycleBrushManager,
-                    bindBrushToCanvas: deps.bindBrushToCanvas,
-                    timeAsync: deps.timeAsync,
-                    timeSync: deps.timeSync,
-                    ccLog: deps.ccLog,
-                    scheduleDeferredColorCycleSaveWithState: deps.scheduleDeferredColorCycleSaveWithState,
-                    logError: deps.logError,
-                    ccDebug: deps.ccDebug,
-                    perfMark: deps.perfMark,
-                    perfMeasure: deps.perfMeasure,
-                    debugTime: deps.debugTime,
-                    debugTimeEnd: deps.debugTimeEnd,
-                  });
+                await deps.runColorCycleShapeFill({
+                  mode: fillMode === 'linear' ? 'linear' : 'concentric',
+                  shapePoints: shapePointsSnapshot,
+                  direction: fillMode === 'linear'
+                    ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
+                    : undefined,
+                  activeLayerId,
+                  activeLayerCanvas,
+                  overlayCanvas,
+                  overlayCtx,
+                  fallbackBlendMode,
+                  fallbackOpacity,
+                  shapeLayerId: shapeLayerIdString,
+                  beforeColorState: shapeBeforeColorStateLocal,
+                  tool: toolsSnapshot.currentTool,
+                  roi: shapeCaptureRoi,
+                  ditherPixelSize,
+                }, {
+                  brushEngine: deps.brushEngine,
+                  getColorCycleBrushManager: deps.getColorCycleBrushManager,
+                  bindBrushToCanvas: deps.bindBrushToCanvas,
+                  timeAsync: deps.timeAsync,
+                  timeSync: deps.timeSync,
+                  ccLog: deps.ccLog,
+                  scheduleDeferredColorCycleSaveWithState: deps.scheduleDeferredColorCycleSaveWithState,
+                  logError: deps.logError,
+                  ccDebug: deps.ccDebug,
+                  perfMark: deps.perfMark,
+                  perfMeasure: deps.perfMeasure,
+                  debugTime: deps.debugTime,
+                  debugTimeEnd: deps.debugTimeEnd,
                 });
               }
 

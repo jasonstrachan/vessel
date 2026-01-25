@@ -605,6 +605,10 @@ export function useDrawingHandlers({
   const drawingCanvasHasContent = useRef(false);
   const isCapturing = useRef(false);
   const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
+  const ccShapePreviewCacheRef = useRef<{
+    canvas: HTMLCanvasElement;
+    origin: { x: number; y: number };
+  } | null>(null);
   
   // Performance optimization: Throttling for stroke processing
   const strokeBatchRef = useRef<Array<{ pos: { x: number; y: number }, pressure: number }>>([]);
@@ -3047,7 +3051,8 @@ export function useDrawingHandlers({
     commitRasterOverlay,
     seedManualStrokeBoundingBox,
     coerceDragShapeToPolygon,
-    updateDitherGradSamples
+    updateDitherGradSamples,
+    ccShapePreviewCacheRef,
   };
 }
 

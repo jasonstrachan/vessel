@@ -361,6 +361,9 @@ export const createShapeToolHandler = (
     }
     ditherGradPreviewState.ccLastCanvas = undefined;
     ditherGradPreviewState.ccLastOrigin = undefined;
+    if (drawingHandlers.ccShapePreviewCacheRef) {
+      drawingHandlers.ccShapePreviewCacheRef.current = null;
+    }
   };
 
   const {
@@ -2719,7 +2722,24 @@ export const createShapeToolHandler = (
                 );
                 overlayCtx.restore();
               } else if (!shouldDitherPreview) {
-                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                const cachedPreview = drawingHandlers.ccShapePreviewCacheRef?.current;
+                if (cachedPreview) {
+                  overlayCtx.save();
+                  overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+                  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                  overlayCtx.restore();
+                  overlayCtx.save();
+                  overlayCtx.globalAlpha = 1;
+                  overlayCtx.drawImage(
+                    cachedPreview.canvas,
+                    cachedPreview.origin.x,
+                    cachedPreview.origin.y
+                  );
+                  overlayCtx.restore();
+                  didCustomFill = true;
+                } else {
+                  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                }
               }
               const strokePreviewOutline = () => {
                 drawHighContrastStroke(
@@ -2927,6 +2947,12 @@ export const createShapeToolHandler = (
                             }
                             ditherGradPreviewState.ccLastCanvas = tempCanvas;
                             ditherGradPreviewState.ccLastOrigin = { ...origin };
+                            if (drawingHandlers.ccShapePreviewCacheRef) {
+                              drawingHandlers.ccShapePreviewCacheRef.current = {
+                                canvas: tempCanvas,
+                                origin: { ...origin },
+                              };
+                            }
                             const { scale, offsetX, offsetY } = viewTransformRef.current;
                             overlayCtx.save();
                             overlayCtx.setTransform(1, 0, 0, 1, 0, 0);

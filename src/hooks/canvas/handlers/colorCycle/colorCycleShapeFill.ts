@@ -80,6 +80,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       deps.brushEngine.resetColorCycle(false);
       await deps.brushEngine.fillColorCycleShapeLinear(args.shapePoints, args.direction, {
         ditherPixelSize: args.ditherPixelSize,
+        roi: args.roi,
       });
     });
 
@@ -169,6 +170,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       deps.brushEngine.resetColorCycle(false);
       await deps.brushEngine.fillColorCycleShape(args.shapePoints, {
         ditherPixelSize: args.ditherPixelSize,
+        roi: args.roi,
       });
     });
 

@@ -4400,7 +4400,7 @@ export const useBrushEngineSimplified = () => {
   const fillColorCycleShapeLinear = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
     direction: { x: number; y: number },
-    options?: { ditherPixelSize?: number }
+    options?: { ditherPixelSize?: number; roi?: { x: number; y: number; width: number; height: number } }
   ) => {
     // quiet
     
@@ -4460,6 +4460,7 @@ export const useBrushEngineSimplified = () => {
           ccGradient: ccGradientMode,
           ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
+          roi: options?.roi,
         })
       );
 
@@ -4483,7 +4484,7 @@ export const useBrushEngineSimplified = () => {
    */
   const fillColorCycleShape = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
-    options?: { ditherPixelSize?: number }
+    options?: { ditherPixelSize?: number; roi?: { x: number; y: number; width: number; height: number } }
   ) => {
     // quiet
     
@@ -4546,6 +4547,7 @@ export const useBrushEngineSimplified = () => {
           ccGradient: ccGradientMode,
           ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
+          roi: options?.roi,
         })
       );
 
