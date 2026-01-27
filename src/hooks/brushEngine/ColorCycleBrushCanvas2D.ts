@@ -1692,11 +1692,8 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    const needsFreshHandle = Boolean(strokeData.stampDitherFillHandle);
-    const handle = needsFreshHandle
-      ? animator.beginDirectFill()
-      : (strokeData.stampDitherFillHandle ?? animator.beginDirectFill());
-    const shouldCloseHandle = needsFreshHandle || !strokeData.stampDitherFillHandle;
+    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
+    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
     const data = handle.data;
     const gid = handle.gradientId;
     const spd = handle.speedData;
@@ -4215,13 +4212,9 @@ export class ColorCycleBrushCanvas2D {
 
       // Clear before drawing when animator owns the full contents of the layer.
       if (!hadExternalBase) {
-      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-    }
-    ctx.drawImage(srcCanvas, 0, 0);
-    try {
-      const maskManager = getMaskManager();
-      maskManager.applyMaskToCanvas(layerId, ctx);
-    } catch {}
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      }
+      ctx.drawImage(srcCanvas, 0, 0);
       try {
         const maskManager = getMaskManager();
         maskManager.applyMaskToCanvas(layerId, ctx);
@@ -4230,7 +4223,7 @@ export class ColorCycleBrushCanvas2D {
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
       if (typeof prevSmoothing === 'boolean') {
-      ctx.imageSmoothingEnabled = prevSmoothing;
+        ctx.imageSmoothingEnabled = prevSmoothing;
       }
     }
   }
@@ -4287,6 +4280,69 @@ export class ColorCycleBrushCanvas2D {
     try { animator.forceRender(); } catch {}
 
     const srcCanvas = animator.getCanvas();
+    const sameCanvas = srcCanvas === targetCanvas;
+
+    if (process.env.NODE_ENV !== 'production') {
+      const sampleTransitions = (canvas: HTMLCanvasElement): number | null => {
+        const w = Math.min(16, canvas.width);
+        const h = Math.min(16, canvas.height);
+        if (w <= 1 || h <= 0) return null;
+        const sampleCtx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!sampleCtx) return null;
+        const data = sampleCtx.getImageData(0, 0, w, h).data;
+        let transitions = 0;
+        for (let y = 0; y < h; y += 1) {
+          const row = y * w * 4;
+          for (let x = 1; x < w; x += 1) {
+            const idx = row + x * 4;
+            const prev = idx - 4;
+            if (
+              data[idx] !== data[prev] ||
+              data[idx + 1] !== data[prev + 1] ||
+              data[idx + 2] !== data[prev + 2]
+            ) {
+              transitions += 1;
+            }
+          }
+        }
+        return transitions;
+      };
+
+      try {
+        const srcHasCtx = !!srcCanvas.getContext('2d');
+        const previewHasCtx = !!targetCanvas.getContext('2d');
+        if (typeof window !== 'undefined') {
+          const w = window as Window & { __ccDebug?: Record<string, unknown> };
+          w.__ccDebug = {
+            ...(w.__ccDebug ?? {}),
+            commit: {
+              previewCanvas: { w: targetCanvas.width, h: targetCanvas.height, hasCtx: previewHasCtx },
+              srcCanvas: { w: srcCanvas.width, h: srcCanvas.height, hasCtx: srcHasCtx },
+              sameCanvas,
+              sampledAfterClear: false,
+              isDrawing: this.isDrawing,
+              strokeData: {
+                hasContent: strokeData?.hasContent ?? false,
+                hasExternalBase: strokeData?.hasExternalBase ?? false,
+              },
+            }
+          };
+        }
+        const srcTransitions = sampleTransitions(srcCanvas);
+        const previewTransitions = sampleTransitions(targetCanvas);
+        if (typeof window !== 'undefined') {
+          const w = window as Window & { __ccDebug?: Record<string, unknown> };
+          const commit = (w.__ccDebug as { commit?: Record<string, unknown> } | undefined)?.commit ?? {};
+          w.__ccDebug = {
+            ...(w.__ccDebug ?? {}),
+            commit: {
+              ...commit,
+              transitions: { srcTransitions, previewTransitions },
+            }
+          };
+        }
+      } catch {}
+    }
 
     const strokeData = this.layerStrokes.get(layerId);
     const hadExternalBase = Boolean(strokeData?.hasExternalBase);
@@ -4306,7 +4362,7 @@ export class ColorCycleBrushCanvas2D {
 
     // If the target is the same canvas as the animator's internal canvas,
     // do not draw onto itself. forceRender() already updated pixels.
-    if (srcCanvas === targetCanvas) {
+    if (sameCanvas) {
       // Skip drawing to same canvas; already up to date
       return;
     }

@@ -207,6 +207,7 @@ const BrushControls = () => {
   const setEraserSettings = useAppStore(state => state.setEraserSettings);
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
+  const updateLayer = useAppStore(state => state.updateLayer);
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
   const isColorCycleGradientPreset = currentBrushPresetId === 'color-cycle-gradient';
   const brushSettings = useAppStore(selectBrushSettings);
@@ -421,15 +422,22 @@ const BrushControls = () => {
     setActiveSettings({ colorCycleFgStops: next });
   });
 
+  const setColorCycleSpeed = React.useCallback((nextRaw: number) => {
+    const next = Math.max(
+      MIN_BRUSH_COLOR_CYCLE_SPEED,
+      Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(nextRaw))
+    );
+    setActiveSettings({ colorCycleSpeed: next });
+    if (activeLayer?.layerType === 'color-cycle' && activeLayerId) {
+      updateLayer(activeLayerId, {
+        colorCycleData: { brushSpeed: next },
+      });
+    }
+  }, [activeLayer?.layerType, activeLayerId, setActiveSettings, updateLayer]);
+
   const speedSlider = useCommittedSliderValue(
     activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED,
-    (nextRaw) => {
-      const next = Math.max(
-        MIN_BRUSH_COLOR_CYCLE_SPEED,
-        Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(nextRaw))
-      );
-      setActiveSettings({ colorCycleSpeed: next });
-    }
+    setColorCycleSpeed
   );
 
   const bandsSlider = useCommittedSliderValue(activeSettings.gradientBands ?? 12, (nextRaw) => {

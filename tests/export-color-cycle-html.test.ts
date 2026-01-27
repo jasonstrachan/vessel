@@ -1,5 +1,7 @@
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
+import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
+import { encodeFlowSlot, FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { Layer, Project } from '@/types';
 
 jest.mock('@/stores/colorCycleBrushManager', () => {
@@ -24,7 +26,9 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
   } as const;
 
   return {
-    getColorCycleBrushManager: () => mockManager
+    getColorCycleBrushManager: () => mockManager,
+    setColorCycleStoreStateGetter: jest.fn(),
+    setLayerIdGetter: jest.fn()
   };
 });
 
@@ -211,6 +215,98 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
   };
 };
 
+const createForegroundDerivedLayer = (canvas: HTMLCanvasElement): {
+  layer: Layer;
+  derivedStops: Array<{ position: number; color: string }>;
+  fgSlot: number;
+} => {
+  const baseStops = [
+    { position: 0, color: '#222222' },
+    { position: 0.5, color: '#666666' },
+    { position: 1, color: '#aaaaaa' }
+  ];
+
+  const derivedSpec = buildForegroundDerivedGradientSpec({
+    baseColor: '#33ccff',
+    lightness: 52,
+    hueShift: 10,
+    saturationShift: 8,
+    opacity: 90,
+    bands: 4
+  });
+  const derivedStops = deriveForegroundGradientStops(derivedSpec);
+  const fgSlot = 5;
+
+  const brushIndices = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 16));
+  const gradientIdBuffer = new Uint8Array(Array.from({ length: 64 }, () => fgSlot));
+
+  const mockBrush = {
+    serialize: () => ({
+      layers: [
+        {
+          layerId: 'cc-fg-layer',
+          data: {
+            indexBuffer: {
+              width: 8,
+              height: 8,
+              data: brushIndices,
+              palette: ['#222222', '#666666', '#aaaaaa'],
+              gradientId: gradientIdBuffer
+            },
+            gradient: {
+              gradientStops: []
+            },
+            animation: {
+              offset: 0,
+              stats: {
+                targetFPS: 24
+              }
+            }
+          }
+        }
+      ],
+      cycleSpeed: 0.2,
+      fps: 24,
+      brushSize: 10
+    }),
+    commitCurrentStroke: jest.fn(),
+    getCanvas: () => canvas,
+    isPlaying: () => true
+  };
+
+  const layer: Layer = {
+    id: 'cc-fg-layer',
+    name: 'Color Cycle FG Derived',
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    transparencyLocked: false,
+    order: 2,
+    imageData: null,
+    framebuffer: canvas,
+    alignment: createDefaultLayerAlignment(),
+    layerType: 'color-cycle',
+    colorCycleData: {
+      mode: 'brush',
+      isAnimating: true,
+      brushSpeed: 0.2,
+      gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+      slotPalettes: [
+        { slot: 0, stops: baseStops }
+      ],
+      fgActiveSlot: fgSlot,
+      fgDerivedKey: derivedSpec.key,
+      fgDerivedGradients: [{ key: derivedSpec.key, slot: fgSlot, spec: derivedSpec }],
+      canvas,
+      colorCycleBrush: mockBrush as unknown as Layer['colorCycleData']['colorCycleBrush']
+    },
+    version: 1
+  };
+
+  return { layer, derivedStops, fgSlot };
+};
+
 const createProject = (layer: Layer): Project => ({
   id: 'project-cc',
   name: 'Color Cycle Export',
@@ -353,6 +449,110 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     }
   });
 
+  it('strips flow bits from exported gradient id buffers', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+
+    const gradientStops = [
+      { position: 0, color: '#ffd700' },
+      { position: 0.5, color: '#adff2f' },
+      { position: 1, color: '#1e90ff' }
+    ];
+
+    const brushIndices = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 16));
+    const gradientIdBuffer = new Uint8Array(Array.from(
+      { length: 64 },
+      (_, idx) => encodeFlowSlot(idx % 2, 'reverse')
+    ));
+
+    const mockBrush = {
+      serialize: () => ({
+        layers: [
+          {
+            layerId: 'cc-flow-layer',
+            data: {
+              indexBuffer: {
+                width: 8,
+                height: 8,
+                data: brushIndices,
+                palette: ['#ffd700', '#adff2f', '#1e90ff'],
+                gradientId: gradientIdBuffer
+              },
+              gradient: {
+                gradientStops
+              },
+              animation: {
+                offset: 2,
+                stats: {
+                  targetFPS: 24
+                }
+              }
+            }
+          }
+        ],
+        cycleSpeed: 0.35,
+        fps: 24,
+        brushSize: 14
+      }),
+      commitCurrentStroke: jest.fn(),
+      getCanvas: () => canvas,
+      isPlaying: () => true
+    };
+
+    const layer: Layer = {
+      id: 'cc-flow-layer',
+      name: 'Color Cycle Flow',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 1,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        mode: 'brush',
+        isAnimating: true,
+        brushSpeed: 0.35,
+        gradient: gradientStops,
+        slotPalettes: [{ slot: 0, stops: gradientStops }],
+        canvas,
+        colorCycleBrush: mockBrush as unknown as Layer['colorCycleData']['colorCycleBrush']
+      },
+      version: 1
+    };
+
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-flow',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    const exportedGradientIds = exportedLayer.colorCycle?.brushState?.gradientIdBuffer;
+    expect(Array.isArray(exportedGradientIds)).toBe(true);
+    if (Array.isArray(exportedGradientIds)) {
+      const max = Math.max(...exportedGradientIds);
+      expect(max).toBeLessThanOrEqual(FLOW_SLOT_MASK);
+    }
+  });
+
   it('embeds brush-mode color cycle data in single-file HTML bundle', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
@@ -464,6 +664,43 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
     }
     (URL.createObjectURL as jest.Mock).mockImplementation(() => mockBlobUrl);
+  });
+
+  it('exports foreground-derived gradients as slot palettes for Goblet', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+
+    const { layer, derivedStops, fgSlot } = createForegroundDerivedLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-fg-derived',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    const slotPalettes = exportedLayer.colorCycle?.slotPalettes ?? [];
+    const fgPalette = slotPalettes.find((entry) => entry.slot === fgSlot);
+    expect(fgPalette).toBeDefined();
+    expect(fgPalette?.stops).toEqual(derivedStops);
+    const gradientRef = exportedLayer.colorCycle?.gradientRef;
+    expect(typeof gradientRef).toBe('number');
+    if (typeof gradientRef === 'number') {
+      expect(metadata.gradients?.[gradientRef]).toEqual(derivedStops);
+    }
   });
 
   it('synthesizes a fallback texture for brush-mode layers without drawable canvases', async () => {

@@ -9,6 +9,9 @@ import { deriveAutoPercentOffset, derivePercentBounds } from '@/utils/alignment/
 import { normalizeAlign, type RawAlignInput } from '@/utils/alignment/normalizeAlign';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { posInt, round3, toNum } from '@/utils/num';
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { useAppStore } from '@/stores/useAppStore';
 import type {
   ContentBounds,
   ExportContainerLayout,
@@ -19,6 +22,7 @@ import type {
 } from '@/types';
 import { packArrayToB64Z } from '@/utils/export/b64z';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
+import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import {
   clampRectToDocument as clampBoundsToDocument,
@@ -238,6 +242,8 @@ const PROPERTY_MINIFY_MAP = {
   gradient: 'gr',
   gradientRef: 'grf',
   brushSpeed: 'spd',
+  speedMin: 'smin',
+  speedMax: 'smax',
   bundleFormat: 'bf',
   includeHiddenLayers: 'ihl',
   embedCanvasFallback: 'ecf',
@@ -284,6 +290,7 @@ interface WebGLSerializedBrushState {
   gradientStops: SerializedGradientStops;
   palette?: Array<string | number>;
   animationOffset: number;
+  animationSpeed?: number;
   targetFPS?: number;
   flowDirection?: 'forward' | 'reverse' | 'pingpong';
   alphaMode?: 'source' | 'opaque-indices';
@@ -294,6 +301,8 @@ interface WebGLSerializedColorCycle {
   gradient?: SerializedGradientStops;
   gradientRef?: number;
   brushSpeed?: number | null;
+  speedMin?: number;
+  speedMax?: number;
   isAnimating: boolean;
   recolorSettings?: Record<string, unknown>;
   brushState?: WebGLSerializedBrushState;
@@ -1111,6 +1120,126 @@ const toSerializablePaletteArray = (source: unknown): Array<string | number> => 
   return palette;
 };
 
+const stripFlowBitsFromGradientIds = (
+  input: number[] | Uint8Array | undefined
+): number[] | Uint8Array | undefined => {
+  if (!input || input.length === 0) {
+    return input;
+  }
+
+  let needsStrip = false;
+  for (let i = 0; i < input.length; i += 1) {
+    const value = input[i] as number;
+    if (value > FLOW_SLOT_MASK) {
+      needsStrip = true;
+      break;
+    }
+  }
+
+  if (!needsStrip) {
+    return input;
+  }
+
+  const stripped = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i += 1) {
+    stripped[i] = (input[i] as number) & FLOW_SLOT_MASK;
+  }
+  return stripped;
+};
+
+const toFiniteNumberOrNull = (value: unknown): number | null => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const resolveExportBrushSpeed = (layer: Layer): number | null => {
+  const data = layer.colorCycleData;
+  if (!data) {
+    return null;
+  }
+
+  const brushSpeed = toFiniteNumberOrNull(data.brushSpeed);
+  if (brushSpeed !== null) {
+    return brushSpeed;
+  }
+
+  const recolorSpeed = toFiniteNumberOrNull(data.recolorSettings?.animation?.speed);
+  if (recolorSpeed !== null) {
+    return recolorSpeed;
+  }
+
+  return null;
+};
+
+const resolveFgDerivedStops = (
+  data: Layer['colorCycleData'] | undefined,
+  slotPalettes: Array<{ slot: number; stops: SerializedGradientStops }> | undefined
+): SerializedGradientStops | undefined => {
+  if (!data) {
+    return undefined;
+  }
+
+  const fgSlot = typeof data.fgActiveSlot === 'number' ? data.fgActiveSlot : null;
+  if (fgSlot === null) {
+    return undefined;
+  }
+
+  const existing = slotPalettes?.find((entry) => entry.slot === fgSlot);
+  if (existing?.stops && existing.stops.length > 0) {
+    return existing.stops;
+  }
+
+  const derivedEntries = data.fgDerivedGradients ?? data.derivedGradients;
+  if (!Array.isArray(derivedEntries) || derivedEntries.length === 0) {
+    return undefined;
+  }
+
+  const derivedMatch = derivedEntries.find((entry) => entry?.slot === fgSlot)
+    ?? (data.fgDerivedKey
+      ? derivedEntries.find((entry) => entry?.key === data.fgDerivedKey)
+      : undefined);
+  if (!derivedMatch?.spec) {
+    return undefined;
+  }
+
+  return deriveForegroundGradientStops(derivedMatch.spec);
+};
+
+const resolveExportSlotPalettes = (
+  data: Layer['colorCycleData'] | undefined
+): Array<{ slot: number; stops: SerializedGradientStops }> | undefined => {
+  if (!data) {
+    return undefined;
+  }
+
+  let slotPalettes = data.slotPalettes?.length
+    ? data.slotPalettes.map((entry) => ({
+        slot: entry.slot,
+        stops: toSerializableGradientStops(entry.stops, [])
+      }))
+    : data.gradients?.length
+      ? data.gradients.map((entry) => ({
+          slot: entry.slot,
+          stops: toSerializableGradientStops(entry.stops, [])
+        }))
+      : undefined;
+
+  if (!slotPalettes || slotPalettes.length === 0) {
+    slotPalettes = undefined;
+  }
+
+  const fgStops = resolveFgDerivedStops(data, slotPalettes);
+  const fgSlot = typeof data.fgActiveSlot === 'number' ? data.fgActiveSlot : null;
+  if (fgSlot !== null && fgStops && fgStops.length > 0) {
+    const hasSlot = slotPalettes?.some((entry) => entry.slot === fgSlot) ?? false;
+    if (!hasSlot) {
+      slotPalettes = [...(slotPalettes ?? []), { slot: fgSlot, stops: fgStops }];
+    }
+  }
+
+  return slotPalettes;
+};
+
 const extractBrushStateFromBrushProperties = (brush: unknown, layer: Layer): WebGLSerializedBrushState | undefined => {
   const brushAny = brush as Record<string, unknown>;
   const rawIndexSource = brushAny?.indexBuffer ?? brushAny?.indices ?? brushAny?.data;
@@ -1623,6 +1752,8 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
             );
             const gradientIdValues = toSerializableNumberArray(ib.gradientId);
             const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : undefined;
+            const speedValues = toSerializableNumberArray((ib as { speedData?: unknown }).speedData);
+            const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
             const animationOffset = typeof entry.data?.animation?.offset === 'number'
               ? entry.data.animation.offset
               : 0;
@@ -1637,6 +1768,7 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
               height,
               indexBuffer: indexArray,
               gradientIdBuffer,
+              speedBuffer,
               gradientStops,
               palette,
               animationOffset,
@@ -2065,7 +2197,8 @@ const shouldExportLayerAsAnimating = (
     return true;
   }
 
-  if (!brushState?.speedBuffer && hasNonZeroMagnitude(data.brushSpeed)) {
+  const resolvedSpeed = resolveExportBrushSpeed(layer);
+  if (hasNonZeroMagnitude(resolvedSpeed)) {
     return true;
   }
 
@@ -2108,11 +2241,16 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
     }
   }
 
-  const shouldAnimate = shouldExportLayerAsAnimating(layer, brushState);
+  const resolvedBrushSpeed = resolveExportBrushSpeed(layer);
+  const shouldAnimate = data.mode === 'recolor'
+    ? shouldExportLayerAsAnimating(layer, brushState)
+    : true;
   const serialized: WebGLSerializedColorCycle = {
     mode: data.mode ?? 'brush',
     gradient: data.gradient,
-    brushSpeed: data.brushSpeed ?? null,
+    brushSpeed: resolvedBrushSpeed,
+    speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,
+    speedMax: MAX_BRUSH_COLOR_CYCLE_SPEED,
     isAnimating: shouldAnimate
   };
 
@@ -2121,7 +2259,7 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
   if (gobletDiagnosticsActive) {
     gobletDebugLog('[webglExporter] Animation inference for layer', layer.id, {
       inputIsAnimating: data.isAnimating,
-      brushSpeed: data.brushSpeed,
+      brushSpeed: resolvedBrushSpeed,
       recolorSpeed: data.recolorSettings?.animation?.speed,
       animationWasPlaying: data.recolorSettings?.animation?.isPlaying,
       exportedIsAnimating: shouldAnimate,
@@ -2162,14 +2300,13 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
     };
   }
 
+  let exportSlotPalettes: Array<{ slot: number; stops: SerializedGradientStops }> | undefined;
+  let fgDerivedStops: SerializedGradientStops | undefined;
   if (!data.recolorSettings) {
-    const slotPalettes = data.slotPalettes?.length
-      ? data.slotPalettes
-      : data.gradients?.length
-        ? data.gradients.map((entry) => ({ slot: entry.slot, stops: entry.stops }))
-        : undefined;
-    if (slotPalettes && slotPalettes.length > 0) {
-      serialized.slotPalettes = slotPalettes.map((entry) => ({
+    exportSlotPalettes = resolveExportSlotPalettes(data);
+    fgDerivedStops = resolveFgDerivedStops(data, exportSlotPalettes);
+    if (exportSlotPalettes && exportSlotPalettes.length > 0) {
+      serialized.slotPalettes = exportSlotPalettes.map((entry) => ({
         slot: entry.slot,
         stops: toSerializableGradientStops(entry.stops, [])
       }));
@@ -2232,15 +2369,43 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
   }
 
   if (brushState) {
+    const resolvePackedBuffer = async (
+      input?: number[] | Uint8Array | string
+    ): Promise<number[] | string | undefined> => {
+      if (!input) {
+        return undefined;
+      }
+      if (typeof input === 'string') {
+        return input;
+      }
+      return packNumericArrayForExport(input);
+    };
+
     const encodedIndexBuffer = await packNumericArrayForExport(brushState.indexBuffer);
-    const encodedGradientIdBuffer = await packNumericArrayForExport(brushState.gradientIdBuffer ?? undefined);
-    const encodedSpeedBuffer = await packNumericArrayForExport(brushState.speedBuffer ?? undefined);
+    const rawGradientIds = brushState.gradientIdBuffer;
+    const normalizedGradientIds = typeof rawGradientIds === 'string'
+      ? undefined
+      : stripFlowBitsFromGradientIds(rawGradientIds ?? undefined);
+    const gradientIdFallback = Array.isArray(normalizedGradientIds)
+      ? normalizedGradientIds
+      : normalizedGradientIds
+        ? Array.from(normalizedGradientIds)
+        : typeof rawGradientIds === 'string'
+          ? rawGradientIds
+          : undefined;
+    const encodedGradientIdBuffer = await resolvePackedBuffer(gradientIdFallback);
+    const encodedSpeedBuffer = await resolvePackedBuffer(brushState.speedBuffer ?? undefined);
     const preparedBrushState: WebGLSerializedBrushState = {
       ...brushState,
       indexBuffer: encodedIndexBuffer ?? [],
-      gradientIdBuffer: encodedGradientIdBuffer ?? brushState.gradientIdBuffer,
+      gradientIdBuffer: encodedGradientIdBuffer ?? gradientIdFallback,
       speedBuffer: encodedSpeedBuffer ?? brushState.speedBuffer
     };
+    if (typeof resolvedBrushSpeed === 'number' && Number.isFinite(resolvedBrushSpeed)) {
+      if (!Number.isFinite(preparedBrushState.animationSpeed)) {
+        preparedBrushState.animationSpeed = resolvedBrushSpeed;
+      }
+    }
 
     serialized.brushState = preparedBrushState;
     const brushStops = preparedBrushState.gradientStops;
@@ -2248,7 +2413,7 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
       // Prefer the live brush gradient to avoid exporting stale layer gradients.
       serialized.gradient = brushStops;
     } else if (!serialized.gradient || serialized.gradient.length === 0) {
-      serialized.gradient = preparedBrushState.gradientStops;
+      serialized.gradient = fgDerivedStops ?? preparedBrushState.gradientStops;
     }
     if (gobletDiagnosticsActive) {
       const summary = summarizeEncodedBuffer(preparedBrushState.indexBuffer, Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer.length : 0);

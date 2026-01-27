@@ -135,24 +135,19 @@ export const finalizeColorCycleBrush = async (
     colorCycleAnimationRef.current = null;
   }
 
-  // End stroke and do final render
-  brushEngine.endColorCycleStroke();
-
   // Phase 3: Direct rendering approach
   const refreshedActiveLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
   const colorCycleBrush = refreshedActiveLayer ? getBrushForLayer(refreshedActiveLayer.id) : undefined;
 
+  // For CC layers with a valid brush/canvas, defer finalization to the CC commit path
+  // to avoid double-ending the stroke (which clears stamp dither buffers).
   if (colorCycleBrush && refreshedActiveLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
-    bindBrushToCanvas(colorCycleBrush, refreshedActiveLayer.colorCycleData.canvas);
-    // Lock in the finished stroke before final render to avoid a "live" stroke lingering.
-    colorCycleBrush.commitCurrentStroke?.(refreshedActiveLayer.id);
-    // Final render directly to layer canvas at full opacity
-    colorCycleBrush.renderDirectToCanvas?.(refreshedActiveLayer.colorCycleData.canvas, refreshedActiveLayer.id);
-
     // Clear transient overlay so compositor paints the next frame
     drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawingCanvasHasContent.current = false;
   } else if (drawingCanvas && drawingCtx) {
+    // End stroke when we cannot lock it directly on the brush instance.
+    brushEngine.endColorCycleStroke();
     // Fallback: Clear and do one final render at FULL OPACITY
     drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawingCanvasHasContent.current = false;

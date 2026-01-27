@@ -464,47 +464,8 @@ const isIdentityTransform = (matrix) => {
 
 const formatMatrix = (matrix) => `${matrix.a},${matrix.b},${matrix.c},${matrix.d},${matrix.e},${matrix.f}`;
 
-const logViewerState = (ctx, canvas, metadata, cssW, cssH) => {
-  if (typeof window === 'undefined' || !ctx || !canvas) {
-    return;
-  }
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  const transform = snapshotTransform(ctx);
-  console.log(
-    '[VIEWER]',
-    'mode=', metadata?.viewport?.mode ?? '-',
-    'design=', `${metadata?.viewport?.designWidth ?? '-'}x${metadata?.viewport?.designHeight ?? '-'}`,
-    'project=', `${metadata?.project?.width ?? '-'}x${metadata?.project?.height ?? '-'}`,
-    'dpr=', dpr,
-    'backing=', `${canvas.width}x${canvas.height}`,
-    'css=', `${Math.round(rect.width)}x${Math.round(rect.height)}`,
-    'viewportCSS=', `${cssW}x${cssH}`,
-    'tf=', formatMatrix(transform),
-    'smoothing=', ctx.imageSmoothingEnabled
-  );
-};
-
-const logLayerDraw = (layer, source, sample, destination, units) => {
-  const isImage = typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement;
-  const srcW = isImage ? source.naturalWidth || source.width : source.width;
-  const srcH = isImage ? source.naturalHeight || source.height : source.height;
-  const alignment = layer?.alignment ?? {};
-  console.log(
-    `[DRAW:${layer?.id ?? 'unknown'}:${units}]`,
-    'src=', `${srcW}x${srcH}`,
-    'sample=', sample
-      ? `${sample.x},${sample.y},${sample.width},${sample.height}`
-      : 'null',
-    'dest=', destination
-      ? `${destination.x},${destination.y},${destination.width},${destination.height}`
-      : 'null',
-    'fit=', alignment.fit ?? '-',
-    'hz/vt=', `${alignment.horizontal ?? '-'}/${alignment.vertical ?? '-'}`,
-    'pos=', alignment.positioning ?? '-',
-    'off%=', `${alignment.offsetPercent?.x ?? 0},${alignment.offsetPercent?.y ?? 0}`
-  );
-};
+const logViewerState = () => {};
+const logLayerDraw = () => {};
 
 // ------------------------------------------------------------
 // Alignment helpers
@@ -915,7 +876,7 @@ const drawLayerWithPlacement = (ctx, source, placement, { isFixed, dpr, paintedR
     ctx.clip();
     ctx.imageSmoothingEnabled = false;
 
-    console.log('[COVER]', { fw, fh, dw, dh, k, isFixed, dpr });
+    // log removed
 
     ctx.drawImage(
       source,
@@ -949,30 +910,8 @@ const drawLayerWithPlacement = (ctx, source, placement, { isFixed, dpr, paintedR
   return { ok: true, destBacking };
 };
 
-const logSummary = (painted, total, startedAt) => {
-  if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
-    const elapsedMs = Number((Date.now() - startedAt).toFixed(2));
-    console.log('[SUMMARY]', 'painted=', painted, 'of', total, 'ms=', elapsedMs);
-    return;
-  }
-  const elapsed = Number((performance.now() - startedAt).toFixed(2));
-  console.log('[SUMMARY]', 'painted=', painted, 'of', total, 'ms=', elapsed);
-};
-
-const logResize = (canvas, mode) => {
-  if (typeof window === 'undefined' || !canvas) {
-    return;
-  }
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  console.log(
-    '[RESIZE]',
-    'dpr=', dpr,
-    'backing=', `${canvas.width}x${canvas.height}`,
-    'css=', `${Math.round(rect.width)}x${Math.round(rect.height)}`,
-    'mode=', mode ?? '-'
-  );
-};
+const logSummary = () => {};
+const logResize = () => {};
 
 const transformWarningCache = new Set();
 const warnNonIdentityTransform = (layerId, matrix) => {
@@ -1458,6 +1397,8 @@ const PROPERTY_UNMINIFY_MAP = {
   gr: 'gradient',
   grf: 'gradientRef',
   spd: 'brushSpeed',
+  smin: 'speedMin',
+  smax: 'speedMax',
   si: 'stackIndex',
   bf: 'bundleFormat',
   ihl: 'includeHiddenLayers',
@@ -2202,10 +2143,18 @@ const buildLuminancePhaseMap = (imageData) => {
 };
 
 const DEFAULT_ANIMATION_SPEED = 0.1;
+const SPEED_BYTE_RANGE = 254;
+const DEFAULT_SPEED_MIN = 0.01;
+const DEFAULT_SPEED_MAX = 2.0;
+
+const toFiniteNumberOrNull = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
 
 const resolveAnimationSpeed = (rawExportedSpeed, rawFallbackSpeed, shouldAnimate) => {
-  const exported = Number.isFinite(rawExportedSpeed) ? Number(rawExportedSpeed) : null;
-  const fallbackSpeed = Number.isFinite(rawFallbackSpeed) ? Number(rawFallbackSpeed) : null;
+  const exported = toFiniteNumberOrNull(rawExportedSpeed);
+  const fallbackSpeed = toFiniteNumberOrNull(rawFallbackSpeed);
   if (exported !== null && exported > 0) {
     return exported;
   }
@@ -2224,6 +2173,109 @@ const resolveAnimationSpeed = (rawExportedSpeed, rawFallbackSpeed, shouldAnimate
   return 0;
 };
 
+const decodeColorCycleSpeedByte = (byte, minSpeed, maxSpeed) => {
+  if (!Number.isFinite(byte) || byte <= 0) {
+    return 0;
+  }
+  const minV = Number.isFinite(minSpeed) ? Number(minSpeed) : DEFAULT_SPEED_MIN;
+  const maxV = Number.isFinite(maxSpeed) ? Number(maxSpeed) : DEFAULT_SPEED_MAX;
+  const normalized = Math.max(0, Math.min(SPEED_BYTE_RANGE, Math.round(byte) - 1));
+  const t = normalized / SPEED_BYTE_RANGE;
+  return minV + t * (maxV - minV);
+};
+
+const collectDistinctSpeedBytes = (speedBuffer) => {
+  const set = new Set();
+  set.add(0);
+  if (!speedBuffer) {
+    return set;
+  }
+  for (let i = 0; i < speedBuffer.length; i += 1) {
+    const value = speedBuffer[i] | 0;
+    if (value !== 0) {
+      set.add(value);
+    }
+    if (set.size > 64) {
+      break;
+    }
+  }
+  return set;
+};
+
+const computeTickForOffset = (offsetFraction, bands) => (offsetFraction * bands);
+
+const fillPixelsFromIndicesWithSpeed = (indices, speedBytes, lutsBySpeed, outPixels32, alpha, options = {}) => {
+  const transparentZero = options.transparentZero === true;
+  const subtractOne = options.subtractOne === true;
+  const length = Math.min(indices.length, outPixels32.length);
+  const useAlpha = alpha && alpha.length >= length * 4;
+
+  for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
+    const rawIndex = indices[i] ?? 0;
+    if (transparentZero && rawIndex === 0) {
+      outPixels32[i] = 0;
+      continue;
+    }
+    const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
+    const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
+    const lut = lutsBySpeed.get(speedByte) ?? lutsBySpeed.get(0);
+    if (!lut) {
+      outPixels32[i] = 0;
+      continue;
+    }
+    const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
+    if (useAlpha) {
+      const rgb = lut[capped] & 0x00ffffff;
+      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      outPixels32[i] = (a << 24) | rgb;
+    } else {
+      outPixels32[i] = lut[capped];
+    }
+  }
+};
+
+const fillPixelsFromIndicesWithGradientIdsAndSpeed = (
+  indices,
+  gradientIds,
+  speedBytes,
+  lutsBySpeedAndSlot,
+  fallbackLutsBySpeed,
+  outPixels32,
+  alpha,
+  options = {}
+) => {
+  const transparentZero = options.transparentZero === true;
+  const subtractOne = options.subtractOne === true;
+  const length = Math.min(indices.length, outPixels32.length);
+  const useAlpha = alpha && alpha.length >= length * 4;
+
+  for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
+    const rawIndex = indices[i] ?? 0;
+    if (transparentZero && rawIndex === 0) {
+      outPixels32[i] = 0;
+      continue;
+    }
+    const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
+    const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
+    const slot = gradientIds ? (gradientIds[i] ?? 0) : 0;
+    const bySlot = lutsBySpeedAndSlot.get(speedByte);
+    const fallback = fallbackLutsBySpeed.get(speedByte) ?? fallbackLutsBySpeed.get(0);
+    const lut = (bySlot && bySlot.get(slot)) ?? fallback;
+    if (!lut) {
+      outPixels32[i] = 0;
+      continue;
+    }
+    const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
+    if (useAlpha) {
+      const rgb = lut[capped] & 0x00ffffff;
+      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      outPixels32[i] = (a << 24) | rgb;
+    } else {
+      outPixels32[i] = lut[capped];
+    }
+  }
+};
+
 class ColorCycleLayerPlayer {
   constructor(layer, textureImage) {
     this.layer = layer;
@@ -2239,6 +2291,7 @@ class ColorCycleLayerPlayer {
     this.baseImageData = null;
     this.indexBuffer = null;
     this.gradientIdBuffer = null;
+    this.speedBuffer = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
     this.gradient = DEFAULT_GRADIENT;
@@ -2248,6 +2301,14 @@ class ColorCycleLayerPlayer {
     this.flowMapping = 'palette';
     this.flowDirection = 'forward';
     this.speed = 0;
+    this.baseTimeSeconds = 0;
+    this.baseOffset = 0;
+    this.targetFPS = null;
+    this.frameAccumulator = 0;
+    this.speedMin = null;
+    this.speedMax = null;
+    this.usePerPixelSpeed = false;
+    this.hasNonZeroSpeedBuffer = false;
     this.currentTick = 0;
     this.isAnimating = false;
     this.mode = layer.colorCycle?.mode ?? 'brush';
@@ -2418,6 +2479,10 @@ class ColorCycleLayerPlayer {
       ? await resolveNumericBuffer(brushState.gradientIdBuffer)
       : null;
     this.gradientIdBuffer = gradientIdBuffer && gradientIdBuffer.length ? gradientIdBuffer : null;
+    const speedBuffer = brushState.speedBuffer
+      ? await resolveNumericBuffer(brushState.speedBuffer)
+      : null;
+    this.speedBuffer = speedBuffer && speedBuffer.length ? speedBuffer : null;
     const alphaMode = typeof brushState.alphaMode === 'string' ? brushState.alphaMode : 'source';
     if (alphaMode === 'opaque-indices') {
       const size = this.width * this.height * 4;
@@ -2437,14 +2502,35 @@ class ColorCycleLayerPlayer {
     this.zeroTransparent = true;
     this.subtractIndexOffset = true;
 
-    const exportedSpeed = Number.isFinite(brushState.animationSpeed) ? brushState.animationSpeed : null;
-    const fallbackSpeed = Number.isFinite(colorCycle.brushSpeed) ? colorCycle.brushSpeed : null;
     const shouldAnimate = colorCycle.isAnimating !== false;
-    this.speed = resolveAnimationSpeed(exportedSpeed, fallbackSpeed, shouldAnimate);
+    this.speed = resolveAnimationSpeed(
+      brushState?.animationSpeed,
+      colorCycle?.brushSpeed,
+      shouldAnimate
+    );
     const offset = Number.isFinite(brushState.animationOffset) ? brushState.animationOffset : 0;
+    this.baseOffset = wrap01(offset);
+    this.baseTimeSeconds = 0;
     this.currentTick = wrap01(offset) * this.cycleColors;
     this.flowDirection = normalizeFlowDirection(brushState.flowDirection, 'reverse');
     this.isAnimating = shouldAnimate;
+    this.speedMin = toFiniteNumberOrNull(colorCycle.speedMin);
+    this.speedMax = toFiniteNumberOrNull(colorCycle.speedMax);
+    this.targetFPS = toFiniteNumberOrNull(brushState.targetFPS);
+    ccLog('CCPlayer.speed', {
+      layerId: this.layer?.id ?? null,
+      mode: this.mode,
+      raw: {
+        exported: brushState?.animationSpeed,
+        fallback: colorCycle?.brushSpeed,
+        isAnimating: colorCycle?.isAnimating
+      },
+      resolved: {
+        shouldAnimate: this.isAnimating,
+        speed: this.speed,
+        cycleColors: this.cycleColors
+      }
+    });
 
     const expectedLength = this.width * this.height;
     if (this.indexBuffer.length !== expectedLength) {
@@ -2456,6 +2542,21 @@ class ColorCycleLayerPlayer {
       const resized = new Uint8Array(expectedLength);
       resized.set(this.gradientIdBuffer.subarray(0, Math.min(expectedLength, this.gradientIdBuffer.length)));
       this.gradientIdBuffer = resized;
+    }
+    if (this.speedBuffer && this.speedBuffer.length !== expectedLength) {
+      const resized = new Uint8Array(expectedLength);
+      resized.set(this.speedBuffer.subarray(0, Math.min(expectedLength, this.speedBuffer.length)));
+      this.speedBuffer = resized;
+    }
+    this.usePerPixelSpeed = Boolean(this.speedBuffer && this.speedBuffer.length === expectedLength);
+    this.hasNonZeroSpeedBuffer = false;
+    if (this.usePerPixelSpeed && this.speedBuffer) {
+      for (let i = 0; i < this.speedBuffer.length; i += 1) {
+        if (this.speedBuffer[i]) {
+          this.hasNonZeroSpeedBuffer = true;
+          break;
+        }
+      }
     }
   }
 
@@ -2504,21 +2605,63 @@ class ColorCycleLayerPlayer {
     }
 
     const animation = recolorSettings.animation || {};
-    const exportedSpeed = Number.isFinite(animation.speed) ? animation.speed : null;
-    const fallbackSpeed = Number.isFinite(colorCycle.brushSpeed) ? colorCycle.brushSpeed : null;
     const shouldAnimate = (animation.isPlaying ?? colorCycle.isAnimating) !== false;
-    this.speed = resolveAnimationSpeed(exportedSpeed, fallbackSpeed, shouldAnimate);
+    this.speed = resolveAnimationSpeed(
+      animation?.speed,
+      colorCycle?.brushSpeed,
+      shouldAnimate
+    );
     this.currentTick = Number.isFinite(animation.currentTick) ? animation.currentTick : 0;
     this.flowDirection = normalizeFlowDirection(animation.flowDirection, 'forward');
     this.isAnimating = shouldAnimate;
+    ccLog('CCPlayer.speed', {
+      layerId: this.layer?.id ?? null,
+      mode: this.mode,
+      raw: {
+        exported: recolorSettings?.animation?.speed,
+        fallback: colorCycle?.brushSpeed,
+        isAnimating: colorCycle?.isAnimating,
+        isPlaying: recolorSettings?.animation?.isPlaying
+      },
+      resolved: {
+        shouldAnimate: this.isAnimating,
+        speed: this.speed,
+        cycleColors: this.cycleColors
+      }
+    });
   }
 
   hasAnimation() {
-    return this.isAnimating && this.speed > 0 && this.cycleColors > 0;
+    if (!this.isAnimating || this.cycleColors <= 0) {
+      return false;
+    }
+    if (this.usePerPixelSpeed) {
+      return this.hasNonZeroSpeedBuffer;
+    }
+    return this.speed > 0;
   }
 
   advance(deltaSeconds) {
     if (!this.hasAnimation()) {
+      return false;
+    }
+    const targetFPS = this.targetFPS;
+    const frameStep = Number.isFinite(targetFPS) && targetFPS > 0 ? 1 / targetFPS : null;
+    let shouldRender = true;
+    if (frameStep) {
+      this.frameAccumulator += deltaSeconds;
+      if (this.frameAccumulator < frameStep) {
+        shouldRender = false;
+      } else {
+        this.frameAccumulator = this.frameAccumulator % frameStep;
+      }
+    }
+    if (this.usePerPixelSpeed) {
+      this.baseTimeSeconds += deltaSeconds;
+      if (shouldRender) {
+        this.renderFrame();
+        return true;
+      }
       return false;
     }
     const ticksPerSecond = this.speed * this.cycleColors;
@@ -2530,12 +2673,96 @@ class ColorCycleLayerPlayer {
       return false;
     }
     this.currentTick += deltaTicks;
-    this.renderFrame();
-    return true;
+    if (shouldRender) {
+      this.renderFrame();
+      return true;
+    }
+    return false;
   }
 
   renderFrame() {
     if (!this.indexBuffer) {
+      return;
+    }
+    if (this.usePerPixelSpeed && (this.flowMapping === 'palette' || !this.phaseMap)) {
+      const bands = Math.max(1, Math.floor(Number.isFinite(this.cycleColors) ? this.cycleColors : 16));
+      const distinct = collectDistinctSpeedBytes(this.speedBuffer);
+      const lutsBySpeed = new Map();
+
+      for (const sb of distinct) {
+        const hasSpeed = sb > 0;
+        const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
+        const speedOffset = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : 0;
+        const offsetFraction = hasSpeed ? speedOffset : this.baseOffset;
+        const tick = computeTickForOffset(offsetFraction, bands);
+        lutsBySpeed.set(sb, buildGradientLUT({
+          gradient: this.gradient,
+          cycleColors: this.cycleColors,
+          tick,
+          mappingMode: this.mappingMode,
+          flowDirection: this.flowDirection,
+          indexPhaseMap: this.indexPhaseMap
+        }));
+      }
+
+      const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
+      if (canUseSlots) {
+        const lutsBySpeedAndSlot = new Map();
+        const fallbackLutsBySpeed = new Map();
+
+        for (const sb of distinct) {
+          const slotMap = new Map();
+          const hasSpeed = sb > 0;
+          const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
+          const speedOffset = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : 0;
+          const offsetFraction = hasSpeed ? speedOffset : this.baseOffset;
+          const tick = computeTickForOffset(offsetFraction, bands);
+
+          this.slotGradients.forEach((gradientStops, slot) => {
+            slotMap.set(
+              slot,
+              buildGradientLUT({
+                gradient: gradientStops,
+                cycleColors: this.cycleColors,
+                tick,
+                mappingMode: this.mappingMode,
+                flowDirection: this.flowDirection,
+                indexPhaseMap: this.indexPhaseMap
+              })
+            );
+          });
+
+          lutsBySpeedAndSlot.set(sb, slotMap);
+          fallbackLutsBySpeed.set(sb, slotMap.get(0) ?? lutsBySpeed.get(sb));
+        }
+
+        fillPixelsFromIndicesWithGradientIdsAndSpeed(
+          this.indexBuffer,
+          this.gradientIdBuffer,
+          this.speedBuffer,
+          lutsBySpeedAndSlot,
+          fallbackLutsBySpeed,
+          this.pixels32,
+          this.alpha,
+          {
+            transparentZero: this.zeroTransparent,
+            subtractOne: this.subtractIndexOffset
+          }
+        );
+      } else {
+        fillPixelsFromIndicesWithSpeed(
+          this.indexBuffer,
+          this.speedBuffer,
+          lutsBySpeed,
+          this.pixels32,
+          this.alpha,
+          {
+            transparentZero: this.zeroTransparent,
+            subtractOne: this.subtractIndexOffset
+          }
+        );
+      }
+      this.ctx.putImageData(this.imageData, 0, 0);
       return;
     }
     const baseLut = buildGradientLUT({
@@ -2596,6 +2823,7 @@ class ColorCycleLayerPlayer {
     this.isAnimating = false;
     this.indexBuffer = null;
     this.gradientIdBuffer = null;
+    this.speedBuffer = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
     this.alpha = null;
@@ -3008,12 +3236,7 @@ class VesselGoblet {
         paintedRect.height = Math.max(1, sourceHeight - paintedRect.y);
       }
 
-      console.log('[SOURCE]', entry.layer.id, {
-        sourceW: source.width,
-        sourceH: source.height,
-        imageNW: source instanceof HTMLImageElement ? source.naturalWidth : undefined,
-        imageNH: source instanceof HTMLImageElement ? source.naturalHeight : undefined
-      });
+      // log removed
 
       const viewportFrame = {
         x: 0,
@@ -3040,16 +3263,7 @@ class VesselGoblet {
         align
       };
 
-      console.log('[BASIS]', {
-        fit: align.fit,
-        pos: align.positioning,
-        hz: align.horizontal,
-        vt: align.vertical,
-        off: align.offsetPercent,
-        surface: basis.surface,
-        painted: basis.painted,
-        frame: basis.frame
-      });
+      // log removed
 
       const placement = computePlacement(basis);
 

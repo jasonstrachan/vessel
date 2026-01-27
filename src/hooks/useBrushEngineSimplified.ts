@@ -4112,6 +4112,82 @@ export const useBrushEngineSimplified = () => {
         ctx.drawImage(layerCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
       }
 
+      if (process.env.NODE_ENV !== 'production') {
+        try {
+          const sampleTransitions = (canvas: HTMLCanvasElement): number | null => {
+            const w = Math.min(16, canvas.width);
+            const h = Math.min(16, canvas.height);
+            if (w <= 1 || h <= 0) return null;
+            const sampleCtx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!sampleCtx) return null;
+            const data = sampleCtx.getImageData(0, 0, w, h).data;
+            let transitions = 0;
+            for (let y = 0; y < h; y += 1) {
+              const row = y * w * 4;
+              for (let x = 1; x < w; x += 1) {
+                const idx = row + x * 4;
+                const prev = idx - 4;
+                if (
+                  data[idx] !== data[prev] ||
+                  data[idx + 1] !== data[prev + 1] ||
+                  data[idx + 2] !== data[prev + 2]
+                ) {
+                  transitions += 1;
+                }
+              }
+            }
+            return transitions;
+          };
+
+          const srcCanvas = layerCanvas;
+          const previewCanvas = ctx.canvas as HTMLCanvasElement;
+          const srcHasCtx = !!srcCanvas.getContext('2d');
+          const previewHasCtx = !!previewCanvas.getContext('2d');
+          const isDrawing = (colorCycleBrush as { isDrawing?: boolean }).isDrawing ?? null;
+          const strokeData = (() => {
+            try {
+              const maybe = (colorCycleBrush as { layerStrokes?: Map<string, { hasContent?: boolean; hasExternalBase?: boolean }> })
+                .layerStrokes
+                ?.get(activeLayerId);
+              return {
+                hasContent: maybe?.hasContent ?? null,
+                hasExternalBase: maybe?.hasExternalBase ?? null,
+              };
+            } catch {
+              return { hasContent: null, hasExternalBase: null };
+            }
+          })();
+
+          if (typeof window !== 'undefined') {
+            const w = window as Window & { __ccDebug?: Record<string, unknown> };
+            w.__ccDebug = {
+              ...(w.__ccDebug ?? {}),
+              preview: {
+                previewCanvas: { w: previewCanvas.width, h: previewCanvas.height, hasCtx: previewHasCtx },
+                srcCanvas: { w: srcCanvas.width, h: srcCanvas.height, hasCtx: srcHasCtx },
+                sameCanvas: srcCanvas === previewCanvas,
+                sampledAfterClear: false,
+                isDrawing,
+                strokeData,
+              }
+            };
+          }
+          const srcTransitions = sampleTransitions(srcCanvas);
+          const previewTransitions = sampleTransitions(previewCanvas);
+          if (typeof window !== 'undefined') {
+            const w = window as Window & { __ccDebug?: Record<string, unknown> };
+            const preview = (w.__ccDebug as { preview?: Record<string, unknown> } | undefined)?.preview ?? {};
+            w.__ccDebug = {
+              ...(w.__ccDebug ?? {}),
+              preview: {
+                ...preview,
+                transitions: { srcTransitions, previewTransitions },
+              }
+            };
+          }
+        } catch {}
+      }
+
       if (shouldApplyOverlay) {
         applyColorCycleRisographOverlay(ctx, layerCanvas, drawOpacity);
       }
@@ -4568,16 +4644,29 @@ export const useBrushEngineSimplified = () => {
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
+  const resolvedColorCycleSpeed = useMemo(() => {
+    const perLayerSpeed = activeLayerBrushSpeed;
+    const fallbackSpeed = tools.brushSettings.colorCycleSpeed;
+    if (Number.isFinite(perLayerSpeed)) {
+      return perLayerSpeed as number;
+    }
+    if (Number.isFinite(fallbackSpeed)) {
+      return fallbackSpeed as number;
+    }
+    return null;
+  }, [activeLayerBrushSpeed, tools.brushSettings.colorCycleSpeed]);
+
   // Update color cycle speed when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    const state = useAppStore.getState();
-    const activeLayer = state.layers.find(l => l.id === activeLayerId);
-    const perLayerSpeed = activeLayer?.colorCycleData?.brushSpeed;
-    if (colorCycleBrush && perLayerSpeed) {
-      colorCycleBrush.setSpeed(perLayerSpeed);
+    if (colorCycleBrush && resolvedColorCycleSpeed !== null) {
+      colorCycleBrush.setSpeed(resolvedColorCycleSpeed);
     }
-  }, [activeLayerId, activeLayerBrushSpeed, getActiveLayerColorCycleBrush]);
+  }, [
+    activeLayerId,
+    getActiveLayerColorCycleBrush,
+    resolvedColorCycleSpeed,
+  ]);
   
   // Update color cycle FPS when it changes
   useEffect(() => {
