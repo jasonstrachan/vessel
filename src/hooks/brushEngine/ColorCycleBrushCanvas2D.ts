@@ -4281,31 +4281,64 @@ export class ColorCycleBrushCanvas2D {
 
     const srcCanvas = animator.getCanvas();
     const sameCanvas = srcCanvas === targetCanvas;
+    const strokeData = this.layerStrokes.get(layerId);
 
     if (process.env.NODE_ENV !== 'production') {
-      const sampleTransitions = (canvas: HTMLCanvasElement): number | null => {
-        const w = Math.min(16, canvas.width);
-        const h = Math.min(16, canvas.height);
-        if (w <= 1 || h <= 0) return null;
-        const sampleCtx = canvas.getContext('2d', { willReadFrequently: true });
-        if (!sampleCtx) return null;
-        const data = sampleCtx.getImageData(0, 0, w, h).data;
-        let transitions = 0;
-        for (let y = 0; y < h; y += 1) {
-          const row = y * w * 4;
-          for (let x = 1; x < w; x += 1) {
-            const idx = row + x * 4;
-            const prev = idx - 4;
-            if (
-              data[idx] !== data[prev] ||
-              data[idx + 1] !== data[prev + 1] ||
-              data[idx + 2] !== data[prev + 2]
-            ) {
-              transitions += 1;
+      try {
+        const anyCanvas = srcCanvas as unknown as { getContext?: (...args: unknown[]) => unknown };
+        let ctx2d: unknown = null;
+        try { ctx2d = anyCanvas.getContext?.('2d'); } catch {}
+        let ctxGL: unknown = null;
+        try {
+          ctxGL = anyCanvas.getContext?.('webgl2') || anyCanvas.getContext?.('webgl');
+        } catch {}
+        console.log('[CC commit] srcCanvas type', {
+          ctor: srcCanvas?.constructor?.name,
+          tag: Object.prototype.toString.call(srcCanvas),
+          hasGetContext: typeof anyCanvas.getContext,
+          ctx2d: !!ctx2d,
+          ctxGL: !!ctxGL,
+        });
+      } catch {}
+      try {
+        console.log('[CC commit] srcCanvas', {
+          width: srcCanvas.width,
+          height: srcCanvas.height,
+          sameCanvas,
+        });
+      } catch {}
+
+      const sampleTransitions = (canvas: HTMLCanvasElement): {
+        transitions: number | null;
+        reason: 'ok' | 'no_ctx' | 'zero_size' | 'exception';
+        error?: string;
+      } => {
+        try {
+          const sampleCtx = canvas.getContext('2d', { willReadFrequently: true });
+          if (!sampleCtx) return { transitions: null, reason: 'no_ctx' };
+          const sampleW = Math.min(64, canvas.width);
+          const sampleH = Math.min(64, canvas.height);
+          if (sampleW <= 0 || sampleH <= 0) return { transitions: null, reason: 'zero_size' };
+          const data = sampleCtx.getImageData(0, 0, sampleW, sampleH).data;
+          let transitions = 0;
+          for (let y = 0; y < sampleH; y += 1) {
+            const row = y * sampleW * 4;
+            for (let x = 1; x < sampleW; x += 1) {
+              const idx = row + x * 4;
+              const prev = idx - 4;
+              if (
+                data[idx] !== data[prev] ||
+                data[idx + 1] !== data[prev + 1] ||
+                data[idx + 2] !== data[prev + 2]
+              ) {
+                transitions += 1;
+              }
             }
           }
+          return { transitions, reason: 'ok' };
+        } catch (error) {
+          return { transitions: null, reason: 'exception', error: String(error) };
         }
-        return transitions;
       };
 
       try {
@@ -4341,10 +4374,12 @@ export class ColorCycleBrushCanvas2D {
             }
           };
         }
+        try {
+          console.log('[CC commit] transitions', { srcTransitions, previewTransitions });
+        } catch {}
       } catch {}
     }
 
-    const strokeData = this.layerStrokes.get(layerId);
     const hadExternalBase = Boolean(strokeData?.hasExternalBase);
     if (hadExternalBase && strokeData) {
       const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });

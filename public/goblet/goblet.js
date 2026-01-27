@@ -2145,7 +2145,12 @@ const buildLuminancePhaseMap = (imageData) => {
 const DEFAULT_ANIMATION_SPEED = 0.1;
 const SPEED_BYTE_RANGE = 254;
 const DEFAULT_SPEED_MIN = 0.01;
-const DEFAULT_SPEED_MAX = 2.0;
+const DEFAULT_SPEED_MAX = 0.33;
+const FLOW_SLOT_BITS = 6;
+const FLOW_SLOT_MASK = (1 << FLOW_SLOT_BITS) - 1;
+const FLOW_MODE_FORWARD = 1;
+const FLOW_MODE_REVERSE = 2;
+const FLOW_MODE_PINGPONG = 3;
 
 const toFiniteNumberOrNull = (value) => {
   const numeric = Number(value);
@@ -2204,42 +2209,17 @@ const collectDistinctSpeedBytes = (speedBuffer) => {
 
 const computeTickForOffset = (offsetFraction, bands) => (offsetFraction * bands);
 
-const fillPixelsFromIndicesWithSpeed = (indices, speedBytes, lutsBySpeed, outPixels32, alpha, options = {}) => {
-  const transparentZero = options.transparentZero === true;
-  const subtractOne = options.subtractOne === true;
-  const length = Math.min(indices.length, outPixels32.length);
-  const useAlpha = alpha && alpha.length >= length * 4;
-
-  for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
-    const rawIndex = indices[i] ?? 0;
-    if (transparentZero && rawIndex === 0) {
-      outPixels32[i] = 0;
-      continue;
-    }
-    const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
-    const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
-    const lut = lutsBySpeed.get(speedByte) ?? lutsBySpeed.get(0);
-    if (!lut) {
-      outPixels32[i] = 0;
-      continue;
-    }
-    const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
-    if (useAlpha) {
-      const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
-      outPixels32[i] = (a << 24) | rgb;
-    } else {
-      outPixels32[i] = lut[capped];
-    }
-  }
+const resolveFlowMode = (flowBits) => {
+  if (flowBits === FLOW_MODE_REVERSE) return FLOW_MODE_REVERSE;
+  if (flowBits === FLOW_MODE_PINGPONG) return FLOW_MODE_PINGPONG;
+  return FLOW_MODE_FORWARD;
 };
 
-const fillPixelsFromIndicesWithGradientIdsAndSpeed = (
+const fillPixelsFromIndicesWithSpeedAndFlow = (
   indices,
   gradientIds,
   speedBytes,
-  lutsBySpeedAndSlot,
-  fallbackLutsBySpeed,
+  lutsBySpeedAndMode,
   outPixels32,
   alpha,
   options = {}
@@ -2257,10 +2237,58 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeed = (
     }
     const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
     const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
-    const slot = gradientIds ? (gradientIds[i] ?? 0) : 0;
-    const bySlot = lutsBySpeedAndSlot.get(speedByte);
-    const fallback = fallbackLutsBySpeed.get(speedByte) ?? fallbackLutsBySpeed.get(0);
-    const lut = (bySlot && bySlot.get(slot)) ?? fallback;
+    const gid = gradientIds ? (gradientIds[i] ?? 0) : 0;
+    const flowBits = gradientIds ? (gid >> FLOW_SLOT_BITS) : FLOW_MODE_FORWARD;
+    const mode = resolveFlowMode(flowBits);
+    const modeMap = lutsBySpeedAndMode.get(speedByte) ?? lutsBySpeedAndMode.get(0);
+    const lut = modeMap?.get(mode) ?? modeMap?.get(FLOW_MODE_FORWARD);
+    if (!lut) {
+      outPixels32[i] = 0;
+      continue;
+    }
+    const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
+    if (useAlpha) {
+      const rgb = lut[capped] & 0x00ffffff;
+      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      outPixels32[i] = (a << 24) | rgb;
+    } else {
+      outPixels32[i] = lut[capped];
+    }
+  }
+};
+
+const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
+  indices,
+  gradientIds,
+  speedBytes,
+  lutsBySpeedModeSlot,
+  fallbackLutsBySpeedMode,
+  outPixels32,
+  alpha,
+  options = {}
+) => {
+  const transparentZero = options.transparentZero === true;
+  const subtractOne = options.subtractOne === true;
+  const length = Math.min(indices.length, outPixels32.length);
+  const useAlpha = alpha && alpha.length >= length * 4;
+
+  for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
+    const rawIndex = indices[i] ?? 0;
+    if (transparentZero && rawIndex === 0) {
+      outPixels32[i] = 0;
+      continue;
+    }
+    const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
+    const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
+    const gid = gradientIds ? (gradientIds[i] ?? 0) : 0;
+    const slot = gid & FLOW_SLOT_MASK;
+    const flowBits = gradientIds ? (gid >> FLOW_SLOT_BITS) : FLOW_MODE_FORWARD;
+    const mode = resolveFlowMode(flowBits);
+    const bySpeed = lutsBySpeedModeSlot.get(speedByte) ?? lutsBySpeedModeSlot.get(0);
+    const byMode = bySpeed?.get(mode) ?? bySpeed?.get(FLOW_MODE_FORWARD);
+    const fallbackModeMap = fallbackLutsBySpeedMode.get(speedByte) ?? fallbackLutsBySpeedMode.get(0);
+    const fallback = fallbackModeMap?.get(mode) ?? fallbackModeMap?.get(FLOW_MODE_FORWARD);
+    const lut = (byMode && byMode.get(slot)) ?? fallback;
     if (!lut) {
       outPixels32[i] = 0;
       continue;
@@ -2645,24 +2673,10 @@ class ColorCycleLayerPlayer {
     if (!this.hasAnimation()) {
       return false;
     }
-    const targetFPS = this.targetFPS;
-    const frameStep = Number.isFinite(targetFPS) && targetFPS > 0 ? 1 / targetFPS : null;
-    let shouldRender = true;
-    if (frameStep) {
-      this.frameAccumulator += deltaSeconds;
-      if (this.frameAccumulator < frameStep) {
-        shouldRender = false;
-      } else {
-        this.frameAccumulator = this.frameAccumulator % frameStep;
-      }
-    }
     if (this.usePerPixelSpeed) {
       this.baseTimeSeconds += deltaSeconds;
-      if (shouldRender) {
-        this.renderFrame();
-        return true;
-      }
-      return false;
+      this.renderFrame();
+      return true;
     }
     const ticksPerSecond = this.speed * this.cycleColors;
     if (!Number.isFinite(ticksPerSecond) || ticksPerSecond <= 0) {
@@ -2673,11 +2687,8 @@ class ColorCycleLayerPlayer {
       return false;
     }
     this.currentTick += deltaTicks;
-    if (shouldRender) {
-      this.renderFrame();
-      return true;
-    }
-    return false;
+    this.renderFrame();
+    return true;
   }
 
   renderFrame() {

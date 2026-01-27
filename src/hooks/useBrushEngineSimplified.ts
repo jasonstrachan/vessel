@@ -4143,12 +4143,14 @@ export const useBrushEngineSimplified = () => {
           const previewCanvas = ctx.canvas as HTMLCanvasElement;
           const srcHasCtx = !!srcCanvas.getContext('2d');
           const previewHasCtx = !!previewCanvas.getContext('2d');
-          const isDrawing = (colorCycleBrush as { isDrawing?: boolean }).isDrawing ?? null;
+          const brushDebug = colorCycleBrush as unknown as {
+            isDrawing?: boolean;
+            layerStrokes?: Map<string, { hasContent?: boolean; hasExternalBase?: boolean }>;
+          };
+          const isDrawing = brushDebug.isDrawing ?? null;
           const strokeData = (() => {
             try {
-              const maybe = (colorCycleBrush as { layerStrokes?: Map<string, { hasContent?: boolean; hasExternalBase?: boolean }> })
-                .layerStrokes
-                ?.get(activeLayerId);
+              const maybe = brushDebug.layerStrokes?.get(activeLayerId);
               return {
                 hasContent: maybe?.hasContent ?? null,
                 hasExternalBase: maybe?.hasExternalBase ?? null,

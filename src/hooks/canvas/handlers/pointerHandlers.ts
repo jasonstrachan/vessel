@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import {
   DEFAULT_COLOR_CYCLE_GRADIENT,
   buildForegroundDerivedGradientSpec,
@@ -940,6 +941,39 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       overlayRegion.width,
       overlayRegion.height
     );
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const activeLayerKey = activeLayerId ?? null;
+        const manager = getColorCycleBrushManager();
+        const brush = activeLayerKey ? manager.getBrush(activeLayerKey) : null;
+        const brushWithState = brush as null | {
+          isDrawing?: boolean;
+          layerStrokes?: Map<string, { hasContent?: boolean; hasExternalBase?: boolean }>;
+        };
+        const strokeData = activeLayerKey
+          ? brushWithState?.layerStrokes?.get(activeLayerKey)
+          : null;
+        const previewHasCtx = true;
+        const srcHasCtx = Boolean(bufferCtx);
+        if (typeof window !== 'undefined') {
+          const w = window as Window & { __ccDebug?: Record<string, unknown> };
+          w.__ccDebug = {
+            ...(w.__ccDebug ?? {}),
+            preview: {
+              previewCanvas: { w: overlay.width, h: overlay.height, hasCtx: previewHasCtx },
+              srcCanvas: { w: bufferCanvas.width, h: bufferCanvas.height, hasCtx: srcHasCtx },
+              sameCanvas: bufferCanvas === overlay,
+              sampledAfterClear: false,
+              isDrawing: Boolean(brushWithState?.isDrawing),
+              strokeData: {
+                hasContent: strokeData?.hasContent ?? false,
+                hasExternalBase: strokeData?.hasExternalBase ?? false,
+              },
+            },
+          };
+        }
+      } catch {}
+    }
     overlayCtx.restore();
   };
 
