@@ -2574,6 +2574,15 @@ export const createShapeToolHandler = (
       return false;
     }
 
+    const mouseDown = (event.buttons & 1) === 1;
+    const penDown = event.pointerType === 'pen' && (event.pressure ?? 0) > 0;
+    const isActivelyDrawing = mouseDown || penDown;
+
+    // Hard guard: CC shapes should never update preview on hover after mouse up.
+    if (isCCShape && !isActivelyDrawing) {
+      return true;
+    }
+
     const worldPos = computeWorldPointer(event);
     let previewWorld = worldPos;
 
@@ -2627,36 +2636,42 @@ export const createShapeToolHandler = (
     let shouldShowPreview: boolean;
     if (isCCShape) {
       // Pause only while the user is actively drawing, not mere hover/preview.
-      const isActivelyDrawing =
-        drawingHandlers.isDrawingShapeRef.current || (event.buttons & 1) === 1;
       if (isActivelyDrawing) {
         drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-drag');
       } else {
-        // Keep animation running during hover previews for CC shapes.
+        // Keep animation running during hover (no drawing) for CC shapes.
         restartColorCycleAnimation?.();
       }
-      const pressure = computePointerPressure(event);
-      const nowTs =
-        typeof performance !== 'undefined' && typeof performance.now === 'function'
-          ? performance.now()
-          : Date.now();
-      const storeNow = useAppStore.getState();
-      const brushNow = storeNow.tools.brushSettings;
-      const isCCLinear = brushNow.colorCycleFillMode === 'linear';
-      const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
-      const isCCGradientPreset = presetId === 'color-cycle-gradient';
-      const shouldDitherPreview =
-        brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-        (isCCLinear || isCCGradientPreset) &&
-        Boolean(brushNow.ditherEnabled);
-      const suppressCCPreview =
-        shouldDitherPreview &&
+
+      if (isActivelyDrawing) {
+        const pressure = computePointerPressure(event);
+        const nowTs =
+          typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        const storeNow = useAppStore.getState();
+        const brushNow = storeNow.tools.brushSettings;
+        const isCCLinear = brushNow.colorCycleFillMode === 'linear';
+        const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
+        const isCCGradientPreset = presetId === 'color-cycle-gradient';
+        const shouldDitherPreview =
+          brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+          (isCCLinear || isCCGradientPreset) &&
+          Boolean(brushNow.ditherEnabled);
+        const suppressCCPreview =
+          shouldDitherPreview &&
+          tools.shapeMode &&
+          drawingHandlers.isDrawingShapeRef.current;
+        drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure, {
+          renderPreview: !suppressCCPreview,
+        });
+      }
+
+      // Only show/advance preview while actively drawing to avoid hover-follow after mouse up.
+      shouldShowPreview =
         tools.shapeMode &&
-        drawingHandlers.isDrawingShapeRef.current;
-      drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure, {
-        renderPreview: !suppressCCPreview,
-      });
-      shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
+        drawingHandlers.isDrawingShapeRef.current &&
+        isActivelyDrawing;
     } else if (isPolygonGradient || isContourPolygon) {
       shouldShowPreview = appendPolygonGradientPoint(previewWorld);
     } else {

@@ -2311,7 +2311,7 @@ export const useBrushEngineSimplified = () => {
     const strokeParams: BrushStrokeParams = {
       from,
       to,
-      pressure: cursor.pressure || 1.0,
+      pressure: cursor.pressure ?? 1.0,
       velocity,
       timestamp: Date.now(),
       customBrushData: cursor.customBrushData
@@ -2359,6 +2359,11 @@ export const useBrushEngineSimplified = () => {
       stats.last = p;
     }
 
+    const stablePressure = stats.stable > 0 ? stats.stable : p;
+    const sizePressure = tools.brushSettings.pressureEnabled
+      ? Math.max(0.01, stablePressure)
+      : strokeParams.pressure;
+
     // Render the stroke
     if (typeof window !== 'undefined') {
       window.__AL_sample = { x: to.x, y: to.y, tag: 'drawBrush' };
@@ -2373,7 +2378,7 @@ export const useBrushEngineSimplified = () => {
     const segmentBounds = estimateStrokeBounds(
       from,
       to,
-      strokeParams.pressure,
+      sizePressure,
       cursor.customBrushData
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
@@ -2390,8 +2395,7 @@ export const useBrushEngineSimplified = () => {
     const dirty = inflateRect(segmentBounds, OVERLAP);
     liveDirtyRectRef.current = mergeRectBounds(liveDirtyRectRef.current, dirty);
 
-    // Let brush size respond to pressure even when PresRes is enabled
-    const sizePressure = strokeParams.pressure ?? 1;
+    // Let brush size respond to smoothed pressure even when PresRes is enabled
     const adjustedStrokeParams = { ...strokeParams, pressure: sizePressure };
 
     brushEngine.renderBrushStroke(rawCtx, adjustedStrokeParams);
@@ -2598,13 +2602,18 @@ export const useBrushEngineSimplified = () => {
       stats.last = p;
     }
 
+    const stablePressure = stats.stable > 0 ? stats.stable : p;
+    const smoothedPressure = tools.brushSettings.pressureEnabled
+      ? Math.max(0.01, stablePressure)
+      : sizePressure;
+
     if (typeof window !== 'undefined') {
       window.__AL_sample = { x, y, tag: 'drawStamp' };
     }
     const segmentBounds = estimateStrokeBounds(
       { x, y },
       { x, y },
-      sizePressure
+      smoothedPressure
     );
     strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
     liveStrokeBoundsRef.current = mergeRectBounds(liveStrokeBoundsRef.current, segmentBounds);
@@ -2628,7 +2637,7 @@ export const useBrushEngineSimplified = () => {
       return;
     }
 
-    brushEngine.renderBrushStroke(rawCtx, { ...strokeParams, pressure: sizePressure });
+    brushEngine.renderBrushStroke(rawCtx, { ...strokeParams, pressure: smoothedPressure });
 
     // Apply lost-edge fade even without dithering
     if (

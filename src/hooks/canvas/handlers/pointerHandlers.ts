@@ -3358,8 +3358,17 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       }
       
       // Normal brush or shape mode
-    if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
-      let shapeWorld = worldPos;
+      if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+        const isMouseDown = (event.buttons & 1) === 1;
+        const penActive = event.pointerType === 'pen' && (event.pressure ?? 0) > 0;
+        const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+
+        // Avoid CC shape previews drifting after mouse up.
+        if (isColorCycleShape && !isMouseDown && !penActive) {
+          return;
+        }
+
+        let shapeWorld = worldPos;
         if (event.shiftKey) {
           const pts = drawingHandlers.shapePointsRef?.current || [];
           if (pts.length >= 1) {
