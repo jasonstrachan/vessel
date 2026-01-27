@@ -197,7 +197,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       continueDrawing: jest.fn(),
       continueShapeDrawing: jest.fn(),
       finalizeDrawing: jest.fn().mockResolvedValue(undefined),
-      finalizeShapeDrawing: jest.fn(),
+      finalizeShapeDrawing: jest.fn().mockResolvedValue(undefined),
       endStrokeSession: jest.fn(),
       clearStrokeSession: jest.fn(),
       isDrawingShapeRef: { current: false },
@@ -662,7 +662,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.draw).toHaveBeenCalled();
   });
 
-  it('finalizes shape drawing on pointer up', () => {
+  it('finalizes shape drawing on pointer up', async () => {
     const { deps } = createDeps({
       tools: {
         ...baseDynamic.tools,
@@ -680,6 +680,8 @@ describe('pointerHandlers main flows', () => {
 
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerUp(makePointerEvent({ clientX: 4, clientY: 4 }));
+
+    await Promise.resolve();
 
     expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();

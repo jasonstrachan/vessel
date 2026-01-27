@@ -2630,7 +2630,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             
             // Fill shape with color cycle gradient from edges to center
             const points = toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }));
-            await brushEngine.fillColorCycleShape(points);
+            await brushEngine.fillCcGradientConcentric(points);
             
             // Clear the drawing canvas before rendering
             drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);

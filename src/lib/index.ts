@@ -11,6 +11,7 @@ export { AnimationController } from './AnimationController';
 // Integration layers
 export { ColorCycleRenderer } from './ColorCycleRenderer';
 export { ColorCycleAnimator } from './ColorCycleAnimator';
+export type { CCIndexSurface, CCIndexSurfaceRect } from './colorCycle/CCIndexSurface';
 
 // Types
 export type { GradientStop, RGBA } from './GradientPalette';

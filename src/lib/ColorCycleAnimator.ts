@@ -12,6 +12,7 @@ import { PaletteController } from '@/lib/colorCycle/PaletteController';
 import { Renderer2D } from '@/lib/colorCycle/Renderer2D';
 import { RendererWebGL } from '@/lib/colorCycle/rendering/RendererWebGL';
 import { FlowMode, StrokeOrderTracker } from '@/lib/colorCycle/StrokeOrderTracker';
+import type { CCIndexSurface, CCIndexSurfaceRect } from '@/lib/colorCycle/CCIndexSurface';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -49,7 +50,7 @@ export interface ColorCycleAnimatorConfig {
   forceCanvas2D?: boolean; // Force CPU rendering even if WebGL is available
 }
 
-export class ColorCycleAnimator {
+export class ColorCycleAnimator implements CCIndexSurface {
   private indexBuffer: IndexBuffer;
   private animationController: AnimationController;
   private paletteController: PaletteController;
@@ -118,6 +119,43 @@ export class ColorCycleAnimator {
     } else {
       this.updateIndexBufferPalette();
     }
+  }
+
+  get width(): number {
+    return this.indexBuffer.getDimensions().width;
+  }
+
+  get height(): number {
+    return this.indexBuffer.getDimensions().height;
+  }
+
+  getIndexBuffers(): { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array } {
+    return {
+      data: this.indexBuffer.getDirectData(),
+      gid: this.indexBuffer.getDirectGradientIdData(),
+      spd: this.indexBuffer.getDirectSpeedData(),
+    };
+  }
+
+  setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array): void {
+    this.setIndexBufferFromArray(data, gid, spd);
+  }
+
+  markDirty(bounds?: CCIndexSurfaceRect): void {
+    if (!bounds) {
+      this.indexBuffer.markDirty();
+      this._glIndexDirty = true;
+      return;
+    }
+    const minX = Math.floor(bounds.x);
+    const minY = Math.floor(bounds.y);
+    const width = Math.max(1, Math.ceil(bounds.width));
+    const height = Math.max(1, Math.ceil(bounds.height));
+    this.markDirtyBounds({ minX, minY, width, height });
+  }
+
+  renderToCanvas2D(ctx: CanvasRenderingContext2D): void {
+    this.drawTo(ctx, 0, 0);
   }
 
   

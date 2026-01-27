@@ -8,7 +8,25 @@ import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 // Debug logs suppressed for color cycle brush
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
-import { applyDitheringWithFillResolution } from './dithering';
+import { fillConcentric, fillLinear } from './ccGradientFillDither';
+import {
+  applyStampDitherStamp,
+  clearStampDitherRuntime,
+  createStampDitherRuntime,
+  ensureStampDitherBaseBuffers,
+  ensureStampDitherBuffers,
+  ensureStampDitherOwner,
+  finalizeStampDither,
+  recomposeStampDitherOverlay,
+  resolveStampDitherBucket,
+  resolveStampDitherCoverage,
+  scheduleStampDitherRecompose,
+  STAMP_DITHER_BUCKETS,
+  STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS,
+  type StampDitherAlgorithm,
+  type StampDitherConfig,
+  type StampDitherState,
+} from './strokeStampDither';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
@@ -20,14 +38,7 @@ import { getMaskManager } from '@/layers/MaskManager';
 import { recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
 import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
-import {
-  applyPressureDither,
-  BAYER_8x8_MATRIX,
-  BLUE_NOISE_16x16,
-  VOID_CLUSTER_8x8,
-} from '@/utils/ditherAlgorithms';
-import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
-import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
+import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import type { DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, encodeFlowSlot, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
@@ -35,22 +46,6 @@ import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 // Stamp dithering has two concepts:
 // 1) Live stamp coverage mask / tiling (what users see during drawing)
 // 2) Optional finalize-only error diffusion pass (expensive / different look)
-//
-// IMPORTANT:
-// For stamp algorithm 'sierra-lite' in this brush, the live stroke already uses
-// a tile/coverage decision path. Running finalizeStrokeErrorDiffusion() on mouseup
-// overwrites the live look, causing "preview looks dithered but finalize looks clean/different".
-// Therefore we intentionally EXCLUDE 'sierra-lite' from finalize-only processing.
-const STAMP_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<DitherAlgorithm> = new Set([
-  'floyd-steinberg',
-  'jarvis-judice-ninke',
-  'stucki',
-  'burkes',
-  'sierra-3',
-  'sierra-2',
-  'atkinson',
-  // intentionally excludes: 'sierra-lite'
-]);
 
 type ColorCycleBrushCanvas2DOptions = {
   brushSize?: number;
@@ -72,47 +67,38 @@ interface CustomStampInput {
 }
 
 type RgbColor = { r: number; g: number; b: number };
-type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
-type StrokeFillHandle = ReturnType<ColorCycleAnimator['beginDirectFill']>;
+type Vec2 = { x: number; y: number };
+type FillMode = 'linear' | 'concentric';
+
+type FillOptions = {
+  continuous?: boolean;
+  ditherLevels?: number;
+  ccGradient?: boolean;
+  ditherPixelSize?: number;
+  roi?: { x: number; y: number; width: number; height: number };
+  spacing?: number;
+};
 
 type LayerStrokeState = {
-  paintBuffer: Uint8Array;
-  gradientIdBuffer?: Uint8Array;
-  speedBuffer?: Uint8Array;
   hasContent: boolean;
   strokeCounter: number;
-  strokeLength: number;
-  lastPoint: { x: number; y: number } | null;
-  gradientLayerIndices: number[];
-  currentGradientIndex: number;
   stampCounter: number;
-  activeGradientSlot: number;
-  hasExternalBase?: boolean;
-  lastSnapshot?: StrokeDataSnapshot;
-  stampDitherOrigin?: { x: number; y: number } | null;
-  stampDitherSeed?: number;
-  stampDitherPressureState?: ReturnType<typeof createPressureResolutionState> | null;
-  stampDitherOwner?: Uint16Array;
-  stampDitherStampSeq?: number;
-  stampDitherPrimaryBuffer?: Uint8Array;
-  stampDitherBaseIdx?: Uint8Array;
-  stampDitherBaseGid?: Uint8Array;
-  stampDitherBaseMask?: Uint8Array;
-  stampDitherLockedBucket?: number;
-  stampDitherStrokeScale?: number;
-  stampDitherOriginUnits?: { x: number; y: number } | null; // 0..TILE-1, scale-free
-  stampDitherOriginBaseSize?: number;
-  stampDitherBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null;
-  stampDitherLastTileScale?: number | null;
-  stampDitherChoice?: Uint8Array;
-  stampSeqMeta?: Array<[number, number]>;
-  stampSeqToTileScale?: Uint16Array;
-  stampDitherRecomposeLastMs?: number;
-  stampDitherRecomposePending?: boolean;
-  stampDitherRecomposeScale?: number;
-  stampDitherFillHandle?: StrokeFillHandle;
-  stampFlowMode?: FlowMode;
-  stampFlowEncoded?: boolean;
+  lastPoint: Vec2 | null;
+  buffers: {
+    paint: Uint8Array;
+    gid: Uint8Array;
+    spd: Uint8Array;
+  };
+  flow: {
+    activeSlot: number;
+    encoded: boolean;
+    mode?: FlowMode;
+  };
+  externalBase: {
+    hasExternalBase: boolean;
+  };
+  stampDither?: StampDitherState;
+  snapshot?: StrokeDataSnapshot;
 };
     
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
@@ -178,7 +164,7 @@ interface ColorCycleBrushCanvasState {
   stampShape?: StampShape;
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
-  stampDitherAlgorithm?: DitherAlgorithm;
+  stampDitherAlgorithm?: StampDitherAlgorithm;
   stampDitherPatternStyle?: PatternStyle;
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
@@ -196,7 +182,7 @@ interface ColorCycleBrushCanvasSerialized {
   stampShape?: StampShape;
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
-  stampDitherAlgorithm?: DitherAlgorithm;
+  stampDitherAlgorithm?: StampDitherAlgorithm;
   stampDitherPatternStyle?: PatternStyle;
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
@@ -213,16 +199,6 @@ interface StampMaskCacheEntry {
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
-const STAMP_DITHER_BUCKETS = 64;
-const STAMP_DITHER_TILE_BASE_MIN = 64;
-const STAMP_DITHER_TILE_BASE_MAX = 128;
-const STAMP_DITHER_TILE_TARGET = 128;
-const STAMP_DITHER_PHASE_STEPS = 8;
-const STAMP_DITHER_COVERAGE_MIN = 0.25;
-const STAMP_DITHER_COVERAGE_MAX = 0.75;
-const STAMP_DITHER_COVERAGE_CLAMP_MIN = 0.35;
-const STAMP_DITHER_COVERAGE_CLAMP_MAX = 0.65;
-
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const createYieldController = () => {
@@ -266,6 +242,7 @@ const paletteEntriesFromMap = (map: Map<string, number>): PaletteMapEntry[] => {
 };
 
 export class ColorCycleBrushCanvas2D {
+  private static readonly REDUCED_INIT_SIZE = 256;
   private animators: Map<string, ColorCycleAnimator> = new Map();
   private activeLayerId: string | null = null;
   
@@ -309,7 +286,6 @@ export class ColorCycleBrushCanvas2D {
   
   // Stroke tracking
   private strokeCounter: number = 0;
-  private strokeLength: number = 0;
   private lastPoint: { x: number; y: number } | null = null;
   private isDrawing: boolean = false;
   
@@ -333,7 +309,6 @@ export class ColorCycleBrushCanvas2D {
   
   // Layer tracking for API compatibility
   private layerStrokes: Map<string, LayerStrokeState> = new Map();
-  private deferredAnimatorSizes: WeakMap<ColorCycleAnimator, { width: number; height: number }> = new WeakMap();
 
   private customStampSourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
   private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
@@ -344,10 +319,9 @@ export class ColorCycleBrushCanvas2D {
   private activeGradientSlots: Map<string, number> = new Map();
   private stampDitherEnabled: boolean = false;
   private stampDitherPixelSize: number = 1;
-  private stampDitherAlgorithm: DitherAlgorithm = 'sierra-lite';
+  private stampDitherAlgorithm: StampDitherAlgorithm = 'sierra-lite';
   private stampDitherPatternStyle: PatternStyle = 'dots';
-  private stampDitherBaseTiles: Map<string, Uint8Array> = new Map();
-  private stampDitherTiles: Map<string, Uint8Array> = new Map();
+  private stampDitherRuntime: ReturnType<typeof createStampDitherRuntime> = createStampDitherRuntime();
   private stampDitherBgFill: boolean = true;
   private stampDitherPressureLinked: boolean = false;
   private preserveGradientPhaseOnChange: boolean = false;
@@ -410,32 +384,35 @@ export class ColorCycleBrushCanvas2D {
     this.clearStampDitherCache();
   }
 
+  private createLayerStrokeState(options?: { hasContent?: boolean; bufferSize?: number }): LayerStrokeState {
+    const size = Math.max(0, Math.floor(options?.bufferSize ?? this.width * this.height));
+    return {
+      hasContent: Boolean(options?.hasContent),
+      strokeCounter: 0,
+      stampCounter: 0,
+      lastPoint: null,
+      buffers: {
+        paint: new Uint8Array(size),
+        gid: new Uint8Array(size),
+        spd: new Uint8Array(size),
+      },
+      flow: {
+        activeSlot: 0,
+        encoded: false,
+        mode: undefined,
+      },
+      externalBase: {
+        hasExternalBase: false,
+      },
+      stampDither: undefined,
+      snapshot: undefined,
+    };
+  }
+
   private ensureStrokeState(layerId: string): LayerStrokeState {
     let strokeData = this.layerStrokes.get(layerId);
     if (!strokeData) {
-      strokeData = {
-        paintBuffer: new Uint8Array(this.width * this.height),
-        gradientIdBuffer: new Uint8Array(this.width * this.height),
-        speedBuffer: new Uint8Array(this.width * this.height),
-        hasContent: false,
-        strokeCounter: 0,
-        strokeLength: 0,
-        lastPoint: null,
-        gradientLayerIndices: [],
-        currentGradientIndex: 0,
-        stampCounter: 0,
-        activeGradientSlot: 0,
-        hasExternalBase: false,
-        stampDitherOrigin: null,
-        stampDitherPressureState: null,
-        stampDitherOwner: undefined,
-        stampDitherStampSeq: 0,
-        stampDitherPrimaryBuffer: undefined,
-        stampDitherBaseIdx: undefined,
-        stampDitherBaseGid: undefined,
-        stampDitherBounds: null,
-        stampDitherLastTileScale: null
-      };
+      strokeData = this.createLayerStrokeState({ hasContent: false });
       this.layerStrokes.set(layerId, strokeData);
     }
     return strokeData;
@@ -443,7 +420,105 @@ export class ColorCycleBrushCanvas2D {
 
   markLayerHasExternalBase(layerId: string) {
     const strokeData = this.ensureStrokeState(layerId);
-    strokeData.hasExternalBase = true;
+    strokeData.externalBase.hasExternalBase = true;
+  }
+
+  private createAnimator(layerId: string, options: { initial: 'reduced' | 'full' }): ColorCycleAnimator {
+    const useReduced = options.initial === 'reduced';
+    const initSize = ColorCycleBrushCanvas2D.REDUCED_INIT_SIZE;
+    const initWidth = useReduced ? initSize : this.width;
+    const initHeight = useReduced ? initSize : this.height;
+
+    const animator = new ColorCycleAnimator({
+      width: initWidth,
+      height: initHeight,
+      fps: this.fps,
+      speed: this.cycleSpeed,
+      autoStart: false,
+      lazyInit: true,
+      forceCanvas2D: this.forceCanvas2D
+    });
+    animator.setFlowMode(this.legacyFlowMode);
+    this.animators.set(layerId, animator);
+
+    if (!this.layerStrokes.has(layerId)) {
+      this.layerStrokes.set(layerId, this.createLayerStrokeState({ hasContent: false, bufferSize: 0 }));
+    }
+
+    return animator;
+  }
+
+  private ensureFullResolution(layerId: string, reason: 'stroke' | 'fill' | 'restore'): ColorCycleAnimator {
+    const animator = this.animators.get(layerId) ?? this.createAnimator(layerId, { initial: 'full' });
+    const { width, height } = animator.getDimensions();
+    if (width !== this.width || height !== this.height) {
+      animator.resize(this.width, this.height);
+    }
+
+    const strokeData = this.layerStrokes.get(layerId);
+    if (strokeData) {
+      const expected = this.width * this.height;
+      if (strokeData.buffers.paint.length !== expected) {
+        strokeData.buffers.paint = new Uint8Array(expected);
+      }
+      if (strokeData.buffers.gid.length !== expected) {
+        strokeData.buffers.gid = new Uint8Array(expected);
+      }
+      if (strokeData.buffers.spd.length !== expected) {
+        strokeData.buffers.spd = new Uint8Array(expected);
+      }
+    }
+
+    if (process.env.NODE_ENV !== 'production' && reason === 'stroke') {
+      const dims = animator.getDimensions();
+      console.assert(
+        dims.width === this.width && dims.height === this.height,
+        '[CC] Animator size mismatch during stroke',
+        { layerId, reason, animator: dims, brush: { width: this.width, height: this.height } }
+      );
+    }
+
+    return animator;
+  }
+
+  private assertStrokeHandleSize(
+    handle: { width: number; height: number } | null | undefined,
+    context: string
+  ): void {
+    if (process.env.NODE_ENV === 'production' || !handle) {
+      return;
+    }
+    console.assert(
+      handle.width === this.width && handle.height === this.height,
+      `[CC] ${context} handle size mismatch`,
+      { handle: { width: handle.width, height: handle.height }, brush: { width: this.width, height: this.height } }
+    );
+  }
+
+  private ensureStampDitherState(strokeData: LayerStrokeState): StampDitherState {
+    if (!strokeData.stampDither) {
+      strokeData.stampDither = {};
+    }
+    return strokeData.stampDither;
+  }
+
+  private getStampDitherStrokeData(
+    strokeData: LayerStrokeState
+  ): StampDitherState & {
+    paintBuffer: Uint8Array;
+    gradientIdBuffer?: Uint8Array;
+    speedBuffer?: Uint8Array;
+  } {
+    const stampDither = this.ensureStampDitherState(strokeData);
+    const stampStroke = stampDither as StampDitherState & {
+      paintBuffer: Uint8Array;
+      gradientIdBuffer?: Uint8Array;
+      speedBuffer?: Uint8Array;
+    };
+    stampStroke.paintBuffer = strokeData.buffers.paint;
+    stampStroke.gradientIdBuffer = strokeData.buffers.gid;
+    stampStroke.speedBuffer = strokeData.buffers.spd;
+    return stampStroke;
   }
 
   /**
@@ -457,65 +532,9 @@ export class ColorCycleBrushCanvas2D {
     }
     
     if (!this.animators.has(layerId)) {
-      // quiet
-      // PERFORMANCE FIX: Lazy initialization with smaller initial size
       const strokeData = this.layerStrokes.get(layerId);
-      const useReducedSize = !strokeData?.hasContent;
-      const initWidth = useReducedSize ? 256 : this.width;
-      const initHeight = useReducedSize ? 256 : this.height;
-      
-      // quiet
-      
-      // Measure ColorCycleAnimator creation
-      // debug timing (dev-only)
-      // quiet
-      const animator = new ColorCycleAnimator({
-        width: initWidth,
-        height: initHeight,
-        fps: this.fps,
-        speed: this.cycleSpeed,
-        autoStart: false,
-        lazyInit: true,
-        forceCanvas2D: this.forceCanvas2D
-      });
-      // quiet
-      animator.setFlowMode(this.legacyFlowMode);
-      
-      // Defer full initialization until first paint
-      this.deferredAnimatorSizes.set(animator, { width: this.width, height: this.height });
-
-      this.animators.set(layerId, animator);
-      
-      // Measure stroke data setup
-      // quiet
-      if (!this.layerStrokes.has(layerId)) {
-        this.layerStrokes.set(layerId, {
-          paintBuffer: new Uint8Array(0), // Start with empty buffer
-          gradientIdBuffer: new Uint8Array(0),
-          speedBuffer: new Uint8Array(0),
-          hasContent: false,
-          strokeCounter: 0,
-          strokeLength: 0,
-          lastPoint: null,
-          gradientLayerIndices: [],
-          currentGradientIndex: 0,
-          stampCounter: 0,
-          activeGradientSlot: 0,
-          hasExternalBase: false,
-          stampDitherOrigin: null,
-          stampDitherPressureState: null,
-          stampDitherOwner: undefined,
-          stampDitherStampSeq: 0,
-          stampDitherPrimaryBuffer: undefined,
-          stampDitherBaseIdx: undefined,
-          stampDitherBaseGid: undefined,
-          stampDitherBounds: null,
-          stampDitherLastTileScale: null
-        });
-      }
-      // quiet
-
-      // quiet
+      const initial = strokeData?.hasContent ? 'full' : 'reduced';
+      this.createAnimator(layerId, { initial });
     }
     
     const animator = this.animators.get(layerId);
@@ -523,31 +542,17 @@ export class ColorCycleBrushCanvas2D {
       throw new Error(`Failed to get or create animator for layer: ${layerId}`);
     }
     
-    // Resize on first actual use if needed
-    const strokeData = this.layerStrokes.get(layerId);
-    const deferredSize = this.deferredAnimatorSizes.get(animator);
-    if (deferredSize && strokeData?.hasContent) {
-      const { width, height } = deferredSize;
-      animator.resize(width, height);
-      this.deferredAnimatorSizes.delete(animator);
-      
-      // Also resize paint buffer
-      strokeData.paintBuffer = new Uint8Array(width * height);
-      strokeData.gradientIdBuffer = new Uint8Array(width * height);
-      strokeData.speedBuffer = new Uint8Array(width * height);
-    }
-    
     return animator;
   }
 
   private resolveFlowSlot(strokeData: LayerStrokeState | null | undefined, activeSlot: number): number {
-    if (!strokeData?.stampFlowEncoded || !strokeData.stampFlowMode) {
+    if (!strokeData?.flow.encoded || !strokeData.flow.mode) {
       return activeSlot;
     }
     if (activeSlot > FLOW_SLOT_MASK) {
       return activeSlot;
     }
-    return encodeFlowSlot(activeSlot, strokeData.stampFlowMode);
+    return encodeFlowSlot(activeSlot, strokeData.flow.mode);
   }
   
   /**
@@ -555,64 +560,26 @@ export class ColorCycleBrushCanvas2D {
    */
   private prepareStrokeContext(layerId: string) {
     const id = layerId;
-    const animator = this.getAnimator(id);
+    const animator = this.ensureFullResolution(id, 'stroke');
     let strokeData = this.layerStrokes.get(id);
     if (!strokeData) {
-      strokeData = {
-        paintBuffer: new Uint8Array(this.width * this.height),
-        gradientIdBuffer: new Uint8Array(this.width * this.height),
-        speedBuffer: new Uint8Array(this.width * this.height),
-        hasContent: true,
-        strokeCounter: 0,
-        strokeLength: 0,
-        lastPoint: null,
-        gradientLayerIndices: [],
-        currentGradientIndex: 0,
-        stampCounter: 0,
-        activeGradientSlot: 0,
-        hasExternalBase: false,
-        stampDitherOrigin: null,
-        stampDitherPressureState: null,
-        stampDitherOwner: undefined,
-        stampDitherStampSeq: 0,
-        stampDitherPrimaryBuffer: undefined,
-        stampDitherBaseIdx: undefined,
-        stampDitherBaseGid: undefined,
-        stampDitherBounds: null,
-        stampDitherLastTileScale: null
-      };
+      strokeData = this.createLayerStrokeState({ hasContent: true });
       this.layerStrokes.set(id, strokeData);
     } else if (!strokeData.hasContent) {
       strokeData.hasContent = true;
-      if (strokeData.paintBuffer.length !== this.width * this.height) {
-        strokeData.paintBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.paint.length !== this.width * this.height) {
+        strokeData.buffers.paint = new Uint8Array(this.width * this.height);
       }
-      if (!strokeData.gradientIdBuffer || strokeData.gradientIdBuffer.length !== this.width * this.height) {
-        strokeData.gradientIdBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.gid.length !== this.width * this.height) {
+        strokeData.buffers.gid = new Uint8Array(this.width * this.height);
       }
-      if (!strokeData.speedBuffer || strokeData.speedBuffer.length !== this.width * this.height) {
-        strokeData.speedBuffer = new Uint8Array(this.width * this.height);
-      }
-    }
-
-    const deferredSize = this.deferredAnimatorSizes.get(animator);
-    if (deferredSize) {
-      const { width, height } = deferredSize;
-      animator.resize(width, height);
-      this.deferredAnimatorSizes.delete(animator);
-      if (strokeData.paintBuffer.length !== width * height) {
-        strokeData.paintBuffer = new Uint8Array(width * height);
-      }
-      if (!strokeData.gradientIdBuffer || strokeData.gradientIdBuffer.length !== width * height) {
-        strokeData.gradientIdBuffer = new Uint8Array(width * height);
-      }
-      if (!strokeData.speedBuffer || strokeData.speedBuffer.length !== width * height) {
-        strokeData.speedBuffer = new Uint8Array(width * height);
+      if (strokeData.buffers.spd.length !== this.width * this.height) {
+        strokeData.buffers.spd = new Uint8Array(this.width * this.height);
       }
     }
 
-    const activeSlot = strokeData.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
-    strokeData.activeGradientSlot = activeSlot;
+    const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+    strokeData.flow.activeSlot = activeSlot;
 
     return { id, animator, strokeData };
   }
@@ -641,19 +608,6 @@ export class ColorCycleBrushCanvas2D {
     return this.mapBandIndexToPaletteIndex(bandIndex, bands);
   }
 
-  private resolveStampDitherCoverage(phase: number, colorIndex: number): number {
-    const basePhase = this.isAnimating ? phase : 0.5;
-    const clamped = Math.max(0, Math.min(1, basePhase));
-    const steps = Math.max(2, STAMP_DITHER_PHASE_STEPS);
-    const snapped = Math.round(clamped * (steps - 1)) / (steps - 1);
-    const eased = STAMP_DITHER_COVERAGE_MIN +
-      (STAMP_DITHER_COVERAGE_MAX - STAMP_DITHER_COVERAGE_MIN) * snapped;
-    const normalizedIndex = Math.max(0, Math.min(1, (colorIndex - 1) / 254));
-    const extremity = Math.abs(normalizedIndex - 0.5) * 2;
-    const pullToMid = Math.min(1, extremity * 0.85);
-    const blended = eased + (0.5 - eased) * pullToMid;
-    return Math.max(STAMP_DITHER_COVERAGE_CLAMP_MIN, Math.min(STAMP_DITHER_COVERAGE_CLAMP_MAX, blended));
-  }
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
     let source = this.customStampSourceCache.get(stamp.imageData);
@@ -813,11 +767,11 @@ export class ColorCycleBrushCanvas2D {
 
     if (strokeData) {
       const colorIndex = this.computeColorBandIndex(strokeData);
-      const activeSlot = strokeData.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
+      const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
       
       // Calculate pressure-modulated brush size using smooth curve
-      const pressureSize = this.pressureEnabled 
+    const pressureSize = this.pressureEnabled 
         ? Math.max(1, Math.round(this.brushSize * applyPressureCurve(
             pressure,
             this.minPressure,    // Already in percentage format (1-1000)
@@ -829,194 +783,64 @@ export class ColorCycleBrushCanvas2D {
       // Detailed paint debug removed
       
       const useStampDither = this.stampDitherEnabled;
-      const baseTileScale = Math.max(1, this.stampDitherPixelSize);
-      let tileScale = baseTileScale;
-      if (useStampDither && this.stampDitherPressureLinked) {
-        const pressureState =
-          strokeData.stampDitherPressureState ?? createPressureResolutionState(1);
-        strokeData.stampDitherPressureState = pressureState;
-        const computed = computePressureResolution(
-          baseTileScale,
-          pressure,
-          true,
-          pressureState,
-          undefined,
-          Math.max(1, baseTileScale * 4)
-        );
-        tileScale = Math.max(1, Math.round(computed));
-      } else {
-        strokeData.stampDitherPressureState = null;
-      }
-      if (strokeData.stampDitherStrokeScale == null) {
-        strokeData.stampDitherStrokeScale = tileScale;
-      } else {
-        strokeData.stampDitherStrokeScale = tileScale;
-      }
-      const tileScaleInt = tileScale;
-      let tileSize = useStampDither ? STAMP_DITHER_TILE_BASE_MIN * tileScaleInt : undefined;
       const primaryIndex = colorIndex;
-      let tile: Uint8Array | undefined;
-      let maskOriginX: number | undefined;
-      let maskOriginY: number | undefined;
-      let stampBounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
-
-      if (useStampDither) {
-        if (!this.stampDitherBgFill && !strokeData.stampDitherBaseMask) {
-          this.ensureStampDitherBaseBuffers(strokeData);
-        }
-        if (strokeData.stampDitherLockedBucket == null) {
-          const phaseForMask = 0.5;
-          const idxForMask = this.computeColorBandIndex(strokeData);
-          const coverage = this.resolveStampDitherCoverage(phaseForMask, idxForMask);
-          const rawBucket = this.resolveStampDitherBucket(coverage);
-          strokeData.stampDitherLockedBucket = Math.min(
-            STAMP_DITHER_BUCKETS - 2,
-            Math.max(1, rawBucket)
-          );
-        }
-
-      const lastScale = strokeData.stampDitherLastTileScale;
-      if (lastScale == null) {
-        strokeData.stampDitherLastTileScale = tileScaleInt;
-      } else if (lastScale !== tileScaleInt) {
-        strokeData.stampDitherLastTileScale = tileScaleInt;
-        this.scheduleStampDitherRecompose(strokeData, animator, flowSlot, tileScaleInt);
-      }
-
-      const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
-      const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
-      if (algo === 'pattern') {
-        const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
-        if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
-          const seed = strokeData.stampDitherSeed ?? 0;
-          strokeData.stampDitherOriginUnits = {
-            x: (seed % baseSize) | 0,
-            y: ((seed >>> 16) % baseSize) | 0,
-          };
-          strokeData.stampDitherOriginBaseSize = baseSize;
-        }
-        tileSize = baseSize * tileScaleInt;
-        const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
-        maskOriginX = -originU.x * tileScaleInt;
-        maskOriginY = -originU.y * tileScaleInt;
-        strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
-
-        const bucket = strokeData.stampDitherLockedBucket ?? 1;
-        tile = this.getStampDitherTile(
-          bucket,
-          tileScaleInt,
-          baseSize,
-          'pattern',
-          this.stampDitherPatternStyle
-        );
-      } else {
-        const baseSize = this.resolveStampDitherBaseSize(tileScaleInt);
-        if (!strokeData.stampDitherOriginUnits || strokeData.stampDitherOriginBaseSize !== baseSize) {
-          const seed = strokeData.stampDitherSeed ?? 0;
-          strokeData.stampDitherOriginUnits = {
-            x: (seed % baseSize) | 0,
-            y: ((seed >>> 16) % baseSize) | 0,
-          };
-          strokeData.stampDitherOriginBaseSize = baseSize;
-        }
-        tileSize = baseSize * tileScaleInt;
-        const originU = strokeData.stampDitherOriginUnits ?? { x: 0, y: 0 };
-        maskOriginX = -originU.x * tileScaleInt;
-        maskOriginY = -originU.y * tileScaleInt;
-        strokeData.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
-        const bucket = strokeData.stampDitherLockedBucket ?? 1;
-        tile = this.getStampDitherTile(bucket, tileScaleInt, baseSize, 'sierra-lite');
-      }
-
-        const nextSeq = (strokeData.stampDitherStampSeq ?? 0) + 1;
-        strokeData.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
-        const stampSeq = strokeData.stampDitherStampSeq ?? 1;
-
-        stampBounds = this.applyStampDitherMask(
-          strokeData,
-          this.stampShape,
-          x,
-          y,
-          pressureSize,
-          primaryIndex,
-          stampSeq
-        );
-        if (stampBounds && strokeData.stampSeqMeta) {
-          strokeData.stampSeqMeta.push([stampSeq, tileScaleInt]);
-        }
-      }
 
       // Paint with specific color index and pressure-modulated size
-      if (this.stampShape === 'triangle') {
-        if (useStampDither && tile && tileSize && stampBounds) {
-          const bounds = stampBounds;
-          this.applyStampDitherToRegion(
-            strokeData,
-            animator,
-            bounds,
-            tile,
-            tileSize,
-            maskOriginX ?? stampBounds.minX,
-            maskOriginY ?? stampBounds.minY,
-            flowSlot,
-            strokeData.stampDitherStampSeq ?? 1
-          );
-        } else {
-          animator.paintTriangle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
-        }
-      } else if (this.stampShape === 'round') {
-        if (useStampDither && tile && tileSize && stampBounds) {
-          const bounds = stampBounds;
-          this.applyStampDitherToRegion(
-            strokeData,
-            animator,
-            bounds,
-            tile,
-            tileSize,
-            maskOriginX ?? stampBounds.minX,
-            maskOriginY ?? stampBounds.minY,
-            flowSlot,
-            strokeData.stampDitherStampSeq ?? 1
-          );
-        } else {
-          animator.paintCircle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
-        }
-      } else if (this.stampShape === 'diamond') {
-        if (useStampDither && tile && tileSize && stampBounds) {
-          const bounds = stampBounds;
-          this.applyStampDitherToRegion(
-            strokeData,
-            animator,
-            bounds,
-            tile,
-            tileSize,
-            maskOriginX ?? stampBounds.minX,
-            maskOriginY ?? stampBounds.minY,
-            flowSlot,
-            strokeData.stampDitherStampSeq ?? 1
-          );
-        } else {
-          animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
-        }
-      } else if (useStampDither && tile && tileSize && stampBounds) {
-        const bounds = stampBounds;
-        this.applyStampDitherToRegion(
-          strokeData,
+      if (useStampDither) {
+        const config: StampDitherConfig = {
+          algorithm: this.stampDitherAlgorithm ?? 'sierra-lite',
+          pixelSize: this.stampDitherPixelSize,
+          patternStyle: this.stampDitherPatternStyle,
+          bgFill: this.stampDitherBgFill,
+          pressureLinked: this.stampDitherPressureLinked,
+          seed: strokeData.stampDither?.stampDitherSeed ?? 0,
+        };
+        applyStampDitherStamp({
           animator,
-          bounds,
-          tile,
-          tileSize,
-          maskOriginX ?? stampBounds.minX,
-          maskOriginY ?? stampBounds.minY,
+          state: this.getStampDitherStrokeData(strokeData),
+          config,
+          runtime: this.stampDitherRuntime,
+          stampShape: this.stampShape,
+          x,
+          y,
+          pressure,
+          pressureSize,
+          primaryIndex,
           flowSlot,
-          strokeData.stampDitherStampSeq ?? 1
-        );
+          cycleSpeed: this.cycleSpeed,
+          width: this.width,
+          height: this.height,
+          isAnimating: this.isAnimating,
+          onScheduleRecompose: (tileScale) => {
+            const stampState = this.ensureStampDitherState(strokeData);
+            stampState.stampDitherRecomposeScale = tileScale;
+            scheduleStampDitherRecompose({
+              state: this.getStampDitherStrokeData(strokeData),
+              onRecompose: (nextScale) => {
+                recomposeStampDitherOverlay({
+                  state: this.getStampDitherStrokeData(strokeData),
+                  config,
+                  runtime: this.stampDitherRuntime,
+                  animator,
+                  flowSlot,
+                  cycleSpeed: this.cycleSpeed,
+                  tileScale: nextScale,
+                });
+              },
+            });
+          },
+        });
+      } else if (this.stampShape === 'triangle') {
+        animator.paintTriangle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+      } else if (this.stampShape === 'round') {
+        animator.paintCircle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+      } else if (this.stampShape === 'diamond') {
+        animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
       } else {
         animator.paintSquare(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
       }
       
       // Update tracking
-      strokeData.strokeLength++;
       strokeData.lastPoint = { x, y };
       strokeData.stampCounter++;
     }
@@ -1125,12 +949,11 @@ export class ColorCycleBrushCanvas2D {
         if (targetX < 0 || targetX >= this.width) continue;
         if (alpha[rowOffset + px] < 16) continue;
         this.logSetIndexSample(id, targetX, targetY);
-        const flowSlot = this.resolveFlowSlot(strokeData, strokeData.activeGradientSlot ?? 0);
+        const flowSlot = this.resolveFlowSlot(strokeData, strokeData.flow.activeSlot ?? 0);
         animator.setIndex(targetX, targetY, colorIndex, flowSlot);
       }
     }
 
-    strokeData.strokeLength++;
     strokeData.lastPoint = { x, y };
     strokeData.stampCounter++;
 
@@ -1188,8 +1011,6 @@ export class ColorCycleBrushCanvas2D {
       const strokeData = this.layerStrokes.get(layerId);
       if (strokeData) {
         strokeData.stampCounter = 0;
-        strokeData.currentGradientIndex = strokeData.gradientLayerIndices.length;
-        strokeData.gradientLayerIndices.push(strokeData.currentGradientIndex);
       }
     }
   }
@@ -1263,7 +1084,7 @@ export class ColorCycleBrushCanvas2D {
     this.activeLayerId = id;
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
-      strokeData.activeGradientSlot = clampedSlot;
+      strokeData.flow.activeSlot = clampedSlot;
     }
 
     const slotMap = this.gradientSlotsByLayer.get(id);
@@ -1296,14 +1117,82 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       // Clear the paint buffer to start fresh and mark the layer as having no live stroke content.
-      strokeData.paintBuffer.fill(0);
+      strokeData.buffers.paint.fill(0);
       strokeData.hasContent = false;
-      strokeData.hasExternalBase = true;
+      strokeData.externalBase.hasExternalBase = true;
       // Preserve stampCounter to maintain gradient offset continuity across shapes
       // (intentionally left unchanged here).
       // Ensure our composite canvas is clean for the next draw
       this.compositeCtx.clearRect(0, 0, this.width, this.height);
     }
+  }
+
+  private sampleIndexBufferHasContent(animator: ColorCycleAnimator, sampleSize: number = 16): boolean {
+    try {
+      const { data } = animator.getIndexBuffers();
+      const { width, height } = animator.getDimensions();
+      if (!data || width <= 0 || height <= 0) {
+        return false;
+      }
+      const sampleW = Math.min(sampleSize, width);
+      const sampleH = Math.min(sampleSize, height);
+      const stepX = Math.max(1, Math.floor(width / sampleW));
+      const stepY = Math.max(1, Math.floor(height / sampleH));
+      for (let y = 0; y < height; y += stepY) {
+        const row = y * width;
+        for (let x = 0; x < width; x += stepX) {
+          if (data[row + x] !== 0) {
+            return true;
+          }
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  private captureExternalBaseCanvas(source: HTMLCanvasElement): HTMLCanvasElement | null {
+    const baseCanvas = canvasPool.acquire(source.width, source.height);
+    const baseCtx = baseCanvas.getContext('2d', {
+      willReadFrequently: true,
+      alpha: true,
+    }) as CanvasRenderingContext2D | null;
+    if (!baseCtx) {
+      canvasPool.release(baseCanvas);
+      return null;
+    }
+    baseCtx.clearRect(0, 0, source.width, source.height);
+    baseCtx.drawImage(source, 0, 0);
+    return baseCanvas;
+  }
+
+  private renderAnimatorToContext(
+    animator: ColorCycleAnimator,
+    ctx: CanvasRenderingContext2D,
+    targetCanvas: HTMLCanvasElement
+  ): void {
+    const { width, height } = animator.getDimensions();
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    if (width === targetCanvas.width && height === targetCanvas.height) {
+      animator.renderToCanvas2D(ctx);
+      return;
+    }
+    const tempCanvas = canvasPool.acquire(width, height);
+    const tempCtx = tempCanvas.getContext('2d', {
+      willReadFrequently: true,
+      alpha: true,
+    }) as CanvasRenderingContext2D | null;
+    if (!tempCtx) {
+      canvasPool.release(tempCanvas);
+      return;
+    }
+    tempCtx.clearRect(0, 0, width, height);
+    animator.renderToCanvas2D(tempCtx);
+    ctx.drawImage(tempCanvas, 0, 0, width, height, 0, 0, targetCanvas.width, targetCanvas.height);
+    canvasPool.release(tempCanvas);
   }
 
   // --- Perceptual dithering helpers ---
@@ -1351,1051 +1240,17 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private clearStampDitherCache() {
-    this.stampDitherBaseTiles.clear();
-    this.stampDitherTiles.clear();
+    clearStampDitherRuntime(this.stampDitherRuntime);
   }
 
-  private resolveStampDitherBucket(fraction: number): number {
-    const clamped = Math.max(0, Math.min(1, fraction));
-    return Math.round(clamped * (STAMP_DITHER_BUCKETS - 1));
-  }
-
-  private resolveStampDitherBaseSize(tileScale: number): number {
-    const scale = Math.max(1, Math.floor(tileScale));
-    const raw = Math.ceil(STAMP_DITHER_TILE_TARGET / scale);
-    const clamped = Math.max(STAMP_DITHER_TILE_BASE_MIN, Math.min(STAMP_DITHER_TILE_BASE_MAX, raw));
-    const rounded = Math.ceil(clamped / 8) * 8;
-    return Math.max(STAMP_DITHER_TILE_BASE_MIN, Math.min(STAMP_DITHER_TILE_BASE_MAX, rounded));
-  }
-
-  private resolveStampDitherTileSample(
-    tile: Uint8Array,
-    tileSize: number,
-    worldX: number,
-    worldY: number,
-    originX: number,
-    originY: number,
-    seed: number
-  ): number {
-    const size = Math.max(1, Math.floor(tileSize));
-    const relX = worldX - originX;
-    const relY = worldY - originY;
-    const blockX = Math.floor(relX / size);
-    const blockY = Math.floor(relY / size);
-    let h = seed ^ Math.imul(blockX + 1, 0x27d4eb2d) ^ Math.imul(blockY + 1, 0x85ebca6b);
-    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-    h ^= h >>> 12;
-    const flipX = (h & 1) === 1;
-    const flipY = (h & 2) === 2;
-    const swap = (h & 4) === 4;
-    const offsetX = (h >>> 3) % size;
-    const offsetY = (h >>> 19) % size;
-
-    let x = ((relX % size) + size) % size;
-    let y = ((relY % size) + size) % size;
-    x = (x + offsetX) % size;
-    y = (y + offsetY) % size;
-    if (swap) {
-      const tmp = x;
-      x = y;
-      y = tmp;
-    }
-    if (flipX) x = size - 1 - x;
-    if (flipY) y = size - 1 - y;
-
-    const idx = (y * size + x) % tile.length;
-    return tile[idx] ? 0.0 : 1.0;
-  }
-
-  private resolveStampDitherSecondaryIndex(primaryIndex: number): number {
-    const offset = 64;
-    if (!Number.isFinite(primaryIndex)) {
-      return 1;
-    }
-    let next = Math.round(primaryIndex + offset);
-    while (next > 255) {
-      next -= 255;
-    }
-    if (next === primaryIndex) {
-      next = primaryIndex > 1 ? primaryIndex - 1 : Math.min(255, primaryIndex + 1);
-    }
-    return Math.max(1, Math.min(255, next));
-  }
-
-  private isErrorDiffusionAlgorithm(algo?: DitherAlgorithm): boolean {
-    switch (algo) {
-      case 'floyd-steinberg':
-      case 'jarvis-judice-ninke':
-      case 'stucki':
-      case 'burkes':
-      case 'sierra-3':
-      case 'sierra-2':
-      case 'sierra-lite':
-      case 'atkinson':
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  private getErrorDiffusionKernel(algo: DitherAlgorithm): {
-    taps: ErrorDiffusionTap[];
-    divisor: number;
-    serpentine: boolean;
-    errorScale: number;
-  } {
-    switch (algo) {
-      case 'floyd-steinberg':
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 7 },
-            { dx: -1, dy: 1, weight: 3 },
-            { dx: 0, dy: 1, weight: 5 },
-            { dx: 1, dy: 1, weight: 1 },
-          ],
-          divisor: 16,
-          serpentine: true,
-          errorScale: 1,
-        };
-      case 'jarvis-judice-ninke':
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 7 }, { dx: 2, dy: 0, weight: 5 },
-            { dx: -2, dy: 1, weight: 3 }, { dx: -1, dy: 1, weight: 5 }, { dx: 0, dy: 1, weight: 7 }, { dx: 1, dy: 1, weight: 5 }, { dx: 2, dy: 1, weight: 3 },
-            { dx: -2, dy: 2, weight: 1 }, { dx: -1, dy: 2, weight: 3 }, { dx: 0, dy: 2, weight: 5 }, { dx: 1, dy: 2, weight: 3 }, { dx: 2, dy: 2, weight: 1 },
-          ],
-          divisor: 48,
-          serpentine: true,
-          errorScale: 1,
-        };
-      case 'stucki':
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 8 }, { dx: 2, dy: 0, weight: 4 },
-            { dx: -2, dy: 1, weight: 2 }, { dx: -1, dy: 1, weight: 4 }, { dx: 0, dy: 1, weight: 8 }, { dx: 1, dy: 1, weight: 4 }, { dx: 2, dy: 1, weight: 2 },
-            { dx: -2, dy: 2, weight: 1 }, { dx: -1, dy: 2, weight: 2 }, { dx: 0, dy: 2, weight: 4 }, { dx: 1, dy: 2, weight: 2 }, { dx: 2, dy: 2, weight: 1 },
-          ],
-          divisor: 42,
-          serpentine: true,
-          errorScale: 1,
-        };
-      case 'burkes':
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 8 }, { dx: 2, dy: 0, weight: 4 },
-            { dx: -2, dy: 1, weight: 2 }, { dx: -1, dy: 1, weight: 4 }, { dx: 0, dy: 1, weight: 8 }, { dx: 1, dy: 1, weight: 4 }, { dx: 2, dy: 1, weight: 2 },
-          ],
-          divisor: 32,
-          serpentine: true,
-          errorScale: 1,
-        };
-      case 'sierra-3':
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 5 }, { dx: 2, dy: 0, weight: 3 },
-            { dx: -2, dy: 1, weight: 2 }, { dx: -1, dy: 1, weight: 4 }, { dx: 0, dy: 1, weight: 5 }, { dx: 1, dy: 1, weight: 4 }, { dx: 2, dy: 1, weight: 2 },
-            { dx: -1, dy: 2, weight: 2 }, { dx: 0, dy: 2, weight: 3 }, { dx: 1, dy: 2, weight: 2 },
-          ],
-          divisor: 32,
-          serpentine: true,
-          errorScale: 1,
-        };
-      case 'sierra-2':
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 4 }, { dx: 2, dy: 0, weight: 3 },
-            { dx: -2, dy: 1, weight: 1 }, { dx: -1, dy: 1, weight: 2 }, { dx: 0, dy: 1, weight: 3 }, { dx: 1, dy: 1, weight: 2 }, { dx: 2, dy: 1, weight: 1 },
-          ],
-          divisor: 32,
-          serpentine: true,
-          errorScale: 1,
-        };
-      case 'atkinson':
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 1 }, { dx: 2, dy: 0, weight: 1 },
-            { dx: -1, dy: 1, weight: 1 }, { dx: 0, dy: 1, weight: 1 }, { dx: 1, dy: 1, weight: 1 },
-            { dx: 0, dy: 2, weight: 1 },
-          ],
-          divisor: 8,
-          serpentine: true,
-          errorScale: 0.75,
-        };
-      case 'sierra-lite':
-      default:
-        return {
-          taps: [
-            { dx: 1, dy: 0, weight: 2 },
-            { dx: -1, dy: 1, weight: 1 },
-            { dx: 0, dy: 1, weight: 1 },
-          ],
-          divisor: 4,
-          serpentine: true,
-          errorScale: 1,
-        };
-    }
-  }
-
-  private hashStrokeDitherSeed(
-    r: number,
-    g: number,
-    b: number,
-    slot: number,
-    strokeCounter: number
-  ): number {
-    let h = 0x811c9dc5;
-    h = Math.imul(h ^ (r & 0xff), 0x01000193);
-    h = Math.imul(h ^ (g & 0xff), 0x01000193);
-    h = Math.imul(h ^ (b & 0xff), 0x01000193);
-    h = Math.imul(h ^ (slot & 0xff), 0x01000193);
-    h = Math.imul(h ^ (strokeCounter & 0xffffffff), 0x01000193);
+  private hashStrokeDitherSeed(r: number, g: number, b: number, slot: number, strokeCounter: number): number {
+    let h = (Math.round(r) & 255) | ((Math.round(g) & 255) << 8) | ((Math.round(b) & 255) << 16);
+    h ^= (Math.round(slot) & 255) << 24;
+    h ^= strokeCounter + 0x9e3779b9 + (h << 6) + (h >> 2);
     return h >>> 0;
   }
 
-  private hashCellNoise(seed: number, cellX: number, cellY: number): number {
-    let h = seed ^ Math.imul(cellX + 1, 0x27d4eb2d) ^ Math.imul(cellY + 1, 0x85ebca6b);
-    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-    h ^= h >>> 12;
-    return (h >>> 0) / 4294967295;
-  }
 
-  private buildStampSeqToTileScale(strokeData: LayerStrokeState, fallbackScale: number): Uint16Array {
-    const maxSeq = strokeData.stampDitherStampSeq ?? 0;
-    let lut = strokeData.stampSeqToTileScale;
-    if (!lut || lut.length !== maxSeq + 1) {
-      lut = new Uint16Array(maxSeq + 1);
-    } else {
-      lut.fill(0);
-    }
-    const meta = strokeData.stampSeqMeta ?? [];
-    for (const [seq, scale] of meta) {
-      if (seq >= 0 && seq <= maxSeq) {
-        lut[seq] = Math.max(1, Math.min(0xffff, scale | 0));
-      }
-    }
-    if (lut.length > 0 && fallbackScale > 0) {
-      lut[0] = Math.max(1, Math.min(0xffff, fallbackScale | 0));
-    }
-    strokeData.stampSeqToTileScale = lut;
-    return lut;
-  }
-
-  private finalizeStrokeErrorDiffusion(
-    animator: ColorCycleAnimator,
-    strokeData: LayerStrokeState,
-    activeSlot: number
-  ) {
-    const bounds = strokeData.stampDitherBounds;
-    const owner = strokeData.stampDitherOwner;
-    const primary = strokeData.stampDitherPrimaryBuffer;
-    if (!bounds || !owner || !primary) return;
-
-    const algo = this.stampDitherAlgorithm ?? 'sierra-lite';
-    if (!this.isErrorDiffusionAlgorithm(algo)) return;
-
-    const fallbackScale = Math.max(1, strokeData.stampDitherStrokeScale ?? this.stampDitherPixelSize);
-    const lut = this.buildStampSeqToTileScale(strokeData, fallbackScale);
-
-    const width = this.width;
-    const height = this.height;
-    const minX = Math.max(0, Math.min(width - 1, bounds.minX));
-    const maxX = Math.max(0, Math.min(width - 1, bounds.maxX));
-    const minY = Math.max(0, Math.min(height - 1, bounds.minY));
-    const maxY = Math.max(0, Math.min(height - 1, bounds.maxY));
-    if (maxX < minX || maxY < minY) return;
-
-    const choice = strokeData.stampDitherChoice && strokeData.stampDitherChoice.length === width * height
-      ? strokeData.stampDitherChoice
-      : new Uint8Array(width * height);
-    strokeData.stampDitherChoice = choice;
-
-    const scaleBounds = new Map<number, { minX: number; minY: number; maxX: number; maxY: number }>();
-    for (let y = minY; y <= maxY; y += 1) {
-      const row = y * width;
-      for (let x = minX; x <= maxX; x += 1) {
-        const idx = row + x;
-        const seq = owner[idx];
-        if (seq === 0) continue;
-        const scale = lut[seq] || fallbackScale;
-        let entry = scaleBounds.get(scale);
-        if (!entry) {
-          entry = { minX: x, minY: y, maxX: x, maxY: y };
-          scaleBounds.set(scale, entry);
-          continue;
-        }
-        entry.minX = Math.min(entry.minX, x);
-        entry.minY = Math.min(entry.minY, y);
-        entry.maxX = Math.max(entry.maxX, x);
-        entry.maxY = Math.max(entry.maxY, y);
-      }
-    }
-
-    if (scaleBounds.size === 0) return;
-
-    const bucket = strokeData.stampDitherLockedBucket ?? 1;
-    const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
-    const kernel = this.getErrorDiffusionKernel(algo);
-    const errorIntensity = Math.max(0, Math.min(1, this.ditherStrength)) * kernel.errorScale;
-    const jitterScale = 0.1 * errorIntensity;
-    const seed = strokeData.stampDitherSeed ?? 0;
-
-    for (const [scale, scaleBound] of scaleBounds) {
-      const cellSize = Math.max(1, Math.max(1, scale));
-      const minCellX = Math.floor(scaleBound.minX / cellSize);
-      const maxCellX = Math.floor(scaleBound.maxX / cellSize);
-      const minCellY = Math.floor(scaleBound.minY / cellSize);
-      const maxCellY = Math.floor(scaleBound.maxY / cellSize);
-      const gridW = Math.max(1, maxCellX - minCellX + 1);
-      const gridH = Math.max(1, maxCellY - minCellY + 1);
-      const cellCount = gridW * gridH;
-
-      const cellMask = new Uint8Array(cellCount);
-      for (let y = scaleBound.minY; y <= scaleBound.maxY; y += 1) {
-        const row = y * width;
-        const cellY = Math.floor(y / cellSize) - minCellY;
-        for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
-          const idx = row + x;
-          const seq = owner[idx];
-          if (seq === 0) continue;
-          const seqScale = lut[seq] || fallbackScale;
-          if (seqScale !== scale) continue;
-          const cellX = Math.floor(x / cellSize) - minCellX;
-          const cellIdx = cellY * gridW + cellX;
-          cellMask[cellIdx] = 1;
-        }
-      }
-
-      const cellChoice = new Uint8Array(cellCount);
-      const errBuf = new Float32Array(cellCount);
-
-      for (let cy = 0; cy < gridH; cy += 1) {
-        const leftToRight = kernel.serpentine ? (cy & 1) === 0 : true;
-        const xStart = leftToRight ? 0 : gridW - 1;
-        const xEnd = leftToRight ? gridW : -1;
-        const xStep = leftToRight ? 1 : -1;
-
-        for (let cx = xStart; cx !== xEnd; cx += xStep) {
-          const cellIdx = cy * gridW + cx;
-          if (cellMask[cellIdx] === 0) continue;
-          const globalCellX = cx + minCellX;
-          const globalCellY = cy + minCellY;
-          const jitter = jitterScale > 0 ? (this.hashCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale : 0;
-          const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
-          const quant = value >= 0.5 ? 1 : 0;
-          cellChoice[cellIdx] = quant;
-          const error = (value - quant) * errorIntensity;
-          if (error === 0) continue;
-          for (const tap of kernel.taps) {
-            const nx = cx + (leftToRight ? tap.dx : -tap.dx);
-            const ny = cy + tap.dy;
-            if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
-            const nIdx = ny * gridW + nx;
-            if (cellMask[nIdx] === 0) continue;
-            errBuf[nIdx] += (error * tap.weight) / kernel.divisor;
-          }
-        }
-      }
-
-      for (let y = scaleBound.minY; y <= scaleBound.maxY; y += 1) {
-        const row = y * width;
-        const cellY = Math.floor(y / cellSize) - minCellY;
-        for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
-          const idx = row + x;
-          const seq = owner[idx];
-          if (seq === 0) continue;
-          const seqScale = lut[seq] || fallbackScale;
-          if (seqScale !== scale) continue;
-          const cellX = Math.floor(x / cellSize) - minCellX;
-          const cellIdx = cellY * gridW + cellX;
-          choice[idx] = cellChoice[cellIdx];
-        }
-      }
-    }
-
-    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
-    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
-    const data = handle.data;
-    const gid = handle.gradientId;
-    const spd = handle.speedData;
-    const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
-    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-    const bgFillOff = !this.stampDitherBgFill;
-    const base = strokeData.stampDitherBaseIdx;
-    const baseG = strokeData.stampDitherBaseGid;
-    const baseMask = strokeData.stampDitherBaseMask;
-
-    for (let y = minY; y <= maxY; y += 1) {
-      const row = y * width;
-      for (let x = minX; x <= maxX; x += 1) {
-        const idx = row + x;
-        if (owner[idx] === 0) continue;
-        const usePrimary = choice[idx] === 1;
-        const primaryIndex = primary[idx];
-        if (usePrimary) {
-          data[idx] = primaryIndex;
-          gid[idx] = primaryIndex === 0 ? 0 : flowSlot;
-          spd[idx] = primaryIndex === 0 ? 0 : speedByte;
-          continue;
-        }
-        if (bgFillOff) {
-          if (base && baseMask && base.length === data.length) {
-            const v = base[idx];
-            data[idx] = v;
-            if (v === 0) {
-              gid[idx] = 0;
-              spd[idx] = 0;
-            } else if (baseG && baseG.length === gid.length) {
-              gid[idx] = baseG[idx];
-            } else {
-              gid[idx] = flowSlot;
-            }
-          }
-          continue;
-        }
-        const secondary = this.resolveStampDitherSecondaryIndex(primaryIndex);
-        data[idx] = secondary;
-        gid[idx] = secondary === 0 ? 0 : flowSlot;
-      }
-    }
-
-    if (shouldCloseHandle) {
-      const needsUpload = animator.hasWebGL?.() ?? false;
-      animator.endDirectFill({ markDirty: needsUpload });
-    }
-    animator.markDirtyBounds({
-      minX,
-      minY,
-      width: maxX - minX + 1,
-      height: maxY - minY + 1,
-    });
-  }
-
-  private ensureStampDitherBuffers(strokeData: LayerStrokeState) {
-    const size = Math.max(1, this.width * this.height);
-    if (!strokeData.stampDitherPrimaryBuffer || strokeData.stampDitherPrimaryBuffer.length !== size) {
-      strokeData.stampDitherPrimaryBuffer = new Uint8Array(size);
-    }
-  }
-
-  private ensureStampDitherBaseBuffers(strokeData: LayerStrokeState) {
-    const size = Math.max(1, this.width * this.height);
-    if (!strokeData.stampDitherBaseIdx || strokeData.stampDitherBaseIdx.length !== size) {
-      strokeData.stampDitherBaseIdx = new Uint8Array(size);
-    }
-    if (!strokeData.stampDitherBaseGid || strokeData.stampDitherBaseGid.length !== size) {
-      strokeData.stampDitherBaseGid = new Uint8Array(size);
-    }
-    if (!strokeData.stampDitherBaseMask || strokeData.stampDitherBaseMask.length !== size) {
-      strokeData.stampDitherBaseMask = new Uint8Array(size);
-    } else {
-      strokeData.stampDitherBaseMask.fill(0);
-    }
-  }
-
-  private ensureStampDitherOwner(strokeData: LayerStrokeState) {
-    const size = Math.max(1, this.width * this.height);
-    if (!strokeData.stampDitherOwner || strokeData.stampDitherOwner.length !== size) {
-      strokeData.stampDitherOwner = new Uint16Array(size);
-    }
-  }
-
-  private recomposeStampDitherOverlay(
-    strokeData: LayerStrokeState,
-    animator: ColorCycleAnimator,
-    activeSlot: number,
-    tileScale: number
-  ) {
-    const bounds = strokeData.stampDitherBounds;
-    const owner = strokeData.stampDitherOwner;
-    const primary = strokeData.stampDitherPrimaryBuffer;
-    const base = strokeData.stampDitherBaseIdx;
-    const baseG = strokeData.stampDitherBaseGid;
-    const baseMask = strokeData.stampDitherBaseMask;
-    if (!bounds || !owner || !primary) return;
-    const rawAlgo = this.stampDitherAlgorithm || 'sierra-lite';
-    const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
-    const bucket = strokeData.stampDitherLockedBucket ?? 1;
-    const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
-    const seed = strokeData.stampDitherSeed ?? 0;
-    const bgFillOff = !this.stampDitherBgFill;
-    if (bgFillOff && (!base || !baseMask)) {
-      return;
-    }
-    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-    const basePixelSize = Math.max(1, this.stampDitherPixelSize);
-    const fallbackScale = Math.max(1, tileScale || basePixelSize);
-    const lut = this.buildStampSeqToTileScale(strokeData, fallbackScale);
-    const tileCache = new Map<number, { tile: Uint8Array; tileClamp: number; originX: number; originY: number }>();
-
-    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
-    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
-    const data = handle.data;
-    const gid = handle.gradientId;
-    const spd = handle.speedData;
-    const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
-    const w = handle.width;
-    const h = handle.height;
-    const minX = Math.max(0, Math.min(w - 1, bounds.minX));
-    const maxX = Math.max(0, Math.min(w - 1, bounds.maxX));
-    const minY = Math.max(0, Math.min(h - 1, bounds.minY));
-    const maxY = Math.max(0, Math.min(h - 1, bounds.maxY));
-
-    for (let y = minY; y <= maxY; y += 1) {
-      const row = y * w;
-      for (let x = minX; x <= maxX; x += 1) {
-        const idx = row + x;
-        if (owner[idx] === 0) continue;
-        const seqScale = lut[owner[idx]] || fallbackScale;
-        let tileEntry = tileCache.get(seqScale);
-        if (!tileEntry) {
-          const baseSize = this.resolveStampDitherBaseSize(seqScale);
-          const originU = {
-            x: (seed % baseSize) | 0,
-            y: ((seed >>> 16) % baseSize) | 0,
-          };
-          const originX = -originU.x * seqScale;
-          const originY = -originU.y * seqScale;
-          const tileClamp = baseSize * seqScale;
-          const tile = this.getStampDitherTile(
-            bucket,
-            seqScale,
-            baseSize,
-            algo === 'pattern' ? undefined : 'sierra-lite',
-            this.stampDitherPatternStyle
-          );
-          tileEntry = { tile, tileClamp, originX, originY };
-          tileCache.set(seqScale, tileEntry);
-        }
-        const localY = ((y - tileEntry.originY) % tileEntry.tileClamp + tileEntry.tileClamp) % tileEntry.tileClamp;
-        const tileRow = localY * tileEntry.tileClamp;
-        const localX = ((x - tileEntry.originX) % tileEntry.tileClamp + tileEntry.tileClamp) % tileEntry.tileClamp;
-        const tIdx = tileRow + localX;
-        const p = primary[idx];
-        const usePrimary =
-          algo === 'pattern'
-            ? (tileEntry.tile[tIdx] === 1)
-            : (this.resolveStampDitherTileSample(
-                tileEntry.tile,
-                tileEntry.tileClamp,
-                x,
-                y,
-                tileEntry.originX,
-                tileEntry.originY,
-                seed
-              ) <= coverage);
-        if (usePrimary) {
-          data[idx] = p;
-          gid[idx] = p === 0 ? 0 : flowSlot;
-          spd[idx] = p === 0 ? 0 : speedByte;
-          continue;
-        }
-        if (bgFillOff) {
-          if (base && baseMask && base.length === data.length) {
-            const v = base[idx];
-            data[idx] = v;
-            if (v === 0) {
-              gid[idx] = 0;
-              spd[idx] = 0;
-            } else if (baseG && baseG.length === gid.length) {
-              gid[idx] = baseG[idx];
-            } else {
-              gid[idx] = flowSlot;
-            }
-          }
-          continue;
-        }
-        const secondary = this.resolveStampDitherSecondaryIndex(p);
-        data[idx] = secondary;
-        gid[idx] = secondary === 0 ? 0 : flowSlot;
-        spd[idx] = secondary === 0 ? 0 : speedByte;
-      }
-    }
-
-    if (shouldCloseHandle) {
-      const needsUpload = animator.hasWebGL?.() ?? false;
-      animator.endDirectFill({ markDirty: needsUpload });
-    }
-    animator.markDirtyBounds({
-      minX,
-      minY,
-      width: maxX - minX + 1,
-      height: maxY - minY + 1,
-    });
-  }
-
-  private scheduleStampDitherRecompose(
-    strokeData: LayerStrokeState,
-    animator: ColorCycleAnimator,
-    activeSlot: number,
-    tileScale: number
-  ) {
-    const now = nowMs();
-    const last = strokeData.stampDitherRecomposeLastMs ?? 0;
-    const minInterval = 50;
-    strokeData.stampDitherRecomposeScale = tileScale;
-    if (strokeData.stampDitherRecomposePending) {
-      return;
-    }
-    const run = () => {
-      strokeData.stampDitherRecomposePending = false;
-      strokeData.stampDitherRecomposeLastMs = nowMs();
-      const nextScale = strokeData.stampDitherRecomposeScale ?? tileScale;
-      this.recomposeStampDitherOverlay(strokeData, animator, activeSlot, nextScale);
-    };
-    const elapsed = now - last;
-    strokeData.stampDitherRecomposePending = true;
-    if (elapsed >= minInterval) {
-      requestAnimationFrame(run);
-    } else {
-      const delay = Math.max(0, minInterval - elapsed);
-      setTimeout(() => {
-        requestAnimationFrame(run);
-      }, delay);
-    }
-  }
-
-  private updateStampDitherBounds(
-    strokeData: LayerStrokeState,
-    minX: number,
-    minY: number,
-    maxX: number,
-    maxY: number
-  ) {
-    const clampedMinX = Math.max(0, Math.min(this.width - 1, minX));
-    const clampedMaxX = Math.max(0, Math.min(this.width - 1, maxX));
-    const clampedMinY = Math.max(0, Math.min(this.height - 1, minY));
-    const clampedMaxY = Math.max(0, Math.min(this.height - 1, maxY));
-    if (!strokeData.stampDitherBounds) {
-      strokeData.stampDitherBounds = {
-        minX: clampedMinX,
-        minY: clampedMinY,
-        maxX: clampedMaxX,
-        maxY: clampedMaxY,
-      };
-      return;
-    }
-    strokeData.stampDitherBounds.minX = Math.min(strokeData.stampDitherBounds.minX, clampedMinX);
-    strokeData.stampDitherBounds.minY = Math.min(strokeData.stampDitherBounds.minY, clampedMinY);
-    strokeData.stampDitherBounds.maxX = Math.max(strokeData.stampDitherBounds.maxX, clampedMaxX);
-    strokeData.stampDitherBounds.maxY = Math.max(strokeData.stampDitherBounds.maxY, clampedMaxY);
-  }
-
-  private applyStampDitherMask(
-    strokeData: LayerStrokeState,
-    shape: StampShape,
-    x: number,
-    y: number,
-    brushSize: number,
-    primaryIndex: number,
-    stampSeq: number
-  ): { minX: number; minY: number; maxX: number; maxY: number } {
-    this.ensureStampDitherBuffers(strokeData);
-    this.ensureStampDitherOwner(strokeData);
-    const primary = strokeData.stampDitherPrimaryBuffer!;
-    const owner = strokeData.stampDitherOwner!;
-    const captureBase = !this.stampDitherBgFill && !!strokeData.stampDitherBaseMask;
-    const baseMask = strokeData.stampDitherBaseMask;
-    const baseIdx = strokeData.stampDitherBaseIdx;
-    const baseGid = strokeData.stampDitherBaseGid;
-    const paint = strokeData.paintBuffer;
-    const gid = strokeData.gradientIdBuffer;
-    const captureIfNeeded = (idx: number) => {
-      if (!captureBase || !baseMask || !baseIdx) return;
-      if (baseMask[idx] === 1) return;
-      baseMask[idx] = 1;
-      baseIdx[idx] = paint[idx];
-      if (baseGid && gid) {
-        baseGid[idx] = gid[idx];
-      }
-    };
-
-    if (shape === 'triangle') {
-      const halfSize = brushSize / 2;
-      const topX = x;
-      const topY = y - halfSize;
-      const leftX = x - halfSize;
-      const leftY = y + halfSize;
-      const rightX = x + halfSize;
-      const rightY = y + halfSize;
-      const minX = Math.max(0, Math.floor(Math.min(leftX, rightX, topX)));
-      const maxX = Math.min(this.width - 1, Math.floor(Math.max(leftX, rightX, topX)));
-      const minY = Math.max(0, Math.floor(Math.min(topY, leftY, rightY)));
-      const maxY = Math.min(this.height - 1, Math.floor(Math.max(topY, leftY, rightY)));
-      const sign = (px: number, py: number, ax: number, ay: number, bx: number, by: number) =>
-        (px - bx) * (ay - by) - (ax - bx) * (py - by);
-
-      for (let py = minY; py <= maxY; py++) {
-        for (let px = minX; px <= maxX; px++) {
-          const sampleX = px + 0.5;
-          const sampleY = py + 0.5;
-          const b1 = sign(sampleX, sampleY, topX, topY, leftX, leftY) <= 0;
-          const b2 = sign(sampleX, sampleY, leftX, leftY, rightX, rightY) <= 0;
-          const b3 = sign(sampleX, sampleY, rightX, rightY, topX, topY) <= 0;
-          if ((b1 === b2) && (b2 === b3)) {
-            const idx = py * this.width + px;
-            captureIfNeeded(idx);
-            primary[idx] = primaryIndex;
-            owner[idx] = stampSeq;
-          }
-        }
-      }
-      this.updateStampDitherBounds(strokeData, minX, minY, maxX, maxY);
-      return { minX, minY, maxX, maxY };
-    }
-
-    if (shape === 'round') {
-      const radius = brushSize / 2;
-      const radiusSq = radius * radius;
-      const minX = Math.max(0, Math.floor(x - radius));
-      const maxX = Math.min(this.width - 1, Math.ceil(x + radius));
-      const minY = Math.max(0, Math.floor(y - radius));
-      const maxY = Math.min(this.height - 1, Math.ceil(y + radius));
-      for (let py = minY; py <= maxY; py++) {
-        for (let px = minX; px <= maxX; px++) {
-          const dx = px + 0.5 - x;
-          const dy = py + 0.5 - y;
-          if (dx * dx + dy * dy > radiusSq) continue;
-          const idx = py * this.width + px;
-          captureIfNeeded(idx);
-          primary[idx] = primaryIndex;
-          owner[idx] = stampSeq;
-        }
-      }
-      this.updateStampDitherBounds(strokeData, minX, minY, maxX, maxY);
-      return { minX, minY, maxX, maxY };
-    }
-
-    if (shape === 'diamond') {
-      const radius = brushSize / 2;
-      const minX = Math.max(0, Math.floor(x - radius));
-      const maxX = Math.min(this.width - 1, Math.floor(x + radius));
-      const minY = Math.max(0, Math.floor(y - radius));
-      const maxY = Math.min(this.height - 1, Math.floor(y + radius));
-      for (let py = minY; py <= maxY; py++) {
-        for (let px = minX; px <= maxX; px++) {
-          const dx = Math.abs(px + 0.5 - x);
-          const dy = Math.abs(py + 0.5 - y);
-          if (dx + dy > radius) continue;
-          const idx = py * this.width + px;
-          captureIfNeeded(idx);
-          primary[idx] = primaryIndex;
-          owner[idx] = stampSeq;
-        }
-      }
-      this.updateStampDitherBounds(strokeData, minX, minY, maxX, maxY);
-      return { minX, minY, maxX, maxY };
-    }
-
-    // square (default)
-    const halfSize = brushSize / 2;
-    const minX = Math.max(0, Math.floor(x - halfSize));
-    const maxX = Math.min(this.width - 1, Math.floor(x + halfSize));
-    const minY = Math.max(0, Math.floor(y - halfSize));
-    const maxY = Math.min(this.height - 1, Math.floor(y + halfSize));
-    for (let py = minY; py <= maxY; py++) {
-      for (let px = minX; px <= maxX; px++) {
-        const idx = py * this.width + px;
-        captureIfNeeded(idx);
-        primary[idx] = primaryIndex;
-        owner[idx] = stampSeq;
-      }
-    }
-    this.updateStampDitherBounds(strokeData, minX, minY, maxX, maxY);
-    return { minX, minY, maxX, maxY };
-  }
-
-  private buildBaseStampDitherTile(
-    bucket: number,
-    baseSize: number,
-    algo: DitherAlgorithm,
-    pattern: PatternStyle
-  ): Uint8Array {
-    const tileSize = Math.max(1, Math.floor(baseSize));
-    const clampedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket));
-    const coverage = clampedBucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
-    if (algo === 'pattern') {
-      const mod = (value: number, base: number) => ((value % base) + base) % base;
-      const result = new Uint8Array(tileSize * tileSize);
-      for (let y = 0; y < tileSize; y += 1) {
-        for (let x = 0; x < tileSize; x += 1) {
-          let patternValue = 0;
-          switch (pattern) {
-            case 'dots': {
-              const dotSize = 4;
-              const dx = mod(x, dotSize) - dotSize / 2;
-              const dy = mod(y, dotSize) - dotSize / 2;
-              const distance = Math.sqrt(dx * dx + dy * dy) / (dotSize / 2);
-              patternValue = Math.min(1, distance);
-              break;
-            }
-            case 'lines': {
-              const spacing = 4;
-              const diagonal = mod(x + y, spacing);
-              patternValue = diagonal / spacing;
-              break;
-            }
-            case 'vertical-lines': {
-              const spacing = 4;
-              patternValue = mod(x, spacing) / spacing;
-              break;
-            }
-            case 'horizontal-lines': {
-              const spacing = 4;
-              patternValue = mod(y, spacing) / spacing;
-              break;
-            }
-            case 'crosshatch': {
-              const spacing = 4;
-              const vertical = mod(x, spacing) / spacing;
-              const horizontal = mod(y, spacing) / spacing;
-              patternValue = Math.min(vertical, horizontal);
-              break;
-            }
-            case 'diagonal': {
-              const spacing = 8;
-              const dx = Math.abs(mod(x, spacing) - spacing / 2);
-              const dy = Math.abs(mod(y, spacing) - spacing / 2);
-              patternValue = (dx + dy) / spacing;
-              break;
-            }
-            case 'tone-adaptive': {
-              const lum = coverage;
-              if (lum < 0.33) {
-                const spacing = 3;
-                patternValue = mod(x, spacing) / spacing;
-              } else if (lum < 0.66) {
-                const spacing = 4;
-                const diag = mod(x + y, spacing);
-                patternValue = diag / spacing;
-              } else {
-                const spacing = 5;
-                patternValue = mod(y, spacing) / spacing;
-              }
-              break;
-            }
-          }
-          result[y * tileSize + x] = patternValue <= coverage ? 1 : 0;
-        }
-      }
-      return result;
-    }
-    const result = new Uint8Array(tileSize * tileSize);
-    const fillFromMatrix = (matrix: number[][]) => {
-      const matrixSize = matrix.length;
-      for (let y = 0; y < tileSize; y += 1) {
-        const row = matrix[y % matrixSize];
-        for (let x = 0; x < tileSize; x += 1) {
-          const threshold = row[x % matrixSize];
-          result[y * tileSize + x] = threshold <= coverage ? 1 : 0;
-        }
-      }
-    };
-
-    if (algo === 'bayer') {
-      fillFromMatrix(BAYER_8x8_MATRIX);
-      return result;
-    }
-    if (algo === 'blue-noise') {
-      fillFromMatrix(BLUE_NOISE_16x16);
-      return result;
-    }
-    if (algo === 'void-and-cluster') {
-      fillFromMatrix(VOID_CLUSTER_8x8);
-      return result;
-    }
-    const ramp = new Uint8ClampedArray(tileSize * tileSize * 4);
-    for (let y = 0; y < tileSize; y += 1) {
-      for (let x = 0; x < tileSize; x += 1) {
-        const idx = (y * tileSize + x) * 4;
-        const base = (x + y) / (2 * (tileSize - 1));
-        const value = Math.round(Math.min(1, Math.max(0, base * 0.85 + 0.075)) * 255);
-        ramp[idx] = value;
-        ramp[idx + 1] = value;
-        ramp[idx + 2] = value;
-        ramp[idx + 3] = 255;
-      }
-    }
-    const dithered = applyPressureDither(
-      new ImageData(ramp, tileSize, tileSize),
-      {
-        algorithm: algo,
-        pressure: 0.5,
-        intensity: 1.0,
-        bayerMatrixSize: 8,
-        palette: [
-          [0, 0, 0],
-          [255, 255, 255],
-        ],
-      }
-    );
-    for (let i = 0; i < result.length; i += 1) {
-      const idx = i * 4;
-      const value = (dithered.data[idx] + dithered.data[idx + 1] + dithered.data[idx + 2]) / 3;
-      result[i] = value <= coverage * 255 ? 1 : 0;
-    }
-    return result;
-  }
-
-  private applyStampDitherToRegion(
-    strokeData: LayerStrokeState,
-    animator: ColorCycleAnimator,
-    bounds: { minX: number; minY: number; maxX: number; maxY: number },
-    tile: Uint8Array,
-    tileSize: number,
-    maskOriginX: number,
-    maskOriginY: number,
-    activeSlot: number,
-    stampSeq: number
-  ) {
-    const primary = strokeData.stampDitherPrimaryBuffer;
-    const owner = strokeData.stampDitherOwner;
-    if (!primary || !owner) {
-      return;
-    }
-
-    const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
-    const shouldCloseHandle = !strokeData.stampDitherFillHandle;
-    const data = handle.data;
-    const gradientId = handle.gradientId;
-    const speedData = handle.speedData;
-    const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
-    const width = handle.width;
-    const minX = Math.max(0, Math.min(width - 1, bounds.minX));
-    const maxX = Math.max(0, Math.min(width - 1, bounds.maxX));
-    const minY = Math.max(0, Math.min(handle.height - 1, bounds.minY));
-    const maxY = Math.max(0, Math.min(handle.height - 1, bounds.maxY));
-    const tileClamp = Math.max(1, Math.floor(tileSize));
-    const bgFillOff = !this.stampDitherBgFill;
-    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-
-    for (let py = minY; py <= maxY; py++) {
-      const rowOffset = py * width;
-      const localY = ((py - maskOriginY) % tileClamp + tileClamp) % tileClamp;
-      const tileRow = localY * tileClamp;
-      let localX = ((minX - maskOriginX) % tileClamp + tileClamp) % tileClamp;
-      for (let px = minX; px <= maxX; px++) {
-        const idx = rowOffset + px;
-        if (owner[idx] !== stampSeq) {
-          localX += 1;
-          if (localX === tileClamp) localX = 0;
-          continue;
-        }
-        const tileIdx = tileRow + localX;
-        const usePrimary = tile ? (tile[tileIdx] === 1) : false;
-        if (bgFillOff && !usePrimary) {
-          const base = strokeData.stampDitherBaseIdx;
-          const baseG = strokeData.stampDitherBaseGid;
-          const baseMask = strokeData.stampDitherBaseMask;
-          if (base && baseMask && base.length === data.length) {
-            const v = base[idx];
-            data[idx] = v;
-            if (v === 0) {
-              gradientId[idx] = 0;
-              speedData[idx] = 0;
-            } else if (baseG && baseG.length === gradientId.length) {
-              gradientId[idx] = baseG[idx];
-            } else {
-              gradientId[idx] = flowSlot;
-            }
-          } else {
-            localX += 1;
-            if (localX === tileClamp) localX = 0;
-            continue;
-          }
-          localX += 1;
-          if (localX === tileClamp) localX = 0;
-          continue;
-        }
-        const primaryIndex = primary[idx];
-
-        if (usePrimary) {
-          data[idx] = primaryIndex;
-          gradientId[idx] = primaryIndex === 0 ? 0 : flowSlot;
-          speedData[idx] = primaryIndex === 0 ? 0 : speedByte;
-          localX += 1;
-          if (localX === tileClamp) localX = 0;
-          continue;
-        }
-
-        const secondary = this.resolveStampDitherSecondaryIndex(primaryIndex);
-        data[idx] = secondary;
-        gradientId[idx] = secondary === 0 ? 0 : flowSlot;
-        speedData[idx] = secondary === 0 ? 0 : speedByte;
-        localX += 1;
-        if (localX === tileClamp) localX = 0;
-      }
-    }
-
-    if (shouldCloseHandle) {
-      const needsUpload = animator.hasWebGL?.() ?? false;
-      animator.endDirectFill({ markDirty: needsUpload });
-    }
-    animator.markDirtyBounds({
-      minX,
-      minY,
-      width: maxX - minX + 1,
-      height: maxY - minY + 1,
-    });
-  }
-
-  private scaleStampDitherTile(base: Uint8Array, scale: number, baseSize: number): Uint8Array {
-    if (scale <= 1) {
-      return base;
-    }
-    const baseTileSize = Math.max(1, Math.floor(baseSize));
-    const scaledSize = baseTileSize * scale;
-    const scaled = new Uint8Array(scaledSize * scaledSize);
-    for (let y = 0; y < scaledSize; y++) {
-      const baseY = Math.floor(y / scale);
-      for (let x = 0; x < scaledSize; x++) {
-        const baseX = Math.floor(x / scale);
-        const baseIdx = baseY * baseTileSize + baseX;
-        scaled[y * scaledSize + x] = base[baseIdx];
-      }
-    }
-    return scaled;
-  }
-
-  private getBaseStampDitherTile(
-    bucket: number,
-    baseSize: number,
-    algoOverride?: DitherAlgorithm,
-    patternOverride?: PatternStyle
-  ): Uint8Array {
-    const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
-    const algo = algoOverride ?? this.stampDitherAlgorithm ?? 'sierra-lite';
-    const pattern = patternOverride ?? this.stampDitherPatternStyle ?? 'dots';
-    const sizeKey = Math.max(1, Math.floor(baseSize));
-    const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${sizeKey}`;
-    let tile = this.stampDitherBaseTiles.get(cacheKey);
-    if (!tile) {
-      tile = this.buildBaseStampDitherTile(normalizedBucket, sizeKey, algo, pattern);
-      this.stampDitherBaseTiles.set(cacheKey, tile);
-    }
-    return tile;
-  }
-
-  private getStampDitherTile(
-    bucket: number,
-    overrideScale: number,
-    baseSize: number,
-    algoOverride?: DitherAlgorithm,
-    patternOverride?: PatternStyle
-  ): Uint8Array {
-    const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
-    const algo = algoOverride ?? this.stampDitherAlgorithm ?? 'sierra-lite';
-    const pattern = patternOverride ?? this.stampDitherPatternStyle ?? 'dots';
-    const scale = Math.max(1, Math.floor(overrideScale));
-    const sizeKey = Math.max(1, Math.floor(baseSize));
-    const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${sizeKey}|${scale}`;
-    let tile = this.stampDitherTiles.get(cacheKey);
-    if (!tile) {
-      const baseTile = this.getBaseStampDitherTile(normalizedBucket, sizeKey, algo, pattern);
-      tile = scale === 1 ? baseTile : this.scaleStampDitherTile(baseTile, scale, sizeKey);
-      this.stampDitherTiles.set(cacheKey, tile);
-    }
-    return tile;
-  }
 
   private rgbToHex(c: { r: number; g: number; b: number }): string {
     const toHex = (v: number) => v.toString(16).padStart(2, '0');
@@ -2421,6 +1276,28 @@ export class ColorCycleBrushCanvas2D {
   /** Enable/disable perceptual dithering for shape fills. */
   setPerceptualDither(enabled: boolean) { this.perceptualDither = !!enabled; }
 
+  async fillShapeDispatch(args: {
+    mode: FillMode;
+    vertices: Vec2[];
+    layerId: string;
+    direction?: Vec2;
+    options?: FillOptions;
+  }): Promise<void> {
+    const { mode, vertices, layerId, direction, options } = args;
+    if (!layerId) {
+      throw new Error('fillShapeDispatch requires a layerId');
+    }
+    if (mode === 'linear') {
+      if (!direction) {
+        throw new Error('fillShapeDispatch(linear) requires direction');
+      }
+      return this.fillShapeLinear(vertices, direction, layerId, options?.spacing, options);
+    }
+    if (mode === 'concentric') {
+      return this.fillShape(vertices, layerId, options?.spacing, options);
+    }
+  }
+
   /**
    * Start new stroke (API compatible)
    */
@@ -2440,7 +1317,6 @@ export class ColorCycleBrushCanvas2D {
     this.activeLayerId = id;
     this.isDrawing = true;
     this.strokeCounter++;
-    this.strokeLength = 0;
     this.lastPoint = null;
     
     // Before starting a new stroke, optionally separate from any existing content
@@ -2448,13 +1324,7 @@ export class ColorCycleBrushCanvas2D {
     // clearing internal buffers. We keep this conservative to avoid unwanted
     // cross-layer writes; renderDirectToCanvas will be called by higher-level
     // handlers during finalize.
-    const animator = this.getAnimator(id);
-    if (this.stampDitherEnabled) {
-      try {
-        animator.resize(this.width, this.height);
-        this.deferredAnimatorSizes.delete(animator);
-      } catch {}
-    }
+    const animator = this.ensureFullResolution(id, 'stroke');
     if (clearBuffer && !this._isHistoryRestore) {
       try { animator.clear(); } catch {}
     }
@@ -2474,23 +1344,23 @@ export class ColorCycleBrushCanvas2D {
     }
     if (strokeData) {
       const expected = this.width * this.height;
-      if (strokeData.paintBuffer.length === expected) {
+      if (strokeData.buffers.paint.length === expected) {
         try {
           animator.setIndexBufferFromArray(
-            strokeData.paintBuffer,
-            strokeData.gradientIdBuffer,
-            strokeData.speedBuffer
+            strokeData.buffers.paint,
+            strokeData.buffers.gid,
+            strokeData.buffers.spd
           );
         } catch {}
       }
-      strokeData.activeGradientSlot = this.activeGradientSlots.get(id) ?? strokeData.activeGradientSlot ?? 0;
-      strokeData.stampFlowMode = this.flowMode;
-      strokeData.stampFlowEncoded = true;
-      const seedSlot = strokeData.activeGradientSlot ?? 0;
+      strokeData.flow.activeSlot = this.activeGradientSlots.get(id) ?? strokeData.flow.activeSlot ?? 0;
+      strokeData.flow.mode = this.flowMode;
+      strokeData.flow.encoded = true;
+      const seedSlot = strokeData.flow.activeSlot ?? 0;
       const colorIndex = this.computeColorBandIndex(strokeData);
       const seedPos = Math.max(0, Math.min(1, (colorIndex - 1) / 254));
       const seedRgb = this.colorAtPosition(seedPos);
-      strokeData.stampDitherSeed = this.hashStrokeDitherSeed(
+      const nextSeed = this.hashStrokeDitherSeed(
         seedRgb.r,
         seedRgb.g,
         seedRgb.b,
@@ -2499,38 +1369,41 @@ export class ColorCycleBrushCanvas2D {
       );
       if (clearBuffer && !this._isHistoryRestore) {
         const preservedStampCounter = strokeData.stampCounter;
-        strokeData.paintBuffer.fill(0);
-        strokeData.gradientIdBuffer?.fill(0);
-        strokeData.speedBuffer?.fill(0);
+        strokeData.buffers.paint.fill(0);
+        strokeData.buffers.gid.fill(0);
+        strokeData.buffers.spd.fill(0);
         strokeData.hasContent = false;
         // Preserve stamp counter for continuous gradient flow between shapes
         strokeData.stampCounter = preservedStampCounter;
       }
       strokeData.strokeCounter = this.strokeCounter;
-      strokeData.strokeLength = 0;
       strokeData.lastPoint = null;
-      strokeData.stampDitherOrigin = null;
-      strokeData.stampDitherPressureState = null;
-      strokeData.stampDitherBounds = null;
-      strokeData.stampDitherLastTileScale = null;
-      strokeData.stampDitherStrokeScale = undefined;
-      strokeData.stampSeqMeta = [];
-      strokeData.stampSeqToTileScale = undefined;
-      strokeData.stampDitherRecomposeLastMs = undefined;
-      strokeData.stampDitherRecomposePending = false;
-      strokeData.stampDitherRecomposeScale = undefined;
-      strokeData.stampDitherOriginUnits = null;
-      strokeData.stampDitherOriginBaseSize = undefined;
-      strokeData.stampDitherLockedBucket = undefined;
       if (this.stampDitherEnabled) {
-        this.ensureStampDitherBuffers(strokeData);
-        this.ensureStampDitherOwner(strokeData);
-        strokeData.stampDitherPrimaryBuffer?.fill(0);
-        strokeData.stampDitherOwner?.fill(0);
-        strokeData.stampDitherStampSeq = 0;
-        strokeData.stampDitherFillHandle = animator.beginDirectFill();
+        const stampState = this.ensureStampDitherState(strokeData);
+        stampState.stampDitherSeed = nextSeed;
+        stampState.stampDitherOrigin = null;
+        stampState.stampDitherPressureState = null;
+        stampState.stampDitherBounds = null;
+        stampState.stampDitherLastTileScale = null;
+        stampState.stampDitherStrokeScale = undefined;
+        stampState.stampDitherRecomposeLastMs = undefined;
+        stampState.stampDitherRecomposePending = false;
+        stampState.stampDitherRecomposeScale = undefined;
+        stampState.stampDitherOriginUnits = null;
+        stampState.stampDitherOriginBaseSize = undefined;
+        stampState.stampDitherLockedBucket = undefined;
+        stampState.stampSeqMeta = [];
+        stampState.stampSeqToTileScale = undefined;
+        const stampStroke = this.getStampDitherStrokeData(strokeData);
+        ensureStampDitherBuffers(stampStroke, this.width, this.height);
+        ensureStampDitherOwner(stampStroke, this.width, this.height);
+        stampStroke.stampDitherPrimaryBuffer?.fill(0);
+        stampStroke.stampDitherOwner?.fill(0);
+        stampStroke.stampDitherStampSeq = 0;
+        stampStroke.stampDitherFillHandle = animator.beginDirectFill();
+        this.assertStrokeHandleSize(stampStroke.stampDitherFillHandle, 'stamp dither');
         if (process.env.NODE_ENV !== 'production') {
-          const h = strokeData.stampDitherFillHandle;
+          const h = stampStroke.stampDitherFillHandle;
           if (h && (h.width !== this.width || h.height !== this.height)) {
             console.warn('[CC] stamp dither handle size mismatch', {
               handle: { w: h.width, h: h.height },
@@ -2539,27 +1412,23 @@ export class ColorCycleBrushCanvas2D {
           }
         }
         if (!this.stampDitherBgFill) {
-          this.ensureStampDitherBaseBuffers(strokeData);
+          ensureStampDitherBaseBuffers(stampStroke, this.width, this.height);
         } else {
-          strokeData.stampDitherBaseIdx = undefined;
-          strokeData.stampDitherBaseGid = undefined;
-          strokeData.stampDitherBaseMask = undefined;
+          stampStroke.stampDitherBaseIdx = undefined;
+          stampStroke.stampDitherBaseGid = undefined;
+          stampStroke.stampDitherBaseMask = undefined;
         }
         const phaseForMask = 0.5;
         const idxForMask = this.computeColorBandIndex(strokeData);
-        const coverage = this.resolveStampDitherCoverage(phaseForMask, idxForMask);
-        const rawBucket = this.resolveStampDitherBucket(coverage);
-        strokeData.stampDitherLockedBucket = Math.min(
+        const coverage = resolveStampDitherCoverage(phaseForMask, idxForMask, this.isAnimating);
+        const rawBucket = resolveStampDitherBucket(coverage);
+        stampStroke.stampDitherLockedBucket = Math.min(
           STAMP_DITHER_BUCKETS - 2,
           Math.max(1, rawBucket)
         );
-        strokeData.hasExternalBase = false;
+        strokeData.externalBase.hasExternalBase = false;
       } else {
-        strokeData.stampDitherBaseIdx = undefined;
-        strokeData.stampDitherBaseGid = undefined;
-        strokeData.stampDitherBaseMask = undefined;
-        strokeData.stampDitherOwner = undefined;
-        strokeData.stampDitherFillHandle = undefined;
+        strokeData.stampDither = undefined;
       }
       
       // Keep stamp counter continuous across strokes for flowing gradients (unless cleared above)
@@ -2583,13 +1452,13 @@ export class ColorCycleBrushCanvas2D {
     const id = layerId || this.activeLayerId || 'default';
     this.isDrawing = false;
 
-    const animator = this.getAnimator(id);
+    const animator = this.ensureFullResolution(id, 'stroke');
     const strokeData = this.layerStrokes.get(id);
     const shouldLog =
       process.env.NODE_ENV !== 'production' &&
       typeof globalThis !== 'undefined' &&
       (globalThis as { __CC_STAMP_DEBUG?: boolean }).__CC_STAMP_DEBUG === true;
-    const hasDitherBounds = Boolean(strokeData?.stampDitherBounds);
+    const hasDitherBounds = Boolean(strokeData?.stampDither?.stampDitherBounds);
     const sampleIndices = (label: string, data?: Uint8Array) => {
       if (!shouldLog || !hasDitherBounds || !data || data.length === 0) return;
       const count = Math.min(8, data.length);
@@ -2603,8 +1472,8 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
     };
     const probeIndexRegion = (label: string, buf?: Uint8Array) => {
-      if (!shouldLog || !buf || !strokeData?.stampDitherBounds) return;
-      const b = strokeData.stampDitherBounds;
+      if (!shouldLog || !buf || !strokeData?.stampDither?.stampDitherBounds) return;
+      const b = strokeData.stampDither.stampDitherBounds;
       const minX = Math.max(0, Math.floor(b.minX));
       const minY = Math.max(0, Math.floor(b.minY));
       const maxX = Math.min(this.width - 1, Math.ceil(b.maxX));
@@ -2638,22 +1507,41 @@ export class ColorCycleBrushCanvas2D {
 
     if (strokeData) {
       // Cancel any pending recomposes so finalize cannot re-write after mouseup.
-      strokeData.stampDitherRecomposePending = false;
-      strokeData.stampDitherRecomposeScale = undefined;
+      if (strokeData.stampDither) {
+        strokeData.stampDither.stampDitherRecomposePending = false;
+        strokeData.stampDither.stampDitherRecomposeScale = undefined;
+      }
     }
 
     if (strokeData && this.stampDitherEnabled) {
-      const algo = (this.stampDitherAlgorithm ?? 'sierra-lite') as DitherAlgorithm;
+      const algo = this.stampDitherAlgorithm ?? 'sierra-lite';
       // Only run finalize overwrite for algorithms explicitly meant to be finalize-only.
-      if (STAMP_FINALIZE_ERROR_DIFFUSION_ALGOS.has(algo)) {
-        const activeSlot = strokeData.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
-        this.finalizeStrokeErrorDiffusion(animator, strokeData, activeSlot);
+      if (STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS.has(algo)) {
+        const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+        const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
+        finalizeStampDither({
+          animator,
+          state: this.getStampDitherStrokeData(strokeData),
+          config: {
+            algorithm: algo,
+            pixelSize: this.stampDitherPixelSize,
+            patternStyle: this.stampDitherPatternStyle,
+            bgFill: this.stampDitherBgFill,
+            pressureLinked: this.stampDitherPressureLinked,
+            seed: strokeData.stampDither?.stampDitherSeed ?? 0,
+          },
+          width: this.width,
+          height: this.height,
+          flowSlot,
+          cycleSpeed: this.cycleSpeed,
+          ditherStrength: this.ditherStrength,
+        });
       }
     }
-    if (strokeData?.stampDitherFillHandle) {
+    if (strokeData?.stampDither?.stampDitherFillHandle) {
       const needsUpload = animator.hasWebGL?.() ?? false;
       if (shouldLog && hasDitherBounds) {
-        const handle = strokeData.stampDitherFillHandle;
+        const handle = strokeData.stampDither.stampDitherFillHandle;
         sampleIndices('pre endDirectFill.handle.data', handle?.data);
         try {
           const serialized = animator.serialize();
@@ -2673,7 +1561,7 @@ export class ColorCycleBrushCanvas2D {
           probeIndexRegion('post endDirectFill.serialize', data);
         } catch {}
       }
-      strokeData.stampDitherFillHandle = undefined;
+      strokeData.stampDither.stampDitherFillHandle = undefined;
     }
     animator.endStroke();
     animator.forceRender(); // Force render on stroke end
@@ -2692,11 +1580,11 @@ export class ColorCycleBrushCanvas2D {
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.hasContent = true;
 
-      let snapshotBuffer: ArrayBuffer = strokeData.paintBuffer.length > 0
-        ? strokeData.paintBuffer.slice().buffer
+      let snapshotBuffer: ArrayBuffer = strokeData.buffers.paint.length > 0
+        ? strokeData.buffers.paint.slice().buffer
         : new ArrayBuffer(0);
-      let snapshotGradientIdBuffer: ArrayBuffer | undefined = strokeData.gradientIdBuffer?.slice().buffer;
-      let snapshotSpeedBuffer: ArrayBuffer | undefined = strokeData.speedBuffer?.slice().buffer;
+      let snapshotGradientIdBuffer: ArrayBuffer | undefined = strokeData.buffers.gid.slice().buffer;
+      let snapshotSpeedBuffer: ArrayBuffer | undefined = strokeData.buffers.spd.slice().buffer;
 
       try {
         const serializedAnimator = animator.serialize();
@@ -2706,21 +1594,21 @@ export class ColorCycleBrushCanvas2D {
         const liveSpd = this.toU8(ib?.speedData);
         if (livePaint) {
           const paintCopy = livePaint.slice();
-          strokeData.paintBuffer = paintCopy;
+          strokeData.buffers.paint = paintCopy;
           snapshotBuffer = paintCopy.byteLength > 0
             ? paintCopy.slice().buffer
             : new ArrayBuffer(0);
         }
         if (liveGid) {
           const gidCopy = liveGid.slice();
-          strokeData.gradientIdBuffer = gidCopy;
+          strokeData.buffers.gid = gidCopy;
           snapshotGradientIdBuffer = gidCopy.byteLength > 0
             ? gidCopy.slice().buffer
             : new ArrayBuffer(0);
         }
         if (liveSpd) {
           const spdCopy = liveSpd.slice();
-          strokeData.speedBuffer = spdCopy;
+          strokeData.buffers.spd = spdCopy;
           snapshotSpeedBuffer = spdCopy.byteLength > 0
             ? spdCopy.slice().buffer
             : new ArrayBuffer(0);
@@ -2731,24 +1619,26 @@ export class ColorCycleBrushCanvas2D {
         }
       }
 
-      strokeData.lastSnapshot = {
+      strokeData.snapshot = {
         paintBuffer: snapshotBuffer,
         gradientIdBuffer: snapshotGradientIdBuffer,
         speedBuffer: snapshotSpeedBuffer,
         hasContent: true,
         strokeCounter: this.strokeCounter
       };
-      strokeData.stampDitherBaseIdx = undefined;
-      strokeData.stampDitherBaseGid = undefined;
-      strokeData.stampDitherBaseMask = undefined;
-      strokeData.stampDitherOwner = undefined;
-      strokeData.stampDitherStampSeq = 0;
-      strokeData.stampDitherBounds = null;
-      strokeData.stampSeqMeta = undefined;
-      strokeData.stampSeqToTileScale = undefined;
-      strokeData.stampDitherRecomposeLastMs = undefined;
-      strokeData.stampDitherRecomposePending = false;
-      strokeData.stampDitherRecomposeScale = undefined;
+      if (strokeData.stampDither) {
+        strokeData.stampDither.stampDitherBaseIdx = undefined;
+        strokeData.stampDither.stampDitherBaseGid = undefined;
+        strokeData.stampDither.stampDitherBaseMask = undefined;
+        strokeData.stampDither.stampDitherOwner = undefined;
+        strokeData.stampDither.stampDitherStampSeq = 0;
+        strokeData.stampDither.stampDitherBounds = null;
+        strokeData.stampDither.stampDitherRecomposeLastMs = undefined;
+        strokeData.stampDither.stampDitherRecomposePending = false;
+        strokeData.stampDither.stampDitherRecomposeScale = undefined;
+        strokeData.stampDither.stampSeqMeta = undefined;
+        strokeData.stampDither.stampSeqToTileScale = undefined;
+      }
 
       try {
         const storeState = useAppStore.getState();
@@ -2782,15 +1672,15 @@ export class ColorCycleBrushCanvas2D {
     const gid = this.toU8(indexBuffer?.gradientId)?.slice();
     const spd = this.toU8(indexBuffer?.speedData)?.slice();
 
-    strokeData.paintBuffer = paint;
+    strokeData.buffers.paint = paint;
     if (gid) {
-      strokeData.gradientIdBuffer = gid;
+      strokeData.buffers.gid = gid;
     }
     if (spd) {
-      strokeData.speedBuffer = spd;
+      strokeData.buffers.spd = spd;
     }
 
-    strokeData.lastSnapshot = {
+    strokeData.snapshot = {
       paintBuffer: paint.slice().buffer,
       gradientIdBuffer: gid ? gid.slice().buffer : undefined,
       speedBuffer: spd ? spd.slice().buffer : undefined,
@@ -2866,67 +1756,32 @@ export class ColorCycleBrushCanvas2D {
     
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
-      this.layerStrokes.set(id, {
-        paintBuffer: new Uint8Array(this.width * this.height),
-        gradientIdBuffer: new Uint8Array(this.width * this.height),
-        speedBuffer: new Uint8Array(this.width * this.height),
-        hasContent: true,
-        strokeCounter: 0,
-        strokeLength: 0,
-        lastPoint: null,
-        gradientLayerIndices: [],
-        currentGradientIndex: 0,
-        stampCounter: 0,
-        activeGradientSlot: 0,
-        stampDitherOrigin: null,
-        stampDitherPressureState: null,
-        stampDitherOwner: undefined,
-        stampDitherStampSeq: 0,
-        stampDitherPrimaryBuffer: undefined,
-        stampDitherBaseIdx: undefined,
-        stampDitherBaseGid: undefined,
-        stampDitherBounds: null,
-        stampDitherLastTileScale: null
-      });
+      this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true }));
     }
     
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
-      if (strokeData.paintBuffer.length === 0) {
-        strokeData.paintBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.paint.length === 0) {
+        strokeData.buffers.paint = new Uint8Array(this.width * this.height);
       }
-      if (!strokeData.gradientIdBuffer || strokeData.gradientIdBuffer.length === 0) {
-        strokeData.gradientIdBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.gid.length === 0) {
+        strokeData.buffers.gid = new Uint8Array(this.width * this.height);
       }
-      if (!strokeData.speedBuffer || strokeData.speedBuffer.length === 0) {
-        strokeData.speedBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.spd.length === 0) {
+        strokeData.buffers.spd = new Uint8Array(this.width * this.height);
       }
     }
     
-    const animator = this.getAnimator(id);
+    const animator = this.ensureFullResolution(id, 'fill');
     // quiet
-    const activeSlot = strokeData?.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
+    const activeSlot = strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
     if (strokeData) {
-      strokeData.activeGradientSlot = activeSlot;
-      strokeData.stampFlowMode = this.flowMode;
-      strokeData.stampFlowEncoded = true;
+      strokeData.flow.activeSlot = activeSlot;
+      strokeData.flow.mode = this.flowMode;
+      strokeData.flow.encoded = true;
     }
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-    
-    // Ensure animator is at full resolution
-    const deferredSize = this.deferredAnimatorSizes.get(animator);
-    if (deferredSize) {
-      const { width, height } = deferredSize;
-      animator.resize(width, height);
-      this.deferredAnimatorSizes.delete(animator);
-      
-      if (strokeData) {
-        strokeData.paintBuffer = new Uint8Array(width * height);
-        strokeData.gradientIdBuffer = new Uint8Array(width * height);
-        strokeData.speedBuffer = new Uint8Array(width * height);
-      }
-    }
     
     // Find bounds
     let minX = Infinity, maxX = -Infinity;
@@ -3295,14 +2150,13 @@ export class ColorCycleBrushCanvas2D {
           }
         }
 
-        const dithered: ImageData = applyDitheringWithFillResolution(
-          img,
-          quantLevels,
-          Math.max(1, this.ditherPixelSize),
-          'sierra-lite',
-          undefined,
-          paletteCss
-        );
+        const dithered: ImageData = fillLinear(img, {
+          levels: quantLevels,
+          pixelSize: Math.max(1, this.ditherPixelSize),
+          algorithm: 'sierra-lite',
+          perceptual: true,
+          customPalette: paletteCss,
+        });
         const out = dithered.data;
         for (let yy = 0; yy < height; yy++) {
           await yieldIfNeeded(yy);
@@ -3635,68 +2489,33 @@ export class ColorCycleBrushCanvas2D {
     
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
-      this.layerStrokes.set(id, {
-        paintBuffer: new Uint8Array(this.width * this.height),
-        gradientIdBuffer: new Uint8Array(this.width * this.height),
-        speedBuffer: new Uint8Array(this.width * this.height),
-        hasContent: true, // Mark as having content immediately
-        strokeCounter: 0,
-        strokeLength: 0,
-        lastPoint: null,
-        gradientLayerIndices: [],
-        currentGradientIndex: 0,
-        stampCounter: 0,
-        activeGradientSlot: 0,
-        stampDitherOrigin: null,
-        stampDitherPressureState: null,
-        stampDitherOwner: undefined,
-        stampDitherStampSeq: 0,
-        stampDitherPrimaryBuffer: undefined,
-        stampDitherBaseIdx: undefined,
-        stampDitherBaseGid: undefined,
-        stampDitherBounds: null,
-        stampDitherLastTileScale: null
-      });
+      this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true }));
     }
     
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
       // Ensure full-size buffer
-      if (strokeData.paintBuffer.length === 0) {
-        strokeData.paintBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.paint.length === 0) {
+        strokeData.buffers.paint = new Uint8Array(this.width * this.height);
       }
-      if (!strokeData.gradientIdBuffer || strokeData.gradientIdBuffer.length === 0) {
-        strokeData.gradientIdBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.gid.length === 0) {
+        strokeData.buffers.gid = new Uint8Array(this.width * this.height);
       }
-      if (!strokeData.speedBuffer || strokeData.speedBuffer.length === 0) {
-        strokeData.speedBuffer = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.spd.length === 0) {
+        strokeData.buffers.spd = new Uint8Array(this.width * this.height);
       }
     }
     
-    const activeSlot = strokeData?.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
+    const activeSlot = strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
     if (strokeData) {
-      strokeData.activeGradientSlot = activeSlot;
-      strokeData.stampFlowMode = this.flowMode;
-      strokeData.stampFlowEncoded = true;
+      strokeData.flow.activeSlot = activeSlot;
+      strokeData.flow.mode = this.flowMode;
+      strokeData.flow.encoded = true;
     }
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
 
-    const animator = this.getAnimator(id);
-
-    // Ensure animator is at full resolution for fill operations
-    const deferredSize = this.deferredAnimatorSizes.get(animator);
-    if (deferredSize) {
-      const { width, height } = deferredSize;
-      animator.resize(width, height);
-      this.deferredAnimatorSizes.delete(animator);
-
-      if (strokeData) {
-        strokeData.paintBuffer = new Uint8Array(width * height);
-        strokeData.gradientIdBuffer = new Uint8Array(width * height);
-        strokeData.speedBuffer = new Uint8Array(width * height);
-      }
-    }
+    const animator = this.ensureFullResolution(id, 'fill');
     
     // Find bounds with proper initialization
     let minX = Infinity, maxX = -Infinity;
@@ -4039,15 +2858,13 @@ export class ColorCycleBrushCanvas2D {
 
           const quantLevels2 = numBands;
           const { css: paletteCss2, mapRgbToIndex: mapRgbToIndex2 } = this.buildQuantizedGradientPalette(quantLevels2);
-          const applyDitherFR = applyDitheringWithFillResolution;
-          const dithered2: ImageData = applyDitherFR(
-            img2,
-            quantLevels2,
-            Math.max(1, this.ditherPixelSize),
-            'sierra-lite',
-            undefined,
-            paletteCss2
-          );
+          const dithered2: ImageData = fillConcentric(img2, {
+            levels: quantLevels2,
+            pixelSize: Math.max(1, this.ditherPixelSize),
+            algorithm: 'sierra-lite',
+            perceptual: true,
+            customPalette: paletteCss2,
+          });
           const out2 = dithered2.data;
           for (let yy = 0; yy < height2; yy++) {
             await yieldIfNeeded(yy);
@@ -4204,7 +3021,7 @@ export class ColorCycleBrushCanvas2D {
     this.animators.forEach((animator, layerId) => {
       const strokeData = this.layerStrokes.get(layerId);
       if (strokeData?.hasContent) {
-        animator.drawTo(this.compositeCtx);
+        animator.renderToCanvas2D(this.compositeCtx);
       }
     });
 
@@ -4259,7 +3076,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const strokeData = this.layerStrokes.get(layerId);
-    const hadExternalBase = Boolean(strokeData?.hasExternalBase);
+    const hadExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
     const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
 
     if (!ctx) {
@@ -4267,26 +3084,12 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
-    // Prefer the tracked hasContent flag, but fall back to sampling the animator canvas
+    // Prefer the tracked hasContent flag, but fall back to sampling the animator index data
     // so previously restored frames still redraw when gradients change.
     let hasRenderableContent = strokeData?.hasContent ?? false;
     if (!hasRenderableContent) {
       try {
-        const srcCanvas = animator.getCanvas?.();
-        const sampleCtx = srcCanvas
-          ? srcCanvas.getContext('2d', { willReadFrequently: true })
-          : null;
-        if (srcCanvas && sampleCtx) {
-          const sampleWidth = Math.min(16, srcCanvas.width);
-          const sampleHeight = Math.min(16, srcCanvas.height);
-          const sample = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
-          for (let i = 3; i < sample.length; i += 4) {
-            if (sample[i] > 0) {
-              hasRenderableContent = true;
-              break;
-            }
-          }
-        }
+        hasRenderableContent = this.sampleIndexBufferHasContent(animator, 16);
       } catch {}
     }
 
@@ -4298,26 +3101,12 @@ export class ColorCycleBrushCanvas2D {
 
     try { animator.forceRender(); } catch {}
 
-    const srcCanvas = animator.getCanvas();
     const prevComposite = ctx.globalCompositeOperation;
     const prevAlpha = ctx.globalAlpha;
     const prevSmoothing = ctx.imageSmoothingEnabled;
+    const baseCanvas = hadExternalBase ? this.captureExternalBaseCanvas(targetCanvas) : null;
 
     try {
-      if (hadExternalBase && strokeData) {
-        const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-        if (srcCtx) {
-          const prevMode = srcCtx.globalCompositeOperation;
-          try {
-            srcCtx.globalCompositeOperation = 'destination-over';
-            srcCtx.drawImage(targetCanvas, 0, 0);
-          } finally {
-            srcCtx.globalCompositeOperation = prevMode;
-          }
-        }
-        strokeData.hasExternalBase = false;
-      }
-
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1.0;
       try {
@@ -4325,16 +3114,19 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      // Clear before drawing when animator owns the full contents of the layer.
-      if (!hadExternalBase) {
-        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      if (baseCanvas) {
+        ctx.drawImage(baseCanvas, 0, 0);
       }
-      ctx.drawImage(srcCanvas, 0, 0);
+      this.renderAnimatorToContext(animator, ctx, targetCanvas);
       try {
         const maskManager = getMaskManager();
         maskManager.applyMaskToCanvas(layerId, ctx);
       } catch {}
     } finally {
+      if (baseCanvas) {
+        canvasPool.release(baseCanvas);
+      }
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
       if (typeof prevSmoothing === 'boolean') {
@@ -4394,8 +3186,6 @@ export class ColorCycleBrushCanvas2D {
     // Ensure animator has the latest frame
     try { animator.forceRender(); } catch {}
 
-    const srcCanvas = animator.getCanvas();
-    const sameCanvas = srcCanvas === targetCanvas;
     const strokeData = this.layerStrokes.get(layerId);
 
     const shouldCommitLog =
@@ -4404,26 +3194,11 @@ export class ColorCycleBrushCanvas2D {
       (globalThis as { __CC_STAMP_DEBUG?: boolean }).__CC_STAMP_DEBUG === true;
     if (shouldCommitLog) {
       try {
-        const anyCanvas = srcCanvas as unknown as { getContext?: (...args: unknown[]) => unknown };
-        let ctx2d: unknown = null;
-        try { ctx2d = anyCanvas.getContext?.('2d'); } catch {}
-        let ctxGL: unknown = null;
-        try {
-          ctxGL = anyCanvas.getContext?.('webgl2') || anyCanvas.getContext?.('webgl');
-        } catch {}
-        console.log('[CC commit] srcCanvas type', {
-          ctor: srcCanvas?.constructor?.name,
-          tag: Object.prototype.toString.call(srcCanvas),
-          hasGetContext: typeof anyCanvas.getContext,
-          ctx2d: !!ctx2d,
-          ctxGL: !!ctxGL,
-        });
-      } catch {}
-      try {
-        console.log('[CC commit] srcCanvas', {
-          width: srcCanvas.width,
-          height: srcCanvas.height,
-          sameCanvas,
+        const dimensions = animator.getDimensions();
+        console.log('[CC commit] animator surface', {
+          width: dimensions.width,
+          height: dimensions.height,
+          hasWebGL: animator.hasWebGL?.() ?? false,
         });
       } catch {}
 
@@ -4461,7 +3236,6 @@ export class ColorCycleBrushCanvas2D {
       };
 
       try {
-        const srcHasCtx = !!srcCanvas.getContext('2d');
         const previewHasCtx = !!targetCanvas.getContext('2d');
         if (typeof window !== 'undefined') {
           const w = window as Window & { __ccDebug?: Record<string, unknown> };
@@ -4469,18 +3243,45 @@ export class ColorCycleBrushCanvas2D {
             ...(w.__ccDebug ?? {}),
             commit: {
               previewCanvas: { w: targetCanvas.width, h: targetCanvas.height, hasCtx: previewHasCtx },
-              srcCanvas: { w: srcCanvas.width, h: srcCanvas.height, hasCtx: srcHasCtx },
-              sameCanvas,
+              animator: animator.getDimensions(),
               sampledAfterClear: false,
               isDrawing: this.isDrawing,
               strokeData: {
                 hasContent: strokeData?.hasContent ?? false,
-                hasExternalBase: strokeData?.hasExternalBase ?? false,
+                hasExternalBase: strokeData?.externalBase.hasExternalBase ?? false,
               },
             }
           };
         }
-        const srcTransitions = sampleTransitions(srcCanvas);
+        const animatorTransitions = (() => {
+          try {
+            const { data } = animator.getIndexBuffers();
+            const { width, height } = animator.getDimensions();
+            if (!data || width <= 0 || height <= 0) {
+              return { transitions: null, reason: 'zero_size' as const };
+            }
+            const sampleW = Math.min(64, width);
+            const sampleH = Math.min(64, height);
+            const stepX = Math.max(1, Math.floor(width / sampleW));
+            const stepY = Math.max(1, Math.floor(height / sampleH));
+            let transitions = 0;
+            for (let y = 0; y < height; y += stepY) {
+              const row = y * width;
+              let prev = data[row];
+              for (let x = stepX; x < width; x += stepX) {
+                const idx = row + x;
+                const value = data[idx];
+                if (value !== prev) {
+                  transitions += 1;
+                }
+                prev = value;
+              }
+            }
+            return { transitions, reason: 'ok' as const };
+          } catch (error) {
+            return { transitions: null, reason: 'exception' as const, error: String(error) };
+          }
+        })();
         const previewTransitions = sampleTransitions(targetCanvas);
         if (typeof window !== 'undefined') {
           const w = window as Window & { __ccDebug?: Record<string, unknown> };
@@ -4489,30 +3290,18 @@ export class ColorCycleBrushCanvas2D {
             ...(w.__ccDebug ?? {}),
             commit: {
               ...commit,
-              transitions: { srcTransitions, previewTransitions },
+              transitions: { animatorTransitions, previewTransitions },
             }
           };
         }
         try {
-          console.log('[CC commit] transitions', { srcTransitions, previewTransitions });
+          console.log('[CC commit] transitions', { animatorTransitions, previewTransitions });
         } catch {}
       } catch {}
     }
 
-    const hadExternalBase = Boolean(strokeData?.hasExternalBase);
-    if (hadExternalBase && strokeData) {
-      const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-      if (srcCtx) {
-        const prevMode = srcCtx.globalCompositeOperation;
-        try {
-          srcCtx.globalCompositeOperation = 'destination-over';
-          srcCtx.drawImage(targetCanvas, 0, 0);
-        } finally {
-          srcCtx.globalCompositeOperation = prevMode;
-        }
-      }
-      strokeData.hasExternalBase = false;
-    }
+    const hadExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
+    const baseCanvas = hadExternalBase ? this.captureExternalBaseCanvas(targetCanvas) : null;
 
     // Save state and composite using source-over at full opacity
     const prevComposite = ctx.globalCompositeOperation;
@@ -4527,33 +3316,20 @@ export class ColorCycleBrushCanvas2D {
       try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      if (!hadExternalBase) {
-        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      if (baseCanvas) {
+        ctx.drawImage(baseCanvas, 0, 0);
       }
-
-      // If the target is the same canvas as the animator's internal canvas,
-      // do not draw onto itself. forceRender() already updated pixels.
-      if (sameCanvas) {
-        try {
-          const maskManager = getMaskManager();
-          maskManager.applyMaskToCanvas(layerId, ctx);
-        } catch {}
-        // Skip drawing to same canvas; already up to date
-        return;
-      }
-
-      // Handle potential size mismatches defensively
-      if (srcCanvas.width !== targetCanvas.width || srcCanvas.height !== targetCanvas.height) {
-        ctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, srcCanvas.height, 0, 0, targetCanvas.width, targetCanvas.height);
-      } else {
-        ctx.drawImage(srcCanvas, 0, 0);
-      }
+      this.renderAnimatorToContext(animator, ctx, targetCanvas);
 
       try {
         const maskManager = getMaskManager();
         maskManager.applyMaskToCanvas(layerId, ctx);
       } catch {}
     } finally {
+      if (baseCanvas) {
+        canvasPool.release(baseCanvas);
+      }
       // Restore prior state regardless of outcome
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
@@ -4917,11 +3693,15 @@ export class ColorCycleBrushCanvas2D {
     this.stampDitherEnabled = !!enabled;
     if (this.stampDitherEnabled) {
       this.clearStampDitherCache();
+    } else {
+      this.layerStrokes.forEach((stroke) => {
+        stroke.stampDither = undefined;
+      });
     }
   }
 
   /** Select the dithering algorithm for stamp masks. */
-  setStampDitherAlgorithm(algorithm?: DitherAlgorithm) {
+  setStampDitherAlgorithm(algorithm?: StampDitherAlgorithm) {
     const next = algorithm || 'sierra-lite';
     if (next === this.stampDitherAlgorithm) {
       return;
@@ -4947,14 +3727,16 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     this.stampDitherPixelSize = next;
-    this.stampDitherTiles.clear();
+    this.clearStampDitherCache();
   }
 
   /** Toggle pressure-linked stamp dithering resolution. */
   setStampDitherPressureLinked(enabled: boolean) {
     this.stampDitherPressureLinked = !!enabled;
     this.layerStrokes.forEach((stroke) => {
-      stroke.stampDitherPressureState = null;
+      if (stroke.stampDither) {
+        stroke.stampDither.stampDitherPressureState = null;
+      }
     });
   }
 
@@ -5075,14 +3857,16 @@ export class ColorCycleBrushCanvas2D {
         try {
           animator.resize(this.width, this.height);
         } catch {
-          // Ignore resize failures; animator will lazy-resize on next use.
+          // Ignore resize failures; ensureFullResolution will correct on next use.
         }
       });
 
       this.layerStrokes.forEach((strokeData) => {
         const expected = this.width * this.height;
-        if (strokeData.paintBuffer.length !== expected) {
-          strokeData.paintBuffer = new Uint8Array(expected);
+        if (strokeData.buffers.paint.length !== expected) {
+          strokeData.buffers.paint = new Uint8Array(expected);
+          strokeData.buffers.gid = new Uint8Array(expected);
+          strokeData.buffers.spd = new Uint8Array(expected);
         }
       });
     }
@@ -5145,30 +3929,10 @@ export class ColorCycleBrushCanvas2D {
       if (!layerData) {
         // Lazy-init an empty stroke buffer so validation doesn't force recreation loops
         const expectedSize = Math.max(1, this.width * this.height);
-        layerData = {
-          paintBuffer: new Uint8Array(expectedSize),
-          gradientIdBuffer: new Uint8Array(expectedSize),
-          hasContent: false,
-          strokeCounter: 0,
-          strokeLength: 0,
-          lastPoint: null,
-          gradientLayerIndices: [],
-          currentGradientIndex: 0,
-          stampCounter: 0,
-          activeGradientSlot: 0,
-          stampDitherOrigin: null,
-          stampDitherPressureState: null,
-          stampDitherOwner: undefined,
-          stampDitherStampSeq: 0,
-          stampDitherPrimaryBuffer: undefined,
-          stampDitherBaseIdx: undefined,
-          stampDitherBaseGid: undefined,
-          stampDitherBounds: null,
-          stampDitherLastTileScale: null
-        };
+        layerData = this.createLayerStrokeState({ hasContent: false, bufferSize: expectedSize });
         this.layerStrokes.set(this.activeLayerId, layerData);
       }
-      return !!layerData.paintBuffer;
+      return !!layerData.buffers.paint;
     }
     // No active layer is also valid
     return true;
@@ -5297,15 +4061,15 @@ export class ColorCycleBrushCanvas2D {
           const sd = this.layerStrokes.get(layerId);
           if (sd) {
             console.log('[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
-            sd.paintBuffer.fill(0);
-            sd.gradientIdBuffer?.fill(0);
-            sd.speedBuffer?.fill(0);
+            sd.buffers.paint.fill(0);
+            sd.buffers.gid.fill(0);
+            sd.buffers.spd.fill(0);
             sd.hasContent = false;
             sd.strokeCounter = 0;
-            sd.strokeLength = 0;
             sd.lastPoint = null;
             sd.stampCounter = 0;
-            sd.lastSnapshot = undefined;
+            sd.snapshot = undefined;
+            sd.stampDither = undefined;
           }
           const animator = this.animators.get(layerId);
           if (animator) {
@@ -5372,28 +4136,18 @@ export class ColorCycleBrushCanvas2D {
   verifyPaintBufferCleared(layerId: string): boolean {
     const id = layerId;
     const animator = this.animators.get(id);
-    if (!animator || !animator.getCanvas) {
-      console.log('[Debug] No animator/canvas exists for layer:', id);
+    if (!animator) {
+      console.log('[Debug] No animator exists for layer:', id);
       return true;
     }
     try {
-      const canvas = animator.getCanvas();
-      const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
-      if (!ctx) {
-        console.log('[Debug] No 2D context on animator canvas');
+      const { data } = animator.getIndexBuffers();
+      if (!data) {
+        console.log('[Debug] No index buffer data on animator');
         return true;
       }
-      const w = Math.min(32, canvas.width);
-      const h = Math.min(32, canvas.height);
-      const img = ctx.getImageData(0, 0, w, h);
-      const hasContent = (() => {
-        const data = img.data;
-        for (let i = 3; i < data.length; i += 4) {
-          if (data[i] > 0) return true;
-        }
-        return false;
-      })();
-      console.log('[Debug] Animator canvas has content:', hasContent, 'layer:', id);
+      const hasContent = this.sampleIndexBufferHasContent(animator, 32);
+      console.log('[Debug] Animator buffer has content:', hasContent, 'layer:', id);
       return !hasContent;
     } catch (error) {
       console.warn('[Debug] Failed to verify animator canvas content:', error);
@@ -5421,19 +4175,19 @@ export class ColorCycleBrushCanvas2D {
 
     this.animators.forEach((animator, layerId) => {
       const strokeData = this.layerStrokes.get(layerId);
-      const hadSnapshot = Boolean(strokeData?.lastSnapshot?.paintBuffer?.byteLength);
+      const hadSnapshot = Boolean(strokeData?.snapshot?.paintBuffer?.byteLength);
       if (strokeData?.hasContent && !hadSnapshot) {
         this.snapshotFromAnimator(animator, strokeData);
       }
-      const snapshot = strokeData?.lastSnapshot;
+      const snapshot = strokeData?.snapshot;
       const hasContent = snapshot?.hasContent ?? strokeData?.hasContent ?? false;
 
       let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
       let gradientIdBuffer: ArrayBuffer | undefined = undefined;
       let speedBuffer: ArrayBuffer | undefined = undefined;
-      const paintU8 = strokeData?.paintBuffer instanceof Uint8Array ? strokeData.paintBuffer : undefined;
-      const gidU8 = strokeData?.gradientIdBuffer instanceof Uint8Array ? strokeData.gradientIdBuffer : undefined;
-      const spdU8 = strokeData?.speedBuffer instanceof Uint8Array ? strokeData.speedBuffer : undefined;
+      const paintU8 = strokeData?.buffers.paint instanceof Uint8Array ? strokeData.buffers.paint : undefined;
+      const gidU8 = strokeData?.buffers.gid instanceof Uint8Array ? strokeData.buffers.gid : undefined;
+      const spdU8 = strokeData?.buffers.spd instanceof Uint8Array ? strokeData.buffers.spd : undefined;
       if (hasContent) {
         if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
           paintBuffer = snapshot.paintBuffer.slice(0);
@@ -5611,21 +4365,21 @@ export class ColorCycleBrushCanvas2D {
   } | null {
     const strokeData = this.layerStrokes.get(layerId);
     if (!strokeData) return null;
-    const snapshot = strokeData.lastSnapshot;
+    const snapshot = strokeData.snapshot;
     const paintBuffer = snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
       ? snapshot.paintBuffer.slice(0)
-      : strokeData.paintBuffer.length > 0
-        ? strokeData.paintBuffer.slice().buffer
+      : strokeData.buffers.paint.length > 0
+        ? strokeData.buffers.paint.slice().buffer
         : new ArrayBuffer(0);
     const gradientIdBuffer = snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0
       ? snapshot.gradientIdBuffer.slice(0)
-      : strokeData.gradientIdBuffer && strokeData.gradientIdBuffer.length > 0
-        ? strokeData.gradientIdBuffer.slice().buffer
+      : strokeData.buffers.gid.length > 0
+        ? strokeData.buffers.gid.slice().buffer
         : undefined;
     const speedBuffer = snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0
       ? snapshot.speedBuffer.slice(0)
-      : strokeData.speedBuffer && strokeData.speedBuffer.length > 0
-        ? strokeData.speedBuffer.slice().buffer
+      : strokeData.buffers.spd.length > 0
+        ? strokeData.buffers.spd.slice().buffer
         : undefined;
     return {
       paintBuffer,
@@ -5650,15 +4404,7 @@ export class ColorCycleBrushCanvas2D {
       });
     }
     // Ensure animator exists for this layer
-    let animator = this.animators.get(layerId);
-    if (!animator) {
-      animator = this.getAnimator(layerId);
-    }
-    // Ensure full-size animator during restore; avoid 256×256 lazy init artifacts.
-    try {
-      animator.resize(this.width, this.height);
-      this.deferredAnimatorSizes.delete(animator);
-    } catch {}
+    const animator = this.ensureFullResolution(layerId, 'restore');
     const buffer =
       snapshot.paintBuffer && snapshot.paintBuffer.byteLength > 0
         ? snapshot.paintBuffer
@@ -5684,74 +4430,52 @@ export class ColorCycleBrushCanvas2D {
         animator!.resize(this.width, this.height);
       }
     } catch {}
-    const strokeData = existing || {
-      paintBuffer: new Uint8Array(expectedSize),
-      gradientIdBuffer: new Uint8Array(expectedSize),
-      speedBuffer: new Uint8Array(expectedSize),
-      hasContent: false,
-      strokeCounter: 0,
-      strokeLength: 0,
-      lastPoint: null,
-      gradientLayerIndices: [],
-      currentGradientIndex: 0,
-      stampCounter: 0,
-      activeGradientSlot: 0,
-      hasExternalBase: false,
-      stampDitherOrigin: null,
-      stampDitherPressureState: null,
-      stampDitherOwner: undefined,
-      stampDitherStampSeq: 0,
-      stampDitherPrimaryBuffer: undefined,
-      stampDitherBaseIdx: undefined,
-      stampDitherBaseGid: undefined,
-      stampDitherBounds: null,
-      stampDitherLastTileScale: null
-    };
-    if (strokeData.paintBuffer.length !== expectedSize) {
-      strokeData.paintBuffer = new Uint8Array(expectedSize);
+    const strokeData = existing || this.createLayerStrokeState({ hasContent: false, bufferSize: expectedSize });
+    if (strokeData.buffers.paint.length !== expectedSize) {
+      strokeData.buffers.paint = new Uint8Array(expectedSize);
     }
-    if (incomingGradient && (!strokeData.gradientIdBuffer || strokeData.gradientIdBuffer.length !== expectedSize)) {
-      strokeData.gradientIdBuffer = new Uint8Array(expectedSize);
+    if (strokeData.buffers.gid.length !== expectedSize) {
+      strokeData.buffers.gid = new Uint8Array(expectedSize);
     }
-    if (incomingSpeed && (!strokeData.speedBuffer || strokeData.speedBuffer.length !== expectedSize)) {
-      strokeData.speedBuffer = new Uint8Array(expectedSize);
+    if (strokeData.buffers.spd.length !== expectedSize) {
+      strokeData.buffers.spd = new Uint8Array(expectedSize);
     }
     // Copy buffer (best-effort): if sizes differ, copy the overlapping region
     if (incoming.length > 0) {
       if (incoming.length === expectedSize) {
-        strokeData.paintBuffer.set(incoming);
+        strokeData.buffers.paint.set(incoming);
       } else {
         const copyLen = Math.min(expectedSize, incoming.length);
-        strokeData.paintBuffer.fill(0);
-        strokeData.paintBuffer.set(incoming.subarray(0, copyLen));
+        strokeData.buffers.paint.fill(0);
+        strokeData.buffers.paint.set(incoming.subarray(0, copyLen));
       }
     } else if (!expectsContent && hadExistingContent) {
       // Snapshot explicitly represents an empty state — clear prior contents lazily.
-      strokeData.paintBuffer.fill(0);
+      strokeData.buffers.paint.fill(0);
     }
-    if (incomingGradient && strokeData.gradientIdBuffer) {
+    if (incomingGradient) {
       if (incomingGradient.length === expectedSize) {
-        strokeData.gradientIdBuffer.set(incomingGradient);
+        strokeData.buffers.gid.set(incomingGradient);
       } else {
         const copyLen = Math.min(expectedSize, incomingGradient.length);
-        strokeData.gradientIdBuffer.fill(0);
-        strokeData.gradientIdBuffer.set(incomingGradient.subarray(0, copyLen));
+        strokeData.buffers.gid.fill(0);
+        strokeData.buffers.gid.set(incomingGradient.subarray(0, copyLen));
       }
-    } else if (!expectsContent && hadExistingContent && strokeData.gradientIdBuffer) {
-      strokeData.gradientIdBuffer.fill(0);
+    } else if (!expectsContent && hadExistingContent) {
+      strokeData.buffers.gid.fill(0);
     }
-    if (incomingSpeed && strokeData.speedBuffer) {
+    if (incomingSpeed) {
       if (incomingSpeed.length === expectedSize) {
-        strokeData.speedBuffer.set(incomingSpeed);
+        strokeData.buffers.spd.set(incomingSpeed);
       } else {
         const copyLen = Math.min(expectedSize, incomingSpeed.length);
-        strokeData.speedBuffer.fill(0);
-        strokeData.speedBuffer.set(incomingSpeed.subarray(0, copyLen));
+        strokeData.buffers.spd.fill(0);
+        strokeData.buffers.spd.set(incomingSpeed.subarray(0, copyLen));
       }
-    } else if (!expectsContent && hadExistingContent && strokeData.speedBuffer) {
-      strokeData.speedBuffer.fill(0);
+    } else if (!expectsContent && hadExistingContent) {
+      strokeData.buffers.spd.fill(0);
     }
-    if (!incomingSpeed && strokeData.speedBuffer && strokeData.paintBuffer.length === expectedSize) {
+    if (!incomingSpeed && strokeData.buffers.spd.length === expectedSize) {
       try {
         const state = useAppStore.getState();
         const layer = state.layers.find((candidate) => candidate.id === layerId);
@@ -5760,8 +4484,8 @@ export class ColorCycleBrushCanvas2D {
             ?? state.tools.brushSettings.colorCycleSpeed
             ?? 0.1;
         const speedByte = encodeColorCycleSpeedByte(fallbackSpeed);
-        for (let i = 0; i < strokeData.paintBuffer.length; i += 1) {
-          strokeData.speedBuffer[i] = strokeData.paintBuffer[i] === 0 ? 0 : speedByte;
+        for (let i = 0; i < strokeData.buffers.paint.length; i += 1) {
+          strokeData.buffers.spd[i] = strokeData.buffers.paint[i] === 0 ? 0 : speedByte;
         }
       } catch {}
     }
@@ -5789,26 +4513,26 @@ export class ColorCycleBrushCanvas2D {
 
     strokeData.hasContent = hasLayerContent;
     if (hasLayerContent) {
-      strokeData.hasExternalBase = false;
+      strokeData.externalBase.hasExternalBase = false;
     }
     strokeData.strokeCounter = snapshot.strokeCounter || 0;
-    strokeData.strokeLength = 0;
     strokeData.lastPoint = null;
     strokeData.stampCounter = 0;
+    strokeData.stampDither = undefined;
     const liveHandle = animator ? animator.beginDirectFill() : null;
     const livePaint = animatorIndex?.data
       ? new Uint8Array(animatorIndex.data)
-      : liveHandle?.data ?? strokeData.paintBuffer;
+      : liveHandle?.data ?? strokeData.buffers.paint;
     const liveGid = animatorIndex?.gradientIdData
       ? new Uint8Array(animatorIndex.gradientIdData)
-      : liveHandle?.gradientId ?? strokeData.gradientIdBuffer;
+      : liveHandle?.gradientId ?? strokeData.buffers.gid;
     const liveSpeed = animatorIndex?.speedData
       ? new Uint8Array(animatorIndex.speedData)
-      : liveHandle?.speedData ?? strokeData.speedBuffer;
+      : liveHandle?.speedData ?? strokeData.buffers.spd;
     if (liveHandle) {
       animator?.endDirectFill({ markDirty: false });
     }
-    strokeData.lastSnapshot = {
+    strokeData.snapshot = {
       paintBuffer: hasLayerContent && livePaint && livePaint.length > 0
         ? livePaint.slice().buffer
         : new ArrayBuffer(0),
@@ -5825,15 +4549,15 @@ export class ColorCycleBrushCanvas2D {
 
     // Keep animator in sync with externally supplied paint buffer so renders reflect new data.
     try {
-      const uploadPaint = incoming.length === expectedSize ? incoming : strokeData.paintBuffer;
-      const uploadGid = incomingGradient ?? strokeData.gradientIdBuffer ?? undefined;
-      const uploadSpd = incomingSpeed ?? strokeData.speedBuffer ?? undefined;
+      const uploadPaint = incoming.length === expectedSize ? incoming : strokeData.buffers.paint;
+      const uploadGid = incomingGradient ?? strokeData.buffers.gid ?? undefined;
+      const uploadSpd = incomingSpeed ?? strokeData.buffers.spd ?? undefined;
       animator?.setIndexBufferFromArray(uploadPaint, uploadGid, uploadSpd);
       if (hasLayerContent) {
-        strokeData.lastSnapshot = {
-          paintBuffer: strokeData.paintBuffer.slice().buffer,
-          gradientIdBuffer: strokeData.gradientIdBuffer?.slice().buffer,
-          speedBuffer: strokeData.speedBuffer?.slice().buffer,
+        strokeData.snapshot = {
+          paintBuffer: strokeData.buffers.paint.slice().buffer,
+          gradientIdBuffer: strokeData.buffers.gid.slice().buffer,
+          speedBuffer: strokeData.buffers.spd.slice().buffer,
           hasContent: hasLayerContent,
           strokeCounter: strokeData.strokeCounter
         };

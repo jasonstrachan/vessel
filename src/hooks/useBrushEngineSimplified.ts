@@ -4049,7 +4049,7 @@ export const useBrushEngineSimplified = () => {
    *   => stamp-based stroke path (drawColorCycle / endColorCycleStroke)
    *   => uses colorCycleStampDitherEnabled + stamp settings
    * - CC gradient/shape: BrushShape.COLOR_CYCLE_SHAPE
-   *   => shape fill path (fillShapeLinear / fillShapeConcentric)
+   *   => shape fill path (fillCcGradientLinear / fillCcGradientConcentric)
    *   => uses ditherEnabled + fillResolution + gradient bands
    *
    * Render Color Cycle output onto the provided context.
@@ -4483,7 +4483,7 @@ export const useBrushEngineSimplified = () => {
   /**
    * Fill a shape with linear color cycle gradient in specified direction
    */
-  const fillColorCycleShapeLinear = useCallback(async (
+  const fillCcGradientLinear = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
     direction: { x: number; y: number },
     options?: { ditherPixelSize?: number; roi?: { x: number; y: number; width: number; height: number } }
@@ -4541,12 +4541,19 @@ export const useBrushEngineSimplified = () => {
       // quiet
       // Fill the shape with linear gradient
       await Promise.resolve(
-        brush.fillShapeLinear?.(vertices, direction, layerId, bandSpacingPx, {
-          continuous: ccGradientMode,
-          ccGradient: ccGradientMode,
-          ditherLevels,
-          ditherPixelSize: options?.ditherPixelSize,
-          roi: options?.roi,
+        brush.fillShapeDispatch?.({
+          mode: 'linear',
+          vertices,
+          layerId,
+          direction,
+          options: {
+            spacing: bandSpacingPx,
+            continuous: ccGradientMode,
+            ccGradient: ccGradientMode,
+            ditherLevels,
+            ditherPixelSize: options?.ditherPixelSize,
+            roi: options?.roi,
+          },
         })
       );
 
@@ -4568,7 +4575,7 @@ export const useBrushEngineSimplified = () => {
   /**
    * Fill a shape with color cycle gradient from edges to center
    */
-  const fillColorCycleShape = useCallback(async (
+  const fillCcGradientConcentric = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
     options?: { ditherPixelSize?: number; roi?: { x: number; y: number; width: number; height: number } }
   ) => {
@@ -4629,11 +4636,17 @@ export const useBrushEngineSimplified = () => {
         brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
       }
       await Promise.resolve(
-        brush.fillShape?.(vertices, layerId, bandSpacingPx, {
-          ccGradient: ccGradientMode,
-          ditherLevels,
-          ditherPixelSize: options?.ditherPixelSize,
-          roi: options?.roi,
+        brush.fillShapeDispatch?.({
+          mode: 'concentric',
+          vertices,
+          layerId,
+          options: {
+            spacing: bandSpacingPx,
+            ccGradient: ccGradientMode,
+            ditherLevels,
+            ditherPixelSize: options?.ditherPixelSize,
+            roi: options?.roi,
+          },
         })
       );
 
@@ -4952,8 +4965,8 @@ useEffect(() => {
     renderColorCycle,
     resetColorCycle,
     endColorCycleStroke,
-    fillColorCycleShape,
-    fillColorCycleShapeLinear,
+    fillCcGradientConcentric,
+    fillCcGradientLinear,
     
     // Force immediate texture update for color cycle brush
     updateColorCycleTexture: () => {

@@ -2141,7 +2141,6 @@ export function useDrawingHandlers({
               clearBrushSamplingPreview,
               getBrushForLayer: (layerId) =>
                 getColorCycleBrushManager().getBrush(layerId) as ManagedColorCycleBrush | undefined,
-              bindBrushToCanvas,
               getEffectiveColorCyclePlaying,
               startPlaybackRef,
             });

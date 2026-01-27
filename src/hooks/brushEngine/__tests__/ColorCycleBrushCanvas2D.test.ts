@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
+import * as stampDither from '../strokeStampDither';
 const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as {
   setIndexBufferFromArrayMock: jest.Mock;
   deserializeSpy: jest.Mock;
@@ -88,6 +89,31 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
         this.speedData = speedData;
       }
       setIndexBufferFromArrayMock(arr, gradientId, speedData);
+    }
+
+    getDimensions() {
+      return { width: this.width, height: this.height };
+    }
+
+    getIndexBuffers() {
+      if (!this.indexBuffer) {
+        this.indexBuffer = new Uint8Array(this.width * this.height);
+      }
+      if (!this.gradientId) {
+        this.gradientId = new Uint8Array(this.width * this.height);
+      }
+      if (!this.speedData) {
+        this.speedData = new Uint8Array(this.width * this.height);
+      }
+      return {
+        data: this.indexBuffer,
+        gid: this.gradientId,
+        spd: this.speedData,
+      };
+    }
+
+    renderToCanvas2D(ctx: CanvasRenderingContext2D) {
+      void ctx;
     }
 
     setFlowMode() {}
@@ -224,13 +250,14 @@ jest.mock('@/utils/canvasPool', () => ({
   },
 }));
 
-jest.mock('../dithering', () => ({
-  applyDithering: jest.fn((imageData: ImageData) => imageData),
-  applyDitheringWithFillResolution: jest.fn(),
+jest.mock('../ccGradientFillDither', () => ({
+  fillLinear: jest.fn((imageData: ImageData) => imageData),
+  fillConcentric: jest.fn((imageData: ImageData) => imageData),
 }));
 
-const ditheringMocks = jest.requireMock('../dithering') as {
-  applyDitheringWithFillResolution: jest.Mock;
+const fillDitherMocks = jest.requireMock('../ccGradientFillDither') as {
+  fillLinear: jest.Mock;
+  fillConcentric: jest.Mock;
 };
 
 const makeCanvas = () => {
@@ -330,7 +357,7 @@ describe('ColorCycleBrushCanvas2D', () => {
   it('finalizes error diffusion stamp dithering on endStroke for finalize-only algos', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
-    const finalizeSpy = jest.spyOn(brush as unknown as { finalizeStrokeErrorDiffusion: jest.Mock }, 'finalizeStrokeErrorDiffusion');
+    const finalizeSpy = jest.spyOn(stampDither, 'finalizeStampDither');
 
     brush.setStampDitherEnabled(true);
     brush.setStampDitherAlgorithm('atkinson');
@@ -348,7 +375,7 @@ describe('ColorCycleBrushCanvas2D', () => {
   it('does not finalize error diffusion for sierra-lite stamp dithering on endStroke', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
-    const finalizeSpy = jest.spyOn(brush as unknown as { finalizeStrokeErrorDiffusion: jest.Mock }, 'finalizeStrokeErrorDiffusion');
+    const finalizeSpy = jest.spyOn(stampDither, 'finalizeStampDither');
 
     brush.setStampDitherEnabled(true);
     brush.setStampDitherAlgorithm('sierra-lite');
@@ -446,6 +473,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     canvas.width = 512;
     canvas.height = 512;
     const brush = new ColorCycleBrushCanvas2D(canvas);
+    (brush as any).createAnimator('layer-restore', { initial: 'reduced' });
     const full = new Uint8Array(canvas.width * canvas.height);
     full[0] = 1;
 
@@ -539,7 +567,7 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     brush.setDitherEnabled(true);
     brush.setPerceptualDither(true);
-    ditheringMocks.applyDitheringWithFillResolution.mockClear();
+    fillDitherMocks.fillLinear.mockClear();
 
     const vertices = [
       { x: 0, y: 0 },
@@ -550,7 +578,7 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 4, { continuous: true });
 
-    expect(ditheringMocks.applyDitheringWithFillResolution).toHaveBeenCalled();
+    expect(fillDitherMocks.fillLinear).toHaveBeenCalled();
   });
 
   it('clamps dither settings', () => {

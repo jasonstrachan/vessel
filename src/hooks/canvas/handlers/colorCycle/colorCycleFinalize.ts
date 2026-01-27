@@ -1,5 +1,4 @@
 import type React from 'react';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { ManagedColorCycleBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import type { BrushSettings } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
@@ -37,7 +36,6 @@ export type FinalizeColorCycleBrushDeps = {
   ) => AutoSampleStop[] | null;
   clearBrushSamplingPreview: () => void;
   getBrushForLayer: (layerId: string) => ManagedColorCycleBrush | undefined;
-  bindBrushToCanvas: (brush: ColorCycleBrushImplementation, canvas: HTMLCanvasElement) => void;
   getEffectiveColorCyclePlaying: () => boolean;
   startPlaybackRef: React.MutableRefObject<((reason?: string) => void) | null>;
 };
@@ -59,7 +57,6 @@ export const finalizeColorCycleBrush = async (
     computeAutoSampleStops,
     clearBrushSamplingPreview,
     getBrushForLayer,
-    bindBrushToCanvas,
     getEffectiveColorCyclePlaying,
     startPlaybackRef,
   } = deps;

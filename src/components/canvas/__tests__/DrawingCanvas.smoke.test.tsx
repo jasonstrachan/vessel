@@ -155,7 +155,7 @@ const brushEngineStub = {
   updateColorCycleGradient: jest.fn(),
   setColorCycleFlowMode: jest.fn(),
   resetColorCycle: jest.fn(),
-  fillColorCycleShape: jest.fn(),
+  fillCcGradientConcentric: jest.fn(),
   renderColorCycle: jest.fn(),
   drawContourPolygon: jest.fn(),
   drawPolygonGradient: jest.fn(),

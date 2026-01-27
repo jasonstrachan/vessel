@@ -79,7 +79,7 @@ export const finalizeColorCycleShapeFillLinear = async (
   try {
     await deps.timeAsync('cc:shape:fill(linear)', async () => {
       deps.brushEngine.resetColorCycle(false);
-      await deps.brushEngine.fillColorCycleShapeLinear(args.shapePoints, args.direction, {
+      await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
         ditherPixelSize: args.ditherPixelSize,
         roi: args.roi,
       });
@@ -170,7 +170,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
   try {
     await deps.timeAsync('cc:shape:fill(concentric)', async () => {
       deps.brushEngine.resetColorCycle(false);
-      await deps.brushEngine.fillColorCycleShape(args.shapePoints, {
+      await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
         ditherPixelSize: args.ditherPixelSize,
         roi: args.roi,
       });

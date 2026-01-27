@@ -58,9 +58,9 @@ const resolveColorCycleDitherPixelSize = ({
 };
 
 const resolveColorCycleFillMode = (
-  mode?: 'linear' | 'concentric'
+  mode?: 'linear' | 'concentric' | 'circular'
 ): 'linear' | 'concentric' => {
-  return mode === 'concentric' ? 'concentric' : 'linear';
+  return mode === 'concentric' || mode === 'circular' ? 'concentric' : 'linear';
 };
 
 type ShapeDrawingDeps = {

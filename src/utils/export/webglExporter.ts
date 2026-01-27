@@ -11,7 +11,6 @@ import { parseCssColor } from '@/utils/color/parseCssColor';
 import { posInt, round3, toNum } from '@/utils/num';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
-import { useAppStore } from '@/stores/useAppStore';
 import type {
   ContentBounds,
   ExportContainerLayout,
