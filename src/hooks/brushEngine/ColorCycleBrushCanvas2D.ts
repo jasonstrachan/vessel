@@ -55,16 +55,6 @@ type RgbColor = { r: number; g: number; b: number };
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
 type StrokeFillHandle = ReturnType<ColorCycleAnimator['beginDirectFill']>;
 
-type CCDitherConfig = {
-  enabled: boolean;
-  numColors: number;
-  fillResolution: number;
-  algorithm?: DitherAlgorithm;
-  patternStyle?: PatternStyle;
-  customPalette?: string[];
-  phaseOffset?: { x: number; y: number };
-};
-
 type LayerStrokeState = {
   paintBuffer: Uint8Array;
   gradientIdBuffer?: Uint8Array;
@@ -103,7 +93,6 @@ type LayerStrokeState = {
   stampDitherFillHandle?: StrokeFillHandle;
   stampFlowMode?: FlowMode;
   stampFlowEncoded?: boolean;
-  ditherConfig?: CCDitherConfig;
 };
     
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
@@ -432,63 +421,14 @@ export class ColorCycleBrushCanvas2D {
     return strokeData;
   }
 
-  private updateStrokeDitherConfig(layerId: string) {
-    const strokeData = this.ensureStrokeState(layerId);
-    const state = useAppStore.getState();
-    const settings = state.tools?.brushSettings;
-    if (!settings) {
-      strokeData.ditherConfig = undefined;
-      return;
-    }
-    const isStrokeBrush =
-      settings.brushShape === 'color_cycle' || settings.brushShape === 'color_cycle_triangle';
-    const enabled = isStrokeBrush && Boolean(settings.colorCycleStampDitherEnabled);
-    if (!enabled) {
-      strokeData.ditherConfig = undefined;
-      return;
-    }
-    const numColors = Math.max(
-      2,
-      Math.min(
-        254,
-        Math.floor(settings.gradientBands ?? settings.colors ?? this.gradientBands ?? 12)
-      )
+  private shouldUseIndexBufferCommit(strokeData: LayerStrokeState | undefined): boolean {
+    if (!strokeData) return false;
+    return Boolean(
+      strokeData.stampDitherOwner ||
+      strokeData.stampDitherChoice ||
+      strokeData.stampDitherPrimaryBuffer ||
+      strokeData.stampDitherBaseMask
     );
-    const fillResolution = Math.max(1, Math.floor(settings.fillResolution ?? 1));
-    const algorithm = (settings.ditherAlgorithm ?? 'sierra-lite') as DitherAlgorithm;
-    const patternStyle = (settings.patternStyle ?? 'dots') as PatternStyle;
-    const palette = this.buildQuantizedGradientPalette(numColors).css;
-    strokeData.ditherConfig = {
-      enabled: true,
-      numColors,
-      fillResolution,
-      algorithm,
-      patternStyle,
-      customPalette: palette,
-      phaseOffset: undefined,
-    };
-  }
-
-  private ditherCanvasInPlace(ctx: CanvasRenderingContext2D, layerId: string) {
-    const strokeData = this.layerStrokes.get(layerId);
-    const d = strokeData?.ditherConfig;
-    if (!d?.enabled) return;
-    const w = ctx.canvas.width;
-    const h = ctx.canvas.height;
-    if (w <= 0 || h <= 0) return;
-    try {
-      const img = ctx.getImageData(0, 0, w, h);
-      const out = applyDitheringWithFillResolution(
-        img,
-        Math.max(2, d.numColors),
-        Math.max(1, d.fillResolution),
-        d.algorithm,
-        d.patternStyle,
-        d.customPalette,
-        d.phaseOffset
-      );
-      ctx.putImageData(out, 0, 0);
-    } catch {}
   }
 
   markLayerHasExternalBase(layerId: string) {
@@ -2516,7 +2456,6 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData && !strokeData.hasContent) {
       strokeData.hasContent = true;
     }
-    this.updateStrokeDitherConfig(id);
     if (strokeData) {
       const expected = this.width * this.height;
       if (strokeData.paintBuffer.length === expected) {
@@ -2621,6 +2560,53 @@ export class ColorCycleBrushCanvas2D {
 
     const animator = this.getAnimator(id);
     const strokeData = this.layerStrokes.get(id);
+    const shouldLog = process.env.NODE_ENV !== 'production';
+    const sampleIndices = (label: string, data?: Uint8Array) => {
+      if (!shouldLog || !data || data.length === 0) return;
+      const count = Math.min(8, data.length);
+      const step = Math.max(1, Math.floor(data.length / count));
+      const samples: Array<{ i: number; v: number }> = [];
+      for (let i = 0; i < data.length && samples.length < count; i += step) {
+        samples.push({ i, v: data[i] });
+      }
+      try {
+        console.log(`[CC endStroke] ${label}`, { len: data.length, samples });
+      } catch {}
+    };
+    const probeIndexRegion = (label: string, buf?: Uint8Array) => {
+      if (!shouldLog || !buf || !strokeData?.stampDitherBounds) return;
+      const b = strokeData.stampDitherBounds;
+      const minX = Math.max(0, Math.floor(b.minX));
+      const minY = Math.max(0, Math.floor(b.minY));
+      const maxX = Math.min(this.width - 1, Math.ceil(b.maxX));
+      const maxY = Math.min(this.height - 1, Math.ceil(b.maxY));
+      if (maxX <= minX || maxY <= minY) return;
+      const w = this.width;
+      const seen = new Set<number>();
+      let transitions = 0;
+      const clampX = Math.min(maxX, minX + 128);
+      const clampY = Math.min(maxY, minY + 128);
+      for (let y = minY; y <= clampY; y += 1) {
+        const row = y * w;
+        let prev = buf[row + minX];
+        seen.add(prev);
+        for (let x = minX + 1; x <= clampX; x += 1) {
+          const v = buf[row + x];
+          seen.add(v);
+          if (v !== prev) transitions += 1;
+          prev = v;
+        }
+      }
+      try {
+        console.log('[CC index probe]', {
+          label,
+          unique: seen.size,
+          transitions,
+          bounds: { minX, minY, maxX: clampX, maxY: clampY }
+        });
+      } catch {}
+    };
+
     if (strokeData && this.stampDitherEnabled) {
       const algo = this.stampDitherAlgorithm ?? 'sierra-lite';
       if (this.isErrorDiffusionAlgorithm(algo)) {
@@ -2630,11 +2616,40 @@ export class ColorCycleBrushCanvas2D {
     }
     if (strokeData?.stampDitherFillHandle) {
       const needsUpload = animator.hasWebGL?.() ?? false;
+      if (shouldLog) {
+        const handle = strokeData.stampDitherFillHandle;
+        sampleIndices('pre endDirectFill.handle.data', handle?.data);
+        try {
+          const serialized = animator.serialize();
+          const ib = serialized?.indexBuffer;
+          const data = this.toU8(ib?.data);
+          sampleIndices('pre endDirectFill.serialize.data', data);
+          probeIndexRegion('pre endDirectFill.serialize', data);
+        } catch {}
+      }
       animator.endDirectFill({ markDirty: needsUpload });
+      if (shouldLog) {
+        try {
+          const serialized = animator.serialize();
+          const ib = serialized?.indexBuffer;
+          const data = this.toU8(ib?.data);
+          sampleIndices('post endDirectFill.serialize.data', data);
+          probeIndexRegion('post endDirectFill.serialize', data);
+        } catch {}
+      }
       strokeData.stampDitherFillHandle = undefined;
     }
     animator.endStroke();
     animator.forceRender(); // Force render on stroke end
+    if (shouldLog) {
+      try {
+        const serialized = animator.serialize();
+        const ib = serialized?.indexBuffer;
+        const data = this.toU8(ib?.data);
+        sampleIndices('post forceRender.serialize.data', data);
+        probeIndexRegion('post forceRender.serialize', data);
+      } catch {}
+    }
 
     if (strokeData) {
       strokeData.lastPoint = null;
@@ -4353,9 +4368,7 @@ export class ColorCycleBrushCanvas2D {
     const srcCanvas = animator.getCanvas();
     const sameCanvas = srcCanvas === targetCanvas;
     const strokeData = this.layerStrokes.get(layerId);
-    if (!strokeData?.ditherConfig) {
-      this.updateStrokeDitherConfig(layerId);
-    }
+    const shouldUseIndexBufferCommit = this.shouldUseIndexBufferCommit(strokeData);
 
     if (process.env.NODE_ENV !== 'production') {
       try {
@@ -4455,7 +4468,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const hadExternalBase = Boolean(strokeData?.hasExternalBase);
-    if (hadExternalBase && strokeData) {
+    if (!shouldUseIndexBufferCommit && hadExternalBase && strokeData) {
       const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
       if (srcCtx) {
         const prevMode = srcCtx.globalCompositeOperation;
@@ -4467,18 +4480,6 @@ export class ColorCycleBrushCanvas2D {
         }
       }
       strokeData.hasExternalBase = false;
-    }
-
-    // If the target is the same canvas as the animator's internal canvas,
-    // do not draw onto itself. forceRender() already updated pixels.
-    if (sameCanvas) {
-      try {
-        const maskManager = getMaskManager();
-        maskManager.applyMaskToCanvas(layerId, ctx);
-      } catch {}
-      this.ditherCanvasInPlace(ctx, layerId);
-      // Skip drawing to same canvas; already up to date
-      return;
     }
 
     // Save state and composite using source-over at full opacity
@@ -4498,6 +4499,62 @@ export class ColorCycleBrushCanvas2D {
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
       }
 
+      if (shouldUseIndexBufferCommit && strokeData) {
+        let rendered: ImageData | null = null;
+        try {
+          if (strokeData.paintBuffer && strokeData.paintBuffer.length > 0) {
+            animator.setIndexBufferFromArray(
+              strokeData.paintBuffer,
+              strokeData.gradientIdBuffer,
+              strokeData.speedBuffer
+            );
+          }
+          rendered = animator.renderIndexBufferToImageData();
+        } catch {}
+        if (rendered) {
+          const tempCanvas = canvasPool.acquire(rendered.width, rendered.height);
+          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+          if (tempCtx) {
+            tempCtx.putImageData(rendered, 0, 0);
+            if (tempCanvas.width !== targetCanvas.width || tempCanvas.height !== targetCanvas.height) {
+              ctx.drawImage(
+                tempCanvas,
+                0,
+                0,
+                tempCanvas.width,
+                tempCanvas.height,
+                0,
+                0,
+                targetCanvas.width,
+                targetCanvas.height
+              );
+            } else {
+              ctx.drawImage(tempCanvas, 0, 0);
+            }
+          }
+          canvasPool.release(tempCanvas);
+          try {
+            const maskManager = getMaskManager();
+            maskManager.applyMaskToCanvas(layerId, ctx);
+          } catch {}
+          if (strokeData.hasExternalBase) {
+            strokeData.hasExternalBase = false;
+          }
+          return;
+        }
+      }
+
+      // If the target is the same canvas as the animator's internal canvas,
+      // do not draw onto itself. forceRender() already updated pixels.
+      if (sameCanvas) {
+        try {
+          const maskManager = getMaskManager();
+          maskManager.applyMaskToCanvas(layerId, ctx);
+        } catch {}
+        // Skip drawing to same canvas; already up to date
+        return;
+      }
+
       // Handle potential size mismatches defensively
       if (srcCanvas.width !== targetCanvas.width || srcCanvas.height !== targetCanvas.height) {
         ctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, srcCanvas.height, 0, 0, targetCanvas.width, targetCanvas.height);
@@ -4509,7 +4566,6 @@ export class ColorCycleBrushCanvas2D {
         const maskManager = getMaskManager();
         maskManager.applyMaskToCanvas(layerId, ctx);
       } catch {}
-      this.ditherCanvasInPlace(ctx, layerId);
     } finally {
       // Restore prior state regardless of outcome
       ctx.globalCompositeOperation = prevComposite;
