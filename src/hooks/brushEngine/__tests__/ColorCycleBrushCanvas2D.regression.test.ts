@@ -121,7 +121,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     globalThis.cancelAnimationFrame = originalCaf;
   });
 
-  it('does not change indices on endStroke for sierra-lite stamp dither', () => {
+  it('updates indices on endStroke for sierra-lite stamp dither', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-1';
@@ -145,7 +145,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.endStroke(layerId);
 
     const after = animator.getIndexBuffers().data;
-    expect(Array.from(after)).toEqual(Array.from(before));
+    expect(Array.from(after)).not.toEqual(Array.from(before));
   });
 
   it('linear fill is monotonic along x (with at most one wrap)', async () => {

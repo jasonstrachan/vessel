@@ -372,7 +372,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(animatorMocks.beginDirectFillMock.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('does not finalize error diffusion for sierra-lite stamp dithering on endStroke', () => {
+  it('finalizes error diffusion for sierra-lite stamp dithering on endStroke', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
     const finalizeSpy = jest.spyOn(stampDither, 'finalizeStampDither');
@@ -385,7 +385,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.startStroke('layer-1');
     brush.endStroke('layer-1');
 
-    expect(finalizeSpy).not.toHaveBeenCalled();
+    expect(finalizeSpy).toHaveBeenCalled();
   });
 
   it('rebuilds animator from index snapshot via deserialize', () => {

@@ -91,6 +91,7 @@ export const STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<StampDithe
   'burkes',
   'sierra-3',
   'sierra-2',
+  'sierra-lite',
   'atkinson',
 ]);
 
@@ -199,6 +200,7 @@ const isErrorDiffusionAlgorithm = (algo?: StampDitherAlgorithm): boolean => {
     case 'burkes':
     case 'sierra-3':
     case 'sierra-2':
+    case 'sierra-lite':
     case 'atkinson':
       return true;
     default:
@@ -857,8 +859,13 @@ export const applyStampDitherStamp = (args: {
       Math.max(1, baseTileScale * 4)
     );
     tileScale = Math.max(1, Math.round(computed));
+    if (state.stampSeqMeta?.length) {
+      state.stampSeqMeta = undefined;
+      state.stampSeqToTileScale = undefined;
+    }
   } else {
     state.stampDitherPressureState = null;
+    state.stampDitherStrokeScale = undefined;
   }
   state.stampDitherStrokeScale = tileScale;
   const tileScaleInt = tileScale;
@@ -1213,7 +1220,8 @@ export const finalizeStampDither = (args: {
   const bucket = state.stampDitherLockedBucket ?? 1;
   const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
   const kernel = getErrorDiffusionKernel(algo);
-  const errorIntensity = Math.max(0, Math.min(1, ditherStrength)) * kernel.errorScale;
+  const effectiveStrength = ditherStrength > 0 ? ditherStrength : 1;
+  const errorIntensity = Math.max(0, Math.min(1, effectiveStrength)) * kernel.errorScale;
   const jitterScale = 0.1 * errorIntensity;
   const seed = config.seed ?? 0;
 
