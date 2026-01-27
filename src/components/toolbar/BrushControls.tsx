@@ -961,57 +961,106 @@ const BrushControls = () => {
     }
     return (
       <div className="p-4">
-        {/* Color Cycle variant switcher (Stroke vs Triangle vs Shape) */}
-        <div className="mb-3">
-          <ButtonGroup
-            options={[
-              { label: 'Square', value: 'square' },
-              { label: 'Round', value: 'round' },
-              { label: 'Diamond', value: 'diamond' },
-              { label: 'Triangle', value: 'triangle' },
-              { label: 'Shape', value: 'shape' },
-              { label: 'Gradient', value: 'gradient' }
-            ]}
-            value={
-              currentBrushPresetId === 'color-cycle-gradient'
-                ? 'gradient'
-                : activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
-                  ? 'shape'
-                : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
-                  ? 'triangle'
-                  : activeSettings.colorCycleStampShape === 'round'
-                    ? 'round'
-                    : activeSettings.colorCycleStampShape === 'diamond'
-                      ? 'diamond'
-                      : 'square'
-            }
-            onChange={(value) => {
-              const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
-              const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
-              const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
-              const gradientPreset = brushPresets.find(p => p.id === 'color-cycle-gradient');
-              if (value === 'gradient' && gradientPreset) {
-                setBrushPreset(gradientPreset, true);
-                setActiveSettings({
-                  colorCycleStampShape: 'square',
-                  colorCycleFillMode: 'linear',
-                });
-              } else if (value === 'shape' && shapePreset) {
-                setBrushPreset(shapePreset, true);
-                setActiveSettings({ colorCycleStampShape: 'square' });
-              } else if (value === 'triangle' && trianglePreset) {
-                setBrushPreset(trianglePreset, true);
-                setActiveSettings({ colorCycleStampShape: 'triangle' });
-              } else if ((value === 'square' || value === 'round' || value === 'diamond') && strokePreset) {
-                setBrushPreset(strokePreset, true);
-                setActiveSettings({
-                  colorCycleStampShape:
-                    value === 'round' ? 'round' : value === 'diamond' ? 'diamond' : 'square'
-                });
+        {currentBrushPresetId !== 'color-cycle-gradient' && (
+          <div className="mb-3">
+            <ButtonGroup
+              options={[
+                { label: 'Square', value: 'square' },
+                { label: 'Round', value: 'round' },
+                { label: 'Diamond', value: 'diamond' },
+                { label: 'Triangle', value: 'triangle' },
+                { label: 'Shape', value: 'shape' },
+                { label: 'Gradient', value: 'gradient' }
+              ]}
+              value={
+                currentBrushPresetId === 'color-cycle-gradient'
+                  ? 'gradient'
+                  : activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+                    ? 'shape'
+                  : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+                    ? 'triangle'
+                    : activeSettings.colorCycleStampShape === 'round'
+                      ? 'round'
+                      : activeSettings.colorCycleStampShape === 'diamond'
+                        ? 'diamond'
+                        : 'square'
               }
-            }}
-            size="sm"
-          />
+              onChange={(value) => {
+                const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
+                const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
+                const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
+                const gradientPreset = brushPresets.find(p => p.id === 'color-cycle-gradient');
+                if (value === 'gradient' && gradientPreset) {
+                  setBrushPreset(gradientPreset, true);
+                  setActiveSettings({
+                    colorCycleStampShape: 'square',
+                    colorCycleFillMode: 'linear',
+                  });
+                } else if (value === 'shape' && shapePreset) {
+                  setBrushPreset(shapePreset, true);
+                  setActiveSettings({ colorCycleStampShape: 'square' });
+                } else if (value === 'triangle' && trianglePreset) {
+                  setBrushPreset(trianglePreset, true);
+                  setActiveSettings({ colorCycleStampShape: 'triangle' });
+                } else if ((value === 'square' || value === 'round' || value === 'diamond') && strokePreset) {
+                  setBrushPreset(strokePreset, true);
+                  setActiveSettings({
+                    colorCycleStampShape:
+                      value === 'round' ? 'round' : value === 'diamond' ? 'diamond' : 'square'
+                  });
+                }
+              }}
+              size="sm"
+            />
+          </div>
+        )}
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Speed
+            </label>
+            <NonCcSlider
+              value={speedSlider.value}
+              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+              step={COLOR_CYCLE_SPEED_STEP}
+              onChange={(value) => {
+                speedSlider.onChange(
+                  Math.max(
+                    MIN_BRUSH_COLOR_CYCLE_SPEED,
+                    Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
+                  )
+                );
+              }}
+              onCommit={speedSlider.onCommit}
+              aria-label="Speed"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Flow
+            </label>
+            <ButtonGroup
+              options={[
+                { label: 'Fwd', value: 'reverse' },
+                { label: 'Rev', value: 'forward' },
+                { label: 'Ping', value: 'pingpong' },
+              ]}
+              value={activeSettings.colorCycleFlowMode || 'reverse'}
+              onChange={(value) => {
+                const next: 'forward' | 'reverse' | 'pingpong' =
+                  value === 'forward' || value === 'pingpong' ? value : 'reverse';
+                setActiveSettings({ colorCycleFlowMode: next });
+              }}
+              className="flex-1"
+              size="sm"
+            />
+          </div>
         </div>
 
         <div className="mb-2">
@@ -1233,31 +1282,6 @@ const BrushControls = () => {
 
         {/* Animation + banding */}
 
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Speed
-            </label>
-            <NonCcSlider
-              value={speedSlider.value}
-              min={MIN_BRUSH_COLOR_CYCLE_SPEED}
-              max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-              step={COLOR_CYCLE_SPEED_STEP}
-              onChange={(value) => {
-                speedSlider.onChange(
-                  Math.max(
-                    MIN_BRUSH_COLOR_CYCLE_SPEED,
-                    Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
-                  )
-                );
-              }}
-              onCommit={speedSlider.onCommit}
-              aria-label="Speed"
-              className="flex-1"
-            />
-          </div>
-        </div>
-
         {!isColorCycleGradientPreset && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
@@ -1277,29 +1301,6 @@ const BrushControls = () => {
             </div>
           </div>
         )}
-
-        <div className="mb-3">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Flow
-            </label>
-            <ButtonGroup
-              options={[
-                { label: 'Fwd', value: 'reverse' },
-                { label: 'Rev', value: 'forward' },
-                { label: 'Ping', value: 'pingpong' },
-              ]}
-              value={activeSettings.colorCycleFlowMode || 'reverse'}
-              onChange={(value) => {
-                const next: 'forward' | 'reverse' | 'pingpong' =
-                  value === 'forward' || value === 'pingpong' ? value : 'reverse';
-                setActiveSettings({ colorCycleFlowMode: next });
-              }}
-              className="flex-1"
-              size="sm"
-            />
-          </div>
-        </div>
 
         {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
           activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (

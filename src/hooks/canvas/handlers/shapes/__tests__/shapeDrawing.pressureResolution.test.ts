@@ -2,7 +2,7 @@ import type { BrushSettings } from '@/types';
 import { __TESTING__ } from '@/hooks/canvas/handlers/shapes/shapeDrawing';
 
 describe('shapeDrawing pressure-linked dither resolution', () => {
-  const { resolveColorCycleDitherPixelSize } = __TESTING__;
+  const { resolveColorCycleDitherPixelSize, resolveColorCycleFillMode } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
     const computeShapePixelSize = jest.fn(() => 9);
@@ -79,5 +79,11 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     });
 
     expect(result.pixelSize).toBe(1);
+  });
+
+  it('defaults color cycle fill mode to linear', () => {
+    expect(resolveColorCycleFillMode(undefined)).toBe('linear');
+    expect(resolveColorCycleFillMode('linear')).toBe('linear');
+    expect(resolveColorCycleFillMode('concentric')).toBe('concentric');
   });
 });

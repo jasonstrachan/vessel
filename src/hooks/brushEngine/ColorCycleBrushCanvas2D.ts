@@ -32,6 +32,26 @@ import type { DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, encodeFlowSlot, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
+// Stamp dithering has two concepts:
+// 1) Live stamp coverage mask / tiling (what users see during drawing)
+// 2) Optional finalize-only error diffusion pass (expensive / different look)
+//
+// IMPORTANT:
+// For stamp algorithm 'sierra-lite' in this brush, the live stroke already uses
+// a tile/coverage decision path. Running finalizeStrokeErrorDiffusion() on mouseup
+// overwrites the live look, causing "preview looks dithered but finalize looks clean/different".
+// Therefore we intentionally EXCLUDE 'sierra-lite' from finalize-only processing.
+const STAMP_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<DitherAlgorithm> = new Set([
+  'floyd-steinberg',
+  'jarvis-judice-ninke',
+  'stucki',
+  'burkes',
+  'sierra-3',
+  'sierra-2',
+  'atkinson',
+  // intentionally excludes: 'sierra-lite'
+]);
+
 type ColorCycleBrushCanvas2DOptions = {
   brushSize?: number;
   fps?: number;
@@ -419,16 +439,6 @@ export class ColorCycleBrushCanvas2D {
       this.layerStrokes.set(layerId, strokeData);
     }
     return strokeData;
-  }
-
-  private shouldUseIndexBufferCommit(strokeData: LayerStrokeState | undefined): boolean {
-    if (!strokeData) return false;
-    return Boolean(
-      strokeData.stampDitherOwner ||
-      strokeData.stampDitherChoice ||
-      strokeData.stampDitherPrimaryBuffer ||
-      strokeData.stampDitherBaseMask
-    );
   }
 
   markLayerHasExternalBase(layerId: string) {
@@ -2439,6 +2449,12 @@ export class ColorCycleBrushCanvas2D {
     // cross-layer writes; renderDirectToCanvas will be called by higher-level
     // handlers during finalize.
     const animator = this.getAnimator(id);
+    if (this.stampDitherEnabled) {
+      try {
+        animator.resize(this.width, this.height);
+        this.deferredAnimatorSizes.delete(animator);
+      } catch {}
+    }
     if (clearBuffer && !this._isHistoryRestore) {
       try { animator.clear(); } catch {}
     }
@@ -2513,6 +2529,15 @@ export class ColorCycleBrushCanvas2D {
         strokeData.stampDitherOwner?.fill(0);
         strokeData.stampDitherStampSeq = 0;
         strokeData.stampDitherFillHandle = animator.beginDirectFill();
+        if (process.env.NODE_ENV !== 'production') {
+          const h = strokeData.stampDitherFillHandle;
+          if (h && (h.width !== this.width || h.height !== this.height)) {
+            console.warn('[CC] stamp dither handle size mismatch', {
+              handle: { w: h.width, h: h.height },
+              brush: { w: this.width, h: this.height },
+            });
+          }
+        }
         if (!this.stampDitherBgFill) {
           this.ensureStampDitherBaseBuffers(strokeData);
         } else {
@@ -2560,9 +2585,13 @@ export class ColorCycleBrushCanvas2D {
 
     const animator = this.getAnimator(id);
     const strokeData = this.layerStrokes.get(id);
-    const shouldLog = process.env.NODE_ENV !== 'production';
+    const shouldLog =
+      process.env.NODE_ENV !== 'production' &&
+      typeof globalThis !== 'undefined' &&
+      (globalThis as { __CC_STAMP_DEBUG?: boolean }).__CC_STAMP_DEBUG === true;
+    const hasDitherBounds = Boolean(strokeData?.stampDitherBounds);
     const sampleIndices = (label: string, data?: Uint8Array) => {
-      if (!shouldLog || !data || data.length === 0) return;
+      if (!shouldLog || !hasDitherBounds || !data || data.length === 0) return;
       const count = Math.min(8, data.length);
       const step = Math.max(1, Math.floor(data.length / count));
       const samples: Array<{ i: number; v: number }> = [];
@@ -2607,16 +2636,23 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
     };
 
+    if (strokeData) {
+      // Cancel any pending recomposes so finalize cannot re-write after mouseup.
+      strokeData.stampDitherRecomposePending = false;
+      strokeData.stampDitherRecomposeScale = undefined;
+    }
+
     if (strokeData && this.stampDitherEnabled) {
-      const algo = this.stampDitherAlgorithm ?? 'sierra-lite';
-      if (this.isErrorDiffusionAlgorithm(algo)) {
+      const algo = (this.stampDitherAlgorithm ?? 'sierra-lite') as DitherAlgorithm;
+      // Only run finalize overwrite for algorithms explicitly meant to be finalize-only.
+      if (STAMP_FINALIZE_ERROR_DIFFUSION_ALGOS.has(algo)) {
         const activeSlot = strokeData.activeGradientSlot ?? this.activeGradientSlots.get(id) ?? 0;
         this.finalizeStrokeErrorDiffusion(animator, strokeData, activeSlot);
       }
     }
     if (strokeData?.stampDitherFillHandle) {
       const needsUpload = animator.hasWebGL?.() ?? false;
-      if (shouldLog) {
+      if (shouldLog && hasDitherBounds) {
         const handle = strokeData.stampDitherFillHandle;
         sampleIndices('pre endDirectFill.handle.data', handle?.data);
         try {
@@ -2628,7 +2664,7 @@ export class ColorCycleBrushCanvas2D {
         } catch {}
       }
       animator.endDirectFill({ markDirty: needsUpload });
-      if (shouldLog) {
+      if (shouldLog && hasDitherBounds) {
         try {
           const serialized = animator.serialize();
           const ib = serialized?.indexBuffer;
@@ -2641,7 +2677,7 @@ export class ColorCycleBrushCanvas2D {
     }
     animator.endStroke();
     animator.forceRender(); // Force render on stroke end
-    if (shouldLog) {
+    if (shouldLog && hasDitherBounds) {
       try {
         const serialized = animator.serialize();
         const ib = serialized?.indexBuffer;
@@ -3091,13 +3127,6 @@ export class ColorCycleBrushCanvas2D {
       };
 
       if (ccGradient && this.ditherEnabled) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('[CC fill] linear', {
-            ccGradient,
-            ditherEnabled: this.ditherEnabled,
-            pixelSizeUsed: options?.ditherPixelSize ?? this.ditherPixelSize,
-          });
-        }
         const quantLevels = ditherLevels ?? Math.max(2, numBands);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         await fillCcGradientDither({
@@ -4368,9 +4397,12 @@ export class ColorCycleBrushCanvas2D {
     const srcCanvas = animator.getCanvas();
     const sameCanvas = srcCanvas === targetCanvas;
     const strokeData = this.layerStrokes.get(layerId);
-    const shouldUseIndexBufferCommit = this.shouldUseIndexBufferCommit(strokeData);
 
-    if (process.env.NODE_ENV !== 'production') {
+    const shouldCommitLog =
+      process.env.NODE_ENV !== 'production' &&
+      typeof globalThis !== 'undefined' &&
+      (globalThis as { __CC_STAMP_DEBUG?: boolean }).__CC_STAMP_DEBUG === true;
+    if (shouldCommitLog) {
       try {
         const anyCanvas = srcCanvas as unknown as { getContext?: (...args: unknown[]) => unknown };
         let ctx2d: unknown = null;
@@ -4468,7 +4500,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const hadExternalBase = Boolean(strokeData?.hasExternalBase);
-    if (!shouldUseIndexBufferCommit && hadExternalBase && strokeData) {
+    if (hadExternalBase && strokeData) {
       const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
       if (srcCtx) {
         const prevMode = srcCtx.globalCompositeOperation;
@@ -4497,51 +4529,6 @@ export class ColorCycleBrushCanvas2D {
 
       if (!hadExternalBase) {
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-      }
-
-      if (shouldUseIndexBufferCommit && strokeData) {
-        let rendered: ImageData | null = null;
-        try {
-          if (strokeData.paintBuffer && strokeData.paintBuffer.length > 0) {
-            animator.setIndexBufferFromArray(
-              strokeData.paintBuffer,
-              strokeData.gradientIdBuffer,
-              strokeData.speedBuffer
-            );
-          }
-          rendered = animator.renderIndexBufferToImageData();
-        } catch {}
-        if (rendered) {
-          const tempCanvas = canvasPool.acquire(rendered.width, rendered.height);
-          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-          if (tempCtx) {
-            tempCtx.putImageData(rendered, 0, 0);
-            if (tempCanvas.width !== targetCanvas.width || tempCanvas.height !== targetCanvas.height) {
-              ctx.drawImage(
-                tempCanvas,
-                0,
-                0,
-                tempCanvas.width,
-                tempCanvas.height,
-                0,
-                0,
-                targetCanvas.width,
-                targetCanvas.height
-              );
-            } else {
-              ctx.drawImage(tempCanvas, 0, 0);
-            }
-          }
-          canvasPool.release(tempCanvas);
-          try {
-            const maskManager = getMaskManager();
-            maskManager.applyMaskToCanvas(layerId, ctx);
-          } catch {}
-          if (strokeData.hasExternalBase) {
-            strokeData.hasExternalBase = false;
-          }
-          return;
-        }
       }
 
       // If the target is the same canvas as the animator's internal canvas,

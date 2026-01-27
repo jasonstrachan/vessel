@@ -57,6 +57,12 @@ const resolveColorCycleDitherPixelSize = ({
   return { pixelSize, effectivePressure, usePressure };
 };
 
+const resolveColorCycleFillMode = (
+  mode?: 'linear' | 'concentric'
+): 'linear' | 'concentric' => {
+  return mode === 'concentric' ? 'concentric' : 'linear';
+};
+
 type ShapeDrawingDeps = {
   storeRef: React.MutableRefObject<AppState>;
   toolsRef: React.MutableRefObject<AppState['tools']>;
@@ -832,7 +838,7 @@ export const finalizeShapeDrawing = async (
             deps.brushEngine.resetColorCycle(false);
 
             if (args.refs.shapePointsRef.current.length >= 3) {
-              const fillMode = liveBrushSettings.colorCycleFillMode || 'concentric';
+              const fillMode = resolveColorCycleFillMode(liveBrushSettings.colorCycleFillMode);
 
               const points = args.refs.shapePointsRef.current.filter(
                 (pt): pt is { x: number; y: number } => Boolean(pt)
@@ -1028,4 +1034,5 @@ export const finalizeShapeDrawing = async (
 
 export const __TESTING__ = {
   resolveColorCycleDitherPixelSize,
+  resolveColorCycleFillMode,
 };

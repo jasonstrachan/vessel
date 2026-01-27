@@ -942,38 +942,6 @@ export class ColorCycleAnimator {
   getImageData(): ImageData {
     return this.renderer2D.getImageData();
   }
-
-  /**
-   * Force a CPU render from the index buffers and return ImageData.
-   * This bypasses WebGL output so commit paths can rely on stamped indices.
-   */
-  renderIndexBufferToImageData(offset?: number): ImageData {
-    const baseOffset = Number.isFinite(offset)
-      ? (offset as number)
-      : this.animationController.getOffset();
-    const legacyPhase = this.strokeTracker.computePhase(baseOffset);
-    const baseTime = this.animationController.getElapsedTime();
-    const indexData = this.indexBuffer.getDirectData();
-    const gradientIdData = this.indexBuffer.getDirectGradientIdData();
-    const speedData = this.indexBuffer.getDirectSpeedData();
-    if (!indexData) {
-      return this.renderer2D.getImageData();
-    }
-    const basePalette32 = this.paletteController.getSignatureForSlot(0)
-      ? this.paletteController.getPaletteForSlot(0)
-      : this.paletteController.getPaletteHandle().uint32;
-    this.renderer2D.render({
-      indexData,
-      gradientIdData,
-      speedData,
-      paletteSlots: this.paletteController.getPalettesBySlot(),
-      basePalette: basePalette32,
-      phase: legacyPhase,
-      baseOffset,
-      baseTime,
-    });
-    return this.renderer2D.getImageData();
-  }
   
   /**
    * Draw to another context

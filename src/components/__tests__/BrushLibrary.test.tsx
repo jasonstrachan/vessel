@@ -96,13 +96,34 @@ const otherPreset = {
   components: [{ type: 'shape', parameters: { shape: BrushShape.SQUARE } }],
 };
 
-const trianglePreset = {
-  id: 'color-cycle-triangle',
-  name: 'Triangle CC',
-  isDefault: false,
-  category: 'Color Cycle',
-  components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_TRIANGLE } }],
-};
+  const trianglePreset = {
+    id: 'color-cycle-triangle',
+    name: 'Triangle CC',
+    isDefault: false,
+    category: 'Color Cycle',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_TRIANGLE } }],
+  };
+  const ccStrokePreset = {
+    id: 'color-cycle-stroke',
+    name: 'CC Stroke',
+    isDefault: false,
+    category: 'Color Cycle',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE } }],
+  };
+  const ccShapePreset = {
+    id: 'color-cycle-shape',
+    name: 'Color Cycle Shape',
+    isDefault: false,
+    category: 'Color Cycle',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
+  };
+  const ccGradientPreset = {
+    id: 'color-cycle-gradient',
+    name: 'Color Cycle Gradient',
+    isDefault: false,
+    category: 'Color Cycle',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
+  };
 
 describe('BrushLibrary', () => {
   beforeEach(() => {
@@ -155,5 +176,25 @@ describe('BrushLibrary', () => {
     render(<BrushLibrary />);
 
     expect(screen.queryByText('Triangle CC')).toBeNull();
+  });
+
+  it('orders Color Cycle Gradient directly below Color Cycle Stroke', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: ccStrokePreset as any,
+      brushPresets: [
+        basePreset as any,
+        ccShapePreset as any,
+        ccGradientPreset as any,
+        ccStrokePreset as any,
+      ],
+    });
+
+    render(<BrushLibrary />);
+
+    const stroke = screen.getByText('Color Cycle Stroke');
+    const gradient = screen.getByText('Color Cycle Gradient');
+    const relation = stroke.compareDocumentPosition(gradient);
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

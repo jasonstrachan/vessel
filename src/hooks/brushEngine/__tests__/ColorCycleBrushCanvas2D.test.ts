@@ -327,9 +327,28 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(snapshot?.strokeCounter).toBe(2);
   });
 
-  it('finalizes error diffusion stamp dithering on endStroke', () => {
+  it('finalizes error diffusion stamp dithering on endStroke for finalize-only algos', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+    const finalizeSpy = jest.spyOn(brush as unknown as { finalizeStrokeErrorDiffusion: jest.Mock }, 'finalizeStrokeErrorDiffusion');
+
+    brush.setStampDitherEnabled(true);
+    brush.setStampDitherAlgorithm('atkinson');
+    brush.setStampDitherPixelSize(2);
+    brush.setStampDitherBgFill(false);
+
+    brush.startStroke('layer-1');
+    brush.endStroke('layer-1');
+
+    expect(finalizeSpy).toHaveBeenCalled();
+    expect(animatorMocks.beginDirectFillMock).toHaveBeenCalled();
+    expect(animatorMocks.beginDirectFillMock.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not finalize error diffusion for sierra-lite stamp dithering on endStroke', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+    const finalizeSpy = jest.spyOn(brush as unknown as { finalizeStrokeErrorDiffusion: jest.Mock }, 'finalizeStrokeErrorDiffusion');
 
     brush.setStampDitherEnabled(true);
     brush.setStampDitherAlgorithm('sierra-lite');
@@ -339,8 +358,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.startStroke('layer-1');
     brush.endStroke('layer-1');
 
-    expect(animatorMocks.beginDirectFillMock).toHaveBeenCalled();
-    expect(animatorMocks.beginDirectFillMock.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(finalizeSpy).not.toHaveBeenCalled();
   });
 
   it('rebuilds animator from index snapshot via deserialize', () => {

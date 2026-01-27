@@ -118,9 +118,16 @@ const BrushLibrary = () => {
         if (bIsSquare && !aIsSquare) return 1;
       }
 
-      // Ensure Color Cycle Gradient appears directly below Color Cycle Stroke
-      if (a.id === 'color-cycle-stroke' && b.id === 'color-cycle-gradient') return -1;
-      if (a.id === 'color-cycle-gradient' && b.id === 'color-cycle-stroke') return 1;
+      const ccOrder = new Map([
+        ['color-cycle-stroke', 0],
+        ['color-cycle-gradient', 1],
+        ['color-cycle-shape', 2],
+      ]);
+      const aCc = ccOrder.get(a.id);
+      const bCc = ccOrder.get(b.id);
+      if (aCc !== undefined && bCc !== undefined && aCc !== bCc) {
+        return aCc - bCc;
+      }
       
       // Keep original order for other brushes
       return 0;
@@ -482,8 +489,8 @@ const BrushLibrary = () => {
               </div>
             )}
 
-            {/* Insert Recolor and animate entry immediately after consolidated Color Cycle row */}
-            {preset.id === 'color-cycle-stroke' && (
+            {/* Insert Recolor and animate entry after Color Cycle Gradient */}
+            {preset.id === 'color-cycle-gradient' && (
               <div
                 onClick={(e) => {
                   e.stopPropagation();
