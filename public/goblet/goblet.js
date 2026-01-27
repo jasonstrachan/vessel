@@ -2373,13 +2373,6 @@ class ColorCycleLayerPlayer {
     const hasRecolor = Boolean(recolorSettings && hasNumericPayload(recolorSettings.indexBuffer));
     const hasBrush = Boolean(brushState && hasNumericPayload(brushState.indexBuffer));
 
-    ccLog('CCPlayer.init', {
-      layerId: this.layer?.id ?? null,
-      mode: this.mode,
-      hasBrush,
-      hasRecolor
-    });
-
     const probeAlphaMask = () => {
       if (!__DEV__ || !ccDebugOn()) {
         return;
@@ -2545,20 +2538,6 @@ class ColorCycleLayerPlayer {
     this.speedMin = toFiniteNumberOrNull(colorCycle.speedMin);
     this.speedMax = toFiniteNumberOrNull(colorCycle.speedMax);
     this.targetFPS = toFiniteNumberOrNull(brushState.targetFPS);
-    ccLog('CCPlayer.speed', {
-      layerId: this.layer?.id ?? null,
-      mode: this.mode,
-      raw: {
-        exported: brushState?.animationSpeed,
-        fallback: colorCycle?.brushSpeed,
-        isAnimating: colorCycle?.isAnimating
-      },
-      resolved: {
-        shouldAnimate: this.isAnimating,
-        speed: this.speed,
-        cycleColors: this.cycleColors
-      }
-    });
 
     const expectedLength = this.width * this.height;
     if (this.indexBuffer.length !== expectedLength) {
@@ -2642,21 +2621,6 @@ class ColorCycleLayerPlayer {
     this.currentTick = Number.isFinite(animation.currentTick) ? animation.currentTick : 0;
     this.flowDirection = normalizeFlowDirection(animation.flowDirection, 'forward');
     this.isAnimating = shouldAnimate;
-    ccLog('CCPlayer.speed', {
-      layerId: this.layer?.id ?? null,
-      mode: this.mode,
-      raw: {
-        exported: recolorSettings?.animation?.speed,
-        fallback: colorCycle?.brushSpeed,
-        isAnimating: colorCycle?.isAnimating,
-        isPlaying: recolorSettings?.animation?.isPlaying
-      },
-      resolved: {
-        shouldAnimate: this.isAnimating,
-        speed: this.speed,
-        cycleColors: this.cycleColors
-      }
-    });
   }
 
   hasAnimation() {
@@ -2698,61 +2662,100 @@ class ColorCycleLayerPlayer {
     if (this.usePerPixelSpeed && (this.flowMapping === 'palette' || !this.phaseMap)) {
       const bands = Math.max(1, Math.floor(Number.isFinite(this.cycleColors) ? this.cycleColors : 16));
       const distinct = collectDistinctSpeedBytes(this.speedBuffer);
-      const lutsBySpeed = new Map();
+      const lutsBySpeedAndMode = new Map();
+      const forward = FLOW_MODE_FORWARD;
+      const reverse = FLOW_MODE_REVERSE;
+      const pingpong = FLOW_MODE_PINGPONG;
 
       for (const sb of distinct) {
         const hasSpeed = sb > 0;
         const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
-        const speedOffset = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : 0;
-        const offsetFraction = hasSpeed ? speedOffset : this.baseOffset;
-        const tick = computeTickForOffset(offsetFraction, bands);
-        lutsBySpeed.set(sb, buildGradientLUT({
+        const offsetBase = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : this.baseOffset;
+        const tickForward = computeTickForOffset(offsetBase, bands);
+        const modeMap = new Map();
+        modeMap.set(forward, buildGradientLUT({
           gradient: this.gradient,
           cycleColors: this.cycleColors,
-          tick,
+          tick: tickForward,
           mappingMode: this.mappingMode,
-          flowDirection: this.flowDirection,
+          flowDirection: 'forward',
           indexPhaseMap: this.indexPhaseMap
         }));
+        modeMap.set(reverse, buildGradientLUT({
+          gradient: this.gradient,
+          cycleColors: this.cycleColors,
+          tick: tickForward,
+          mappingMode: this.mappingMode,
+          flowDirection: 'reverse',
+          indexPhaseMap: this.indexPhaseMap
+        }));
+        modeMap.set(pingpong, buildGradientLUT({
+          gradient: this.gradient,
+          cycleColors: this.cycleColors,
+          tick: tickForward,
+          mappingMode: this.mappingMode,
+          flowDirection: 'pingpong',
+          indexPhaseMap: this.indexPhaseMap
+        }));
+        lutsBySpeedAndMode.set(sb, modeMap);
       }
 
       const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
       if (canUseSlots) {
-        const lutsBySpeedAndSlot = new Map();
-        const fallbackLutsBySpeed = new Map();
+        const lutsBySpeedModeSlot = new Map();
+        const fallbackLutsBySpeedMode = new Map();
 
         for (const sb of distinct) {
-          const slotMap = new Map();
           const hasSpeed = sb > 0;
           const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
-          const speedOffset = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : 0;
-          const offsetFraction = hasSpeed ? speedOffset : this.baseOffset;
-          const tick = computeTickForOffset(offsetFraction, bands);
+          const offsetBase = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : this.baseOffset;
+          const tickForward = computeTickForOffset(offsetBase, bands);
+          const modeMap = new Map();
+          const forwardMap = new Map();
+          const reverseMap = new Map();
+          const pingpongMap = new Map();
 
           this.slotGradients.forEach((gradientStops, slot) => {
-            slotMap.set(
-              slot,
-              buildGradientLUT({
-                gradient: gradientStops,
-                cycleColors: this.cycleColors,
-                tick,
-                mappingMode: this.mappingMode,
-                flowDirection: this.flowDirection,
-                indexPhaseMap: this.indexPhaseMap
-              })
-            );
+            forwardMap.set(slot, buildGradientLUT({
+              gradient: gradientStops,
+              cycleColors: this.cycleColors,
+              tick: tickForward,
+              mappingMode: this.mappingMode,
+              flowDirection: 'forward',
+              indexPhaseMap: this.indexPhaseMap
+            }));
+            reverseMap.set(slot, buildGradientLUT({
+              gradient: gradientStops,
+              cycleColors: this.cycleColors,
+              tick: tickForward,
+              mappingMode: this.mappingMode,
+              flowDirection: 'reverse',
+              indexPhaseMap: this.indexPhaseMap
+            }));
+            pingpongMap.set(slot, buildGradientLUT({
+              gradient: gradientStops,
+              cycleColors: this.cycleColors,
+              tick: tickForward,
+              mappingMode: this.mappingMode,
+              flowDirection: 'pingpong',
+              indexPhaseMap: this.indexPhaseMap
+            }));
           });
 
-          lutsBySpeedAndSlot.set(sb, slotMap);
-          fallbackLutsBySpeed.set(sb, slotMap.get(0) ?? lutsBySpeed.get(sb));
+          modeMap.set(forward, forwardMap);
+          modeMap.set(reverse, reverseMap);
+          modeMap.set(pingpong, pingpongMap);
+          lutsBySpeedModeSlot.set(sb, modeMap);
+          const baseModeMap = lutsBySpeedAndMode.get(sb) ?? lutsBySpeedAndMode.get(0);
+          fallbackLutsBySpeedMode.set(sb, baseModeMap);
         }
 
-        fillPixelsFromIndicesWithGradientIdsAndSpeed(
+        fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow(
           this.indexBuffer,
           this.gradientIdBuffer,
           this.speedBuffer,
-          lutsBySpeedAndSlot,
-          fallbackLutsBySpeed,
+          lutsBySpeedModeSlot,
+          fallbackLutsBySpeedMode,
           this.pixels32,
           this.alpha,
           {
@@ -2761,10 +2764,11 @@ class ColorCycleLayerPlayer {
           }
         );
       } else {
-        fillPixelsFromIndicesWithSpeed(
+        fillPixelsFromIndicesWithSpeedAndFlow(
           this.indexBuffer,
+          this.gradientIdBuffer,
           this.speedBuffer,
-          lutsBySpeed,
+          lutsBySpeedAndMode,
           this.pixels32,
           this.alpha,
           {

@@ -4044,6 +4044,14 @@ export const useBrushEngineSimplified = () => {
   }, [getActiveLayerColorCycleBrush, tools.brushSettings.colorCycleFlowMode, activeLayerId, activeLayerFlowMode]);
 
   /**
+   * Color Cycle pipelines (keep these distinct to avoid cross-bleed):
+   * - CC stroke brushes: BrushShape.COLOR_CYCLE / COLOR_CYCLE_TRIANGLE
+   *   => stamp-based stroke path (drawColorCycle / endColorCycleStroke)
+   *   => uses colorCycleStampDitherEnabled + stamp settings
+   * - CC gradient/shape: BrushShape.COLOR_CYCLE_SHAPE
+   *   => shape fill path (fillShapeLinear / fillShapeConcentric)
+   *   => uses ditherEnabled + fillResolution + gradient bands
+   *
    * Render Color Cycle output onto the provided context.
    * Applies opacity and optionally combines blend mode with transparency lock.
    */
@@ -4143,18 +4151,18 @@ export const useBrushEngineSimplified = () => {
           const previewCanvas = ctx.canvas as HTMLCanvasElement;
           const srcHasCtx = !!srcCanvas.getContext('2d');
           const previewHasCtx = !!previewCanvas.getContext('2d');
-          const brushDebug = colorCycleBrush as unknown as {
-            isDrawing?: boolean;
-            layerStrokes?: Map<string, { hasContent?: boolean; hasExternalBase?: boolean }>;
-          };
-          const isDrawing = brushDebug.isDrawing ?? null;
+          const brushDebug = colorCycleBrush as unknown as Record<string, unknown>;
+          const isDrawing = typeof brushDebug.isDrawing === 'boolean' ? brushDebug.isDrawing : null;
           const strokeData = (() => {
             try {
-              const maybe = brushDebug.layerStrokes?.get(activeLayerId);
-              return {
-                hasContent: maybe?.hasContent ?? null,
-                hasExternalBase: maybe?.hasExternalBase ?? null,
-              };
+              const rawStrokes = brushDebug.layerStrokes;
+              if (!(rawStrokes instanceof Map)) {
+                return { hasContent: null, hasExternalBase: null };
+              }
+              const maybe = rawStrokes.get(activeLayerId) as Record<string, unknown> | undefined;
+              const hasContent = typeof maybe?.hasContent === 'boolean' ? maybe.hasContent : null;
+              const hasExternalBase = typeof maybe?.hasExternalBase === 'boolean' ? maybe.hasExternalBase : null;
+              return { hasContent, hasExternalBase };
             } catch {
               return { hasContent: null, hasExternalBase: null };
             }
