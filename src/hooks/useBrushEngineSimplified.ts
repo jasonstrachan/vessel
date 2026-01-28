@@ -4562,6 +4562,7 @@ export const useBrushEngineSimplified = () => {
             ditherLevels,
             ditherPixelSize: options?.ditherPixelSize,
             roi: options?.roi,
+            lostEdge: tools.brushSettings.lostEdge,
           },
         })
       );
@@ -4655,6 +4656,7 @@ export const useBrushEngineSimplified = () => {
             ditherLevels,
             ditherPixelSize: options?.ditherPixelSize,
             roi: options?.roi,
+            lostEdge: tools.brushSettings.lostEdge,
           },
         })
       );

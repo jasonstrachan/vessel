@@ -39,6 +39,7 @@ import { recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
 import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
+import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import type { DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, encodeFlowSlot, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
@@ -77,6 +78,7 @@ type FillOptions = {
   ditherPixelSize?: number;
   roi?: { x: number; y: number; width: number; height: number };
   spacing?: number;
+  lostEdge?: number;
 };
 
 type LayerStrokeState = {
@@ -1705,6 +1707,90 @@ export class ColorCycleBrushCanvas2D {
     return undefined;
   }
 
+  private applyLostEdgeToBuffersRegion(options: {
+    paint: Uint8Array;
+    gid?: Uint8Array;
+    spd?: Uint8Array;
+    width: number;
+    height: number;
+    bbox: { minX: number; minY: number; width: number; height: number };
+    lostEdge?: number;
+    prevPaintRegion?: Uint8Array | null;
+  }) {
+    const { paint, gid, spd, width, height, bbox, lostEdge, prevPaintRegion } = options;
+    const strength = Number.isFinite(lostEdge) ? Math.max(0, Math.min(100, lostEdge as number)) : 0;
+    if (!strength || strength <= 0) return;
+
+    const minX = Math.max(0, Math.floor(bbox.minX));
+    const minY = Math.max(0, Math.floor(bbox.minY));
+    const maxX = Math.min(width - 1, Math.ceil(bbox.minX + bbox.width - 1));
+    const maxY = Math.min(height - 1, Math.ceil(bbox.minY + bbox.height - 1));
+    if (maxX < minX || maxY < minY) return;
+
+    const regionW = Math.max(1, maxX - minX + 1);
+    const regionH = Math.max(1, maxY - minY + 1);
+    const coverage = new Uint8Array(regionW * regionH);
+
+    for (let y = 0; y < regionH; y += 1) {
+      const srcRow = (minY + y) * width + minX;
+      const dstRow = y * regionW;
+      for (let x = 0; x < regionW; x += 1) {
+        const prev = prevPaintRegion ? prevPaintRegion[dstRow + x] : 0;
+        const current = paint[srcRow + x] > 0 ? 255 : 0;
+        coverage[dstRow + x] = current > 0 && prev === 0 ? 255 : 0;
+      }
+    }
+
+    let mask: Uint8ClampedArray;
+    try {
+      mask = applySierraLiteLostEdgeMask(coverage, regionW, regionH, strength);
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[CC] Lost-edge mask failed:', error);
+      }
+      return;
+    }
+
+    for (let y = 0; y < regionH; y += 1) {
+      const srcRow = (minY + y) * width + minX;
+      const dstRow = y * regionW;
+      for (let x = 0; x < regionW; x += 1) {
+        const keep = mask[dstRow + x] >= 128;
+        if (!keep) {
+          const prev = prevPaintRegion ? prevPaintRegion[dstRow + x] : 0;
+          if (prev !== 0) {
+            continue;
+          }
+          const idx = srcRow + x;
+          paint[idx] = 0;
+          if (gid) gid[idx] = 0;
+          if (spd) spd[idx] = 0;
+        }
+      }
+    }
+  }
+
+  private capturePaintRegion(
+    paint: Uint8Array,
+    width: number,
+    height: number,
+    bbox: { minX: number; minY: number; width: number; height: number }
+  ): Uint8Array {
+    const minX = Math.max(0, Math.floor(bbox.minX));
+    const minY = Math.max(0, Math.floor(bbox.minY));
+    const maxX = Math.min(width - 1, Math.ceil(bbox.minX + bbox.width - 1));
+    const maxY = Math.min(height - 1, Math.ceil(bbox.minY + bbox.height - 1));
+    const regionW = Math.max(1, maxX - minX + 1);
+    const regionH = Math.max(1, maxY - minY + 1);
+    const snapshot = new Uint8Array(regionW * regionH);
+    for (let y = 0; y < regionH; y += 1) {
+      const srcRow = (minY + y) * width + minX;
+      const dstRow = y * regionW;
+      snapshot.set(paint.subarray(srcRow, srcRow + regionW), dstRow);
+    }
+    return snapshot;
+  }
+
   /**
    * Finalize any in-progress stroke for the active layer
    * Convenience wrapper to support higher-level engines' undo granularity
@@ -1728,13 +1814,7 @@ export class ColorCycleBrushCanvas2D {
     direction: { x: number; y: number },
     layerId: string,
     spacing?: number,
-    options?: {
-      continuous?: boolean;
-      ditherLevels?: number;
-      ccGradient?: boolean;
-      ditherPixelSize?: number;
-      roi?: { x: number; y: number; width: number; height: number };
-    }
+    options?: FillOptions
   ) {
     if (!layerId) {
       throw new Error('fillShapeLinear requires a layerId');
@@ -1855,6 +1935,9 @@ export class ColorCycleBrushCanvas2D {
     const numBands = this.deriveBandCountFromDistance(projectionSpan, spacingValue);
     const continuous = options?.continuous === true;
     const ccGradient = options?.ccGradient === true;
+    const lostEdge = Number.isFinite(options?.lostEdge)
+      ? Math.max(0, Math.min(100, Math.round(options?.lostEdge as number)))
+      : 0;
     const ditherLevels = Number.isFinite(options?.ditherLevels)
       ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
@@ -1877,7 +1960,7 @@ export class ColorCycleBrushCanvas2D {
     // GPU path (linear fill) when available
     try {
       const hasGL = animator.hasWebGL();
-      if (hasGL && !continuous) {
+      if (hasGL && !continuous && lostEdge <= 0) {
         if (this.ditherEnabled && this.perceptualDither) {
           throw new Error('Perceptual dither requires CPU fill');
         }
@@ -1954,6 +2037,9 @@ export class ColorCycleBrushCanvas2D {
     const linearSpeedData = directLinearHandle.speedData;
     const linearBufferWidth = directLinearHandle.width;
     const linearBufferHeight = directLinearHandle.height;
+    const prevLinearRegion = lostEdge > 0
+      ? this.capturePaintRegion(linearBuffer, linearBufferWidth, linearBufferHeight, bbox)
+      : null;
     const writeLinearIndex = (x: number, y: number, colorIndex: number) => {
       if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
         return;
@@ -2005,6 +2091,19 @@ export class ColorCycleBrushCanvas2D {
           },
           yieldIfNeeded,
         });
+
+        if (lostEdge > 0) {
+          this.applyLostEdgeToBuffersRegion({
+            paint: linearBuffer,
+            gid: linearGradientId,
+            spd: linearSpeedData,
+            width: linearBufferWidth,
+            height: linearBufferHeight,
+            bbox,
+            lostEdge,
+            prevPaintRegion: prevLinearRegion,
+          });
+        }
 
         this.stampCounter += quantLevels;
         if (strokeData) strokeData.stampCounter = this.stampCounter;
@@ -2135,6 +2234,18 @@ export class ColorCycleBrushCanvas2D {
                 }
               }
             }
+            if (lostEdge > 0) {
+              this.applyLostEdgeToBuffersRegion({
+                paint: linearBuffer,
+                gid: linearGradientId,
+                spd: linearSpeedData,
+                width: linearBufferWidth,
+                height: linearBufferHeight,
+                bbox,
+                lostEdge,
+                prevPaintRegion: prevLinearRegion,
+              });
+            }
             this.stampCounter += quantLevels;
             if (strokeData) strokeData.stampCounter = this.stampCounter;
             this.dirtyLayers.add(id);
@@ -2176,6 +2287,18 @@ export class ColorCycleBrushCanvas2D {
           }
         }
 
+        if (lostEdge > 0) {
+          this.applyLostEdgeToBuffersRegion({
+            paint: linearBuffer,
+            gid: linearGradientId,
+            spd: linearSpeedData,
+            width: linearBufferWidth,
+            height: linearBufferHeight,
+            bbox,
+            lostEdge,
+            prevPaintRegion: prevLinearRegion,
+          });
+        }
         this.stampCounter += quantLevels;
         if (strokeData) strokeData.stampCounter = this.stampCounter;
         this.dirtyLayers.add(id);
@@ -2431,6 +2554,18 @@ export class ColorCycleBrushCanvas2D {
       }
     }
     
+    if (lostEdge > 0) {
+      this.applyLostEdgeToBuffersRegion({
+        paint: linearBuffer,
+        gid: linearGradientId,
+        spd: linearSpeedData,
+        width: linearBufferWidth,
+        height: linearBufferHeight,
+        bbox,
+        lostEdge,
+      });
+    }
+
     // Increment stamp counter for next shape
     this.stampCounter += numBands;
     if (strokeData) {
@@ -2461,13 +2596,7 @@ export class ColorCycleBrushCanvas2D {
     vertices: Array<{ x: number; y: number }>,
     layerId: string,
     spacing?: number,
-    options?: {
-      continuous?: boolean;
-      ditherLevels?: number;
-      ccGradient?: boolean;
-      ditherPixelSize?: number;
-      roi?: { x: number; y: number; width: number; height: number };
-    }
+    options?: FillOptions
   ) {
     if (!layerId) {
       throw new Error('fillShape requires a layerId');
@@ -2586,6 +2715,9 @@ export class ColorCycleBrushCanvas2D {
     const spacingValue = this.normalizeBandSpacingValue(spacing);
     const maxDist = computeConcentricMaxDistance(vertices, fullBBox);
     const ccGradient = options?.ccGradient === true;
+    const lostEdge = Number.isFinite(options?.lostEdge)
+      ? Math.max(0, Math.min(100, Math.round(options?.lostEdge as number)))
+      : 0;
     const ditherLevels = Number.isFinite(options?.ditherLevels)
       ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
@@ -2596,7 +2728,7 @@ export class ColorCycleBrushCanvas2D {
     if (!this.perceptualDither) {
       try {
         const hasGL = animator.hasWebGL();
-        const tryGPU = hasGL;
+        const tryGPU = hasGL && lostEdge <= 0;
         const ditherStrengthGpu = this.ditherEnabled ? this.ditherStrength : 0;
         const ditherPixelSizeGpu = this.ditherEnabled ? Math.max(1, this.ditherPixelSize) : 1;
         const runtimeMax = animator.getGLFillMaxVerts() || 256;
@@ -2682,6 +2814,9 @@ export class ColorCycleBrushCanvas2D {
     const concentricSpeedData = directConcentricHandle.speedData;
     const concentricWidth = directConcentricHandle.width;
     const concentricHeight = directConcentricHandle.height;
+    const prevConcentricRegion = lostEdge > 0
+      ? this.capturePaintRegion(concentricBuffer, concentricWidth, concentricHeight, bbox)
+      : null;
     const writeConcentricIndex = (x: number, y: number, colorIndex: number) => {
       if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
         return;
@@ -2714,6 +2849,18 @@ export class ColorCycleBrushCanvas2D {
     };
     const finalizeFill = (path: 'cpu' | 'worker', countOverride?: number) => {
       const count = countOverride ?? numBands;
+      if (lostEdge > 0) {
+        this.applyLostEdgeToBuffersRegion({
+          paint: concentricBuffer,
+          gid: concentricGradientId,
+          spd: concentricSpeedData,
+          width: concentricWidth,
+          height: concentricHeight,
+          bbox,
+          lostEdge,
+          prevPaintRegion: prevConcentricRegion,
+        });
+      }
       this.stampCounter += count;
       if (strokeData) strokeData.stampCounter = this.stampCounter;
       this.dirtyLayers.add(id);

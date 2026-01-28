@@ -2330,6 +2330,7 @@ class ColorCycleLayerPlayer {
     this.flowDirection = 'forward';
     this.speed = 0;
     this.baseTimeSeconds = 0;
+    this.startTimeMs = 0;
     this.baseOffset = 0;
     this.targetFPS = null;
     this.frameAccumulator = 0;
@@ -2438,6 +2439,9 @@ class ColorCycleLayerPlayer {
       probeAlphaMask();
     }
 
+    this.startTimeMs = typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
     this.renderFrame();
   }
 
@@ -2638,7 +2642,10 @@ class ColorCycleLayerPlayer {
       return false;
     }
     if (this.usePerPixelSpeed) {
-      this.baseTimeSeconds += deltaSeconds;
+      const nowMs = typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+      this.baseTimeSeconds = (nowMs - this.startTimeMs) / 1000;
       this.renderFrame();
       return true;
     }
@@ -2671,7 +2678,8 @@ class ColorCycleLayerPlayer {
         const hasSpeed = sb > 0;
         const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
         const offsetBase = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : this.baseOffset;
-        const tickForward = computeTickForOffset(offsetBase, bands);
+        const quantizedOffset = ((offsetBase * 256) | 0) / 256;
+        const tickForward = computeTickForOffset(quantizedOffset, bands);
         const modeMap = new Map();
         modeMap.set(forward, buildGradientLUT({
           gradient: this.gradient,
@@ -2709,7 +2717,8 @@ class ColorCycleLayerPlayer {
           const hasSpeed = sb > 0;
           const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
           const offsetBase = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : this.baseOffset;
-          const tickForward = computeTickForOffset(offsetBase, bands);
+          const quantizedOffset = ((offsetBase * 256) | 0) / 256;
+          const tickForward = computeTickForOffset(quantizedOffset, bands);
           const modeMap = new Map();
           const forwardMap = new Map();
           const reverseMap = new Map();

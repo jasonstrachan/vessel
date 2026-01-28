@@ -731,7 +731,7 @@ export interface BrushSettings {
   customBrushColorCycle?: boolean; // true = cycle gradient colors per stamp for custom brushes
 
   // Color cycle brush settings
-  colorCycleSpeed?: number; // 0.01-1.0 (brush animation speed)
+  colorCycleSpeed?: number; // 0.01-0.66 (brush animation speed)
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)

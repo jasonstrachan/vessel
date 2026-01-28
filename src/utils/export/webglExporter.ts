@@ -2977,12 +2977,14 @@ const appendZipAutoloadSnippet = (
         return raw;
       };
       const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
-      console.log('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
-      console.log('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
-        id: layer?.id ?? layer?.i,
-        hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
-        visible: layer?.visible ?? layer?.vi
-      })));
+      if (enableDiagnostics) {
+        emitLog('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
+        emitLog('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
+          id: layer?.id ?? layer?.i,
+          hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
+          visible: layer?.visible ?? layer?.vi
+        })));
+      }
       const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
       if (enableDiagnostics) {
         emitLog('[DEBUG] Checking parsed metadata:');
@@ -3006,9 +3008,13 @@ const appendZipAutoloadSnippet = (
       }
       const autoBundleName = ${JSON.stringify(bundleFilename)};
       const renderPackagedMetadata = async (metadata) => {
-        console.log('Incoming metadata layers (pre-expand):', metadata.layers || metadata.l);
+        if (enableDiagnostics) {
+          emitLog('Incoming metadata layers (pre-expand):', metadata.layers || metadata.l);
+        }
         const normalizedMetadata = expandPackagedMetadata(metadata);
-        console.log('Expanded metadata layers:', normalizedMetadata.layers);
+        if (enableDiagnostics) {
+          emitLog('Expanded metadata layers:', normalizedMetadata.layers);
+        }
         setStatus('Rendering packaged bundle…');
         emitLog('Loaded metadata for auto-render:', normalizedMetadata);
         emitLog('Canvas element reference:', canvas);
@@ -3186,12 +3192,14 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
         return raw;
       };
       const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
-      console.log('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
-      console.log('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
-        id: layer?.id ?? layer?.i,
-        hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
-        visible: layer?.visible ?? layer?.vi
-      })));
+      if (enableDiagnostics) {
+        emitLog('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
+        emitLog('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
+          id: layer?.id ?? layer?.i,
+          hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
+          visible: layer?.visible ?? layer?.vi
+        })));
+      }
       const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
       if (enableDiagnostics) {
         emitLog('[DEBUG] Prepared Goblet metadata for single-file bundle', {
@@ -3201,30 +3209,40 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
       }
       const renderPackagedBundle = async () => {
         try {
-          console.log('[goblet] Starting render, metadata:', packagedMetadata);
+          if (enableDiagnostics) {
+            emitLog('[goblet] Starting render, metadata:', packagedMetadata);
+          }
           if (!(canvas instanceof HTMLCanvasElement)) {
             throw new Error('Preview canvas element is unavailable');
           }
           setStatus('Rendering packaged bundle…');
-          console.log('Expanded metadata layers (single-file):', packagedMetadata.layers);
+          if (enableDiagnostics) {
+            emitLog('Expanded metadata layers (single-file):', packagedMetadata.layers);
+          }
           if (Array.isArray(packagedMetadata.layers)) {
-          console.log('[goblet] Full layer data:', packagedMetadata.layers.map((layer) => ({
-            id: layer.id,
-            documentBoundsPx: layer.documentBoundsPx,
-            layoutPlacement: layer.layoutPlacement,
-            source: layer.source,
-            contentBounds: layer.contentBounds,
-            opacity: layer.opacity,
-            visible: layer.visible,
-            hasTexture: Boolean(layer.assets?.texture),
-            textureStart: typeof layer.assets?.texture === 'string' ? layer.assets.texture.substring(0, 50) : undefined
-          })));
+            if (enableDiagnostics) {
+              emitLog('[goblet] Full layer data:', packagedMetadata.layers.map((layer) => ({
+                id: layer.id,
+                documentBoundsPx: layer.documentBoundsPx,
+                layoutPlacement: layer.layoutPlacement,
+                source: layer.source,
+                contentBounds: layer.contentBounds,
+                opacity: layer.opacity,
+                visible: layer.visible,
+                hasTexture: Boolean(layer.assets?.texture),
+                textureStart: typeof layer.assets?.texture === 'string' ? layer.assets.texture.substring(0, 50) : undefined
+              })));
+            }
           }
           const scale = computeScale(packagedMetadata);
-          console.log('[goblet] Computed scale:', scale);
+          if (enableDiagnostics) {
+            emitLog('[goblet] Computed scale:', scale);
+          }
           const opts = packagedMetadata?.viewport?.mode === 'fixed' ? {} : { scale };
           const renderResult = await renderVesselWebGL(packagedMetadata, canvas, opts);
-          console.log('[goblet] Render complete:', renderResult);
+          if (enableDiagnostics) {
+            emitLog('[goblet] Render complete:', renderResult);
+          }
           summarizeMetadata(packagedMetadata, renderResult);
           if (enableDiagnostics) {
             emitLog('Goblet render summary:', {
