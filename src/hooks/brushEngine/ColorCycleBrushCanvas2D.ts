@@ -86,6 +86,7 @@ type LayerStrokeState = {
   strokeCounter: number;
   stampCounter: number;
   lastPoint: Vec2 | null;
+  skipStampDitherFinalize?: boolean;
   buffers: {
     paint: Uint8Array;
     gid: Uint8Array;
@@ -421,8 +422,7 @@ export class ColorCycleBrushCanvas2D {
   }
 
   markLayerHasExternalBase(layerId: string) {
-    const strokeData = this.ensureStrokeState(layerId);
-    strokeData.externalBase.hasExternalBase = true;
+    void layerId;
   }
 
   private createAnimator(layerId: string, options: { initial: 'reduced' | 'full' }): ColorCycleAnimator {
@@ -1116,17 +1116,16 @@ export class ColorCycleBrushCanvas2D {
       }
       return;
     }
-    const strokeData = this.layerStrokes.get(id);
-    if (strokeData) {
-      // Clear the paint buffer to start fresh and mark the layer as having no live stroke content.
-      strokeData.buffers.paint.fill(0);
-      strokeData.hasContent = false;
-      strokeData.externalBase.hasExternalBase = true;
-      // Preserve stampCounter to maintain gradient offset continuity across shapes
-      // (intentionally left unchanged here).
-      // Ensure our composite canvas is clean for the next draw
-      this.compositeCtx.clearRect(0, 0, this.width, this.height);
-    }
+    const strokeData = this.ensureStrokeState(id);
+    strokeData.buffers.paint.fill(0);
+    strokeData.buffers.gid.fill(0);
+    strokeData.buffers.spd.fill(0);
+    strokeData.hasContent = false;
+
+    const animator = this.ensureFullResolution(id, 'stroke');
+    animator.setIndexBufferFromArray(strokeData.buffers.paint, strokeData.buffers.gid, strokeData.buffers.spd);
+    animator.forceRender();
+    this.render(false);
   }
 
   private sampleIndexBufferHasContent(animator: ColorCycleAnimator, sampleSize: number = 16): boolean {
@@ -1154,19 +1153,60 @@ export class ColorCycleBrushCanvas2D {
     }
   }
 
-  private captureExternalBaseCanvas(source: HTMLCanvasElement): HTMLCanvasElement | null {
-    const baseCanvas = canvasPool.acquire(source.width, source.height);
-    const baseCtx = baseCanvas.getContext('2d', {
-      willReadFrequently: true,
-      alpha: true,
-    }) as CanvasRenderingContext2D | null;
-    if (!baseCtx) {
-      canvasPool.release(baseCanvas);
-      return null;
+
+  private captureRegionU8(
+    src: Uint8Array,
+    fullW: number,
+    bbox: { minX: number; minY: number; width: number; height: number }
+  ): Uint8Array {
+    const out = new Uint8Array(bbox.width * bbox.height);
+    for (let row = 0; row < bbox.height; row += 1) {
+      const y = bbox.minY + row;
+      const srcOff = y * fullW + bbox.minX;
+      out.set(src.subarray(srcOff, srcOff + bbox.width), row * bbox.width);
     }
-    baseCtx.clearRect(0, 0, source.width, source.height);
-    baseCtx.drawImage(source, 0, 0);
-    return baseCanvas;
+    return out;
+  }
+
+  private applyLostEdgeFromWrittenMask(options: {
+    writtenMask: Uint8Array;
+    prevIdx: Uint8Array;
+    prevGid: Uint8Array;
+    prevSpd: Uint8Array;
+    paint: Uint8Array;
+    gid: Uint8Array;
+    spd: Uint8Array;
+    fullW: number;
+    bbox: { minX: number; minY: number; width: number; height: number };
+    lostEdge: number;
+  }) {
+    const {
+      writtenMask,
+      prevIdx,
+      prevGid,
+      prevSpd,
+      paint,
+      gid,
+      spd,
+      fullW,
+      bbox,
+      lostEdge,
+    } = options;
+    const keep = applySierraLiteLostEdgeMask(writtenMask, bbox.width, bbox.height, lostEdge);
+    for (let row = 0; row < bbox.height; row += 1) {
+      const y = bbox.minY + row;
+      const dstRow = y * fullW + bbox.minX;
+      const localRow = row * bbox.width;
+      for (let col = 0; col < bbox.width; col += 1) {
+        const p = localRow + col;
+        if (writtenMask[p] === 0) continue;
+        if (keep[p] >= 128) continue;
+        const dst = dstRow + col;
+        paint[dst] = prevIdx[p];
+        gid[dst] = prevGid[p];
+        spd[dst] = prevSpd[p];
+      }
+    }
   }
 
   private renderAnimatorToContext(
@@ -1428,7 +1468,6 @@ export class ColorCycleBrushCanvas2D {
           STAMP_DITHER_BUCKETS - 2,
           Math.max(1, rawBucket)
         );
-        strokeData.externalBase.hasExternalBase = false;
       } else {
         strokeData.stampDither = undefined;
       }
@@ -1515,7 +1554,12 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    if (strokeData && this.stampDitherEnabled) {
+    const skipStampFinalize = strokeData?.skipStampDitherFinalize === true;
+    if (skipStampFinalize && strokeData) {
+      strokeData.skipStampDitherFinalize = false;
+    }
+
+    if (strokeData && this.stampDitherEnabled && !skipStampFinalize) {
       const algo = this.stampDitherAlgorithm ?? 'sierra-lite';
       // Only run finalize overwrite for algorithms explicitly meant to be finalize-only.
       if (STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS.has(algo)) {
@@ -1580,7 +1624,6 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData) {
       strokeData.lastPoint = null;
       strokeData.strokeCounter = this.strokeCounter;
-      strokeData.hasContent = true;
 
       let snapshotBuffer: ArrayBuffer = strokeData.buffers.paint.length > 0
         ? strokeData.buffers.paint.slice().buffer
@@ -1621,11 +1664,13 @@ export class ColorCycleBrushCanvas2D {
         }
       }
 
+      const hasContent = this.sampleIndexBufferHasContent(animator, 32);
+      strokeData.hasContent = hasContent;
       strokeData.snapshot = {
         paintBuffer: snapshotBuffer,
         gradientIdBuffer: snapshotGradientIdBuffer,
         speedBuffer: snapshotSpeedBuffer,
-        hasContent: true,
+        hasContent,
         strokeCounter: this.strokeCounter
       };
       if (strokeData.stampDither) {
@@ -1649,7 +1694,7 @@ export class ColorCycleBrushCanvas2D {
           storeState.updateLayer(layer.id, {
             colorCycleData: {
               ...layer.colorCycleData,
-              hasContent: true
+              hasContent
             }
           });
         }
@@ -1673,6 +1718,13 @@ export class ColorCycleBrushCanvas2D {
     const paint = paintData.slice();
     const gid = this.toU8(indexBuffer?.gradientId)?.slice();
     const spd = this.toU8(indexBuffer?.speedData)?.slice();
+    let hasContent = false;
+    for (let i = 0; i < paint.length; i += 1) {
+      if (paint[i] !== 0) {
+        hasContent = true;
+        break;
+      }
+    }
 
     strokeData.buffers.paint = paint;
     if (gid) {
@@ -1682,11 +1734,12 @@ export class ColorCycleBrushCanvas2D {
       strokeData.buffers.spd = spd;
     }
 
+    strokeData.hasContent = hasContent;
     strokeData.snapshot = {
       paintBuffer: paint.slice().buffer,
       gradientIdBuffer: gid ? gid.slice().buffer : undefined,
       speedBuffer: spd ? spd.slice().buffer : undefined,
-      hasContent: true,
+      hasContent,
       strokeCounter: strokeData.strokeCounter,
     };
   }
@@ -1842,6 +1895,7 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
+      strokeData.skipStampDitherFinalize = true;
       if (strokeData.buffers.paint.length === 0) {
         strokeData.buffers.paint = new Uint8Array(this.width * this.height);
       }
@@ -1942,6 +1996,21 @@ export class ColorCycleBrushCanvas2D {
       ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
     const baseOffset = this.stampCounter % 255;
+    console.log('[CC fill] linear path flags', {
+      hasGL: (() => {
+        try {
+          return animator.hasWebGL();
+        } catch {
+          return null;
+        }
+      })(),
+      ditherEnabled: this.ditherEnabled,
+      ditherPixelSize: this.ditherPixelSize,
+      perceptual: this.perceptualDither,
+      ccGradient,
+      continuous,
+      lostEdge,
+    });
     const indexFromNormalized = (pos: number): number => {
       const raw = Math.round(pos * 254);
       const shifted = (raw + baseOffset) % 255;
@@ -1955,6 +2024,15 @@ export class ColorCycleBrushCanvas2D {
       width: Math.max(1, Math.ceil(fillMaxX) - Math.floor(fillMinX) + 1),
       height: Math.max(1, Math.ceil(fillMaxY) - Math.floor(fillMinY) + 1)
     };
+    const ibAny = animator.getIndexBuffers() as { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array };
+    const prevIdx = this.captureRegionU8(ibAny.data, this.width, bbox);
+    const prevGid = ibAny.gid
+      ? this.captureRegionU8(ibAny.gid, this.width, bbox)
+      : new Uint8Array(bbox.width * bbox.height);
+    const prevSpd = ibAny.spd
+      ? this.captureRegionU8(ibAny.spd, this.width, bbox)
+      : new Uint8Array(bbox.width * bbox.height);
+    const writtenMask = new Uint8Array(bbox.width * bbox.height);
     const dirNorm = { x: dirX, y: dirY };
 
     // GPU path (linear fill) when available
@@ -2001,6 +2079,7 @@ export class ColorCycleBrushCanvas2D {
             noiseSeed,
           }, flowSlot);
           if (ok) {
+            console.log('[CC fill] linear USED GPU', { bbox, bands: numBands });
             this.stampCounter += numBands;
             if (strokeData) strokeData.stampCounter = this.stampCounter;
             this.dirtyLayers.add(id);
@@ -2028,6 +2107,7 @@ export class ColorCycleBrushCanvas2D {
     } catch {}
 
     const directLinearHandle = animator.beginDirectFill();
+    console.log('[CC fill] linear USED CPU', { bbox, bands: numBands });
     const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
     if (activeSlot !== 0) {
       animator.markGradientSlotUsed(activeSlot);
@@ -2037,9 +2117,6 @@ export class ColorCycleBrushCanvas2D {
     const linearSpeedData = directLinearHandle.speedData;
     const linearBufferWidth = directLinearHandle.width;
     const linearBufferHeight = directLinearHandle.height;
-    const prevLinearRegion = lostEdge > 0
-      ? this.capturePaintRegion(linearBuffer, linearBufferWidth, linearBufferHeight, bbox)
-      : null;
     const writeLinearIndex = (x: number, y: number, colorIndex: number) => {
       if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
         return;
@@ -2049,6 +2126,11 @@ export class ColorCycleBrushCanvas2D {
       linearBuffer[idx] = clamped;
       linearGradientId[idx] = clamped === 0 ? 0 : flowSlot;
       linearSpeedData[idx] = clamped === 0 ? 0 : speedByte;
+      const localX = x - bbox.minX;
+      const localY = y - bbox.minY;
+      if (localX >= 0 && localY >= 0 && localX < bbox.width && localY < bbox.height) {
+        if (clamped !== 0) writtenMask[localY * bbox.width + localX] = 255;
+      }
     };
 
     try {
@@ -2092,18 +2174,20 @@ export class ColorCycleBrushCanvas2D {
           yieldIfNeeded,
         });
 
-        if (lostEdge > 0) {
-          this.applyLostEdgeToBuffersRegion({
-            paint: linearBuffer,
-            gid: linearGradientId,
-            spd: linearSpeedData,
-            width: linearBufferWidth,
-            height: linearBufferHeight,
-            bbox,
-            lostEdge,
-            prevPaintRegion: prevLinearRegion,
-          });
-        }
+            if (lostEdge > 0) {
+              this.applyLostEdgeFromWrittenMask({
+                writtenMask,
+                prevIdx,
+                prevGid,
+                prevSpd,
+                paint: linearBuffer,
+                gid: linearGradientId,
+                spd: linearSpeedData,
+                fullW: linearBufferWidth,
+                bbox,
+                lostEdge,
+              });
+            }
 
         this.stampCounter += quantLevels;
         if (strokeData) strokeData.stampCounter = this.stampCounter;
@@ -2235,16 +2319,18 @@ export class ColorCycleBrushCanvas2D {
               }
             }
             if (lostEdge > 0) {
-              this.applyLostEdgeToBuffersRegion({
-                paint: linearBuffer,
-                gid: linearGradientId,
-                spd: linearSpeedData,
-                width: linearBufferWidth,
-                height: linearBufferHeight,
-                bbox,
-                lostEdge,
-                prevPaintRegion: prevLinearRegion,
-              });
+          this.applyLostEdgeFromWrittenMask({
+            writtenMask,
+            prevIdx,
+            prevGid,
+            prevSpd,
+            paint: linearBuffer,
+            gid: linearGradientId,
+            spd: linearSpeedData,
+            fullW: linearBufferWidth,
+            bbox,
+            lostEdge,
+          });
             }
             this.stampCounter += quantLevels;
             if (strokeData) strokeData.stampCounter = this.stampCounter;
@@ -2288,15 +2374,17 @@ export class ColorCycleBrushCanvas2D {
         }
 
         if (lostEdge > 0) {
-          this.applyLostEdgeToBuffersRegion({
+          this.applyLostEdgeFromWrittenMask({
+            writtenMask,
+            prevIdx,
+            prevGid,
+            prevSpd,
             paint: linearBuffer,
             gid: linearGradientId,
             spd: linearSpeedData,
-            width: linearBufferWidth,
-            height: linearBufferHeight,
+            fullW: linearBufferWidth,
             bbox,
             lostEdge,
-            prevPaintRegion: prevLinearRegion,
           });
         }
         this.stampCounter += quantLevels;
@@ -2555,12 +2643,15 @@ export class ColorCycleBrushCanvas2D {
     }
     
     if (lostEdge > 0) {
-      this.applyLostEdgeToBuffersRegion({
+      this.applyLostEdgeFromWrittenMask({
+        writtenMask,
+        prevIdx,
+        prevGid,
+        prevSpd,
         paint: linearBuffer,
         gid: linearGradientId,
         spd: linearSpeedData,
-        width: linearBufferWidth,
-        height: linearBufferHeight,
+        fullW: linearBufferWidth,
         bbox,
         lostEdge,
       });
@@ -2624,6 +2715,7 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
+      strokeData.skipStampDitherFinalize = true;
       // Ensure full-size buffer
       if (strokeData.buffers.paint.length === 0) {
         strokeData.buffers.paint = new Uint8Array(this.width * this.height);
@@ -2711,6 +2803,15 @@ export class ColorCycleBrushCanvas2D {
       width: Math.max(1, bboxWidth),
       height: Math.max(1, bboxHeight),
     };
+    const ibAny = animator.getIndexBuffers() as { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array };
+    const prevIdx = this.captureRegionU8(ibAny.data, this.width, bbox);
+    const prevGid = ibAny.gid
+      ? this.captureRegionU8(ibAny.gid, this.width, bbox)
+      : new Uint8Array(bbox.width * bbox.height);
+    const prevSpd = ibAny.spd
+      ? this.captureRegionU8(ibAny.spd, this.width, bbox)
+      : new Uint8Array(bbox.width * bbox.height);
+    const writtenMask = new Uint8Array(bbox.width * bbox.height);
     // Hoist invariants
     const spacingValue = this.normalizeBandSpacingValue(spacing);
     const maxDist = computeConcentricMaxDistance(vertices, fullBBox);
@@ -2814,9 +2915,6 @@ export class ColorCycleBrushCanvas2D {
     const concentricSpeedData = directConcentricHandle.speedData;
     const concentricWidth = directConcentricHandle.width;
     const concentricHeight = directConcentricHandle.height;
-    const prevConcentricRegion = lostEdge > 0
-      ? this.capturePaintRegion(concentricBuffer, concentricWidth, concentricHeight, bbox)
-      : null;
     const writeConcentricIndex = (x: number, y: number, colorIndex: number) => {
       if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
         return;
@@ -2826,6 +2924,11 @@ export class ColorCycleBrushCanvas2D {
       concentricBuffer[idx] = clamped;
       concentricGradientId[idx] = clamped === 0 ? 0 : flowSlot;
       concentricSpeedData[idx] = clamped === 0 ? 0 : speedByte;
+      const localX = x - bbox.minX;
+      const localY = y - bbox.minY;
+      if (localX >= 0 && localY >= 0 && localX < bbox.width && localY < bbox.height) {
+        if (clamped !== 0) writtenMask[localY * bbox.width + localX] = 255;
+      }
     };
     const blitLocalBuffer = (local: Uint8Array) => {
       const bw = bbox.width;
@@ -2844,21 +2947,24 @@ export class ColorCycleBrushCanvas2D {
           concentricBuffer[destIndex] = value;
           concentricGradientId[destIndex] = value === 0 ? 0 : flowSlot;
           concentricSpeedData[destIndex] = value === 0 ? 0 : speedByte;
+          writtenMask[srcRowOffset + col] = 255;
         }
       }
     };
     const finalizeFill = (path: 'cpu' | 'worker', countOverride?: number) => {
       const count = countOverride ?? numBands;
       if (lostEdge > 0) {
-        this.applyLostEdgeToBuffersRegion({
+        this.applyLostEdgeFromWrittenMask({
+          writtenMask,
+          prevIdx,
+          prevGid,
+          prevSpd,
           paint: concentricBuffer,
           gid: concentricGradientId,
           spd: concentricSpeedData,
-          width: concentricWidth,
-          height: concentricHeight,
+          fullW: concentricWidth,
           bbox,
           lostEdge,
-          prevPaintRegion: prevConcentricRegion,
         });
       }
       this.stampCounter += count;
@@ -3142,26 +3248,8 @@ export class ColorCycleBrushCanvas2D {
       }
       return;
     }
-    // Determine if any layer actually has stroke content to render.
-    // If not, do NOT clear/draw onto the layer canvas — this preserves
-    // already committed pixels on the color-cycle layer after mouseup.
-    let anyContent = false;
-    this.animators.forEach((_, layerId) => {
-      const strokeData = this.layerStrokes.get(layerId);
-      if (strokeData?.hasContent) anyContent = true;
-    });
 
-    if (!anyContent) {
-      // No live stroke data to composite; leave the layer canvas untouched.
-      this.compositeCtx.clearRect(0, 0, this.width, this.height);
-      this.dirtyLayers.clear();
-      if (this.onFrameRendered) {
-        this.onFrameRendered();
-      }
-      return;
-    }
-
-    // Clear composite canvas
+    // Always rebuild from animators (authoritative).
     this.compositeCtx.clearRect(0, 0, this.width, this.height);
 
     // Composite all layers with content
@@ -3175,19 +3263,14 @@ export class ColorCycleBrushCanvas2D {
     // Draw to webgl canvas (actually just a regular canvas)
     const webglCtx = this.webglCanvas.getContext('2d') as CanvasRenderingContext2D | null;
     if (webglCtx) {
-      webglCtx.globalAlpha = 1.0;
       const prevOp = webglCtx.globalCompositeOperation;
-      if (this.isDrawing) {
-        webglCtx.globalCompositeOperation = 'copy';
-        webglCtx.drawImage(this.compositeCanvas, 0, 0);
-      } else {
-        webglCtx.globalCompositeOperation = 'source-over';
-        webglCtx.drawImage(this.compositeCanvas, 0, 0);
-      }
+      webglCtx.globalCompositeOperation = 'copy';
+      webglCtx.drawImage(this.compositeCanvas, 0, 0);
       webglCtx.globalCompositeOperation = prevOp;
-      webglCtx.globalAlpha = 1.0;
     }
     
+    this.dirtyLayers.clear();
+
     // Call frame callback
     if (this.onFrameRendered) {
       this.onFrameRendered();
@@ -3223,7 +3306,6 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const strokeData = this.layerStrokes.get(layerId);
-    const hadExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
     const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
 
     if (!ctx) {
@@ -3241,8 +3323,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     if (!hasRenderableContent) {
-      // IMPORTANT: Do NOT clear the canvas here. When undo/redo restores pixel data directly
-      // to the layer canvas, skipping the draw preserves those pixels.
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
       return;
     }
 
@@ -3251,8 +3332,6 @@ export class ColorCycleBrushCanvas2D {
     const prevComposite = ctx.globalCompositeOperation;
     const prevAlpha = ctx.globalAlpha;
     const prevSmoothing = ctx.imageSmoothingEnabled;
-    const baseCanvas = hadExternalBase ? this.captureExternalBaseCanvas(targetCanvas) : null;
-
     try {
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1.0;
@@ -3262,18 +3341,12 @@ export class ColorCycleBrushCanvas2D {
       ctx.imageSmoothingEnabled = false;
 
       ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-      if (baseCanvas) {
-        ctx.drawImage(baseCanvas, 0, 0);
-      }
       this.renderAnimatorToContext(animator, ctx, targetCanvas);
       try {
         const maskManager = getMaskManager();
         maskManager.applyMaskToCanvas(layerId, ctx);
       } catch {}
     } finally {
-      if (baseCanvas) {
-        canvasPool.release(baseCanvas);
-      }
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
       if (typeof prevSmoothing === 'boolean') {
@@ -3395,7 +3468,6 @@ export class ColorCycleBrushCanvas2D {
               isDrawing: this.isDrawing,
               strokeData: {
                 hasContent: strokeData?.hasContent ?? false,
-                hasExternalBase: strokeData?.externalBase.hasExternalBase ?? false,
               },
             }
           };
@@ -3447,9 +3519,6 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
     }
 
-    const hadExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
-    const baseCanvas = hadExternalBase ? this.captureExternalBaseCanvas(targetCanvas) : null;
-
     // Save state and composite using source-over at full opacity
     const prevComposite = ctx.globalCompositeOperation;
     const prevAlpha = ctx.globalAlpha;
@@ -3464,9 +3533,6 @@ export class ColorCycleBrushCanvas2D {
       ctx.imageSmoothingEnabled = false;
 
       ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-      if (baseCanvas) {
-        ctx.drawImage(baseCanvas, 0, 0);
-      }
       this.renderAnimatorToContext(animator, ctx, targetCanvas);
 
       try {
@@ -3474,9 +3540,6 @@ export class ColorCycleBrushCanvas2D {
         maskManager.applyMaskToCanvas(layerId, ctx);
       } catch {}
     } finally {
-      if (baseCanvas) {
-        canvasPool.release(baseCanvas);
-      }
       // Restore prior state regardless of outcome
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
@@ -4659,9 +4722,6 @@ export class ColorCycleBrushCanvas2D {
     }
 
     strokeData.hasContent = hasLayerContent;
-    if (hasLayerContent) {
-      strokeData.externalBase.hasExternalBase = false;
-    }
     strokeData.strokeCounter = snapshot.strokeCounter || 0;
     strokeData.lastPoint = null;
     strokeData.stampCounter = 0;
