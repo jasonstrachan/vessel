@@ -546,7 +546,17 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     const nextBrushShape = settings.brushShape ?? currentSettings.brushShape;
+    const wasCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
+    const isCustomBrush = nextBrushShape === BrushShape.CUSTOM;
+    const lastRegularSize =
+      currentSettings.lastRegularBrushSize ??
+      currentSettings.size ??
+      state.globalBrushSize ??
+      1;
     if (nextBrushShape === BrushShape.CUSTOM) {
+      if (!wasCustomBrush) {
+        newSettings.lastRegularBrushSize = Math.max(1, Math.round(lastRegularSize));
+      }
       let percentToApply = incomingCustomPercent;
 
       if (percentToApply === undefined && typeof settings.size === 'number') {
@@ -599,6 +609,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         ...newSettings,
         customBrushSizePercent: undefined,
         brushShape: nextBrushShape
+      };
+    }
+
+    if (wasCustomBrush && !isCustomBrush && !Object.prototype.hasOwnProperty.call(settings, 'size')) {
+      const restored = Math.max(1, Math.round(lastRegularSize));
+      newSettings = {
+        ...newSettings,
+        size: restored
       };
     }
 
@@ -864,8 +882,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         ...state.tools,
         brushSettings: newSettings
       },
-      globalBrushSize:
-        typeof newSettings.size === 'number' ? newSettings.size : state.globalBrushSize,
+      globalBrushSize: isCustomBrush
+        ? state.globalBrushSize
+        : (typeof newSettings.size === 'number' ? newSettings.size : state.globalBrushSize),
       pressureSettings: nextPressure
     };
 

@@ -476,6 +476,9 @@ const BrushControls = () => {
   }, [foregroundDerivedStops]);
 
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
+  const showColorCycleBands =
+    !isColorCycleGradientPreset &&
+    (isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) || isCustomColorCycleEnabled);
   const isRegularBrush =
     currentTool === 'brush' &&
     !isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) &&
@@ -1018,6 +1021,46 @@ const BrushControls = () => {
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Size {sizeUnit}
+            </label>
+            <NonCcSlider
+              value={sizeSlider.value}
+              min={1}
+              max={500}
+              step={1}
+              onChange={(value) => {
+                sizeSlider.onChange(Math.min(500, Math.max(1, Math.round(value))));
+              }}
+              onCommit={sizeSlider.onCommit}
+              aria-label={`Brush Size (${sizeUnit})`}
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Spacing
+            </label>
+            <NonCcSlider
+              value={spacingSlider.value}
+              min={1}
+              max={64}
+              step={1}
+              onChange={(value) =>
+                spacingSlider.onChange(Math.max(1, Math.round(value)))
+              }
+              onCommit={spacingSlider.onCommit}
+              aria-label="Stamp Spacing"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
               Speed
             </label>
             <NonCcSlider
@@ -1235,54 +1278,9 @@ const BrushControls = () => {
           />
         )}
 
-        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
-          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
-          <>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Size {sizeUnit}
-                </label>
-                <NonCcSlider
-                  value={sizeSlider.value}
-                  min={1}
-                  max={500}
-                  step={1}
-                  onChange={(value) => {
-                    sizeSlider.onChange(Math.min(500, Math.max(1, Math.round(value))));
-                  }}
-                  onCommit={sizeSlider.onCommit}
-                  aria-label={`Brush Size (${sizeUnit})`}
-                  className="flex-1"
-                />
-              </div>
-            </div>
-
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Spacing
-                </label>
-                <NonCcSlider
-                  value={spacingSlider.value}
-                  min={1}
-                  max={64}
-                  step={1}
-                  onChange={(value) =>
-                    spacingSlider.onChange(Math.max(1, Math.round(value)))
-                  }
-                  onCommit={spacingSlider.onCommit}
-                  aria-label="Stamp Spacing"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-          </>
-        )}
-
         {/* Animation + banding */}
 
-        {!isColorCycleGradientPreset && (
+        {showColorCycleBands && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
@@ -2619,6 +2617,23 @@ const BrushControls = () => {
                   gradientForkRef.current = true;
                 }}
               />
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Bands
+                  </label>
+                  <NonCcSlider
+                    value={bandsSlider.value}
+                    min={2}
+                    max={64}
+                    step={1}
+                    onChange={(value) => bandsSlider.onChange(Math.round(value))}
+                    onCommit={bandsSlider.onCommit}
+                    aria-label="Gradient Bands"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>

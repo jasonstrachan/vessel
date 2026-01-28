@@ -200,8 +200,8 @@ export class BrushEngineFacade {
     this.lastStrokePressure = pressure;
     this.lastCustomBrushData = customBrushData ?? null;
 
-    // Calculate spacing
-    const spacing = this.utilities.calculateBrushSpacing(size);
+    // Spacing slider is in pixels: 1 = 1px
+    const spacing = Math.max(0.25, this.config.brushSettings.spacing ?? 1);
 
     // Apply grid snapping if enabled
     const snappedFrom = this.utilities.shouldApplyGridSnap() 
@@ -375,14 +375,29 @@ export class BrushEngineFacade {
     const dy = to.y - from.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Determine number of interpolation steps
-    const steps = Math.max(1, Math.ceil(distance / settings.spacing));
+    const spacingThreshold = Math.max(1, settings.spacing || 1);
+    // Sample at fixed 1px granularity so spacing gating controls stamp density.
+    const sampleStep = 1;
+    const steps = Math.max(1, Math.ceil(distance / sampleStep));
+
+    if (!this.pixelQueue.initialized) {
+      this.pixelQueue.initialized = true;
+      this.pixelQueue.lastStrokePosition = { x: from.x, y: from.y };
+      this.pixelQueue.accumulatedDistance = 0;
+    }
 
     // Interpolate and draw stamps (excluding the final position to avoid duplicate)
     for (let i = 0; i < steps; i++) {
       const t = i / steps;
       const x = from.x + (to.x - from.x) * t;
       const y = from.y + (to.y - from.y) * t;
+
+      const lastPos = this.pixelQueue.lastStrokePosition;
+      const dxSeg = x - lastPos.x;
+      const dySeg = y - lastPos.y;
+      const segDistance = Math.sqrt(dxSeg * dxSeg + dySeg * dySeg);
+      this.pixelQueue.accumulatedDistance += segDistance;
+      this.pixelQueue.lastStrokePosition = { x, y };
 
       // Check if we should draw this stamp
       if (this.strokeProcessor.shouldDrawStamp(
@@ -391,25 +406,28 @@ export class BrushEngineFacade {
         settings.size,
         false
       )) {
-        // Check transparency lock
-        if (this.canDrawAt(ctx, x, y)) {
-          if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
-            ctx.fillStyle = this.getNextCustomCycleColor();
-          } else {
-            ctx.fillStyle = settings.color;
+        if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
+          this.pixelQueue.accumulatedDistance -= spacingThreshold;
+          // Check transparency lock
+          if (this.canDrawAt(ctx, x, y)) {
+            if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+              ctx.fillStyle = this.getNextCustomCycleColor();
+            } else {
+              ctx.fillStyle = settings.color;
+            }
+            this.shapeDrawer(
+              ctx,
+              x,
+              y,
+              settings.size,
+              settings.shape,
+              settings.antiAliasing,
+              settings.rotation,
+              settings.risographIntensity,
+              settings.pattern,
+              settings.isColorizable // Pass isColorizable as centerAlignment for custom brushes
+            );
           }
-          this.shapeDrawer(
-            ctx,
-            x,
-            y,
-            settings.size,
-            settings.shape,
-            settings.antiAliasing,
-            settings.rotation,
-            settings.risographIntensity,
-            settings.pattern,
-            settings.isColorizable // Pass isColorizable as centerAlignment for custom brushes
-          );
         }
       }
     }
@@ -421,24 +439,34 @@ export class BrushEngineFacade {
       settings.size,
       false
     )) {
-      if (this.canDrawAt(ctx, to.x, to.y)) {
-        if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
-          ctx.fillStyle = this.getNextCustomCycleColor();
-        } else {
-          ctx.fillStyle = settings.color;
+      const lastPos = this.pixelQueue.lastStrokePosition;
+      const dxSeg = to.x - lastPos.x;
+      const dySeg = to.y - lastPos.y;
+      const segDistance = Math.sqrt(dxSeg * dxSeg + dySeg * dySeg);
+      this.pixelQueue.accumulatedDistance += segDistance;
+      this.pixelQueue.lastStrokePosition = { x: to.x, y: to.y };
+
+      if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
+        this.pixelQueue.accumulatedDistance -= spacingThreshold;
+        if (this.canDrawAt(ctx, to.x, to.y)) {
+          if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+            ctx.fillStyle = this.getNextCustomCycleColor();
+          } else {
+            ctx.fillStyle = settings.color;
+          }
+          this.shapeDrawer(
+            ctx,
+            to.x,
+            to.y,
+            settings.size,
+            settings.shape,
+            settings.antiAliasing,
+            settings.rotation,
+            settings.risographIntensity,
+            settings.pattern,
+            settings.isColorizable
+          );
         }
-        this.shapeDrawer(
-          ctx,
-          to.x,
-          to.y,
-          settings.size,
-          settings.shape,
-          settings.antiAliasing,
-          settings.rotation,
-          settings.risographIntensity,
-          settings.pattern,
-          settings.isColorizable
-        );
       }
     }
   }

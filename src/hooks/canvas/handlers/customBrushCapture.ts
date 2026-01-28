@@ -52,6 +52,8 @@ const captureResamplerSample = (
   );
 
   if (captureResult) {
+    (captureResult.imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey =
+      args.cacheKey;
     args.resamplerBrushDataRef.current = {
       imageData: captureResult.imageData,
       width: captureResult.width,

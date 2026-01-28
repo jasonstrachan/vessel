@@ -10,6 +10,112 @@ import { getRisographPattern, getRisographEffectSettings } from '@/utils/risogra
 // Cache for pre-rotated pixel stamps
 const rotatedStampCache = new Map<string, HTMLCanvasElement>();
 
+// Custom brush caches (source -> scaled -> tinted) to avoid per-stamp putImageData.
+const customSourceCacheByKey = new Map<string, HTMLCanvasElement>();
+const customSourceCacheByImage = new WeakMap<ImageData, HTMLCanvasElement>();
+const customScaledCache = new Map<string, HTMLCanvasElement>();
+const customTintedCache = new Map<string, HTMLCanvasElement>();
+const CUSTOM_SCALED_CACHE_LIMIT = 200;
+const CUSTOM_TINTED_CACHE_LIMIT = 300;
+
+const trimCache = (cache: Map<string, HTMLCanvasElement>, limit: number) => {
+  if (cache.size <= limit) return;
+  const firstKey = cache.keys().next().value;
+  if (typeof firstKey === 'string') {
+    cache.delete(firstKey);
+  }
+};
+
+const getCustomCacheKey = (pattern: ImageData): string | null => {
+  const key = (pattern as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey;
+  return typeof key === 'string' && key.length > 0 ? key : null;
+};
+
+const getCustomSourceCanvas = (pattern: ImageData, cacheKey: string | null): HTMLCanvasElement => {
+  if (cacheKey) {
+    const cached = customSourceCacheByKey.get(cacheKey);
+    if (cached) return cached;
+  } else {
+    const cached = customSourceCacheByImage.get(pattern);
+    if (cached) return cached;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = pattern.width;
+  canvas.height = pattern.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (ctx) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.putImageData(pattern, 0, 0);
+  }
+
+  if (cacheKey) {
+    customSourceCacheByKey.set(cacheKey, canvas);
+  } else {
+    customSourceCacheByImage.set(pattern, canvas);
+  }
+  return canvas;
+};
+
+const getCustomScaledCanvas = (
+  pattern: ImageData,
+  sourceCanvas: HTMLCanvasElement,
+  scaledWidth: number,
+  scaledHeight: number,
+  cacheKey: string | null
+): HTMLCanvasElement => {
+  const baseKey = cacheKey || `anon:${pattern.width}x${pattern.height}`;
+  const key = `${baseKey}@${scaledWidth}x${scaledHeight}`;
+  const cached = customScaledCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = scaledWidth;
+  canvas.height = scaledHeight;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, scaledWidth, scaledHeight);
+    ctx.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, 0, 0, scaledWidth, scaledHeight);
+  }
+
+  customScaledCache.set(key, canvas);
+  trimCache(customScaledCache, CUSTOM_SCALED_CACHE_LIMIT);
+  return canvas;
+};
+
+const getCustomTintedCanvas = (
+  baseCanvas: HTMLCanvasElement,
+  pattern: ImageData,
+  scaledWidth: number,
+  scaledHeight: number,
+  cacheKey: string | null,
+  fillStyle: string
+): HTMLCanvasElement => {
+  const baseKey = cacheKey || `anon:${pattern.width}x${pattern.height}`;
+  const key = `${baseKey}@${scaledWidth}x${scaledHeight}@${fillStyle}`;
+  const cached = customTintedCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = scaledWidth;
+  canvas.height = scaledHeight;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, scaledWidth, scaledHeight);
+    ctx.drawImage(baseCanvas, 0, 0);
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = fillStyle;
+    ctx.fillRect(0, 0, scaledWidth, scaledHeight);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  customTintedCache.set(key, canvas);
+  trimCache(customTintedCache, CUSTOM_TINTED_CACHE_LIMIT);
+  return canvas;
+};
+
 /**
  * Get or create a pre-rotated pixel stamp
  */
@@ -289,96 +395,52 @@ export const drawShape = (
   }
   
   // Handle custom pattern rendering (for custom brushes)
-  if (pattern && pattern.width > 0 && pattern.height > 0 && shape === BrushShape.CUSTOM && deps?.getPatternTempContext) {
-    const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);
+  if (pattern && pattern.width > 0 && pattern.height > 0 && shape === BrushShape.CUSTOM) {
+    try {
+      const cacheKey = getCustomCacheKey(pattern);
+      const sourceCanvas = getCustomSourceCanvas(pattern, cacheKey);
 
-    if (tempCtx) {
-      const tempCanvas = tempCtx.canvas;
-      // Ensure we have a canvas to draw to
-      const canvasToUse = tempCanvas || tempCtx.canvas;
-      if (!canvasToUse) {
-        targetCtx.restore();
-        return;
+      // For custom brushes, the size parameter already represents the scaled size.
+      const maxDimension = Math.max(pattern.width, pattern.height);
+      const sizeBucket = Math.max(1, Math.round(size * 2) / 2);
+      const scaleFactor = maxDimension > 0 ? sizeBucket / maxDimension : 1;
+      const scaledWidth = Math.max(1, Math.round(pattern.width * scaleFactor));
+      const scaledHeight = Math.max(1, Math.round(pattern.height * scaleFactor));
+
+      const scaledCanvas = getCustomScaledCanvas(pattern, sourceCanvas, scaledWidth, scaledHeight, cacheKey);
+
+      // Apply color tint if the brush is colorizable (using the fillStyle color).
+      // For custom brushes, centerAlignment is repurposed to pass isColorizable flag.
+      const isColorizable = centerAlignment || false;
+      const fillStyle = targetCtx.fillStyle ? targetCtx.fillStyle.toString() : '';
+      const canvasToUse = isColorizable && fillStyle
+        ? getCustomTintedCanvas(scaledCanvas, pattern, scaledWidth, scaledHeight, cacheKey, fillStyle)
+        : scaledCanvas;
+
+      // Apply rotation if specified
+      if (rotation !== 0) {
+        targetCtx.save();
+        targetCtx.translate(drawX, drawY);
+        targetCtx.rotate(rotation);
+        targetCtx.translate(-drawX, -drawY);
       }
-      
-      try {
-        // Configure temp canvas context to match main context
-        tempCtx.imageSmoothingEnabled = false; // Custom brushes should be crisp
-        tempCtx.clearRect(0, 0, pattern.width, pattern.height);
-        tempCtx.putImageData(pattern, 0, 0);
-        
-        // Apply color tint if the brush is colorizable (using the fillStyle color)
-        // For custom brushes, centerAlignment is repurposed to pass isColorizable flag
-        const isColorizable = centerAlignment || false;
-        if (isColorizable && targetCtx.fillStyle) {
-          tempCtx.globalCompositeOperation = 'source-atop';
-          tempCtx.fillStyle = targetCtx.fillStyle;
-          tempCtx.fillRect(0, 0, pattern.width, pattern.height);
-          tempCtx.globalCompositeOperation = 'source-over';
-        }
-        
-        // For custom brushes, the size parameter already represents the scaled size
-        // (it's been pre-calculated based on the brush size slider percentage)
-        // We need to maintain aspect ratio while scaling to this size
-        
-        // Check if this is a Resampler brush - it has the isResampler flag set
-        // Resampler should draw at 1:1 scale since it was captured at the right size
-        const isResampler = ('isResampler' in pattern && pattern.isResampler) || (!isColorizable && settings?.brushSettings?.brushShape === BrushShape.RESAMPLER);
-        
-        let scaledWidth, scaledHeight;
-        if (isResampler) {
-          // Resampler: apply pressure-based scaling if pressure is enabled
-          // The 'size' parameter already includes pressure modulation from the brush engine
-          const maxDimension = Math.max(pattern.width, pattern.height);
-          const scaleFactor = size / maxDimension;
-          scaledWidth = pattern.width * scaleFactor;
-          scaledHeight = pattern.height * scaleFactor;
-        } else {
-          // Regular custom brush: apply scaling
-          const maxDimension = Math.max(pattern.width, pattern.height);
-          const scaleFactor = size / maxDimension;
-          scaledWidth = pattern.width * scaleFactor;
-          scaledHeight = pattern.height * scaleFactor;
-        }
-        
-        // Apply rotation if specified
-        if (rotation !== 0) {
-          targetCtx.save();
-          targetCtx.translate(drawX, drawY);
-          targetCtx.rotate(rotation);
-          targetCtx.translate(-drawX, -drawY);
-        }
-        
-        // Draw the custom brush centered at the position
-        const centerX = drawX - scaledWidth / 2;
-        const centerY = drawY - scaledHeight / 2;
-        
-        // Ensure crisp custom brush rendering (no smoothing)
-        targetCtx.imageSmoothingEnabled = false;
-        
-        // Draw the custom brush image, scaling from source dimensions to target size
-        targetCtx.drawImage(
-          canvasToUse, 
-          0, 0, pattern.width, pattern.height,  // source rectangle 
-          centerX, centerY, scaledWidth, scaledHeight  // destination rectangle
-        );
-        
-        if (rotation !== 0) {
-          targetCtx.restore();
-        }
-        
-        // Important: Return early after drawing custom brush to avoid drawing default shape
+
+      const centerX = drawX - scaledWidth / 2;
+      const centerY = drawY - scaledHeight / 2;
+      targetCtx.imageSmoothingEnabled = false;
+      targetCtx.drawImage(canvasToUse, centerX, centerY);
+
+      if (rotation !== 0) {
         targetCtx.restore();
-        return;
-      } catch {
-        // Handle pattern errors silently
       }
-    }
-    // Also return here if we attempted to draw a custom brush
-    if (shape === BrushShape.CUSTOM) {
+
       targetCtx.restore();
       return;
+    } catch {
+      // Handle pattern errors silently
     }
+    targetCtx.restore();
+    return;
   } else if (pattern && pattern.width > 0 && pattern.height > 0 && deps?.getPatternTempContext) {
     // Handle non-custom brush patterns (textures, etc)
     const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);

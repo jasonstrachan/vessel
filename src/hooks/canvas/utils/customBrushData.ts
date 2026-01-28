@@ -30,6 +30,8 @@ export const resolveActiveCustomBrushData = (
 
   if (settings.currentBrushTip) {
     const brushTip = settings.currentBrushTip;
+    (brushTip.imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey =
+      `tip:${brushTip.brushId ?? 'anon'}`;
     return {
       imageData: brushTip.imageData,
       width: brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width,
@@ -43,6 +45,8 @@ export const resolveActiveCustomBrushData = (
   if (settings.selectedCustomBrush) {
     if (state.temporaryCustomBrush?.id === settings.selectedCustomBrush) {
       const tempBrush = state.temporaryCustomBrush;
+      (tempBrush.imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey =
+        `temp:${tempBrush.id ?? 'anon'}`;
       return {
         imageData: tempBrush.imageData,
         width: tempBrush.naturalWidth ?? tempBrush.width,
@@ -54,6 +58,8 @@ export const resolveActiveCustomBrushData = (
 
     const saved = state.getCustomBrushById?.(settings.selectedCustomBrush ?? '') ?? null;
     if (saved) {
+      (saved.imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey =
+        `project:${saved.id ?? 'anon'}`;
       return {
         imageData: saved.imageData,
         width: saved.naturalWidth ?? saved.width,

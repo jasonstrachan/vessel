@@ -610,6 +610,12 @@ export class ColorCycleBrushCanvas2D {
     return this.mapBandIndexToPaletteIndex(bandIndex, bands);
   }
 
+  private computeColorBandIndexPerStamp(strokeData: LayerStrokeState): number {
+    const bands = Math.max(2, Math.min(254, Math.floor(this.gradientBands || 12)));
+    const bandIndex = Math.max(0, Math.min(bands - 1, strokeData.stampCounter % bands));
+    return this.mapBandIndexToPaletteIndex(bandIndex, bands);
+  }
+
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
     let source = this.customStampSourceCache.get(stamp.imageData);
@@ -903,7 +909,7 @@ export class ColorCycleBrushCanvas2D {
 
     const targetLayerId = layerId || this.activeLayerId || 'default';
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
-    const colorIndex = this.computeColorBandIndex(strokeData);
+    const colorIndex = this.computeColorBandIndexPerStamp(strokeData);
 
     const pressureMultiplier = this.pressureEnabled
       ? applyPressureCurve(pressure, this.minPressure, this.maxPressure, 's-curve')
