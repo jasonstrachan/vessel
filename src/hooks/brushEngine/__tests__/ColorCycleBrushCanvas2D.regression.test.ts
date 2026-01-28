@@ -232,4 +232,90 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(right).toBeGreaterThan(0);
     expect(Math.abs(left - right)).toBeLessThanOrEqual(1);
   });
+
+  it('lost-edge only modifies pixels written by the fill', async () => {
+    const canvas = makeCanvas(64, 64);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-lost-edge';
+
+    brush.setDitherEnabled(false);
+    brush.setDitherPixelSize(1);
+    brush.setGradientBands(16);
+    brush.setBandSpacing(1);
+
+    brush.startStroke(layerId);
+    for (let x = 6; x <= 58; x += 4) {
+      brush.paint(x, 32, layerId, 1);
+    }
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for lost-edge test');
+    }
+
+    const pre = animator.getIndexBuffers();
+    const preIdx = pre.data.slice();
+    const preGid = pre.gid ? pre.gid.slice() : new Uint8Array(preIdx.length);
+    const preSpd = pre.spd ? pre.spd.slice() : new Uint8Array(preIdx.length);
+
+    const vertices = [
+      { x: 16, y: 16 },
+      { x: 48, y: 16 },
+      { x: 48, y: 48 },
+      { x: 16, y: 48 },
+    ];
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices,
+      layerId,
+      direction: { x: 1, y: 0 },
+      options: { spacing: 1, lostEdge: 0 },
+    });
+
+    const baseline = animator.getIndexBuffers().data.slice();
+
+    brush.applyLayerSnapshot(
+      layerId,
+      {
+        paintBuffer: preIdx.buffer.slice(0),
+        gradientIdBuffer: preGid.buffer.slice(0),
+        speedBuffer: preSpd.buffer.slice(0),
+        hasContent: true,
+        strokeCounter: 0,
+      },
+      {
+        data: preIdx.buffer.slice(0),
+        gradientIdData: preGid.buffer.slice(0),
+        speedData: preSpd.buffer.slice(0),
+      }
+    );
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices,
+      layerId,
+      direction: { x: 1, y: 0 },
+      options: { spacing: 1, lostEdge: 40 },
+    });
+
+    const withLost = animator.getIndexBuffers().data;
+    const writtenMask = new Uint8Array(preIdx.length);
+    for (let i = 0; i < preIdx.length; i += 1) {
+      if (baseline[i] !== preIdx[i]) {
+        writtenMask[i] = 1;
+      }
+    }
+    let violations = 0;
+    for (let i = 0; i < preIdx.length; i += 1) {
+      if (withLost[i] !== baseline[i] && writtenMask[i] === 0) {
+        violations += 1;
+        if (violations > 5) break;
+      }
+    }
+    expect(violations).toBe(0);
+  });
 });

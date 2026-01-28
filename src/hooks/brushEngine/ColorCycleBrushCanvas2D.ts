@@ -1207,6 +1207,37 @@ export class ColorCycleBrushCanvas2D {
         spd[dst] = prevSpd[p];
       }
     }
+    if (process.env.NODE_ENV !== 'production') {
+      const violations: Array<{ x: number; y: number }> = [];
+      for (let row = 0; row < bbox.height; row += 1) {
+        const y = bbox.minY + row;
+        const dstRow = y * fullW + bbox.minX;
+        const localRow = row * bbox.width;
+        for (let col = 0; col < bbox.width; col += 1) {
+          const p = localRow + col;
+          if (writtenMask[p] !== 0) continue;
+          const dst = dstRow + col;
+          if (
+            paint[dst] !== prevIdx[p] ||
+            gid[dst] !== prevGid[p] ||
+            spd[dst] !== prevSpd[p]
+          ) {
+            violations.push({ x: bbox.minX + col, y });
+            paint[dst] = prevIdx[p];
+            gid[dst] = prevGid[p];
+            spd[dst] = prevSpd[p];
+            if (violations.length >= 5) break;
+          }
+        }
+        if (violations.length >= 5) break;
+      }
+      if (violations.length > 0) {
+        console.warn('[CC lost-edge] write mask violation; restoring pixels', {
+          count: violations.length,
+          sample: violations,
+        });
+      }
+    }
   }
 
   private renderAnimatorToContext(
