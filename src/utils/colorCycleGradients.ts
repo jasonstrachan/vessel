@@ -102,10 +102,10 @@ const applySelectedCCGradient = (
 const applyColorCycleGradientEdit = (
   gradient: Array<{ position: number; color: string }>,
   layerId?: string,
-  options?: { fork?: boolean }
+  options?: { fork?: boolean; allowForegroundOverride?: boolean; skipRender?: boolean }
 ): void => {
   const st = useAppStore.getState();
-  if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+  if (st.tools.brushSettings.colorCycleUseForegroundGradient && !options?.allowForegroundOverride) {
     return;
   }
   const state = useAppStore.getState();
@@ -178,7 +178,9 @@ const applyColorCycleGradientEdit = (
     slotPalettes = [...slotPalettes, { slot: activeDef.currentSlot, stops: cloneStops(gradient) }];
   }
 
-  applySelectedCCGradient(layer.id, activeDef.currentSlot, cloneStops(gradient));
+  if (!options?.skipRender) {
+    applySelectedCCGradient(layer.id, activeDef.currentSlot, cloneStops(gradient));
+  }
 
   updateLayer(targetLayerId, {
     colorCycleData: {
@@ -197,10 +199,10 @@ const applyColorCycleGradientEdit = (
 export function setLayerColorCycleGradient(
   gradient: Array<{ position: number; color: string }>,
   layerId?: string,
-  options?: { fork?: boolean }
+  options?: { fork?: boolean; allowForegroundOverride?: boolean; skipRender?: boolean }
 ): void {
   const state = useAppStore.getState();
-  if (state.tools.brushSettings.colorCycleUseForegroundGradient) {
+  if (state.tools.brushSettings.colorCycleUseForegroundGradient && !options?.allowForegroundOverride) {
     return;
   }
   applyColorCycleGradientEdit(gradient, layerId, options);

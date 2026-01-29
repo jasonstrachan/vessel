@@ -924,6 +924,7 @@ export function useDrawingHandlers({
   const autoSamplePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const autoSampleLastUpdateRef = useRef<number>(0);
   const autoSampleForkRef = useRef<boolean>(true);
+  const autoSampleLastAppliedHashRef = useRef<string>('');
   const ditherGradSampleLastUpdateRef = useRef<number>(0);
   const brushSamplingPreviewActiveRef = useRef<boolean>(false);
 
@@ -961,7 +962,11 @@ export function useDrawingHandlers({
     const activeLayerId = currentState.activeLayerId;
     const activeLayer = currentState.layers.find((layer) => layer.id === activeLayerId);
     if (activeLayer?.layerType === 'color-cycle' && activeLayerId) {
-      setLayerColorCycleGradient(stops, activeLayerId, { fork: autoSampleForkRef.current });
+      const allowForegroundOverride = Boolean(currentState.tools.brushSettings.autoSampleGradientRealtime);
+      setLayerColorCycleGradient(stops, activeLayerId, {
+        fork: autoSampleForkRef.current,
+        allowForegroundOverride,
+      });
       return;
     }
     setSharedColorCycleGradient(stops, { fork: autoSampleForkRef.current });
@@ -1009,6 +1014,7 @@ export function useDrawingHandlers({
       now,
       autoSampleLastUpdateRef,
       autoSampleForkRef,
+      autoSampleLastAppliedHashRef,
       deps: {
         storeRef,
         drawingCanvasRef,
@@ -1466,13 +1472,16 @@ export function useDrawingHandlers({
     // Initialize auto-sampling for color cycle stroke
     try {
       const isCCStroke = ccFlags.isAny;
-      const autoSample = !!currentState.tools.brushSettings.autoSampleGradient;
-      if (isCCStroke && autoSample) {
+      const autoSampleOneShot = !!currentState.tools.brushSettings.autoSampleGradient;
+      const autoSampleRealtime = !!currentState.tools.brushSettings.autoSampleGradientRealtime;
+      if (isCCStroke && (autoSampleOneShot || autoSampleRealtime)) {
         autoSamplePointsRef.current = [worldPos];
         autoSampleLastUpdateRef.current = 0;
         autoSampleForkRef.current = true;
-        brushSamplingPreviewActiveRef.current = true;
-        renderBrushSamplingPreview(autoSamplePointsRef.current);
+        brushSamplingPreviewActiveRef.current = autoSampleOneShot;
+        if (autoSampleOneShot) {
+          renderBrushSamplingPreview(autoSamplePointsRef.current);
+        }
       }
     } catch {}
     if (brushSamplingPreviewActiveRef.current) {
@@ -2137,6 +2146,7 @@ export function useDrawingHandlers({
               brushSamplingPreviewActiveRef,
               autoSamplePointsRef,
               autoSampleLastUpdateRef,
+              autoSampleLastAppliedHashRef,
               computeAutoSampleStops,
               clearBrushSamplingPreview,
               getBrushForLayer: (layerId) =>

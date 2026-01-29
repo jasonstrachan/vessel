@@ -418,7 +418,10 @@ export const startShapeDrawing = (
       try {
         const st = deps.storeRef.current;
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-        if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
+        const autoSampleEnabled =
+          st.tools.brushSettings.autoSampleGradient ||
+          st.tools.brushSettings.autoSampleGradientRealtime;
+        if (isCCShape && autoSampleEnabled) {
           refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
           refs.autoSampleForkRef.current = true;
           refs.autoSampleLastUpdateRef.current = 0;
@@ -544,7 +547,10 @@ export const continueShapeDrawing = (
       if (added > 0) {
         try {
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-          if (isCCShape && store.tools.brushSettings.autoSampleGradient) {
+          const autoSampleEnabled =
+            store.tools.brushSettings.autoSampleGradient ||
+            store.tools.brushSettings.autoSampleGradientRealtime;
+          if (isCCShape && autoSampleEnabled) {
             refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
             refs.autoSampleForkRef.current = true;
             deps.updateAutoSampledGradient(refs.autoSamplePointsRef.current);

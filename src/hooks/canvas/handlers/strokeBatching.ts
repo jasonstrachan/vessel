@@ -157,7 +157,9 @@ export const processBatchedStrokes = (
   for (let i = 0; i < batch.length; i++) {
     const { pos: worldPos, pressure } = batch[i];
     const shouldAutoSample =
-      ccProcessFlags.isAny && currentState.tools.brushSettings.autoSampleGradient;
+      ccProcessFlags.isAny &&
+      (currentState.tools.brushSettings.autoSampleGradient ||
+        currentState.tools.brushSettings.autoSampleGradientRealtime);
     if (shouldAutoSample) {
       args.autoSamplePointsRef.current.push(worldPos);
       if (args.autoSamplePointsRef.current.length > 5000) {

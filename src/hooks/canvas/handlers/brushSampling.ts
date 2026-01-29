@@ -10,7 +10,8 @@ import {
   dedupePolylineForSampling,
   type PolyPoint,
 } from '@/hooks/canvas/utils/autoSampleGradient';
-import { setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { setLayerColorCycleGradient, setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
 
 const SAMPLE_PREVIEW_STROKE_STYLE = 'rgba(255, 214, 102, 0.95)';
 
@@ -43,7 +44,7 @@ export const resetAutoSampleState = ({
   }
   try {
     const st = storeRef.current;
-    if (st.tools.brushSettings.autoSampleGradient) {
+    if (st.tools.brushSettings.autoSampleGradient && !st.tools.brushSettings.autoSampleGradientRealtime) {
       st.setBrushSettings({ autoSampleGradient: false });
     }
   } catch {}
@@ -59,6 +60,9 @@ export const sampleHexAt = ({
   deps: BrushSamplingDeps;
 }): string => {
   try {
+    if (typeof deps.sampleColorAt === 'function') {
+      return deps.sampleColorAt(x, y);
+    }
     const toHex = (v: number) => v.toString(16).padStart(2, '0');
 
     const comp = deps.storeRef.current.currentOffscreenCanvas;
@@ -227,26 +231,38 @@ export const updateAutoSampledGradient = ({
   now,
   autoSampleLastUpdateRef,
   autoSampleForkRef,
+  autoSampleLastAppliedHashRef,
   deps,
 }: {
   sourcePts: Array<{ x: number; y: number }>;
   now: number;
   autoSampleLastUpdateRef: React.MutableRefObject<number>;
   autoSampleForkRef: React.MutableRefObject<boolean>;
+  autoSampleLastAppliedHashRef: React.MutableRefObject<string>;
   deps: BrushSamplingDeps;
 }): void => {
   if (now - autoSampleLastUpdateRef.current < 120) return;
 
   const stops = computeAutoSampleStops({
     sourcePts,
-    sampleColor: (x, y) => sampleHexAt({ x, y, deps }),
+    sampleColor: (x, y) =>
+      typeof deps.sampleColorAt === 'function' ? deps.sampleColorAt(x, y) : sampleHexAt({ x, y, deps }),
   });
   if (!stops) {
     return;
   }
   autoSampleLastUpdateRef.current = now;
 
+  const hash = stops
+    .map((stop) => `${Math.round(stop.position * 1000)}:${stop.color}`)
+    .join('|');
+  if (hash === autoSampleLastAppliedHashRef.current) {
+    return;
+  }
+  autoSampleLastAppliedHashRef.current = hash;
+
   const store = deps.storeRef.current;
+  const isRealtimeSample = Boolean(store.tools.brushSettings.autoSampleGradientRealtime);
   const current = store.tools.brushSettings.colorCycleGradient || [];
   const same = JSON.stringify(current) === JSON.stringify(stops);
   if (same) return;
@@ -259,7 +275,34 @@ export const updateAutoSampledGradient = ({
   } catch {}
 
   try {
-    setSharedColorCycleGradient(stops, { fork: autoSampleForkRef.current });
+    if (isRealtimeSample) {
+      setLayerColorCycleGradient(stops, store.activeLayerId ?? undefined, {
+        fork: autoSampleForkRef.current,
+        allowForegroundOverride: true,
+        skipRender: true,
+      });
+      try {
+        store.setBrushSettings({ colorCycleGradient: stops });
+      } catch {}
+      try {
+        const refreshed = deps.storeRef.current;
+        const activeLayer = refreshed.layers.find(l => l.id === refreshed.activeLayerId);
+        if (activeLayer?.layerType === 'color-cycle' && activeLayer.colorCycleData) {
+          const defs = activeLayer.colorCycleData.gradientDefs ?? [];
+          const activeId = activeLayer.colorCycleData.activeGradientId ?? defs[0]?.id;
+          const activeDef = defs.find(entry => entry.id === activeId) ?? defs[0];
+          const slot = activeDef?.currentSlot ?? 0;
+          const manager = getColorCycleBrushManager();
+          const brush = manager.getBrush(activeLayer.id);
+          if (brush) {
+            brush.setGradientSlot?.(activeLayer.id, slot, stops);
+            brush.setActiveGradientSlot?.(activeLayer.id, slot);
+          }
+        }
+      } catch {}
+    } else {
+      setSharedColorCycleGradient(stops, { fork: autoSampleForkRef.current });
+    }
     autoSampleForkRef.current = false;
   } catch {
     try {
@@ -267,16 +310,18 @@ export const updateAutoSampledGradient = ({
     } catch {}
   }
 
-  const activeLayer = store.layers.find(l => l.id === store.activeLayerId);
-  if (activeLayer && activeLayer.layerType === 'color-cycle') {
-    try {
-      const updatedColorCycleData: AppState['layers'][number]['colorCycleData'] = {
-        ...(activeLayer.colorCycleData ?? {}),
-        gradient: stops,
-        isAnimating: activeLayer.colorCycleData?.isAnimating ?? false,
-      };
-      store.updateLayer(activeLayer.id, { colorCycleData: updatedColorCycleData });
-    } catch {}
+  if (!isRealtimeSample) {
+    const activeLayer = store.layers.find(l => l.id === store.activeLayerId);
+    if (activeLayer && activeLayer.layerType === 'color-cycle') {
+      try {
+        const updatedColorCycleData: AppState['layers'][number]['colorCycleData'] = {
+          ...(activeLayer.colorCycleData ?? {}),
+          gradient: stops,
+          isAnimating: activeLayer.colorCycleData?.isAnimating ?? false,
+        };
+        store.updateLayer(activeLayer.id, { colorCycleData: updatedColorCycleData });
+      } catch {}
+    }
   }
 };
 

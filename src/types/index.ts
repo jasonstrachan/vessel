@@ -747,6 +747,7 @@ export interface BrushSettings {
   colorCycleFgStops?: number; // 2-6 stops for derived foreground gradient
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas
+  autoSampleGradientRealtime?: boolean; // When true, continuously sample gradient while drawing (Color Cycle Gradient)
   
   // Gradient bands/steps for both strokes and fills
   gradientBands?: number; // 2-50 (number of color steps in gradients)

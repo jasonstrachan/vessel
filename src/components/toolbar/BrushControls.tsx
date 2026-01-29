@@ -380,6 +380,13 @@ const BrushControls = () => {
   );
 
   const useForegroundDerivedGradient = Boolean(activeSettings.colorCycleUseForegroundGradient);
+  const autoSampleGradientRealtimeEnabled = Boolean(activeSettings.autoSampleGradientRealtime);
+  const isGradientSampleMode = autoSampleGradientRealtimeEnabled;
+  const gradientModeValue = isGradientSampleMode
+    ? 'sample'
+    : useForegroundDerivedGradient
+      ? 'fg'
+      : 'manual';
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
@@ -1110,11 +1117,31 @@ const BrushControls = () => {
           <ButtonGroup
             options={[
               { label: 'FG Grad', value: 'fg' },
-              { label: 'Manual Grad', value: 'manual' }
+              { label: 'Man Grad', value: 'manual' },
+              { label: 'Sample', value: 'sample' }
             ]}
-            value={useForegroundDerivedGradient ? 'fg' : 'manual'}
+            value={gradientModeValue}
             onChange={(value) => {
-              setActiveSettings({ colorCycleUseForegroundGradient: value === 'fg' });
+              if (value === 'fg') {
+                setActiveSettings({
+                  colorCycleUseForegroundGradient: true,
+                  autoSampleGradientRealtime: false,
+                });
+                return;
+              }
+              if (value === 'sample') {
+                setActiveSettings({
+                  colorCycleUseForegroundGradient: false,
+                  autoSampleGradientRealtime: true,
+                  autoSampleGradient: false,
+                });
+                return;
+              }
+              setActiveSettings({
+                colorCycleUseForegroundGradient: false,
+                autoSampleGradientRealtime: false,
+              });
+              flushPendingGradient();
             }}
             size="sm"
           />
@@ -1130,6 +1157,32 @@ const BrushControls = () => {
               className="h-6 rounded border border-white/10"
               style={{ background: foregroundDerivedCss }}
             />
+          </div>
+        ) : isGradientSampleMode ? (
+          <div className="mb-3">
+            <div className="flex items-center justify-between text-xs text-[#D9D9D9] mb-1">
+              <span>Sampled Gradient</span>
+              <span className="text-[#A0A0A0]">Live</span>
+            </div>
+            {(() => {
+              const previewStops =
+                activeLayer?.colorCycleData?.gradient ??
+                activeSettings.colorCycleGradient ??
+                DEFAULT_GRADIENT_STOPS;
+              const previewCss = previewStops.length
+                ? previewStops
+                    .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
+                    .join(', ')
+                : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%';
+              return (
+                <div
+                  className="h-6 rounded border border-white/10"
+                  style={{
+                    background: `linear-gradient(90deg, ${previewCss})`,
+                  }}
+                />
+              );
+            })()}
           </div>
         ) : (
           <div className="mb-3">

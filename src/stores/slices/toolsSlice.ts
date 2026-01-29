@@ -199,6 +199,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   resampleInterval: settings.resampleInterval,
   polygonSampleColors: settings.polygonSampleColors,
   autoSampleColor: settings.autoSampleColor,
+  autoSampleGradientRealtime: settings.autoSampleGradientRealtime,
 });
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';
@@ -766,6 +767,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
       if (settings.rectGradientPresetId !== undefined) settingsToSave.rectGradientPresetId = newSettings.rectGradientPresetId;
       if (settings.polygonSampleColors !== undefined) settingsToSave.polygonSampleColors = newSettings.polygonSampleColors;
+      if (settings.autoSampleGradientRealtime !== undefined) {
+        settingsToSave.autoSampleGradientRealtime = newSettings.autoSampleGradientRealtime;
+      }
       if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
       if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
       if (settings.colorCycleGradient !== undefined) {
