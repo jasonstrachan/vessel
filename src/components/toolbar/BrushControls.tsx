@@ -387,6 +387,7 @@ const BrushControls = () => {
     : useForegroundDerivedGradient
       ? 'fg'
       : 'manual';
+  const ccGradientSamplePerShapeEnabled = Boolean(activeSettings.ccGradientSamplePerShape);
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
@@ -1126,6 +1127,7 @@ const BrushControls = () => {
                 setActiveSettings({
                   colorCycleUseForegroundGradient: true,
                   autoSampleGradientRealtime: false,
+                  ccGradientSamplePerShape: false,
                 });
                 return;
               }
@@ -1134,18 +1136,40 @@ const BrushControls = () => {
                   colorCycleUseForegroundGradient: false,
                   autoSampleGradientRealtime: true,
                   autoSampleGradient: false,
+                  ccGradientSamplePerShape: false,
                 });
                 return;
               }
               setActiveSettings({
                 colorCycleUseForegroundGradient: false,
                 autoSampleGradientRealtime: false,
+                ccGradientSamplePerShape: false,
               });
               flushPendingGradient();
             }}
             size="sm"
           />
         </div>
+
+        {isColorCycleGradientPreset && gradientModeValue === 'manual' && (
+          <div className="mb-3">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="cc-gradient-sample-per-shape"
+                className={CONTROL_LABEL_CLASS}
+                style={CONTROL_LABEL_STYLE}
+              >
+                Sample
+              </label>
+              <CustomSwitch
+                id="cc-gradient-sample-per-shape"
+                checked={ccGradientSamplePerShapeEnabled}
+                onChange={(checked) => setActiveSettings({ ccGradientSamplePerShape: checked })}
+              />
+              <span className="text-xs text-[#A0A0A0]">Per Shape</span>
+            </div>
+          </div>
+        )}
 
         {useForegroundDerivedGradient ? (
           <div className="mb-3">

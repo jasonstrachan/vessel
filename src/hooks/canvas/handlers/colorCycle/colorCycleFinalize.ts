@@ -31,6 +31,7 @@ export type FinalizeColorCycleBrushDeps = {
   autoSamplePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   autoSampleLastUpdateRef: React.MutableRefObject<number>;
   autoSampleLastAppliedHashRef: React.MutableRefObject<string>;
+  finalizeInProgressRef?: React.MutableRefObject<boolean>;
   computeAutoSampleStops: (
     sourcePts: Array<{ x: number; y: number }>,
     options?: { allowTiny?: boolean }
