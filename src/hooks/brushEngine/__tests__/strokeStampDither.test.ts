@@ -43,6 +43,7 @@ describe('strokeStampDither', () => {
       paintBuffer: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
+      stampDitherStrokeScale: 1,
     };
     const config = {
       algorithm: 'sierra-lite' as const,

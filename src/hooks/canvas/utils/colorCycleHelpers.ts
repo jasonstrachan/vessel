@@ -1,3 +1,4 @@
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
 
 export type GradientStop = { position: number; color: string };
@@ -12,11 +13,18 @@ export const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 1.0, color: '#9400d3' }
 ];
 
+const EDITOR_SLOT = 63;
+
 export const cloneStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map((stop) => ({ position: stop.position, color: stop.color }));
 
+const normalizeSlot = (slot: number): number => slot & FLOW_SLOT_MASK;
+
 export const getNextGradientSlot = (usedSlots: Set<number>): number | null => {
-  for (let i = 0; i < 256; i += 1) {
+  for (let i = 0; i <= FLOW_SLOT_MASK; i += 1) {
+    if (i === EDITOR_SLOT) {
+      continue;
+    }
     if (!usedSlots.has(i)) {
       return i;
     }
@@ -40,15 +48,25 @@ export const resolveActiveColorCycleGradient = (
     brushSettings.colorCycleGradient ??
     DEFAULT_CC_GRADIENT;
   const gradientDefs = layer.colorCycleData?.gradientDefs?.length
-    ? layer.colorCycleData.gradientDefs
+    ? layer.colorCycleData.gradientDefs.map((entry) => ({
+        id: entry.id,
+        currentSlot: normalizeSlot(entry.currentSlot),
+      }))
     : [{ id: 'g0', currentSlot: 0 }];
   const slotPalettes = layer.colorCycleData?.slotPalettes?.length
-    ? layer.colorCycleData.slotPalettes
+    ? layer.colorCycleData.slotPalettes.map((entry) => ({
+        slot: normalizeSlot(entry.slot),
+        stops: cloneStops(entry.stops),
+      }))
     : [{ slot: 0, stops: fallbackStops }];
   const activeGradientId = layer.colorCycleData?.activeGradientId ?? gradientDefs[0].id;
   const activeDef =
     gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
-  const activeSlot = activeDef?.currentSlot ?? 0;
+  const activeSlot = normalizeSlot(
+    brushSettings.colorCycleUseForegroundGradient
+      ? (layer.colorCycleData?.fgActiveSlot ?? activeDef.currentSlot)
+      : (layer.colorCycleData?.paintSlot ?? activeDef.currentSlot)
+  );
   const activePalette = slotPalettes.find((entry) => entry.slot === activeSlot);
   const activeStops =
     activePalette?.stops && activePalette.stops.length > 0

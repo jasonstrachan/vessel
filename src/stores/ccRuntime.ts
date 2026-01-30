@@ -3,16 +3,11 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
 type RuntimeSnapshot = {
-  gradientKey?: string;
   isAnimating?: boolean;
   flowMode?: 'forward' | 'reverse' | 'pingpong';
 };
 
 const lastRuntimeState = new Map<string, RuntimeSnapshot>();
-
-const gradientKeyForStops = (
-  stops: Array<{ position: number; color: string }>
-): string => stops.map(stop => `${stop.position}:${stop.color}`).join('|');
 
 /**
  * Synchronize color-cycle runtime state from layer data into live brush instances.
@@ -54,7 +49,6 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
 
   const manager = getColorCycleBrushManager();
   let shouldRequestStart = false;
-  let shouldNotifyFrameUpdate = false;
 
   for (const layer of layers) {
     if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
@@ -75,20 +69,9 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
-    const { gradient, isAnimating, flowMode } = layer.colorCycleData;
+    const { isAnimating, flowMode } = layer.colorCycleData;
     const previous = lastRuntimeState.get(layer.id) ?? {};
     const nextSnapshot: RuntimeSnapshot = { ...previous };
-
-    if (Array.isArray(gradient) && gradient.length > 0) {
-      const gradientKey = gradientKeyForStops(gradient);
-      if (previous.gradientKey !== gradientKey) {
-        try {
-          brush.setGradient?.(gradient, layer.id);
-          nextSnapshot.gradientKey = gradientKey;
-          shouldNotifyFrameUpdate = true;
-        } catch {}
-      }
-    }
 
     if (typeof isAnimating === 'boolean') {
       const wasAnimating = previous.isAnimating ?? false;
@@ -124,11 +107,8 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
     lastRuntimeState.set(layer.id, nextSnapshot);
   }
 
-  if (typeof window !== 'undefined' && (shouldNotifyFrameUpdate || shouldRequestStart)) {
+  if (typeof window !== 'undefined' && shouldRequestStart) {
     try {
-      if (shouldNotifyFrameUpdate) {
-        window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-      }
       if (shouldRequestStart) {
         useAppStore.getState().colorCycleRuntimeHandlers.start?.('cc-runtime');
       }

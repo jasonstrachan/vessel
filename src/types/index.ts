@@ -201,6 +201,17 @@ export interface Layer {
      */
     fgActiveSlot?: number;
     /**
+     * Authoritative slot for new writes (raw slot, 0..63). Never use 63 for paint.
+     */
+    paintSlot?: number;
+    /**
+     * Legacy gid remap for slot 63 -> dedicated slot.
+     */
+    legacyRemap?: {
+      from: 63;
+      to: number;
+    };
+    /**
      * Last FG-derived spec key applied to this layer.
      */
     fgDerivedKey?: string;
@@ -731,7 +742,7 @@ export interface BrushSettings {
   customBrushColorCycle?: boolean; // true = cycle gradient colors per stamp for custom brushes
 
   // Color cycle brush settings
-  colorCycleSpeed?: number; // 0.01-0.66 (brush animation speed)
+  colorCycleSpeed?: number; // 0.01-2.64 (brush animation speed)
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)

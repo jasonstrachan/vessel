@@ -33,13 +33,9 @@ import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import {
-  buildForegroundDerivedGradientSpec,
-  clampForegroundDerivedBands,
-  deriveForegroundGradientStops,
-  isColorCycleBrush,
-  isFgPending,
-} from '@/utils/colorCycleGradients';
+import { isColorCycleBrush, isFgPending } from '@/utils/colorCycleGradients';
+import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
 
 declare global {
   interface Window {
@@ -60,96 +56,6 @@ type DrawColorCycleOptions = {
 type ShapeFillOptions = Record<string, unknown>;
 
 type IdleHandle = { id: number; kind: 'idle' | 'timeout' } | null;
-
-type GradientStop = { position: number; color: string };
-type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
-type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
-
-const DEFAULT_CC_GRADIENT: GradientStop[] = [
-  { position: 0.0, color: '#ff0000' },
-  { position: 0.17, color: '#ff7f00' },
-  { position: 0.33, color: '#ffff00' },
-  { position: 0.5, color: '#00ff00' },
-  { position: 0.67, color: '#0000ff' },
-  { position: 0.83, color: '#4b0082' },
-  { position: 1.0, color: '#9400d3' }
-];
-
-const resolveColorCycleGradientsForLayer = (
-  layer: Layer | undefined,
-  brushSettings: BrushSettings
-): {
-  gradientDefs: ColorCycleGradientDef[];
-  slotPalettes: ColorCycleSlotPalette[];
-  activeGradientId: string;
-  activeSlot: number;
-  activeStops: GradientStop[];
-  fallbackStops: GradientStop[];
-} => {
-  let derivedStops: GradientStop[] | null = null;
-  if (brushSettings.colorCycleUseForegroundGradient) {
-    const palette = useAppStore.getState().palette;
-    const baseColor = palette?.foregroundColor ?? brushSettings.color ?? '#ffffff';
-    const bands = clampForegroundDerivedBands(brushSettings.colorCycleFgStops);
-    const derivedSpec = buildForegroundDerivedGradientSpec({
-      baseColor,
-      lightness: brushSettings.colorCycleFgLightness,
-      variance: brushSettings.colorCycleFgVariance,
-      hueShift: brushSettings.colorCycleFgHueShift,
-      saturationShift: brushSettings.colorCycleFgSaturationShift,
-      opacity: brushSettings.colorCycleFgOpacity,
-      bands,
-    });
-    const stops = deriveForegroundGradientStops(derivedSpec);
-    derivedStops = stops.length >= 2 ? stops : null;
-  }
-
-  const fallbackStops =
-    derivedStops ??
-    layer?.colorCycleData?.gradient ??
-    brushSettings.colorCycleGradient ??
-    DEFAULT_CC_GRADIENT;
-  const gradientDefs = layer?.colorCycleData?.gradientDefs?.length
-    ? layer.colorCycleData.gradientDefs
-    : [{ id: 'g0', currentSlot: 0 }];
-  let slotPalettes = layer?.colorCycleData?.slotPalettes?.length
-    ? layer.colorCycleData.slotPalettes
-    : [{ slot: 0, stops: fallbackStops }];
-  const fgOn = Boolean(brushSettings.colorCycleUseForegroundGradient);
-  const activeGradientId = layer?.colorCycleData?.activeGradientId ?? gradientDefs[0].id;
-  const activeDef =
-    gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
-  const activeSlot = fgOn
-    ? (layer?.colorCycleData?.fgActiveSlot ?? 0)
-    : (activeDef?.currentSlot ?? 0);
-  if (derivedStops && derivedStops.length >= 2) {
-    const hasSlot = slotPalettes.some((entry) => entry.slot === activeSlot);
-    slotPalettes = hasSlot
-      ? slotPalettes.map((entry) =>
-          entry.slot === activeSlot ? { ...entry, stops: derivedStops } : entry
-        )
-      : [...slotPalettes, { slot: activeSlot, stops: derivedStops }];
-  }
-  if (derivedStops && derivedStops.length >= 2) {
-    // Ensure the active slot reflects FG-derived stops for brush init.
-    slotPalettes = slotPalettes.map((entry) =>
-      entry.slot === activeSlot ? { ...entry, stops: derivedStops } : entry
-    );
-  }
-  const activePalette = slotPalettes.find((entry) => entry.slot === activeSlot);
-  const activeStops =
-    activePalette?.stops && activePalette.stops.length > 0
-      ? activePalette.stops
-      : fallbackStops;
-  return {
-    gradientDefs,
-    slotPalettes,
-    activeGradientId,
-    activeSlot,
-    activeStops,
-    fallbackStops,
-  };
-};
 
 const scheduleDeferred = (callback: () => void, timeout = 120): IdleHandle => {
   if (typeof window === 'undefined') {
@@ -641,22 +547,10 @@ const renderBrushToLayerCanvas = (
     return;
   }
   try {
-    const st = useAppStore.getState();
     if (isFgPending(layerId)) {
       return;
     }
-    if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
-      const layer = st.layers.find((candidate) => candidate.id === layerId);
-      const fgSlot = layer?.colorCycleData?.fgActiveSlot;
-      if (fgSlot == null) {
-        return;
-      }
-      const fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-      if (typeof fgSlot === 'number' && fgPalette?.stops?.length) {
-        brush.setGradientSlot(layerId, fgSlot, fgPalette.stops);
-        brush.setActiveGradientSlot(layerId, fgSlot);
-      }
-    }
+    requestGradientApply(layerId, 'render-cc-layer');
   } catch {}
   const layerCanvas = refreshLayerCCSurface(brush, layerId);
   if (!layerCanvas) {
@@ -666,6 +560,7 @@ const renderBrushToLayerCanvas = (
   if (layerCanvas.isConnected) {
     ensureCanvasPixelSize(layerCanvas);
   }
+  flushGradientApply(layerId);
   if (typeof brush.renderDirectToCanvas === 'function') {
     try {
       brush.renderDirectToCanvas(layerCanvas, layerId);
@@ -2530,6 +2425,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.fillResolution,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.pressureEnabled,
     tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
@@ -2731,6 +2627,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.fillResolution,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings.pressureEnabled,
     tools.brushSettings.lostEdge,
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
@@ -3858,7 +3755,7 @@ export const useBrushEngineSimplified = () => {
   /**
    * Initialize Color Cycle Brush for the active layer
    */
-  const initializeColorCycleBrush = useCallback(() => {
+  const initializeColorCycleBrush = useCallback((options?: { skipGradientReinit?: boolean }) => {
     if (!activeLayerId) return null;
     
     // CRITICAL: Check if the active layer is a color-cycle layer
@@ -3968,20 +3865,9 @@ export const useBrushEngineSimplified = () => {
         console.error('[CC Init] Failed to set stamp shape:', error);
       }
       
-      // Hydrate all layer gradients and set active slot (no global overwrite)
-      const storeSnapshot = useAppStore.getState();
-      const activeLayer = storeSnapshot.layers.find(l => l.id === activeLayerId);
-      const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
-        activeLayer,
-        tools.brushSettings
-      );
-      slotPalettes.forEach((entry, index) => {
-        const stops =
-          entry.stops && entry.stops.length > 0 ? entry.stops : fallbackStops;
-        const slot = Number.isFinite(entry.slot) ? entry.slot : index;
-        colorCycleBrush.setGradientSlot(activeLayerId, slot, stops);
-      });
-      colorCycleBrush.setActiveGradientSlot(activeLayerId, activeSlot);
+      if (!options?.skipGradientReinit) {
+        requestGradientApply(activeLayerId, 'brush-init');
+      }
       
       const layerFlowMode = activeLayer?.colorCycleData?.flowMode;
       const flowMode = tools.brushSettings.colorCycleFlowMode ?? layerFlowMode ?? 'reverse';
@@ -4086,22 +3972,8 @@ export const useBrushEngineSimplified = () => {
 
     try {
       bindBrushToCanvas(colorCycleBrush, layerCanvas);
-      try {
-        if (tools.brushSettings.colorCycleUseForegroundGradient) {
-          const layer = useAppStore
-            .getState()
-            .layers.find((candidate) => candidate.id === activeLayerId);
-          const fgSlot = layer?.colorCycleData?.fgActiveSlot;
-          if (fgSlot == null) {
-            return;
-          }
-          const fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-          if (typeof fgSlot === 'number' && fgPalette?.stops?.length) {
-            colorCycleBrush.setGradientSlot(activeLayerId, fgSlot, fgPalette.stops);
-            colorCycleBrush.setActiveGradientSlot(activeLayerId, fgSlot);
-          }
-        }
-      } catch {}
+      requestGradientApply(activeLayerId, 'render-color-cycle');
+      flushGradientApply(activeLayerId);
       colorCycleBrush.renderDirectToCanvas(layerCanvas, activeLayerId);
     } catch (error) {
       console.warn('[ColorCycle] Failed to render to layer canvas:', error);
@@ -4219,7 +4091,6 @@ export const useBrushEngineSimplified = () => {
     getActiveLayerColorCycleBrush,
     tools.brushSettings.opacity,
     tools.brushSettings.blendMode,
-    tools.brushSettings.colorCycleUseForegroundGradient,
     activeLayerTransparencyLock,
     renderCCWithBlendAndLock,
     applyColorCycleRisographOverlay
@@ -4250,6 +4121,11 @@ export const useBrushEngineSimplified = () => {
       if (!colorCycleBrush) {
         return;
       }
+      if (!activeLayerId) {
+        return;
+      }
+      requestGradientApply(activeLayerId, 'draw-color-cycle');
+      flushGradientApply(activeLayerId);
 
       // Ensure pressure settings are applied (might be a newly created brush)
       // Log current settings to debug - only once per stroke to avoid spam
@@ -4403,12 +4279,12 @@ export const useBrushEngineSimplified = () => {
   /**
    * Reset Color Cycle - starts a new stroke with the existing brush
    */
-  const resetColorCycle = useCallback((clearBuffer: boolean = false) => {
+  const resetColorCycle = useCallback((clearBuffer: boolean = false, options?: { skipGradientReinit?: boolean }) => {
     // quiet
     // DEFENSIVE GUARD: Add try-catch to prevent crashes during initialization
     try {
       // Reuse existing brush or create if needed
-      const brush = initializeColorCycleBrush();
+      const brush = initializeColorCycleBrush(options);
       
       if (brush) {
         const layerId = activeLayerId;
@@ -4512,19 +4388,8 @@ export const useBrushEngineSimplified = () => {
       const currentBrushLayerId = brush.getLayerId();
       if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
         // quiet
-        const state = useAppStore.getState();
-        const layer = state.layers.find((entry) => entry.id === layerId);
-        const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
-          layer,
-          tools.brushSettings
-        );
-        slotPalettes.forEach((entry, index) => {
-          const stops =
-            entry.stops && entry.stops.length > 0 ? entry.stops : fallbackStops;
-          const slot = Number.isFinite(entry.slot) ? entry.slot : index;
-          brush.setGradientSlot(layerId, slot, stops);
-        });
-        brush.setActiveGradientSlot(layerId, activeSlot);
+        requestGradientApply(layerId, 'fill-linear');
+        flushGradientApply(layerId);
       }
       
       // Ensure bands are set before filling
@@ -4608,20 +4473,8 @@ export const useBrushEngineSimplified = () => {
       const currentBrushLayerId = brush.getLayerId();
       if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
         // quiet
-        // Set the gradient to create a layer
-        const state = useAppStore.getState();
-        const layer = state.layers.find((entry) => entry.id === layerId);
-        const { slotPalettes, activeSlot, fallbackStops } = resolveColorCycleGradientsForLayer(
-          layer,
-          tools.brushSettings
-        );
-        slotPalettes.forEach((entry, index) => {
-          const stops =
-            entry.stops && entry.stops.length > 0 ? entry.stops : fallbackStops;
-          const slot = Number.isFinite(entry.slot) ? entry.slot : index;
-          brush.setGradientSlot(layerId, slot, stops);
-        });
-        brush.setActiveGradientSlot(layerId, activeSlot);
+        requestGradientApply(layerId, 'fill-concentric');
+        flushGradientApply(layerId);
       }
       
       // Ensure bands are set before filling
@@ -4993,32 +4846,8 @@ useEffect(() => {
       if (!colorCycleBrush || !activeLayerId) {
         return;
       }
-      const state = useAppStore.getState();
-      const layer = state.layers.find((entry) => entry.id === activeLayerId);
-      const { activeSlot } = resolveColorCycleGradientsForLayer(layer, state.tools.brushSettings);
-      colorCycleBrush.setGradientSlot(activeLayerId, activeSlot, stops);
-      colorCycleBrush.setActiveGradientSlot(activeLayerId, activeSlot);
-
-      // Force the brush to rebuild its palette caches immediately so the next render uses
-      // the updated gradient without waiting for the animation loop.
-      const { layers, setLayersNeedRecomposition } = useAppStore.getState();
-      const activeLayer = layers.find(layer => layer.id === activeLayerId);
-      const layerCanvas = activeLayer?.colorCycleData?.canvas;
-
-      if (layerCanvas && typeof colorCycleBrush.renderDirectToCanvas === 'function') {
-        try {
-          bindBrushToCanvas(colorCycleBrush, layerCanvas);
-          colorCycleBrush.renderDirectToCanvas?.(layerCanvas, activeLayerId);
-        } catch (error) {
-          console.warn('[ColorCycle] Failed to redraw layer canvas after gradient update:', error);
-        }
-      } else {
-        renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
-      }
-
-      try {
-        setLayersNeedRecomposition(true);
-      } catch {}
+      applyGradientEdit({ stops, layerId: activeLayerId, intent: 'commitRecolor' });
+      renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
     },
     
     updateColorCycleSpeed: (speed: number) => {

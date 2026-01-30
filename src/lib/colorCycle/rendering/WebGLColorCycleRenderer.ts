@@ -22,6 +22,7 @@ import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
+import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 
 export interface GLRendererConfig {
   width: number;
@@ -76,6 +77,7 @@ export class WebGLColorCycleRenderer {
   private uLegacyOffsetLoc: WebGLUniformLocation | null = null;
   private uSpeedMinLoc: WebGLUniformLocation | null = null;
   private uSpeedMaxLoc: WebGLUniformLocation | null = null;
+  private uFlowModeLoc: WebGLUniformLocation | null = null;
 
   private indexTex: WebGLTexture | null = null;
   private gidTex: WebGLTexture | null = null;
@@ -314,7 +316,7 @@ export class WebGLColorCycleRenderer {
     );
   }
 
-  render(offset: number, legacyOffset: number) {
+  render(offset: number, legacyOffset: number, flowMode: FlowMode) {
     const gl = this.gl;
     gl.viewport(0, 0, this.width, this.height);
     gl.useProgram(this.program);
@@ -325,6 +327,15 @@ export class WebGLColorCycleRenderer {
     if (this.uPaletteSizeLoc) gl.uniform1f(this.uPaletteSizeLoc, this.paletteSize);
     if (this.uSpeedMinLoc) gl.uniform1f(this.uSpeedMinLoc, MIN_BRUSH_COLOR_CYCLE_SPEED);
     if (this.uSpeedMaxLoc) gl.uniform1f(this.uSpeedMaxLoc, MAX_BRUSH_COLOR_CYCLE_SPEED);
+    if (this.uFlowModeLoc) {
+      const flowModeValue =
+        flowMode === 'pingpong'
+          ? 2
+          : flowMode === 'reverse'
+            ? 1
+            : 0;
+      gl.uniform1f(this.uFlowModeLoc, flowModeValue);
+    }
 
     // Bind textures to texture units 0 (index), 1 (gid), 2 (palette), 3 (speed)
     if (this.uIndexTexLoc) gl.uniform1i(this.uIndexTexLoc, 0);
@@ -438,6 +449,7 @@ export class WebGLColorCycleRenderer {
       uniform float u_legacyOffset; // cycles in [0,1) legacy/global
       uniform float u_speedMin;
       uniform float u_speedMax;
+      uniform float u_flowMode;
 
       void main() {
         // Flip Y to match Canvas/ImageData top-left origin
@@ -460,6 +472,10 @@ export class WebGLColorCycleRenderer {
         float base = (fIdx - 1.0);
         float flowBits = floor(fGid / 64.0);
         float slot = mod(fGid, 64.0);
+        float effectiveFlow = flowBits;
+        if (flowBits < 0.5) {
+          effectiveFlow = u_flowMode + 1.0;
+        }
 
         float shift;
         if (fSpd < 0.5) {
@@ -478,9 +494,9 @@ export class WebGLColorCycleRenderer {
           float tNorm = (fSpd - 1.0) / 254.0;
           float speed = mix(u_speedMin, u_speedMax, clamp(tNorm, 0.0, 1.0));
           float t = mod(u_offset * speed, 1.0);
-          if (flowBits < 1.5) {
+          if (effectiveFlow < 1.5) {
             shift = t * u_paletteSize;
-          } else if (flowBits < 2.5) {
+          } else if (effectiveFlow < 2.5) {
             shift = -t * u_paletteSize;
           } else {
             float ping = t <= 0.5 ? (t * 2.0) : ((1.0 - t) * 2.0);
@@ -890,6 +906,7 @@ export class WebGLColorCycleRenderer {
     this.uLegacyOffsetLoc = gl.getUniformLocation(this.program, 'u_legacyOffset');
     this.uSpeedMinLoc = gl.getUniformLocation(this.program, 'u_speedMin');
     this.uSpeedMaxLoc = gl.getUniformLocation(this.program, 'u_speedMax');
+    this.uFlowModeLoc = gl.getUniformLocation(this.program, 'u_flowMode');
   }
 
   private createTextures() {

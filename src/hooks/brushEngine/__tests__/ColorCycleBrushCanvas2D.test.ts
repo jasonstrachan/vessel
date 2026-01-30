@@ -199,6 +199,7 @@ jest.mock('@/stores/useAppStore', () => {
 });
 
 jest.mock('@/utils/colorCycle/ccDebug', () => ({
+  ccDebugOn: jest.fn(() => false),
   ccLog: jest.fn(),
   ccWarn: jest.fn(),
 }));

@@ -291,12 +291,13 @@ export class RecolorEngine {
           }
 
           const bands = Math.max(1, settings.cycleColors || 16);
-          const dir = settings.animation.flowDirection === 'reverse' ? -1 : 1;
+          const flowDirection = settings.animation.flowDirection === 'reverse' ? 'reverse' : 'forward';
+          const dir = flowDirection === 'reverse' ? -1 : 1;
           let offset = (currentTick / bands) * dir;
           offset = ((offset % 1) + 1) % 1;
 
           this.glRenderer.setIndexData(settings.indexBuffer!);
-          this.glRenderer.render(offset, offset);
+          this.glRenderer.render(offset, offset, flowDirection);
 
           colorCycleData.mode = 'recolor';
           colorCycleData.canvas = this.glRenderer.getCanvas();

@@ -5,6 +5,8 @@ import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { clamp } from '@/utils/num';
 import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import {
   getColorCycleBrushManager,
   type ColorCycleBrushImplementation,
@@ -277,6 +279,8 @@ type ColorCycleGradient = { id: string; slot: number; stops: GradientStop[] };
 type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
 type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
 
+const EDITOR_SLOT = 63;
+
 const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 0.0, color: '#ff0000' },
   { position: 0.17, color: '#ff7f00' },
@@ -286,6 +290,102 @@ const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 0.83, color: '#4b0082' },
   { position: 1.0, color: '#9400d3' }
 ];
+
+const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
+
+const normalizePaintSlot = (slot: number): number => {
+  const clamped = clampSlot(slot);
+  return clamped === EDITOR_SLOT ? 0 : clamped;
+};
+
+const collectUsedSlots = (
+  defs: ColorCycleGradientDef[],
+  palettes: ColorCycleSlotPalette[]
+): Set<number> => {
+  const used = new Set<number>();
+  palettes.forEach((entry) => used.add(clampSlot(entry.slot)));
+  defs.forEach((entry) => used.add(clampSlot(entry.currentSlot)));
+  used.delete(EDITOR_SLOT);
+  return used;
+};
+
+const pickAvailableSlot = (used: Set<number>): number => {
+  for (let slot = 0; slot <= FLOW_SLOT_MASK; slot += 1) {
+    if (slot === EDITOR_SLOT) {
+      continue;
+    }
+    if (!used.has(slot)) {
+      return slot;
+    }
+  }
+  return 0;
+};
+
+const applyLegacySlotRemap = ({
+  defs,
+  palettes,
+  paintSlot,
+  legacyRemap,
+  fallbackStops,
+}: {
+  defs: ColorCycleGradientDef[];
+  palettes: ColorCycleSlotPalette[];
+  paintSlot: number | undefined;
+  legacyRemap?: { from: 63; to: number };
+  fallbackStops: GradientStop[];
+}): {
+  defs: ColorCycleGradientDef[];
+  palettes: ColorCycleSlotPalette[];
+  paintSlot: number;
+  legacyRemap?: { from: 63; to: number };
+} => {
+  const needsRemap =
+    paintSlot === EDITOR_SLOT ||
+    defs.some((entry) => entry.currentSlot === EDITOR_SLOT) ||
+    palettes.some((entry) => entry.slot === EDITOR_SLOT);
+  if (!needsRemap && !legacyRemap) {
+    const safePaintSlot = Number.isFinite(paintSlot) ? normalizePaintSlot(paintSlot as number) : 0;
+    const hasPaintPalette = palettes.some((entry) => entry.slot === safePaintSlot);
+    const ensuredPalettes = hasPaintPalette
+      ? palettes
+      : [
+          ...palettes,
+          { slot: safePaintSlot, stops: cloneGradientStops(fallbackStops) ?? fallbackStops },
+        ];
+    return { defs, palettes: ensuredPalettes, paintSlot: safePaintSlot, legacyRemap };
+  }
+
+  const used = collectUsedSlots(defs, palettes);
+  const targetSlot = legacyRemap?.to ?? pickAvailableSlot(used);
+  const remap = legacyRemap ?? { from: EDITOR_SLOT as 63, to: targetSlot };
+  const legacyPalette = palettes.find((entry) => entry.slot === EDITOR_SLOT);
+  const remapStops = legacyPalette?.stops?.length ? legacyPalette.stops : fallbackStops;
+
+  const nextPalettes = [
+    ...palettes.filter((entry) => entry.slot !== EDITOR_SLOT && entry.slot !== remap.to),
+    { slot: remap.to, stops: cloneGradientStops(remapStops) ?? remapStops },
+  ];
+  const nextDefs = defs.map((entry) =>
+    entry.currentSlot === EDITOR_SLOT ? { ...entry, currentSlot: remap.to } : entry
+  );
+  const nextPaintSlot =
+    paintSlot === EDITOR_SLOT ? remap.to : normalizePaintSlot(paintSlot ?? remap.to);
+
+  const hasPaintPalette = nextPalettes.some((entry) => entry.slot === nextPaintSlot);
+  const ensuredPalettes = hasPaintPalette
+    ? nextPalettes
+    : [
+        ...nextPalettes,
+        { slot: nextPaintSlot, stops: cloneGradientStops(fallbackStops) ?? fallbackStops },
+      ];
+
+  return {
+    defs: nextDefs,
+    palettes: ensuredPalettes,
+    paintSlot: nextPaintSlot,
+    legacyRemap: remap,
+  };
+};
 
 const cloneColorCycleGradients = (
   gradients?: ColorCycleGradient[]
@@ -338,7 +438,13 @@ const resolveLegacyGradientStops = (
 const ensureColorCycleGradients = (
   data: Layer['colorCycleData'] | undefined,
   fallbackStops: GradientStop[]
-): { gradientDefs: ColorCycleGradientDef[]; slotPalettes: ColorCycleSlotPalette[]; activeGradientId: string } => {
+): {
+  gradientDefs: ColorCycleGradientDef[];
+  slotPalettes: ColorCycleSlotPalette[];
+  activeGradientId: string;
+  paintSlot: number;
+  legacyRemap?: { from: 63; to: number };
+} => {
   const existingDefs = cloneGradientDefs(data?.gradientDefs);
   const existingPalettes = cloneSlotPalettes(data?.slotPalettes);
 
@@ -347,10 +453,29 @@ const ensureColorCycleGradients = (
     const hasActive = existingActiveId
       ? existingDefs.some((entry) => entry.id === existingActiveId)
       : false;
+    const activeGradientId = hasActive ? (existingActiveId as string) : existingDefs[0].id;
+    const normalizedDefs = existingDefs.map((entry) => ({
+      ...entry,
+      currentSlot: clampSlot(entry.currentSlot),
+    }));
+    const normalizedPalettes = existingPalettes.map((entry) => ({
+      ...entry,
+      slot: clampSlot(entry.slot),
+    }));
+    const activeDef = normalizedDefs.find((entry) => entry.id === activeGradientId) ?? normalizedDefs[0];
+    const remapResult = applyLegacySlotRemap({
+      defs: normalizedDefs,
+      palettes: normalizedPalettes,
+      paintSlot: data?.paintSlot ?? activeDef?.currentSlot ?? 0,
+      legacyRemap: data?.legacyRemap,
+      fallbackStops,
+    });
     return {
-      gradientDefs: existingDefs,
-      slotPalettes: existingPalettes,
-      activeGradientId: hasActive ? (existingActiveId as string) : existingDefs[0].id,
+      gradientDefs: remapResult.defs,
+      slotPalettes: remapResult.palettes,
+      activeGradientId,
+      paintSlot: remapResult.paintSlot,
+      legacyRemap: remapResult.legacyRemap,
     };
   }
 
@@ -368,10 +493,29 @@ const ensureColorCycleGradients = (
     const hasActive = existingActiveId
       ? gradientDefs.some((entry) => entry.id === existingActiveId)
       : false;
+    const activeGradientId = hasActive ? (existingActiveId as string) : gradientDefs[0].id;
+    const normalizedDefs = gradientDefs.map((entry) => ({
+      ...entry,
+      currentSlot: clampSlot(entry.currentSlot),
+    }));
+    const normalizedPalettes = slotPalettes.map((entry) => ({
+      ...entry,
+      slot: clampSlot(entry.slot),
+    }));
+    const activeDef = normalizedDefs.find((entry) => entry.id === activeGradientId) ?? normalizedDefs[0];
+    const remapResult = applyLegacySlotRemap({
+      defs: normalizedDefs,
+      palettes: normalizedPalettes,
+      paintSlot: data?.paintSlot ?? activeDef?.currentSlot ?? 0,
+      legacyRemap: data?.legacyRemap,
+      fallbackStops,
+    });
     return {
-      gradientDefs,
-      slotPalettes,
-      activeGradientId: hasActive ? (existingActiveId as string) : gradientDefs[0].id,
+      gradientDefs: remapResult.defs,
+      slotPalettes: remapResult.palettes,
+      activeGradientId,
+      paintSlot: remapResult.paintSlot,
+      legacyRemap: remapResult.legacyRemap,
     };
   }
 
@@ -386,10 +530,29 @@ const ensureColorCycleGradients = (
     const hasActive = existingActiveId
       ? existingDefs.some((entry) => entry.id === existingActiveId)
       : false;
+    const activeGradientId = hasActive ? (existingActiveId as string) : existingDefs[0].id;
+    const normalizedDefs = existingDefs.map((entry) => ({
+      ...entry,
+      currentSlot: clampSlot(entry.currentSlot),
+    }));
+    const normalizedPalettes = slotPalettes.map((entry) => ({
+      ...entry,
+      slot: clampSlot(entry.slot),
+    }));
+    const activeDef = normalizedDefs.find((entry) => entry.id === activeGradientId) ?? normalizedDefs[0];
+    const remapResult = applyLegacySlotRemap({
+      defs: normalizedDefs,
+      palettes: normalizedPalettes,
+      paintSlot: data?.paintSlot ?? activeDef?.currentSlot ?? 0,
+      legacyRemap: data?.legacyRemap,
+      fallbackStops,
+    });
     return {
-      gradientDefs: existingDefs,
-      slotPalettes,
-      activeGradientId: hasActive ? (existingActiveId as string) : existingDefs[0].id,
+      gradientDefs: remapResult.defs,
+      slotPalettes: remapResult.palettes,
+      activeGradientId,
+      paintSlot: remapResult.paintSlot,
+      legacyRemap: remapResult.legacyRemap,
     };
   }
 
@@ -402,29 +565,59 @@ const ensureColorCycleGradients = (
     const hasActive = existingActiveId
       ? gradientDefs.some((entry) => entry.id === existingActiveId)
       : false;
+    const activeGradientId = hasActive ? (existingActiveId as string) : gradientDefs[0].id;
+    const normalizedDefs = gradientDefs.map((entry) => ({
+      ...entry,
+      currentSlot: clampSlot(entry.currentSlot),
+    }));
+    const normalizedPalettes = existingPalettes.map((entry) => ({
+      ...entry,
+      slot: clampSlot(entry.slot),
+    }));
+    const activeDef = normalizedDefs.find((entry) => entry.id === activeGradientId) ?? normalizedDefs[0];
+    const remapResult = applyLegacySlotRemap({
+      defs: normalizedDefs,
+      palettes: normalizedPalettes,
+      paintSlot: data?.paintSlot ?? activeDef?.currentSlot ?? 0,
+      legacyRemap: data?.legacyRemap,
+      fallbackStops,
+    });
     return {
-      gradientDefs,
-      slotPalettes: existingPalettes,
-      activeGradientId: hasActive ? (existingActiveId as string) : gradientDefs[0].id,
+      gradientDefs: remapResult.defs,
+      slotPalettes: remapResult.palettes,
+      activeGradientId,
+      paintSlot: remapResult.paintSlot,
+      legacyRemap: remapResult.legacyRemap,
     };
   }
 
   const legacyStops = resolveLegacyGradientStops(data);
   const stops = legacyStops && legacyStops.length > 0 ? legacyStops : fallbackStops;
+  const gradientDefs = [
+    {
+      id: 'g0',
+      currentSlot: 0,
+    },
+  ];
+  const slotPalettes = [
+    {
+      slot: 0,
+      stops: cloneGradientStops(stops) ?? stops,
+    },
+  ];
+  const remapResult = applyLegacySlotRemap({
+    defs: gradientDefs,
+    palettes: slotPalettes,
+    paintSlot: data?.paintSlot ?? 0,
+    legacyRemap: data?.legacyRemap,
+    fallbackStops: stops,
+  });
   return {
-    gradientDefs: [
-      {
-        id: 'g0',
-        currentSlot: 0,
-      },
-    ],
-    slotPalettes: [
-      {
-        slot: 0,
-        stops: cloneGradientStops(stops) ?? stops,
-      },
-    ],
+    gradientDefs: remapResult.defs,
+    slotPalettes: remapResult.palettes,
     activeGradientId: 'g0',
+    paintSlot: remapResult.paintSlot,
+    legacyRemap: remapResult.legacyRemap,
   };
 };
 
@@ -485,7 +678,7 @@ const ensureGradientIdBuffer = ({
 
   const buffer = new ArrayBuffer(targetSize);
   const view = new Uint8Array(buffer);
-  const clampedSlot = clamp(Math.round(fillSlot), 0, 255);
+  const clampedSlot = normalizePaintSlot(fillSlot);
   view.fill(clampedSlot);
 
   if (
@@ -505,6 +698,50 @@ const ensureGradientIdBuffer = ({
   }
 
   return buffer;
+};
+
+const migrateGradientIdBuffer = ({
+  buffer,
+  legacyRemap,
+  usedSlots,
+}: {
+  buffer: ArrayBuffer;
+  legacyRemap?: { from: 63; to: number };
+  usedSlots: Set<number>;
+}): { buffer: ArrayBuffer; legacyRemap?: { from: 63; to: number } } => {
+  const view = new Uint8Array(buffer);
+  let hasLegacy = false;
+  for (let i = 0; i < view.length; i += 1) {
+    const raw = view[i] & FLOW_SLOT_MASK;
+    if (raw === EDITOR_SLOT) {
+      hasLegacy = true;
+      break;
+    }
+  }
+
+  let remap = legacyRemap;
+  if (hasLegacy && !remap) {
+    const target = pickAvailableSlot(usedSlots);
+    remap = { from: EDITOR_SLOT as 63, to: target };
+  }
+
+  if (!hasLegacy && !remap) {
+    for (let i = 0; i < view.length; i += 1) {
+      view[i] = view[i] & FLOW_SLOT_MASK;
+    }
+    return { buffer, legacyRemap };
+  }
+
+  const remapSlot = remap?.to ?? 0;
+  for (let i = 0; i < view.length; i += 1) {
+    let raw = view[i] & FLOW_SLOT_MASK;
+    if (raw === EDITOR_SLOT) {
+      raw = remapSlot;
+    }
+    view[i] = raw;
+  }
+
+  return { buffer, legacyRemap: remap };
 };
 
 const parseHexColor = (hex: string): { r: number; g: number; b: number } => {
@@ -583,7 +820,7 @@ const cloneColorCycleData = (
       }
     : undefined;
 
-  const { gradientDefs, slotPalettes, activeGradientId } = ensureColorCycleGradients(
+  const { gradientDefs, slotPalettes, activeGradientId, paintSlot, legacyRemap } = ensureColorCycleGradients(
     data,
     DEFAULT_CC_GRADIENT
   );
@@ -594,6 +831,8 @@ const cloneColorCycleData = (
     gradientDefs,
     slotPalettes,
     activeGradientId,
+    paintSlot,
+    legacyRemap,
     fgActiveSlot: data.fgActiveSlot,
     fgDerivedKey: data.fgDerivedKey,
     fgDerivedGradients: (data.fgDerivedGradients ?? data.derivedGradients)
@@ -1457,16 +1696,19 @@ export const createLayersSlice = (
               const fallbackStops = legacyStops
                 ?? state.tools.brushSettings.colorCycleGradient
                 ?? DEFAULT_CC_GRADIENT;
-              const { gradientDefs, slotPalettes, activeGradientId } = ensureColorCycleGradients(
+              const { gradientDefs, slotPalettes, activeGradientId, paintSlot, legacyRemap } = ensureColorCycleGradients(
                 mergedColorCycleData,
                 fallbackStops
               );
               const activeDef = gradientDefs.find((entry) => entry.id === activeGradientId)
                 ?? gradientDefs[0];
-              const updatedSlotPalettes = legacyStops
+              const shouldApplyLegacyStops = Boolean(legacyStops)
+                && !updates.colorCycleData?.slotPalettes
+                && !updates.colorCycleData?.gradientDefs;
+              const updatedSlotPalettes = shouldApplyLegacyStops
                 ? slotPalettes.map((entry) =>
                     entry.slot === activeDef.currentSlot
-                      ? { ...entry, stops: cloneGradientStops(legacyStops) ?? legacyStops }
+                      ? { ...entry, stops: (cloneGradientStops(legacyStops) ?? legacyStops) ?? entry.stops }
                       : entry
                   )
                 : slotPalettes;
@@ -1477,6 +1719,8 @@ export const createLayersSlice = (
                 slotPalettes: updatedSlotPalettes,
                 activeGradientId,
                 gradient: activeSlotPalette?.stops ?? legacyStops ?? mergedColorCycleData.gradient,
+                paintSlot,
+                legacyRemap,
               };
               // Layer is already color-cycle, keep it that way
               updatedLayer.layerType = 'color-cycle';
@@ -1566,6 +1810,7 @@ export const createLayersSlice = (
           !skipColorCycleSync
         ) {
           syncCCRuntimes([syncedLayer], 'updateLayer');
+          requestGradientApply(syncedLayer.id, 'update-layer');
         }
       } catch (error) {
         logError('[updateLayer] Failed to sync CC runtime', error);
@@ -2121,7 +2366,10 @@ export const createLayersSlice = (
         1
       );
       const fallbackStops = state.tools.brushSettings.colorCycleGradient ?? DEFAULT_CC_GRADIENT;
-      const { gradientDefs, slotPalettes, activeGradientId } = ensureColorCycleGradients(layer.colorCycleData, fallbackStops);
+      const { gradientDefs, slotPalettes, activeGradientId, paintSlot, legacyRemap } = ensureColorCycleGradients(
+        layer.colorCycleData,
+        fallbackStops
+      );
       const activeDef = gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
       const activeSlotPalette = slotPalettes.find((entry) => entry.slot === activeDef.currentSlot);
       const activeStops = activeSlotPalette?.stops ?? fallbackStops;
@@ -2131,8 +2379,16 @@ export const createLayersSlice = (
         height: safeHeight,
         previousWidth: layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width,
         previousHeight: layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height,
-        fillSlot: activeDef?.currentSlot ?? 0,
+        fillSlot: paintSlot,
       });
+      const usedSlots = collectUsedSlots(gradientDefs, slotPalettes);
+      const migrated = migrateGradientIdBuffer({
+        buffer: gradientIdBuffer,
+        legacyRemap,
+        usedSlots,
+      });
+      const migratedGradientIdBuffer = migrated.buffer;
+      const migratedLegacyRemap = migrated.legacyRemap ?? legacyRemap;
       
       // GUARD: Don't re-initialize if already initialized
       const existingBrush = colorCycleBrushManager.getBrush(layerId);
@@ -2156,17 +2412,19 @@ export const createLayersSlice = (
           return {
             ...l,
             layerType: 'color-cycle' as const,
-            colorCycleData: {
-              ...(l.colorCycleData || {}),
-              gradient: activeStops,
-              gradientDefs,
-              slotPalettes,
-              activeGradientId,
-              gradientIdBuffer,
-              colorCycleBrush: existingBrush,
+              colorCycleData: {
+                ...(l.colorCycleData || {}),
+                gradient: activeStops,
+                gradientDefs,
+                slotPalettes,
+                activeGradientId,
+                paintSlot,
+                gradientIdBuffer: migratedGradientIdBuffer,
+                colorCycleBrush: existingBrush,
               // Keep current animation state if present; default to true for responsiveness
               isAnimating: l.colorCycleData?.isAnimating ?? true,
               flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'reverse'),
+              legacyRemap: migratedLegacyRemap,
               canvas,
               canvasWidth: safeWidth,
               canvasHeight: safeHeight,
@@ -2266,7 +2524,9 @@ export const createLayersSlice = (
           gradientDefs,
           slotPalettes,
           activeGradientId,
-          gradientIdBuffer,
+          paintSlot,
+          legacyRemap: migratedLegacyRemap,
+          gradientIdBuffer: migratedGradientIdBuffer,
           colorCycleBrush,
           isAnimating: true,
           flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'reverse',

@@ -3,6 +3,8 @@
  * Instead of WebGL texture, uses ImageData with Uint8Array for pixel indices
  */
 
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+
 export class IndexBuffer {
   private data: Uint8Array;
   private gradientId: Uint8Array;
@@ -174,7 +176,7 @@ export class IndexBuffer {
     if (!Number.isFinite(slot)) {
       return 0;
     }
-    return Math.max(0, Math.min(255, Math.round(slot as number)));
+    return Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot as number)));
   }
 
   private normalizeSpeedByte(speedByte?: number): number {

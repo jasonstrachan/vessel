@@ -15,6 +15,7 @@ import { gunzipSync } from 'fflate';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
+import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import {
   LEGACY_PROJECT_FILE_EXTENSION,
   LEGACY_PROJECT_FILE_MIME,
@@ -1683,11 +1684,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             }
           }
 
-          if (layer.colorCycleData.gradient) {
-            try {
-              colorCycleBrush.setGradient(layer.colorCycleData.gradient);
-            } catch {}
-          }
+          requestGradientApply(layer.id, 'project-load');
 
           if (!hasSpeedBuffer) {
             if (typeof layer.colorCycleData.brushSpeed === 'number') {
@@ -1773,7 +1770,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
           }
         }
         if (layer.colorCycleData.gradient) {
-          colorCycleBrush.setGradient(layer.colorCycleData.gradient);
+          requestGradientApply(layer.id, 'project-load');
         }
         if (typeof layer.colorCycleData.brushSpeed === 'number') {
           try {

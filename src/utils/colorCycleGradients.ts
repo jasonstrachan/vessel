@@ -4,14 +4,16 @@
  * to ensure they share the same gradient settings
  */
 
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { rgbToHsl, hslToRgb } from '@/utils/imageProcessing';
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { DerivedGradientSpec } from '@/types';
+import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
 
 export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
+export const EDITOR_SLOT = 63;
 
 const fgPendingByLayer = new Map<string, boolean>();
 
@@ -38,8 +40,32 @@ export function getSharedColorCycleGradient(): Array<{ position: number; color: 
 const cloneStops = (stops: Array<{ position: number; color: string }>) =>
   stops.map(stop => ({ position: stop.position, color: stop.color }));
 
+const normalizeEditorSlot = (slot: number): number =>
+  slot & FLOW_SLOT_MASK;
+
+function ensureGradientDefForGid(
+  gradientDefs: Array<{ id: string; name?: string; currentSlot: number }>,
+  gid: number
+): { gradientDefs: Array<{ id: string; name?: string; currentSlot: number }>; activeGradientId: string } {
+  const id = `g${gid}`;
+  const existing = gradientDefs.find((entry) => entry.id === id);
+  if (existing) {
+    const updatedDefs = gradientDefs.map((entry) =>
+      entry.id === id ? { ...entry, currentSlot: gid } : entry
+    );
+    return { gradientDefs: updatedDefs, activeGradientId: id };
+  }
+  return {
+    gradientDefs: [...gradientDefs, { id, currentSlot: gid }],
+    activeGradientId: id,
+  };
+}
+
 const getNextGradientSlot = (usedSlots: Set<number>): number | null => {
-  for (let i = 0; i < 256; i += 1) {
+  for (let i = 0; i <= FLOW_SLOT_MASK; i += 1) {
+    if (i === EDITOR_SLOT) {
+      continue;
+    }
     if (!usedSlots.has(i)) {
       return i;
     }
@@ -47,56 +73,99 @@ const getNextGradientSlot = (usedSlots: Set<number>): number | null => {
   return null;
 };
 
-type ManagedColorCycleBrush = {
-  commitCurrentStroke?: (layerId?: string) => void;
-  finalizeCurrentStroke?: (layerId?: string) => void;
-  flush?: (layerId?: string) => void;
-  setGradientSlot?: (layerId: string, slot: number, stops: Array<{ position: number; color: string }>) => void;
-  setActiveGradientSlot?: (layerId: string, slot: number) => void;
-  renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
-  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+type ForegroundSlotResult = {
+  slot: number;
+  stops: Array<{ position: number; color: string }>;
 };
 
-const applySelectedCCGradient = (
-  layerId: string,
-  nextSlot: number,
-  nextStops: Array<{ position: number; color: string }>
-): void => {
-  const st = useAppStore.getState();
-  if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
-    return;
-  }
+export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotResult | null => {
   const state = useAppStore.getState();
   const layer = state.layers.find(l => l.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle') {
-    return;
+    return null;
   }
 
-  const manager = getColorCycleBrushManager();
-  const brush = manager.getBrush(layerId) as ManagedColorCycleBrush | undefined;
-  const canvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+  const brushSettings = state.tools.brushSettings;
+  const palette = state.palette;
+  const baseColor = palette?.foregroundColor ?? brushSettings.color ?? '#ffffff';
+  const bands = clampForegroundDerivedBands(brushSettings.colorCycleFgStops);
+  const derivedSpec = buildForegroundDerivedGradientSpec({
+    baseColor,
+    lightness: brushSettings.colorCycleFgLightness,
+    variance: brushSettings.colorCycleFgVariance,
+    hueShift: brushSettings.colorCycleFgHueShift,
+    saturationShift: brushSettings.colorCycleFgSaturationShift,
+    opacity: brushSettings.colorCycleFgOpacity,
+    bands,
+  });
+  const derivedStops = deriveForegroundGradientStops(derivedSpec);
+  if (!derivedStops || derivedStops.length < 2) {
+    return null;
+  }
 
-  try {
-    brush?.commitCurrentStroke?.(layerId);
-    brush?.finalizeCurrentStroke?.(layerId);
-    brush?.flush?.(layerId);
-  } catch {}
+  const colorCycleData = layer.colorCycleData ?? {};
+  const derivedGradients =
+    colorCycleData.fgDerivedGradients ??
+    colorCycleData.derivedGradients ??
+    [];
+  const existingDerived = derivedGradients.find((entry) => entry.key === derivedSpec.key);
+  const existingSlot = existingDerived?.slot ?? null;
 
-  try {
-    brush?.setGradientSlot?.(layerId, nextSlot, nextStops);
-    brush?.setActiveGradientSlot?.(layerId, nextSlot);
-  } catch {}
+  const slotPalettes = colorCycleData.slotPalettes?.length
+    ? colorCycleData.slotPalettes.map(entry => ({
+        slot: normalizeEditorSlot(entry.slot),
+        stops: cloneStops(entry.stops),
+      }))
+    : [];
 
-  try {
-    if (brush && canvas) {
-      brush.setTargetCanvas?.(canvas);
-      brush.renderDirectToCanvas?.(canvas, layerId);
+  let targetSlot: number | null = existingSlot;
+  let nextSlotPalettes = slotPalettes;
+  let nextDerivedGradients = derivedGradients;
+
+  if (targetSlot !== null) {
+    const existingPalette = slotPalettes.find((entry) => entry.slot === targetSlot);
+    if (existingPalette) {
+      nextSlotPalettes = slotPalettes.map((entry) =>
+        entry.slot === targetSlot ? { slot: targetSlot, stops: cloneStops(derivedStops) } : entry
+      );
+    } else {
+      nextSlotPalettes = [...slotPalettes, { slot: targetSlot, stops: cloneStops(derivedStops) }];
     }
-  } catch {}
+  } else {
+    const usedSlots = new Set<number>();
+    slotPalettes.forEach((entry) => usedSlots.add(entry.slot));
+    colorCycleData.gradientDefs?.forEach((entry) => {
+      usedSlots.add(normalizeEditorSlot(entry.currentSlot));
+    });
+    usedSlots.add(EDITOR_SLOT);
+    const nextSlot = getNextGradientSlot(usedSlots);
+    if (nextSlot !== null) {
+      targetSlot = nextSlot;
+      nextSlotPalettes = [...slotPalettes, { slot: nextSlot, stops: cloneStops(derivedStops) }];
+      nextDerivedGradients = [
+        ...derivedGradients,
+        { key: derivedSpec.key, slot: nextSlot, spec: derivedSpec },
+      ];
+    }
+  }
+
+  if (targetSlot === null) {
+    return null;
+  }
 
   try {
-    window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate', { detail: { onlyActiveLayer: true } }));
+    state.updateLayer(layerId, {
+      colorCycleData: {
+        ...colorCycleData,
+        slotPalettes: nextSlotPalettes,
+        fgActiveSlot: targetSlot,
+        fgDerivedKey: derivedSpec.key,
+        fgDerivedGradients: nextDerivedGradients,
+      },
+    });
   } catch {}
+
+  return { slot: targetSlot, stops: cloneStops(derivedStops) };
 };
 
 const applyColorCycleGradientEdit = (
@@ -104,91 +173,69 @@ const applyColorCycleGradientEdit = (
   layerId?: string,
   options?: { fork?: boolean }
 ): void => {
-  const st = useAppStore.getState();
-  if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
-    return;
-  }
+  const intent = options?.fork === true ? 'commitFuture' : 'commitRecolor';
+  applyGradientEdit({ stops: gradient, layerId, intent });
+};
+
+export const allocateSlotForNewShapeFill = (
+  layerId: string,
+  stops: Array<{ position: number; color: string }>,
+  options?: { setActive?: boolean }
+): { slot: number; stops: Array<{ position: number; color: string }> } | null => {
   const state = useAppStore.getState();
-  const updateLayer = state.updateLayer;
-  const targetLayerId = layerId ?? state.activeLayerId;
-  if (!targetLayerId) return;
-
-  const layer = state.layers.find(l => l.id === targetLayerId);
+  const layer = state.layers.find(l => l.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle') {
-    return;
+    return null;
   }
 
-  const colorCycleData = layer.colorCycleData;
-  if (!colorCycleData) {
-    return;
-  }
+  const colorCycleData = layer.colorCycleData ?? {};
+  const fallbackStops =
+    stops && stops.length > 0
+      ? stops
+      : colorCycleData.gradient ?? DEFAULT_GRADIENT_STOPS;
 
-  // If recolor mode is active, do NOT mutate layer here to avoid partial state flashes
-  if (colorCycleData.recolorSettings) {
-    return;
-  }
-
-  const fallbackStops = colorCycleData.gradient ?? gradient ?? DEFAULT_GRADIENT_STOPS;
-  const legacyGradients = colorCycleData.gradients ?? [];
-  let gradientDefs = colorCycleData.gradientDefs?.length
-    ? colorCycleData.gradientDefs.map(entry => ({
+  const gradientDefs = colorCycleData.gradientDefs?.length
+    ? colorCycleData.gradientDefs.map((entry) => ({
         id: entry.id,
         name: entry.name,
         currentSlot: entry.currentSlot,
       }))
-    : legacyGradients.length > 0
-      ? legacyGradients.map(entry => ({ id: entry.id, currentSlot: entry.slot }))
-      : [{ id: 'g0', currentSlot: 0 }];
-  let slotPalettes = colorCycleData.slotPalettes?.length
+    : [{ id: 'g0', currentSlot: 0 }];
+  const slotPalettes = colorCycleData.slotPalettes?.length
     ? colorCycleData.slotPalettes.map(entry => ({
         slot: entry.slot,
         stops: cloneStops(entry.stops),
       }))
-    : legacyGradients.length > 0
-      ? legacyGradients.map(entry => ({ slot: entry.slot, stops: cloneStops(entry.stops) }))
-      : [{ slot: 0, stops: cloneStops(fallbackStops) }];
+    : [{ slot: 0, stops: cloneStops(fallbackStops) }];
 
-  const activeGradientId = colorCycleData.activeGradientId ?? gradientDefs[0].id;
-  let activeDef = gradientDefs.find(entry => entry.id === activeGradientId) ?? gradientDefs[0];
-  if (!activeDef) {
-    activeDef = { id: activeGradientId, currentSlot: 0 };
-    gradientDefs = [...gradientDefs, activeDef];
+  const usedSlots = new Set<number>();
+  slotPalettes.forEach((entry) => usedSlots.add(entry.slot));
+  gradientDefs.forEach((entry) => usedSlots.add(entry.currentSlot));
+  usedSlots.add(EDITOR_SLOT);
+
+  const nextSlot = getNextGradientSlot(usedSlots);
+  if (nextSlot === null) {
+    return null;
   }
 
-  const shouldFork = options?.fork === true;
-  if (shouldFork) {
-    const usedSlots = new Set(slotPalettes.map(entry => entry.slot));
-    const nextSlot = getNextGradientSlot(usedSlots);
-    if (nextSlot !== null) {
-      activeDef = { ...activeDef, currentSlot: nextSlot };
-      gradientDefs = gradientDefs.map(entry => entry.id === activeDef.id ? activeDef : entry);
-      slotPalettes = [
-        ...slotPalettes,
-        { slot: nextSlot, stops: cloneStops(gradient) },
-      ];
-    }
-  }
+  const nextSlotPalettes = [
+    ...slotPalettes,
+    { slot: nextSlot, stops: cloneStops(fallbackStops) },
+  ];
 
-  const slotIndex = slotPalettes.findIndex(entry => entry.slot === activeDef.currentSlot);
-  if (slotIndex >= 0) {
-    const updated = [...slotPalettes];
-    updated[slotIndex] = { ...updated[slotIndex], stops: cloneStops(gradient) };
-    slotPalettes = updated;
-  } else {
-    slotPalettes = [...slotPalettes, { slot: activeDef.currentSlot, stops: cloneStops(gradient) }];
-  }
+  const defUpdate = ensureGradientDefForGid(gradientDefs, nextSlot);
+  const setActive = options?.setActive !== false;
 
-  applySelectedCCGradient(layer.id, activeDef.currentSlot, cloneStops(gradient));
-
-  updateLayer(targetLayerId, {
+  state.updateLayer(layerId, {
     colorCycleData: {
       ...colorCycleData,
-      gradientDefs,
-      slotPalettes,
-      activeGradientId: activeDef.id,
-      gradient: cloneStops(gradient),
+      gradientDefs: defUpdate.gradientDefs,
+      slotPalettes: nextSlotPalettes,
+      activeGradientId: setActive ? defUpdate.activeGradientId : colorCycleData.activeGradientId,
     },
   });
+
+  return { slot: nextSlot, stops: cloneStops(fallbackStops) };
 };
 
 /**

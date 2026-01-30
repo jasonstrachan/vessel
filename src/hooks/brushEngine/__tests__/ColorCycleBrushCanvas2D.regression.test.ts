@@ -1,3 +1,4 @@
+import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 
 type MockContext = CanvasRenderingContext2D & {
@@ -94,6 +95,7 @@ jest.mock('@/utils/pressureCurve', () => ({
 }));
 
 jest.mock('@/utils/colorCycle/ccDebug', () => ({
+  ccDebugOn: jest.fn(() => false),
   ccLog: jest.fn(),
   ccWarn: jest.fn(),
 }));
@@ -245,7 +247,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     brush.startStroke(layerId);
     for (let x = 6; x <= 58; x += 4) {
-      brush.paint(x, 32, layerId, 1);
+      brush.paint(x, 8, layerId, 1);
     }
     brush.endStroke(layerId);
 
@@ -288,6 +290,8 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         strokeCounter: 0,
       },
       {
+        width: canvas.width,
+        height: canvas.height,
         data: preIdx.buffer.slice(0),
         gradientIdData: preGid.buffer.slice(0),
         speedData: preSpd.buffer.slice(0),
@@ -304,9 +308,16 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     const withLost = animator.getIndexBuffers().data;
     const writtenMask = new Uint8Array(preIdx.length);
-    for (let i = 0; i < preIdx.length; i += 1) {
-      if (baseline[i] !== preIdx[i]) {
-        writtenMask[i] = 1;
+    for (let y = 0; y < canvas.height; y += 1) {
+      for (let x = 0; x < canvas.width; x += 1) {
+        const idx = y * canvas.width + x;
+        if (baseline[idx] !== preIdx[idx]) {
+          writtenMask[idx] = 1;
+          continue;
+        }
+        if (pointInPolygon({ x: x + 0.5, y: y + 0.5 }, vertices)) {
+          writtenMask[idx] = 1;
+        }
       }
     }
     let violations = 0;

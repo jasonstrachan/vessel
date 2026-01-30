@@ -382,6 +382,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   private renderFrame(offset: number = 0, baseTimeOverride?: number) {
     try {
       const legacyPhase = this.strokeTracker.computePhase(offset);
+      const flowMode = this.strokeTracker.getFlowMode();
       const baseOffset = offset;
       const baseTime =
         Number.isFinite(baseTimeOverride)
@@ -410,7 +411,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
           this.indexBuffer.clearDirtyBounds();
           this._glIndexDirty = false;
         }
-        this.glRenderer.render(baseTime, legacyPhase);
+        this.glRenderer.render(baseTime, legacyPhase, flowMode);
 
         if (!this._renderSampledOnce) {
           try {
@@ -449,6 +450,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
         phase: legacyPhase,
         baseOffset,
         baseTime,
+        flowMode,
       });
 
     } catch (error) {

@@ -1,3 +1,4 @@
+import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { WebGLColorCycleRenderer } from './WebGLColorCycleRenderer';
 
 export type PaletteRGBA = Uint8ClampedArray | Uint8Array;
@@ -90,8 +91,8 @@ export class RendererWebGL {
     this.renderer.setIndexData(data, gradientId, speedData, rect);
   }
 
-  render(timeSeconds: number, legacyPhase: number = timeSeconds) {
-    this.renderer.render(timeSeconds, legacyPhase);
+  render(timeSeconds: number, legacyPhase: number = timeSeconds, flowMode: FlowMode = 'forward') {
+    this.renderer.render(timeSeconds, legacyPhase, flowMode);
   }
 
   resize(width: number, height: number) {

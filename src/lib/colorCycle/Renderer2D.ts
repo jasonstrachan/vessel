@@ -4,6 +4,7 @@ import {
   FLOW_MODE_PINGPONG,
   FLOW_MODE_REVERSE,
   FLOW_SLOT_MASK,
+  type FlowMode,
 } from '@/lib/colorCycle/flowEncoding';
 import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
@@ -67,6 +68,7 @@ export class Renderer2D {
     phase: number;
     baseOffset: number;
     baseTime: number;
+    flowMode?: FlowMode;
   }) {
     const imageData = this.ensureImageData();
     const pixels32 = new Uint32Array(imageData.data.buffer);
@@ -75,6 +77,7 @@ export class Renderer2D {
     const gradientIdData = options.gradientIdData;
     const speedData = options.speedData;
     const baseTime = options.baseTime;
+    const flowMode = options.flowMode ?? 'forward';
 
     for (let i = 0; i < options.indexData.length; i++) {
       const colorIndex = options.indexData[i];
@@ -90,12 +93,20 @@ export class Renderer2D {
       const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
       const speedOffset = hasSpeed ? (baseTime * speed) % 1 : offset;
       const palette = options.paletteSlots[slot] ?? options.basePalette;
+      const effectiveFlow =
+        flowBits === FLOW_MODE_LEGACY
+          ? flowMode === 'pingpong'
+            ? FLOW_MODE_PINGPONG
+            : flowMode === 'reverse'
+              ? FLOW_MODE_REVERSE
+              : FLOW_MODE_LEGACY
+          : flowBits;
       const shift =
-        flowBits === FLOW_MODE_REVERSE
+        effectiveFlow === FLOW_MODE_REVERSE
           ? -((speedOffset * 256) | 0)
-          : flowBits === FLOW_MODE_PINGPONG
+          : effectiveFlow === FLOW_MODE_PINGPONG
             ? (((speedOffset <= 0.5 ? speedOffset * 2 : (1 - speedOffset) * 2) * 256) | 0)
-            : flowBits === FLOW_MODE_LEGACY
+            : effectiveFlow === FLOW_MODE_LEGACY
               ? (hasSpeed ? ((speedOffset * 256) | 0) : legacyShift)
               : ((speedOffset * 256) | 0);
       pixels32[i] = palette[(colorIndex - 1 + shift) & 255];

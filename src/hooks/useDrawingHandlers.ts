@@ -18,6 +18,7 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '../utils/colorCycleGradients';
+import { flushGradientApply, requestGradientApply } from './brushEngine/ccGradientApplyScheduler';
 import type { AppState, CCReason } from '@/stores/useAppStore';
 import {
   selectColorCycleDesiredPlaying,
@@ -376,15 +377,13 @@ export function useDrawingHandlers({
               gradientDefs,
               slotPalettes,
               activeGradientId,
-              gradient: activeStops
+              gradient: activeStops,
+              paintSlot: activeSlot,
             }
           });
         } catch {}
       }
-      if (brush) {
-        brush.setGradientSlot(layer.id, activeSlot, activeStops);
-        brush.setActiveGradientSlot(layer.id, activeSlot);
-      }
+      requestGradientApply(layer.id, 'ensure-active-slot');
       return;
     }
 
@@ -416,20 +415,7 @@ export function useDrawingHandlers({
     const fgActiveSlot = layer.colorCycleData?.fgActiveSlot ?? null;
 
     if (prevKey === nextKey && existingSlot !== null && fgActiveSlot === existingSlot) {
-      if (brush) {
-        const currentSlot =
-          typeof brush.getActiveGradientSlot === 'function'
-            ? brush.getActiveGradientSlot(layer.id)
-            : undefined;
-        const shouldSwitch = typeof currentSlot === 'number' ? currentSlot !== existingSlot : true;
-        if (shouldSwitch) {
-          try {
-            brush.commitCurrentStroke?.(layer.id);
-            brush.flush?.(layer.id);
-          } catch {}
-          brush.setActiveGradientSlot(layer.id, existingSlot);
-        }
-      }
+      requestGradientApply(layer.id, 'fg-active');
       setFgPending(layer.id, false);
       return;
     }
@@ -438,7 +424,6 @@ export function useDrawingHandlers({
     let nextSlotPalettes = slotPalettes;
     let nextDerivedGradients = derivedGradients;
     let targetSlot: number | null = existingDerived?.slot ?? null;
-    let stopsToApply = derivedStops;
 
     if (targetSlot !== null) {
       const existingPalette = slotPalettes.find((entry) => entry.slot === targetSlot);
@@ -449,7 +434,6 @@ export function useDrawingHandlers({
       } else {
         nextSlotPalettes = [...slotPalettes, { slot: targetSlot, stops: cloneStops(derivedStops) }];
       }
-      stopsToApply = derivedStops;
     } else {
       const usedSlots = new Set<number>();
       slotPalettes.forEach((entry) => usedSlots.add(entry.slot));
@@ -493,25 +477,12 @@ export function useDrawingHandlers({
       } catch {}
     }
 
+    requestGradientApply(layer.id, 'fg-update');
     if (brush) {
-      const currentSlot =
-        typeof brush.getActiveGradientSlot === 'function'
-          ? brush.getActiveGradientSlot(layer.id)
-          : undefined;
-      const shouldSwitch = typeof currentSlot === 'number' ? currentSlot !== targetSlot : true;
-      if (shouldSwitch) {
-        try {
-          brush.commitCurrentStroke?.(layer.id);
-          brush.flush?.(layer.id);
-        } catch {}
-      }
-      brush.setGradientSlot(layer.id, targetSlot, stopsToApply);
-      if (shouldSwitch) {
-        brush.setActiveGradientSlot(layer.id, targetSlot);
-      }
       try {
         const canvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
         if (canvas) {
+          flushGradientApply(layer.id);
           brush.setTargetCanvas?.(canvas);
           brush.renderDirectToCanvas?.(canvas, layer.id);
         }

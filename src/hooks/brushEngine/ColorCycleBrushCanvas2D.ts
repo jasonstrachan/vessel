@@ -29,7 +29,7 @@ import {
 } from './strokeStampDither';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
-import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
+import { ccDebugOn, ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
 import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
@@ -41,7 +41,7 @@ import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import type { DerivedGradientSpec } from '@/types';
-import { FLOW_SLOT_MASK, encodeFlowSlot, type FlowMode } from '@/lib/colorCycle/flowEncoding';
+import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
 // Stamp dithering has two concepts:
@@ -116,6 +116,8 @@ interface AnimatorIndexSnapshot {
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
   activeGradientId?: string;
+  paintSlot?: number;
+  legacyRemap?: { from: 63; to: number };
 }
 
 interface StrokeDataSnapshot {
@@ -132,6 +134,8 @@ interface SerializedLayerState {
   strokeData?: StrokeDataSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
+  paintSlot?: number;
+  legacyRemap?: { from: 63; to: number };
   fgActiveSlot?: number;
   fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
@@ -547,14 +551,11 @@ export class ColorCycleBrushCanvas2D {
     return animator;
   }
 
-  private resolveFlowSlot(strokeData: LayerStrokeState | null | undefined, activeSlot: number): number {
-    if (!strokeData?.flow.encoded || !strokeData.flow.mode) {
-      return activeSlot;
+  private resolveFlowSlot(_strokeData: LayerStrokeState | null | undefined, activeSlot: number): number {
+    if (!Number.isFinite(activeSlot)) {
+      return 0;
     }
-    if (activeSlot > FLOW_SLOT_MASK) {
-      return activeSlot;
-    }
-    return encodeFlowSlot(activeSlot, strokeData.flow.mode);
+    return Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(activeSlot)));
   }
   
   /**
@@ -1043,7 +1044,7 @@ export class ColorCycleBrushCanvas2D {
    */
   setGradientSlot(layerId: string, slot: number, stops: GradientStop[]) {
     const id = layerId || this.activeLayerId || 'default';
-    const clampedSlot = Math.max(0, Math.min(255, Math.round(slot)));
+    const clampedSlot = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
     let slotMap = this.gradientSlotsByLayer.get(id);
     if (!slotMap) {
@@ -1069,6 +1070,16 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
+    console.log('[CC grad edit] setGradientSlot', {
+      layerId: id,
+      slot: clampedSlot,
+      isActive: this.activeGradientSlots.get(id) === clampedSlot,
+      stopsLen: stops.length,
+    });
+    if (clampedSlot === 0 && stops.length === 7) {
+      console.log('[CC] write slot0 len7', new Error().stack);
+    }
+
     signatureMap.set(clampedSlot, signature);
     slotMap.set(clampedSlot, stops);
 
@@ -1087,7 +1098,10 @@ export class ColorCycleBrushCanvas2D {
    */
   setActiveGradientSlot(layerId: string, slot: number) {
     const id = layerId || this.activeLayerId || 'default';
-    const clampedSlot = Math.max(0, Math.min(255, Math.round(slot)));
+    const clampedSlot = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
+    if (this.activeGradientSlots.get(id) === clampedSlot) {
+      return;
+    }
     this.activeGradientSlots.set(id, clampedSlot);
     this.activeLayerId = id;
     const strokeData = this.layerStrokes.get(id);
@@ -2023,9 +2037,11 @@ export class ColorCycleBrushCanvas2D {
     const safeProjectionRange = Math.abs(projectionRange) < 1e-6 ? 1 : projectionRange;
     const spacingValue = this.normalizeBandSpacingValue(spacing);
     const projectionSpan = Math.max(1, Math.abs(safeProjectionRange));
-    const numBands = this.deriveBandCountFromDistance(projectionSpan, spacingValue);
-    const continuous = options?.continuous === true;
     const ccGradient = options?.ccGradient === true;
+    const numBands = ccGradient
+      ? Math.max(2, Math.min(64, Math.floor(this.gradientBands || 12)))
+      : this.deriveBandCountFromDistance(projectionSpan, spacingValue);
+    const continuous = options?.continuous === true;
     const lostEdge = Number.isFinite(options?.lostEdge)
       ? Math.max(0, Math.min(100, Math.round(options?.lostEdge as number)))
       : 0;
@@ -2710,6 +2726,22 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData) {
       this.snapshotFromAnimator(animator, strokeData);
     }
+    if (ccDebugOn()) {
+      try {
+        const sampleX = Math.floor((bbox.minX + bbox.minX + bbox.width - 1) / 2);
+        const sampleY = Math.floor((bbox.minY + bbox.minY + bbox.height - 1) / 2);
+        const p = Math.max(0, Math.min(this.width * this.height - 1, sampleY * this.width + sampleX));
+        const buffers = animator.getIndexBuffers();
+        ccLog('shape fill sample', {
+          cx: sampleX,
+          cy: sampleY,
+          p,
+          idx: buffers.data?.[p],
+          gid: buffers.gid?.[p],
+          activeSlot,
+        });
+      } catch {}
+    }
     logCpuLinear();
     } finally {
       animator.endDirectFill();
@@ -2772,6 +2804,12 @@ export class ColorCycleBrushCanvas2D {
       strokeData.flow.encoded = true;
     }
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
+    console.log('[CC fill] uses slot', {
+      layerId: id,
+      activeSlot,
+      flowSlot,
+      encoded: strokeData?.flow?.encoded,
+    });
 
     const animator = this.ensureFullResolution(id, 'fill');
     
@@ -4435,7 +4473,9 @@ export class ColorCycleBrushCanvas2D {
       const paintU8 = strokeData?.buffers.paint instanceof Uint8Array ? strokeData.buffers.paint : undefined;
       const gidU8 = strokeData?.buffers.gid instanceof Uint8Array ? strokeData.buffers.gid : undefined;
       const spdU8 = strokeData?.buffers.spd instanceof Uint8Array ? strokeData.buffers.spd : undefined;
-      if (hasContent) {
+      const hasBuffers =
+        (snapshot?.paintBuffer?.byteLength ?? 0) > 0 || (paintU8?.length ?? 0) > 0;
+      if (hasBuffers) {
         if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
           paintBuffer = snapshot.paintBuffer.slice(0);
         } else if (paintU8 && paintU8.length > 0) {
@@ -4476,6 +4516,8 @@ export class ColorCycleBrushCanvas2D {
           }))
         : undefined;
       const activeGradientId = colorCycleMeta?.activeGradientId;
+      const paintSlot = colorCycleMeta?.paintSlot;
+      const legacyRemap = colorCycleMeta?.legacyRemap;
       const fgActiveSlot = colorCycleMeta?.fgActiveSlot;
       const fgDerivedKey = colorCycleMeta?.fgDerivedKey;
 
@@ -4484,6 +4526,8 @@ export class ColorCycleBrushCanvas2D {
         data: animator.serialize(),
         gradientDefs,
         slotPalettes,
+        paintSlot,
+        legacyRemap,
         fgActiveSlot,
         fgDerivedKey,
         fgDerivedGradients: derivedGradients,
@@ -4585,7 +4629,9 @@ export class ColorCycleBrushCanvas2D {
               gradientStops: layer.data?.gradient?.gradientStops ?? undefined,
               gradientDefs: layer.gradientDefs,
               slotPalettes: layer.slotPalettes,
-              activeGradientId: layer.activeGradientId
+              activeGradientId: layer.activeGradientId,
+              paintSlot: layer.paintSlot,
+              legacyRemap: layer.legacyRemap,
             }
           : undefined;
       instance.applyLayerSnapshot(layer.layerId, {
@@ -4708,6 +4754,14 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.gid.fill(0);
         strokeData.buffers.gid.set(incomingGradient.subarray(0, copyLen));
       }
+      const remapSlot = animatorIndex?.legacyRemap?.to ?? 0;
+      for (let i = 0; i < strokeData.buffers.gid.length; i += 1) {
+        let raw = strokeData.buffers.gid[i] & FLOW_SLOT_MASK;
+        if (raw === 63) {
+          raw = remapSlot;
+        }
+        strokeData.buffers.gid[i] = raw;
+      }
     } else if (!expectsContent && hadExistingContent) {
       strokeData.buffers.gid.fill(0);
     }
@@ -4751,7 +4805,9 @@ export class ColorCycleBrushCanvas2D {
         this.setGradientSlot(layerId, palette.slot, palette.stops);
       }
     }
-    if (animatorIndex?.gradientDefs?.length && animatorIndex.activeGradientId) {
+    if (typeof animatorIndex?.paintSlot === 'number') {
+      this.setActiveGradientSlot(layerId, animatorIndex.paintSlot);
+    } else if (animatorIndex?.gradientDefs?.length && animatorIndex.activeGradientId) {
       const activeDef = animatorIndex.gradientDefs.find((entry) => entry.id === animatorIndex.activeGradientId);
       if (activeDef) {
         this.setActiveGradientSlot(layerId, activeDef.currentSlot);
