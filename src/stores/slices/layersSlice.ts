@@ -700,6 +700,54 @@ const ensureGradientIdBuffer = ({
   return buffer;
 };
 
+const ensureGradientDefIdBuffer = ({
+  existingBuffer,
+  width,
+  height,
+  previousWidth,
+  previousHeight,
+}: {
+  existingBuffer?: ArrayBuffer;
+  width: number;
+  height: number;
+  previousWidth?: number;
+  previousHeight?: number;
+}): ArrayBuffer => {
+  const safeWidth = Math.max(1, Math.floor(width));
+  const safeHeight = Math.max(1, Math.floor(height));
+  const targetSize = safeWidth * safeHeight;
+  const targetBytes = targetSize * 2;
+
+  if (existingBuffer && existingBuffer.byteLength === targetBytes) {
+    return existingBuffer;
+  }
+
+  const buffer = new ArrayBuffer(targetBytes);
+  const view = new Uint16Array(buffer);
+  view.fill(0);
+
+  if (
+    existingBuffer &&
+    previousWidth &&
+    previousHeight &&
+    existingBuffer.byteLength === previousWidth * previousHeight * 2
+  ) {
+    const previousView = new Uint16Array(existingBuffer);
+    const copyWidth = Math.min(previousWidth, safeWidth);
+    const copyHeight = Math.min(previousHeight, safeHeight);
+    for (let row = 0; row < copyHeight; row += 1) {
+      const srcOffset = row * previousWidth;
+      const destOffset = row * safeWidth;
+      view.set(previousView.subarray(srcOffset, srcOffset + copyWidth), destOffset);
+    }
+  }
+
+  return buffer;
+};
+
+const hashStopsForDef = (kind: 'linear' | 'concentric', stops: GradientStop[]): string =>
+  `${kind}:${stops.map((stop) => `${stop.position}:${stop.color}`).join('|')}`;
+
 const migrateGradientIdBuffer = ({
   buffer,
   legacyRemap,
@@ -850,6 +898,19 @@ const cloneColorCycleData = (
         }))
       : undefined,
     gradientIdBuffer: data.gradientIdBuffer ? data.gradientIdBuffer.slice(0) : undefined,
+    gradientDefIdBuffer: data.gradientDefIdBuffer ? data.gradientDefIdBuffer.slice(0) : undefined,
+    gradientDefStore: data.gradientDefStore
+      ? data.gradientDefStore.map((entry) => ({
+          id: entry.id,
+          kind: entry.kind,
+          stops: cloneGradientStops(entry.stops) ?? entry.stops,
+          hash: entry.hash,
+          source: entry.source,
+          createdAtMs: entry.createdAtMs,
+          slot: entry.slot,
+        }))
+      : undefined,
+    nextGradientDefId: data.nextGradientDefId,
     colorCycleBrush: undefined,
     brushState: undefined,
     canvas: stripSurfaces
@@ -2389,6 +2450,33 @@ export const createLayersSlice = (
       });
       const migratedGradientIdBuffer = migrated.buffer;
       const migratedLegacyRemap = migrated.legacyRemap ?? legacyRemap;
+      const defKind = state.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+      const existingDefStore = layer.colorCycleData?.gradientDefStore ?? [];
+      const existingNextDefId = layer.colorCycleData?.nextGradientDefId;
+      const seededDefId = typeof existingNextDefId === 'number'
+        ? existingNextDefId
+        : (existingDefStore.reduce((max, entry) => Math.max(max, entry.id), 0) + 1) || 1;
+      const gradientDefStore = existingDefStore.length > 0
+        ? existingDefStore
+        : [{
+            id: seededDefId,
+            kind: defKind,
+            stops: cloneGradientStops(activeStops) ?? activeStops,
+            hash: hashStopsForDef(defKind, activeStops),
+            source: 'manual' as const,
+            createdAtMs: Date.now(),
+            slot: activeDef.currentSlot,
+          }];
+      const nextGradientDefId = existingDefStore.length > 0
+        ? (existingNextDefId ?? seededDefId + 1)
+        : seededDefId + 1;
+      const gradientDefIdBuffer = ensureGradientDefIdBuffer({
+        existingBuffer: layer.colorCycleData?.gradientDefIdBuffer,
+        width: safeWidth,
+        height: safeHeight,
+        previousWidth: layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width,
+        previousHeight: layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height,
+      });
       
       // GUARD: Don't re-initialize if already initialized
       const existingBrush = colorCycleBrushManager.getBrush(layerId);
@@ -2420,6 +2508,9 @@ export const createLayersSlice = (
                 activeGradientId,
                 paintSlot,
                 gradientIdBuffer: migratedGradientIdBuffer,
+                gradientDefIdBuffer,
+                gradientDefStore,
+                nextGradientDefId,
                 colorCycleBrush: existingBrush,
               // Keep current animation state if present; default to true for responsiveness
               isAnimating: l.colorCycleData?.isAnimating ?? true,
@@ -2527,6 +2618,9 @@ export const createLayersSlice = (
           paintSlot,
           legacyRemap: migratedLegacyRemap,
           gradientIdBuffer: migratedGradientIdBuffer,
+          gradientDefIdBuffer,
+          gradientDefStore,
+          nextGradientDefId,
           colorCycleBrush,
           isAnimating: true,
           flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'reverse',

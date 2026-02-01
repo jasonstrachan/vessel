@@ -1,5 +1,6 @@
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
+import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 export type GradientStop = { position: number; color: string };
 export type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
@@ -72,6 +73,20 @@ export const buildRuntimeSnapshot = (
   layer: Layer,
   brushSettings: BrushSettings
 ): CCRuntimeSnapshot => {
+  const activeSession = getActiveMarkGradientSession(layer.id);
+  if (activeSession?.binding?.slot !== undefined) {
+    return {
+      layerId: layer.id,
+      paintSlot: activeSession.binding.slot,
+      slotPalettes: [
+        {
+          slot: activeSession.binding.slot,
+          stops: cloneStops(activeSession.frozenStopsStored),
+        },
+      ],
+      flowMode: layer.colorCycleData?.flowMode,
+    };
+  }
   const fallbackStops = resolveFallbackStops(layer, brushSettings);
   const paintSlot = resolvePaintSlot(layer, brushSettings);
   const palettes = normalizeSlotPalettes(layer.colorCycleData?.slotPalettes ?? []);

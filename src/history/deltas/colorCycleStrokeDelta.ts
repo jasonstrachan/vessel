@@ -25,6 +25,7 @@ type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
     layerId: string,
     snapshot: {
       paintBuffer: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
       hasContent: boolean;
       strokeCounter: number;
     },
@@ -105,6 +106,12 @@ const cloneState = (
                   }
                   return layer.strokeData.paintBuffer.slice(0);
                 })(),
+                gradientIdBuffer: layer.strokeData?.gradientIdBuffer
+                  ? layer.strokeData.gradientIdBuffer.slice(0)
+                  : layer.strokeData?.gradientIdBuffer,
+                gradientDefIdBuffer: layer.strokeData?.gradientDefIdBuffer
+                  ? layer.strokeData.gradientDefIdBuffer.slice(0)
+                  : layer.strokeData?.gradientDefIdBuffer,
                 speedBuffer: layer.strokeData?.speedBuffer
                   ? layer.strokeData.speedBuffer.slice(0)
                   : layer.strokeData?.speedBuffer
@@ -131,6 +138,8 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       state?.layers?.reduce((sum: number, layer: ColorCycleSerializedLayer) => {
         return sum
           + (layer.strokeData?.paintBuffer?.byteLength ?? 0)
+          + (layer.strokeData?.gradientIdBuffer?.byteLength ?? 0)
+          + (layer.strokeData?.gradientDefIdBuffer?.byteLength ?? 0)
           + (layer.strokeData?.speedBuffer?.byteLength ?? 0);
       }, 0) ?? 0;
     this.approxBytes = sizeOf(this.forwardState) + sizeOf(this.backwardState);
@@ -259,6 +268,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
             layerId: layerSnapshot.layerId,
             paintBuffer: layerSnapshot.strokeData?.paintBuffer ?? new ArrayBuffer(0),
             gradientIdBuffer: layerSnapshot.strokeData?.gradientIdBuffer,
+            gradientDefIdBuffer: layerSnapshot.strokeData?.gradientDefIdBuffer,
             hasContent: Boolean(layerSnapshot.strokeData?.hasContent),
             strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
             animatorIndex

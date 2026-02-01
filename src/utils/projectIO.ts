@@ -193,6 +193,7 @@ interface SerializedAnimatorSnapshot {
 interface SerializedStrokeSnapshot {
   paintBuffer?: string; // base64 encoded ArrayBuffer
   gradientIdBuffer?: string; // base64 encoded ArrayBuffer
+  gradientDefIdBuffer?: string; // base64 encoded ArrayBuffer (Uint16)
   speedBuffer?: string; // base64 encoded ArrayBuffer
   hasContent?: boolean;
   strokeCounter?: number;
@@ -204,6 +205,16 @@ interface SerializedBrushLayerSnapshot {
   animator?: SerializedAnimatorSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  gradientDefStore?: Array<{
+    id: number;
+    kind: 'linear' | 'concentric';
+    stops: Array<{ position: number; color: string }>;
+    hash: string;
+    source: 'manual' | 'fg' | 'sampled';
+    createdAtMs: number;
+    slot?: number;
+  }>;
+  nextGradientDefId?: number;
   fgActiveSlot?: number;
   fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
@@ -278,6 +289,16 @@ interface SerializedColorCycleLayerData {
   gradient?: Array<{ position: number; color: string }>;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  gradientDefStore?: Array<{
+    id: number;
+    kind: 'linear' | 'concentric';
+    stops: Array<{ position: number; color: string }>;
+    hash: string;
+    source: 'manual' | 'fg' | 'sampled';
+    createdAtMs: number;
+    slot?: number;
+  }>;
+  nextGradientDefId?: number;
   fgActiveSlot?: number;
   fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
@@ -311,6 +332,7 @@ interface SerializedColorCycleLayerData {
   }>;
   activeGradientId?: string;
   gradientIdBuffer?: string;
+  gradientDefIdBuffer?: string;
   isAnimating?: boolean;
   mode?: 'brush' | 'recolor';
   brushSpeed?: number;
@@ -759,6 +781,18 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
           }))
         : undefined,
+      gradientDefStore: colorCycleData.gradientDefStore
+        ? colorCycleData.gradientDefStore.map((entry) => ({
+            id: entry.id,
+            kind: entry.kind,
+            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+            hash: entry.hash,
+            source: entry.source,
+            createdAtMs: entry.createdAtMs,
+            slot: entry.slot,
+          }))
+        : undefined,
+      nextGradientDefId: colorCycleData.nextGradientDefId,
       fgActiveSlot: colorCycleData.fgActiveSlot,
       fgDerivedKey: colorCycleData.fgDerivedKey,
       fgDerivedGradients: fgDerivedGradients
@@ -784,6 +818,9 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       activeGradientId: colorCycleData.activeGradientId,
       gradientIdBuffer: colorCycleData.gradientIdBuffer
         ? arrayBufferToBase64(colorCycleData.gradientIdBuffer)
+        : undefined,
+      gradientDefIdBuffer: colorCycleData.gradientDefIdBuffer
+        ? arrayBufferToBase64(colorCycleData.gradientDefIdBuffer)
         : undefined,
       isAnimating: Boolean(colorCycleData.isAnimating),
       mode: colorCycleData.mode,
@@ -893,6 +930,9 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
         strokeCounter: strokeData.strokeCounter,
         paintBuffer: strokeData.paintBuffer ? arrayBufferToBase64(strokeData.paintBuffer) : undefined,
         gradientIdBuffer: strokeData.gradientIdBuffer ? arrayBufferToBase64(strokeData.gradientIdBuffer) : undefined,
+        gradientDefIdBuffer: strokeData.gradientDefIdBuffer
+          ? arrayBufferToBase64(strokeData.gradientDefIdBuffer)
+          : undefined,
         speedBuffer: strokeData.speedBuffer ? arrayBufferToBase64(strokeData.speedBuffer) : undefined
       };
     }
@@ -935,6 +975,20 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
         slot: entry.slot,
         stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
       }));
+    }
+    if (layer.gradientDefStore) {
+      snapshot.gradientDefStore = layer.gradientDefStore.map((entry) => ({
+        id: entry.id,
+        kind: entry.kind,
+        stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+        hash: entry.hash,
+        source: entry.source,
+        createdAtMs: entry.createdAtMs,
+        slot: entry.slot,
+      }));
+    }
+    if (typeof layer.nextGradientDefId === 'number') {
+      snapshot.nextGradientDefId = layer.nextGradientDefId;
     }
     const fgDerivedGradients = layer.fgDerivedGradients ?? layer.derivedGradients;
     if (fgDerivedGradients) {
@@ -1053,6 +1107,21 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       gradientIdBuffer: serializedLayer.colorCycleData.gradientIdBuffer
         ? base64ToArrayBuffer(serializedLayer.colorCycleData.gradientIdBuffer)
         : undefined,
+      gradientDefIdBuffer: serializedLayer.colorCycleData.gradientDefIdBuffer
+        ? base64ToArrayBuffer(serializedLayer.colorCycleData.gradientDefIdBuffer)
+        : undefined,
+      gradientDefStore: serializedLayer.colorCycleData.gradientDefStore
+        ? serializedLayer.colorCycleData.gradientDefStore.map((entry) => ({
+            id: entry.id,
+            kind: entry.kind,
+            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+            hash: entry.hash,
+            source: entry.source,
+            createdAtMs: entry.createdAtMs,
+            slot: entry.slot,
+          }))
+        : undefined,
+      nextGradientDefId: serializedLayer.colorCycleData.nextGradientDefId,
       // isAnimating is runtime-only; reset on load to avoid stuck playback state.
       isAnimating: false,
       mode: serializedLayer.colorCycleData.mode,
@@ -1633,6 +1702,9 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             const gradientIdBuffer = snapshot.strokeData?.gradientIdBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.gradientIdBuffer)
               : undefined;
+            const gradientDefIdBuffer = snapshot.strokeData?.gradientDefIdBuffer
+              ? base64ToArrayBuffer(snapshot.strokeData.gradientDefIdBuffer)
+              : undefined;
             const speedBuffer = snapshot.strokeData?.speedBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.speedBuffer)
               : undefined;
@@ -1658,6 +1730,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
               layerId: snapshot.layerId,
               paintBuffer,
               gradientIdBuffer,
+              gradientDefIdBuffer,
               speedBuffer,
               hasContent: snapshot.strokeData?.hasContent,
               strokeCounter: snapshot.strokeData?.strokeCounter,

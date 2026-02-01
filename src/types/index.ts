@@ -236,6 +236,23 @@ export interface Layer {
      * Persisted buffer of per-pixel gradient slot indices (Uint8Array at runtime).
      */
     gradientIdBuffer?: ArrayBuffer;
+    /**
+     * Persisted buffer of per-pixel gradient def ids (Uint16Array at runtime).
+     */
+    gradientDefIdBuffer?: ArrayBuffer;
+    /**
+     * Immutable gradient definitions (def-bound).
+     */
+    gradientDefStore?: Array<{
+      id: number;
+      kind: 'linear' | 'concentric';
+      stops: Array<{ position: number; color: string }>;
+      hash: string;
+      source: 'manual' | 'fg' | 'sampled';
+      createdAtMs: number;
+      slot?: number;
+    }>;
+    nextGradientDefId?: number;
     gradientVersion?: number;
     colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
     isAnimating?: boolean;
@@ -841,6 +858,7 @@ export interface ColorCycleSnapshot {
     layerId: string;
     paintBuffer: ArrayBuffer;
     gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;

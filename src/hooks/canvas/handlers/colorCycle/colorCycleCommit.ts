@@ -8,6 +8,8 @@ import {
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleHistory';
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
+import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { useAppStore } from '@/stores/useAppStore';
 
 type LayerHistoryPayload = Parameters<typeof commitLayerHistory>[0];
 
@@ -88,6 +90,20 @@ export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
   clearPaintBuffer?: (layerId?: string) => void;
   flush?: (layerId?: string) => void;
   updateColorCycleTexture?: () => void;
+  getLayerSnapshot?: (layerId: string) => {
+    paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
+    hasContent: boolean;
+    strokeCounter: number;
+  } | null;
+  bindGradientDefIdToSlot?: (
+    layerId: string,
+    defId: number,
+    slot: number,
+    bbox?: { minX: number; minY: number; width: number; height: number }
+  ) => void;
 };
 
 export type CommitColorCycleLayerStrokeArgs = {
@@ -352,6 +368,79 @@ export const commitColorCycleLayerStroke = async (
 
       deps.markLayerHasContent(targetLayerId);
       brushForCleanup = brush;
+
+      try {
+        const session = finalizeMarkGradientSession(targetLayerId);
+        if (session?.binding && typeof brush.bindGradientDefIdToSlot === 'function') {
+          const bbox = strokeCaptureRoi
+            ? {
+                minX: strokeCaptureRoi.x,
+                minY: strokeCaptureRoi.y,
+                width: strokeCaptureRoi.width,
+                height: strokeCaptureRoi.height,
+              }
+            : undefined;
+          brush.bindGradientDefIdToSlot(
+            targetLayerId,
+            session.binding.defId,
+            session.binding.slot,
+            bbox
+          );
+
+          if (typeof brush.getLayerSnapshot === 'function') {
+            const snapshot = brush.getLayerSnapshot(targetLayerId);
+            if (snapshot?.gradientDefIdBuffer) {
+              const state = useAppStore.getState();
+              const layer = state.layers.find((entry) => entry.id === targetLayerId);
+              if (layer?.colorCycleData) {
+                state.updateLayer(targetLayerId, {
+                  colorCycleData: {
+                    ...layer.colorCycleData,
+                    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+                  },
+                });
+              }
+            }
+          }
+
+          if (process.env.NODE_ENV !== 'production') {
+            const state = useAppStore.getState();
+            const layer = state.layers.find((entry) => entry.id === targetLayerId);
+            let def = layer?.colorCycleData?.gradientDefStore?.find(
+              (entry) => Number(entry.id) === session.binding?.defId
+            );
+            if (!def && layer?.colorCycleData) {
+              const nextDef = {
+                id: session.binding.defId,
+                kind: session.gradientKind,
+                stops: session.frozenStopsStored,
+                hash: session.frozenHash,
+                source: session.source,
+                createdAtMs: Date.now(),
+                slot: session.binding.slot,
+              };
+              const existing = layer.colorCycleData.gradientDefStore ?? [];
+              const nextStore = [...existing, nextDef];
+              state.updateLayer(targetLayerId, {
+                colorCycleData: {
+                  ...layer.colorCycleData,
+                  gradientDefStore: nextStore,
+                  nextGradientDefId: Math.max(
+                    layer.colorCycleData.nextGradientDefId ?? 0,
+                    session.binding.defId + 1
+                  ),
+                },
+              });
+              def = nextDef;
+            }
+            console.assert(
+              Boolean(def && def.hash === session.frozenHash),
+              '[CC] Commit parity failed (def hash mismatch)',
+              { layerId: targetLayerId, defId: session.binding.defId, frozenHash: session.frozenHash, defHash: def?.hash }
+            );
+          }
+        }
+      } catch {}
     } else if (args.drawingCanvas) {
       try {
         const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
@@ -364,6 +453,10 @@ export const commitColorCycleLayerStroke = async (
         }
       } catch {}
     }
+  } catch {}
+
+  try {
+    finalizeMarkGradientSession(targetLayerId);
   } catch {}
 
   try {

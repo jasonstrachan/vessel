@@ -65,6 +65,7 @@ import {
   computeFallbackLinearDirection,
   runColorCycleShapeFill,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
+import { beginMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   pauseColorCycleForNonCCInteraction as pauseColorCycleForNonCCInteractionExternal,
   resumeColorCycleAfterInteraction as resumeColorCycleAfterInteractionExternal,
@@ -421,11 +422,20 @@ export function useDrawingHandlers({
     }
 
     const derivedStops = deriveForegroundGradientStops(derivedSpec);
+    const defSlots = new Set<number>();
+    layer.colorCycleData?.gradientDefStore?.forEach((entry) => {
+      if (typeof entry.slot === 'number') {
+        defSlots.add(entry.slot);
+      }
+    });
     let nextSlotPalettes = slotPalettes;
     let nextDerivedGradients = derivedGradients;
     let targetSlot: number | null = existingDerived?.slot ?? null;
 
     if (targetSlot !== null) {
+      if (defSlots.has(targetSlot)) {
+        targetSlot = null;
+      }
       const existingPalette = slotPalettes.find((entry) => entry.slot === targetSlot);
       if (existingPalette) {
         nextSlotPalettes = slotPalettes.map((entry) =>
@@ -438,6 +448,7 @@ export function useDrawingHandlers({
       const usedSlots = new Set<number>();
       slotPalettes.forEach((entry) => usedSlots.add(entry.slot));
       gradientDefs.forEach((entry) => usedSlots.add(entry.currentSlot));
+      defSlots.forEach((slot) => usedSlots.add(slot));
       const nextSlot = getNextGradientSlot(usedSlots);
       if (nextSlot !== null) {
         targetSlot = nextSlot;
@@ -1355,6 +1366,24 @@ export function useDrawingHandlers({
           }
           const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
           ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
+          try {
+            const refreshedState = useAppStore.getState();
+            const refreshedLayer =
+              refreshedState.layers.find((layer) => layer.id === activeLayer.id) ?? activeLayer;
+            const resolved = resolveActiveColorCycleGradient(refreshedLayer, refreshedState.tools.brushSettings);
+            const gradientKind =
+              refreshedState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+            const source = refreshedState.tools.brushSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual';
+            beginMarkGradientSession({
+              layerId: activeLayer.id,
+              markKind: 'stroke',
+              gradientKind,
+              source,
+              stops: resolved.activeStops,
+            });
+            requestGradientApply(activeLayer.id, 'mark-session-start');
+            flushGradientApply(activeLayer.id);
+          } catch {}
         }
       }
     }

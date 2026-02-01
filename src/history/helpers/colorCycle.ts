@@ -32,6 +32,18 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                       stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
                     }))
                   : undefined,
+                gradientDefStore: layer.gradientDefStore
+                  ? layer.gradientDefStore.map((entry) => ({
+                      id: entry.id,
+                      kind: entry.kind,
+                      stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+                      hash: entry.hash,
+                      source: entry.source,
+                      createdAtMs: entry.createdAtMs,
+                      slot: entry.slot,
+                    }))
+                  : undefined,
+                nextGradientDefId: layer.nextGradientDefId,
                 fgActiveSlot: layer.fgActiveSlot,
                 fgDerivedKey: layer.fgDerivedKey,
                 fgDerivedGradients: (layer.fgDerivedGradients ?? layer.derivedGradients)
@@ -53,6 +65,7 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                       ...layer.strokeData,
                       paintBuffer: layer.strokeData.paintBuffer?.slice(0),
                       gradientIdBuffer: layer.strokeData.gradientIdBuffer?.slice(0),
+                      gradientDefIdBuffer: layer.strokeData.gradientDefIdBuffer?.slice(0),
                     }
                   : undefined,
               })) ?? [],

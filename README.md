@@ -58,6 +58,17 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 - **IndexBuffer**, **GradientPalette**, **AnimationController**, **ColorCycleAnimator**
 - Optional WebGL renderer in `src/lib/colorCycle/rendering` with Canvas2D fallback
 
+### Refactor Notes
+- `docs/refactor/cc-gradient-slots.md` — Slot/def binding rules and reservations
+
+### Project Docs
+- `docs/project.md` — Consolidated architecture notes and recent updates
+
+### Recent Updates (from `docs/project.md`)
+- **Canvas Shape Masks (2026-01-03):** non-rectangular canvas bounds, clipped draw/selection, export masking
+- **Color Cycle + Recolor (2025-12-31):** recolor mode with palette extraction and deterministic export
+- **Color Cycle Brush System (2025-08-27):** Canvas2D-first indexed pipeline with optional WebGL accel
+
 ## Technical Stack
 
 - **Next.js 15 (App Router)** + **React 19**

@@ -3,11 +3,11 @@ import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCyc
 import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import { useAppStore } from '@/stores/useAppStore';
 import {
-  allocateSlotForNewShapeFill,
   DEFAULT_COLOR_CYCLE_GRADIENT,
   ensureForegroundGradientSlot,
 } from '@/utils/colorCycleGradients';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 
@@ -121,31 +121,16 @@ export const finalizeColorCycleShapeFillLinear = async (
       const resolvedStops = useFG && fgPalette?.stops?.length
         ? fgPalette.stops
         : (activeStops?.length ? activeStops : (liveLayer?.colorCycleData?.gradient?.length ? liveLayer.colorCycleData.gradient : fallbackStops));
-      const preFillBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
-      try {
-        const activeSlot =
-          typeof preFillBrush?.getActiveGradientSlot === 'function'
-            ? preFillBrush.getActiveGradientSlot(args.activeLayerId)
-            : undefined;
-        console.log('[CC fill] FG prefill (linear)', {
-          useFG,
-          activeSlot,
-          fgSlot,
-          source: 'liveState',
-        });
-      } catch {}
-      if (useFG && typeof fgSlot === 'number' && fgPalette?.stops?.length) {
-        requestGradientApply(args.activeLayerId, 'shape-prefill-fg');
+      const session = beginMarkGradientSession({
+        layerId: args.activeLayerId,
+        markKind: 'shape',
+        gradientKind: 'linear',
+        source: useFG ? 'fg' : 'manual',
+        stops: resolvedStops,
+      });
+      if (session?.binding?.slot !== undefined) {
+        requestGradientApply(args.activeLayerId, 'shape-prefill-session');
         flushGradientApply(args.activeLayerId);
-      } else {
-        const allocation = allocateSlotForNewShapeFill(args.activeLayerId, resolvedStops, { setActive: false });
-        try {
-          deps.ccLog('shape: allocated slot', { layerId: args.activeLayerId, slot: allocation?.slot });
-        } catch {}
-        if (allocation?.slot !== undefined) {
-          requestGradientApply(args.activeLayerId, 'shape-prefill');
-          flushGradientApply(args.activeLayerId);
-        }
       }
       deps.brushEngine.resetColorCycle(false, { skipGradientReinit: true });
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
@@ -194,6 +179,36 @@ export const finalizeColorCycleShapeFillLinear = async (
         }
       });
     }
+
+    try {
+      const session = finalizeMarkGradientSession(args.activeLayerId);
+      if (session?.binding && colorCycleBrush?.bindGradientDefIdToSlot) {
+        const bbox = args.roi
+          ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
+          : undefined;
+        colorCycleBrush.bindGradientDefIdToSlot(
+          args.activeLayerId,
+          session.binding.defId,
+          session.binding.slot,
+          bbox
+        );
+        if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
+          const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
+          if (snapshot?.gradientDefIdBuffer) {
+            const state = useAppStore.getState();
+            const layer = state.layers.find((entry) => entry.id === args.activeLayerId);
+            if (layer?.colorCycleData) {
+              state.updateLayer(args.activeLayerId, {
+                colorCycleData: {
+                  ...layer.colorCycleData,
+                  gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+                },
+              });
+            }
+          }
+        }
+      }
+    } catch {}
 
     try {
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
@@ -264,31 +279,16 @@ export const finalizeColorCycleShapeFillConcentric = async (
       const resolvedStops = useFG && fgPalette?.stops?.length
         ? fgPalette.stops
         : (activeStops?.length ? activeStops : (liveLayer?.colorCycleData?.gradient?.length ? liveLayer.colorCycleData.gradient : fallbackStops));
-      const preFillBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
-      try {
-        const activeSlot =
-          typeof preFillBrush?.getActiveGradientSlot === 'function'
-            ? preFillBrush.getActiveGradientSlot(args.activeLayerId)
-            : undefined;
-        console.log('[CC fill] FG prefill (concentric)', {
-          useFG,
-          activeSlot,
-          fgSlot,
-          source: 'liveState',
-        });
-      } catch {}
-      if (useFG && typeof fgSlot === 'number' && fgPalette?.stops?.length) {
-        requestGradientApply(args.activeLayerId, 'shape-prefill-fg');
+      const session = beginMarkGradientSession({
+        layerId: args.activeLayerId,
+        markKind: 'shape',
+        gradientKind: 'concentric',
+        source: useFG ? 'fg' : 'manual',
+        stops: resolvedStops,
+      });
+      if (session?.binding?.slot !== undefined) {
+        requestGradientApply(args.activeLayerId, 'shape-prefill-session');
         flushGradientApply(args.activeLayerId);
-      } else {
-        const allocation = allocateSlotForNewShapeFill(args.activeLayerId, resolvedStops, { setActive: false });
-        try {
-          deps.ccLog('shape: allocated slot', { layerId: args.activeLayerId, slot: allocation?.slot });
-        } catch {}
-        if (allocation?.slot !== undefined) {
-          requestGradientApply(args.activeLayerId, 'shape-prefill');
-          flushGradientApply(args.activeLayerId);
-        }
       }
       deps.brushEngine.resetColorCycle(false, { skipGradientReinit: true });
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
@@ -326,6 +326,36 @@ export const finalizeColorCycleShapeFillConcentric = async (
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
       });
     }
+
+    try {
+      const session = finalizeMarkGradientSession(args.activeLayerId);
+      if (session?.binding && colorCycleBrush?.bindGradientDefIdToSlot) {
+        const bbox = args.roi
+          ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
+          : undefined;
+        colorCycleBrush.bindGradientDefIdToSlot(
+          args.activeLayerId,
+          session.binding.defId,
+          session.binding.slot,
+          bbox
+        );
+        if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
+          const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
+          if (snapshot?.gradientDefIdBuffer) {
+            const state = useAppStore.getState();
+            const layer = state.layers.find((entry) => entry.id === args.activeLayerId);
+            if (layer?.colorCycleData) {
+              state.updateLayer(args.activeLayerId, {
+                colorCycleData: {
+                  ...layer.colorCycleData,
+                  gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+                },
+              });
+            }
+          }
+        }
+      }
+    } catch {}
 
     try {
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));

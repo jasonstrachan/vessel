@@ -110,6 +110,12 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
     [];
   const existingDerived = derivedGradients.find((entry) => entry.key === derivedSpec.key);
   const existingSlot = existingDerived?.slot ?? null;
+  const defSlots = new Set<number>();
+  colorCycleData.gradientDefStore?.forEach((entry) => {
+    if (typeof entry.slot === 'number') {
+      defSlots.add(normalizeEditorSlot(entry.slot));
+    }
+  });
 
   const slotPalettes = colorCycleData.slotPalettes?.length
     ? colorCycleData.slotPalettes.map(entry => ({
@@ -123,6 +129,9 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
   let nextDerivedGradients = derivedGradients;
 
   if (targetSlot !== null) {
+    if (defSlots.has(normalizeEditorSlot(targetSlot))) {
+      targetSlot = null;
+    }
     const existingPalette = slotPalettes.find((entry) => entry.slot === targetSlot);
     if (existingPalette) {
       nextSlotPalettes = slotPalettes.map((entry) =>
@@ -137,6 +146,7 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
     colorCycleData.gradientDefs?.forEach((entry) => {
       usedSlots.add(normalizeEditorSlot(entry.currentSlot));
     });
+    defSlots.forEach((slot) => usedSlots.add(slot));
     usedSlots.add(EDITOR_SLOT);
     const nextSlot = getNextGradientSlot(usedSlots);
     if (nextSlot !== null) {
@@ -173,7 +183,7 @@ const applyColorCycleGradientEdit = (
   layerId?: string,
   options?: { fork?: boolean }
 ): void => {
-  const intent = options?.fork === true ? 'commitFuture' : 'commitRecolor';
+  const intent = options?.fork === false ? 'commitRecolor' : 'commitFuture';
   applyGradientEdit({ stops: gradient, layerId, intent });
 };
 

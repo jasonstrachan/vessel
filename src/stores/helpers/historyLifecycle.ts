@@ -205,6 +205,21 @@ const cloneLayerForHistory = (
       gradientIdBuffer: existingColorCycleData.gradientIdBuffer
         ? existingColorCycleData.gradientIdBuffer.slice(0)
         : undefined,
+      gradientDefIdBuffer: existingColorCycleData.gradientDefIdBuffer
+        ? existingColorCycleData.gradientDefIdBuffer.slice(0)
+        : undefined,
+      gradientDefStore: existingColorCycleData.gradientDefStore
+        ? existingColorCycleData.gradientDefStore.map((entry) => ({
+            id: entry.id,
+            kind: entry.kind,
+            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+            hash: entry.hash,
+            source: entry.source,
+            createdAtMs: entry.createdAtMs,
+            slot: entry.slot,
+          }))
+        : undefined,
+      nextGradientDefId: existingColorCycleData.nextGradientDefId,
       canvasImageData,
       canvasWidth,
       canvasHeight,
@@ -277,9 +292,20 @@ interface SerializedColorCycleLayerSnapshot {
     };
   }>;
   activeGradientId?: string;
+  gradientDefStore?: Array<{
+    id: number;
+    kind: 'linear' | 'concentric';
+    stops: Array<{ position: number; color: string }>;
+    hash: string;
+    source: 'manual' | 'fg' | 'sampled';
+    createdAtMs: number;
+    slot?: number;
+  }>;
+  nextGradientDefId?: number;
   strokeData?: {
     paintBuffer?: ArrayBufferLike;
     gradientIdBuffer?: ArrayBufferLike;
+    gradientDefIdBuffer?: ArrayBufferLike;
     hasContent?: boolean;
     strokeCounter?: number;
   };
@@ -364,6 +390,9 @@ export const createHistorySnapshotFromState = (
         const gradientBufferSource = layerSnapshot.strokeData?.gradientIdBuffer;
         const gradientBufferArray = gradientBufferSource ? new Uint8Array(gradientBufferSource) : null;
         const gradientBufferCopy = gradientBufferArray ? gradientBufferArray.slice().buffer : undefined;
+        const gradientDefBufferSource = layerSnapshot.strokeData?.gradientDefIdBuffer;
+        const gradientDefBufferArray = gradientDefBufferSource ? new Uint16Array(gradientDefBufferSource) : null;
+        const gradientDefBufferCopy = gradientDefBufferArray ? gradientDefBufferArray.slice().buffer : undefined;
 
         const animatorIndex = indexBuffer
           ? {
@@ -395,6 +424,7 @@ export const createHistorySnapshotFromState = (
           layerId: layerSnapshot.layerId,
           paintBuffer: paintBufferCopy,
           gradientIdBuffer: gradientBufferCopy,
+          gradientDefIdBuffer: gradientDefBufferCopy,
           speedBuffer: layerSnapshot.strokeData?.speedBuffer
             ? new Uint8Array(layerSnapshot.strokeData.speedBuffer).slice().buffer
             : undefined,
