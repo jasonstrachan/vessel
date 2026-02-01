@@ -227,6 +227,12 @@ import {
   updateAutoSampledGradient as updateAutoSampledGradientExternal,
   updateDitherGradSamples as updateDitherGradSamplesExternal,
 } from '@/hooks/canvas/handlers/brushSampling';
+import {
+  createCcGradientSampleSession,
+  updateCcGradientSampleSession,
+  resetCcGradientSampleSession,
+  shouldSampleCcGradient,
+} from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 
 export {
   AUTO_SAMPLE_MAX_STOPS,
@@ -906,8 +912,12 @@ export function useDrawingHandlers({
   const autoSamplePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const autoSampleLastUpdateRef = useRef<number>(0);
   const autoSampleForkRef = useRef<boolean>(true);
+  const autoSampleLastAppliedHashRef = useRef<string>('');
+  const finalizeInProgressRef = useRef<boolean>(false);
   const ditherGradSampleLastUpdateRef = useRef<number>(0);
   const brushSamplingPreviewActiveRef = useRef<boolean>(false);
+  const ccGradientSampleSessionRef = useRef(createCcGradientSampleSession());
+  const ccGradientSampleLastUpdateRef = useRef<number>(0);
 
   const sampleHexAt = useCallback(
     (x: number, y: number): string =>
@@ -934,6 +944,29 @@ export function useDrawingHandlers({
       }),
     [sampleHexAt]
   );
+
+  const updateCcGradientSample = useCallback((sourcePts: Array<{ x: number; y: number }>, strokeId?: string | null) => {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    updateCcGradientSampleSession({
+      session: ccGradientSampleSessionRef.current,
+      sourcePts,
+      now,
+      lastUpdateRef: ccGradientSampleLastUpdateRef,
+      sampleColor: sampleHexAt,
+      allowTiny: false,
+      strokeId,
+    });
+  }, [sampleHexAt]);
+
+  const resetCcGradientSample = useCallback(() => {
+    resetCcGradientSampleSession(ccGradientSampleSessionRef.current);
+    ccGradientSampleLastUpdateRef.current = 0;
+  }, []);
+
+  const getCcGradientSampleStops = useCallback(
+    () => ccGradientSampleSessionRef.current.stops,
+    []
+  );
   
   const setSharedColorCycleGradientForShapes = useCallback((stops: AutoSampleStops | null) => {
     if (!stops) {
@@ -943,7 +976,11 @@ export function useDrawingHandlers({
     const activeLayerId = currentState.activeLayerId;
     const activeLayer = currentState.layers.find((layer) => layer.id === activeLayerId);
     if (activeLayer?.layerType === 'color-cycle' && activeLayerId) {
-      setLayerColorCycleGradient(stops, activeLayerId, { fork: autoSampleForkRef.current });
+      const allowForegroundOverride = Boolean(currentState.tools.brushSettings.autoSampleGradientRealtime);
+      setLayerColorCycleGradient(stops, activeLayerId, {
+        fork: autoSampleForkRef.current,
+        allowForegroundOverride,
+      });
       return;
     }
     setSharedColorCycleGradient(stops, { fork: autoSampleForkRef.current });
@@ -991,6 +1028,7 @@ export function useDrawingHandlers({
       now,
       autoSampleLastUpdateRef,
       autoSampleForkRef,
+      autoSampleLastAppliedHashRef,
       deps: {
         storeRef,
         drawingCanvasRef,
@@ -1466,13 +1504,16 @@ export function useDrawingHandlers({
     // Initialize auto-sampling for color cycle stroke
     try {
       const isCCStroke = ccFlags.isAny;
-      const autoSample = !!currentState.tools.brushSettings.autoSampleGradient;
-      if (isCCStroke && autoSample) {
+      const autoSampleOneShot = !!currentState.tools.brushSettings.autoSampleGradient;
+      const autoSampleRealtime = !!currentState.tools.brushSettings.autoSampleGradientRealtime;
+      if (isCCStroke && (autoSampleOneShot || autoSampleRealtime)) {
         autoSamplePointsRef.current = [worldPos];
         autoSampleLastUpdateRef.current = 0;
         autoSampleForkRef.current = true;
-        brushSamplingPreviewActiveRef.current = true;
-        renderBrushSamplingPreview(autoSamplePointsRef.current);
+        brushSamplingPreviewActiveRef.current = autoSampleOneShot;
+        if (autoSampleOneShot) {
+          renderBrushSamplingPreview(autoSamplePointsRef.current);
+        }
       }
     } catch {}
     if (brushSamplingPreviewActiveRef.current) {
@@ -2123,6 +2164,7 @@ export function useDrawingHandlers({
             const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
             const isColorCycleBrush = activeFlags.isAny;
 
+            finalizeInProgressRef.current = true;
             const { shouldReturn } = await finalizeColorCycleBrushExternal({
               activeFlags,
               activeSettings,
@@ -2137,6 +2179,7 @@ export function useDrawingHandlers({
               brushSamplingPreviewActiveRef,
               autoSamplePointsRef,
               autoSampleLastUpdateRef,
+              autoSampleLastAppliedHashRef,
               computeAutoSampleStops,
               clearBrushSamplingPreview,
               getBrushForLayer: (layerId) =>
@@ -2144,6 +2187,7 @@ export function useDrawingHandlers({
               getEffectiveColorCyclePlaying,
               startPlaybackRef,
             });
+            finalizeInProgressRef.current = false;
             if (shouldReturn) {
               return;
             }
@@ -2530,6 +2574,8 @@ export function useDrawingHandlers({
     autoSamplePointsRef,
     autoSampleForkRef,
     autoSampleLastUpdateRef,
+    ccGradientSampleSessionRef,
+    ccGradientSampleLastUpdateRef,
     hadValidShapePressureRef,
     latestShapePixelSizeRef,
     shapeMaxPressureRef,
@@ -2540,6 +2586,8 @@ export function useDrawingHandlers({
     autoSampleForkRef,
     autoSampleLastUpdateRef,
     autoSamplePointsRef,
+    ccGradientSampleSessionRef,
+    ccGradientSampleLastUpdateRef,
     ccShapePreviewPauseStartedRef,
     directionPreviewRef,
     drawingCanvasHasContent,
@@ -2589,10 +2637,13 @@ export function useDrawingHandlers({
     triggerSimpleShapePreview,
     resetShapeDragRefs,
     resetShapePressureState,
+    resetCcGradientSample,
     updateShapePressure,
     pauseColorCycleForNonCCInteraction,
     resumeColorCycleAfterInteraction,
     updateAutoSampledGradient,
+    updateCcGradientSample,
+    shouldSampleCcGradient,
     updateDitherGradSamples,
     capturePendingShapeSnapshot,
     clearShapeBeforeSnapshot,
@@ -2658,6 +2709,7 @@ export function useDrawingHandlers({
     resetPolygonState,
     resetShapeDragRefs,
     resetShapePressureState,
+    resetCcGradientSample,
     resumeColorCycleAfterInteraction,
     runIdle,
     sampleColorAt,
@@ -2674,6 +2726,8 @@ export function useDrawingHandlers({
     toolsRef,
     triggerSimpleShapePreview,
     updateAutoSampledGradient,
+    updateCcGradientSample,
+    shouldSampleCcGradient,
     updateDitherGradSamples,
     updateShapePressure,
     ensureActiveColorCycleGradientSlot,
@@ -3051,6 +3105,7 @@ export function useDrawingHandlers({
     seedManualStrokeBoundingBox,
     coerceDragShapeToPolygon,
     updateDitherGradSamples,
+    getCcGradientSampleStops,
     ccShapePreviewCacheRef,
   };
 }

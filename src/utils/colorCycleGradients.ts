@@ -11,6 +11,7 @@ import { rgbToHsl, hslToRgb } from '@/utils/imageProcessing';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { DerivedGradientSpec } from '@/types';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
+import { cancelGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 
 export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
 export const EDITOR_SLOT = 63;
@@ -181,10 +182,19 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
 const applyColorCycleGradientEdit = (
   gradient: Array<{ position: number; color: string }>,
   layerId?: string,
-  options?: { fork?: boolean }
+  options?: { fork?: boolean; allowForegroundOverride?: boolean; skipRender?: boolean }
 ): void => {
-  const intent = options?.fork === false ? 'commitRecolor' : 'commitFuture';
-  applyGradientEdit({ stops: gradient, layerId, intent });
+  const state = useAppStore.getState();
+  if (state.tools.brushSettings.colorCycleUseForegroundGradient && !options?.allowForegroundOverride) {
+    return;
+  }
+  const targetLayerId = layerId ?? state.activeLayerId;
+  const intent = options?.fork ? 'commitFuture' : 'commitRecolor';
+  applyGradientEdit({ stops: gradient, layerId: targetLayerId, intent });
+  if (options?.skipRender && targetLayerId) {
+    // Real-time sampling manages brush updates directly; skip the scheduled apply.
+    cancelGradientApply(targetLayerId);
+  }
 };
 
 export const allocateSlotForNewShapeFill = (
@@ -254,10 +264,10 @@ export const allocateSlotForNewShapeFill = (
 export function setLayerColorCycleGradient(
   gradient: Array<{ position: number; color: string }>,
   layerId?: string,
-  options?: { fork?: boolean }
+  options?: { fork?: boolean; allowForegroundOverride?: boolean; skipRender?: boolean }
 ): void {
   const state = useAppStore.getState();
-  if (state.tools.brushSettings.colorCycleUseForegroundGradient) {
+  if (state.tools.brushSettings.colorCycleUseForegroundGradient && !options?.allowForegroundOverride) {
     return;
   }
   applyColorCycleGradientEdit(gradient, layerId, options);

@@ -6,7 +6,7 @@ import {
   selectColorCycleDesiredPlaying,
   selectColorCycleSuspendDepth,
 } from '@/stores/useAppStore';
-import { setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
+import { setLayerColorCycleGradient, setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
 
 type AutoSampleStop = { position: number; color: string };
 
@@ -30,6 +30,8 @@ export type FinalizeColorCycleBrushDeps = {
   brushSamplingPreviewActiveRef: React.MutableRefObject<boolean>;
   autoSamplePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   autoSampleLastUpdateRef: React.MutableRefObject<number>;
+  autoSampleLastAppliedHashRef: React.MutableRefObject<string>;
+  finalizeInProgressRef?: React.MutableRefObject<boolean>;
   computeAutoSampleStops: (
     sourcePts: Array<{ x: number; y: number }>,
     options?: { allowTiny?: boolean }
@@ -65,13 +67,37 @@ export const finalizeColorCycleBrush = async (
     return { shouldReturn: false };
   }
 
-  // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
+  // If auto-sampling is enabled, compute final gradient across full stroke path now (single-pass)
   try {
-    if (brushSamplingPreviewActiveRef.current && autoSamplePointsRef.current.length > 0) {
-      const stops = computeAutoSampleStops([...autoSamplePointsRef.current], { allowTiny: true });
+    const pts = autoSamplePointsRef.current;
+    if (pts.length > 0 && (brushSamplingPreviewActiveRef.current || activeSettings.autoSampleGradient || activeSettings.autoSampleGradientRealtime)) {
+      const stops = computeAutoSampleStops([...pts], { allowTiny: true });
       if (stops && stops.length >= 2) {
+        const hash = stops
+          .map((stop) => `${Math.round(stop.position * 1000)}:${stop.color}`)
+          .join('|');
+        if (hash === autoSampleLastAppliedHashRef.current) {
+          clearBrushSamplingPreview();
+          brushSamplingPreviewActiveRef.current = false;
+          autoSamplePointsRef.current = [];
+          autoSampleLastUpdateRef.current = 0;
+          drawingCanvasHasContent.current = false;
+          return { shouldReturn: true };
+        }
+        autoSampleLastAppliedHashRef.current = hash;
+
+        const realtime = Boolean(
+          currentState.tools.brushSettings.autoSampleGradientRealtime ||
+            activeSettings.autoSampleGradientRealtime
+        );
         try {
-          setSharedColorCycleGradient(stops);
+          if (realtime) {
+            setLayerColorCycleGradient(stops, currentState.activeLayerId ?? undefined, {
+              allowForegroundOverride: true,
+            });
+          } else {
+            setSharedColorCycleGradient(stops);
+          }
         } catch {
           storeRef.current.setBrushSettings({ colorCycleGradient: stops });
         }
@@ -82,46 +108,26 @@ export const finalizeColorCycleBrush = async (
             st.setBrushSettings({ gradientBands: stops.length });
           }
         } catch {}
-        try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
-      }
-      try {
-        const st = storeRef.current;
-        if (st.tools.brushSettings.autoSampleGradient) {
-          st.setBrushSettings({ autoSampleGradient: false });
-        }
-      } catch {}
-      clearBrushSamplingPreview();
-      brushSamplingPreviewActiveRef.current = false;
-      autoSamplePointsRef.current = [];
-      autoSampleLastUpdateRef.current = 0;
-      drawingCanvasHasContent.current = false;
-      return { shouldReturn: true };
-    }
-    if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
-      const finalPts = [...autoSamplePointsRef.current];
-      const stops = computeAutoSampleStops(finalPts, { allowTiny: true });
-      if (stops && stops.length >= 2) {
         try {
-          setSharedColorCycleGradient(stops);
-        } catch {
           storeRef.current.setBrushSettings({ colorCycleGradient: stops });
-        }
-        try {
-          const st = storeRef.current;
-          const gb = st.tools.brushSettings.gradientBands || 0;
-          if (gb < stops.length) {
-            st.setBrushSettings({ gradientBands: stops.length });
-          }
         } catch {}
         // Push into live brush
         try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
         // One-shot: auto-disable sampling after applying
         try {
           const st = storeRef.current;
-          if (st.tools.brushSettings.autoSampleGradient) {
+          if (st.tools.brushSettings.autoSampleGradient && !st.tools.brushSettings.autoSampleGradientRealtime) {
             st.setBrushSettings({ autoSampleGradient: false });
           }
         } catch {}
+      }
+      clearBrushSamplingPreview();
+      brushSamplingPreviewActiveRef.current = false;
+      autoSamplePointsRef.current = [];
+      autoSampleLastUpdateRef.current = 0;
+      drawingCanvasHasContent.current = false;
+      if (brushSamplingPreviewActiveRef.current) {
+        return { shouldReturn: true };
       }
     }
   } catch {}

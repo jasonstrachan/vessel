@@ -689,6 +689,8 @@ export interface BrushSettings {
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5
   // Auto color sampling for regular brushes
   autoSampleColor?: boolean; // true = pick brush color from canvas/reference at stroke start
+  /** Color Cycle Gradient only: sample gradient per shape finalize */
+  ccGradientSamplePerShape?: boolean;
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;
@@ -775,6 +777,7 @@ export interface BrushSettings {
   colorCycleFgStops?: number; // 2-6 stops for derived foreground gradient
   // Auto-sampling for gradient while drawing (Color Cycle brushes)
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas
+  autoSampleGradientRealtime?: boolean; // When true, continuously sample gradient while drawing (Color Cycle Gradient)
   
   // Gradient bands/steps for both strokes and fills
   gradientBands?: number; // 2-50 (number of color steps in gradients)

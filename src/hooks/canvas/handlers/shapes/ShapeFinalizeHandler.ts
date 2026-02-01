@@ -622,7 +622,10 @@ export const finalizeRasterShapeFill = ({
   try {
     const st = storeRef.current;
     const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-    if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
+    const autoSampleEnabled =
+      st.tools.brushSettings.autoSampleGradient ||
+      st.tools.brushSettings.autoSampleGradientRealtime;
+    if (isCCShape && autoSampleEnabled) {
       const finalPts = [...shapePoints];
       const stops = computeAutoSampleStops(finalPts, { allowTiny: true });
       if (stops && stops.length >= 2) {
@@ -640,7 +643,7 @@ export const finalizeRasterShapeFill = ({
         } catch {}
         try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
         try {
-          if (st.tools.brushSettings.autoSampleGradient) {
+          if (st.tools.brushSettings.autoSampleGradient && !st.tools.brushSettings.autoSampleGradientRealtime) {
             st.setBrushSettings({ autoSampleGradient: false });
           }
         } catch {}
