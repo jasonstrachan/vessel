@@ -104,6 +104,9 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 - **Raw Next.js dev**: `npm run dev:raw`
 - **Monitored dev server**: `npm run dev` (default)
 
+### Workflow
+- Work directly on the `poc2` branch (no feature branches).
+
 ### Build & Deploy
 
 ```bash
