@@ -4,7 +4,11 @@ import { renderHook, act } from '@testing-library/react';
 import { useDrawingHandlers } from '../useDrawingHandlers';
 import type { BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
-import { buildForegroundDerivedGradientSpec, clampForegroundDerivedBands } from '@/utils/colorCycleGradients';
+import {
+  buildForegroundDerivedGradientSpec,
+  clampForegroundDerivedBands,
+  deriveForegroundGradientStops,
+} from '@/utils/colorCycleGradients';
 
 type TestBrushSettings = Partial<BrushSettings> & {
   brushShape: string;
@@ -97,6 +101,10 @@ jest.mock('@/hooks/useBrushEngineSimplified', () => ({
 }));
 
 jest.mock('@/hooks/useUserBrushEngine', () => ({ useUserBrushEngine: () => null }));
+jest.mock('@/hooks/canvas/utils/colorCycleMarkSession', () => ({
+  __esModule: true,
+  beginMarkGradientSession: jest.fn(() => null),
+}));
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => mockColorCycleBrushManager,
 }));
@@ -373,10 +381,7 @@ describe('useDrawingHandlers stroke harness', () => {
       bands,
     });
     const fgSlot = 2;
-    const fgStops = [
-      { position: 0, color: fgColor },
-      { position: 1, color: fgColor },
-    ];
+    const fgStops = deriveForegroundGradientStops(derivedSpec);
 
     storeState.activeLayerId = layerId;
     storeState.layers = [{

@@ -133,13 +133,16 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
     if (defSlots.has(normalizeEditorSlot(targetSlot))) {
       targetSlot = null;
     }
-    const existingPalette = slotPalettes.find((entry) => entry.slot === targetSlot);
-    if (existingPalette) {
-      nextSlotPalettes = slotPalettes.map((entry) =>
-        entry.slot === targetSlot ? { slot: targetSlot, stops: cloneStops(derivedStops) } : entry
-      );
-    } else {
-      nextSlotPalettes = [...slotPalettes, { slot: targetSlot, stops: cloneStops(derivedStops) }];
+    if (targetSlot !== null) {
+      const resolvedSlot = normalizeEditorSlot(targetSlot);
+      const existingPalette = slotPalettes.find((entry) => entry.slot === resolvedSlot);
+      if (existingPalette) {
+        nextSlotPalettes = slotPalettes.map((entry) =>
+          entry.slot === resolvedSlot ? { slot: resolvedSlot, stops: cloneStops(derivedStops) } : entry
+        );
+      } else {
+        nextSlotPalettes = [...slotPalettes, { slot: resolvedSlot, stops: cloneStops(derivedStops) }];
+      }
     }
   } else {
     const usedSlots = new Set<number>();
@@ -188,7 +191,7 @@ const applyColorCycleGradientEdit = (
   if (state.tools.brushSettings.colorCycleUseForegroundGradient && !options?.allowForegroundOverride) {
     return;
   }
-  const targetLayerId = layerId ?? state.activeLayerId;
+  const targetLayerId = layerId ?? state.activeLayerId ?? undefined;
   const intent = options?.fork ? 'commitFuture' : 'commitRecolor';
   applyGradientEdit({ stops: gradient, layerId: targetLayerId, intent });
   if (options?.skipRender && targetLayerId) {

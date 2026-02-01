@@ -6,7 +6,6 @@ import { clamp } from '@/utils/num';
 import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
-import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import {
   getColorCycleBrushManager,
   type ColorCycleBrushImplementation,
@@ -1871,6 +1870,9 @@ export const createLayersSlice = (
           !skipColorCycleSync
         ) {
           syncCCRuntimes([syncedLayer], 'updateLayer');
+          // Lazy import to avoid circular dependency with useAppStore in tests.
+          // eslint-disable-next-line @typescript-eslint/no-require-imports -- runtime require breaks cycles
+          const { requestGradientApply } = require('@/hooks/brushEngine/ccGradientApplyScheduler') as typeof import('@/hooks/brushEngine/ccGradientApplyScheduler');
           requestGradientApply(syncedLayer.id, 'update-layer');
         }
       } catch (error) {
@@ -2450,7 +2452,8 @@ export const createLayersSlice = (
       });
       const migratedGradientIdBuffer = migrated.buffer;
       const migratedLegacyRemap = migrated.legacyRemap ?? legacyRemap;
-      const defKind = state.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+      const defKind: 'linear' | 'concentric' =
+        state.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
       const existingDefStore = layer.colorCycleData?.gradientDefStore ?? [];
       const existingNextDefId = layer.colorCycleData?.nextGradientDefId;
       const seededDefId = typeof existingNextDefId === 'number'

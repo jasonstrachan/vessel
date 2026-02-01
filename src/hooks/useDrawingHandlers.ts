@@ -420,14 +420,21 @@ export function useDrawingHandlers({
     const existingDerived = derivedGradients.find((entry) => entry.key === derivedSpec.key);
     const existingSlot = existingDerived?.slot ?? null;
     const fgActiveSlot = layer.colorCycleData?.fgActiveSlot ?? null;
+    const derivedStops = deriveForegroundGradientStops(derivedSpec);
+    const existingPalette = existingSlot !== null
+      ? slotPalettes.find((entry) => entry.slot === existingSlot)
+      : undefined;
+    const stopsMatch = existingPalette?.stops.length === derivedStops.length &&
+      existingPalette.stops.every((stop, index) => {
+        const nextStop = derivedStops[index];
+        return stop.position === nextStop?.position && stop.color === nextStop?.color;
+      });
 
-    if (prevKey === nextKey && existingSlot !== null && fgActiveSlot === existingSlot) {
+    if (prevKey === nextKey && existingSlot !== null && fgActiveSlot === existingSlot && stopsMatch) {
       requestGradientApply(layer.id, 'fg-active');
       setFgPending(layer.id, false);
       return;
     }
-
-    const derivedStops = deriveForegroundGradientStops(derivedSpec);
     const defSlots = new Set<number>();
     layer.colorCycleData?.gradientDefStore?.forEach((entry) => {
       if (typeof entry.slot === 'number') {
@@ -442,13 +449,16 @@ export function useDrawingHandlers({
       if (defSlots.has(targetSlot)) {
         targetSlot = null;
       }
-      const existingPalette = slotPalettes.find((entry) => entry.slot === targetSlot);
-      if (existingPalette) {
-        nextSlotPalettes = slotPalettes.map((entry) =>
-          entry.slot === targetSlot ? { slot: targetSlot, stops: cloneStops(derivedStops) } : entry
-        );
-      } else {
-        nextSlotPalettes = [...slotPalettes, { slot: targetSlot, stops: cloneStops(derivedStops) }];
+      if (targetSlot !== null) {
+        const resolvedSlot = targetSlot;
+        const existingPalette = slotPalettes.find((entry) => entry.slot === resolvedSlot);
+        if (existingPalette) {
+          nextSlotPalettes = slotPalettes.map((entry) =>
+            entry.slot === resolvedSlot ? { slot: resolvedSlot, stops: cloneStops(derivedStops) } : entry
+          );
+        } else {
+          nextSlotPalettes = [...slotPalettes, { slot: resolvedSlot, stops: cloneStops(derivedStops) }];
+        }
       }
     } else {
       const usedSlots = new Set<number>();
@@ -2727,7 +2737,6 @@ export function useDrawingHandlers({
     triggerSimpleShapePreview,
     updateAutoSampledGradient,
     updateCcGradientSample,
-    shouldSampleCcGradient,
     updateDitherGradSamples,
     updateShapePressure,
     ensureActiveColorCycleGradientSlot,

@@ -1,4 +1,4 @@
-import type { BrushSettings } from '@/types';
+import { BrushShape, type BrushSettings } from '@/types';
 import {
   TEMP_SAMPLE_SLOT,
   createCcGradientSampleSession,
@@ -19,7 +19,7 @@ describe('ccGradientSampling', () => {
     const settings = makeSettings({ ccGradientSamplePerShape: true });
     expect(shouldSampleCcGradient(settings, 'color-cycle-gradient')).toBe(true);
     expect(shouldSampleCcGradient(settings, 'color-cycle-stroke')).toBe(false);
-    expect(shouldSampleCcGradient({ ...settings, brushShape: 'square' }, 'color-cycle-gradient')).toBe(false);
+    expect(shouldSampleCcGradient({ ...settings, brushShape: BrushShape.SQUARE }, 'color-cycle-gradient')).toBe(false);
     expect(shouldSampleCcGradient({ ...settings, colorCycleUseForegroundGradient: true }, 'color-cycle-gradient')).toBe(false);
   });
 

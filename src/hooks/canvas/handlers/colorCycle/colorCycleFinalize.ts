@@ -56,6 +56,7 @@ export const finalizeColorCycleBrush = async (
     brushSamplingPreviewActiveRef,
     autoSamplePointsRef,
     autoSampleLastUpdateRef,
+    autoSampleLastAppliedHashRef,
     computeAutoSampleStops,
     clearBrushSamplingPreview,
     getBrushForLayer,

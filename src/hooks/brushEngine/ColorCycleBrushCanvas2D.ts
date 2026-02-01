@@ -1761,12 +1761,12 @@ export class ColorCycleBrushCanvas2D {
       strokeData.lastPoint = null;
       strokeData.strokeCounter = this.strokeCounter;
 
-      let snapshotBuffer: ArrayBuffer = strokeData.buffers.paint.length > 0
+      const snapshotBuffer: ArrayBuffer = strokeData.buffers.paint.length > 0
         ? strokeData.buffers.paint.slice().buffer
         : new ArrayBuffer(0);
-      let snapshotGradientIdBuffer: ArrayBuffer | undefined = strokeData.buffers.gid.slice().buffer;
-      let snapshotSpeedBuffer: ArrayBuffer | undefined = strokeData.buffers.spd.slice().buffer;
-      let snapshotGradientDefIdBuffer: ArrayBuffer | undefined = strokeData.buffers.def.slice().buffer;
+      const snapshotGradientIdBuffer: ArrayBuffer | undefined = strokeData.buffers.gid.slice().buffer;
+      const snapshotSpeedBuffer: ArrayBuffer | undefined = strokeData.buffers.spd.slice().buffer;
+      const snapshotGradientDefIdBuffer: ArrayBuffer | undefined = strokeData.buffers.def.slice().buffer;
 
       const hasContent = this.samplePaintBufferHasContent(
         strokeData.buffers.paint,

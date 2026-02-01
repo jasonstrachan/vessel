@@ -398,10 +398,21 @@ interface ColorCycleBrushState {
       strokeCounter?: number;
       paintBuffer: ArrayBuffer;
       gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
       speedBuffer?: ArrayBuffer;
     };
     gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
     slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+    gradientDefStore?: Array<{
+      id: number;
+      kind: 'linear' | 'concentric';
+      stops: Array<{ position: number; color: string }>;
+      hash: string;
+      source: 'manual' | 'fg' | 'sampled';
+      createdAtMs: number;
+      slot?: number;
+    }>;
+    nextGradientDefId?: number;
     fgActiveSlot?: number;
     fgDerivedKey?: string;
     fgDerivedGradients?: Array<{
