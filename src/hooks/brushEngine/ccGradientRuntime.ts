@@ -36,19 +36,28 @@ const cloneStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map((stop) => ({ position: stop.position, color: stop.color }));
 
 let activeMarkSessionGetter: ((layerId: string) => MarkGradientSession | null) | null = null;
+let activeMarkSessionLoad: Promise<void> | null = null;
+
+const ensureActiveMarkSessionGetter = () => {
+  if (activeMarkSessionGetter || activeMarkSessionLoad) {
+    return;
+  }
+  activeMarkSessionLoad = import('../canvas/utils/colorCycleMarkSession')
+    .then((mod) => {
+      activeMarkSessionGetter = mod.getActiveMarkGradientSession ?? null;
+    })
+    .catch(() => {
+      activeMarkSessionGetter = null;
+    })
+    .finally(() => {
+      activeMarkSessionLoad = null;
+    });
+};
 
 const resolveActiveMarkGradientSession = (layerId: string): MarkGradientSession | null => {
   if (!activeMarkSessionGetter) {
-    try {
-      // Avoid eager imports to prevent circular dependency in store initialization.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require('../canvas/utils/colorCycleMarkSession') as {
-        getActiveMarkGradientSession?: (layerId: string) => MarkGradientSession | null;
-      };
-      activeMarkSessionGetter = mod.getActiveMarkGradientSession ?? null;
-    } catch {
-      return null;
-    }
+    ensureActiveMarkSessionGetter();
+    return null;
   }
   try {
     return activeMarkSessionGetter?.(layerId) ?? null;

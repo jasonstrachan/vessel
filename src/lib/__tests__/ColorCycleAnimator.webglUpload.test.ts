@@ -23,6 +23,7 @@ jest.mock('../colorCycle/rendering/WebGLColorCycleRenderer', () => {
       rect?: { x: number; y: number; width: number; height: number },
       _defIdDirty: boolean = true
     ) {
+      void _defIdDirty;
       uploads.push({ rect });
     }
     render() {}

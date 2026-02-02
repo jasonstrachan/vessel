@@ -82,6 +82,7 @@ jest.mock('@/layers/MaskManager', () => ({
 }));
 
 jest.mock('@/utils/perf/ccPerfProbe', () => ({
+  CC_PERF: { on: false, verbose: false, counters: {} },
   recordColorCycleFillPerf: jest.fn(),
 }));
 

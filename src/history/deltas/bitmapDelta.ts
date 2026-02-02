@@ -316,7 +316,7 @@ export const createBitmapTileDelta = async ({
       const tileWidth = Math.min(tileSize, width - x);
       const tileHeight = Math.min(tileSize, height - y);
       const afterTile = extractTile(afterData, width, height, x, y, tileWidth, tileHeight);
-      const beforeTile = extractTile(
+      let beforeTile = extractTile(
         beforeData,
         before?.width ?? width,
         before ? before.height : height,
@@ -325,6 +325,31 @@ export const createBitmapTileDelta = async ({
         tileWidth,
         tileHeight
       );
+      if (beforeIsRoi && beforeData && normalizedRoi) {
+        // Preserve pixels outside ROI by seeding from afterTile, then overwrite ROI pixels only.
+        beforeTile = afterTile.slice();
+        const ix0 = Math.max(x, normalizedRoi.x);
+        const iy0 = Math.max(y, normalizedRoi.y);
+        const ix1 = Math.min(x + tileWidth, normalizedRoi.right);
+        const iy1 = Math.min(y + tileHeight, normalizedRoi.bottom);
+        const roiWidthPx = normalizedRoi.right - normalizedRoi.x;
+        for (let py = iy0; py < iy1; py += 1) {
+          const srcY = py - normalizedRoi.y;
+          const destY = py - y;
+          const srcRow = srcY * roiWidthPx * 4;
+          const destRow = destY * tileWidth * 4;
+          for (let px = ix0; px < ix1; px += 1) {
+            const srcX = px - normalizedRoi.x;
+            const destX = px - x;
+            const srcIndex = srcRow + srcX * 4;
+            const destIndex = destRow + destX * 4;
+            beforeTile[destIndex] = beforeData[srcIndex];
+            beforeTile[destIndex + 1] = beforeData[srcIndex + 1];
+            beforeTile[destIndex + 2] = beforeData[srcIndex + 2];
+            beforeTile[destIndex + 3] = beforeData[srcIndex + 3];
+          }
+        }
+      }
 
       if (before && tilesEqual(beforeTile, afterTile)) {
         continue;

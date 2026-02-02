@@ -250,7 +250,7 @@ export const commitLayerHistory = async ({
     );
     let deltaCount = 0;
     let committed = false;
-    const pushDelta = (d: HistoryDelta | null | undefined, label: string): void => {
+    const pushDelta = (d: HistoryDelta | null | undefined): void => {
       if (!d) {
         return;
       }
@@ -268,7 +268,7 @@ export const commitLayerHistory = async ({
           after: afterImage,
           roi: bitmapRoi ?? undefined,
         });
-        pushDelta(bitmapDelta, 'bitmap');
+        pushDelta(bitmapDelta);
       }
 
       if (afterColorState || beforeColorState) {
@@ -302,7 +302,7 @@ export const commitLayerHistory = async ({
               height: projectHeight,
             })
           : null;
-        pushDelta(patchDelta, 'color-cycle');
+        pushDelta(patchDelta);
       }
 
       if (selectionBeforeSnapshot) {
@@ -314,7 +314,7 @@ export const commitLayerHistory = async ({
           before: selectionBeforeSnapshot,
           after: selectionAfterSnapshot,
         });
-        pushDelta(selectionDelta, 'selection');
+        pushDelta(selectionDelta);
       }
 
       if (deltaCount > 0) {
