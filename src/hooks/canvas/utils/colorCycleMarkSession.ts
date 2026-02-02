@@ -112,6 +112,9 @@ export const beginMarkGradientSession = (params: {
   source: GradientDefSource;
   stops: StoredStop[];
 }): MarkGradientSession | null => {
+  if (process.env.NODE_ENV !== 'production' && sessionsByLayer.has(params.layerId)) {
+    throw new Error(`[CC] beginMarkGradientSession called while a session is active for ${params.layerId}`);
+  }
   const state = useAppStore.getState();
   const layer = state.layers.find((entry) => entry.id === params.layerId);
   if (!layer || layer.layerType !== 'color-cycle') {
@@ -135,6 +138,14 @@ export const beginMarkGradientSession = (params: {
       samples: [],
     };
     sessionsByLayer.set(params.layerId, session);
+    console.log('[CC] begin session', {
+      markId: session.markId,
+      layerId: params.layerId,
+      source: params.source,
+      kind: params.gradientKind,
+      stopsLen: params.stops?.length ?? 0,
+    });
+    console.log(new Error('[CC] begin session stack').stack);
     return session;
   }
 
@@ -159,6 +170,14 @@ export const beginMarkGradientSession = (params: {
     binding: { kind: 'def', defId: defResult.def.id, slot: defResult.slot },
   };
   sessionsByLayer.set(params.layerId, session);
+  console.log('[CC] begin session', {
+    markId: session.markId,
+    layerId: params.layerId,
+    source: params.source,
+    kind: params.gradientKind,
+    stopsLen: params.stops?.length ?? 0,
+  });
+  console.log(new Error('[CC] begin session stack').stack);
   return session;
 };
 
@@ -167,6 +186,7 @@ export const getActiveMarkGradientSession = (layerId: string): MarkGradientSessi
 
 export const finalizeMarkGradientSession = (layerId: string): MarkGradientSession | null => {
   const session = sessionsByLayer.get(layerId) ?? null;
+  console.log('[CC] finalize session', { layerId, markId: session?.markId });
   if (session?.source === 'sampled') {
     finalizeSampledSession(session);
   }
@@ -221,7 +241,15 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
   if (!layer || layer.layerType !== 'color-cycle') {
     return null;
   }
-  const resolved = resolveActiveColorCycleGradient(layer, state.tools.brushSettings);
+  const resolved = resolveActiveColorCycleGradient(layer, state.tools.brushSettings, {
+    fgColorHex: state.palette.foregroundColor,
+    fgLightness: state.tools.brushSettings.colorCycleFgLightness,
+    fgVariance: state.tools.brushSettings.colorCycleFgVariance,
+    fgHueShift: state.tools.brushSettings.colorCycleFgHueShift,
+    fgSaturationShift: state.tools.brushSettings.colorCycleFgSaturationShift,
+    fgOpacity: state.tools.brushSettings.colorCycleFgOpacity,
+    fgStops: state.tools.brushSettings.colorCycleFgStops,
+  });
   return {
     source: 'fallback',
     phase: 'final',

@@ -1181,9 +1181,10 @@ const BrushControls = () => {
                 const previewResult = activeLayerId
                   ? getPreviewGradientForActiveMark(activeLayerId)
                   : null;
+                const expectsSampled = resolvedGradientSource === 'sampled';
                 const previewStops =
                   previewResult?.stopsStored ??
-                  activeLayer?.colorCycleData?.gradient ??
+                  (expectsSampled ? null : activeLayer?.colorCycleData?.gradient) ??
                   activeSettings.colorCycleGradient ??
                   DEFAULT_GRADIENT_STOPS;
                 const previewCss = previewStops.length
@@ -1192,12 +1193,19 @@ const BrushControls = () => {
                       .join(', ')
                   : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%';
                 return (
-                  <div
-                    className="h-6 rounded border border-white/10"
-                    style={{
-                      background: `linear-gradient(90deg, ${previewCss})`,
-                    }}
-                  />
+                  <>
+                    <div
+                      className="h-6 rounded border border-white/10"
+                      style={{
+                        background: `linear-gradient(90deg, ${previewCss})`,
+                      }}
+                    />
+                    {expectsSampled && !previewResult && (
+                      <div className="mt-1 text-[11px] text-[#E6C55F]">
+                        Sampled preview missing (no active session).
+                      </div>
+                    )}
+                  </>
                 );
               })()}
               <div className="mt-2 flex items-center justify-between text-xs text-[#A0A0A0]">

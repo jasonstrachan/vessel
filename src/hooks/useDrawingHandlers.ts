@@ -343,6 +343,15 @@ const { debugTime, debugTimeEnd, debugVerbose, withTiming } = createPerfDebug({
 });
 
 const ROI_PADDING_PX = 2;
+const getFgParamsFromState = (state: AppState) => ({
+  fgColorHex: state.palette.foregroundColor,
+  fgLightness: state.tools.brushSettings.colorCycleFgLightness,
+  fgVariance: state.tools.brushSettings.colorCycleFgVariance,
+  fgHueShift: state.tools.brushSettings.colorCycleFgHueShift,
+  fgSaturationShift: state.tools.brushSettings.colorCycleFgSaturationShift,
+  fgOpacity: state.tools.brushSettings.colorCycleFgOpacity,
+  fgStops: state.tools.brushSettings.colorCycleFgStops,
+});
 
 export function useDrawingHandlers({
   project,
@@ -377,7 +386,7 @@ export function useDrawingHandlers({
       activeSlot,
       activeStops,
       needsBootstrap
-    } = resolveActiveColorCycleGradient(layer, brushSettings);
+    } = resolveActiveColorCycleGradient(layer, brushSettings, getFgParamsFromState(state));
 
     if (!useForegroundGradient) {
       if (brush && typeof (brush as { setPreserveGradientPhase?: (enabled: boolean) => void }).setPreserveGradientPhase === 'function') {
@@ -1003,7 +1012,11 @@ export function useDrawingHandlers({
         const currentState = storeRef.current;
         const layer = currentState.layers.find((entry) => entry.id === targetLayerId);
         if (layer?.layerType === 'color-cycle' && currentState.tools.ccGradientSource === 'sampled') {
-          const resolved = resolveActiveColorCycleGradient(layer, currentState.tools.brushSettings);
+          const resolved = resolveActiveColorCycleGradient(
+            layer,
+            currentState.tools.brushSettings,
+            getFgParamsFromState(currentState)
+          );
           const gradientKind =
             currentState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
           session = beginMarkGradientSession({
@@ -1019,6 +1032,11 @@ export function useDrawingHandlers({
         return;
       }
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      console.log('[CC] sampled tick', {
+        layerId: targetLayerId,
+        markId: session.markId,
+        previewLen: session.previewStopsStored?.length ?? 0,
+      });
       const result = updateCcSampledSession({
         session,
         sourcePts,
@@ -1507,7 +1525,11 @@ export function useDrawingHandlers({
             const refreshedState = useAppStore.getState();
             const refreshedLayer =
               refreshedState.layers.find((layer) => layer.id === activeLayer.id) ?? activeLayer;
-            const resolved = resolveActiveColorCycleGradient(refreshedLayer, refreshedState.tools.brushSettings);
+            const resolved = resolveActiveColorCycleGradient(
+              refreshedLayer,
+              refreshedState.tools.brushSettings,
+              getFgParamsFromState(refreshedState)
+            );
             const gradientKind =
               refreshedState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
             const desiredSource =

@@ -35,6 +35,7 @@ import {
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
+import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -2781,6 +2782,13 @@ export const createShapeToolHandler = (
               } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
                 if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
                   const useForegroundDerived = Boolean(brushNow.colorCycleUseForegroundGradient);
+                  const ccPreview = storeNow.activeLayerId
+                    ? getPreviewGradientForActiveMark(storeNow.activeLayerId)
+                    : null;
+                  const ccStopsOverride =
+                    ccPreview?.stopsStored && ccPreview.stopsStored.length >= 2
+                      ? ccPreview.stopsStored
+                      : null;
                   const fgBaseColor =
                     context.deps.palette?.foregroundColor ??
                     brushNow.color ??
@@ -2809,13 +2817,14 @@ export const createShapeToolHandler = (
                     ? drawingHandlers.getCcGradientSampleStops?.()
                     : null;
                   const stops =
-                    samplePerShape && sampledStops && sampledStops.length >= 2
+                    ccStopsOverride ??
+                    (samplePerShape && sampledStops && sampledStops.length >= 2
                       ? sampledStops
                       : derivedStops && derivedStops.length >= 2
                         ? derivedStops
                         : brushNow.colorCycleGradient?.length
                           ? brushNow.colorCycleGradient
-                          : DEFAULT_COLOR_CYCLE_GRADIENT;
+                          : DEFAULT_COLOR_CYCLE_GRADIENT);
                   if (shouldDitherPreview) {
                     if (ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
                       const { scale, offsetX, offsetY } = viewTransformRef.current;

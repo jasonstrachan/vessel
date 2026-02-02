@@ -1,6 +1,6 @@
 import type React from 'react';
 import { BrushShape, type BrushSettings, type CanvasSnapshot, type Layer, type Tool } from '@/types';
-import type { AppState, CCReason } from '@/stores/useAppStore';
+import { useAppStore, type AppState, type CCReason } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { CaptureRegion, BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import type { ShapeBeforeSnapshot } from '@/hooks/canvas/utils/snapshots';
@@ -10,6 +10,9 @@ import type { FinalizeQueue } from '@/lib/canvas';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
+import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { hashStops } from '@/utils/colorCycleGradientDefs';
 import {
   TEMP_SAMPLE_SLOT,
   isTempSampleSlotAvailable,
@@ -171,6 +174,7 @@ type ShapeDrawingDeps = {
   }) => void;
   runColorCycleShapeFill: (args: {
     mode: 'linear' | 'concentric';
+    session: import('@/hooks/canvas/utils/colorCycleMarkSession').MarkGradientSession | null;
     shapePoints: Array<{ x: number; y: number }>;
     direction?: { x: number; y: number };
     activeLayerId: string;
@@ -446,6 +450,64 @@ export const startShapeDrawing = (
         const autoSampleEnabled =
           st.tools.brushSettings.autoSampleGradient ||
           st.tools.brushSettings.autoSampleGradientRealtime;
+        if (isCCShape && st.activeLayerId) {
+          const activeLayer = st.layers.find((layer) => layer.id === st.activeLayerId);
+          if (activeLayer?.layerType === 'color-cycle') {
+            const resolved = resolveActiveColorCycleGradient(activeLayer, st.tools.brushSettings, {
+              fgColorHex: st.palette.foregroundColor,
+              fgLightness: st.tools.brushSettings.colorCycleFgLightness,
+              fgVariance: st.tools.brushSettings.colorCycleFgVariance,
+              fgHueShift: st.tools.brushSettings.colorCycleFgHueShift,
+              fgSaturationShift: st.tools.brushSettings.colorCycleFgSaturationShift,
+              fgOpacity: st.tools.brushSettings.colorCycleFgOpacity,
+              fgStops: st.tools.brushSettings.colorCycleFgStops,
+            });
+            const gradientKind =
+              resolveColorCycleFillMode(st.tools.brushSettings.colorCycleFillMode) === 'linear'
+                ? 'linear'
+                : 'concentric';
+            const desiredSource =
+              st.tools.ccGradientSource ??
+              (st.tools.brushSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
+            const source =
+              desiredSource === 'sampled'
+                ? 'sampled'
+                : desiredSource === 'fg'
+                  ? 'fg'
+                  : 'manual';
+            const s = useAppStore.getState();
+            console.log('[CC FG] pointerdown tools', {
+              ccGradientSource: s.tools.ccGradientSource,
+              fgColor: s.palette.foregroundColor,
+              bands: s.tools.brushSettings.gradientBands,
+              fillMode: s.tools.brushSettings.colorCycleFillMode,
+            });
+            const resolvedForHash = resolveActiveColorCycleGradient(activeLayer, s.tools.brushSettings, {
+              fgColorHex: s.palette.foregroundColor,
+              fgLightness: s.tools.brushSettings.colorCycleFgLightness,
+              fgVariance: s.tools.brushSettings.colorCycleFgVariance,
+              fgHueShift: s.tools.brushSettings.colorCycleFgHueShift,
+              fgSaturationShift: s.tools.brushSettings.colorCycleFgSaturationShift,
+              fgOpacity: s.tools.brushSettings.colorCycleFgOpacity,
+              fgStops: s.tools.brushSettings.colorCycleFgStops,
+            });
+            const kindForHash =
+              resolveColorCycleFillMode(s.tools.brushSettings.colorCycleFillMode) === 'linear'
+                ? 'linear'
+                : 'concentric';
+            console.log(
+              '[CC FG] resolved stops hash',
+              hashStops(resolvedForHash.activeStops, kindForHash)
+            );
+            beginMarkGradientSession({
+              layerId: activeLayer.id,
+              markKind: 'shape',
+              gradientKind,
+              source,
+              stops: resolved.activeStops,
+            });
+          }
+        }
         if (isCCShape && sampledSource) {
           refs.ccSampledPointsRef.current = [...refs.shapePointsRef.current];
           deps.updateCcSampledGradient(
@@ -832,8 +894,13 @@ export const finalizeShapeDrawing = async (
                   activeLayer,
                 })
               : { restore: null };
+            const session = finalizeMarkGradientSession(shapeLayerIdString);
+            if (!session) {
+              deps.logError('[CC] Missing mark session before shape finalize (linear selection).');
+            }
             await deps.runColorCycleShapeFill({
               mode: 'linear',
+              session,
               shapePoints: shapePointsSnapshot,
               direction: directionSnapshot,
               activeLayerId,
@@ -1005,8 +1072,13 @@ export const finalizeShapeDrawing = async (
                       activeLayer,
                     })
                   : { restore: null };
+                const session = finalizeMarkGradientSession(shapeLayerIdString);
+                if (!session) {
+                  deps.logError('[CC] Missing mark session before shape finalize.');
+                }
                 await deps.runColorCycleShapeFill({
                   mode: fillMode === 'linear' ? 'linear' : 'concentric',
+                  session,
                   shapePoints: shapePointsSnapshot,
                   direction: fillMode === 'linear'
                     ? deps.computeFallbackLinearDirection(shapePointsSnapshot)

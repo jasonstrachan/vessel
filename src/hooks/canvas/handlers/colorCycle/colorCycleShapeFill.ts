@@ -2,12 +2,9 @@ import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import { useAppStore } from '@/stores/useAppStore';
-import {
-  DEFAULT_COLOR_CYCLE_GRADIENT,
-  ensureForegroundGradientSlot,
-} from '@/utils/colorCycleGradients';
-import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
-import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
+import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 
@@ -20,24 +17,6 @@ export type ColorCycleShapeFillDeps = {
   ccLog: (label: string, payload?: Record<string, unknown>) => void;
   scheduleDeferredColorCycleSaveWithState: (args: DeferredSaveWithStateArgs) => Promise<void>;
   logError: (message: string, error?: unknown) => void;
-};
-
-const resolveActiveNonFgStops = (
-  layer: { colorCycleData?: { gradientDefs?: Array<{ id: string; currentSlot: number }>; activeGradientId?: string; slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }> } } | undefined
-): Array<{ position: number; color: string }> | null => {
-  const defs = layer?.colorCycleData?.gradientDefs;
-  const palettes = layer?.colorCycleData?.slotPalettes;
-  if (!defs?.length || !palettes?.length) {
-    return null;
-  }
-  const activeId = layer?.colorCycleData?.activeGradientId ?? defs[0]?.id;
-  const activeDef = defs.find((entry) => entry.id === activeId) ?? defs[0];
-  const activeSlot = activeDef?.currentSlot;
-  if (typeof activeSlot !== 'number') {
-    return null;
-  }
-  const palette = palettes.find((entry) => entry.slot === activeSlot);
-  return palette?.stops?.length ? palette.stops : null;
 };
 
 export const computeFallbackLinearDirection = (
@@ -80,6 +59,7 @@ export const computeFallbackLinearDirection = (
 };
 
 export type ColorCycleShapeLinearArgs = {
+  session: MarkGradientSession | null;
   shapePoints: Array<{ x: number; y: number }>;
   direction: { x: number; y: number };
   activeLayerId: string;
@@ -105,18 +85,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
-      const desiredSource =
-        live.tools.ccGradientSource ??
-        (liveSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
-      const useFG = desiredSource === 'fg';
-      const source =
-        desiredSource === 'sampled'
-          ? 'sampled'
-          : useFG
-            ? 'fg'
-            : 'manual';
-      const fallbackStops =
-        liveSettings.colorCycleGradient ?? DEFAULT_COLOR_CYCLE_GRADIENT;
+      const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
       let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
       if (useFG && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
@@ -126,20 +95,21 @@ export const finalizeColorCycleShapeFillLinear = async (
           ? { slot: ensured.slot, stops: ensured.stops }
           : fgPalette;
       }
-      const activeStops = resolveActiveNonFgStops(liveLayer);
-      const resolvedStops = useFG && fgPalette?.stops?.length
-        ? fgPalette.stops
-        : (activeStops?.length ? activeStops : (liveLayer?.colorCycleData?.gradient?.length ? liveLayer.colorCycleData.gradient : fallbackStops));
-      const session = beginMarkGradientSession({
-        layerId: args.activeLayerId,
-        markKind: 'shape',
-        gradientKind: 'linear',
-        source,
-        stops: resolvedStops,
-      });
-      if (session?.binding?.slot !== undefined) {
-        requestGradientApply(args.activeLayerId, 'shape-prefill-session');
-        flushGradientApply(args.activeLayerId);
+      const session = args.session;
+      const frozenStops = session?.frozenStopsStored;
+      if (!frozenStops?.length) {
+        deps.logError('[CC] Missing mark session on shape finalize (linear).');
+      }
+      if (session?.binding?.slot !== undefined && frozenStops?.length) {
+        const brush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+        if (brush) {
+          applyRuntimeToBrush(brush, args.activeLayerId, {
+            layerId: args.activeLayerId,
+            paintSlot: session.binding.slot,
+            slotPalettes: [{ slot: session.binding.slot, stops: frozenStops }],
+            flowMode: liveLayer?.colorCycleData?.flowMode,
+          });
+        }
       }
       deps.brushEngine.resetColorCycle(false, { skipGradientReinit: true });
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
@@ -190,7 +160,7 @@ export const finalizeColorCycleShapeFillLinear = async (
     }
 
     try {
-      const session = finalizeMarkGradientSession(args.activeLayerId);
+      const session = args.session;
       if (session?.binding && colorCycleBrush?.bindGradientDefIdToSlot) {
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
@@ -253,6 +223,7 @@ export const finalizeColorCycleShapeFillLinear = async (
 };
 
 export type ColorCycleShapeConcentricArgs = {
+  session: MarkGradientSession | null;
   shapePoints: Array<{ x: number; y: number }>;
   activeLayerId: string;
   activeLayerCanvas: HTMLCanvasElement;
@@ -277,18 +248,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
-      const desiredSource =
-        live.tools.ccGradientSource ??
-        (liveSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
-      const useFG = desiredSource === 'fg';
-      const source =
-        desiredSource === 'sampled'
-          ? 'sampled'
-          : useFG
-            ? 'fg'
-            : 'manual';
-      const fallbackStops =
-        liveSettings.colorCycleGradient ?? DEFAULT_COLOR_CYCLE_GRADIENT;
+      const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
       let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
       if (useFG && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
@@ -298,20 +258,21 @@ export const finalizeColorCycleShapeFillConcentric = async (
           ? { slot: ensured.slot, stops: ensured.stops }
           : fgPalette;
       }
-      const activeStops = resolveActiveNonFgStops(liveLayer);
-      const resolvedStops = useFG && fgPalette?.stops?.length
-        ? fgPalette.stops
-        : (activeStops?.length ? activeStops : (liveLayer?.colorCycleData?.gradient?.length ? liveLayer.colorCycleData.gradient : fallbackStops));
-      const session = beginMarkGradientSession({
-        layerId: args.activeLayerId,
-        markKind: 'shape',
-        gradientKind: 'concentric',
-        source,
-        stops: resolvedStops,
-      });
-      if (session?.binding?.slot !== undefined) {
-        requestGradientApply(args.activeLayerId, 'shape-prefill-session');
-        flushGradientApply(args.activeLayerId);
+      const session = args.session;
+      const frozenStops = session?.frozenStopsStored;
+      if (!frozenStops?.length) {
+        deps.logError('[CC] Missing mark session on shape finalize (concentric).');
+      }
+      if (session?.binding?.slot !== undefined && frozenStops?.length) {
+        const brush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+        if (brush) {
+          applyRuntimeToBrush(brush, args.activeLayerId, {
+            layerId: args.activeLayerId,
+            paintSlot: session.binding.slot,
+            slotPalettes: [{ slot: session.binding.slot, stops: frozenStops }],
+            flowMode: liveLayer?.colorCycleData?.flowMode,
+          });
+        }
       }
       deps.brushEngine.resetColorCycle(false, { skipGradientReinit: true });
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
@@ -351,7 +312,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
     }
 
     try {
-      const session = finalizeMarkGradientSession(args.activeLayerId);
+      const session = args.session;
       if (session?.binding && colorCycleBrush?.bindGradientDefIdToSlot) {
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
@@ -422,6 +383,7 @@ export type ColorCycleShapeFillMode = 'linear' | 'concentric';
 
 export type RunColorCycleShapeFillArgs = {
   mode: ColorCycleShapeFillMode;
+  session: MarkGradientSession | null;
   shapePoints: Array<{ x: number; y: number }>;
   direction?: { x: number; y: number };
   activeLayerId: string;
@@ -458,6 +420,7 @@ export const runColorCycleShapeFill = async (
   if (args.mode === 'linear') {
     const direction = args.direction ?? computeFallbackLinearDirection(args.shapePoints);
     await finalizeColorCycleShapeFillLinear({
+      session: args.session,
       shapePoints: args.shapePoints,
       direction,
       activeLayerId: args.activeLayerId,
@@ -475,6 +438,7 @@ export const runColorCycleShapeFill = async (
     }, deps);
   } else {
     await finalizeColorCycleShapeFillConcentric({
+      session: args.session,
       shapePoints: args.shapePoints,
       activeLayerId: args.activeLayerId,
       activeLayerCanvas: args.activeLayerCanvas,

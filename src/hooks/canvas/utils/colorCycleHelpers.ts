@@ -1,7 +1,18 @@
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
+import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 
 export type GradientStop = { position: number; color: string };
+export type ForegroundGradientParams = {
+  fgColorHex?: string;
+  fgLightness?: number;
+  fgVariance?: number;
+  fgHueShift?: number;
+  fgSaturationShift?: number;
+  fgOpacity?: number;
+  fgStops?: number;
+  fgAlgoVersion?: number;
+};
 
 export const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 0.0, color: '#ff0000' },
@@ -34,7 +45,8 @@ export const getNextGradientSlot = (usedSlots: Set<number>): number | null => {
 
 export const resolveActiveColorCycleGradient = (
   layer: Layer,
-  brushSettings: BrushSettings
+  brushSettings: BrushSettings,
+  fgParams?: ForegroundGradientParams
 ): {
   gradientDefs: Array<{ id: string; currentSlot: number }>;
   slotPalettes: Array<{ slot: number; stops: GradientStop[] }>;
@@ -62,16 +74,31 @@ export const resolveActiveColorCycleGradient = (
   const activeGradientId = layer.colorCycleData?.activeGradientId ?? gradientDefs[0].id;
   const activeDef =
     gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
+  const useForegroundGradient = Boolean(brushSettings.colorCycleUseForegroundGradient);
   const activeSlot = normalizeSlot(
-    brushSettings.colorCycleUseForegroundGradient
+    useForegroundGradient
       ? (layer.colorCycleData?.fgActiveSlot ?? activeDef.currentSlot)
       : (layer.colorCycleData?.paintSlot ?? activeDef.currentSlot)
   );
   const activePalette = slotPalettes.find((entry) => entry.slot === activeSlot);
+  const derivedStops = useForegroundGradient && fgParams?.fgColorHex
+    ? deriveForegroundGradientStops(buildForegroundDerivedGradientSpec({
+        baseColor: fgParams.fgColorHex,
+        lightness: fgParams.fgLightness,
+        variance: fgParams.fgVariance,
+        hueShift: fgParams.fgHueShift,
+        saturationShift: fgParams.fgSaturationShift,
+        opacity: fgParams.fgOpacity,
+        bands: fgParams.fgStops,
+        algoVersion: fgParams.fgAlgoVersion,
+      }))
+    : null;
   const activeStops =
-    activePalette?.stops && activePalette.stops.length > 0
-      ? activePalette.stops
-      : fallbackStops;
+    derivedStops && derivedStops.length >= 2
+      ? derivedStops
+      : (activePalette?.stops && activePalette.stops.length > 0
+        ? activePalette.stops
+        : fallbackStops);
   const hasActiveId =
     Boolean(layer.colorCycleData?.activeGradientId) &&
     gradientDefs.some((entry) => entry.id === layer.colorCycleData?.activeGradientId);

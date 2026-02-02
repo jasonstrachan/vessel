@@ -10,6 +10,7 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
+import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
 
@@ -840,6 +841,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         bufferCtx.fillStyle = strokeColor;
       }
     } else if (isColorCycleShapePreview && brushSettings.colorCycleFillMode === 'linear') {
+      const ccPreview = activeLayerId
+        ? getPreviewGradientForActiveMark(activeLayerId)
+        : null;
+      const ccStopsOverride =
+        ccPreview?.stopsStored && ccPreview.stopsStored.length >= 2
+          ? ccPreview.stopsStored
+          : null;
       const { palette } = getDynamicDeps();
       const useForegroundDerived = Boolean(brushSettings.colorCycleUseForegroundGradient);
       const fgBaseColor =
@@ -859,11 +867,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         : null;
       const derivedStops = derivedSpec ? deriveForegroundGradientStops(derivedSpec) : null;
       const stops =
-        derivedStops && derivedStops.length >= 2
+        ccStopsOverride ??
+        (derivedStops && derivedStops.length >= 2
           ? derivedStops
           : brushSettings.colorCycleGradient?.length
             ? brushSettings.colorCycleGradient
-            : DEFAULT_COLOR_CYCLE_GRADIENT;
+            : DEFAULT_COLOR_CYCLE_GRADIENT);
       const axis = computeOpposingAxis(points);
       const gradient = bufferCtx.createLinearGradient(
         axis.start.x,
