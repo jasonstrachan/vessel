@@ -1628,7 +1628,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       nextShapeMode = true;
     } else if (isNewCC) {
       // Respect explicit CC variant presets; otherwise restore last CC shape mode
-      if (preset.id === 'color-cycle-shape') {
+      if (preset.id === 'color-cycle-shape' || preset.id === 'color-cycle-gradient') {
         nextShapeMode = true;
       } else if (preset.id === 'color-cycle-stroke') {
         nextShapeMode = false;

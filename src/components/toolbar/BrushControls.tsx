@@ -395,8 +395,6 @@ const BrushControls = () => {
       : 'manual';
   const colorCycleFillModeValue =
     activeSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
-  const colorCycleFillModeLabel =
-    colorCycleFillModeValue === 'linear' ? 'Gradient' : 'Concentric';
   const ccGradientSamplePerShapeEnabled = Boolean(activeSettings.ccGradientSamplePerShape);
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;

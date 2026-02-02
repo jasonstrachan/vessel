@@ -901,7 +901,8 @@ export const finalizeRasterShapeFill = ({
             {
               mergeExisting: liveBrushSettings.ditherBackgroundFill !== false,
               overridePressure: effectivePressure,
-              overridePixelSize: forcedPixelSize
+              overridePixelSize: forcedPixelSize,
+              settingsOverride: liveBrushSettings
             }
           );
         } finally {

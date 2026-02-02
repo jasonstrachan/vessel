@@ -284,6 +284,56 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
   return alignToBase(paletteUnits, 0.9).map(toRgbString);
 };
 
+const computeStrokeDitherPaletteForSettings = (settings: BrushSettings): string[] => {
+  const basePalette = buildDitherPalette(
+    settings.color || '#000',
+    settings.ditherPaletteSpread ?? 0
+  );
+
+  if (settings.ditherBackgroundFill === false && basePalette.length >= 2) {
+    const luminance = (rgb: string): number => {
+      const [r, g, b] = parseColor(rgb || '#000');
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    let darkest = basePalette[0];
+    let lightest = basePalette[0];
+    let minLum = luminance(darkest);
+    let maxLum = minLum;
+    for (let i = 1; i < basePalette.length; i += 1) {
+      const l = luminance(basePalette[i]);
+      if (l < minLum) {
+        minLum = l;
+        darkest = basePalette[i];
+      }
+      if (l > maxLum) {
+        maxLum = l;
+        lightest = basePalette[i];
+      }
+    }
+    return [darkest, lightest];
+  }
+
+  return basePalette;
+};
+
+const pickTransparentInk = (palette: string[]): [number, number, number] => {
+  const luminance = (rgb: string): number => {
+    const [r, g, b] = parseColor(rgb || '#000');
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  if (!palette.length) return parseColor('#000') as [number, number, number];
+  let idx = 0;
+  let bestLum = luminance(palette[0]);
+  for (let i = 1; i < palette.length; i += 1) {
+    const l = luminance(palette[i]);
+    if (l < bestLum) {
+      bestLum = l;
+      idx = i;
+    }
+  }
+  return parseColor(palette[idx]) as [number, number, number];
+};
+
 
 const normalizePressureSettings = (settings: BrushSettings) => {
   const range = resolveBrushPressureRange(settings);
@@ -1519,8 +1569,8 @@ export const useBrushEngineSimplified = () => {
     }
   }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
 
-  const shouldApplyStrokeDither = useMemo(() => {
-    const shape = tools.brushSettings.brushShape;
+  const shouldApplyStrokeDitherForSettings = useCallback((settings: BrushSettings) => {
+    const shape = settings.brushShape;
     if (isColorCycleBrush(shape)) {
       return false;
     }
@@ -1531,60 +1581,20 @@ export const useBrushEngineSimplified = () => {
     ) {
       return false;
     }
-    return Boolean(tools.brushSettings.ditherEnabled);
-  }, [tools.brushSettings.brushShape, tools.brushSettings.ditherEnabled]);
+    return Boolean(settings.ditherEnabled);
+  }, []);
+
+  const shouldApplyStrokeDither = useMemo(() => {
+    return shouldApplyStrokeDitherForSettings(tools.brushSettings);
+  }, [shouldApplyStrokeDitherForSettings, tools.brushSettings]);
 
   const strokeDitherPalette = useMemo(() => {
-    const basePalette = buildDitherPalette(
-      tools.brushSettings.color || '#000',
-      tools.brushSettings.ditherPaletteSpread ?? 0
-    );
-
-    // For BG-fill-off, force a 2-ink palette (darkest + lightest) so one ink always becomes transparent
-    if (tools.brushSettings.ditherBackgroundFill === false && basePalette.length >= 2) {
-      const luminance = (rgb: string): number => {
-        const [r, g, b] = parseColor(rgb || '#000');
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      };
-      let darkest = basePalette[0];
-      let lightest = basePalette[0];
-      let minLum = luminance(darkest);
-      let maxLum = minLum;
-      for (let i = 1; i < basePalette.length; i += 1) {
-        const l = luminance(basePalette[i]);
-        if (l < minLum) {
-          minLum = l;
-          darkest = basePalette[i];
-        }
-        if (l > maxLum) {
-          maxLum = l;
-          lightest = basePalette[i];
-        }
-      }
-      return [darkest, lightest];
-    }
-
-    return basePalette;
-  }, [tools.brushSettings.color, tools.brushSettings.ditherPaletteSpread, tools.brushSettings.ditherBackgroundFill]);
+    return computeStrokeDitherPaletteForSettings(tools.brushSettings);
+  }, [tools.brushSettings]);
 
   // Pick a single palette entry to represent "off"/transparent ink: choose the darkest ink for stability
   const transparentInk = useMemo(() => {
-    const palette = strokeDitherPalette;
-    const luminance = (rgb: string): number => {
-      const [r, g, b] = parseColor(rgb || '#000');
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    if (!palette.length) return parseColor('#000') as [number, number, number];
-    let idx = 0;
-    let bestLum = luminance(palette[0]);
-    for (let i = 1; i < palette.length; i += 1) {
-      const l = luminance(palette[i]);
-      if (l < bestLum) {
-        bestLum = l;
-        idx = i;
-      }
-    }
-    return parseColor(palette[idx]) as [number, number, number];
+    return pickTransparentInk(strokeDitherPalette);
   }, [strokeDitherPalette]);
 
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
@@ -1723,13 +1733,22 @@ export const useBrushEngineSimplified = () => {
       overridePixelSize?: number;
       bgOffMode?: 'direct' | 'accumulate';
       bgOffComposite?: 'copy' | 'source-over';
+      settingsOverride?: BrushSettings;
     }
   ) => {
     const overridePressure = options?.overridePressure;
     const overridePixelSize = options?.overridePixelSize;
+    const settings = options?.settingsOverride ?? tools.brushSettings;
+    const palette = options?.settingsOverride
+      ? computeStrokeDitherPaletteForSettings(settings)
+      : strokeDitherPalette;
+    const transparent = options?.settingsOverride
+      ? pickTransparentInk(palette)
+      : transparentInk;
+
     // For shape-mode dither presets we need to respect the BG Fill toggle just like strokes
-    const fillBackground = tools.brushSettings.ditherBackgroundFill !== false;
-    const pressureMode = !!tools.brushSettings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
+    const fillBackground = settings.ditherBackgroundFill !== false;
+    const pressureMode = !!settings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
     let bgOffMode = options?.bgOffMode ?? 'accumulate';
     let bgOffComposite = options?.bgOffComposite ?? 'source-over';
 
@@ -1740,14 +1759,14 @@ export const useBrushEngineSimplified = () => {
     }
     const [bgR, bgG, bgB] = (() => {
       const candidate =
-        strokeDitherPalette[1] ??
-        strokeDitherPalette[0] ??
-        tools.brushSettings.color ??
+        palette[1] ??
+        palette[0] ??
+        settings.color ??
         '#000';
       const [r, g, b] = parseColor(candidate);
       return [r, g, b] as [number, number, number];
     })();
-    const [offR, offG, offB] = transparentInk;
+    const [offR, offG, offB] = transparent;
 
     const { x, y, width, height } = region;
     if (width <= 0 || height <= 0) return;
@@ -1762,11 +1781,11 @@ export const useBrushEngineSimplified = () => {
     }
 
     // Algorithm/pattern always come from the dropdown
-    const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-    const patternStyle = tools.brushSettings.patternStyle || 'dots';
+    const algorithm = settings.ditherAlgorithm || 'sierra-lite';
+    const patternStyle = settings.patternStyle || 'dots';
 
     // Base pixel size from slider
-    const baseFillRes = Math.max(1, Math.round(tools.brushSettings.fillResolution || 1));
+    const baseFillRes = Math.max(1, Math.round(settings.fillResolution || 1));
 
     // Pressure-resolved pixel size (hard override takes precedence)
     const resolvedOverridePixelSize = overridePixelSize != null
@@ -1804,12 +1823,12 @@ export const useBrushEngineSimplified = () => {
     });
 
     // Erode stroke coverage before dithering so the pattern stays clean.
-    if (tools.brushSettings.lostEdge && tools.brushSettings.lostEdge > 0) {
+    if (settings.lostEdge && settings.lostEdge > 0) {
       applyLostEdgeToStrokeAlpha(
         src.data,
         width,
         height,
-        tools.brushSettings.lostEdge
+        settings.lostEdge
       );
     }
 
@@ -1821,19 +1840,19 @@ export const useBrushEngineSimplified = () => {
     const dithered = pixelSize > 1
       ? applyDitheringWithFillResolution(
           src,
-          strokeDitherPalette.length,
+          palette.length,
           pixelSize,
           algorithm,
           patternStyle,
-          strokeDitherPalette,
+          palette,
           phaseOffset
         )
       : applyDitheringImport(
           src,
-          strokeDitherPalette.length,
+          palette.length,
           algorithm,
           patternStyle,
-          strokeDitherPalette,
+          palette,
           phaseOffset
         );
 
@@ -1972,13 +1991,15 @@ export const useBrushEngineSimplified = () => {
       overridePixelSize?: number;
       bgOffMode?: 'direct' | 'accumulate';
       bgOffComposite?: 'copy' | 'source-over';
+      settingsOverride?: BrushSettings;
     }
   ) => {
-    if (!shouldApplyStrokeDither || !ctx || !bounds) return;
+    const settings = options?.settingsOverride ?? tools.brushSettings;
+    if (!shouldApplyStrokeDitherForSettings(settings) || !ctx || !bounds) return;
     const { width: canvasWidth = 0, height: canvasHeight = 0 } = ctx.canvas || {};
     const region = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
     ditherRegionWithCurrentPressure(ctx, region, sampleCtx, options);
-  }, [ditherRegionWithCurrentPressure, shouldApplyStrokeDither]);
+  }, [ditherRegionWithCurrentPressure, shouldApplyStrokeDitherForSettings, tools.brushSettings]);
 
   const applyStrokeRisographOverlay = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, source?: HTMLCanvasElement | null) => {
     const intensity = tools.brushSettings.risographIntensity || 0;

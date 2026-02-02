@@ -175,6 +175,20 @@ describe('tools slice', () => {
     );
   });
 
+  it('forces shape mode for the color cycle gradient preset', () => {
+    const store = useAppStore.getState();
+    store.setShapeMode(false);
+
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    expect(gradientPreset).toBeTruthy();
+
+    if (gradientPreset) {
+      store.setBrushPreset(gradientPreset);
+    }
+
+    expect(useAppStore.getState().tools.shapeMode).toBe(true);
+  });
+
   it('manages recolor sampling lifecycle', () => {
     const store = useAppStore.getState();
     store.startRecolorSampling(10, 'brush');
