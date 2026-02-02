@@ -320,7 +320,12 @@ export const ensureStampDitherBuffers = (strokeData: StampDitherStrokeData, widt
   }
 };
 
-export const ensureStampDitherBaseBuffers = (strokeData: StampDitherStrokeData, width: number, height: number) => {
+export const ensureStampDitherBaseBuffers = (
+  strokeData: StampDitherStrokeData,
+  width: number,
+  height: number,
+  options?: { onClearMask?: (ms: number) => void }
+) => {
   const size = Math.max(1, width * height);
   if (!strokeData.stampDitherBaseIdx || strokeData.stampDitherBaseIdx.length !== size) {
     strokeData.stampDitherBaseIdx = new Uint8Array(size);
@@ -331,7 +336,9 @@ export const ensureStampDitherBaseBuffers = (strokeData: StampDitherStrokeData, 
   if (!strokeData.stampDitherBaseMask || strokeData.stampDitherBaseMask.length !== size) {
     strokeData.stampDitherBaseMask = new Uint8Array(size);
   } else {
+    const t0 = nowMs();
     strokeData.stampDitherBaseMask.fill(0);
+    options?.onClearMask?.(Math.max(0, nowMs() - t0));
   }
 };
 
@@ -824,6 +831,10 @@ export const applyStampDitherStamp = (args: {
   height: number;
   isAnimating: boolean;
   onScheduleRecompose?: (tileScale: number) => void;
+  perf?: {
+    onMask?: (ms: number, bounds: { minX: number; minY: number; maxX: number; maxY: number }) => void;
+    onApply?: (ms: number) => void;
+  };
 }): { didApply: boolean; bounds?: { minX: number; minY: number; maxX: number; maxY: number } } => {
   const {
     animator,
@@ -923,6 +934,7 @@ export const applyStampDitherStamp = (args: {
   state.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
   const stampSeq = state.stampDitherStampSeq ?? 1;
 
+  const maskStart = nowMs();
   const stampBounds = applyStampDitherMask(
     state,
     width,
@@ -935,11 +947,16 @@ export const applyStampDitherStamp = (args: {
     stampSeq,
     config.bgFill
   );
+  const maskMs = Math.max(0, nowMs() - maskStart);
+  if (stampBounds) {
+    args.perf?.onMask?.(maskMs, stampBounds);
+  }
   if (stampBounds && state.stampSeqMeta) {
     state.stampSeqMeta.push([stampSeq, tileScaleInt]);
   }
 
   const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+  const applyStart = nowMs();
   applyStampDitherToRegion(
     state,
     animator,
@@ -956,6 +973,7 @@ export const applyStampDitherStamp = (args: {
     coverage,
     config.seed ?? 0
   );
+  args.perf?.onApply?.(Math.max(0, nowMs() - applyStart));
 
   return { didApply: true, bounds: stampBounds };
 };
