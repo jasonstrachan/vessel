@@ -15,7 +15,7 @@ import {
   createStampDitherRuntime,
   ensureStampDitherBaseBuffers,
   ensureStampDitherBuffers,
-  ensureStampDitherOwner,
+  ensureStampDitherTag,
   finalizeStampDither,
   recomposeStampDitherOverlay,
   resolveStampDitherBucket,
@@ -2039,27 +2039,21 @@ export class ColorCycleBrushCanvas2D {
         stampState.stampSeqMeta = [];
         stampState.stampSeqToTileScale = undefined;
         const stampStroke = this.getStampDitherStrokeData(strokeData);
+        stampStroke.stampDitherStrokeEpoch = ((stampStroke.stampDitherStrokeEpoch ?? 0) + 1) & 0xffff;
+        if (stampStroke.stampDitherStrokeEpoch === 0) {
+          stampStroke.stampDitherStrokeEpoch = 1;
+        }
         const allocStart = perf ? nowMs() : 0;
         ensureStampDitherBuffers(stampStroke, this.width, this.height);
-        ensureStampDitherOwner(stampStroke, this.width, this.height);
+        ensureStampDitherTag(stampStroke, this.width, this.height);
         if (!this.stampDitherBgFill) {
-          ensureStampDitherBaseBuffers(stampStroke, this.width, this.height, {
-            onClearMask: (ms) => {
-              if (perf) perf.durations.clearBaseMaskMs += ms;
-            },
-          });
+          ensureStampDitherBaseBuffers(stampStroke, this.width, this.height);
         } else {
           stampStroke.stampDitherBaseIdx = undefined;
           stampStroke.stampDitherBaseGid = undefined;
-          stampStroke.stampDitherBaseMask = undefined;
+          stampStroke.stampDitherBaseTag = undefined;
         }
         if (perf) perf.durations.allocOrResizeMs += Math.max(0, nowMs() - allocStart);
-        const clearPrimaryStart = perf ? nowMs() : 0;
-        stampStroke.stampDitherPrimaryBuffer?.fill(0);
-        if (perf) perf.durations.clearPrimaryMs += Math.max(0, nowMs() - clearPrimaryStart);
-        const clearMaskStart = perf ? nowMs() : 0;
-        stampStroke.stampDitherOwner?.fill(0);
-        if (perf) perf.durations.clearMaskMs += Math.max(0, nowMs() - clearMaskStart);
         stampStroke.stampDitherStampSeq = 0;
         stampStroke.stampDitherFillHandle = animator.beginDirectFill();
         this.assertStrokeHandleSize(stampStroke.stampDitherFillHandle, 'stamp dither');
@@ -2272,10 +2266,6 @@ export class ColorCycleBrushCanvas2D {
         perf.durations.serializeMs += Math.max(0, nowMs() - serializeStart);
       }
       if (strokeData.stampDither) {
-        strokeData.stampDither.stampDitherBaseIdx = undefined;
-        strokeData.stampDither.stampDitherBaseGid = undefined;
-        strokeData.stampDither.stampDitherBaseMask = undefined;
-        strokeData.stampDither.stampDitherOwner = undefined;
         strokeData.stampDither.stampDitherStampSeq = 0;
         strokeData.stampDither.stampDitherBounds = null;
         strokeData.stampDither.stampDitherRecomposeLastMs = undefined;

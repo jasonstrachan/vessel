@@ -1,11 +1,6 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
-import {
-  applyPressureDither,
-  BAYER_8x8_MATRIX,
-  BLUE_NOISE_16x16,
-  VOID_CLUSTER_8x8,
-} from '@/utils/ditherAlgorithms';
-import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
+import { BAYER_8x8_MATRIX, BLUE_NOISE_16x16, VOID_CLUSTER_8x8 } from '@/utils/ditherAlgorithms';
+import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
 
@@ -36,14 +31,15 @@ export type StampDitherState = {
   stampDitherOrigin?: { x: number; y: number } | null;
   stampDitherSeed?: number;
   stampDitherPressureState?: ReturnType<typeof createPressureResolutionState> | null;
-  stampDitherOwner?: Uint16Array;
+  stampDitherTag?: Uint32Array;
+  stampDitherStrokeEpoch?: number;
   stampDitherStampSeq?: number;
   stampSeqMeta?: Array<[number, number]>;
   stampSeqToTileScale?: Uint16Array;
   stampDitherPrimaryBuffer?: Uint8Array;
   stampDitherBaseIdx?: Uint8Array;
   stampDitherBaseGid?: Uint8Array;
-  stampDitherBaseMask?: Uint8Array;
+  stampDitherBaseTag?: Uint16Array;
   stampDitherLockedBucket?: number;
   stampDitherStrokeScale?: number;
   stampDitherOriginUnits?: { x: number; y: number } | null;
@@ -323,8 +319,7 @@ export const ensureStampDitherBuffers = (strokeData: StampDitherStrokeData, widt
 export const ensureStampDitherBaseBuffers = (
   strokeData: StampDitherStrokeData,
   width: number,
-  height: number,
-  options?: { onClearMask?: (ms: number) => void }
+  height: number
 ) => {
   const size = Math.max(1, width * height);
   if (!strokeData.stampDitherBaseIdx || strokeData.stampDitherBaseIdx.length !== size) {
@@ -333,19 +328,15 @@ export const ensureStampDitherBaseBuffers = (
   if (!strokeData.stampDitherBaseGid || strokeData.stampDitherBaseGid.length !== size) {
     strokeData.stampDitherBaseGid = new Uint8Array(size);
   }
-  if (!strokeData.stampDitherBaseMask || strokeData.stampDitherBaseMask.length !== size) {
-    strokeData.stampDitherBaseMask = new Uint8Array(size);
-  } else {
-    const t0 = nowMs();
-    strokeData.stampDitherBaseMask.fill(0);
-    options?.onClearMask?.(Math.max(0, nowMs() - t0));
+  if (!strokeData.stampDitherBaseTag || strokeData.stampDitherBaseTag.length !== size) {
+    strokeData.stampDitherBaseTag = new Uint16Array(size);
   }
 };
 
-export const ensureStampDitherOwner = (strokeData: StampDitherStrokeData, width: number, height: number) => {
+export const ensureStampDitherTag = (strokeData: StampDitherStrokeData, width: number, height: number) => {
   const size = Math.max(1, width * height);
-  if (!strokeData.stampDitherOwner || strokeData.stampDitherOwner.length !== size) {
-    strokeData.stampDitherOwner = new Uint16Array(size);
+  if (!strokeData.stampDitherTag || strokeData.stampDitherTag.length !== size) {
+    strokeData.stampDitherTag = new Uint32Array(size);
   }
 };
 
@@ -390,24 +381,27 @@ const applyStampDitherMask = (
   bgFill: boolean
 ): { minX: number; minY: number; maxX: number; maxY: number } => {
   ensureStampDitherBuffers(strokeData, width, height);
-  ensureStampDitherOwner(strokeData, width, height);
+  ensureStampDitherTag(strokeData, width, height);
   const primary = strokeData.stampDitherPrimaryBuffer!;
-  const owner = strokeData.stampDitherOwner!;
-  const captureBase = !bgFill && !!strokeData.stampDitherBaseMask;
-  const baseMask = strokeData.stampDitherBaseMask;
+  const tag = strokeData.stampDitherTag!;
+  const captureBase = !bgFill && !!strokeData.stampDitherBaseTag;
+  const baseTag = strokeData.stampDitherBaseTag;
   const baseIdx = strokeData.stampDitherBaseIdx;
   const baseGid = strokeData.stampDitherBaseGid;
   const paint = strokeData.paintBuffer;
   const gid = strokeData.gradientIdBuffer;
+  const strokeEpoch = strokeData.stampDitherStrokeEpoch ?? 1;
   const captureIfNeeded = (idx: number) => {
-    if (!captureBase || !baseMask || !baseIdx) return;
-    if (baseMask[idx] === 1) return;
-    baseMask[idx] = 1;
+    if (!captureBase || !baseTag || !baseIdx) return;
+    if (baseTag[idx] === strokeEpoch) return;
+    baseTag[idx] = strokeEpoch;
     baseIdx[idx] = paint[idx];
     if (baseGid && gid) {
       baseGid[idx] = gid[idx];
     }
   };
+
+  const tagValue = ((strokeEpoch & 0xffff) << 16) | (stampSeq & 0xffff);
 
   if (shape === 'triangle') {
     const halfSize = brushSize / 2;
@@ -435,7 +429,7 @@ const applyStampDitherMask = (
           const idx = py * width + px;
           captureIfNeeded(idx);
           primary[idx] = primaryIndex;
-          owner[idx] = stampSeq;
+          tag[idx] = tagValue;
         }
       }
     }
@@ -458,7 +452,7 @@ const applyStampDitherMask = (
         const idx = py * width + px;
         captureIfNeeded(idx);
         primary[idx] = primaryIndex;
-        owner[idx] = stampSeq;
+        tag[idx] = tagValue;
       }
     }
     updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -479,7 +473,7 @@ const applyStampDitherMask = (
         const idx = py * width + px;
         captureIfNeeded(idx);
         primary[idx] = primaryIndex;
-        owner[idx] = stampSeq;
+        tag[idx] = tagValue;
       }
     }
     updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -497,7 +491,7 @@ const applyStampDitherMask = (
       const idx = py * width + px;
       captureIfNeeded(idx);
       primary[idx] = primaryIndex;
-      owner[idx] = stampSeq;
+      tag[idx] = tagValue;
     }
   }
   updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -580,13 +574,14 @@ const buildBaseStampDitherTile = (
     return result;
   }
   const result = new Uint8Array(tileSize * tileSize);
+  const toByte = (value: number) => Math.max(0, Math.min(255, Math.round(value * 255)));
   const fillFromMatrix = (matrix: number[][]) => {
     const matrixSize = matrix.length;
     for (let y = 0; y < tileSize; y += 1) {
       const row = matrix[y % matrixSize];
       for (let x = 0; x < tileSize; x += 1) {
         const threshold = row[x % matrixSize];
-        result[y * tileSize + x] = threshold <= coverage ? 1 : 0;
+        result[y * tileSize + x] = toByte(threshold);
       }
     }
   };
@@ -603,35 +598,11 @@ const buildBaseStampDitherTile = (
     fillFromMatrix(VOID_CLUSTER_8x8);
     return result;
   }
-  const ramp = new Uint8ClampedArray(tileSize * tileSize * 4);
+  const noiseSeed = 0x9e3779b9 ^ (clampedBucket << 8) ^ tileSize;
   for (let y = 0; y < tileSize; y += 1) {
     for (let x = 0; x < tileSize; x += 1) {
-      const idx = (y * tileSize + x) * 4;
-      const base = (x + y) / (2 * (tileSize - 1));
-      const value = Math.round(Math.min(1, Math.max(0, base * 0.85 + 0.075)) * 255);
-      ramp[idx] = value;
-      ramp[idx + 1] = value;
-      ramp[idx + 2] = value;
-      ramp[idx + 3] = 255;
+      result[y * tileSize + x] = toByte(hashCellNoise(noiseSeed, x, y));
     }
-  }
-  const dithered = applyPressureDither(
-    new ImageData(ramp, tileSize, tileSize),
-    {
-      algorithm: algo as DitherAlgorithm,
-      pressure: 0.5,
-      intensity: 1.0,
-      bayerMatrixSize: 8,
-      palette: [
-        [0, 0, 0],
-        [255, 255, 255],
-      ],
-    }
-  );
-  for (let i = 0; i < result.length; i += 1) {
-    const idx = i * 4;
-    const value = (dithered.data[idx] + dithered.data[idx + 1] + dithered.data[idx + 2]) / 3;
-    result[i] = value <= coverage * 255 ? 1 : 0;
   }
   return result;
 };
@@ -710,14 +681,15 @@ const applyStampDitherToRegion = (
   cycleSpeed: number,
   bgFill: boolean,
   algo: StampDitherAlgorithm,
-  coverage: number,
-  seed: number,
+  coverage: number
 ) => {
   const primary = strokeData.stampDitherPrimaryBuffer;
-  const owner = strokeData.stampDitherOwner;
-  if (!primary || !owner) {
+  const tag = strokeData.stampDitherTag;
+  if (!primary || !tag) {
     return;
   }
+  const strokeEpoch = strokeData.stampDitherStrokeEpoch ?? 1;
+  const tagValue = ((strokeEpoch & 0xffff) << 16) | (stampSeq & 0xffff);
 
   const handle = strokeData.stampDitherFillHandle ?? animator.beginDirectFill();
   const shouldCloseHandle = !strokeData.stampDitherFillHandle;
@@ -733,6 +705,7 @@ const applyStampDitherToRegion = (
   const tileClamp = Math.max(1, Math.floor(tileSize));
   const bgFillOff = !bgFill;
 
+  const coverageByte = Math.max(0, Math.min(255, Math.round(coverage * 255)));
   for (let py = minY; py <= maxY; py++) {
     const rowOffset = py * width;
     const localY = ((py - maskOriginY) % tileClamp + tileClamp) % tileClamp;
@@ -740,29 +713,22 @@ const applyStampDitherToRegion = (
     let localX = ((minX - maskOriginX) % tileClamp + tileClamp) % tileClamp;
     for (let px = minX; px <= maxX; px++) {
       const idx = rowOffset + px;
-      if (owner[idx] !== stampSeq) {
+      if (tag[idx] !== tagValue) {
         localX += 1;
         if (localX === tileClamp) localX = 0;
         continue;
       }
       const tileIdx = tileRow + localX;
+      const t = tile ? tile[tileIdx] : 0;
       const usePrimary =
         algo === 'pattern'
-          ? (tile ? tile[tileIdx] === 1 : false)
-          : (resolveStampDitherTileSample(
-              tile,
-              tileClamp,
-              px,
-              py,
-              maskOriginX,
-              maskOriginY,
-              seed
-            ) <= coverage);
+          ? (t === 1)
+          : (t <= coverageByte);
       if (bgFillOff && !usePrimary) {
         const base = strokeData.stampDitherBaseIdx;
         const baseG = strokeData.stampDitherBaseGid;
-        const baseMask = strokeData.stampDitherBaseMask;
-        if (base && baseMask && base.length === data.length) {
+        const baseTag = strokeData.stampDitherBaseTag;
+        if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
           const v = base[idx];
           data[idx] = v;
           if (v === 0) {
@@ -882,7 +848,7 @@ export const applyStampDitherStamp = (args: {
   const tileScaleInt = tileScale;
   let tileSize = STAMP_DITHER_TILE_BASE_MIN * tileScaleInt;
 
-  if (!config.bgFill && !state.stampDitherBaseMask) {
+  if (!config.bgFill && !state.stampDitherBaseTag) {
     ensureStampDitherBaseBuffers(state, width, height);
   }
   if (state.stampDitherLockedBucket == null) {
@@ -970,8 +936,7 @@ export const applyStampDitherStamp = (args: {
     cycleSpeed,
     config.bgFill,
     algo,
-    coverage,
-    config.seed ?? 0
+    coverage
   );
   args.perf?.onApply?.(Math.max(0, nowMs() - applyStart));
 
@@ -1018,19 +983,19 @@ export const recomposeStampDitherOverlay = (args: {
     tileScale,
   } = args;
   const bounds = state.stampDitherBounds;
-  const owner = state.stampDitherOwner;
+  const tag = state.stampDitherTag;
   const primary = state.stampDitherPrimaryBuffer;
   const base = state.stampDitherBaseIdx;
   const baseG = state.stampDitherBaseGid;
-  const baseMask = state.stampDitherBaseMask;
-  if (!bounds || !owner || !primary) return;
+  const baseTag = state.stampDitherBaseTag;
+  if (!bounds || !tag || !primary) return;
   const rawAlgo = config.algorithm || 'sierra-lite';
   const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
   const bucket = state.stampDitherLockedBucket ?? 1;
   const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
   const seed = config.seed ?? 0;
   const bgFillOff = !config.bgFill;
-  if (bgFillOff && (!base || !baseMask)) {
+  if (bgFillOff && (!base || !baseTag)) {
     return;
   }
   const basePixelSize = Math.max(1, config.pixelSize);
@@ -1051,12 +1016,17 @@ export const recomposeStampDitherOverlay = (args: {
   const minY = Math.max(0, Math.min(h - 1, bounds.minY));
   const maxY = Math.max(0, Math.min(h - 1, bounds.maxY));
 
+  const strokeEpoch = state.stampDitherStrokeEpoch ?? 1;
+  const coverageByte = Math.max(0, Math.min(255, Math.round(coverage * 255)));
   for (let y = minY; y <= maxY; y += 1) {
     const row = y * w;
     for (let x = minX; x <= maxX; x += 1) {
       const idx = row + x;
-      if (owner[idx] === 0) continue;
-      const seqScale = lut[owner[idx]] || fallbackScale;
+      const tagValue = tag[idx];
+      if ((tagValue >>> 16) !== strokeEpoch) continue;
+      const seq = tagValue & 0xffff;
+      if (seq === 0) continue;
+      const seqScale = lut[seq] || fallbackScale;
       let tileEntry = tileCache.get(seqScale);
       if (!tileEntry) {
         const baseSize = resolveStampDitherBaseSize(seqScale);
@@ -1086,15 +1056,7 @@ export const recomposeStampDitherOverlay = (args: {
       const usePrimary =
         algo === 'pattern'
           ? (tileEntry.tile[tIdx] === 1)
-          : (resolveStampDitherTileSample(
-              tileEntry.tile,
-              tileEntry.tileClamp,
-              x,
-              y,
-              tileEntry.originX,
-              tileEntry.originY,
-              seed
-            ) <= coverage);
+          : (tileEntry.tile[tIdx] <= coverageByte);
       if (usePrimary) {
         data[idx] = p;
         gid[idx] = p === 0 ? 0 : flowSlot;
@@ -1102,7 +1064,7 @@ export const recomposeStampDitherOverlay = (args: {
         continue;
       }
       if (bgFillOff) {
-        if (base && baseMask && base.length === data.length) {
+        if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
           const v = base[idx];
           data[idx] = v;
           if (v === 0) {
@@ -1191,9 +1153,9 @@ export const finalizeStampDither = (args: {
     ditherStrength,
   } = args;
   const bounds = state.stampDitherBounds;
-  const owner = state.stampDitherOwner;
+  const tag = state.stampDitherTag;
   const primary = state.stampDitherPrimaryBuffer;
-  if (!bounds || !owner || !primary) return false;
+  if (!bounds || !tag || !primary) return false;
 
   const algo = config.algorithm ?? 'sierra-lite';
   if (!isErrorDiffusionAlgorithm(algo)) return false;
@@ -1213,11 +1175,14 @@ export const finalizeStampDither = (args: {
   state.stampDitherChoice = choice;
 
   const scaleBounds = new Map<number, { minX: number; minY: number; maxX: number; maxY: number }>();
+  const strokeEpoch = state.stampDitherStrokeEpoch ?? 1;
   for (let y = minY; y <= maxY; y += 1) {
     const row = y * width;
     for (let x = minX; x <= maxX; x += 1) {
       const idx = row + x;
-      const seq = owner[idx];
+      const tagValue = tag[idx];
+      if ((tagValue >>> 16) !== strokeEpoch) continue;
+      const seq = tagValue & 0xffff;
       if (seq === 0) continue;
       const scale = lut[seq] || fallbackScale;
       let entry = scaleBounds.get(scale);
@@ -1259,7 +1224,9 @@ export const finalizeStampDither = (args: {
       const cellY = Math.floor(y / cellSize) - minCellY;
       for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
         const idx = row + x;
-        const seq = owner[idx];
+        const tagValue = tag[idx];
+        if ((tagValue >>> 16) !== strokeEpoch) continue;
+        const seq = tagValue & 0xffff;
         if (seq === 0) continue;
         const seqScale = lut[seq] || fallbackScale;
         if (seqScale !== scale) continue;
@@ -1305,7 +1272,9 @@ export const finalizeStampDither = (args: {
       const cellY = Math.floor(y / cellSize) - minCellY;
       for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
         const idx = row + x;
-        const seq = owner[idx];
+        const tagValue = tag[idx];
+        if ((tagValue >>> 16) !== strokeEpoch) continue;
+        const seq = tagValue & 0xffff;
         if (seq === 0) continue;
         const seqScale = lut[seq] || fallbackScale;
         if (seqScale !== scale) continue;
@@ -1325,13 +1294,15 @@ export const finalizeStampDither = (args: {
   const bgFillOff = !config.bgFill;
   const base = state.stampDitherBaseIdx;
   const baseG = state.stampDitherBaseGid;
-  const baseMask = state.stampDitherBaseMask;
+  const baseTag = state.stampDitherBaseTag;
 
   for (let y = minY; y <= maxY; y += 1) {
     const row = y * width;
     for (let x = minX; x <= maxX; x += 1) {
       const idx = row + x;
-      if (owner[idx] === 0) continue;
+      const tagValue = tag[idx];
+      if ((tagValue >>> 16) !== strokeEpoch) continue;
+      if ((tagValue & 0xffff) === 0) continue;
       const usePrimary = choice[idx] === 1;
       const primaryIndex = primary[idx];
       if (usePrimary) {
@@ -1341,7 +1312,7 @@ export const finalizeStampDither = (args: {
         continue;
       }
       if (bgFillOff) {
-        if (base && baseMask && base.length === data.length) {
+        if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
           const v = base[idx];
           data[idx] = v;
           if (v === 0) {
