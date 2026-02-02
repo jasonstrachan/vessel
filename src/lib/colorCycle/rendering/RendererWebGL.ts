@@ -86,9 +86,10 @@ export class RendererWebGL {
     data: Uint8Array,
     gradientId?: Uint8Array,
     speedData?: Uint8Array,
+    defIdData?: Uint16Array,
     rect?: { x: number; y: number; width: number; height: number }
   ) {
-    this.renderer.setIndexData(data, gradientId, speedData, rect);
+    this.renderer.setIndexData(data, gradientId, speedData, defIdData, rect);
   }
 
   render(timeSeconds: number, legacyPhase: number = timeSeconds, flowMode: FlowMode = 'forward') {
@@ -107,6 +108,23 @@ export class RendererWebGL {
   resetPaletteState() {
     this.paletteReady = false;
     this.paletteSignaturesBySlot.fill(null);
+  }
+
+  setDefPaletteRow(row: number, rgba: PaletteRGBA, signature?: string | null) {
+    this.renderer.setDefPaletteRow(row, rgba);
+    void signature;
+  }
+
+  setDefPaletteLut(lut: Uint8Array) {
+    this.renderer.setDefPaletteLut(lut);
+  }
+
+  setDefPaletteRows(rows: number) {
+    this.renderer.setDefPaletteRows(rows);
+  }
+
+  resetDefPaletteState() {
+    this.renderer.resetDefPaletteState();
   }
 
   fillPolygonConcentric(options: Parameters<WebGLColorCycleRenderer['fillPolygonConcentric']>[0]) {

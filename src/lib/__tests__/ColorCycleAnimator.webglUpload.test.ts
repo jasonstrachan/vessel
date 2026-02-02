@@ -19,6 +19,7 @@ jest.mock('../colorCycle/rendering/WebGLColorCycleRenderer', () => {
       _data: Uint8Array,
       _gradientId?: Uint8Array,
       _speedData?: Uint8Array,
+      _defIdData?: Uint16Array,
       rect?: { x: number; y: number; width: number; height: number }
     ) {
       uploads.push({ rect });

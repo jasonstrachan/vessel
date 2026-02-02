@@ -50,7 +50,11 @@ export const applyRuntimeToBrush = (
       continue;
     }
     try {
-      brush.setGradientSlot?.(layerId, palette.slot, palette.stops);
+      if (typeof brush.setGradientSlotStops === 'function') {
+        brush.setGradientSlotStops(layerId, palette.slot, palette.stops);
+      } else {
+        brush.setGradientSlot?.(layerId, palette.slot, palette.stops);
+      }
       nextSignatures.set(palette.slot, signature);
     } catch {}
   }

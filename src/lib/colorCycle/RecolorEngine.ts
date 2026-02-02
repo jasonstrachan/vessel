@@ -296,7 +296,7 @@ export class RecolorEngine {
           let offset = (currentTick / bands) * dir;
           offset = ((offset % 1) + 1) % 1;
 
-          this.glRenderer.setIndexData(settings.indexBuffer!);
+          this.glRenderer.setIndexData(settings.indexBuffer!, undefined, undefined, undefined);
           this.glRenderer.render(offset, offset, flowDirection);
 
           colorCycleData.mode = 'recolor';

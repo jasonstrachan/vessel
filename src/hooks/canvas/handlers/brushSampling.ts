@@ -295,7 +295,11 @@ export const updateAutoSampledGradient = ({
           const manager = getColorCycleBrushManager();
           const brush = manager.getBrush(activeLayer.id);
           if (brush) {
-            brush.setGradientSlot?.(activeLayer.id, slot, stops);
+            if (typeof brush.setGradientSlotStops === 'function') {
+              brush.setGradientSlotStops(activeLayer.id, slot, stops);
+            } else {
+              brush.setGradientSlot?.(activeLayer.id, slot, stops);
+            }
             brush.setActiveGradientSlot?.(activeLayer.id, slot);
           }
         }

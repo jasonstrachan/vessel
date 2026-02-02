@@ -1,7 +1,7 @@
 import historyManager from '@/history/historyService';
 import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
-import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
 import {
   captureColorCycleBrushState,
@@ -109,13 +109,24 @@ export const recordCropHistory = async ({
 
       if (layer.layerType === 'color-cycle' || baseline.colorState) {
         const afterColor = captureColorCycleBrushState(layer.id);
-        const colorDelta = createColorCycleStrokeDelta({
-          layerId: layer.id,
-          forwardState: afterColor,
-          backwardState: baseline.colorState ?? null,
-        });
-        if (colorDelta) {
-          txn.push(colorDelta);
+        const width = afterProject?.width ?? layer.imageData?.width ?? 0;
+        const height = afterProject?.height ?? layer.imageData?.height ?? 0;
+        const roi =
+          width > 0 && height > 0
+            ? { x: 0, y: 0, width, height }
+            : null;
+        const patchDelta = roi
+          ? await createColorCycleStrokePatchDelta({
+              layerId: layer.id,
+              forwardState: afterColor,
+              backwardState: baseline.colorState ?? null,
+              roi,
+              width,
+              height,
+            })
+          : null;
+        if (patchDelta) {
+          txn.push(patchDelta);
           deltaCount += 1;
         }
       }

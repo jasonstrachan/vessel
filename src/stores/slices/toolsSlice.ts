@@ -1113,7 +1113,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     };
   }),
-  setCcGradientSampleCount: (count) => set((state) => ({
+  setCcGradientSampleCount: (count) => set(() => ({
     ccGradientSampleCount: Math.max(0, Math.round(count)),
   })),
   resetCcGradientSample: () => set((state) => ({

@@ -1064,7 +1064,7 @@ export function useDrawingHandlers({
         return;
       }
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      console.log('[CC] sampled tick', {
+      ccLog('sampled tick', {
         layerId: targetLayerId,
         markId: session.markId,
         previewLen: session.previewStopsStored?.length ?? 0,
@@ -1151,14 +1151,16 @@ export function useDrawingHandlers({
     const initial = selector(useAppStore.getState());
     activeLayerIdRef.current = initial.activeLayerId ?? null;
 
-    const unsubscribe = useAppStore.subscribe(selector, (next, prevState) => {
-      const sourceChanged = next.source !== prevState.source;
-      const resetTriggered = next.resetToken !== prevState.resetToken;
-      const layerChanged = next.activeLayerId !== prevState.activeLayerId;
+    const unsubscribe = useAppStore.subscribe((state, prevState) => {
+      const next = selector(state);
+      const prev = prevState ? selector(prevState) : next;
+      const sourceChanged = next.source !== prev.source;
+      const resetTriggered = next.resetToken !== prev.resetToken;
+      const layerChanged = next.activeLayerId !== prev.activeLayerId;
 
-      if (layerChanged && prevState.activeLayerId) {
+      if (layerChanged && prev.activeLayerId) {
         isPointerDownRef.current = false;
-        cancelMarkGradientSession(prevState.activeLayerId);
+        cancelMarkGradientSession(prev.activeLayerId);
       }
 
       if (sourceChanged || resetTriggered) {
@@ -1181,7 +1183,7 @@ export function useDrawingHandlers({
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [storeRef]);
 
   useEffect(() => {
     return () => {
@@ -2085,6 +2087,7 @@ export function useDrawingHandlers({
     ensureActiveColorCycleGradientSlot,
     getBrushHalfSize,
     storeRef,
+    updateCcSampledGradient,
     beginMaskHealingStroke,
     sampleHexAt,
     sampleColorAt

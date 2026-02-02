@@ -284,6 +284,14 @@ export const createBitmapTileDelta = async ({
     }
     return { x, y, right, bottom };
   })();
+  const roiWidth = normalizedRoi ? normalizedRoi.right - normalizedRoi.x : 0;
+  const roiHeight = normalizedRoi ? normalizedRoi.bottom - normalizedRoi.y : 0;
+  const beforeIsRoi =
+    Boolean(before && normalizedRoi) &&
+    (before?.width ?? 0) === roiWidth &&
+    (before?.height ?? 0) === roiHeight;
+  const beforeOffsetX = beforeIsRoi && normalizedRoi ? normalizedRoi.x : 0;
+  const beforeOffsetY = beforeIsRoi && normalizedRoi ? normalizedRoi.y : 0;
 
   const horizontalTiles = Math.ceil(width / tileSize);
   const verticalTiles = Math.ceil(height / tileSize);
@@ -312,8 +320,8 @@ export const createBitmapTileDelta = async ({
         beforeData,
         before?.width ?? width,
         before ? before.height : height,
-        x,
-        y,
+        beforeIsRoi ? x - beforeOffsetX : x,
+        beforeIsRoi ? y - beforeOffsetY : y,
         tileWidth,
         tileHeight
       );

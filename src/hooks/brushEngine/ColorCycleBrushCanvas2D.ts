@@ -43,6 +43,7 @@ import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import type { DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { ensurePalette } from '@/lib/colorCycle/paletteService';
 
 // Stamp dithering has two concepts:
 // 1) Live stamp coverage mask / tiling (what users see during drawing)
@@ -194,6 +195,13 @@ interface ColorCycleBrushCanvasState {
 
 type StampShape = 'square' | 'round' | 'triangle' | 'diamond';
 
+type DefPaletteCache = {
+  signature: string;
+  palettesById: Map<number, Uint32Array>;
+  rgbaById: Map<number, Uint8ClampedArray | Uint8Array>;
+  signaturesById: Map<number, string>;
+};
+
 interface ColorCycleBrushCanvasSerialized {
   layers: SerializedLayerState[];
   cycleSpeed: number;
@@ -265,6 +273,7 @@ export class ColorCycleBrushCanvas2D {
   private static readonly REDUCED_INIT_SIZE = 256;
   private animators: Map<string, ColorCycleAnimator> = new Map();
   private activeLayerId: string | null = null;
+  private defPaletteCacheByLayer: Map<string, DefPaletteCache> = new Map();
   
   // Canvas references
   private webglCanvas: HTMLCanvasElement; // Keep name for compatibility
@@ -517,6 +526,7 @@ export class ColorCycleBrushCanvas2D {
       strokeData.buffers.spd = handle.speedData;
     }
     animator.endDirectFill({ markDirty: false });
+    animator.setDefIdData(strokeData.buffers.def);
   }
 
   private assertStrokeHandleSize(
@@ -588,6 +598,89 @@ export class ColorCycleBrushCanvas2D {
       return 0;
     }
     return Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(activeSlot)));
+  }
+
+  private buildDefPaletteSignature(
+    defs: Array<{ id: number; hash: string }>
+  ): string {
+    return defs
+      .map((entry) => `${entry.id}:${entry.hash}`)
+      .sort()
+      .join('|');
+  }
+
+  private getDefPaletteCache(
+    layerId: string,
+    defs: Array<{
+      id: number;
+      hash: string;
+      stops: GradientStop[];
+    }> | undefined
+  ): DefPaletteCache | null {
+    if (!defs || defs.length === 0) {
+      this.defPaletteCacheByLayer.delete(layerId);
+      return null;
+    }
+
+    const signature = this.buildDefPaletteSignature(defs);
+    const existing = this.defPaletteCacheByLayer.get(layerId);
+    if (existing && existing.signature === signature) {
+      return existing;
+    }
+
+    const palettesById = new Map<number, Uint32Array>();
+    const rgbaById = new Map<number, Uint8ClampedArray | Uint8Array>();
+    const signaturesById = new Map<number, string>();
+
+    for (const def of defs) {
+      if (!def || !def.stops || def.stops.length === 0) {
+        continue;
+      }
+      const handle = ensurePalette({ stops: def.stops });
+      palettesById.set(def.id, handle.uint32);
+      rgbaById.set(def.id, handle.rgba);
+      signaturesById.set(def.id, def.hash);
+    }
+
+    const nextCache: DefPaletteCache = {
+      signature,
+      palettesById,
+      rgbaById,
+      signaturesById,
+    };
+    this.defPaletteCacheByLayer.set(layerId, nextCache);
+    return nextCache;
+  }
+
+  private applyDefBindingsForLayer(
+    layerId: string,
+    animator: ColorCycleAnimator,
+    strokeData: LayerStrokeState | undefined,
+    defs: Array<{ id: number; hash: string; stops: GradientStop[] }> | undefined
+  ): void {
+    if (typeof (animator as { setDefIdData?: (data?: Uint16Array | null) => void }).setDefIdData === 'function') {
+      (animator as { setDefIdData: (data?: Uint16Array | null) => void }).setDefIdData(strokeData?.buffers.def);
+    }
+    const cache = this.getDefPaletteCache(layerId, defs);
+    if (typeof (animator as {
+      setDefPaletteCache?: (cache?: {
+        palettesById: Map<number, Uint32Array>;
+        rgbaById: Map<number, Uint8ClampedArray | Uint8Array>;
+        signaturesById: Map<number, string>;
+      } | null) => void;
+    }).setDefPaletteCache === 'function') {
+      if (cache) {
+        (animator as {
+          setDefPaletteCache: (cache: {
+            palettesById: Map<number, Uint32Array>;
+            rgbaById: Map<number, Uint8ClampedArray | Uint8Array>;
+            signaturesById: Map<number, string>;
+          }) => void;
+        }).setDefPaletteCache(cache);
+      } else {
+        (animator as { setDefPaletteCache: (cache: null) => void }).setDefPaletteCache(null);
+      }
+    }
   }
   
   /**
@@ -1217,6 +1310,7 @@ export class ColorCycleBrushCanvas2D {
 
     const animator = this.ensureFullResolution(id, 'stroke');
     animator.setIndexBufferFromArray(strokeData.buffers.paint, strokeData.buffers.gid, strokeData.buffers.spd);
+    animator.setDefIdData(strokeData.buffers.def);
     animator.forceRender();
     this.render(false);
   }
@@ -1292,6 +1386,17 @@ export class ColorCycleBrushCanvas2D {
         committedSlot: slot & FLOW_SLOT_MASK,
       });
     }
+
+    try {
+      const animator = this.animators.get(layerId) ?? this.getAnimator(layerId);
+      const layer = useAppStore.getState().layers.find((entry) => entry.id === layerId);
+      const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+        id: number;
+        hash: string;
+        stops: GradientStop[];
+      }> | undefined;
+      this.applyDefBindingsForLayer(layerId, animator, strokeData, defs);
+    } catch {}
 
     strokeData.snapshot = {
       ...(strokeData.snapshot ?? {
@@ -3520,10 +3625,23 @@ export class ColorCycleBrushCanvas2D {
     // Always rebuild from animators (authoritative).
     this.compositeCtx.clearRect(0, 0, this.width, this.height);
 
+    const state = useAppStore.getState();
+    const defStoreByLayer = new Map(
+      state.layers
+        .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.gradientDefStore)
+        .map((layer) => [layer.id, layer.colorCycleData?.gradientDefStore])
+    );
+
     // Composite all layers with content
     this.animators.forEach((animator, layerId) => {
       const strokeData = this.layerStrokes.get(layerId);
       if (strokeData?.hasContent) {
+        const defs = defStoreByLayer.get(layerId) as Array<{
+          id: number;
+          hash: string;
+          stops: GradientStop[];
+        }> | undefined;
+        this.applyDefBindingsForLayer(layerId, animator, strokeData, defs);
         animator.renderToCanvas2D(this.compositeCtx);
       }
     });
@@ -3600,7 +3718,17 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
-    try { animator.forceRender(); } catch {}
+    try {
+      const state = useAppStore.getState();
+      const layer = state.layers.find((entry) => entry.id === layerId);
+      const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+        id: number;
+        hash: string;
+        stops: GradientStop[];
+      }> | undefined;
+      this.applyDefBindingsForLayer(layerId, animator, strokeData, defs);
+      animator.forceRender();
+    } catch {}
 
     const prevComposite = ctx.globalCompositeOperation;
     const prevAlpha = ctx.globalAlpha;
@@ -5064,7 +5192,7 @@ export class ColorCycleBrushCanvas2D {
 
     if (animatorIndex?.slotPalettes?.length) {
       for (const palette of animatorIndex.slotPalettes) {
-        this.setGradientSlot(layerId, palette.slot, palette.stops);
+        this.setGradientSlotStops(layerId, palette.slot, palette.stops);
       }
     }
     if (typeof animatorIndex?.paintSlot === 'number') {
@@ -5082,9 +5210,12 @@ export class ColorCycleBrushCanvas2D {
     strokeData.stampCounter = 0;
     strokeData.stampDither = undefined;
     const liveHandle = animator ? animator.beginDirectFill() : null;
-    const livePaint = animatorIndex?.data
-      ? new Uint8Array(animatorIndex.data)
-      : liveHandle?.data ?? strokeData.buffers.paint;
+    const livePaint =
+      incoming.length === expectedSize
+        ? incoming
+        : animatorIndex?.data
+          ? new Uint8Array(animatorIndex.data)
+          : liveHandle?.data ?? strokeData.buffers.paint;
     const liveGid = animatorIndex?.gradientIdData
       ? new Uint8Array(animatorIndex.gradientIdData)
       : liveHandle?.gradientId ?? strokeData.buffers.gid;
@@ -5121,6 +5252,15 @@ export class ColorCycleBrushCanvas2D {
       animator?.setIndexBufferFromArray(uploadPaint, uploadGid, uploadSpd);
       if (animator && strokeData) {
         this.bindStrokeBuffersToAnimator(strokeData, animator);
+        try {
+          const layer = useAppStore.getState().layers.find((entry) => entry.id === layerId);
+          const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+            id: number;
+            hash: string;
+            stops: GradientStop[];
+          }> | undefined;
+          this.applyDefBindingsForLayer(layerId, animator, strokeData, defs);
+        } catch {}
       }
       if (hasLayerContent) {
         this.snapshotFromBuffers(strokeData);
@@ -5135,6 +5275,64 @@ export class ColorCycleBrushCanvas2D {
     this.dirtyLayers.add(layerId);
 
     // quiet
+  }
+
+  applyPaintPatch(
+    layerId: string,
+    roi: { x: number; y: number; width: number; height: number },
+    bytes: Uint8Array
+  ): boolean {
+    const width = this.width;
+    const height = this.height;
+    if (!width || !height) {
+      return false;
+    }
+
+    const x = Math.max(0, Math.floor(roi.x));
+    const y = Math.max(0, Math.floor(roi.y));
+    const right = Math.min(width, Math.ceil(roi.x + roi.width));
+    const bottom = Math.min(height, Math.ceil(roi.y + roi.height));
+    const patchWidth = right - x;
+    const patchHeight = bottom - y;
+    if (patchWidth <= 0 || patchHeight <= 0) {
+      return false;
+    }
+    if (bytes.length < patchWidth * patchHeight) {
+      return false;
+    }
+
+    const strokeData = this.ensureStrokeState(layerId);
+    const animator = this.ensureFullResolution(layerId, 'restore');
+    this.bindStrokeBuffersToAnimator(strokeData, animator);
+
+    const paint = strokeData.buffers.paint;
+    let hasNonZero = strokeData.hasContent;
+    let srcIndex = 0;
+    for (let row = 0; row < patchHeight; row += 1) {
+      const destBase = (y + row) * width + x;
+      for (let col = 0; col < patchWidth; col += 1) {
+        const value = bytes[srcIndex++] ?? 0;
+        paint[destBase + col] = value;
+        if (!hasNonZero && value !== 0) {
+          hasNonZero = true;
+        }
+      }
+    }
+
+    strokeData.hasContent = hasNonZero;
+    this.layerStrokes.set(layerId, strokeData);
+
+    try {
+      animator.markDirtyBounds({
+        minX: x,
+        minY: y,
+        width: patchWidth,
+        height: patchHeight,
+      });
+    } catch {}
+
+    this.dirtyLayers.add(layerId);
+    return hasNonZero;
   }
 
   /**
@@ -5199,6 +5397,7 @@ export class ColorCycleBrushCanvas2D {
     this.gradientSlotsByLayer.clear();
     this.gradientSlotSignaturesByLayer.clear();
     this.activeGradientSlots.clear();
+    this.defPaletteCacheByLayer.clear();
     
     console.log('ColorCycleBrushCanvas2D disposed');
   }

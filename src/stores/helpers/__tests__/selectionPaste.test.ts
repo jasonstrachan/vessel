@@ -20,6 +20,12 @@ const { writeColorCycleRegion } = jest.requireMock('@/stores/helpers/colorCycleS
 
 const mockWriteColorCycleRegion = writeColorCycleRegion;
 
+type CommitLayerHistory = typeof import('@/history/helpers/layerHistory')['commitLayerHistory'];
+
+const { commitLayerHistory } = jest.requireMock('@/history/helpers/layerHistory') as {
+  commitLayerHistory: jest.MockedFunction<CommitLayerHistory>;
+};
+
 jest.mock('@/stores/helpers/historyLifecycle', () => ({
   cloneImageDataForHistory: jest.fn((imageData: ImageData | null) => imageData),
 }));
@@ -103,6 +109,7 @@ const setupHelpers = (
     setLayersNeedRecomposition: jest.fn(),
     setCurrentCompositeBitmap: jest.fn(),
     updateLayer: jest.fn(),
+    addNotification: jest.fn(),
   };
 
   const get = () => state as AppState;
@@ -180,6 +187,24 @@ describe('selection paste commit', () => {
     expect(roi).toMatchObject({ x: 50, y: 40, width: 14, height: 24 });
   });
 
+  it('passes a rounded/clamped bitmap ROI and ROI-sized beforeImage for normal paste', async () => {
+    const { helpers } = setupHelpers({
+      position: { x: 10.4, y: 12.6 },
+      displayWidth: 20.2,
+      displayHeight: 16.7,
+      width: 20,
+      height: 16,
+    });
+
+    await helpers.commitFloatingPaste();
+
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+    const args = commitLayerHistory.mock.calls[0]?.[0];
+    expect(args?.bitmapRoi).toEqual({ x: 10, y: 13, width: 20, height: 17 });
+    expect(args?.beforeImage?.width).toBe(20);
+    expect(args?.beforeImage?.height).toBe(17);
+  });
+
   it('clears the floating paste without capturing when it sits fully outside the canvas', async () => {
     const { helpers, state, captureCanvasToActiveLayer } = setupHelpers({
       position: { x: 80, y: 80 },
@@ -191,6 +216,25 @@ describe('selection paste commit', () => {
 
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.floatingPaste).toBeNull();
+  });
+
+  it('blocks color-cycle paste without indices and notifies the user', async () => {
+    const { helpers, state, captureCanvasToActiveLayer } = setupHelpers(
+      {
+        colorCycleIndices: null,
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(commitLayerHistory).not.toHaveBeenCalled();
+    expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+    expect(state.addNotification).toHaveBeenCalledTimes(1);
+    expect(state.floatingPaste).not.toBeNull();
   });
 
   it('writes color-cycle indices directly when committing a floating paste on a color-cycle layer', async () => {

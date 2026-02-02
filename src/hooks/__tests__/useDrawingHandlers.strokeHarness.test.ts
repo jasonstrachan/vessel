@@ -104,6 +104,8 @@ jest.mock('@/hooks/useUserBrushEngine', () => ({ useUserBrushEngine: () => null 
 jest.mock('@/hooks/canvas/utils/colorCycleMarkSession', () => ({
   __esModule: true,
   beginMarkGradientSession: jest.fn(() => null),
+  registerMarkGradientPointerDownRef: jest.fn(),
+  cancelMarkGradientSession: jest.fn(),
 }));
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => mockColorCycleBrushManager,

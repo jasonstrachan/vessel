@@ -72,6 +72,10 @@ export class WebGLColorCycleRenderer {
   private uGidTexLoc: WebGLUniformLocation | null = null;
   private uSpeedTexLoc: WebGLUniformLocation | null = null;
   private uPaletteTexLoc: WebGLUniformLocation | null = null;
+  private uDefIdTexLoc: WebGLUniformLocation | null = null;
+  private uDefPaletteTexLoc: WebGLUniformLocation | null = null;
+  private uDefLutTexLoc: WebGLUniformLocation | null = null;
+  private uDefPaletteRowsLoc: WebGLUniformLocation | null = null;
   private uPaletteSizeLoc: WebGLUniformLocation | null = null;
   private uOffsetLoc: WebGLUniformLocation | null = null;
   private uLegacyOffsetLoc: WebGLUniformLocation | null = null;
@@ -83,17 +87,26 @@ export class WebGLColorCycleRenderer {
   private gidTex: WebGLTexture | null = null;
   private speedTex: WebGLTexture | null = null;
   private paletteTex: WebGLTexture | null = null;
+  private defIdTex: WebGLTexture | null = null;
+  private defPaletteTex: WebGLTexture | null = null;
+  private defLutTex: WebGLTexture | null = null;
   private width: number;
   private height: number;
   private indexTexAllocated: boolean = false;
   private gidTexAllocated: boolean = false;
   private speedTexAllocated: boolean = false;
+  private defIdTexAllocated: boolean = false;
+  private defPaletteTexAllocated: boolean = false;
+  private defLutTexAllocated: boolean = false;
 
   private paletteSize: number = 256;
+  private defPaletteRows: number = 0;
   private paletteUploaded: boolean = false;
   private paletteTexAllocated: boolean = false;
   private zeroGradientIdBuffer: Uint8Array | null = null;
   private zeroSpeedBuffer: Uint8Array | null = null;
+  private zeroDefIdBuffer: Uint8Array | null = null;
+  private defIdPackedBuffer: Uint8Array | null = null;
 
   // Offscreen resources for compute-style polygon fills
   private fillProgram: WebGLProgram | null = null;
@@ -232,6 +245,9 @@ export class WebGLColorCycleRenderer {
     this.indexTexAllocated = false;
     this.gidTexAllocated = false;
     this.speedTexAllocated = false;
+    this.defIdTexAllocated = false;
+    this.zeroDefIdBuffer = null;
+    this.defIdPackedBuffer = null;
   }
 
   setPaletteColors(paletteRGBA: Uint8Array | Uint8ClampedArray) {
@@ -262,15 +278,68 @@ export class WebGLColorCycleRenderer {
     this.paletteUploaded = true;
   }
 
+  setDefPaletteRows(rows: number) {
+    const nextRows = Math.max(0, Math.floor(rows));
+    if (nextRows === this.defPaletteRows) {
+      return;
+    }
+    this.defPaletteRows = nextRows;
+    this.defPaletteTexAllocated = false;
+    this.ensureDefPaletteTexture();
+  }
+
+  setDefPaletteRow(row: number, paletteRGBA: Uint8Array | Uint8ClampedArray) {
+    const clampedRow = Math.max(0, Math.min(Math.max(1, this.defPaletteRows) - 1, Math.round(row)));
+    const gl = this.gl;
+    gl.useProgram(this.program);
+    if (!this.defPaletteTex) this.createTextures();
+    this.ensureDefPaletteTexture();
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, this.defPaletteTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+    const width = this.paletteSize;
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      gl2.texSubImage2D(gl2.TEXTURE_2D, 0, 0, clampedRow, width, 1, gl2.RGBA, gl2.UNSIGNED_BYTE, paletteRGBA);
+    } else {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, clampedRow, width, 1, gl.RGBA, gl.UNSIGNED_BYTE, paletteRGBA as Uint8Array);
+    }
+  }
+
+  setDefPaletteLut(lut: Uint8Array) {
+    const gl = this.gl;
+    gl.useProgram(this.program);
+    if (!this.defLutTex) this.createTextures();
+    this.ensureDefLutTexture();
+    gl.activeTexture(gl.TEXTURE6);
+    gl.bindTexture(gl.TEXTURE_2D, this.defLutTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      gl2.texSubImage2D(gl2.TEXTURE_2D, 0, 0, 0, 256, 256, gl2.RG, gl2.UNSIGNED_BYTE, lut);
+    } else {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 256, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, lut);
+    }
+  }
+
+  resetDefPaletteState() {
+    this.defPaletteRows = 0;
+    this.defPaletteTexAllocated = false;
+    this.defLutTexAllocated = false;
+  }
+
   setIndexData(
     indexData: Uint8Array,
     gradientIdData?: Uint8Array,
     speedData?: Uint8Array,
+    defIdData?: Uint16Array,
     rect?: { x: number; y: number; width: number; height: number } | null
   ) {
     const gl = this.gl;
     gl.useProgram(this.program);
-    if (!this.indexTex || !this.gidTex || !this.speedTex) this.createTextures();
+    if (!this.indexTex || !this.gidTex || !this.speedTex || !this.defIdTex) this.createTextures();
 
     const uploadRect = this.normalizeRect(rect);
     const x = uploadRect.x;
@@ -280,6 +349,9 @@ export class WebGLColorCycleRenderer {
     const isFull = x === 0 && y === 0 && w === this.width && h === this.height;
     const gidData = gradientIdData ?? this.getZeroGradientIdBuffer();
     const spdData = speedData ?? this.getZeroSpeedBuffer();
+    const defDataPacked = defIdData
+      ? this.packDefIdData(defIdData)
+      : this.getZeroDefIdBuffer();
 
     this.uploadSingleChannelTexture(
       this.indexTex,
@@ -314,6 +386,17 @@ export class WebGLColorCycleRenderer {
       isFull,
       'speed'
     );
+    this.uploadTwoChannelTexture(
+      this.defIdTex,
+      4,
+      defDataPacked,
+      w,
+      h,
+      x,
+      y,
+      isFull,
+      'defId'
+    );
   }
 
   render(offset: number, legacyOffset: number, flowMode: FlowMode) {
@@ -325,6 +408,9 @@ export class WebGLColorCycleRenderer {
     if (this.uOffsetLoc) gl.uniform1f(this.uOffsetLoc, offset);
     if (this.uLegacyOffsetLoc) gl.uniform1f(this.uLegacyOffsetLoc, legacyOffset);
     if (this.uPaletteSizeLoc) gl.uniform1f(this.uPaletteSizeLoc, this.paletteSize);
+    if (this.uDefPaletteRowsLoc) {
+      gl.uniform1f(this.uDefPaletteRowsLoc, Math.max(0, this.defPaletteRows));
+    }
     if (this.uSpeedMinLoc) gl.uniform1f(this.uSpeedMinLoc, MIN_BRUSH_COLOR_CYCLE_SPEED);
     if (this.uSpeedMaxLoc) gl.uniform1f(this.uSpeedMaxLoc, MAX_BRUSH_COLOR_CYCLE_SPEED);
     if (this.uFlowModeLoc) {
@@ -337,11 +423,14 @@ export class WebGLColorCycleRenderer {
       gl.uniform1f(this.uFlowModeLoc, flowModeValue);
     }
 
-    // Bind textures to texture units 0 (index), 1 (gid), 2 (palette), 3 (speed)
+    // Bind textures to texture units 0 (index), 1 (gid), 2 (palette), 3 (speed), 4 (defId), 5 (defPalette), 6 (defLut)
     if (this.uIndexTexLoc) gl.uniform1i(this.uIndexTexLoc, 0);
     if (this.uGidTexLoc) gl.uniform1i(this.uGidTexLoc, 1);
     if (this.uSpeedTexLoc) gl.uniform1i(this.uSpeedTexLoc, 3);
     if (this.uPaletteTexLoc) gl.uniform1i(this.uPaletteTexLoc, 2);
+    if (this.uDefIdTexLoc) gl.uniform1i(this.uDefIdTexLoc, 4);
+    if (this.uDefPaletteTexLoc) gl.uniform1i(this.uDefPaletteTexLoc, 5);
+    if (this.uDefLutTexLoc) gl.uniform1i(this.uDefLutTexLoc, 6);
     if (this.indexTex) {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.indexTex);
@@ -357,6 +446,18 @@ export class WebGLColorCycleRenderer {
     if (this.paletteTex) {
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
+    }
+    if (this.defIdTex) {
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D, this.defIdTex);
+    }
+    if (this.defPaletteTex) {
+      gl.activeTexture(gl.TEXTURE5);
+      gl.bindTexture(gl.TEXTURE_2D, this.defPaletteTex);
+    }
+    if (this.defLutTex) {
+      gl.activeTexture(gl.TEXTURE6);
+      gl.bindTexture(gl.TEXTURE_2D, this.defLutTex);
     }
 
     // Draw full-screen quad
@@ -444,6 +545,10 @@ export class WebGLColorCycleRenderer {
       uniform sampler2D u_gidTex;
       uniform sampler2D u_speedTex;
       uniform sampler2D u_paletteTex;
+      uniform sampler2D u_defIdTex;
+      uniform sampler2D u_defPaletteTex;
+      uniform sampler2D u_defLutTex;
+      uniform float u_defPaletteRows;
       uniform float u_paletteSize; // 256
       uniform float u_offset;       // elapsed time in seconds
       uniform float u_legacyOffset; // cycles in [0,1) legacy/global
@@ -458,9 +563,13 @@ export class WebGLColorCycleRenderer {
         float idxN = texture2D(u_indexTex, uv).r;
         float gidN = texture2D(u_gidTex, uv).r;
         float spdN = texture2D(u_speedTex, uv).r;
+        vec4 defSample = texture2D(u_defIdTex, uv);
         float fIdx = floor(idxN * 255.0 + 0.5);
         float fGid = floor(gidN * 255.0 + 0.5);
         float fSpd = floor(spdN * 255.0 + 0.5);
+        float defR = floor(defSample.r * 255.0 + 0.5);
+        float defG = floor(defSample.g * 255.0 + 0.5);
+        float defId = defR + defG * 256.0;
 
         // Index 0 = transparent
         if (fIdx < 0.5) {
@@ -509,6 +618,23 @@ export class WebGLColorCycleRenderer {
         float u = (floor(pIdx) + 0.5) / u_paletteSize;
         float gid = clamp(slot, 0.0, u_paletteSize - 1.0);
         float v = (gid + 0.5) / u_paletteSize;
+
+        if (defId > 0.5 && u_defPaletteRows > 0.5) {
+          float lutX = (mod(defId, 256.0) + 0.5) / 256.0;
+          float lutY = (floor(defId / 256.0) + 0.5) / 256.0;
+          vec4 lutSample = texture2D(u_defLutTex, vec2(lutX, lutY));
+          float rowR = floor(lutSample.r * 255.0 + 0.5);
+          float rowG = floor(lutSample.g * 255.0 + 0.5);
+          float rowEncoded = rowR + rowG * 256.0;
+          if (rowEncoded > 0.5) {
+            float row = rowEncoded - 1.0;
+            float vDef = (row + 0.5) / u_defPaletteRows;
+            vec4 defColor = texture2D(u_defPaletteTex, vec2(u, vDef));
+            gl_FragColor = defColor;
+            return;
+          }
+        }
+
         vec4 color = texture2D(u_paletteTex, vec2(u, v));
         gl_FragColor = color;
       }
@@ -901,6 +1027,10 @@ export class WebGLColorCycleRenderer {
     this.uGidTexLoc = gl.getUniformLocation(this.program, 'u_gidTex');
     this.uSpeedTexLoc = gl.getUniformLocation(this.program, 'u_speedTex');
     this.uPaletteTexLoc = gl.getUniformLocation(this.program, 'u_paletteTex');
+    this.uDefIdTexLoc = gl.getUniformLocation(this.program, 'u_defIdTex');
+    this.uDefPaletteTexLoc = gl.getUniformLocation(this.program, 'u_defPaletteTex');
+    this.uDefLutTexLoc = gl.getUniformLocation(this.program, 'u_defLutTex');
+    this.uDefPaletteRowsLoc = gl.getUniformLocation(this.program, 'u_defPaletteRows');
     this.uPaletteSizeLoc = gl.getUniformLocation(this.program, 'u_paletteSize');
     this.uOffsetLoc = gl.getUniformLocation(this.program, 'u_offset');
     this.uLegacyOffsetLoc = gl.getUniformLocation(this.program, 'u_legacyOffset');
@@ -944,6 +1074,33 @@ export class WebGLColorCycleRenderer {
     this.paletteTex = gl.createTexture();
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // DefId texture (16-bit packed into 2x8-bit channels)
+    this.defIdTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, this.defIdTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Def palette texture (256 x N RGBA, NEAREST)
+    this.defPaletteTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, this.defPaletteTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Def LUT texture (256x256 RG packed)
+    this.defLutTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE6);
+    gl.bindTexture(gl.TEXTURE_2D, this.defLutTex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -994,6 +1151,68 @@ export class WebGLColorCycleRenderer {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.paletteSize, this.paletteSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, zero);
     }
     this.paletteTexAllocated = true;
+  }
+
+  private ensureDefPaletteTexture() {
+    if (this.defPaletteTexAllocated || this.defPaletteRows <= 0) {
+      return;
+    }
+    const gl = this.gl;
+    const rows = Math.max(1, this.defPaletteRows);
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, this.defPaletteTex);
+    const zero = new Uint8Array(this.paletteSize * rows * 4);
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, this.paletteSize, rows, 0, gl2.RGBA, gl2.UNSIGNED_BYTE, zero);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.paletteSize, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, zero);
+    }
+    this.defPaletteTexAllocated = true;
+  }
+
+  private ensureDefLutTexture() {
+    if (this.defLutTexAllocated) {
+      return;
+    }
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE6);
+    gl.bindTexture(gl.TEXTURE_2D, this.defLutTex);
+    const zero = new Uint8Array(256 * 256 * 2);
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RG8, 256, 256, 0, gl2.RG, gl2.UNSIGNED_BYTE, zero);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, 256, 256, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, zero);
+    }
+    this.defLutTexAllocated = true;
+  }
+
+  private getZeroDefIdBuffer(): Uint8Array {
+    const size = this.width * this.height * 2;
+    if (!this.zeroDefIdBuffer || this.zeroDefIdBuffer.length !== size) {
+      this.zeroDefIdBuffer = new Uint8Array(size);
+    }
+    return this.zeroDefIdBuffer;
+  }
+
+  private packDefIdData(defIdData: Uint16Array): Uint8Array {
+    const expected = this.width * this.height;
+    if (defIdData.length !== expected) {
+      return this.getZeroDefIdBuffer();
+    }
+    const size = defIdData.length * 2;
+    if (!this.defIdPackedBuffer || this.defIdPackedBuffer.length !== size) {
+      this.defIdPackedBuffer = new Uint8Array(size);
+    }
+    const packed = this.defIdPackedBuffer;
+    for (let i = 0; i < defIdData.length; i += 1) {
+      const id = defIdData[i];
+      const idx = i * 2;
+      packed[idx] = id & 0xff;
+      packed[idx + 1] = (id >> 8) & 0xff;
+    }
+    return packed;
   }
 
   private uploadSingleChannelTexture(
@@ -1089,6 +1308,89 @@ export class WebGLColorCycleRenderer {
       }
 
       gl.texSubImage2D(gl.TEXTURE_2D, 0, rectX, rectY, rectW, rectH, gl.LUMINANCE, gl.UNSIGNED_BYTE, uploadData);
+    }
+  }
+
+  private uploadTwoChannelTexture(
+    texture: WebGLTexture | null,
+    textureUnit: number,
+    data: Uint8Array,
+    rectW: number,
+    rectH: number,
+    rectX: number,
+    rectY: number,
+    isFull: boolean,
+    textureKind: 'defId'
+  ) {
+    void textureKind;
+    if (!texture) return;
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + textureUnit);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      if (!this.defIdTexAllocated) {
+        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RG8, this.width, this.height, 0, gl2.RG, gl2.UNSIGNED_BYTE, null);
+        this.defIdTexAllocated = true;
+      }
+
+      if (!isFull) {
+        gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, this.width);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, rectX);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, rectY);
+      } else {
+        gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, 0);
+      }
+
+      gl2.texSubImage2D(
+        gl2.TEXTURE_2D,
+        0,
+        rectX,
+        rectY,
+        rectW,
+        rectH,
+        gl2.RG,
+        gl2.UNSIGNED_BYTE,
+        data
+      );
+
+      if (!isFull) {
+        gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, 0);
+        gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, 0);
+      }
+    } else {
+      if (!this.defIdTexAllocated) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, this.width, this.height, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, null);
+        this.defIdTexAllocated = true;
+      }
+
+      let uploadData = data;
+      if (!isFull) {
+        const contiguous = new Uint8Array(rectW * rectH * 2);
+        for (let row = 0; row < rectH; row++) {
+          const srcStart = ((rectY + row) * this.width + rectX) * 2;
+          const srcEnd = srcStart + rectW * 2;
+          contiguous.set(data.subarray(srcStart, srcEnd), row * rectW * 2);
+        }
+        uploadData = contiguous;
+      }
+
+      gl.texSubImage2D(
+        gl.TEXTURE_2D,
+        0,
+        rectX,
+        rectY,
+        rectW,
+        rectH,
+        gl.LUMINANCE_ALPHA,
+        gl.UNSIGNED_BYTE,
+        uploadData
+      );
     }
   }
 }

@@ -8,6 +8,7 @@ import {
   type GradientDefSource,
 } from '@/utils/colorCycleGradientDefs';
 import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
 
 export type MarkGradientSession = {
   markId: string;
@@ -34,6 +35,7 @@ export type PreviewGradientResult = {
 
 const sessionsByLayer = new Map<string, MarkGradientSession>();
 let markSessionPointerDownRef: { current: boolean } | null = null;
+let isFinalizingSession = false;
 
 export const registerMarkGradientPointerDownRef = (
   ref: { current: boolean } | null
@@ -119,6 +121,9 @@ export const beginMarkGradientSession = (params: {
   source: GradientDefSource;
   stops: StoredStop[];
 }): MarkGradientSession | null => {
+  if (process.env.NODE_ENV !== 'production' && isFinalizingSession) {
+    throw new Error('[CC] beginMarkGradientSession called during finalize/commit');
+  }
   if (process.env.NODE_ENV !== 'production' && sessionsByLayer.has(params.layerId)) {
     throw new Error(`[CC] beginMarkGradientSession called while a session is active for ${params.layerId}`);
   }
@@ -145,7 +150,7 @@ export const beginMarkGradientSession = (params: {
       samples: [],
     };
     sessionsByLayer.set(params.layerId, session);
-    console.log('[CC] begin session', {
+    ccLog('begin session', {
       markId: session.markId,
       layerId: params.layerId,
       source: params.source,
@@ -153,7 +158,7 @@ export const beginMarkGradientSession = (params: {
       stopsLen: params.stops?.length ?? 0,
       previewSlot: typeof session.previewSlot === 'number' ? clampSlot(session.previewSlot) : null,
     });
-    console.log('[CC] mark slot (during)', {
+    ccLog('mark slot (during)', {
       layerId: params.layerId,
       markId: session.markId,
       defId: session.binding?.defId ?? null,
@@ -162,7 +167,7 @@ export const beginMarkGradientSession = (params: {
         (typeof session.previewSlot === 'number' ? clampSlot(session.previewSlot) : null),
       phase: session.binding ? 'bound' : 'sampling',
     });
-    console.log(new Error('[CC] begin session stack').stack);
+    ccLog('begin session stack', new Error('[CC] begin session stack').stack ?? null);
     return session;
   }
 
@@ -187,7 +192,7 @@ export const beginMarkGradientSession = (params: {
     binding: { kind: 'def', defId: defResult.def.id, slot: defResult.slot },
   };
   sessionsByLayer.set(params.layerId, session);
-  console.log('[CC] begin session', {
+  ccLog('begin session', {
     markId: session.markId,
     layerId: params.layerId,
     source: params.source,
@@ -196,14 +201,14 @@ export const beginMarkGradientSession = (params: {
     defId: session.binding?.defId,
     slot: session.binding?.slot,
   });
-  console.log('[CC] mark slot (during)', {
+  ccLog('mark slot (during)', {
     layerId: params.layerId,
     markId: session.markId,
     defId: session.binding?.defId ?? null,
     slot: session.binding?.slot ?? null,
     phase: session.binding ? 'bound' : 'sampling',
   });
-  console.log(new Error('[CC] begin session stack').stack);
+  ccLog('begin session stack', new Error('[CC] begin session stack').stack ?? null);
   return session;
 };
 
@@ -212,31 +217,40 @@ export const getActiveMarkGradientSession = (layerId: string): MarkGradientSessi
 
 export const finalizeMarkGradientSession = (layerId: string): MarkGradientSession | null => {
   const session = sessionsByLayer.get(layerId) ?? null;
-  console.log('[CC] finalize session', { layerId, markId: session?.markId });
-  if (session?.source === 'sampled') {
-    finalizeSampledSession(session);
+  ccLog('finalize session', { layerId, markId: session?.markId });
+  if (process.env.NODE_ENV !== 'production') {
+    isFinalizingSession = true;
   }
-  if (session) {
-    console.log('[CC] mark slot (finalized)', {
-      layerId,
-      markId: session.markId,
-      defId: session.binding?.defId ?? null,
-      slot:
-        session.binding?.slot ??
-        (typeof session.previewSlot === 'number' ? clampSlot(session.previewSlot) : null),
-      phase: session.binding ? 'bound' : 'sampling',
-    });
+  try {
+    if (session?.source === 'sampled') {
+      finalizeSampledSession(session);
+    }
+    if (session) {
+      ccLog('mark slot (finalized)', {
+        layerId,
+        markId: session.markId,
+        defId: session.binding?.defId ?? null,
+        slot:
+          session.binding?.slot ??
+          (typeof session.previewSlot === 'number' ? clampSlot(session.previewSlot) : null),
+        phase: session.binding ? 'bound' : 'sampling',
+      });
+    }
+    sessionsByLayer.delete(layerId);
+    return session;
+  } finally {
+    if (process.env.NODE_ENV !== 'production') {
+      isFinalizingSession = false;
+    }
   }
-  sessionsByLayer.delete(layerId);
-  return session;
 };
 
 export const cancelMarkGradientSession = (layerId: string): void => {
   if (markSessionPointerDownRef?.current) {
-    console.warn('[CC] cancel during active mark', { layerId, stack: new Error().stack });
+    ccWarn('cancel during active mark', { layerId, stack: new Error().stack ?? null });
     return;
   }
-  console.warn('[CC] cancel session', { layerId, stack: new Error().stack });
+  ccWarn('cancel session', { layerId, stack: new Error().stack ?? null });
   sessionsByLayer.delete(layerId);
 };
 
@@ -252,7 +266,7 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
         session.fallbackStopsStored?.length ? session.fallbackStopsStored : session.frozenStopsStored;
       const stops = sampledStops ?? fallbackStops;
       if (process.env.NODE_ENV !== 'production') {
-        console.log('[CC] preview', {
+        ccLog('preview', {
           markId: session.markId,
           layerId,
           source: sampledStops ? 'sampled' : 'fallback',

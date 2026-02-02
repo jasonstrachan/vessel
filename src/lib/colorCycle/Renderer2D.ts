@@ -62,6 +62,8 @@ export class Renderer2D {
   render(options: {
     indexData: Uint8Array;
     gradientIdData?: Uint8Array;
+    defIdData?: Uint16Array;
+    defPalettesById?: Map<number, Uint32Array>;
     speedData?: Uint8Array;
     paletteSlots: Uint32Array[];
     basePalette: Uint32Array;
@@ -75,6 +77,8 @@ export class Renderer2D {
     const legacyShift = (options.phase * 256) | 0;
     const offset = options.baseOffset;
     const gradientIdData = options.gradientIdData;
+    const defIdData = options.defIdData;
+    const defPalettesById = options.defPalettesById;
     const speedData = options.speedData;
     const baseTime = options.baseTime;
     const flowMode = options.flowMode ?? 'forward';
@@ -92,7 +96,11 @@ export class Renderer2D {
       const hasSpeed = speedByte > 0;
       const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
       const speedOffset = hasSpeed ? (baseTime * speed) % 1 : offset;
-      const palette = options.paletteSlots[slot] ?? options.basePalette;
+      const defId = defIdData ? defIdData[i] : 0;
+      const palette =
+        defId > 0
+          ? defPalettesById?.get(defId) ?? options.basePalette
+          : options.paletteSlots[slot] ?? options.basePalette;
       const effectiveFlow =
         flowBits === FLOW_MODE_LEGACY
           ? flowMode === 'pingpong'

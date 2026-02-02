@@ -747,14 +747,22 @@ export const finalizeShapeDrawing = async (
         return { restore: null };
       }
       const brush = deps.getColorCycleBrushManager().getBrush(params.activeLayerId);
-      if (!brush || typeof brush.setGradientSlot !== 'function' || typeof brush.setActiveGradientSlot !== 'function') {
+      if (
+        !brush ||
+        (typeof brush.setGradientSlotStops !== 'function' && typeof brush.setGradientSlot !== 'function') ||
+        typeof brush.setActiveGradientSlot !== 'function'
+      ) {
         return { restore: null };
       }
       const activeSlot = typeof (brush as { getActiveGradientSlot?: (layerId: string) => number }).getActiveGradientSlot === 'function'
         ? (brush as { getActiveGradientSlot: (layerId: string) => number }).getActiveGradientSlot(params.activeLayerId)
         : resolveActiveGradientSlot(params.activeLayer);
 
-      brush.setGradientSlot(params.activeLayerId, TEMP_SAMPLE_SLOT, stops);
+      if (typeof brush.setGradientSlotStops === 'function') {
+        brush.setGradientSlotStops(params.activeLayerId, TEMP_SAMPLE_SLOT, stops);
+      } else {
+        brush.setGradientSlot(params.activeLayerId, TEMP_SAMPLE_SLOT, stops);
+      }
       brush.setActiveGradientSlot(params.activeLayerId, TEMP_SAMPLE_SLOT);
       session.active = true;
       session.stops = stops;

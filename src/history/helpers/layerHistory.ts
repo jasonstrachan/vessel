@@ -1,9 +1,10 @@
 import historyManager from '@/history/historyService';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
-import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { mapCanvasActionToHistoryId } from './actions';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from './colorCycle';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { HistoryDelta } from '@/history/actionTypes';
 import type { CanvasSnapshot } from '@/types';
 import { CC_DEBUG } from '@/debug/ccDebug';
 import { useAppStore } from '@/stores/useAppStore';
@@ -23,74 +24,109 @@ const cloneImageData = (imageData: ImageData | null | undefined): ImageData | nu
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 };
 
-const normalizeImageDataSize = (imageData: ImageData, width: number, height: number): ImageData => {
-  if (imageData.width === width && imageData.height === height) {
-    return imageData;
-  }
-
-  const normalized = new ImageData(width, height);
-  const target = normalized.data;
-  const source = imageData.data;
-  const copyWidth = Math.min(width, imageData.width);
-  const copyHeight = Math.min(height, imageData.height);
-  const sourceStride = imageData.width * 4;
-  const targetStride = width * 4;
-
-  for (let row = 0; row < copyHeight; row += 1) {
-    const srcStart = row * sourceStride;
-    const destStart = row * targetStride;
-    const srcEnd = srcStart + copyWidth * 4;
-    target.set(source.subarray(srcStart, srcEnd), destStart);
-  }
-
-  return normalized;
-};
-
-const stitchBeforeRegionIntoLayer = (
-  beforeImage: ImageData,
-  roi: { x: number; y: number; width: number; height: number } | null | undefined,
-  target: ImageData
-): ImageData => {
-  if (!roi) {
-    return normalizeImageDataSize(beforeImage, target.width, target.height);
-  }
-
-  const roiWidth = Math.round(roi.width);
-  const roiHeight = Math.round(roi.height);
-  const matchesRoi = beforeImage.width === roiWidth && beforeImage.height === roiHeight;
-
-  // Fallback to naive normalization if shapes don't align; better slightly over-capture
-  if (!matchesRoi) {
-    return normalizeImageDataSize(beforeImage, target.width, target.height);
-  }
-
-  // Start from the current (after) image so unchanged pixels remain identical; then
-  // splice the captured before-region back into its original offset.
-  const stitched = new ImageData(new Uint8ClampedArray(target.data), target.width, target.height);
-  const dest = stitched.data;
-  const src = beforeImage.data;
-  const destStride = stitched.width * 4;
-  const srcStride = beforeImage.width * 4;
-
-  const startX = Math.max(0, Math.floor(roi.x));
-  const startY = Math.max(0, Math.floor(roi.y));
-  const copyWidth = Math.min(beforeImage.width, stitched.width - startX);
-  const copyHeight = Math.min(beforeImage.height, stitched.height - startY);
-
-  for (let row = 0; row < copyHeight; row += 1) {
-    const srcOffset = row * srcStride;
-    const destOffset = (startY + row) * destStride + startX * 4;
-    dest.set(src.subarray(srcOffset, srcOffset + copyWidth * 4), destOffset);
-  }
-
-  return stitched;
-};
-
 const markUnsavedChanges = (): void => {
   const state = useAppStore.getState();
   if (state.markAutosaveDirty) {
     state.markAutosaveDirty('history-change');
   }
+};
+
+const normalizeInflatedRoi = (
+  roi: { x: number; y: number; width: number; height: number } | null | undefined,
+  width: number,
+  height: number,
+  padding = 2
+): { x: number; y: number; width: number; height: number } | null => {
+  if (!roi || width <= 0 || height <= 0) {
+    return null;
+  }
+  const x0 = Math.floor(roi.x);
+  const y0 = Math.floor(roi.y);
+  const right0 = Math.ceil(roi.x + roi.width);
+  const bottom0 = Math.ceil(roi.y + roi.height);
+  if (right0 <= x0 || bottom0 <= y0) {
+    return null;
+  }
+
+  const x = Math.max(0, x0 - padding);
+  const y = Math.max(0, y0 - padding);
+  const right = Math.min(width, right0 + padding);
+  const bottom = Math.min(height, bottom0 + padding);
+  const w = right - x;
+  const h = bottom - y;
+  if (w <= 0 || h <= 0) {
+    return null;
+  }
+  return { x, y, width: w, height: h };
+};
+
+const bufferToU8 = (
+  buffer: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | null | undefined
+): Uint8Array | null => {
+  if (!buffer) {
+    return null;
+  }
+  if (buffer instanceof ArrayBuffer) {
+    return new Uint8Array(buffer);
+  }
+  if (ArrayBuffer.isView(buffer)) {
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  }
+  if (typeof buffer === 'object' && 'buffer' in buffer && buffer.buffer instanceof ArrayBuffer) {
+    return new Uint8Array(buffer.buffer);
+  }
+  return null;
+};
+
+const inferFallbackRoiFromStateDiff = (
+  before: ColorCycleSerializedState,
+  after: ColorCycleSerializedState,
+  width: number,
+  height: number,
+  stride = 16
+): { x: number; y: number; width: number; height: number } | null => {
+  if (!before || !after || width <= 0 || height <= 0) {
+    return null;
+  }
+  const beforeLayer = before.layers?.[0];
+  const afterLayer = after.layers?.[0];
+  const beforeBytes = bufferToU8(beforeLayer?.strokeData?.paintBuffer ?? null);
+  const afterBytes = bufferToU8(afterLayer?.strokeData?.paintBuffer ?? null);
+  if (!beforeBytes || !afterBytes) {
+    return null;
+  }
+
+  const minStride = Math.max(1, Math.floor(stride));
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += minStride) {
+    const row = y * width;
+    for (let x = 0; x < width; x += minStride) {
+      const idx = row + x;
+      if (beforeBytes[idx] !== afterBytes[idx]) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) {
+    return null;
+  }
+
+  const pad = minStride * 2;
+  const x = Math.max(0, minX - pad);
+  const y = Math.max(0, minY - pad);
+  const right = Math.min(width, maxX + pad);
+  const bottom = Math.min(height, maxY + pad);
+  const roiWidth = Math.max(1, right - x);
+  const roiHeight = Math.max(1, bottom - y);
+  return { x, y, width: roiWidth, height: roiHeight };
 };
 
 export interface LayerHistoryPayload {
@@ -160,6 +196,22 @@ export const commitLayerHistory = async ({
       isColorCycleLayer
         ? (afterColorStateOverride ?? captureColorCycleBrushState(refreshedLayer.id))
         : null;
+    const projectWidth =
+      afterState.project?.width ??
+      refreshedLayer.imageData?.width ??
+      refreshedLayer.colorCycleData?.canvas?.width ??
+      0;
+    const projectHeight =
+      afterState.project?.height ??
+      refreshedLayer.imageData?.height ??
+      refreshedLayer.colorCycleData?.canvas?.height ??
+      0;
+    const normalizedColorCycleRoi = normalizeInflatedRoi(
+      bitmapRoi ?? null,
+      projectWidth,
+      projectHeight,
+      2,
+    );
 
     const historyId = mapCanvasActionToHistoryId(actionType);
     const meta: Record<string, unknown> = {
@@ -198,25 +250,25 @@ export const commitLayerHistory = async ({
     );
     let deltaCount = 0;
     let committed = false;
+    const pushDelta = (d: HistoryDelta | null | undefined, label: string): void => {
+      if (!d) {
+        return;
+      }
+      txn.push(d);
+      deltaCount += 1;
+    };
 
     try {
       const skipBitmap = skipBitmapDelta === true;
 
       if (afterImage && !skipBitmap && !isColorCycleLayer) {
-        const effectiveBeforeImage = beforeImage
-          ? stitchBeforeRegionIntoLayer(beforeImage, bitmapRoi ?? null, afterImage)
-          : null;
-
         const bitmapDelta = await createBitmapTileDelta({
           layerId,
-          before: effectiveBeforeImage,
+          before: beforeImage,
           after: afterImage,
           roi: bitmapRoi ?? undefined,
         });
-        if (bitmapDelta) {
-          txn.push(bitmapDelta);
-          deltaCount += 1;
-        }
+        pushDelta(bitmapDelta, 'bitmap');
       }
 
       if (afterColorState || beforeColorState) {
@@ -228,15 +280,29 @@ export const commitLayerHistory = async ({
             afterCtr: afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
           });
         }
-        const colorDelta = createColorCycleStrokeDelta({
-          layerId,
-          forwardState: afterColorState,
-          backwardState: beforeColorState,
-        });
-        if (colorDelta) {
-          txn.push(colorDelta);
-          deltaCount += 1;
-        }
+        const inferredRoi = inferFallbackRoiFromStateDiff(
+          beforeColorState,
+          afterColorState,
+          projectWidth,
+          projectHeight
+        );
+        const colorCycleRoi =
+          normalizedColorCycleRoi ??
+          inferredRoi ??
+          (projectWidth > 0 && projectHeight > 0
+            ? { x: 0, y: 0, width: projectWidth, height: projectHeight }
+            : null);
+        const patchDelta = colorCycleRoi
+          ? await createColorCycleStrokePatchDelta({
+              layerId,
+              forwardState: afterColorState,
+              backwardState: beforeColorState,
+              roi: colorCycleRoi,
+              width: projectWidth,
+              height: projectHeight,
+            })
+          : null;
+        pushDelta(patchDelta, 'color-cycle');
       }
 
       if (selectionBeforeSnapshot) {
@@ -248,10 +314,7 @@ export const commitLayerHistory = async ({
           before: selectionBeforeSnapshot,
           after: selectionAfterSnapshot,
         });
-        if (selectionDelta) {
-          txn.push(selectionDelta);
-          deltaCount += 1;
-        }
+        pushDelta(selectionDelta, 'selection');
       }
 
       if (deltaCount > 0) {

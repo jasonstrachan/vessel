@@ -1,7 +1,6 @@
 import type { StoreApi } from 'zustand';
 import type { AppState, CaptureROI } from '@/stores/useAppStore';
 import type { Rectangle } from '@/types';
-import { cloneImageDataForHistory } from '@/stores/helpers/historyLifecycle';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { logError } from '@/utils/debug';
@@ -136,11 +135,12 @@ export const createSelectionPasteHelpers = ({
       return;
     }
 
-    const beforeImage = activeLayer.imageData ? cloneImageDataForHistory(activeLayer.imageData) ?? null : null;
     const beforeColorState =
       activeLayer.layerType === 'color-cycle'
         ? captureColorCycleBrushState(activeLayer.id)
         : null;
+    const addNotification = state.addNotification;
+    let beforeImage: ImageData | null = null;
 
     try {
       const destinationRect = getDestinationRect(floatingPaste);
@@ -170,6 +170,21 @@ export const createSelectionPasteHelpers = ({
           hasIndices: hasColorCycleData,
           indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
         });
+      }
+
+      if (activeLayer.layerType === 'color-cycle' && !hasColorCycleData) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[floatingPaste] Missing color cycle indices for paste commit', {
+            layerId: activeLayer.id,
+          });
+        }
+        addNotification?.({
+          type: 'warning',
+          title: 'Paste blocked',
+          message: 'Color-cycle paste requires color-cycle data. Copy from a color-cycle layer or paste onto a normal layer.',
+          timestamp: new Date(),
+        });
+        return;
       }
 
       if (activeLayer.layerType === 'color-cycle' && hasColorCycleData) {
@@ -275,6 +290,29 @@ export const createSelectionPasteHelpers = ({
         } catch {}
       }
 
+      const roundedDestRect = {
+        x: Math.round(destinationRect.x),
+        y: Math.round(destinationRect.y),
+        width: Math.round(destinationRect.width),
+        height: Math.round(destinationRect.height),
+      };
+      const roiX = clamp(roundedDestRect.x, 0, project.width);
+      const roiY = clamp(roundedDestRect.y, 0, project.height);
+      const roiWidth = clamp(roundedDestRect.width, 0, project.width - roiX);
+      const roiHeight = clamp(roundedDestRect.height, 0, project.height - roiY);
+      const bitmapRoi =
+        roiWidth > 0 && roiHeight > 0
+          ? {
+              x: roiX,
+              y: roiY,
+              width: roiWidth,
+              height: roiHeight,
+            }
+          : null;
+      beforeImage = bitmapRoi
+        ? tempCtx.getImageData(bitmapRoi.x, bitmapRoi.y, bitmapRoi.width, bitmapRoi.height)
+        : null;
+
       const pasteCanvas = document.createElement('canvas');
       pasteCanvas.width = floatingPaste.width;
       pasteCanvas.height = floatingPaste.height;
@@ -331,6 +369,7 @@ export const createSelectionPasteHelpers = ({
         layerId: activeLayer.id,
         beforeImage,
         beforeColorState,
+        bitmapRoi: bitmapRoi ?? undefined,
         actionType: 'paste',
         description: 'Committed paste',
         tool: 'paste',

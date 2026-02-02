@@ -23,7 +23,7 @@ const metrics: ColorCycleMetrics = {
 };
 
 const shouldProfileEntry = (entry: HistoryEntry): boolean =>
-  entry.deltas.some((delta) => delta._tag === 'color-cycle-stroke');
+  entry.deltas.some((delta) => delta._tag === 'color-cycle-stroke' || delta._tag === 'color-cycle-stroke-patch');
 
 const computeEntryBytes = (entry: HistoryEntry): number =>
   typeof entry.meta?.approxBytes === 'number'

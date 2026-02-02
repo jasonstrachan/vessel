@@ -10,7 +10,7 @@ import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
 import { PaletteController } from '@/lib/colorCycle/PaletteController';
 import { Renderer2D } from '@/lib/colorCycle/Renderer2D';
-import { RendererWebGL } from '@/lib/colorCycle/rendering/RendererWebGL';
+import { RendererWebGL, type PaletteRGBA } from '@/lib/colorCycle/rendering/RendererWebGL';
 import { FlowMode, StrokeOrderTracker } from '@/lib/colorCycle/StrokeOrderTracker';
 import type { CCIndexSurface, CCIndexSurfaceRect } from '@/lib/colorCycle/CCIndexSurface';
 
@@ -65,10 +65,23 @@ export class ColorCycleAnimator implements CCIndexSurface {
   private _renderSampledOnce: boolean = false;
   // Track when index buffer changed to avoid re-uploading every frame
   private _glIndexDirty: boolean = true;
+  private _glDefIdDirty: boolean = true;
   private currentSpeedByte: number = 0;
   // Rendering mode flag
   private forceCanvas2D: boolean = false;
   private strokeTracker: StrokeOrderTracker;
+  private defIdData: Uint16Array | null = null;
+  private defPalettesById: Map<number, Uint32Array> | null = null;
+  private defPaletteRGBAById: Map<number, PaletteRGBA> | null = null;
+  private defPaletteSignaturesById: Map<number, string> | null = null;
+  private defIdUsageSet: Set<number> | null = null;
+  private defIdUsageDirty: boolean = false;
+  private defValidationDirty: boolean = false;
+  private defPaletteCacheDirty: boolean = false;
+  private defAtlasRowById: Map<number, number> = new Map();
+  private defAtlasRowSignatures: Array<string | null> = [];
+  private defAtlasMaxRows: number = 1024;
+  private defAtlasLut: Uint8Array | null = null;
   
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
@@ -141,6 +154,31 @@ export class ColorCycleAnimator implements CCIndexSurface {
     this.setIndexBufferFromArray(data, gid, spd);
   }
 
+  setDefIdData(defIdData?: Uint16Array | null): void {
+    this.defIdData = defIdData && defIdData.length > 0 ? defIdData : null;
+    this.defIdUsageDirty = true;
+    this.defValidationDirty = true;
+    this._glDefIdDirty = true;
+  }
+
+  setDefPaletteCache(cache?: {
+    palettesById: Map<number, Uint32Array>;
+    rgbaById: Map<number, PaletteRGBA>;
+    signaturesById: Map<number, string>;
+  } | null): void {
+    if (!cache) {
+      this.defPalettesById = null;
+      this.defPaletteRGBAById = null;
+      this.defPaletteSignaturesById = null;
+    } else {
+      this.defPalettesById = cache.palettesById;
+      this.defPaletteRGBAById = cache.rgbaById;
+      this.defPaletteSignaturesById = cache.signaturesById;
+    }
+    this.defPaletteCacheDirty = true;
+    this.defValidationDirty = true;
+  }
+
   markDirty(bounds?: CCIndexSurfaceRect): void {
     if (!bounds) {
       this.indexBuffer.markDirty();
@@ -200,6 +238,151 @@ export class ColorCycleAnimator implements CCIndexSurface {
       this.paletteController.getPaletteSignaturesBySlot(),
       this.paletteController.getPaletteRGBABySlot()
     );
+  }
+
+  private computeDefIdsInUse(): Set<number> {
+    const used = new Set<number>();
+    const data = this.defIdData;
+    if (!data || data.length === 0) {
+      return used;
+    }
+    for (let i = 0; i < data.length; i += 1) {
+      const id = data[i];
+      if (id > 0) {
+        used.add(id);
+      }
+    }
+    return used;
+  }
+
+  private getDefIdsInUse(): Set<number> {
+    if (this.defIdUsageDirty || !this.defIdUsageSet) {
+      this.defIdUsageSet = this.computeDefIdsInUse();
+      this.defIdUsageDirty = false;
+    }
+    return this.defIdUsageSet;
+  }
+
+  private validateDefPalettes(defIdsInUse: Set<number>): void {
+    if (process.env.NODE_ENV === 'production' || !this.defValidationDirty) {
+      return;
+    }
+    this.defValidationDirty = false;
+    if (!this.defPalettesById || defIdsInUse.size === 0) {
+      return;
+    }
+    let missing: number | null = null;
+    for (const id of defIdsInUse) {
+      if (!this.defPalettesById.has(id)) {
+        missing = id;
+        break;
+      }
+    }
+    if (missing !== null) {
+      console.assert(false, '[CC] Missing def palette for defId', { defId: missing });
+    }
+  }
+
+  private syncDefPaletteAtlasToGPU(defIdsInUse: Set<number>): Set<number> {
+    const nonResident = new Set<number>();
+    if (this.forceCanvas2D || !this.glRenderer) {
+      return nonResident;
+    }
+    if (!this.defPaletteRGBAById || !this.defPaletteSignaturesById || defIdsInUse.size === 0) {
+      this.defAtlasRowById.clear();
+      this.defAtlasRowSignatures = [];
+      this.defPaletteCacheDirty = false;
+      this.defAtlasLut = null;
+      this.glRenderer.resetDefPaletteState?.();
+      return nonResident;
+    }
+
+    const maxRows = Math.max(1, this.defAtlasMaxRows);
+    let lutDirty = this.defPaletteCacheDirty || !this.defAtlasLut;
+    if (this.defAtlasRowSignatures.length !== maxRows) {
+      this.defAtlasRowSignatures = new Array(maxRows).fill(null);
+      this.defAtlasRowById.clear();
+      lutDirty = true;
+    }
+
+    const isRowUsed = new Array(maxRows).fill(false);
+    const currentDefs = new Set(defIdsInUse);
+
+    for (const [defId, row] of this.defAtlasRowById.entries()) {
+      if (!currentDefs.has(defId)) {
+        this.defAtlasRowById.delete(defId);
+        if (row >= 0 && row < maxRows) {
+          this.defAtlasRowSignatures[row] = null;
+        }
+        lutDirty = true;
+      }
+    }
+
+    for (const row of this.defAtlasRowById.values()) {
+      if (row >= 0 && row < maxRows) {
+        isRowUsed[row] = true;
+      }
+    }
+
+    const freeRows: number[] = [];
+    for (let row = 0; row < maxRows; row += 1) {
+      if (!isRowUsed[row]) {
+        freeRows.push(row);
+      }
+    }
+
+    try {
+      this.glRenderer.setDefPaletteRows?.(maxRows);
+    } catch {}
+
+    for (const defId of defIdsInUse) {
+      const signature = this.defPaletteSignaturesById.get(defId);
+      const rgba = this.defPaletteRGBAById.get(defId);
+      if (!signature || !rgba) {
+        nonResident.add(defId);
+        continue;
+      }
+      let row = this.defAtlasRowById.get(defId);
+      if (typeof row !== 'number' || row < 0 || row >= maxRows) {
+        const nextRow = freeRows.shift();
+        if (typeof nextRow !== 'number') {
+          nonResident.add(defId);
+          continue;
+        }
+        row = nextRow;
+        this.defAtlasRowById.set(defId, row);
+        lutDirty = true;
+      }
+      if (this.defAtlasRowSignatures[row] !== signature || this.defPaletteCacheDirty) {
+        try {
+          this.glRenderer.setDefPaletteRow?.(row, rgba, signature);
+        } catch {}
+        this.defAtlasRowSignatures[row] = signature;
+      }
+    }
+
+    if (lutDirty) {
+      const lut = this.defAtlasLut && this.defAtlasLut.length === 256 * 256 * 2
+        ? this.defAtlasLut
+        : new Uint8Array(256 * 256 * 2);
+      lut.fill(0);
+      for (const [defId, row] of this.defAtlasRowById.entries()) {
+        const idx = defId * 2;
+        if (idx < 0 || idx + 1 >= lut.length) {
+          continue;
+        }
+        const encoded = row + 1;
+        lut[idx] = encoded & 0xff;
+        lut[idx + 1] = (encoded >> 8) & 0xff;
+      }
+      this.defAtlasLut = lut;
+      try {
+        this.glRenderer.setDefPaletteLut?.(lut);
+      } catch {}
+    }
+
+    this.defPaletteCacheDirty = false;
+    return nonResident;
   }
 
   /**
@@ -396,37 +579,55 @@ export class ColorCycleAnimator implements CCIndexSurface {
         Number.isFinite(baseTimeOverride)
           ? (baseTimeOverride as number)
           : this.animationController.getElapsedTime();
-      // GPU path if available
-      if (!this.forceCanvas2D && this.glRenderer && this.glCanvas) {
+      const indexData = this.indexBuffer.getDirectData();
+      const gradientIdData = this.indexBuffer.getDirectGradientIdData();
+      const speedData = this.indexBuffer.getDirectSpeedData();
+      if (!indexData) return;
+      const defIdsInUse = this.getDefIdsInUse();
+      this.validateDefPalettes(defIdsInUse);
+      const hasDefIds = defIdsInUse.size > 0;
+
+      const glRenderer = this.glRenderer;
+      const glCanvas = this.glCanvas;
+      let useGPU = !this.forceCanvas2D && Boolean(glRenderer) && Boolean(glCanvas);
+      if (useGPU && hasDefIds) {
+        if (!this.defPaletteRGBAById || !this.defPaletteSignaturesById || !this.defPalettesById) {
+          useGPU = false;
+        } else {
+          const nonResident = this.syncDefPaletteAtlasToGPU(defIdsInUse);
+          if (nonResident.size > 0) {
+            useGPU = false;
+          }
+        }
+      }
+
+      if (useGPU && glRenderer && glCanvas) {
         const baseSignature = this.paletteController.getSignatureForSlot(0);
-        if (!this.glRenderer.isPaletteReady(baseSignature)) {
+        if (!glRenderer.isPaletteReady(baseSignature)) {
           try {
             const paletteHandle = this.paletteController.getPaletteHandle();
-            this.glRenderer.ensureBasePalette(paletteHandle.rgba, baseSignature ?? undefined);
+            glRenderer.ensureBasePalette(paletteHandle.rgba, baseSignature ?? undefined);
           } catch {}
         }
         if (!this._renderPathLogged) { this._renderPathLogged = true; }
-        const indexData = this.indexBuffer.getDirectData();
-        const gradientIdData = this.indexBuffer.getDirectGradientIdData();
-        const speedData = this.indexBuffer.getDirectSpeedData();
-        if (!indexData) return;
 
         const dirtyBounds = this.indexBuffer.getDirtyBounds();
-        if (this._glIndexDirty || dirtyBounds) {
+        if (this._glIndexDirty || this._glDefIdDirty || dirtyBounds) {
           const canvas = this.renderer2D.getCanvas();
           const rect = dirtyBounds ?? { x: 0, y: 0, width: canvas.width, height: canvas.height };
-          this.glRenderer.setIndexData(indexData, gradientIdData, speedData, rect);
+          glRenderer.setIndexData(indexData, gradientIdData, speedData, this.defIdData ?? undefined, rect);
           this.indexBuffer.clearDirtyBounds();
           this._glIndexDirty = false;
+          this._glDefIdDirty = false;
         }
-        this.glRenderer.render(baseTime, legacyPhase, flowMode);
+        glRenderer.render(baseTime, legacyPhase, flowMode);
 
         if (!this._renderSampledOnce) {
           try {
             const ctx = this.renderer2D.getContext();
             const canvas = this.renderer2D.getCanvas();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(this.glCanvas, 0, 0);
+            ctx.drawImage(glCanvas, 0, 0);
             const w = Math.min(4, canvas.width);
             const h = Math.min(4, canvas.height);
             ctx.getImageData(0, 0, w, h);
@@ -440,11 +641,6 @@ export class ColorCycleAnimator implements CCIndexSurface {
 
       if (!this._renderPathLogged) { this._renderPathLogged = true; }
 
-      const indexData = this.indexBuffer.getDirectData();
-      const gradientIdData = this.indexBuffer.getDirectGradientIdData();
-      const speedData = this.indexBuffer.getDirectSpeedData();
-      if (!indexData) return;
-
       const basePalette32 = this.paletteController.getSignatureForSlot(0)
         ? this.paletteController.getPaletteForSlot(0)
         : this.paletteController.getPaletteHandle().uint32;
@@ -452,6 +648,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
       this.renderer2D.render({
         indexData,
         gradientIdData,
+        defIdData: this.defIdData ?? undefined,
+        defPalettesById: this.defPalettesById ?? undefined,
         speedData,
         paletteSlots: this.paletteController.getPalettesBySlot(),
         basePalette: basePalette32,
@@ -1014,6 +1212,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     // Resize index buffer
     this.indexBuffer.resize(width, height);
     this._glIndexDirty = true;
+    this._glDefIdDirty = true;
 
     this.renderer2D.resize(width, height, { preserveImageData: needsDataPreservation });
 

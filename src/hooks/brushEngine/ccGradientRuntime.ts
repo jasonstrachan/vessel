@@ -1,6 +1,6 @@
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
-import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 export type GradientStop = { position: number; color: string };
 export type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
@@ -34,6 +34,28 @@ const normalizePaintSlot = (slot: number): number => {
 
 const cloneStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map((stop) => ({ position: stop.position, color: stop.color }));
+
+let activeMarkSessionGetter: ((layerId: string) => MarkGradientSession | null) | null = null;
+
+const resolveActiveMarkGradientSession = (layerId: string): MarkGradientSession | null => {
+  if (!activeMarkSessionGetter) {
+    try {
+      // Avoid eager imports to prevent circular dependency in store initialization.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = require('../canvas/utils/colorCycleMarkSession') as {
+        getActiveMarkGradientSession?: (layerId: string) => MarkGradientSession | null;
+      };
+      activeMarkSessionGetter = mod.getActiveMarkGradientSession ?? null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return activeMarkSessionGetter?.(layerId) ?? null;
+  } catch {
+    return null;
+  }
+};
 
 export const signatureForStops = (stops: GradientStop[]): string =>
   stops.map((stop) => `${stop.position}:${stop.color}`).join('|');
@@ -73,7 +95,7 @@ export const buildRuntimeSnapshot = (
   layer: Layer,
   brushSettings: BrushSettings
 ): CCRuntimeSnapshot => {
-  const activeSession = getActiveMarkGradientSession(layer.id);
+  const activeSession = resolveActiveMarkGradientSession(layer.id);
   if (activeSession) {
     const slot = activeSession.previewSlot ?? activeSession.binding?.slot;
     const stops =

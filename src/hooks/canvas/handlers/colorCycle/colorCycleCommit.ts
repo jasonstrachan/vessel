@@ -12,6 +12,7 @@ import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMark
 import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -400,7 +401,7 @@ export const commitColorCycleLayerStroke = async (
             counts.set(slot, (counts.get(slot) ?? 0) + 1);
           }
         }
-        console.log('[CC] committed slots in ROI', label, [...counts.entries()]);
+        ccLog('committed slots in ROI', { label, counts: [...counts.entries()] });
         if (paletteRGBABySlot) {
           for (const [slot, count] of counts.entries()) {
             const palette = paletteRGBABySlot[slot] ?? null;
@@ -413,7 +414,7 @@ export const commitColorCycleLayerStroke = async (
                 }
               }
             }
-            console.log('[CC] slot palette', {
+            ccLog('slot palette', {
               slot,
               count,
               hasPalette: Boolean(palette),
@@ -437,7 +438,7 @@ export const commitColorCycleLayerStroke = async (
       try {
         session = finalizeMarkGradientSession(targetLayerId);
         if (session) {
-          console.log('[CC] mark slot (commit)', {
+          ccLog('mark slot (commit)', {
             layerId: targetLayerId,
             markId: session.markId,
             defId: session.binding?.defId ?? null,
@@ -582,7 +583,7 @@ export const commitColorCycleLayerStroke = async (
           });
           if (!loggedLegacySlotSummaryByLayer.has(targetLayerId)) {
             loggedLegacySlotSummaryByLayer.add(targetLayerId);
-            console.log('[CC] legacy slot summary', {
+            ccLog('legacy slot summary', {
               layerId: targetLayerId,
               slots: Array.from(legacySlots).sort((a, b) => a - b),
               count: legacySlots.size,

@@ -430,6 +430,7 @@ export interface AppState {
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
+  setCcGradientSource: (source: ToolState['ccGradientSource']) => void;
   setShapeMode: (enabled: boolean) => void;
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
   setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
@@ -721,7 +722,9 @@ type StoreSubscribeWithSelector<TState> = <Slice>(
 const storeSubscribeWithSelector = useAppStore.subscribe as unknown as StoreSubscribeWithSelector<AppState>;
 
 setColorCycleStoreStateGetter(() => useAppStore.getState());
-setGradientApplyStateGetter(() => useAppStore.getState());
+if (typeof setGradientApplyStateGetter === 'function') {
+  setGradientApplyStateGetter(() => useAppStore.getState());
+}
 configureMaskManager({
   getLayer: (layerId) => {
     const state = useAppStore.getState();
