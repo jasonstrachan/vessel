@@ -428,3 +428,46 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(useAppStore.getState().tools.brushSettings.dashedEnabled).toBe(true);
   });
 });
+
+describe('BrushControls – Color Cycle gradient fill mode', () => {
+  it('shows fill mode toggle only for the color cycle gradient preset', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    const { unmount } = render(<BrushControls />);
+    expect(screen.getByRole('button', { name: 'Concentric' })).toBeInTheDocument();
+    unmount();
+
+    useAppStore.setState((state) => ({
+      ...state,
+      brushPresets: [{ id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    expect(screen.queryByRole('button', { name: 'Concentric' })).not.toBeInTheDocument();
+  });
+
+  it('updates fill mode when toggled on the gradient preset', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleFillMode: 'linear',
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    await user.click(screen.getByRole('button', { name: 'Concentric' }));
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFillMode).toBe('concentric');
+  });
+});

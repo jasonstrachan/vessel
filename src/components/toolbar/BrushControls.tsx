@@ -393,6 +393,10 @@ const BrushControls = () => {
     : resolvedGradientSource === 'fg'
       ? 'fg'
       : 'manual';
+  const colorCycleFillModeValue =
+    activeSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+  const colorCycleFillModeLabel =
+    colorCycleFillModeValue === 'linear' ? 'Gradient' : 'Concentric';
   const ccGradientSamplePerShapeEnabled = Boolean(activeSettings.ccGradientSamplePerShape);
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
@@ -1011,7 +1015,6 @@ const BrushControls = () => {
                   setBrushPreset(gradientPreset, true);
                   setActiveSettings({
                     colorCycleStampShape: 'square',
-                    colorCycleFillMode: 'linear',
                   });
                 } else if (value === 'shape' && shapePreset) {
                   setBrushPreset(shapePreset, true);
@@ -1138,6 +1141,26 @@ const BrushControls = () => {
             size="sm"
           />
         </div>
+
+        {isColorCycleGradientPreset && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <ButtonGroup
+                options={[
+                  { label: 'Grad', value: 'linear' },
+                  { label: 'Concentric', value: 'concentric' },
+                ]}
+                value={colorCycleFillModeValue}
+                onChange={(value) => {
+                  const nextMode = value === 'linear' ? 'linear' : 'concentric';
+                  setActiveSettings({ colorCycleFillMode: nextMode });
+                }}
+                className="flex-1 justify-start"
+                size="sm"
+              />
+            </div>
+          </div>
+        )}
 
         {isColorCycleGradientPreset && gradientModeValue === 'manual' && (
           <div className="mb-3">

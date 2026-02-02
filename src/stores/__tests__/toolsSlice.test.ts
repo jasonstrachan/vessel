@@ -152,6 +152,29 @@ describe('tools slice', () => {
     expect(nextGradient).toEqual(gradientStops);
   });
 
+  it('stores color cycle fill mode only for the gradient preset', () => {
+    const store = useAppStore.getState();
+    store.saveBrushSettings('color-cycle-gradient', { colorCycleFillMode: 'concentric' });
+    store.saveBrushSettings('color-cycle-stroke', { colorCycleFillMode: 'linear' });
+
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    const strokePreset = brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+    expect(gradientPreset).toBeTruthy();
+    expect(strokePreset).toBeTruthy();
+
+    if (gradientPreset) {
+      store.setBrushPreset(gradientPreset);
+    }
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFillMode).toBe('concentric');
+
+    if (strokePreset) {
+      store.setBrushPreset(strokePreset);
+    }
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFillMode).toBe(
+      defaultBrushSettingsForStore.colorCycleFillMode
+    );
+  });
+
   it('manages recolor sampling lifecycle', () => {
     const store = useAppStore.getState();
     store.startRecolorSampling(10, 'brush');

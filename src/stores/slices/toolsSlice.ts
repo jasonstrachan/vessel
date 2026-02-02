@@ -193,6 +193,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorCycleGradient: settings.colorCycleGradient,
   colorCycleFPS: settings.colorCycleFPS,
   colorCycleFlowMode: settings.colorCycleFlowMode,
+  colorCycleFillMode: settings.colorCycleFillMode,
   gradientBands: settings.gradientBands,
   gradientLength: settings.gradientLength,
   colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
@@ -810,6 +811,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleFlowMode !== undefined) {
         settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
       }
+      if (currentBrushId === 'color-cycle-gradient' && settings.colorCycleFillMode !== undefined) {
+        settingsToSave.colorCycleFillMode = newSettings.colorCycleFillMode;
+      } else if (currentBrushId !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
+        delete settingsToSave.colorCycleFillMode;
+      }
       if (settings.gradientBands !== undefined) {
         settingsToSave.gradientBands = newSettings.gradientBands;
       }
@@ -1416,11 +1422,13 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete userOverrides.pressureEnabled;
       delete userOverrides.minPressure;
       delete userOverrides.maxPressure;
+      if (preset.id !== 'color-cycle-gradient' && userOverrides.colorCycleFillMode !== undefined) {
+        delete userOverrides.colorCycleFillMode;
+      }
     }
     const hasUserColorCycleSpeed = userOverrides?.colorCycleSpeed !== undefined;
     const hasUserColorCycleFlowMode = userOverrides?.colorCycleFlowMode !== undefined;
     const hasUserColorCycleFPS = userOverrides?.colorCycleFPS !== undefined;
-    const hasUserColorCycleFillMode = userOverrides?.colorCycleFillMode !== undefined;
     const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
     const currentSettings = state.tools.brushSettings;
     let updatedBrushSpecificSettings = state.brushSpecificSettings;
@@ -1462,13 +1470,6 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
     if (currentSettings.colorCycleFPS !== undefined && !hasUserColorCycleFPS) {
       newBrushSettings.colorCycleFPS = currentSettings.colorCycleFPS;
-    }
-    if (
-      currentSettings.colorCycleFillMode !== undefined &&
-      !hasUserColorCycleFillMode &&
-      presetDefaults.colorCycleFillMode === undefined
-    ) {
-      newBrushSettings.colorCycleFillMode = currentSettings.colorCycleFillMode;
     }
 
     const previousGradient = currentSettings.colorCycleGradient;
@@ -2119,9 +2120,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     if (brushIdToSave && (currentTool === 'brush' || currentTool === 'custom')) {
       const existingSettings = brushSpecificSettings[brushIdToSave] || {};
       const settingsToSave = {
-          ...existingSettings,
-          ...getSerializableBrushSettings(currentBrushSettings),
+        ...existingSettings,
+        ...getSerializableBrushSettings(currentBrushSettings),
       };
+      if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
+        delete settingsToSave.colorCycleFillMode;
+      }
       set(prevState => ({
         brushSpecificSettings: {
             ...prevState.brushSpecificSettings,
