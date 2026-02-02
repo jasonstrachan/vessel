@@ -154,8 +154,13 @@ export class ColorCycleAnimator implements CCIndexSurface {
     this.setIndexBufferFromArray(data, gid, spd);
   }
 
-  setDefIdData(defIdData?: Uint16Array | null): void {
-    this.defIdData = defIdData && defIdData.length > 0 ? defIdData : null;
+  setDefIdData(defIdData?: Uint16Array | null, options?: { forceDirty?: boolean }): void {
+    const next = defIdData && defIdData.length > 0 ? defIdData : null;
+    const sameRef = next === this.defIdData;
+    this.defIdData = next;
+    if (sameRef && !options?.forceDirty) {
+      return;
+    }
     this.defIdUsageDirty = true;
     this.defValidationDirty = true;
     this._glDefIdDirty = true;
@@ -615,7 +620,14 @@ export class ColorCycleAnimator implements CCIndexSurface {
         if (this._glIndexDirty || this._glDefIdDirty || dirtyBounds) {
           const canvas = this.renderer2D.getCanvas();
           const rect = dirtyBounds ?? { x: 0, y: 0, width: canvas.width, height: canvas.height };
-          glRenderer.setIndexData(indexData, gradientIdData, speedData, this.defIdData ?? undefined, rect);
+          glRenderer.setIndexData(
+            indexData,
+            gradientIdData,
+            speedData,
+            this.defIdData ?? undefined,
+            rect,
+            this._glDefIdDirty
+          );
           this.indexBuffer.clearDirtyBounds();
           this._glIndexDirty = false;
           this._glDefIdDirty = false;

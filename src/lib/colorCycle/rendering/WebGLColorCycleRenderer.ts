@@ -335,7 +335,8 @@ export class WebGLColorCycleRenderer {
     gradientIdData?: Uint8Array,
     speedData?: Uint8Array,
     defIdData?: Uint16Array,
-    rect?: { x: number; y: number; width: number; height: number } | null
+    rect?: { x: number; y: number; width: number; height: number } | null,
+    defIdDirty: boolean = true
   ) {
     const gl = this.gl;
     gl.useProgram(this.program);
@@ -349,9 +350,10 @@ export class WebGLColorCycleRenderer {
     const isFull = x === 0 && y === 0 && w === this.width && h === this.height;
     const gidData = gradientIdData ?? this.getZeroGradientIdBuffer();
     const spdData = speedData ?? this.getZeroSpeedBuffer();
-    const defDataPacked = defIdData
-      ? this.packDefIdData(defIdData)
-      : this.getZeroDefIdBuffer();
+    const shouldUploadDefId = defIdDirty || !this.defIdTexAllocated;
+    const defDataPacked = shouldUploadDefId
+      ? (defIdData ? this.packDefIdData(defIdData) : this.getZeroDefIdBuffer())
+      : null;
 
     this.uploadSingleChannelTexture(
       this.indexTex,
@@ -386,17 +388,19 @@ export class WebGLColorCycleRenderer {
       isFull,
       'speed'
     );
-    this.uploadTwoChannelTexture(
-      this.defIdTex,
-      4,
-      defDataPacked,
-      w,
-      h,
-      x,
-      y,
-      isFull,
-      'defId'
-    );
+    if (shouldUploadDefId && defDataPacked) {
+      this.uploadTwoChannelTexture(
+        this.defIdTex,
+        4,
+        defDataPacked,
+        w,
+        h,
+        x,
+        y,
+        isFull,
+        'defId'
+      );
+    }
   }
 
   render(offset: number, legacyOffset: number, flowMode: FlowMode) {
