@@ -74,6 +74,7 @@ export const createDefaultToolState = (): ToolState => ({
   lastRegularBrushShape: BrushShape.SQUARE,
   lastRegularShapeMode: false,
   lastColorCycleShapeMode: false,
+  ccGradientSource: 'manual',
   brushSettings: { ...defaultBrushSettingsForStore },
   eraserSettings: createDefaultEraserSettings(),
   fillSettings: {
@@ -213,6 +214,8 @@ const isShapeCapableTool = (tool?: Tool | null): boolean => {
 
 export interface ToolsSlice {
   tools: ToolState;
+  ccGradientSampleCount: number;
+  ccGradientSampleResetToken: number;
   globalBrushSize: number;
   pressureSettings: PressureSettings;
   brushPresets: BrushPreset[];
@@ -245,6 +248,9 @@ export interface ToolsSlice {
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
+  setCcGradientSource: (source: ToolState['ccGradientSource']) => void;
+  setCcGradientSampleCount: (count: number) => void;
+  resetCcGradientSample: () => void;
   setShapeMode: (enabled: boolean) => void;
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
   setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
@@ -283,6 +289,8 @@ export interface ToolsSlice {
 
 export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set, get) => ({
   tools: createDefaultToolState(),
+  ccGradientSampleCount: 0,
+  ccGradientSampleResetToken: 0,
   globalBrushSize: defaultBrushSettingsForStore.size ?? 5,
   pressureSettings: defaultPressureSettings,
   brushPresets,
@@ -880,11 +888,28 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
     
     // Clear temporary brush when switching away from custom brushes
+    let nextCcGradientSource = state.tools.ccGradientSource;
+    if (Object.prototype.hasOwnProperty.call(settings, 'colorCycleUseForegroundGradient')) {
+      if (settings.colorCycleUseForegroundGradient) {
+        nextCcGradientSource = 'fg';
+      } else if (state.tools.ccGradientSource === 'fg') {
+        nextCcGradientSource = 'manual';
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, 'autoSampleGradientRealtime')) {
+      if (settings.autoSampleGradientRealtime) {
+        nextCcGradientSource = 'sampled';
+      } else if (state.tools.ccGradientSource === 'sampled') {
+        nextCcGradientSource = 'manual';
+      }
+    }
+
     let updatedState = {
       ...state,
       tools: {
         ...state.tools,
-        brushSettings: newSettings
+        brushSettings: newSettings,
+        ccGradientSource: nextCcGradientSource,
       },
       globalBrushSize: isCustomBrush
         ? state.globalBrushSize
@@ -1057,6 +1082,43 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       ...state.tools,
       fillSettings: { ...state.tools.fillSettings, ...settings }
     }
+  })),
+  setCcGradientSource: (source) => set((state) => {
+    const nextSource = source ?? 'manual';
+    const nextBrushSettings: BrushSettings = {
+      ...state.tools.brushSettings,
+    };
+
+    if (nextSource === 'fg') {
+      nextBrushSettings.colorCycleUseForegroundGradient = true;
+      nextBrushSettings.autoSampleGradient = false;
+      nextBrushSettings.autoSampleGradientRealtime = false;
+      nextBrushSettings.ccGradientSamplePerShape = false;
+    } else if (nextSource === 'sampled') {
+      nextBrushSettings.colorCycleUseForegroundGradient = false;
+      nextBrushSettings.autoSampleGradient = false;
+      nextBrushSettings.autoSampleGradientRealtime = false;
+      nextBrushSettings.ccGradientSamplePerShape = false;
+    } else {
+      nextBrushSettings.colorCycleUseForegroundGradient = false;
+      nextBrushSettings.autoSampleGradient = false;
+      nextBrushSettings.autoSampleGradientRealtime = false;
+    }
+
+    return {
+      tools: {
+        ...state.tools,
+        ccGradientSource: nextSource,
+        brushSettings: nextBrushSettings,
+      }
+    };
+  }),
+  setCcGradientSampleCount: (count) => set((state) => ({
+    ccGradientSampleCount: Math.max(0, Math.round(count)),
+  })),
+  resetCcGradientSample: () => set((state) => ({
+    ccGradientSampleCount: 0,
+    ccGradientSampleResetToken: state.ccGradientSampleResetToken + 1,
   })),
   setCustomBrushSampleAllLayers: (sampleAllLayers) =>
     set((state) => {

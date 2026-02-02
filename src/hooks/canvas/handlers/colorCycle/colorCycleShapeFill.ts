@@ -8,6 +8,7 @@ import {
 } from '@/utils/colorCycleGradients';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { featureFlags } from '@/config/featureFlags';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 
@@ -105,7 +106,16 @@ export const finalizeColorCycleShapeFillLinear = async (
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
-      const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
+      const desiredSource =
+        live.tools.ccGradientSource ??
+        (liveSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
+      const useFG = desiredSource === 'fg';
+      const source =
+        desiredSource === 'sampled' && featureFlags.ccSampledEnabled
+          ? 'sampled'
+          : useFG
+            ? 'fg'
+            : 'manual';
       const fallbackStops =
         liveSettings.colorCycleGradient ?? DEFAULT_COLOR_CYCLE_GRADIENT;
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
@@ -125,7 +135,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         layerId: args.activeLayerId,
         markKind: 'shape',
         gradientKind: 'linear',
-        source: useFG ? 'fg' : 'manual',
+        source,
         stops: resolvedStops,
       });
       if (session?.binding?.slot !== undefined) {
@@ -208,6 +218,11 @@ export const finalizeColorCycleShapeFillLinear = async (
           }
         }
       }
+      if (session?.source === 'sampled') {
+        try {
+          useAppStore.getState().setCcGradientSampleCount(0);
+        } catch {}
+      }
     } catch {}
 
     try {
@@ -263,7 +278,16 @@ export const finalizeColorCycleShapeFillConcentric = async (
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
-      const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
+      const desiredSource =
+        live.tools.ccGradientSource ??
+        (liveSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
+      const useFG = desiredSource === 'fg';
+      const source =
+        desiredSource === 'sampled' && featureFlags.ccSampledEnabled
+          ? 'sampled'
+          : useFG
+            ? 'fg'
+            : 'manual';
       const fallbackStops =
         liveSettings.colorCycleGradient ?? DEFAULT_COLOR_CYCLE_GRADIENT;
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
@@ -283,7 +307,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         layerId: args.activeLayerId,
         markKind: 'shape',
         gradientKind: 'concentric',
-        source: useFG ? 'fg' : 'manual',
+        source,
         stops: resolvedStops,
       });
       if (session?.binding?.slot !== undefined) {
@@ -354,6 +378,11 @@ export const finalizeColorCycleShapeFillConcentric = async (
             }
           }
         }
+      }
+      if (session?.source === 'sampled') {
+        try {
+          useAppStore.getState().setCcGradientSampleCount(0);
+        } catch {}
       }
     } catch {}
 

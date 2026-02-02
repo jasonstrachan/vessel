@@ -74,6 +74,26 @@ export const buildRuntimeSnapshot = (
   brushSettings: BrushSettings
 ): CCRuntimeSnapshot => {
   const activeSession = getActiveMarkGradientSession(layer.id);
+  if (activeSession) {
+    const slot = activeSession.previewSlot ?? activeSession.binding?.slot;
+    const stops =
+      activeSession.previewStopsStored && activeSession.previewStopsStored.length > 0
+        ? activeSession.previewStopsStored
+        : activeSession.frozenStopsStored;
+    if (typeof slot === 'number' && stops.length > 0) {
+      return {
+        layerId: layer.id,
+        paintSlot: slot,
+        slotPalettes: [
+          {
+            slot,
+            stops: cloneStops(stops),
+          },
+        ],
+        flowMode: layer.colorCycleData?.flowMode,
+      };
+    }
+  }
   if (activeSession?.binding?.slot !== undefined) {
     return {
       layerId: layer.id,

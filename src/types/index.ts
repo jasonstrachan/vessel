@@ -440,6 +440,7 @@ export interface ToolState {
   // Separate shape mode memories to avoid leakage between CC and default brushes
   lastRegularShapeMode?: boolean;
   lastColorCycleShapeMode?: boolean;
+  ccGradientSource: 'manual' | 'fg' | 'sampled';
   brushSettings: BrushSettings;
   eraserSettings: BrushSettings;
   fillSettings: {

@@ -11,6 +11,7 @@ import {
 } from '@/stores/selectors/layersSelectors';
 import {
   selectBrushSettings,
+  selectCcGradientSource,
   selectCurrentTool,
   selectEraserSettings,
   selectGlobalBrushSize,
@@ -41,6 +42,8 @@ import {
   isColorCycleBrush,
   setSharedColorCycleGradient
 } from "../../utils/colorCycleGradients";
+import { useFeatureFlag } from '@/config/featureFlags';
+import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   PRESSURE_BASE_PERCENT,
   clampPressureDeltaPercent,
@@ -207,6 +210,7 @@ const BrushControls = () => {
   const setEraserSettings = useAppStore(state => state.setEraserSettings);
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
+  const setCcGradientSource = useAppStore(state => state.setCcGradientSource);
   const updateLayer = useAppStore(state => state.updateLayer);
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
   const isColorCycleGradientPreset = currentBrushPresetId === 'color-cycle-gradient';
@@ -214,6 +218,10 @@ const BrushControls = () => {
   const eraserSettings = useAppStore(selectEraserSettings);
   const currentTool = useAppStore(selectCurrentTool);
   const globalBrushSize = useAppStore(selectGlobalBrushSize);
+  const ccGradientSource = useAppStore(selectCcGradientSource);
+  const ccSampledEnabled = useFeatureFlag('ccSampledEnabled');
+  const ccGradientSampleCount = useAppStore((state) => state.ccGradientSampleCount);
+  const resetCcGradientSample = useAppStore((state) => state.resetCcGradientSample);
   const palette = useAppStore((state) => state.palette);
   const customBrushPercent = brushSettings.customBrushSizePercent ?? 100;
   const shapeMode = useAppStore(selectShapeMode);
@@ -379,12 +387,12 @@ const BrushControls = () => {
     [palette?.backgroundColor]
   );
 
-  const useForegroundDerivedGradient = Boolean(activeSettings.colorCycleUseForegroundGradient);
-  const autoSampleGradientRealtimeEnabled = Boolean(activeSettings.autoSampleGradientRealtime);
-  const isGradientSampleMode = autoSampleGradientRealtimeEnabled;
-  const gradientModeValue = isGradientSampleMode
+  const resolvedGradientSource = ccGradientSource ?? 'manual';
+  const useForegroundDerivedGradient = resolvedGradientSource === 'fg';
+  const isGradientSampleMode = resolvedGradientSource === 'sampled';
+  const gradientModeValue = resolvedGradientSource === 'sampled'
     ? 'sample'
-    : useForegroundDerivedGradient
+    : resolvedGradientSource === 'fg'
       ? 'fg'
       : 'manual';
   const ccGradientSamplePerShapeEnabled = Boolean(activeSettings.ccGradientSamplePerShape);
@@ -1123,29 +1131,14 @@ const BrushControls = () => {
             ]}
             value={gradientModeValue}
             onChange={(value) => {
-              if (value === 'fg') {
-                setActiveSettings({
-                  colorCycleUseForegroundGradient: true,
-                  autoSampleGradientRealtime: false,
-                  ccGradientSamplePerShape: false,
-                });
+              if (value === 'sample' && !ccSampledEnabled) {
                 return;
               }
-              if (value === 'sample') {
-                setActiveSettings({
-                  colorCycleUseForegroundGradient: false,
-                  autoSampleGradientRealtime: true,
-                  autoSampleGradient: false,
-                  ccGradientSamplePerShape: false,
-                });
-                return;
+              const nextSource = value === 'fg' ? 'fg' : value === 'sample' ? 'sampled' : 'manual';
+              setCcGradientSource(nextSource);
+              if (nextSource === 'manual') {
+                flushPendingGradient();
               }
-              setActiveSettings({
-                colorCycleUseForegroundGradient: false,
-                autoSampleGradientRealtime: false,
-                ccGradientSamplePerShape: false,
-              });
-              flushPendingGradient();
             }}
             size="sm"
           />
@@ -1186,27 +1179,50 @@ const BrushControls = () => {
           <div className="mb-3">
             <div className="flex items-center justify-between text-xs text-[#D9D9D9] mb-1">
               <span>Sampled Gradient</span>
-              <span className="text-[#A0A0A0]">Live</span>
+              <span className="text-[#A0A0A0]">{ccSampledEnabled ? 'Live' : 'WIP'}</span>
             </div>
-            {(() => {
-              const previewStops =
-                activeLayer?.colorCycleData?.gradient ??
-                activeSettings.colorCycleGradient ??
-                DEFAULT_GRADIENT_STOPS;
-              const previewCss = previewStops.length
-                ? previewStops
-                    .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
-                    .join(', ')
-                : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%';
-              return (
-                <div
-                  className="h-6 rounded border border-white/10"
-                  style={{
-                    background: `linear-gradient(90deg, ${previewCss})`,
-                  }}
-                />
-              );
-            })()}
+            {ccSampledEnabled ? (
+              <>
+                {(() => {
+                  const previewResult = activeLayerId
+                    ? getPreviewGradientForActiveMark(activeLayerId)
+                    : null;
+                  const previewStops =
+                    previewResult?.stopsStored ??
+                    activeLayer?.colorCycleData?.gradient ??
+                    activeSettings.colorCycleGradient ??
+                    DEFAULT_GRADIENT_STOPS;
+                  const previewCss = previewStops.length
+                    ? previewStops
+                        .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
+                        .join(', ')
+                    : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%';
+                  return (
+                    <div
+                      className="h-6 rounded border border-white/10"
+                      style={{
+                        background: `linear-gradient(90deg, ${previewCss})`,
+                      }}
+                    />
+                  );
+                })()}
+                <div className="mt-2 flex items-center justify-between text-xs text-[#A0A0A0]">
+                  <span>Samples: {ccGradientSampleCount}</span>
+                  <button
+                    type="button"
+                    className="rounded border border-white/10 px-2 py-0.5 text-[#D9D9D9] hover:border-white/30"
+                    onClick={() => resetCcGradientSample()}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="mt-1 text-xs text-[#A0A0A0]">
+                  Drag to sample colors from the canvas.
+                </div>
+              </>
+            ) : (
+              <div className="text-xs text-[#A0A0A0]">Sampling is disabled (WIP).</div>
+            )}
           </div>
         ) : (
           <div className="mb-3">

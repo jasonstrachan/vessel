@@ -35,6 +35,7 @@ type ShapeDrawingRefs = {
   autoSamplePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   autoSampleForkRef: React.MutableRefObject<boolean>;
   autoSampleLastUpdateRef: React.MutableRefObject<number>;
+  ccSampledPointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   ccGradientSampleSessionRef: React.MutableRefObject<{
     active: boolean;
     strokeId: string | null;
@@ -107,6 +108,8 @@ type ShapeDrawingDeps = {
   pauseColorCycleForNonCCInteraction: (reason?: CCReason) => void;
   resumeColorCycleAfterInteraction: () => Promise<void>;
   updateAutoSampledGradient: (points: Array<{ x: number; y: number }>) => void;
+  updateCcSampledGradient: (points: Array<{ x: number; y: number }>, layerId?: string | null) => void;
+  isCcSampledEnabled: boolean;
   updateCcGradientSample: (points: Array<{ x: number; y: number }>, strokeId?: string | null) => void;
   shouldSampleCcGradient: (settings: BrushSettings, brushPresetId: string | null | undefined) => boolean;
   updateDitherGradSamples: (points: Array<{ x: number; y: number }>) => void;
@@ -437,10 +440,18 @@ export const startShapeDrawing = (
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         const presetId = deps.storeRef.current.currentBrushPreset?.id;
         const samplePerShape = deps.shouldSampleCcGradient(st.tools.brushSettings, presetId);
+        const sampledSource =
+          deps.isCcSampledEnabled && st.tools.ccGradientSource === 'sampled';
         const autoSampleEnabled =
           st.tools.brushSettings.autoSampleGradient ||
           st.tools.brushSettings.autoSampleGradientRealtime;
-        if (isCCShape && samplePerShape) {
+        if (isCCShape && sampledSource) {
+          refs.ccSampledPointsRef.current = [...refs.shapePointsRef.current];
+          deps.updateCcSampledGradient(
+            refs.ccSampledPointsRef.current,
+            st.activeLayerId ?? null
+          );
+        } else if (isCCShape && samplePerShape) {
           deps.resetCcGradientSample();
           refs.ccGradientSampleLastUpdateRef.current = 0;
           refs.ccGradientSampleSessionRef.current.polyline = [...refs.shapePointsRef.current];
@@ -576,10 +587,18 @@ export const continueShapeDrawing = (
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
           const presetId = store.currentBrushPreset?.id;
           const samplePerShape = deps.shouldSampleCcGradient(store.tools.brushSettings, presetId);
+          const sampledSource =
+            deps.isCcSampledEnabled && store.tools.ccGradientSource === 'sampled';
           const autoSampleEnabled =
             store.tools.brushSettings.autoSampleGradient ||
             store.tools.brushSettings.autoSampleGradientRealtime;
-          if (isCCShape && samplePerShape) {
+          if (isCCShape && sampledSource) {
+            refs.ccSampledPointsRef.current = [...refs.shapePointsRef.current];
+            deps.updateCcSampledGradient(
+              refs.ccSampledPointsRef.current,
+              store.activeLayerId ?? null
+            );
+          } else if (isCCShape && samplePerShape) {
             refs.ccGradientSampleSessionRef.current.polyline = [...refs.shapePointsRef.current];
             deps.updateCcGradientSample(
               refs.ccGradientSampleSessionRef.current.polyline,
@@ -669,10 +688,8 @@ export const finalizeShapeDrawing = async (
       if (!brush || typeof brush.setGradientSlot !== 'function' || typeof brush.setActiveGradientSlot !== 'function') {
         return { restore: null };
       }
-      const slotGetter = (brush as { getActiveGradientSlot?: (layerId: string) => number })
-        .getActiveGradientSlot;
-      const activeSlot = typeof slotGetter === 'function'
-        ? slotGetter(params.activeLayerId)
+      const activeSlot = typeof (brush as { getActiveGradientSlot?: (layerId: string) => number }).getActiveGradientSlot === 'function'
+        ? (brush as { getActiveGradientSlot: (layerId: string) => number }).getActiveGradientSlot(params.activeLayerId)
         : resolveActiveGradientSlot(params.activeLayer);
 
       brush.setGradientSlot(params.activeLayerId, TEMP_SAMPLE_SLOT, stops);

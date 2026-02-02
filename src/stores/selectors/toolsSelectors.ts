@@ -10,6 +10,7 @@ export const selectFillSettings = (state: AppState): ToolState['fillSettings'] =
 export const selectCurrentTool = (state: AppState) => state.tools.currentTool;
 export const selectPreviousTool = (state: AppState) => state.tools.previousTool;
 export const selectShapeMode = (state: AppState) => state.tools.shapeMode;
+export const selectCcGradientSource = (state: AppState) => state.tools.ccGradientSource;
 export const selectToolsState = (state: AppState): ToolState => state.tools;
 export const selectBrushEditor = (state: AppState): BrushEditorState => state.brushEditor;
 export const selectPolygonGradientState = (state: AppState): PolygonGradientState =>

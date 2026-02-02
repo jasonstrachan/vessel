@@ -13,6 +13,7 @@ export const finalizeDrawingCleanup = async ({
   endFinalizeVisibleTimer,
   strokeBoundingBoxRef,
   strokeCapturePaddingRef,
+  lastStrokePointRef,
   isBusyRef,
 }: {
   endMaskHealingStroke: () => void;
@@ -27,6 +28,7 @@ export const finalizeDrawingCleanup = async ({
   endFinalizeVisibleTimer: () => void;
   strokeBoundingBoxRef: React.MutableRefObject<unknown>;
   strokeCapturePaddingRef: React.MutableRefObject<number>;
+  lastStrokePointRef: React.MutableRefObject<{ x: number; y: number } | null>;
   isBusyRef?: React.MutableRefObject<boolean>;
 }): Promise<void> => {
   endMaskHealingStroke();
@@ -42,6 +44,7 @@ export const finalizeDrawingCleanup = async ({
   endFinalizeVisibleTimer();
   strokeBoundingBoxRef.current = null;
   strokeCapturePaddingRef.current = 0;
+  lastStrokePointRef.current = null;
   if (isBusyRef) {
     isBusyRef.current = false;
   }

@@ -440,6 +440,11 @@ export const commitColorCycleLayerStroke = async (
             );
           }
         }
+        if (session?.source === 'sampled') {
+          try {
+            useAppStore.getState().setCcGradientSampleCount(0);
+          } catch {}
+        }
       } catch {}
     } else if (args.drawingCanvas) {
       try {

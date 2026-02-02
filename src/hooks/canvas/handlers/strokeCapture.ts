@@ -15,6 +15,7 @@ export type PrepareStrokeCaptureArgs = {
   strokeCapturePadding: number;
   roiPadding: number;
   engineStrokeBounds: { x: number; y: number; width: number; height: number } | null;
+  lastStrokePoint?: { x: number; y: number } | null;
   captureRegionOverride?: CaptureRegion | null;
   layerBeforeImage: ImageData | null;
   skipSave: boolean;
@@ -56,10 +57,11 @@ export const prepareStrokeCapture = async (
     strokeBoundingBox,
     strokeCapturePadding,
     roiPadding,
-    engineStrokeBounds,
-    captureRegionOverride,
-    layerBeforeImage,
-    skipSave,
+  engineStrokeBounds,
+  lastStrokePoint,
+  captureRegionOverride,
+  layerBeforeImage,
+  skipSave,
   } = args;
 
   if (!activeLayer || !project) {
@@ -84,12 +86,39 @@ export const prepareStrokeCapture = async (
     captureRoi = deps.unionCaptureRegions(pointerRoi, engineRoi) ?? pointerRoi ?? engineRoi;
   }
   if (!captureRoi && drawingCanvas && overlayHasContent) {
-    captureRoi = {
-      x: 0,
-      y: 0,
-      width: drawingCanvas.width,
-      height: drawingCanvas.height,
-    };
+    if (lastStrokePoint && project) {
+      const pad = Math.max(1, Math.ceil(roiPadding + strokeCapturePadding));
+      const x = Math.max(0, Math.floor(lastStrokePoint.x) - pad);
+      const y = Math.max(0, Math.floor(lastStrokePoint.y) - pad);
+      const right = Math.min(project.width, Math.ceil(lastStrokePoint.x) + pad);
+      const bottom = Math.min(project.height, Math.ceil(lastStrokePoint.y) + pad);
+      if (right > x && bottom > y) {
+        captureRoi = {
+          x,
+          y,
+          width: Math.max(1, right - x),
+          height: Math.max(1, bottom - y),
+        };
+      }
+    }
+
+    if (!captureRoi) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[history] Falling back to full-canvas capture', {
+          overlayHasContent,
+          project,
+          engineStrokeBounds,
+          strokeBoundingBox,
+          lastStrokePoint,
+        });
+      }
+      captureRoi = {
+        x: 0,
+        y: 0,
+        width: drawingCanvas.width,
+        height: drawingCanvas.height,
+      };
+    }
   }
 
   let nextBeforeImage = layerBeforeImage;

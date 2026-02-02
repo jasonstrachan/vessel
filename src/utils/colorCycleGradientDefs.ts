@@ -54,6 +54,7 @@ export const ensureGradientDefForStops = (params: {
   kind: 'linear' | 'concentric';
   stops: StoredStop[];
   source: GradientDefSource;
+  preferredSlot?: number;
 }): { def: ColorCycleGradientDefStore; slot: number; hash: string } | null => {
   const state = useAppStore.getState();
   const layer = state.layers.find((entry) => entry.id === params.layerId);
@@ -72,6 +73,8 @@ export const ensureGradientDefForStops = (params: {
     gradientDefs: colorCycleData.gradientDefs,
     gradientDefStore: defStore,
   });
+  const preferredSlot =
+    typeof params.preferredSlot === 'number' ? clampSlot(params.preferredSlot) : null;
 
   let slot: number;
   let nextDefStore = defStore;
@@ -79,10 +82,14 @@ export const ensureGradientDefForStops = (params: {
   let def: ColorCycleGradientDefStore;
 
   if (existing) {
-    slot = typeof existingSlot === 'number' ? existingSlot : (() => {
-      const picked = getNextGradientSlot(usedSlots);
-      return typeof picked === 'number' ? picked : 0;
-    })();
+    slot = typeof existingSlot === 'number'
+      ? existingSlot
+      : (preferredSlot !== null && !usedSlots.has(preferredSlot))
+        ? preferredSlot
+        : (() => {
+          const picked = getNextGradientSlot(usedSlots);
+          return typeof picked === 'number' ? picked : 0;
+        })();
     if (existing.slot !== slot) {
       def = { ...existing, slot };
       nextDefStore = defStore.map((entry) => (entry.id === existing.id ? def : entry));
@@ -90,8 +97,12 @@ export const ensureGradientDefForStops = (params: {
       def = existing;
     }
   } else {
-    const picked = getNextGradientSlot(usedSlots);
-    slot = typeof picked === 'number' ? picked : 0;
+    if (preferredSlot !== null && !usedSlots.has(preferredSlot)) {
+      slot = preferredSlot;
+    } else {
+      const picked = getNextGradientSlot(usedSlots);
+      slot = typeof picked === 'number' ? picked : 0;
+    }
     def = {
       id: nextId,
       kind: params.kind,

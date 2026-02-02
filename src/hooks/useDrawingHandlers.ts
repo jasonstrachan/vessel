@@ -10,6 +10,7 @@ import { appendSegmentWithDynamicResampling, ensurePolygonFromDrag } from '../ut
 import { logError, debugWarn, debugLog } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { FF } from '@/config/ccFeatureFlags';
+import { useFeatureFlag } from '@/config/featureFlags';
 import {
   setLayerColorCycleGradient,
   setSharedColorCycleGradient,
@@ -65,7 +66,11 @@ import {
   computeFallbackLinearDirection,
   runColorCycleShapeFill,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
-import { beginMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import {
+  beginMarkGradientSession,
+  cancelMarkGradientSession,
+  getActiveMarkGradientSession,
+} from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   pauseColorCycleForNonCCInteraction as pauseColorCycleForNonCCInteractionExternal,
   resumeColorCycleAfterInteraction as resumeColorCycleAfterInteractionExternal,
@@ -93,6 +98,9 @@ import {
 import {
   ensureColorCycleLayerCanvas as ensureColorCycleLayerCanvasExternal,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleLayerInit';
+import {
+  updateCcSampledSession,
+} from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import {
   getColorCycleBrushEraserSettings as getColorCycleBrushEraserSettingsExternal,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleEraserSettings';
@@ -582,6 +590,7 @@ export function useDrawingHandlers({
 
     return () => unsubscribe();
   }, [resetShapePressureState]);
+
   const userBrushEngine = useUserBrushEngine();
   const captureCanvasToActiveLayer = useAppStore((state) => state.captureCanvasToActiveLayer);
   const shapeMode = useAppStore(selectShapeMode);
@@ -818,6 +827,7 @@ export function useDrawingHandlers({
   const resamplerBrushDataRef = useRef<CustomBrushStrokeData | undefined>(undefined);
   const strokeBoundingBoxRef = useRef<BoundingBox | null>(null);
   const strokeCapturePaddingRef = useRef(0);
+  const lastStrokePointRef = useRef<{ x: number; y: number } | null>(null);
   
   // Track stamp count for continuous resampling
   const stampCounterRef = useRef<number>(0);
@@ -928,6 +938,9 @@ export function useDrawingHandlers({
   const brushSamplingPreviewActiveRef = useRef<boolean>(false);
   const ccGradientSampleSessionRef = useRef(createCcGradientSampleSession());
   const ccGradientSampleLastUpdateRef = useRef<number>(0);
+  const ccSampledPointsRef = useRef<Array<{ x: number; y: number }>>([]);
+  const ccSampledLastUpdateRef = useRef<number>(0);
+  const ccSampledEnabled = useFeatureFlag('ccSampledEnabled');
 
   const sampleHexAt = useCallback(
     (x: number, y: number): string =>
@@ -977,6 +990,38 @@ export function useDrawingHandlers({
     () => ccGradientSampleSessionRef.current.stops,
     []
   );
+
+  const updateCcSampledGradient = useCallback(
+    (sourcePts: Array<{ x: number; y: number }>, layerId?: string | null) => {
+      if (!ccSampledEnabled) {
+        return;
+      }
+      const targetLayerId = layerId ?? storeRef.current.activeLayerId;
+      if (!targetLayerId) {
+        return;
+      }
+      const session = getActiveMarkGradientSession(targetLayerId);
+      if (!session || session.source !== 'sampled') {
+        return;
+      }
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const result = updateCcSampledSession({
+        session,
+        sourcePts,
+        now,
+        lastUpdateRef: ccSampledLastUpdateRef,
+        sampleColor: sampleHexAt,
+        allowTiny: false,
+      });
+      if (result) {
+        storeRef.current.setCcGradientSampleCount(result.sampleCount);
+        if (result.updated) {
+          requestGradientApply(targetLayerId, 'sampled-preview');
+        }
+      }
+    },
+    [ccSampledEnabled, sampleHexAt, storeRef]
+  );
   
   const setSharedColorCycleGradientForShapes = useCallback((stops: AutoSampleStops | null) => {
     if (!stops) {
@@ -1020,6 +1065,36 @@ export function useDrawingHandlers({
       },
     });
   }, [storeRef, drawingCanvasRef, drawingCtxRef, drawingCanvasHasContent, sampleColorAt]);
+
+  useEffect(() => {
+    const selector = (state: AppState) => ({
+      source: state.tools.ccGradientSource,
+      resetToken: state.ccGradientSampleResetToken,
+      activeLayerId: state.activeLayerId,
+    });
+
+    let prev = selector(useAppStore.getState());
+    const unsubscribe = useAppStore.subscribe((state: AppState) => {
+      const next = selector(state);
+      const sourceChanged = next.source !== prev.source;
+      const resetTriggered = next.resetToken !== prev.resetToken;
+      if (sourceChanged || resetTriggered) {
+        if (next.activeLayerId) {
+          cancelMarkGradientSession(next.activeLayerId);
+        }
+        resetCcGradientSample();
+        clearBrushSamplingPreview();
+        ccSampledPointsRef.current = [];
+        ccSampledLastUpdateRef.current = 0;
+        try {
+          state.setCcGradientSampleCount(0);
+        } catch {}
+      }
+      prev = next;
+    });
+
+    return () => unsubscribe();
+  }, [clearBrushSamplingPreview, resetCcGradientSample]);
 
   const resetAutoSampleState = useCallback((disableGradient: boolean = true) => {
     resetAutoSampleStateExternal({
@@ -1421,7 +1496,15 @@ export function useDrawingHandlers({
             const resolved = resolveActiveColorCycleGradient(refreshedLayer, refreshedState.tools.brushSettings);
             const gradientKind =
               refreshedState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
-            const source = refreshedState.tools.brushSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual';
+            const desiredSource =
+              refreshedState.tools.ccGradientSource ??
+              (refreshedState.tools.brushSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
+            const source =
+              desiredSource === 'sampled' && ccSampledEnabled
+                ? 'sampled'
+                : desiredSource === 'fg'
+                  ? 'fg'
+                  : 'manual';
             beginMarkGradientSession({
               layerId: activeLayer.id,
               markKind: 'stroke',
@@ -1526,6 +1609,17 @@ export function useDrawingHandlers({
         }
       }
     } catch {}
+    try {
+      const isSampledStroke =
+        ccFlags.isAny &&
+        currentState.tools.ccGradientSource === 'sampled' &&
+        ccSampledEnabled;
+      if (isSampledStroke) {
+        ccSampledPointsRef.current = [worldPos];
+        ccSampledLastUpdateRef.current = 0;
+        updateCcSampledGradient(ccSampledPointsRef.current);
+      }
+    } catch {}
     if (brushSamplingPreviewActiveRef.current) {
       return;
     }
@@ -1577,6 +1671,7 @@ export function useDrawingHandlers({
     }
     drawingCanvasHasContent.current = !(ccFlags.isAny && colorCyclePlayingAtStrokeStart);
     lastDrawPosRef.current = worldPos;
+    lastStrokePointRef.current = worldPos;
 
     if (currentState.palette.activeSlot === 'foreground') {
       const paletteColor = currentState.palette.foregroundColor;
@@ -1903,6 +1998,7 @@ export function useDrawingHandlers({
       lastDrawPosRef,
       brushSamplingPreviewActiveRef,
       autoSamplePointsRef,
+      ccSampledPointsRef,
       resamplerBrushDataRef,
       stampCounterRef,
       colorCyclePixelQueueRef: colorCyclePixelQueue,
@@ -1918,6 +2014,8 @@ export function useDrawingHandlers({
       userBrushEngine,
       drawEraserSegment,
       updateAutoSampledGradient,
+      updateCcSampledGradient,
+      isCcSampledEnabled: ccSampledEnabled,
       renderBrushSamplingPreview,
       getCCStampTargetCtx,
       scheduleRecompose,
@@ -1945,6 +2043,8 @@ export function useDrawingHandlers({
     project,
     drawEraserSegment,
     updateAutoSampledGradient,
+    updateCcSampledGradient,
+    ccSampledEnabled,
     getCCStampTargetCtx,
     scheduleRecompose,
     renderBrushSamplingPreview,
@@ -1966,6 +2066,7 @@ export function useDrawingHandlers({
     const throttleBudget = THROTTLE_MS;
     const brushSettings = currentState.tools.brushSettings;
     const worldPos = alignPointToPixel(rawWorldPos, shouldPixelAlignBrush(brushSettings));
+    lastStrokePointRef.current = worldPos;
 
     if (currentState.tools.currentTool === 'brush' && !brushSamplingPreviewActiveRef.current) {
       strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
@@ -2132,6 +2233,7 @@ export function useDrawingHandlers({
             strokeCapturePadding: strokeCapturePaddingRef.current,
             roiPadding: ROI_PADDING_PX,
             engineStrokeBounds,
+            lastStrokePoint: lastStrokePointRef.current,
             captureRegionOverride: options.captureRegionOverride ?? null,
             layerBeforeImage,
             skipSave,
@@ -2413,6 +2515,7 @@ export function useDrawingHandlers({
         endFinalizeVisibleTimer,
         strokeBoundingBoxRef,
         strokeCapturePaddingRef,
+        lastStrokePointRef,
         isBusyRef,
       });
     }
@@ -2584,6 +2687,7 @@ export function useDrawingHandlers({
     autoSamplePointsRef,
     autoSampleForkRef,
     autoSampleLastUpdateRef,
+    ccSampledPointsRef,
     ccGradientSampleSessionRef,
     ccGradientSampleLastUpdateRef,
     hadValidShapePressureRef,
@@ -2596,6 +2700,7 @@ export function useDrawingHandlers({
     autoSampleForkRef,
     autoSampleLastUpdateRef,
     autoSamplePointsRef,
+    ccSampledPointsRef,
     ccGradientSampleSessionRef,
     ccGradientSampleLastUpdateRef,
     ccShapePreviewPauseStartedRef,
@@ -2652,6 +2757,8 @@ export function useDrawingHandlers({
     pauseColorCycleForNonCCInteraction,
     resumeColorCycleAfterInteraction,
     updateAutoSampledGradient,
+    updateCcSampledGradient,
+    ccSampledEnabled,
     updateCcGradientSample,
     shouldSampleCcGradient,
     updateDitherGradSamples,
@@ -2736,6 +2843,8 @@ export function useDrawingHandlers({
     toolsRef,
     triggerSimpleShapePreview,
     updateAutoSampledGradient,
+    updateCcSampledGradient,
+    ccSampledEnabled,
     updateCcGradientSample,
     updateDitherGradSamples,
     updateShapePressure,

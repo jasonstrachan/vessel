@@ -37,6 +37,7 @@ export type ProcessBatchedStrokesArgs = {
   lastDrawPosRef: React.MutableRefObject<{ x: number; y: number } | null>;
   brushSamplingPreviewActiveRef: React.MutableRefObject<boolean>;
   autoSamplePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
+  ccSampledPointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   resamplerBrushDataRef: React.MutableRefObject<CustomBrushStrokeData | undefined>;
   stampCounterRef: React.MutableRefObject<number>;
   colorCyclePixelQueueRef: React.MutableRefObject<PixelQueue | null>;
@@ -61,6 +62,8 @@ export type ProcessBatchedStrokesDeps = {
     to: { x: number; y: number }
   ) => void;
   updateAutoSampledGradient: (points: Array<{ x: number; y: number }>) => void;
+  updateCcSampledGradient: (points: Array<{ x: number; y: number }>) => void;
+  isCcSampledEnabled: boolean;
   renderBrushSamplingPreview: (points: Array<{ x: number; y: number }>) => void;
   getCCStampTargetCtx: () => CanvasRenderingContext2D | null;
   scheduleRecompose: (roi?: { x: number; y: number; width: number; height: number }) => void;
@@ -170,6 +173,17 @@ export const processBatchedStrokes = (
       } else {
         deps.renderBrushSamplingPreview(args.autoSamplePointsRef.current);
       }
+    }
+    const shouldSampled =
+      ccProcessFlags.isAny &&
+      deps.isCcSampledEnabled &&
+      currentState.tools.ccGradientSource === 'sampled';
+    if (shouldSampled) {
+      args.ccSampledPointsRef.current.push(worldPos);
+      if (args.ccSampledPointsRef.current.length > 5000) {
+        args.ccSampledPointsRef.current.splice(0, args.ccSampledPointsRef.current.length - 5000);
+      }
+      deps.updateCcSampledGradient(args.ccSampledPointsRef.current);
     }
     const lastPoint = args.lastDrawPosRef.current;
 

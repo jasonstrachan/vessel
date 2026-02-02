@@ -269,12 +269,15 @@ jest.mock('@/stores/useAppStore', () => {
       lastRegularBrushShape: 'color_cycle',
       lastRegularShapeMode: false,
       lastColorCycleShapeMode: false,
+      ccGradientSource: 'manual',
       brushSettings: baseBrush,
       eraserSettings: baseBrush,
       fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
       shapeMode: false,
       customBrushCapture: { sampleAllLayers: false, mode: 'rectangle', freehandPath: null },
     },
+    ccGradientSampleCount: 0,
+    ccGradientSampleResetToken: 0,
     globalBrushSize: 10,
     activeLayerId: 'layer-1',
     layers: [{ id: 'layer-1', name: 'CC', layerType: 'color-cycle' } as unknown as AppState['layers'][number]],
@@ -295,6 +298,25 @@ jest.mock('@/stores/useAppStore', () => {
           ...state.tools,
           brushSettings: { ...state.tools.brushSettings, ...updates },
         },
+      }))
+    ),
+    setCcGradientSource: jest.fn((source: 'manual' | 'fg' | 'sampled') =>
+      store.setState((state) => ({
+        tools: {
+          ...state.tools,
+          ccGradientSource: source,
+        },
+      }))
+    ),
+    setCcGradientSampleCount: jest.fn((count: number) =>
+      store.setState(() => ({
+        ccGradientSampleCount: count,
+      }))
+    ),
+    resetCcGradientSample: jest.fn(() =>
+      store.setState((state) => ({
+        ccGradientSampleCount: 0,
+        ccGradientSampleResetToken: state.ccGradientSampleResetToken + 1,
       }))
     ),
     setEraserSettings: () => {},
