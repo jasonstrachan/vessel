@@ -10,7 +10,6 @@ import { appendSegmentWithDynamicResampling, ensurePolygonFromDrag } from '../ut
 import { logError, debugWarn, debugLog } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { FF } from '@/config/ccFeatureFlags';
-import { useFeatureFlag } from '@/config/featureFlags';
 import {
   setLayerColorCycleGradient,
   setSharedColorCycleGradient,
@@ -940,7 +939,6 @@ export function useDrawingHandlers({
   const ccGradientSampleLastUpdateRef = useRef<number>(0);
   const ccSampledPointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const ccSampledLastUpdateRef = useRef<number>(0);
-  const ccSampledEnabled = useFeatureFlag('ccSampledEnabled');
 
   const sampleHexAt = useCallback(
     (x: number, y: number): string =>
@@ -992,15 +990,31 @@ export function useDrawingHandlers({
   );
 
   const updateCcSampledGradient = useCallback(
-    (sourcePts: Array<{ x: number; y: number }>, layerId?: string | null) => {
-      if (!ccSampledEnabled) {
-        return;
-      }
-      const targetLayerId = layerId ?? storeRef.current.activeLayerId;
+    (
+      sourcePts: Array<{ x: number; y: number }>,
+      options?: { layerId?: string | null; markKind?: 'stroke' | 'shape' }
+    ) => {
+      const targetLayerId = options?.layerId ?? storeRef.current.activeLayerId;
       if (!targetLayerId) {
         return;
       }
-      const session = getActiveMarkGradientSession(targetLayerId);
+      let session = getActiveMarkGradientSession(targetLayerId);
+      if (!session) {
+        const currentState = storeRef.current;
+        const layer = currentState.layers.find((entry) => entry.id === targetLayerId);
+        if (layer?.layerType === 'color-cycle' && currentState.tools.ccGradientSource === 'sampled') {
+          const resolved = resolveActiveColorCycleGradient(layer, currentState.tools.brushSettings);
+          const gradientKind =
+            currentState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+          session = beginMarkGradientSession({
+            layerId: targetLayerId,
+            markKind: options?.markKind ?? 'stroke',
+            gradientKind,
+            source: 'sampled',
+            stops: resolved.activeStops,
+          });
+        }
+      }
       if (!session || session.source !== 'sampled') {
         return;
       }
@@ -1011,7 +1025,7 @@ export function useDrawingHandlers({
         now,
         lastUpdateRef: ccSampledLastUpdateRef,
         sampleColor: sampleHexAt,
-        allowTiny: false,
+        allowTiny: true,
       });
       if (result) {
         storeRef.current.setCcGradientSampleCount(result.sampleCount);
@@ -1020,7 +1034,7 @@ export function useDrawingHandlers({
         }
       }
     },
-    [ccSampledEnabled, sampleHexAt, storeRef]
+    [sampleHexAt, storeRef]
   );
   
   const setSharedColorCycleGradientForShapes = useCallback((stops: AutoSampleStops | null) => {
@@ -1500,7 +1514,7 @@ export function useDrawingHandlers({
               refreshedState.tools.ccGradientSource ??
               (refreshedState.tools.brushSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
             const source =
-              desiredSource === 'sampled' && ccSampledEnabled
+              desiredSource === 'sampled'
                 ? 'sampled'
                 : desiredSource === 'fg'
                   ? 'fg'
@@ -1612,12 +1626,11 @@ export function useDrawingHandlers({
     try {
       const isSampledStroke =
         ccFlags.isAny &&
-        currentState.tools.ccGradientSource === 'sampled' &&
-        ccSampledEnabled;
+        currentState.tools.ccGradientSource === 'sampled';
       if (isSampledStroke) {
         ccSampledPointsRef.current = [worldPos];
         ccSampledLastUpdateRef.current = 0;
-        updateCcSampledGradient(ccSampledPointsRef.current);
+        updateCcSampledGradient(ccSampledPointsRef.current, { markKind: 'stroke' });
       }
     } catch {}
     if (brushSamplingPreviewActiveRef.current) {
@@ -2015,7 +2028,6 @@ export function useDrawingHandlers({
       drawEraserSegment,
       updateAutoSampledGradient,
       updateCcSampledGradient,
-      isCcSampledEnabled: ccSampledEnabled,
       renderBrushSamplingPreview,
       getCCStampTargetCtx,
       scheduleRecompose,
@@ -2044,7 +2056,6 @@ export function useDrawingHandlers({
     drawEraserSegment,
     updateAutoSampledGradient,
     updateCcSampledGradient,
-    ccSampledEnabled,
     getCCStampTargetCtx,
     scheduleRecompose,
     renderBrushSamplingPreview,
@@ -2758,7 +2769,6 @@ export function useDrawingHandlers({
     resumeColorCycleAfterInteraction,
     updateAutoSampledGradient,
     updateCcSampledGradient,
-    ccSampledEnabled,
     updateCcGradientSample,
     shouldSampleCcGradient,
     updateDitherGradSamples,
@@ -2844,7 +2854,6 @@ export function useDrawingHandlers({
     triggerSimpleShapePreview,
     updateAutoSampledGradient,
     updateCcSampledGradient,
-    ccSampledEnabled,
     updateCcGradientSample,
     updateDitherGradSamples,
     updateShapePressure,

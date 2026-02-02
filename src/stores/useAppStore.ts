@@ -264,6 +264,7 @@ import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
+import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 
@@ -433,6 +434,10 @@ export interface AppState {
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
   setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
   setCustomBrushFreehandPath: (payload: { points: { x: number; y: number }[]; bounds: Rectangle | null } | null) => void;
+  ccGradientSampleCount: number;
+  ccGradientSampleResetToken: number;
+  setCcGradientSampleCount: (count: number) => void;
+  resetCcGradientSample: () => void;
   
   // Brush Presets
   brushPresets: BrushPreset[];
@@ -716,6 +721,7 @@ type StoreSubscribeWithSelector<TState> = <Slice>(
 const storeSubscribeWithSelector = useAppStore.subscribe as unknown as StoreSubscribeWithSelector<AppState>;
 
 setColorCycleStoreStateGetter(() => useAppStore.getState());
+setGradientApplyStateGetter(() => useAppStore.getState());
 configureMaskManager({
   getLayer: (layerId) => {
     const state = useAppStore.getState();

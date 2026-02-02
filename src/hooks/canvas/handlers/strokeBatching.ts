@@ -62,8 +62,10 @@ export type ProcessBatchedStrokesDeps = {
     to: { x: number; y: number }
   ) => void;
   updateAutoSampledGradient: (points: Array<{ x: number; y: number }>) => void;
-  updateCcSampledGradient: (points: Array<{ x: number; y: number }>) => void;
-  isCcSampledEnabled: boolean;
+  updateCcSampledGradient: (
+    points: Array<{ x: number; y: number }>,
+    options?: { layerId?: string | null; markKind?: 'stroke' | 'shape' }
+  ) => void;
   renderBrushSamplingPreview: (points: Array<{ x: number; y: number }>) => void;
   getCCStampTargetCtx: () => CanvasRenderingContext2D | null;
   scheduleRecompose: (roi?: { x: number; y: number; width: number; height: number }) => void;
@@ -176,14 +178,13 @@ export const processBatchedStrokes = (
     }
     const shouldSampled =
       ccProcessFlags.isAny &&
-      deps.isCcSampledEnabled &&
       currentState.tools.ccGradientSource === 'sampled';
     if (shouldSampled) {
       args.ccSampledPointsRef.current.push(worldPos);
       if (args.ccSampledPointsRef.current.length > 5000) {
         args.ccSampledPointsRef.current.splice(0, args.ccSampledPointsRef.current.length - 5000);
       }
-      deps.updateCcSampledGradient(args.ccSampledPointsRef.current);
+      deps.updateCcSampledGradient(args.ccSampledPointsRef.current, { markKind: 'stroke' });
     }
     const lastPoint = args.lastDrawPosRef.current;
 

@@ -8,7 +8,6 @@ import {
 } from '@/utils/colorCycleGradients';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { featureFlags } from '@/config/featureFlags';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 
@@ -111,7 +110,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         (liveSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
       const useFG = desiredSource === 'fg';
       const source =
-        desiredSource === 'sampled' && featureFlags.ccSampledEnabled
+        desiredSource === 'sampled'
           ? 'sampled'
           : useFG
             ? 'fg'
@@ -283,7 +282,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         (liveSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
       const useFG = desiredSource === 'fg';
       const source =
-        desiredSource === 'sampled' && featureFlags.ccSampledEnabled
+        desiredSource === 'sampled'
           ? 'sampled'
           : useFG
             ? 'fg'

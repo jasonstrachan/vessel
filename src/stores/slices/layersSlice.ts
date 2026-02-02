@@ -5,6 +5,7 @@ import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { clamp } from '@/utils/num';
 import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
+import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import {
   getColorCycleBrushManager,
@@ -1870,9 +1871,6 @@ export const createLayersSlice = (
           !skipColorCycleSync
         ) {
           syncCCRuntimes([syncedLayer], 'updateLayer');
-          // Lazy import to avoid circular dependency with useAppStore in tests.
-          // eslint-disable-next-line @typescript-eslint/no-require-imports -- runtime require breaks cycles
-          const { requestGradientApply } = require('@/hooks/brushEngine/ccGradientApplyScheduler') as typeof import('@/hooks/brushEngine/ccGradientApplyScheduler');
           requestGradientApply(syncedLayer.id, 'update-layer');
         }
       } catch (error) {

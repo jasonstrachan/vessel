@@ -1,5 +1,6 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { AppState } from '@/stores/useAppStore';
 import { buildRuntimeSnapshot, signatureForStops, type CCRuntimeSnapshot } from './ccGradientRuntime';
 
 const lastAppliedByLayer = new Map<
@@ -8,6 +9,11 @@ const lastAppliedByLayer = new Map<
 >();
 
 const pendingApplies = new Map<string, number>();
+let getState: (() => AppState) | null = null;
+
+export const setGradientApplyStateGetter = (getter: () => AppState): void => {
+  getState = getter;
+};
 
 const scheduleFrame = (cb: () => void): number => {
   if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -66,10 +72,10 @@ export const applyRuntimeToBrush = (
 };
 
 export const flushGradientApply = (layerId?: string): void => {
-  // Lazy import avoids cycles with layersSlice/useAppStore in tests.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- runtime require breaks circular deps
-  const { useAppStore } = require('@/stores/useAppStore') as typeof import('@/stores/useAppStore');
-  const state = useAppStore.getState();
+  const state = getState?.();
+  if (!state) {
+    return;
+  }
   const manager = getColorCycleBrushManager();
   const targetLayerIds = layerId
     ? [layerId]

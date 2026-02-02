@@ -42,7 +42,6 @@ import {
   isColorCycleBrush,
   setSharedColorCycleGradient
 } from "../../utils/colorCycleGradients";
-import { useFeatureFlag } from '@/config/featureFlags';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   PRESSURE_BASE_PERCENT,
@@ -219,7 +218,6 @@ const BrushControls = () => {
   const currentTool = useAppStore(selectCurrentTool);
   const globalBrushSize = useAppStore(selectGlobalBrushSize);
   const ccGradientSource = useAppStore(selectCcGradientSource);
-  const ccSampledEnabled = useFeatureFlag('ccSampledEnabled');
   const ccGradientSampleCount = useAppStore((state) => state.ccGradientSampleCount);
   const resetCcGradientSample = useAppStore((state) => state.resetCcGradientSample);
   const palette = useAppStore((state) => state.palette);
@@ -1131,9 +1129,6 @@ const BrushControls = () => {
             ]}
             value={gradientModeValue}
             onChange={(value) => {
-              if (value === 'sample' && !ccSampledEnabled) {
-                return;
-              }
               const nextSource = value === 'fg' ? 'fg' : value === 'sample' ? 'sampled' : 'manual';
               setCcGradientSource(nextSource);
               if (nextSource === 'manual') {
@@ -1179,50 +1174,46 @@ const BrushControls = () => {
           <div className="mb-3">
             <div className="flex items-center justify-between text-xs text-[#D9D9D9] mb-1">
               <span>Sampled Gradient</span>
-              <span className="text-[#A0A0A0]">{ccSampledEnabled ? 'Live' : 'WIP'}</span>
+              <span className="text-[#A0A0A0]">Live</span>
             </div>
-            {ccSampledEnabled ? (
-              <>
-                {(() => {
-                  const previewResult = activeLayerId
-                    ? getPreviewGradientForActiveMark(activeLayerId)
-                    : null;
-                  const previewStops =
-                    previewResult?.stopsStored ??
-                    activeLayer?.colorCycleData?.gradient ??
-                    activeSettings.colorCycleGradient ??
-                    DEFAULT_GRADIENT_STOPS;
-                  const previewCss = previewStops.length
-                    ? previewStops
-                        .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
-                        .join(', ')
-                    : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%';
-                  return (
-                    <div
-                      className="h-6 rounded border border-white/10"
-                      style={{
-                        background: `linear-gradient(90deg, ${previewCss})`,
-                      }}
-                    />
-                  );
-                })()}
-                <div className="mt-2 flex items-center justify-between text-xs text-[#A0A0A0]">
-                  <span>Samples: {ccGradientSampleCount}</span>
-                  <button
-                    type="button"
-                    className="rounded border border-white/10 px-2 py-0.5 text-[#D9D9D9] hover:border-white/30"
-                    onClick={() => resetCcGradientSample()}
-                  >
-                    Reset
-                  </button>
-                </div>
-                <div className="mt-1 text-xs text-[#A0A0A0]">
-                  Drag to sample colors from the canvas.
-                </div>
-              </>
-            ) : (
-              <div className="text-xs text-[#A0A0A0]">Sampling is disabled (WIP).</div>
-            )}
+            <>
+              {(() => {
+                const previewResult = activeLayerId
+                  ? getPreviewGradientForActiveMark(activeLayerId)
+                  : null;
+                const previewStops =
+                  previewResult?.stopsStored ??
+                  activeLayer?.colorCycleData?.gradient ??
+                  activeSettings.colorCycleGradient ??
+                  DEFAULT_GRADIENT_STOPS;
+                const previewCss = previewStops.length
+                  ? previewStops
+                      .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
+                      .join(', ')
+                  : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%';
+                return (
+                  <div
+                    className="h-6 rounded border border-white/10"
+                    style={{
+                      background: `linear-gradient(90deg, ${previewCss})`,
+                    }}
+                  />
+                );
+              })()}
+              <div className="mt-2 flex items-center justify-between text-xs text-[#A0A0A0]">
+                <span>Samples: {ccGradientSampleCount}</span>
+                <button
+                  type="button"
+                  className="rounded border border-white/10 px-2 py-0.5 text-[#D9D9D9] hover:border-white/30"
+                  onClick={() => resetCcGradientSample()}
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="mt-1 text-xs text-[#A0A0A0]">
+                Drag to sample colors from the canvas.
+              </div>
+            </>
           </div>
         ) : (
           <div className="mb-3">

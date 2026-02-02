@@ -3,8 +3,7 @@ import { useSyncExternalStore } from 'react';
 export type FeatureFlagKey =
   | 'useCanvas2DColorCycle'
   | 'logColorCycleOperations'
-  | 'useColorCycleWorker'
-  | 'ccSampledEnabled';
+  | 'useColorCycleWorker';
 
 type FeatureFlagState = Record<FeatureFlagKey, boolean>;
 
@@ -12,14 +11,12 @@ const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
   useCanvas2DColorCycle: 'vessel:flag:useCanvas2DColorCycle',
   logColorCycleOperations: 'vessel:flag:logColorCycleOperations',
   useColorCycleWorker: 'vessel:flag:useColorCycleWorker',
-  ccSampledEnabled: 'vessel:flag:ccSampledEnabled',
 };
 
 const defaultState: FeatureFlagState = {
   useCanvas2DColorCycle: false,
   logColorCycleOperations: false,
   useColorCycleWorker: false,
-  ccSampledEnabled: false,
 };
 
 const state: FeatureFlagState = { ...defaultState };

@@ -108,8 +108,10 @@ type ShapeDrawingDeps = {
   pauseColorCycleForNonCCInteraction: (reason?: CCReason) => void;
   resumeColorCycleAfterInteraction: () => Promise<void>;
   updateAutoSampledGradient: (points: Array<{ x: number; y: number }>) => void;
-  updateCcSampledGradient: (points: Array<{ x: number; y: number }>, layerId?: string | null) => void;
-  isCcSampledEnabled: boolean;
+  updateCcSampledGradient: (
+    points: Array<{ x: number; y: number }>,
+    options?: { layerId?: string | null; markKind?: 'stroke' | 'shape' }
+  ) => void;
   updateCcGradientSample: (points: Array<{ x: number; y: number }>, strokeId?: string | null) => void;
   shouldSampleCcGradient: (settings: BrushSettings, brushPresetId: string | null | undefined) => boolean;
   updateDitherGradSamples: (points: Array<{ x: number; y: number }>) => void;
@@ -440,8 +442,7 @@ export const startShapeDrawing = (
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         const presetId = deps.storeRef.current.currentBrushPreset?.id;
         const samplePerShape = deps.shouldSampleCcGradient(st.tools.brushSettings, presetId);
-        const sampledSource =
-          deps.isCcSampledEnabled && st.tools.ccGradientSource === 'sampled';
+        const sampledSource = st.tools.ccGradientSource === 'sampled';
         const autoSampleEnabled =
           st.tools.brushSettings.autoSampleGradient ||
           st.tools.brushSettings.autoSampleGradientRealtime;
@@ -449,7 +450,7 @@ export const startShapeDrawing = (
           refs.ccSampledPointsRef.current = [...refs.shapePointsRef.current];
           deps.updateCcSampledGradient(
             refs.ccSampledPointsRef.current,
-            st.activeLayerId ?? null
+            { layerId: st.activeLayerId ?? null, markKind: 'shape' }
           );
         } else if (isCCShape && samplePerShape) {
           deps.resetCcGradientSample();
@@ -587,8 +588,7 @@ export const continueShapeDrawing = (
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
           const presetId = store.currentBrushPreset?.id;
           const samplePerShape = deps.shouldSampleCcGradient(store.tools.brushSettings, presetId);
-          const sampledSource =
-            deps.isCcSampledEnabled && store.tools.ccGradientSource === 'sampled';
+          const sampledSource = store.tools.ccGradientSource === 'sampled';
           const autoSampleEnabled =
             store.tools.brushSettings.autoSampleGradient ||
             store.tools.brushSettings.autoSampleGradientRealtime;
@@ -596,7 +596,7 @@ export const continueShapeDrawing = (
             refs.ccSampledPointsRef.current = [...refs.shapePointsRef.current];
             deps.updateCcSampledGradient(
               refs.ccSampledPointsRef.current,
-              store.activeLayerId ?? null
+              { layerId: store.activeLayerId ?? null, markKind: 'shape' }
             );
           } else if (isCCShape && samplePerShape) {
             refs.ccGradientSampleSessionRef.current.polyline = [...refs.shapePointsRef.current];
