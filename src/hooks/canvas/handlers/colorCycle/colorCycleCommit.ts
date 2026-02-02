@@ -10,6 +10,10 @@ import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colo
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+
+const loggedLegacySlotSummaryByLayer = new Set<string>();
 
 type LayerHistoryPayload = Parameters<typeof commitLayerHistory>[0];
 
@@ -98,11 +102,23 @@ export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
     hasContent: boolean;
     strokeCounter: number;
   } | null;
+  getCommittedIndexData?: (layerId: string) => Uint8Array | null;
+  getCommittedGradientIdData?: (layerId: string) => Uint8Array | null;
+  getCommittedDimensions?: (layerId: string) => { width: number; height: number } | null;
+  getCommittedPaletteRGBABySlot?: (layerId: string) => Array<Uint8ClampedArray | Uint8Array | null> | null;
+  setGradientSlotStops?: (layerId: string, slot: number, stops: StoredStop[]) => void;
+  remapCommittedGradientSlot?: (
+    layerId: string,
+    fromSlot: number,
+    toSlot: number,
+    bbox?: { minX: number; minY: number; width: number; height: number }
+  ) => void;
   bindGradientDefIdToSlot?: (
     layerId: string,
     defId: number,
     slot: number,
-    bbox?: { minX: number; minY: number; width: number; height: number }
+    bbox?: { minX: number; minY: number; width: number; height: number },
+    previewSlot?: number | null
   ) => void;
 };
 
@@ -351,11 +367,119 @@ export const commitColorCycleLayerStroke = async (
   try {
     const brush = deps.getBrushForLayer(targetLayerId);
     if (brush) {
+      const logCommittedSlotsInRoi = (
+        label: string,
+        bbox?: { minX: number; minY: number; width: number; height: number }
+      ): Map<number, number> | null => {
+        const dims = brush.getCommittedDimensions?.(targetLayerId);
+        const committedIndex = brush.getCommittedIndexData?.(targetLayerId);
+        const committedGid = brush.getCommittedGradientIdData?.(targetLayerId);
+        const paletteRGBABySlot = brush.getCommittedPaletteRGBABySlot?.(targetLayerId);
+        if (!dims || !committedIndex || !committedGid) {
+          return null;
+        }
+        const minX = Math.max(0, Math.floor(bbox?.minX ?? 0));
+        const minY = Math.max(0, Math.floor(bbox?.minY ?? 0));
+        const maxX = Math.min(
+          dims.width - 1,
+          Math.floor((bbox?.minX ?? 0) + (bbox?.width ?? dims.width) - 1)
+        );
+        const maxY = Math.min(
+          dims.height - 1,
+          Math.floor((bbox?.minY ?? 0) + (bbox?.height ?? dims.height) - 1)
+        );
+        const counts = new Map<number, number>();
+        for (let y = minY; y <= maxY; y += 1) {
+          const row = y * dims.width;
+          for (let x = minX; x <= maxX; x += 1) {
+            const idx = row + x;
+            if (committedIndex[idx] === 0) {
+              continue;
+            }
+            const slot = committedGid[idx] & FLOW_SLOT_MASK;
+            counts.set(slot, (counts.get(slot) ?? 0) + 1);
+          }
+        }
+        console.log('[CC] committed slots in ROI', label, [...counts.entries()]);
+        if (paletteRGBABySlot) {
+          for (const [slot, count] of counts.entries()) {
+            const palette = paletteRGBABySlot[slot] ?? null;
+            let hasAlpha = false;
+            if (palette && palette.length >= 4) {
+              for (let i = 3; i < palette.length; i += 4) {
+                if (palette[i] !== 0) {
+                  hasAlpha = true;
+                  break;
+                }
+              }
+            }
+            console.log('[CC] slot palette', {
+              slot,
+              count,
+              hasPalette: Boolean(palette),
+              len: palette?.length ?? 0,
+              hasAlpha,
+            });
+          }
+        }
+        return counts;
+      };
+      const PREVIEW_SLOT = 63;
+
       deps.bindBrushToCanvas(brush, layerCanvas);
       if (typeof brush.commitCurrentStroke === 'function') {
         brush.commitCurrentStroke(targetLayerId);
       } else {
         brush.finalizeCurrentStroke?.(targetLayerId);
+      }
+
+      let session: ReturnType<typeof finalizeMarkGradientSession> | null = null;
+      try {
+        session = finalizeMarkGradientSession(targetLayerId);
+        if (session) {
+          console.log('[CC] mark slot (commit)', {
+            layerId: targetLayerId,
+            markId: session.markId,
+            defId: session.binding?.defId ?? null,
+            slot: session.binding?.slot ?? session.previewSlot ?? null,
+            phase: session.binding ? 'bound' : 'sampling',
+          });
+        }
+      } catch {}
+
+      if (session?.binding && typeof brush.remapCommittedGradientSlot === 'function') {
+        if (Number.isFinite(PREVIEW_SLOT)) {
+          const bbox = strokeCaptureRoi
+            ? {
+                minX: strokeCaptureRoi.x,
+                minY: strokeCaptureRoi.y,
+                width: strokeCaptureRoi.width,
+                height: strokeCaptureRoi.height,
+              }
+            : undefined;
+          brush.remapCommittedGradientSlot(
+            targetLayerId,
+            PREVIEW_SLOT,
+            session.binding.slot,
+            bbox
+          );
+          if (process.env.NODE_ENV !== 'production') {
+            const counts = logCommittedSlotsInRoi('after-remap', bbox);
+            console.assert(
+              !counts?.has(PREVIEW_SLOT),
+              '[CC] preview slot leaked into committed stroke',
+              { previewSlot: PREVIEW_SLOT, counts: counts ? [...counts.entries()] : null }
+            );
+          }
+        }
+      }
+
+      if (session?.binding && typeof brush.setGradientSlotStops === 'function') {
+        brush.setGradientSlotStops(
+          targetLayerId,
+          session.binding.slot,
+          session.frozenStopsStored
+        );
       }
 
       brush.updateColorCycleTexture?.();
@@ -370,7 +494,6 @@ export const commitColorCycleLayerStroke = async (
       brushForCleanup = brush;
 
       try {
-        const session = finalizeMarkGradientSession(targetLayerId);
         if (session?.binding && typeof brush.bindGradientDefIdToSlot === 'function') {
           const bbox = strokeCaptureRoi
             ? {
@@ -384,8 +507,13 @@ export const commitColorCycleLayerStroke = async (
             targetLayerId,
             session.binding.defId,
             session.binding.slot,
-            bbox
+            bbox,
+            PREVIEW_SLOT
           );
+
+          if (process.env.NODE_ENV !== 'production') {
+            logCommittedSlotsInRoi('after-bind', bbox);
+          }
 
           if (typeof brush.getLayerSnapshot === 'function') {
             const snapshot = brush.getLayerSnapshot(targetLayerId);
@@ -440,6 +568,27 @@ export const commitColorCycleLayerStroke = async (
             );
           }
         }
+        if (process.env.NODE_ENV !== 'production') {
+          const layer = useAppStore.getState().layers.find((entry) => entry.id === targetLayerId);
+          const gradientDefStore = layer?.colorCycleData?.gradientDefStore ?? [];
+          const legacySlots = new Set<number>();
+          gradientDefStore.forEach((entry) => {
+            if (!entry || entry.id === session?.binding?.defId) {
+              return;
+            }
+            if (typeof entry.slot === 'number') {
+              legacySlots.add(entry.slot);
+            }
+          });
+          if (!loggedLegacySlotSummaryByLayer.has(targetLayerId)) {
+            loggedLegacySlotSummaryByLayer.add(targetLayerId);
+            console.log('[CC] legacy slot summary', {
+              layerId: targetLayerId,
+              slots: Array.from(legacySlots).sort((a, b) => a - b),
+              count: legacySlots.size,
+            });
+          }
+        }
         if (session?.source === 'sampled') {
           try {
             useAppStore.getState().setCcGradientSampleCount(0);
@@ -458,10 +607,6 @@ export const commitColorCycleLayerStroke = async (
         }
       } catch {}
     }
-  } catch {}
-
-  try {
-    finalizeMarkGradientSession(targetLayerId);
   } catch {}
 
   try {

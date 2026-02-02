@@ -69,6 +69,7 @@ import {
   beginMarkGradientSession,
   cancelMarkGradientSession,
   getActiveMarkGradientSession,
+  registerMarkGradientPointerDownRef,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   pauseColorCycleForNonCCInteraction as pauseColorCycleForNonCCInteractionExternal,
@@ -321,6 +322,7 @@ const SYNTHETIC_STOP_THROTTLE_MS = 200;
 const START_CC_COOLDOWN_MS = 200;
 const SKIP_CC_LOG_THROTTLE_MS = 1000;
 const HISTORY_FINALIZE_LANE = '__history__';
+const CC_SAMPLE_COUNT_WRITE_MS = 150;
 
 const SYNTHETIC_CC_STOP_REASONS = new Set<string>([
   'shape-tool-start',
@@ -662,6 +664,15 @@ export function useDrawingHandlers({
   const maskManager = useMemo(() => getMaskManager(), []);
   const eraserToolRef = useRef<EraserTool | null>(null);
   const storeRef = useStoreSelectorRef((state: AppState) => state);
+  const isPointerDownRef = useRef(false);
+  const activeLayerIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    registerMarkGradientPointerDownRef(isPointerDownRef);
+    return () => {
+      registerMarkGradientPointerDownRef(null);
+    };
+  }, []);
   const resetShapeDragRefs = useCallback(() => {
     shapeDragStartRef.current = null;
     shapeDragLastRef.current = null;
@@ -795,14 +806,17 @@ export function useDrawingHandlers({
   );
 
   const endStrokeSession = useCallback(
-    (endedAt?: number) => endStrokeSessionExternal(activeStrokeSessionRef, endedAt),
+    (endedAt?: number) => {
+      endStrokeSessionExternal(activeStrokeSessionRef, endedAt);
+      isPointerDownRef.current = false;
+    },
     []
   );
 
-  const clearStrokeSession = useCallback(
-    () => clearStrokeSessionExternal(activeStrokeSessionRef),
-    []
-  );
+  const clearStrokeSession = useCallback(() => {
+    clearStrokeSessionExternal(activeStrokeSessionRef);
+    isPointerDownRef.current = false;
+  }, []);
 
   const resetPolygonState = useCallback(() => {
     const setPolygonGradientState = storeRef.current.setPolygonGradientState;
@@ -948,6 +962,8 @@ export function useDrawingHandlers({
   const ccGradientSampleLastUpdateRef = useRef<number>(0);
   const ccSampledPointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const ccSampledLastUpdateRef = useRef<number>(0);
+  const ccGradientSampleCountRef = useRef<number>(0);
+  const ccGradientSampleCountLastUpdateRef = useRef<number>(0);
 
   const sampleHexAt = useCallback(
     (x: number, y: number): string =>
@@ -991,11 +1007,27 @@ export function useDrawingHandlers({
   const resetCcGradientSample = useCallback(() => {
     resetCcGradientSampleSession(ccGradientSampleSessionRef.current);
     ccGradientSampleLastUpdateRef.current = 0;
+    ccGradientSampleCountRef.current = 0;
+    ccGradientSampleCountLastUpdateRef.current = 0;
   }, []);
 
   const getCcGradientSampleStops = useCallback(
     () => ccGradientSampleSessionRef.current.stops,
     []
+  );
+
+  const writeCcGradientSampleCount = useCallback(
+    (nextCount: number, now: number, force: boolean = false) => {
+      const normalized = Math.max(0, Math.round(nextCount));
+      const lastCount = ccGradientSampleCountRef.current;
+      const lastUpdateAt = ccGradientSampleCountLastUpdateRef.current;
+      if (force || (normalized !== lastCount && now - lastUpdateAt >= CC_SAMPLE_COUNT_WRITE_MS)) {
+        ccGradientSampleCountRef.current = normalized;
+        ccGradientSampleCountLastUpdateRef.current = now;
+        storeRef.current.setCcGradientSampleCount(normalized);
+      }
+    },
+    [storeRef]
   );
 
   const updateCcSampledGradient = useCallback(
@@ -1046,13 +1078,13 @@ export function useDrawingHandlers({
         allowTiny: true,
       });
       if (result) {
-        storeRef.current.setCcGradientSampleCount(result.sampleCount);
+        writeCcGradientSampleCount(result.sampleCount, now);
         if (result.updated) {
           requestGradientApply(targetLayerId, 'sampled-preview');
         }
       }
     },
-    [sampleHexAt, storeRef]
+    [sampleHexAt, storeRef, writeCcGradientSampleCount]
   );
   
   const setSharedColorCycleGradientForShapes = useCallback((stops: AutoSampleStops | null) => {
@@ -1098,6 +1130,17 @@ export function useDrawingHandlers({
     });
   }, [storeRef, drawingCanvasRef, drawingCtxRef, drawingCanvasHasContent, sampleColorAt]);
 
+  const clearBrushSamplingPreviewRef = useRef(clearBrushSamplingPreview);
+  const resetCcGradientSampleRef = useRef(resetCcGradientSample);
+
+  useEffect(() => {
+    clearBrushSamplingPreviewRef.current = clearBrushSamplingPreview;
+  }, [clearBrushSamplingPreview]);
+
+  useEffect(() => {
+    resetCcGradientSampleRef.current = resetCcGradientSample;
+  }, [resetCcGradientSample]);
+
   useEffect(() => {
     const selector = (state: AppState) => ({
       source: state.tools.ccGradientSource,
@@ -1105,28 +1148,50 @@ export function useDrawingHandlers({
       activeLayerId: state.activeLayerId,
     });
 
-    let prev = selector(useAppStore.getState());
-    const unsubscribe = useAppStore.subscribe((state: AppState) => {
-      const next = selector(state);
-      const sourceChanged = next.source !== prev.source;
-      const resetTriggered = next.resetToken !== prev.resetToken;
+    const initial = selector(useAppStore.getState());
+    activeLayerIdRef.current = initial.activeLayerId ?? null;
+
+    const unsubscribe = useAppStore.subscribe(selector, (next, prevState) => {
+      const sourceChanged = next.source !== prevState.source;
+      const resetTriggered = next.resetToken !== prevState.resetToken;
+      const layerChanged = next.activeLayerId !== prevState.activeLayerId;
+
+      if (layerChanged && prevState.activeLayerId) {
+        isPointerDownRef.current = false;
+        cancelMarkGradientSession(prevState.activeLayerId);
+      }
+
       if (sourceChanged || resetTriggered) {
         if (next.activeLayerId) {
+          isPointerDownRef.current = false;
           cancelMarkGradientSession(next.activeLayerId);
         }
-        resetCcGradientSample();
-        clearBrushSamplingPreview();
+        resetCcGradientSampleRef.current();
+        clearBrushSamplingPreviewRef.current();
         ccSampledPointsRef.current = [];
         ccSampledLastUpdateRef.current = 0;
         try {
-          state.setCcGradientSampleCount(0);
+          storeRef.current.setCcGradientSampleCount(0);
+          ccGradientSampleCountRef.current = 0;
+          ccGradientSampleCountLastUpdateRef.current = 0;
         } catch {}
       }
-      prev = next;
+
+      activeLayerIdRef.current = next.activeLayerId ?? null;
     });
 
     return () => unsubscribe();
-  }, [clearBrushSamplingPreview, resetCcGradientSample]);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const layerId = activeLayerIdRef.current;
+      if (layerId) {
+        isPointerDownRef.current = false;
+        cancelMarkGradientSession(layerId);
+      }
+    };
+  }, []);
 
   const resetAutoSampleState = useCallback((disableGradient: boolean = true) => {
     resetAutoSampleStateExternal({
@@ -1621,6 +1686,7 @@ export function useDrawingHandlers({
       strokeBeforeColorStateRef.current = null;
     }
 
+    isPointerDownRef.current = true;
     beginStrokeSession({
       pointerId: 0,
       layerId: currentState.activeLayerId ?? null,
@@ -2551,6 +2617,7 @@ export function useDrawingHandlers({
         lastStrokePointRef,
         isBusyRef,
       });
+      isPointerDownRef.current = false;
     }
   }, [
     project,
@@ -2889,7 +2956,8 @@ export function useDrawingHandlers({
       timestamp?: number,
       rawPressure?: number,
       options?: { renderPreview?: boolean }
-    ) => {
+  ) => {
+      isPointerDownRef.current = true;
       startShapeDrawingExternal({
         worldPos,
         pressure,
@@ -2925,11 +2993,15 @@ export function useDrawingHandlers({
   );
   
   const finalizeShapeDrawing = useCallback(async () => {
-    await finalizeShapeDrawingExternal({
-      shapeMode,
-      refs: shapeDrawingRefs,
-      toolsRef,
-    }, shapeDrawingDeps);
+    try {
+      await finalizeShapeDrawingExternal({
+        shapeMode,
+        refs: shapeDrawingRefs,
+        toolsRef,
+      }, shapeDrawingDeps);
+    } finally {
+      isPointerDownRef.current = false;
+    }
   }, [shapeDrawingDeps, shapeDrawingRefs, shapeMode, toolsRef]);
   
   // Start continuous color cycle animation (for when play button is pressed)

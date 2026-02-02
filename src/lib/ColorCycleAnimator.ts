@@ -209,6 +209,14 @@ export class ColorCycleAnimator implements CCIndexSurface {
     return !this.forceCanvas2D && !!this.glRenderer;
   }
 
+  getPalettesBySlot(): Uint32Array[] {
+    return this.paletteController.getPalettesBySlot();
+  }
+
+  getPaletteRGBABySlot(): Array<Uint8ClampedArray | Uint8Array | null> {
+    return this.paletteController.getPaletteRGBABySlot();
+  }
+
 
   setForceCanvas2D(force: boolean) {
     if (this.forceCanvas2D === force) {

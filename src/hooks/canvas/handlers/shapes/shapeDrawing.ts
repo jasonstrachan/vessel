@@ -896,7 +896,10 @@ export const finalizeShapeDrawing = async (
               : { restore: null };
             const session = finalizeMarkGradientSession(shapeLayerIdString);
             if (!session) {
-              deps.logError('[CC] Missing mark session before shape finalize (linear selection).');
+              console.warn('[CC] Missing mark session before shape finalize (linear selection)', {
+                layerId: shapeLayerIdString,
+                stack: new Error().stack,
+              });
             }
             await deps.runColorCycleShapeFill({
               mode: 'linear',
@@ -1074,7 +1077,10 @@ export const finalizeShapeDrawing = async (
                   : { restore: null };
                 const session = finalizeMarkGradientSession(shapeLayerIdString);
                 if (!session) {
-                  deps.logError('[CC] Missing mark session before shape finalize.');
+                  console.warn('[CC] Missing mark session before shape finalize', {
+                    layerId: shapeLayerIdString,
+                    stack: new Error().stack,
+                  });
                 }
                 await deps.runColorCycleShapeFill({
                   mode: fillMode === 'linear' ? 'linear' : 'concentric',

@@ -1120,11 +1120,48 @@ export class ColorCycleBrushCanvas2D {
 
     if (this.activeGradientSlots.get(id) === clampedSlot) {
       this.applyGradientForLayer(id, stops);
-    } else {
-      const animator = this.getAnimator(id);
-      if (typeof animator.setGradientSlot === 'function') {
-        animator.setGradientSlot(clampedSlot, stops);
-      }
+    }
+  }
+
+  /**
+   * Register gradient stops for a slot (palette update only).
+   * This does not toggle the active slot, and is safe to call for inactive slots.
+   */
+  setGradientSlotStops(layerId: string, slot: number, stops: GradientStop[]) {
+    const id = layerId || this.activeLayerId || 'default';
+    const clampedSlot = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
+
+    let slotMap = this.gradientSlotsByLayer.get(id);
+    if (!slotMap) {
+      slotMap = new Map();
+      this.gradientSlotsByLayer.set(id, slotMap);
+    }
+
+    let signatureMap = this.gradientSlotSignaturesByLayer.get(id);
+    if (!signatureMap) {
+      signatureMap = new Map();
+      this.gradientSlotSignaturesByLayer.set(id, signatureMap);
+    }
+
+    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops);
+    const previousSignature = signatureMap.get(clampedSlot);
+    const signatureChanged = signature !== previousSignature;
+
+    if (!signatureChanged) {
+      return;
+    }
+
+    signatureMap.set(clampedSlot, signature);
+    slotMap.set(clampedSlot, stops);
+
+    if (this.activeGradientSlots.get(id) === clampedSlot) {
+      this.applyGradientForLayer(id, stops);
+      return;
+    }
+
+    const animator = this.getAnimator(id);
+    if (typeof animator.setGradientSlot === 'function') {
+      animator.setGradientSlot(clampedSlot, stops);
     }
   }
 
@@ -1188,12 +1225,18 @@ export class ColorCycleBrushCanvas2D {
    * Bind committed gradient def ids to pixels that match a slot.
    * This updates the authoritative def buffer without reading from animator state.
    */
-  bindGradientDefIdToSlot(layerId: string, defId: number, slot: number, bbox?: {
-    minX: number;
-    minY: number;
-    width: number;
-    height: number;
-  }) {
+  bindGradientDefIdToSlot(
+    layerId: string,
+    defId: number,
+    slot: number,
+    bbox?: {
+      minX: number;
+      minY: number;
+      width: number;
+      height: number;
+    },
+    previewSlot?: number | null
+  ) {
     const strokeData = this.ensureStrokeState(layerId);
     const expected = this.width * this.height;
     if (strokeData.buffers.def.length !== expected) {
@@ -1215,6 +1258,9 @@ export class ColorCycleBrushCanvas2D {
     const maxX = Math.min(this.width - 1, Math.floor((bbox?.minX ?? 0) + (bbox?.width ?? this.width) - 1));
     const maxY = Math.min(this.height - 1, Math.floor((bbox?.minY ?? 0) + (bbox?.height ?? this.height) - 1));
 
+    const previewSlotMasked =
+      typeof previewSlot === 'number' ? (previewSlot & FLOW_SLOT_MASK) : null;
+    let leftoverPreview = 0;
     for (let y = minY; y <= maxY; y += 1) {
       const row = y * this.width;
       for (let x = minX; x <= maxX; x += 1) {
@@ -1223,10 +1269,28 @@ export class ColorCycleBrushCanvas2D {
           defBuffer[idx] = 0;
           continue;
         }
-        if (gidBuffer[idx] === slot) {
+        const gid = gidBuffer[idx];
+        const curSlot = gid & FLOW_SLOT_MASK;
+        if (previewSlotMasked !== null && curSlot === previewSlotMasked) {
+          gidBuffer[idx] = (gid & ~FLOW_SLOT_MASK) | (slot & FLOW_SLOT_MASK);
+          defBuffer[idx] = defId;
+        } else if (curSlot === (slot & FLOW_SLOT_MASK)) {
           defBuffer[idx] = defId;
         }
+        if (process.env.NODE_ENV !== 'production' && previewSlotMasked !== null) {
+          if ((gidBuffer[idx] & FLOW_SLOT_MASK) === previewSlotMasked) {
+            leftoverPreview += 1;
+          }
+        }
       }
+    }
+    if (process.env.NODE_ENV !== 'production' && previewSlotMasked !== null) {
+      console.assert(leftoverPreview === 0, '[CC] preview slot leaked into committed stroke', {
+        layerId,
+        leftover: leftoverPreview,
+        previewSlot: previewSlotMasked,
+        committedSlot: slot & FLOW_SLOT_MASK,
+      });
     }
 
     strokeData.snapshot = {
@@ -1239,6 +1303,88 @@ export class ColorCycleBrushCanvas2D {
       }),
       gradientDefIdBuffer: defBuffer.slice().buffer,
     };
+  }
+
+  getCommittedIndexData(layerId: string): Uint8Array | null {
+    try {
+      const animator = this.animators.get(layerId) ?? this.getAnimator(layerId);
+      const buffers = animator.getIndexBuffers();
+      return buffers?.data ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  getCommittedGradientIdData(layerId: string): Uint8Array | null {
+    try {
+      const animator = this.animators.get(layerId) ?? this.getAnimator(layerId);
+      const buffers = animator.getIndexBuffers();
+      return buffers?.gid ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  getCommittedPaletteRGBABySlot(layerId: string): Array<Uint8ClampedArray | Uint8Array | null> | null {
+    try {
+      const animator = this.animators.get(layerId) ?? this.getAnimator(layerId);
+      return animator.getPaletteRGBABySlot();
+    } catch {
+      return null;
+    }
+  }
+
+  getCommittedDimensions(layerId: string): { width: number; height: number } | null {
+    try {
+      const animator = this.animators.get(layerId) ?? this.getAnimator(layerId);
+      return animator.getDimensions();
+    } catch {
+      return null;
+    }
+  }
+
+  remapCommittedGradientSlot(
+    layerId: string,
+    fromSlot: number,
+    toSlot: number,
+    bbox?: { minX: number; minY: number; width: number; height: number }
+  ): void {
+    const animator = this.animators.get(layerId) ?? this.getAnimator(layerId);
+    const buffers = animator.getIndexBuffers();
+    const indexData = buffers?.data;
+    const gidData = buffers?.gid;
+    if (!indexData || !gidData) {
+      return;
+    }
+    const { width, height } = animator.getDimensions();
+    const expected = width * height;
+    if (indexData.length !== expected || gidData.length !== expected) {
+      return;
+    }
+    const from = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(fromSlot)));
+    const to = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(toSlot)));
+    if (from === to) {
+      return;
+    }
+    const minX = Math.max(0, Math.floor(bbox?.minX ?? 0));
+    const minY = Math.max(0, Math.floor(bbox?.minY ?? 0));
+    const maxX = Math.min(width - 1, Math.floor((bbox?.minX ?? 0) + (bbox?.width ?? width) - 1));
+    const maxY = Math.min(height - 1, Math.floor((bbox?.minY ?? 0) + (bbox?.height ?? height) - 1));
+    for (let y = minY; y <= maxY; y += 1) {
+      const row = y * width;
+      for (let x = minX; x <= maxX; x += 1) {
+        const idx = row + x;
+        if (indexData[idx] === 0) {
+          continue;
+        }
+        const gid = gidData[idx];
+        const curSlot = gid & FLOW_SLOT_MASK;
+        if (curSlot === from) {
+          gidData[idx] = (gid & ~FLOW_SLOT_MASK) | to;
+        }
+      }
+    }
+    animator.markDirty({ x: minX, y: minY, width: Math.max(1, maxX - minX + 1), height: Math.max(1, maxY - minY + 1) });
   }
 
   private samplePaintBufferHasContent(
