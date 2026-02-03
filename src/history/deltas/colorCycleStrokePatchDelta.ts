@@ -87,7 +87,7 @@ const extractPaintBuffer = (
     return null;
   }
   const layer = state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId);
-  const buffer = layer?.strokeData?.paintBuffer;
+  const buffer = layer?.strokeData?.paintBuffer as ArrayBuffer | ArrayBufferView | undefined;
   if (!buffer) {
     return null;
   }

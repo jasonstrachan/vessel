@@ -17,6 +17,7 @@
     "prebuild:github": "npm run cache:clear && npm run build:align-fit && npm run build:goblet-inline",
     "start": "next start",
     "preview": "node scripts/preview-server.mjs",
+    "preview:prod": "PORT=3001 node scripts/preview-server.mjs",
     "lint": "next lint",
     "test": "jest",
     "type-check": "tsc --noEmit",

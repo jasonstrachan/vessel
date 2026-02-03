@@ -106,6 +106,10 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 
 ### Workflow
 - Work directly on the `poc2` branch (no feature branches).
+- Recommended local workflow:
+  - Terminal A (dev): `npm run dev` → `http://localhost:3000`
+  - Terminal B (static preview): `npm run build` then `npm run preview:prod` → `http://localhost:3001`
+  - Use `npm run preview` to serve `out/` on port 4000 for GH Pages parity.
 
 ### Build & Deploy
 
@@ -113,8 +117,11 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 # Build for production
 npm run build
 
-# Start production server
-npm start
+# Preview production build alongside dev (port 3001, static export)
+npm run preview:prod
+
+# Preview static export (serves /out on port 4000)
+npm run preview
 ```
 
 ## Project Structure
