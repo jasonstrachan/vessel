@@ -1,7 +1,7 @@
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
-import { encodeFlowSlot, FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { Layer, Project } from '@/types';
 
 jest.mock('@/stores/colorCycleBrushManager', () => {
@@ -449,7 +449,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     }
   });
 
-  it('strips flow bits from exported gradient id buffers', async () => {
+  it('preserves 8-bit gradient id buffers during export', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 16;
     canvas.height = 16;
@@ -461,10 +461,9 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     ];
 
     const brushIndices = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 16));
-    const gradientIdBuffer = new Uint8Array(Array.from(
-      { length: 64 },
-      (_, idx) => encodeFlowSlot(idx % 2, 'reverse')
-    ));
+    const gradientIdBuffer = new Uint8Array(
+      Array.from({ length: 64 }, (_, idx) => (idx * 4) % 256)
+    );
 
     const mockBrush = {
       serialize: () => ({
@@ -549,6 +548,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(Array.isArray(exportedGradientIds)).toBe(true);
     if (Array.isArray(exportedGradientIds)) {
       const max = Math.max(...exportedGradientIds);
+      expect(max).toBeGreaterThan(63);
       expect(max).toBeLessThanOrEqual(FLOW_SLOT_MASK);
     }
   });

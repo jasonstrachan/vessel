@@ -179,11 +179,8 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       if (typeof currentSettings.colorCycleSpeed === 'number') {
         brushWithOptionalControls.setSpeed?.(currentSettings.colorCycleSpeed);
       }
-      const perLayerFlowMode =
-        currentSettings.colorCycleFlowMode ??
-        layer?.colorCycleData?.flowMode ??
-        'reverse';
-      const legacyFlowMode = layer?.colorCycleData?.flowMode ?? perLayerFlowMode;
+      const perLayerFlowMode: 'forward' = 'forward';
+      const legacyFlowMode: 'forward' = 'forward';
 
       if (typeof (brushWithOptionalControls as { setLegacyFlowMode?: (mode: typeof perLayerFlowMode) => void }).setLegacyFlowMode === 'function') {
         (brushWithOptionalControls as { setLegacyFlowMode: (mode: typeof perLayerFlowMode) => void }).setLegacyFlowMode(legacyFlowMode);
@@ -192,9 +189,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       if (typeof brushWithOptionalControls.setFlowMode === 'function') {
         brushWithOptionalControls.setFlowMode(perLayerFlowMode);
       } else if (typeof brushWithOptionalControls.setFlowDirection === 'function') {
-        brushWithOptionalControls.setFlowDirection(
-          perLayerFlowMode === 'reverse' ? 'backward' : 'forward'
-        );
+        brushWithOptionalControls.setFlowDirection('forward');
       }
 
       brushes.set(layerId, brush);

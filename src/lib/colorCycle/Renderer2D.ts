@@ -1,11 +1,5 @@
 import { canvasPool } from '@/utils/canvasPool';
-import {
-  FLOW_MODE_LEGACY,
-  FLOW_MODE_PINGPONG,
-  FLOW_MODE_REVERSE,
-  FLOW_SLOT_MASK,
-  type FlowMode,
-} from '@/lib/colorCycle/flowEncoding';
+import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
 export interface Renderer2DOptions {
@@ -81,7 +75,7 @@ export class Renderer2D {
     const defPalettesById = options.defPalettesById;
     const speedData = options.speedData;
     const baseTime = options.baseTime;
-    const flowMode = options.flowMode ?? 'forward';
+    void (options.flowMode ?? 'forward');
 
     for (let i = 0; i < options.indexData.length; i++) {
       const colorIndex = options.indexData[i];
@@ -91,7 +85,6 @@ export class Renderer2D {
       }
       const gid = gradientIdData ? gradientIdData[i] : 0;
       const slot = gid & FLOW_SLOT_MASK;
-      const flowBits = gradientIdData ? (gid >> 6) : FLOW_MODE_LEGACY;
       const speedByte = speedData ? speedData[i] : 0;
       const hasSpeed = speedByte > 0;
       const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
@@ -101,22 +94,7 @@ export class Renderer2D {
         defId > 0
           ? defPalettesById?.get(defId) ?? options.basePalette
           : options.paletteSlots[slot] ?? options.basePalette;
-      const effectiveFlow =
-        flowBits === FLOW_MODE_LEGACY
-          ? flowMode === 'pingpong'
-            ? FLOW_MODE_PINGPONG
-            : flowMode === 'reverse'
-              ? FLOW_MODE_REVERSE
-              : FLOW_MODE_LEGACY
-          : flowBits;
-      const shift =
-        effectiveFlow === FLOW_MODE_REVERSE
-          ? -((speedOffset * 256) | 0)
-          : effectiveFlow === FLOW_MODE_PINGPONG
-            ? (((speedOffset <= 0.5 ? speedOffset * 2 : (1 - speedOffset) * 2) * 256) | 0)
-            : effectiveFlow === FLOW_MODE_LEGACY
-              ? (hasSpeed ? ((speedOffset * 256) | 0) : legacyShift)
-              : ((speedOffset * 256) | 0);
+      const shift = hasSpeed ? -((speedOffset * 256) | 0) : -legacyShift;
       pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
     }
 

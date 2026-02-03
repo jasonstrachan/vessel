@@ -223,4 +223,52 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(readPixel(restoredLayer2.imageData, 0, 0)).toEqual([0, 0, 255, 255]);
     expect(restored.canvasShape?.kind).toBe('circle');
   });
+
+  it('migrates legacy flow-encoded gradient ids on load', async () => {
+    const legacyGradientIds = [0, 63, 129, 194]; // slots 0, editor, 1, 2 in legacy encoding
+    const gradientIdBuffer = Buffer.from(Uint8Array.from(legacyGradientIds)).toString('base64');
+
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-project',
+        name: 'legacy',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [
+          {
+            id: 'layer-cc',
+            name: 'Legacy CC',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            order: 0,
+            imageDataUrl: '',
+            layerType: 'color-cycle',
+            colorCycleData: {
+              gradientIdBuffer,
+              canvasWidth: 2,
+              canvasHeight: 2,
+            },
+          },
+        ],
+        customBrushes: [],
+      },
+    };
+
+    const deserialized = await deserializeProject(JSON.stringify(legacyProject));
+    const layer = deserialized.layers[0];
+    const buffer = layer.colorCycleData?.gradientIdBuffer;
+    expect(buffer).toBeDefined();
+    const view = new Uint8Array(buffer as ArrayBuffer);
+    expect(Array.from(view)).toEqual([0, 0, 1, 2]);
+  });
 });

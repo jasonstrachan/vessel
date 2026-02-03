@@ -26,7 +26,116 @@ import {
 } from '@/constants/projectFiles';
 
 // Vessel project file format version
-const PROJECT_VERSION = '1.0.0';
+const PROJECT_VERSION = '1.1.0';
+
+const LEGACY_FLOW_SLOT_MASK = 63;
+const LEGACY_EDITOR_SLOT = 63;
+
+const parseVersionTuple = (version: string): [number, number, number] | null => {
+  const parts = version.split('.').map((part) => Number(part));
+  if (parts.length < 1) {
+    return null;
+  }
+  const [major = 0, minor = 0, patch = 0] = parts;
+  if (![major, minor, patch].every((value) => Number.isFinite(value))) {
+    return null;
+  }
+  return [major, minor, patch];
+};
+
+const isVersionLessThan = (version: string, target: [number, number, number]): boolean => {
+  const parsed = parseVersionTuple(version);
+  if (!parsed) {
+    return true;
+  }
+  for (let i = 0; i < target.length; i += 1) {
+    if (parsed[i] < target[i]) return true;
+    if (parsed[i] > target[i]) return false;
+  }
+  return false;
+};
+
+const normalizeLegacySlot = (slot: number): number => {
+  const raw = slot & LEGACY_FLOW_SLOT_MASK;
+  return raw === LEGACY_EDITOR_SLOT ? 0 : raw;
+};
+
+const migrateLegacyColorCycleEncoding = (layers: Layer[], version: string) => {
+  if (!isVersionLessThan(version, [1, 1, 0])) {
+    return;
+  }
+  for (const layer of layers) {
+    if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+      continue;
+    }
+    const data = layer.colorCycleData;
+    let hadEditorSlot = false;
+
+    if (data.gradientIdBuffer) {
+      const view = new Uint8Array(data.gradientIdBuffer);
+      for (let i = 0; i < view.length; i += 1) {
+        let raw = view[i] & LEGACY_FLOW_SLOT_MASK;
+        if (raw === LEGACY_EDITOR_SLOT) {
+          raw = 0;
+          hadEditorSlot = true;
+        }
+        view[i] = raw;
+      }
+    }
+
+    const remapSlot = (value?: number) => {
+      if (typeof value !== 'number') {
+        return value;
+      }
+      const remapped = normalizeLegacySlot(value);
+      if (remapped !== value && value === LEGACY_EDITOR_SLOT) {
+        hadEditorSlot = true;
+      }
+      return remapped;
+    };
+
+    if (data.gradientDefs) {
+      data.gradientDefs = data.gradientDefs.map((entry) => ({
+        ...entry,
+        currentSlot: normalizeLegacySlot(entry.currentSlot),
+      }));
+    }
+    if (data.slotPalettes) {
+      data.slotPalettes = data.slotPalettes.map((entry) => ({
+        ...entry,
+        slot: normalizeLegacySlot(entry.slot),
+      }));
+    }
+    if (data.gradientDefStore) {
+      data.gradientDefStore = data.gradientDefStore.map((entry) => ({
+        ...entry,
+        slot: typeof entry.slot === 'number' ? normalizeLegacySlot(entry.slot) : entry.slot,
+      }));
+    }
+    if (data.fgDerivedGradients) {
+      data.fgDerivedGradients = data.fgDerivedGradients.map((entry) => ({
+        ...entry,
+        slot: normalizeLegacySlot(entry.slot),
+      }));
+    }
+    if (data.derivedGradients) {
+      data.derivedGradients = data.derivedGradients.map((entry) => ({
+        ...entry,
+        slot: normalizeLegacySlot(entry.slot),
+      }));
+    }
+
+    data.paintSlot = remapSlot(data.paintSlot);
+    data.fgActiveSlot = remapSlot(data.fgActiveSlot);
+    data.legacyRemap = undefined;
+
+    if (hadEditorSlot) {
+      console.warn('[projectIO] Legacy editor slot remapped during load', {
+        layerId: layer.id,
+      });
+    }
+  }
+};
 
 export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
 
@@ -1507,6 +1616,7 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
   const layers = await Promise.all(
     serializedProject.layers.map(layer => deserializeLayer(layer, serializedProject.width, serializedProject.height))
   );
+  migrateLegacyColorCycleEncoding(layers, vesselProject.version);
   
   // Deserialize custom brushes
   

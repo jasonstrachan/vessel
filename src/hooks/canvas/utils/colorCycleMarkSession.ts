@@ -36,6 +36,7 @@ export type PreviewGradientResult = {
 const sessionsByLayer = new Map<string, MarkGradientSession>();
 let markSessionPointerDownRef: { current: boolean } | null = null;
 let isFinalizingSession = false;
+const EDITOR_SLOT = 255;
 
 export const registerMarkGradientPointerDownRef = (
   ref: { current: boolean } | null
@@ -69,23 +70,38 @@ const collectUsedSlots = (layer: {
       used.add(clampSlot(entry.slot));
     }
   });
-  used.add(63);
+  used.add(EDITOR_SLOT);
+  used.add(TEMP_SAMPLE_SLOT);
   return used;
 };
 
-const resolveSampledPreviewSlot = (layer: {
+const resolveSampledPreviewSlot = (
+  layerId: string,
+  layer: {
   colorCycleData?: {
     slotPalettes?: Array<{ slot: number }>;
     gradientDefs?: Array<{ currentSlot: number }>;
     gradientDefStore?: Array<{ slot?: number }>;
   } | null;
-} | null | undefined): number => {
+} | null | undefined
+): number | null => {
   const used = collectUsedSlots(layer);
   if (!used.has(TEMP_SAMPLE_SLOT)) {
     return TEMP_SAMPLE_SLOT;
   }
   const picked = getNextGradientSlot(used);
-  return typeof picked === 'number' ? picked : 0;
+  if (typeof picked === 'number') {
+    return picked;
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('[CC] Sample preview slot allocation failed', {
+      layerId,
+      usedSlotsSize: used.size,
+      editorReserved: used.has(EDITOR_SLOT),
+      tempSampleReserved: used.has(TEMP_SAMPLE_SLOT),
+    });
+  }
+  return null;
 };
 
 const finalizeSampledSession = (session: MarkGradientSession): void => {
@@ -134,6 +150,10 @@ export const beginMarkGradientSession = (params: {
   }
   const frozenStops = cloneStops(params.stops);
   if (params.source === 'sampled') {
+    const previewSlot = resolveSampledPreviewSlot(params.layerId, layer);
+    if (typeof previewSlot !== 'number') {
+      return null;
+    }
     const session: MarkGradientSession = {
       markId: nextMarkId(),
       layerId: params.layerId,
@@ -146,7 +166,7 @@ export const beginMarkGradientSession = (params: {
       previewStopsStored: null,
       previewHash: '',
       fallbackStopsStored: cloneStops(frozenStops),
-      previewSlot: clampSlot(resolveSampledPreviewSlot(layer)),
+      previewSlot: clampSlot(previewSlot),
       samples: [],
     };
     sessionsByLayer.set(params.layerId, session);

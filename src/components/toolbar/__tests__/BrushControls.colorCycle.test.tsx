@@ -231,7 +231,7 @@ jest.mock('@/stores/useAppStore', () => {
     ribbonJitter: 0,
     ribbonAnchorFalloff: 0,
     ribbonSeed: 1,
-    colorCycleFlowMode: 'reverse',
+    colorCycleFlowMode: 'forward',
     customBrushColorCycle: false,
     colorCycleSpeed: 0.1,
     colorCycleStampShape: 'square',
@@ -372,20 +372,12 @@ jest.mock('@/stores/useAppStore', () => {
 });
 
 describe('BrushControls – Color Cycle stroke essentials', () => {
-  it('shows gradient editor, speed, bands, and flow controls for color cycle stroke', async () => {
-    const user = userEvent.setup();
+  it('shows gradient editor, speed, and bands for color cycle stroke', () => {
     render(<BrushControls />);
 
     expect(screen.getByTestId('gradient-editor')).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
-
-    // Flow buttons should be present and toggle-able
-    const forwardBtn = screen.getByRole('button', { name: 'Fwd' });
-    expect(forwardBtn).toBeInTheDocument();
-    await user.click(forwardBtn);
-
-    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('reverse');
   });
 
   it('allows selecting the diamond stamp for color cycle stroke', async () => {

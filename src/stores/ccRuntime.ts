@@ -69,7 +69,7 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
-    const { isAnimating, flowMode } = layer.colorCycleData;
+    const { isAnimating } = layer.colorCycleData;
     const previous = lastRuntimeState.get(layer.id) ?? {};
     const nextSnapshot: RuntimeSnapshot = { ...previous };
 
@@ -91,14 +91,15 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       }
     }
 
-    if (flowMode && previous.flowMode !== flowMode) {
+    const flowMode: RuntimeSnapshot['flowMode'] = 'forward';
+    if (previous.flowMode !== flowMode) {
       try {
         if (typeof (brush as { setLegacyFlowMode?: (mode: typeof flowMode) => void }).setLegacyFlowMode === 'function') {
           (brush as { setLegacyFlowMode: (mode: typeof flowMode) => void }).setLegacyFlowMode(flowMode);
         } else if (typeof brush.setFlowMode === 'function') {
           brush.setFlowMode(flowMode);
         } else if (typeof brush.setFlowDirection === 'function') {
-          brush.setFlowDirection(flowMode === 'reverse' ? 'backward' : 'forward');
+          brush.setFlowDirection('forward');
         }
         nextSnapshot.flowMode = flowMode;
       } catch {}

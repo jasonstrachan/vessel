@@ -96,7 +96,7 @@ const LayersPanel: React.FC = () => {
       colorCycleData: {
         gradient: currentGradient,
         isAnimating: true,
-        flowMode: store.tools.brushSettings.colorCycleFlowMode ?? 'reverse'
+        flowMode: store.tools.brushSettings.colorCycleFlowMode ?? 'forward'
       }
     };
 

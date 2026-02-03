@@ -425,7 +425,7 @@ export const commitColorCycleLayerStroke = async (
         }
         return counts;
       };
-      const PREVIEW_SLOT = 63;
+      let previewSlot: number | null = null;
 
       deps.bindBrushToCanvas(brush, layerCanvas);
       if (typeof brush.commitCurrentStroke === 'function') {
@@ -438,6 +438,7 @@ export const commitColorCycleLayerStroke = async (
       try {
         session = finalizeMarkGradientSession(targetLayerId);
         if (session) {
+          previewSlot = session.previewSlot ?? null;
           ccLog('mark slot (commit)', {
             layerId: targetLayerId,
             markId: session.markId,
@@ -448,8 +449,12 @@ export const commitColorCycleLayerStroke = async (
         }
       } catch {}
 
+      const remapPreviewSlot =
+        session?.binding && typeof previewSlot === 'number' && previewSlot !== session.binding.slot
+          ? previewSlot
+          : null;
       if (session?.binding && typeof brush.remapCommittedGradientSlot === 'function') {
-        if (Number.isFinite(PREVIEW_SLOT)) {
+        if (Number.isFinite(remapPreviewSlot)) {
           const bbox = strokeCaptureRoi
             ? {
                 minX: strokeCaptureRoi.x,
@@ -460,16 +465,16 @@ export const commitColorCycleLayerStroke = async (
             : undefined;
           brush.remapCommittedGradientSlot(
             targetLayerId,
-            PREVIEW_SLOT,
+            remapPreviewSlot as number,
             session.binding.slot,
             bbox
           );
           if (process.env.NODE_ENV !== 'production') {
             const counts = logCommittedSlotsInRoi('after-remap', bbox);
             console.assert(
-              !counts?.has(PREVIEW_SLOT),
+              !counts?.has(remapPreviewSlot as number),
               '[CC] preview slot leaked into committed stroke',
-              { previewSlot: PREVIEW_SLOT, counts: counts ? [...counts.entries()] : null }
+              { previewSlot: remapPreviewSlot, counts: counts ? [...counts.entries()] : null }
             );
           }
         }
@@ -509,7 +514,7 @@ export const commitColorCycleLayerStroke = async (
             session.binding.defId,
             session.binding.slot,
             bbox,
-            PREVIEW_SLOT
+            remapPreviewSlot
           );
 
           if (process.env.NODE_ENV !== 'production') {

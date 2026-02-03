@@ -3884,16 +3884,15 @@ export const useBrushEngineSimplified = () => {
         requestGradientApply(activeLayerId, 'brush-init');
       }
       
-      const layerFlowMode = activeLayer?.colorCycleData?.flowMode;
-      const flowMode = tools.brushSettings.colorCycleFlowMode ?? layerFlowMode ?? 'reverse';
-      const legacyFlowMode = layerFlowMode ?? flowMode;
+      const flowMode: 'forward' = 'forward';
+      const legacyFlowMode: 'forward' = 'forward';
       if (typeof (colorCycleBrush as { setLegacyFlowMode?: (mode: typeof flowMode) => void }).setLegacyFlowMode === 'function') {
         (colorCycleBrush as { setLegacyFlowMode: (mode: typeof flowMode) => void }).setLegacyFlowMode(legacyFlowMode);
       }
       if (typeof colorCycleBrush.setFlowMode === 'function') {
         colorCycleBrush.setFlowMode(flowMode);
       } else {
-        colorCycleBrush.setFlowDirection(flowMode === 'reverse' ? 'backward' : 'forward');
+        colorCycleBrush.setFlowDirection('forward');
       }
       
       return colorCycleBrush;
@@ -3945,13 +3944,13 @@ export const useBrushEngineSimplified = () => {
     if (!colorCycleBrush) {
       return;
     }
-    const flowMode = tools.brushSettings.colorCycleFlowMode ?? activeLayerFlowMode ?? 'reverse';
+    const flowMode: 'forward' = 'forward';
     if (typeof colorCycleBrush.setFlowMode === 'function') {
       colorCycleBrush.setFlowMode(flowMode);
     } else {
-      colorCycleBrush.setFlowDirection(flowMode === 'reverse' ? 'backward' : 'forward');
+      colorCycleBrush.setFlowDirection('forward');
     }
-  }, [getActiveLayerColorCycleBrush, tools.brushSettings.colorCycleFlowMode, activeLayerId, activeLayerFlowMode]);
+  }, [getActiveLayerColorCycleBrush, activeLayerId, activeLayerFlowMode]);
 
   /**
    * Color Cycle pipelines (keep these distinct to avoid cross-bleed):
@@ -4872,13 +4871,13 @@ useEffect(() => {
       }
     },
     
-    setColorCycleFlowMode: (mode: 'forward' | 'reverse' | 'pingpong') => {
+    setColorCycleFlowMode: (_mode: 'forward' | 'reverse' | 'pingpong') => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
         if (typeof colorCycleBrush.setFlowMode === 'function') {
-          colorCycleBrush.setFlowMode(mode);
+          colorCycleBrush.setFlowMode('forward');
         } else {
-          colorCycleBrush.setFlowDirection(mode === 'reverse' ? 'backward' : 'forward');
+          colorCycleBrush.setFlowDirection('forward');
         }
       }
     },

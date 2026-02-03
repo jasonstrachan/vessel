@@ -17,7 +17,9 @@ import {
   buildForegroundDerivedGradientSpec,
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
+  EDITOR_SLOT,
 } from '../utils/colorCycleGradients';
+import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 import { flushGradientApply, requestGradientApply } from './brushEngine/ccGradientApplyScheduler';
 import type { AppState, CCReason } from '@/stores/useAppStore';
 import {
@@ -483,6 +485,8 @@ export function useDrawingHandlers({
       slotPalettes.forEach((entry) => usedSlots.add(entry.slot));
       gradientDefs.forEach((entry) => usedSlots.add(entry.currentSlot));
       defSlots.forEach((slot) => usedSlots.add(slot));
+      usedSlots.add(EDITOR_SLOT);
+      usedSlots.add(TEMP_SAMPLE_SLOT);
       const nextSlot = getNextGradientSlot(usedSlots);
       if (nextSlot !== null) {
         targetSlot = nextSlot;
@@ -1892,20 +1896,19 @@ export function useDrawingHandlers({
               gradientStops: currentState.tools.brushSettings.colorCycleGradient?.length ?? 0,
             });
             ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
-            const strokeFlowMode = currentState.tools.brushSettings.colorCycleFlowMode ?? 'reverse';
             if (colorCycleBrush) {
               if (typeof colorCycleBrush.setFlowMode === 'function') {
-                colorCycleBrush.setFlowMode(strokeFlowMode);
+                colorCycleBrush.setFlowMode('forward');
               } else if (typeof colorCycleBrush.setFlowDirection === 'function') {
-                colorCycleBrush.setFlowDirection(strokeFlowMode === 'reverse' ? 'backward' : 'forward');
+                colorCycleBrush.setFlowDirection('forward');
               }
             }
-            if (!activeLayer.colorCycleData?.flowMode) {
+            if (activeLayer.colorCycleData?.flowMode !== 'forward') {
               try {
                 currentState.updateLayer(activeLayer.id, {
                   colorCycleData: {
                     ...(activeLayer.colorCycleData ?? {}),
-                    flowMode: strokeFlowMode,
+                    flowMode: 'forward',
                   },
                 });
               } catch {}

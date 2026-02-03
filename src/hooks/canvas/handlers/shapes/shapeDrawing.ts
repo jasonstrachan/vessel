@@ -13,6 +13,7 @@ import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
+import { debugLog, isDebugEnabled } from '@/utils/debug';
 import {
   TEMP_SAMPLE_SLOT,
   isTempSampleSlotAvailable,
@@ -476,12 +477,15 @@ export const startShapeDrawing = (
                   ? 'fg'
                   : 'manual';
             const s = useAppStore.getState();
-            console.log('[CC FG] pointerdown tools', {
-              ccGradientSource: s.tools.ccGradientSource,
-              fgColor: s.palette.foregroundColor,
-              bands: s.tools.brushSettings.gradientBands,
-              fillMode: s.tools.brushSettings.colorCycleFillMode,
-            });
+            const logCcFg = isDebugEnabled('cc-fg');
+            if (logCcFg) {
+              debugLog('cc-fg', '[CC FG] pointerdown tools', {
+                ccGradientSource: s.tools.ccGradientSource,
+                fgColor: s.palette.foregroundColor,
+                bands: s.tools.brushSettings.gradientBands,
+                fillMode: s.tools.brushSettings.colorCycleFillMode,
+              });
+            }
             const resolvedForHash = resolveActiveColorCycleGradient(activeLayer, s.tools.brushSettings, {
               fgColorHex: s.palette.foregroundColor,
               fgLightness: s.tools.brushSettings.colorCycleFgLightness,
@@ -495,10 +499,9 @@ export const startShapeDrawing = (
               resolveColorCycleFillMode(s.tools.brushSettings.colorCycleFillMode) === 'linear'
                 ? 'linear'
                 : 'concentric';
-            console.log(
-              '[CC FG] resolved stops hash',
-              hashStops(resolvedForHash.activeStops, kindForHash)
-            );
+            if (logCcFg) {
+              debugLog('cc-fg', '[CC FG] resolved stops hash', hashStops(resolvedForHash.activeStops, kindForHash));
+            }
             beginMarkGradientSession({
               layerId: activeLayer.id,
               markKind: 'shape',
@@ -1083,23 +1086,25 @@ export const finalizeShapeDrawing = async (
                       activeLayer,
                     })
                   : { restore: null };
-                const session = finalizeMarkGradientSession(shapeLayerIdString);
-                if (!session) {
-                  console.warn('[CC] Missing mark session before shape finalize', {
-                    layerId: shapeLayerIdString,
-                    stack: new Error().stack,
-                  });
-                }
-                await deps.runColorCycleShapeFill({
-                  mode: fillMode === 'linear' ? 'linear' : 'concentric',
-                  session,
-                  shapePoints: shapePointsSnapshot,
-                  direction: fillMode === 'linear'
-                    ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
-                    : undefined,
-                  activeLayerId,
-                  activeLayerCanvas,
-                  overlayCanvas,
+              const session = finalizeMarkGradientSession(shapeLayerIdString);
+              if (!session) {
+                console.warn('[CC] Missing mark session before shape finalize', {
+                  layerId: shapeLayerIdString,
+                  stack: new Error().stack,
+                });
+              }
+              const resolvedMode = session?.gradientKind ?? fillMode;
+              const isLinearMode = resolvedMode === 'linear';
+              await deps.runColorCycleShapeFill({
+                mode: isLinearMode ? 'linear' : 'concentric',
+                session,
+                shapePoints: shapePointsSnapshot,
+                direction: isLinearMode
+                  ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
+                  : undefined,
+                activeLayerId,
+                activeLayerCanvas,
+                overlayCanvas,
                   overlayCtx,
                   fallbackBlendMode,
                   fallbackOpacity,
@@ -1128,7 +1133,7 @@ export const finalizeShapeDrawing = async (
               }
 
               handledColorCycleShape = handledColorCycleShape || Boolean(deps.storeRef.current.activeLayerId && activeLayer?.colorCycleData?.canvas);
-              if (fillMode === 'linear') {
+              if (isLinearMode) {
                 args.refs.isSelectingDirectionRef.current = false;
                 args.refs.directionPreviewRef.current = null;
               }

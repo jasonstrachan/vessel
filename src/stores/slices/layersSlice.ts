@@ -7,6 +7,7 @@ import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 import {
   getColorCycleBrushManager,
   type ColorCycleBrushImplementation,
@@ -279,7 +280,7 @@ type ColorCycleGradient = { id: string; slot: number; stops: GradientStop[] };
 type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
 type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
 
-const EDITOR_SLOT = 63;
+const EDITOR_SLOT = 255;
 
 const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 0.0, color: '#ff0000' },
@@ -305,7 +306,8 @@ const collectUsedSlots = (
   const used = new Set<number>();
   palettes.forEach((entry) => used.add(clampSlot(entry.slot)));
   defs.forEach((entry) => used.add(clampSlot(entry.currentSlot)));
-  used.delete(EDITOR_SLOT);
+  used.add(EDITOR_SLOT);
+  used.add(TEMP_SAMPLE_SLOT);
   return used;
 };
 
@@ -331,13 +333,13 @@ const applyLegacySlotRemap = ({
   defs: ColorCycleGradientDef[];
   palettes: ColorCycleSlotPalette[];
   paintSlot: number | undefined;
-  legacyRemap?: { from: 63; to: number };
+  legacyRemap?: { from: number; to: number };
   fallbackStops: GradientStop[];
 }): {
   defs: ColorCycleGradientDef[];
   palettes: ColorCycleSlotPalette[];
   paintSlot: number;
-  legacyRemap?: { from: 63; to: number };
+  legacyRemap?: { from: number; to: number };
 } => {
   const needsRemap =
     paintSlot === EDITOR_SLOT ||
@@ -357,7 +359,7 @@ const applyLegacySlotRemap = ({
 
   const used = collectUsedSlots(defs, palettes);
   const targetSlot = legacyRemap?.to ?? pickAvailableSlot(used);
-  const remap = legacyRemap ?? { from: EDITOR_SLOT as 63, to: targetSlot };
+  const remap = legacyRemap ?? { from: EDITOR_SLOT, to: targetSlot };
   const legacyPalette = palettes.find((entry) => entry.slot === EDITOR_SLOT);
   const remapStops = legacyPalette?.stops?.length ? legacyPalette.stops : fallbackStops;
 
@@ -443,7 +445,7 @@ const ensureColorCycleGradients = (
   slotPalettes: ColorCycleSlotPalette[];
   activeGradientId: string;
   paintSlot: number;
-  legacyRemap?: { from: 63; to: number };
+  legacyRemap?: { from: number; to: number };
 } => {
   const existingDefs = cloneGradientDefs(data?.gradientDefs);
   const existingPalettes = cloneSlotPalettes(data?.slotPalettes);
@@ -754,9 +756,9 @@ const migrateGradientIdBuffer = ({
   usedSlots,
 }: {
   buffer: ArrayBuffer;
-  legacyRemap?: { from: 63; to: number };
+  legacyRemap?: { from: number; to: number };
   usedSlots: Set<number>;
-}): { buffer: ArrayBuffer; legacyRemap?: { from: 63; to: number } } => {
+}): { buffer: ArrayBuffer; legacyRemap?: { from: number; to: number } } => {
   const view = new Uint8Array(buffer);
   let hasLegacy = false;
   for (let i = 0; i < view.length; i += 1) {
@@ -770,7 +772,7 @@ const migrateGradientIdBuffer = ({
   let remap = legacyRemap;
   if (hasLegacy && !remap) {
     const target = pickAvailableSlot(usedSlots);
-    remap = { from: EDITOR_SLOT as 63, to: target };
+    remap = { from: EDITOR_SLOT, to: target };
   }
 
   if (!hasLegacy && !remap) {
@@ -1753,6 +1755,9 @@ export const createLayersSlice = (
                 ...layer.colorCycleData,
                 ...updates.colorCycleData
               };
+              if (mergedColorCycleData.flowMode && mergedColorCycleData.flowMode !== 'forward') {
+                mergedColorCycleData.flowMode = 'forward';
+              }
               const legacyStops = resolveLegacyGradientStops(mergedColorCycleData);
               const fallbackStops = legacyStops
                 ?? state.tools.brushSettings.colorCycleGradient
@@ -2196,7 +2201,7 @@ export const createLayersSlice = (
         customBrushColorCycle: true,
         ...(gradientForBrushSettings ? { colorCycleGradient: gradientForBrushSettings } : {})
       };
-      const resolvedFlowMode = layer.colorCycleData?.flowMode ?? state.tools.brushSettings.colorCycleFlowMode ?? 'reverse';
+      const resolvedFlowMode: 'forward' = 'forward';
       nextBrushSettings.colorCycleFlowMode = resolvedFlowMode;
 
       const result = {
@@ -2515,7 +2520,7 @@ export const createLayersSlice = (
                 colorCycleBrush: existingBrush,
               // Keep current animation state if present; default to true for responsiveness
               isAnimating: l.colorCycleData?.isAnimating ?? true,
-              flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'reverse'),
+              flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'forward'),
               legacyRemap: migratedLegacyRemap,
               canvas,
               canvasWidth: safeWidth,
@@ -2624,7 +2629,7 @@ export const createLayersSlice = (
           nextGradientDefId,
           colorCycleBrush,
           isAnimating: true,
-          flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'reverse',
+          flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'forward',
           canvas: layerCanvas ?? (colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined),
           eraseMask,
           eraseMaskVersion,

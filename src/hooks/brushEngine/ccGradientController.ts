@@ -2,6 +2,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { requestGradientApply } from './ccGradientApplyScheduler';
+import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 
 export type GradientStop = { position: number; color: string };
 
@@ -11,7 +12,7 @@ type SlotPalette = { slot: number; stops: GradientStop[] };
 
 type GradientEditIntent = 'preview' | 'commitFuture' | 'commitRecolor';
 
-const EDITOR_SLOT = 63;
+const EDITOR_SLOT = 255;
 
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
@@ -22,7 +23,8 @@ const collectUsedSlots = (defs: GradientDef[], palettes: SlotPalette[]): Set<num
   const used = new Set<number>();
   palettes.forEach((entry) => used.add(clampSlot(entry.slot)));
   defs.forEach((entry) => used.add(clampSlot(entry.currentSlot)));
-  used.delete(EDITOR_SLOT);
+  used.add(EDITOR_SLOT);
+  used.add(TEMP_SAMPLE_SLOT);
   return used;
 };
 

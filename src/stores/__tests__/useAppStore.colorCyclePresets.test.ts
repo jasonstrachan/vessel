@@ -82,13 +82,13 @@ describe('useAppStore color cycle brush presets', () => {
     const store = useAppStore.getState();
     store.setBrushSettings({ colorCycleFlowMode: 'pingpong' });
 
-    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('pingpong');
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('forward');
   });
 
   it('normalizes legacy flow forward flags into the new flow mode', () => {
     const store = useAppStore.getState();
     store.setBrushSettings({ colorCycleFlowForward: false } as unknown as Partial<BrushSettings>);
 
-    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('reverse');
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('forward');
   });
 });

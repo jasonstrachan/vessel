@@ -12,9 +12,10 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { DerivedGradientSpec } from '@/types';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
 import { cancelGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 
 export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
-export const EDITOR_SLOT = 63;
+export const EDITOR_SLOT = 255;
 
 const fgPendingByLayer = new Map<string, boolean>();
 
@@ -152,6 +153,7 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
     });
     defSlots.forEach((slot) => usedSlots.add(slot));
     usedSlots.add(EDITOR_SLOT);
+    usedSlots.add(TEMP_SAMPLE_SLOT);
     const nextSlot = getNextGradientSlot(usedSlots);
     if (nextSlot !== null) {
       targetSlot = nextSlot;
@@ -235,6 +237,8 @@ export const allocateSlotForNewShapeFill = (
   slotPalettes.forEach((entry) => usedSlots.add(entry.slot));
   gradientDefs.forEach((entry) => usedSlots.add(entry.currentSlot));
   usedSlots.add(EDITOR_SLOT);
+  usedSlots.add(TEMP_SAMPLE_SLOT);
+  usedSlots.add(TEMP_SAMPLE_SLOT);
 
   const nextSlot = getNextGradientSlot(usedSlots);
   if (nextSlot === null) {
@@ -318,7 +322,7 @@ export function getSharedColorCycleSettings() {
     gradient: settings.colorCycleGradient || DEFAULT_GRADIENT_STOPS,
     speed: settings.colorCycleSpeed || 0.1,
     fps: settings.colorCycleFPS || 30,
-    flowMode: settings.colorCycleFlowMode ?? 'reverse',
+    flowMode: settings.colorCycleFlowMode ?? 'forward',
     gradientBands: settings.gradientBands || 12
   };
 }

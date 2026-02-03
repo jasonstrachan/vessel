@@ -541,11 +541,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     if (settings.colorCycleFlowForward !== undefined) {
-      settings.colorCycleFlowMode = settings.colorCycleFlowForward === false ? 'reverse' : 'forward';
+      settings.colorCycleFlowMode = 'forward';
       delete settings.colorCycleFlowForward;
     }
 
     let newSettings = { ...currentSettings, ...settings };
+    if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
+      newSettings.colorCycleFlowMode = 'forward';
+    }
 
     if (DEBUG_LOSTEDGE && Object.prototype.hasOwnProperty.call(settings, 'lostEdge')) {
       console.debug('[LE:slider->store]', {
@@ -1466,10 +1469,13 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       newBrushSettings.colorCycleSpeed = currentSettings.colorCycleSpeed;
     }
     if (currentSettings.colorCycleFlowMode !== undefined && !hasUserColorCycleFlowMode) {
-      newBrushSettings.colorCycleFlowMode = currentSettings.colorCycleFlowMode;
+      newBrushSettings.colorCycleFlowMode = 'forward';
     }
     if (currentSettings.colorCycleFPS !== undefined && !hasUserColorCycleFPS) {
       newBrushSettings.colorCycleFPS = currentSettings.colorCycleFPS;
+    }
+    if (newBrushSettings.colorCycleFlowMode && newBrushSettings.colorCycleFlowMode !== 'forward') {
+      newBrushSettings.colorCycleFlowMode = 'forward';
     }
 
     const previousGradient = currentSettings.colorCycleGradient;
@@ -2138,6 +2144,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     set((state) => {
       const existingSettings = state.brushSpecificSettings[brushId] || {};
       const newSettings = { ...existingSettings, ...settings };
+      if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
+        newSettings.colorCycleFlowMode = 'forward';
+      }
 
       return {
         brushSpecificSettings: {
@@ -2155,9 +2164,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
 
     if (normalized.colorCycleFlowForward !== undefined) {
-      normalized.colorCycleFlowMode =
-        normalized.colorCycleFlowForward === false ? 'reverse' : 'forward';
+      normalized.colorCycleFlowMode = 'forward';
       delete normalized.colorCycleFlowForward;
+    }
+    if (normalized.colorCycleFlowMode && normalized.colorCycleFlowMode !== 'forward') {
+      normalized.colorCycleFlowMode = 'forward';
     }
 
     return normalized;

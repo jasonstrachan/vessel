@@ -36,6 +36,7 @@ import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { getMaskManager } from '@/layers/MaskManager';
 import { CC_PERF, recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
+import { debugLog, isDebugEnabled } from '@/utils/debug';
 import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
@@ -119,7 +120,7 @@ interface AnimatorIndexSnapshot {
   slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
   activeGradientId?: string;
   paintSlot?: number;
-  legacyRemap?: { from: 63; to: number };
+  legacyRemap?: { from: number; to: number };
 }
 
 interface StrokeDataSnapshot {
@@ -148,7 +149,7 @@ interface SerializedLayerState {
   }>;
   nextGradientDefId?: number;
   paintSlot?: number;
-  legacyRemap?: { from: 63; to: number };
+  legacyRemap?: { from: number; to: number };
   fgActiveSlot?: number;
   fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
@@ -326,8 +327,8 @@ export class ColorCycleBrushCanvas2D {
   // Stamp tracking for gradient progression
   private stampCounter: number = 0;
   private totalGradientSteps: number = 256; // Total colors in gradient
-  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'reverse';
-  private legacyFlowMode: FlowMode = 'reverse';
+  private flowMode: 'forward' | 'reverse' | 'pingpong' = 'forward';
+  private legacyFlowMode: FlowMode = 'forward';
   
   // Batched rendering
   private renderScheduled: boolean = false;
@@ -517,11 +518,11 @@ export class ColorCycleBrushCanvas2D {
 
   private logPerfStroke(layerId: string) {
     const perf = this.perfStroke;
-    if (!perf || !CC_PERF.on) return;
+    if (!perf || !CC_PERF.on || !isDebugEnabled('cc-perf')) return;
     this.finalizePerfBounds();
     const stats = perf.stats;
     const durations = perf.durations;
-    console.log('[perf] cc-stroke', {
+    debugLog('cc-perf', '[perf] cc-stroke', {
       layerId,
       canvas: `${stats.canvasW}x${stats.canvasH}`,
       brushBucket: stats.brushBucket,
@@ -1551,6 +1552,9 @@ export class ColorCycleBrushCanvas2D {
 
     const previewSlotMasked =
       typeof previewSlot === 'number' ? (previewSlot & FLOW_SLOT_MASK) : null;
+    const committedSlotMasked = slot & FLOW_SLOT_MASK;
+    const effectivePreviewSlot =
+      previewSlotMasked !== null && previewSlotMasked !== committedSlotMasked ? previewSlotMasked : null;
     let leftoverPreview = 0;
     for (let y = minY; y <= maxY; y += 1) {
       const row = y * this.width;
@@ -1562,25 +1566,25 @@ export class ColorCycleBrushCanvas2D {
         }
         const gid = gidBuffer[idx];
         const curSlot = gid & FLOW_SLOT_MASK;
-        if (previewSlotMasked !== null && curSlot === previewSlotMasked) {
-          gidBuffer[idx] = (gid & ~FLOW_SLOT_MASK) | (slot & FLOW_SLOT_MASK);
+        if (effectivePreviewSlot !== null && curSlot === effectivePreviewSlot) {
+          gidBuffer[idx] = (gid & ~FLOW_SLOT_MASK) | committedSlotMasked;
           defBuffer[idx] = defId;
-        } else if (curSlot === (slot & FLOW_SLOT_MASK)) {
+        } else if (curSlot === committedSlotMasked) {
           defBuffer[idx] = defId;
         }
-        if (process.env.NODE_ENV !== 'production' && previewSlotMasked !== null) {
-          if ((gidBuffer[idx] & FLOW_SLOT_MASK) === previewSlotMasked) {
+        if (process.env.NODE_ENV !== 'production' && effectivePreviewSlot !== null) {
+          if ((gidBuffer[idx] & FLOW_SLOT_MASK) === effectivePreviewSlot) {
             leftoverPreview += 1;
           }
         }
       }
     }
-    if (process.env.NODE_ENV !== 'production' && previewSlotMasked !== null) {
+    if (process.env.NODE_ENV !== 'production' && effectivePreviewSlot !== null) {
       console.assert(leftoverPreview === 0, '[CC] preview slot leaked into committed stroke', {
         layerId,
         leftover: leftoverPreview,
-        previewSlot: previewSlotMasked,
-        committedSlot: slot & FLOW_SLOT_MASK,
+        previewSlot: effectivePreviewSlot,
+        committedSlot: committedSlotMasked,
       });
     }
 
@@ -2564,21 +2568,23 @@ export class ColorCycleBrushCanvas2D {
       ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
     const baseOffset = this.stampCounter % 255;
-    console.log('[CC fill] linear path flags', {
-      hasGL: (() => {
-        try {
-          return animator.hasWebGL();
-        } catch {
-          return null;
-        }
-      })(),
-      ditherEnabled: this.ditherEnabled,
-      ditherPixelSize: this.ditherPixelSize,
-      perceptual: this.perceptualDither,
-      ccGradient,
-      continuous,
-      lostEdge,
-    });
+    if (logCcFill) {
+      debugLog('cc-fill', '[CC fill] linear path flags', {
+        hasGL: (() => {
+          try {
+            return animator.hasWebGL();
+          } catch {
+            return null;
+          }
+        })(),
+        ditherEnabled: this.ditherEnabled,
+        ditherPixelSize: this.ditherPixelSize,
+        perceptual: this.perceptualDither,
+        ccGradient,
+        continuous,
+        lostEdge,
+      });
+    }
     const indexFromNormalized = (pos: number): number => {
       const raw = Math.round(pos * 254);
       const shifted = (raw + baseOffset) % 255;
@@ -2646,7 +2652,9 @@ export class ColorCycleBrushCanvas2D {
             noiseSeed,
           }, flowSlot);
           if (ok) {
-            console.log('[CC fill] linear USED GPU', { bbox, bands: numBands });
+            if (logCcFill) {
+              debugLog('cc-fill', '[CC fill] linear USED GPU', { bbox, bands: numBands });
+            }
             this.stampCounter += numBands;
             if (strokeData) strokeData.stampCounter = this.stampCounter;
             this.dirtyLayers.add(id);
@@ -2674,7 +2682,9 @@ export class ColorCycleBrushCanvas2D {
     } catch {}
 
     const directLinearHandle = animator.beginDirectFill();
-    console.log('[CC fill] linear USED CPU', { bbox, bands: numBands });
+    if (logCcFill) {
+      debugLog('cc-fill', '[CC fill] linear USED CPU', { bbox, bands: numBands });
+    }
     const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
     if (activeSlot !== 0) {
       animator.markGradientSlotUsed(activeSlot);
@@ -3326,12 +3336,15 @@ export class ColorCycleBrushCanvas2D {
       strokeData.flow.encoded = true;
     }
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-    console.log('[CC fill] uses slot', {
-      layerId: id,
-      activeSlot,
-      flowSlot,
-      encoded: strokeData?.flow?.encoded,
-    });
+    const logCcFill = isDebugEnabled('cc-fill');
+    if (logCcFill) {
+      debugLog('cc-fill', '[CC fill] uses slot', {
+        layerId: id,
+        activeSlot,
+        flowSlot,
+        encoded: strokeData?.flow?.encoded,
+      });
+    }
 
     const animator = this.ensureFullResolution(id, 'fill');
     
@@ -4815,13 +4828,13 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Set flow direction (API compatible)
    */
-  setFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
-    this.flowMode = mode;
+  setFlowMode(_mode: 'forward' | 'reverse' | 'pingpong') {
+    this.flowMode = 'forward';
   }
 
-  setLegacyFlowMode(mode: 'forward' | 'reverse' | 'pingpong') {
-    this.legacyFlowMode = mode;
-    this.animators.forEach(animator => animator.setFlowMode(mode));
+  setLegacyFlowMode(_mode: 'forward' | 'reverse' | 'pingpong') {
+    this.legacyFlowMode = 'forward';
+    this.animators.forEach(animator => animator.setFlowMode('forward'));
   }
 
   setFlowDirection(direction: 'forward' | 'backward') {
@@ -4844,11 +4857,7 @@ export class ColorCycleBrushCanvas2D {
    * Toggle flow direction (API compatible)
    */
   toggleFlowDirection() {
-    if (this.flowMode === 'pingpong') {
-      this.setFlowMode('forward');
-      return;
-    }
-    this.setFlowMode(this.flowMode === 'forward' ? 'reverse' : 'forward');
+    this.setFlowMode('forward');
   }
   
   /**
@@ -5362,9 +5371,10 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.gid.set(incomingGradient.subarray(0, copyLen));
       }
       const remapSlot = animatorIndex?.legacyRemap?.to ?? 0;
+      const remapFrom = animatorIndex?.legacyRemap?.from ?? 63;
       for (let i = 0; i < strokeData.buffers.gid.length; i += 1) {
         let raw = strokeData.buffers.gid[i] & FLOW_SLOT_MASK;
-        if (raw === 63) {
+        if (raw === remapFrom) {
           raw = remapSlot;
         }
         strokeData.buffers.gid[i] = raw;

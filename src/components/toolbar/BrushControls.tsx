@@ -1098,29 +1098,6 @@ const BrushControls = () => {
           </div>
         </div>
 
-        <div className="mb-3">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Flow
-            </label>
-            <ButtonGroup
-              options={[
-                { label: 'Fwd', value: 'reverse' },
-                { label: 'Rev', value: 'forward' },
-                { label: 'Ping', value: 'pingpong' },
-              ]}
-              value={activeSettings.colorCycleFlowMode || 'reverse'}
-              onChange={(value) => {
-                const next: 'forward' | 'reverse' | 'pingpong' =
-                  value === 'forward' || value === 'pingpong' ? value : 'reverse';
-                setActiveSettings({ colorCycleFlowMode: next });
-              }}
-              className="flex-1"
-              size="sm"
-            />
-          </div>
-        </div>
-
         <div className="mb-2">
           <ButtonGroup
             options={[

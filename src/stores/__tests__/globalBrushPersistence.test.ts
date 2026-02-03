@@ -172,7 +172,7 @@ describe('global brush persistence', () => {
     expect(active.colorCycleStampDitherPixelSize).toBe(6);
     expect(active.colorCycleStampDitherPressureLinked).toBe(true);
     expect(active.colorCycleStampDitherBgFill).toBe(false);
-    expect(active.colorCycleFlowMode).toBe('pingpong');
+    expect(active.colorCycleFlowMode).toBe('forward');
     expect(active.colorCycleStampShape).toBe('triangle');
 
     store.setBrushSettings({
@@ -193,7 +193,7 @@ describe('global brush persistence', () => {
         colorCycleStampDitherPixelSize: 4,
         colorCycleStampDitherPressureLinked: false,
         colorCycleStampDitherBgFill: true,
-        colorCycleFlowMode: 'reverse',
+        colorCycleFlowMode: 'forward',
         colorCycleSpeed: 0.25,
         gradientBands: 16,
         colorCycleStampShape: 'square',

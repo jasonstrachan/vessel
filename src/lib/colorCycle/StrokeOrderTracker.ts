@@ -4,7 +4,7 @@ export class StrokeOrderTracker {
   private strokeOrder: Uint16Array;
   private currentStrokeIndex: number = 1;
   private maxStrokeIndex: number = 0;
-  private flowMode: FlowMode = 'reverse';
+  private flowMode: FlowMode = 'forward';
   private lastControllerOffset: number = 0;
   private pingPongAscending: boolean = true;
 
@@ -50,18 +50,9 @@ export class StrokeOrderTracker {
   }
 
   computePhase(offset: number): number {
-    if (this.flowMode === 'pingpong') {
-      if (this.lastControllerOffset - offset > 0.5) {
-        this.pingPongAscending = !this.pingPongAscending;
-      }
-      this.lastControllerOffset = offset;
-      return this.pingPongAscending ? offset : 1 - offset;
-    }
-
+    // Forward-only: ignore reverse/pingpong to keep a consistent phase direction.
     this.lastControllerOffset = offset;
-    const dir = this.flowMode === 'reverse' ? -1 : 1;
-    const signed = offset * dir;
-    return ((signed % 1) + 1) % 1;
+    return ((offset % 1) + 1) % 1;
   }
 
   serialize() {

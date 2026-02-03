@@ -394,7 +394,7 @@ describe('useDrawingHandlers stroke harness', () => {
       blendMode: 'source-over',
       layerType: 'color-cycle',
       colorCycleData: {
-        flowMode: 'reverse',
+        flowMode: 'forward',
         gradientDefs: [{ id: 'g0', currentSlot: 0 }],
         activeGradientId: 'g0',
         slotPalettes: [

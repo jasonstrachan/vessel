@@ -23,7 +23,7 @@ const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 1.0, color: '#9400d3' },
 ];
 
-const EDITOR_SLOT = 63;
+const EDITOR_SLOT = 255;
 
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 

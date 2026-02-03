@@ -407,6 +407,7 @@ export class WebGLColorCycleRenderer {
     const gl = this.gl;
     gl.viewport(0, 0, this.width, this.height);
     gl.useProgram(this.program);
+    void flowMode;
 
     // Set uniforms
     if (this.uOffsetLoc) gl.uniform1f(this.uOffsetLoc, offset);
@@ -418,13 +419,7 @@ export class WebGLColorCycleRenderer {
     if (this.uSpeedMinLoc) gl.uniform1f(this.uSpeedMinLoc, MIN_BRUSH_COLOR_CYCLE_SPEED);
     if (this.uSpeedMaxLoc) gl.uniform1f(this.uSpeedMaxLoc, MAX_BRUSH_COLOR_CYCLE_SPEED);
     if (this.uFlowModeLoc) {
-      const flowModeValue =
-        flowMode === 'pingpong'
-          ? 2
-          : flowMode === 'reverse'
-            ? 1
-            : 0;
-      gl.uniform1f(this.uFlowModeLoc, flowModeValue);
+      gl.uniform1f(this.uFlowModeLoc, 0);
     }
 
     // Bind textures to texture units 0 (index), 1 (gid), 2 (palette), 3 (speed), 4 (defId), 5 (defPalette), 6 (defLut)
@@ -583,44 +578,20 @@ export class WebGLColorCycleRenderer {
 
         // Convert to palette index in [0, paletteSize)
         float base = (fIdx - 1.0);
-        float flowBits = floor(fGid / 64.0);
-        float slot = mod(fGid, 64.0);
-        float effectiveFlow = flowBits;
-        if (flowBits < 0.5) {
-          effectiveFlow = u_flowMode + 1.0;
-        }
-
         float shift;
         if (fSpd < 0.5) {
-          if (flowBits < 0.5) {
-            shift = u_legacyOffset * u_paletteSize;
-          } else if (flowBits < 1.5) {
-            shift = u_legacyOffset * u_paletteSize;
-          } else if (flowBits < 2.5) {
-            shift = -u_legacyOffset * u_paletteSize;
-          } else {
-            float t = u_legacyOffset;
-            float ping = t <= 0.5 ? (t * 2.0) : ((1.0 - t) * 2.0);
-            shift = ping * u_paletteSize;
-          }
+          shift = -u_legacyOffset * u_paletteSize;
         } else {
           float tNorm = (fSpd - 1.0) / 254.0;
           float speed = mix(u_speedMin, u_speedMax, clamp(tNorm, 0.0, 1.0));
           float t = mod(u_offset * speed, 1.0);
-          if (effectiveFlow < 1.5) {
-            shift = t * u_paletteSize;
-          } else if (effectiveFlow < 2.5) {
-            shift = -t * u_paletteSize;
-          } else {
-            float ping = t <= 0.5 ? (t * 2.0) : ((1.0 - t) * 2.0);
-            shift = ping * u_paletteSize;
-          }
+          shift = -t * u_paletteSize;
         }
 
         float pIdx = mod(base + shift + u_paletteSize * 4.0, u_paletteSize);
         // Sample palette with NEAREST by addressing the center of the texel
         float u = (floor(pIdx) + 0.5) / u_paletteSize;
-        float gid = clamp(slot, 0.0, u_paletteSize - 1.0);
+        float gid = clamp(fGid, 0.0, u_paletteSize - 1.0);
         float v = (gid + 0.5) / u_paletteSize;
 
         if (defId > 0.5 && u_defPaletteRows > 0.5) {

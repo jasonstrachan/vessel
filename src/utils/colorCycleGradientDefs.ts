@@ -2,6 +2,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { cloneStops, getNextGradientSlot } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
+import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 
 export type StoredStop = { position: number; color: string };
 
@@ -17,7 +18,7 @@ export type ColorCycleGradientDefStore = {
   slot?: number;
 };
 
-const EDITOR_SLOT = 63;
+const EDITOR_SLOT = 255;
 
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
@@ -46,7 +47,25 @@ const collectUsedSlots = (params: {
     }
   });
   used.add(EDITOR_SLOT);
+  used.add(TEMP_SAMPLE_SLOT);
   return used;
+};
+
+const reportSlotAllocationFailure = (params: {
+  layerId: string;
+  usedSlots: Set<number>;
+  context: string;
+}) => {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+  console.error('[CC] Gradient slot allocation failed', {
+    layerId: params.layerId,
+    context: params.context,
+    usedSlotsSize: params.usedSlots.size,
+    editorReserved: params.usedSlots.has(EDITOR_SLOT),
+    tempSampleReserved: params.usedSlots.has(TEMP_SAMPLE_SLOT),
+  });
 };
 
 export const ensureGradientDefForStops = (params: {
@@ -76,7 +95,7 @@ export const ensureGradientDefForStops = (params: {
   const preferredSlot =
     typeof params.preferredSlot === 'number' ? clampSlot(params.preferredSlot) : null;
 
-  let slot: number;
+  let slot: number | null = null;
   let nextDefStore = defStore;
   let nextId = colorCycleData.nextGradientDefId ?? 1;
   let def: ColorCycleGradientDefStore;
@@ -86,10 +105,11 @@ export const ensureGradientDefForStops = (params: {
       ? existingSlot
       : (preferredSlot !== null && !usedSlots.has(preferredSlot))
         ? preferredSlot
-        : (() => {
-          const picked = getNextGradientSlot(usedSlots);
-          return typeof picked === 'number' ? picked : 0;
-        })();
+        : getNextGradientSlot(usedSlots);
+    if (typeof slot !== 'number') {
+      reportSlotAllocationFailure({ layerId: params.layerId, usedSlots, context: 'existing-def' });
+      return null;
+    }
     if (existing.slot !== slot) {
       def = { ...existing, slot };
       nextDefStore = defStore.map((entry) => (entry.id === existing.id ? def : entry));
@@ -100,8 +120,11 @@ export const ensureGradientDefForStops = (params: {
     if (preferredSlot !== null && !usedSlots.has(preferredSlot)) {
       slot = preferredSlot;
     } else {
-      const picked = getNextGradientSlot(usedSlots);
-      slot = typeof picked === 'number' ? picked : 0;
+      slot = getNextGradientSlot(usedSlots);
+    }
+    if (typeof slot !== 'number') {
+      reportSlotAllocationFailure({ layerId: params.layerId, usedSlots, context: 'new-def' });
+      return null;
     }
     def = {
       id: nextId,
@@ -116,7 +139,20 @@ export const ensureGradientDefForStops = (params: {
     nextId += 1;
   }
 
-  const hasSlotPalette = slotPalettes.some((entry) => entry.slot === slot);
+  const existingPalette = slotPalettes.find((entry) => entry.slot === slot);
+  if (existingPalette) {
+    const existingSig = signatureForStops(existingPalette.stops);
+    const nextSig = signatureForStops(frozenStops);
+    if (existingSig !== nextSig) {
+      if (process.env.NODE_ENV !== 'production') {
+        throw new Error(
+          `[CC] Slot overwrite blocked: slot ${slot} has different palette (layer ${params.layerId})`
+        );
+      }
+      return null;
+    }
+  }
+  const hasSlotPalette = Boolean(existingPalette);
   const nextSlotPalettes = hasSlotPalette
     ? slotPalettes
     : [...slotPalettes, { slot, stops: cloneStops(frozenStops) }];

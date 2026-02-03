@@ -201,14 +201,14 @@ export interface Layer {
      */
     fgActiveSlot?: number;
     /**
-     * Authoritative slot for new writes (raw slot, 0..63). Never use 63 for paint.
+     * Authoritative slot for new writes (raw slot, 0..255). Never use 255 for paint.
      */
     paintSlot?: number;
     /**
-     * Legacy gid remap for slot 63 -> dedicated slot.
+     * Legacy gid remap for reserved slots -> dedicated slot.
      */
     legacyRemap?: {
-      from: 63;
+      from: number;
       to: number;
     };
     /**

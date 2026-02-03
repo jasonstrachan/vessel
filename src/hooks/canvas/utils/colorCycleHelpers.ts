@@ -24,7 +24,7 @@ export const DEFAULT_CC_GRADIENT: GradientStop[] = [
   { position: 1.0, color: '#9400d3' }
 ];
 
-const EDITOR_SLOT = 63;
+const EDITOR_SLOT = 255;
 
 export const cloneStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map((stop) => ({ position: stop.position, color: stop.color }));

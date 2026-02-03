@@ -395,7 +395,7 @@ const MinimalLayerList = () => {
       colorCycleData: {
         gradient: currentGradient,
         isAnimating: isGlobalPlaying,
-        flowMode: brushSettingsRef.current.colorCycleFlowMode ?? 'reverse'
+        flowMode: brushSettingsRef.current.colorCycleFlowMode ?? 'forward'
       }
     };
     // quiet

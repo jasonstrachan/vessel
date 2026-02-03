@@ -3,7 +3,7 @@ import type { BrushSettings } from '@/types';
 import type { AutoSampleStops } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import { computeAutoSampleStops } from '@/hooks/canvas/handlers/brushSampling';
 
-export const TEMP_SAMPLE_SLOT = 253;
+export const TEMP_SAMPLE_SLOT = 254;
 export const CC_GRADIENT_SAMPLE_THROTTLE_MS = 120;
 
 export type CcGradientSampleSession = {
@@ -106,6 +106,7 @@ export const isTempSampleSlotAvailable = (
     colorCycleData?: {
       slotPalettes?: Array<{ slot: number }>;
       gradientDefs?: Array<{ currentSlot: number }>;
+      gradientDefStore?: Array<{ slot?: number }>;
     } | null;
   } | null | undefined,
   slot: number = TEMP_SAMPLE_SLOT
@@ -119,6 +120,11 @@ export const isTempSampleSlotAvailable = (
   }
   for (const entry of layer.colorCycleData.gradientDefs ?? []) {
     used.add(entry.currentSlot);
+  }
+  for (const entry of layer.colorCycleData.gradientDefStore ?? []) {
+    if (typeof entry.slot === 'number') {
+      used.add(entry.slot);
+    }
   }
   return !used.has(slot);
 };

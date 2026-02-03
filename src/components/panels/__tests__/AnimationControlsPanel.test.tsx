@@ -31,7 +31,7 @@ jest.mock('@/stores/useAppStore', () => {
     layers: [],
     activeLayerId: null,
     selectedLayerIds: [],
-    tools: { brushSettings: { colorCycleSpeed: 0.1, colorCycleFlowMode: 'reverse' } },
+    tools: { brushSettings: { colorCycleSpeed: 0.1, colorCycleFlowMode: 'forward' } },
     updateLayer: jest.fn(),
     setBrushSettings: jest.fn(),
     playColorCycle: jest.fn(),

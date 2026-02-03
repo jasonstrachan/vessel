@@ -125,7 +125,7 @@ describe('useAppStore color cycle layer selection', () => {
     expect(gradient?.[0]).not.toBe(layerGradient[0]);
   });
 
-  it('adopts per-layer flow mode when activating a color cycle layer', () => {
+  it('forces forward-only flow when activating a color cycle layer', () => {
     const layer = makeColorCycleLayer('layer-flow', { flowMode: 'pingpong' });
 
     useAppStore.setState(state => ({
@@ -147,10 +147,10 @@ describe('useAppStore color cycle layer selection', () => {
 
     useAppStore.getState().setActiveLayer(layer.id);
 
-    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('pingpong');
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('forward');
   });
 
-  it('persists per-layer flow mode updates via updateLayer', () => {
+  it('normalizes per-layer flow mode updates to forward-only', () => {
     const layer = makeColorCycleLayer('layer-update');
 
     useAppStore.setState(state => ({
@@ -170,7 +170,7 @@ describe('useAppStore color cycle layer selection', () => {
     });
 
     const updatedLayer = useAppStore.getState().layers.find(l => l.id === layer.id);
-    expect(updatedLayer?.colorCycleData?.flowMode).toBe('reverse');
+    expect(updatedLayer?.colorCycleData?.flowMode).toBe('forward');
   });
 
   it('skips runtime sync when skipColorCycleSync is true', () => {
