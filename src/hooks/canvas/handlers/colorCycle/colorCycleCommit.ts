@@ -552,6 +552,7 @@ export const commitColorCycleLayerStroke = async (
                 source: session.source,
                 createdAtMs: Date.now(),
                 slot: session.binding.slot,
+                speedCps: session.speedCps ?? undefined,
               };
               const existing = layer.colorCycleData.gradientDefStore ?? [];
               const nextStore = [...existing, nextDef];

@@ -1061,6 +1061,7 @@ export function useDrawingHandlers({
             gradientKind,
             source: 'sampled',
             stops: resolved.activeStops,
+            speedCps: currentState.tools.brushSettings.colorCycleSpeed,
           });
         }
       }
@@ -1618,6 +1619,7 @@ export function useDrawingHandlers({
               gradientKind,
               source,
               stops: resolved.activeStops,
+              speedCps: refreshedState.tools.brushSettings.colorCycleSpeed,
             });
             requestGradientApply(activeLayer.id, 'mark-session-start');
             flushGradientApply(activeLayer.id);

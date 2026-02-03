@@ -1397,6 +1397,8 @@ const PROPERTY_UNMINIFY_MAP = {
   gr: 'gradient',
   grf: 'gradientRef',
   spd: 'brushSpeed',
+  smd: 'speedMode',
+  ss: 'slotSpeeds',
   smin: 'speedMin',
   smax: 'speedMax',
   si: 'stackIndex',
@@ -1827,6 +1829,18 @@ const applyMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
   }
 };
 
+const hasVisibleAlpha = (alphaBuffer) => {
+  if (!alphaBuffer || alphaBuffer.length < 4) {
+    return false;
+  }
+  for (let i = 3; i < alphaBuffer.length; i += 4) {
+    if (alphaBuffer[i]) {
+      return true;
+    }
+  }
+  return false;
+};
+
 // ------------------------------------------------------------
 // Gradient + color-cycle helpers
 // ------------------------------------------------------------
@@ -1935,6 +1949,34 @@ const normalizeSlotPalettes = (slotPalettes, fallbackGradient) => {
   return map;
 };
 
+const normalizeSlotSpeeds = (slotSpeeds) => {
+  if (!Array.isArray(slotSpeeds) || slotSpeeds.length === 0) {
+    return null;
+  }
+  const map = new Map();
+  if (typeof slotSpeeds[0] === 'number') {
+    slotSpeeds.forEach((speed, slot) => {
+      if (!Number.isFinite(speed)) {
+        return;
+      }
+      map.set(Math.max(0, Math.min(255, Math.round(slot))), speed);
+    });
+    return map.size > 0 ? map : null;
+  }
+  slotSpeeds.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+    const slot = Number(entry.slot);
+    const speed = Number(entry.speed);
+    if (!Number.isFinite(slot) || !Number.isFinite(speed)) {
+      return;
+    }
+    map.set(Math.max(0, Math.min(255, Math.round(slot))), speed);
+  });
+  return map.size > 0 ? map : null;
+};
+
 const sampleGradient = (gradient, position) => {
   if (!Array.isArray(gradient) || gradient.length === 0) {
     return { r: 255, g: 255, b: 255, a: 255 };
@@ -1974,46 +2016,6 @@ const normalizeFlowDirection = (direction, fallback = 'forward') => {
   return fallback;
 };
 
-const buildGradientLUT = ({ gradient, cycleColors, tick, mappingMode, flowDirection, indexPhaseMap }) => {
-  const lut = new Uint32Array(256);
-  const bands = Math.max(1, Math.floor(Number.isFinite(cycleColors) ? cycleColors : 16));
-  const mode = mappingMode === 'continuous' ? 'continuous' : 'banded';
-  const direction = normalizeFlowDirection(flowDirection);
-  const directionSign = direction === 'reverse' ? -1 : 1;
-  const pingpong = direction === 'pingpong' || direction === 'bounce';
-  const normalizedShift = directionSign * (Number.isFinite(tick) ? tick : 0) / bands;
-
-  for (let i = 0; i < 256; i += 1) {
-    let phaseBase;
-    if (mode === 'continuous') {
-      phaseBase = indexPhaseMap ? indexPhaseMap[i] / 255 : i / 255;
-    } else if (indexPhaseMap) {
-      const bandIndex = clamp(Math.floor((indexPhaseMap[i] / 255) * bands), 0, bands - 1);
-      phaseBase = bandIndex / bands;
-    } else {
-      phaseBase = (i % bands) / bands;
-    }
-
-    let positionValue;
-    if (pingpong) {
-      positionValue = reflect01(phaseBase + normalizedShift);
-    } else {
-      positionValue = wrap01(phaseBase + (normalizedShift % 1));
-    }
-
-    if (positionValue >= 1) {
-      positionValue = 0.999999;
-    }
-    if (positionValue < 0) {
-      positionValue = 0;
-    }
-
-    const color = sampleGradient(gradient, positionValue);
-    lut[i] = (color.a << 24) | (color.b << 16) | (color.g << 8) | color.r;
-  }
-
-  return lut;
-};
 
 const fillPixelsFromIndices = (indices, lut, outPixels32, alpha, options = {}) => {
   const transparentZero = options.transparentZero === true;
@@ -2151,6 +2153,48 @@ const FLOW_SLOT_MASK = (1 << FLOW_SLOT_BITS) - 1;
 const FLOW_MODE_FORWARD = 1;
 const FLOW_MODE_REVERSE = 2;
 const FLOW_MODE_PINGPONG = 3;
+const MODE_COUNT = 3;
+const SB_COUNT = 256;
+const SLOT_COUNT = FLOW_SLOT_MASK + 1;
+const MODE_TO_IDX = new Int8Array(256);
+MODE_TO_IDX[FLOW_MODE_FORWARD] = 0;
+MODE_TO_IDX[FLOW_MODE_REVERSE] = 1;
+MODE_TO_IDX[FLOW_MODE_PINGPONG] = 2;
+
+const packABGR32 = (c) => (c.a << 24) | (c.b << 16) | (c.g << 8) | c.r;
+
+const buildDiscretePalette32FromGradient = (gradientStops, cycleColors) => {
+  const n = Math.max(1, cycleColors | 0);
+  const pal = new Uint32Array(n);
+  if (!Array.isArray(gradientStops) || gradientStops.length === 0) {
+    pal.fill(0xffffffff);
+    return pal;
+  }
+  for (let i = 0; i < n; i += 1) {
+    const t = n === 1 ? 0 : (i / (n - 1));
+    const c = sampleGradient(gradientStops, t);
+    pal[i] = packABGR32(c);
+  }
+  return pal;
+};
+
+const buildPaletteShiftLUT256 = ({ basePalette32, cycleColors, offset01 }) => {
+  const lut = new Uint32Array(256);
+  const n = Math.max(1, cycleColors | 0);
+  let off = offset01 % 1;
+  if (off < 0) off += 1;
+  const shift = (off * n) | 0;
+  for (let i = 0; i < 256; i += 1) {
+    let p = i - 1;
+    if (p < 0) p = 0;
+    else if (p >= n) p = n - 1;
+    let src = p - shift;
+    src %= n;
+    if (src < 0) src += n;
+    lut[i] = basePalette32[src];
+  }
+  return lut;
+};
 
 const toFiniteNumberOrNull = (value) => {
   const numeric = Number(value);
@@ -2207,12 +2251,121 @@ const collectDistinctSpeedBytes = (speedBuffer) => {
   return set;
 };
 
-const computeTickForOffset = (offsetFraction, bands) => (offsetFraction * bands);
+const collectDistinctSlots = (gradientIdBuffer) => {
+  const set = new Set();
+  set.add(0);
+  if (!gradientIdBuffer) {
+    return set;
+  }
+  for (let i = 0; i < gradientIdBuffer.length; i += 1) {
+    const slot = gradientIdBuffer[i] & FLOW_SLOT_MASK;
+    if (slot !== 0) {
+      set.add(slot);
+    }
+    if (set.size > 64) {
+      break;
+    }
+  }
+  return set;
+};
+
+const analyzeSpeedBuffer = (speedBuffer) => {
+  if (!speedBuffer || !speedBuffer.length) {
+    return { distinctNonZero: 0, lone: 0 };
+  }
+  let seenNonZero = -1;
+  for (let i = 0; i < speedBuffer.length; i += 1) {
+    const sb = speedBuffer[i];
+    if (sb === 0) continue;
+    if (seenNonZero === -1) {
+      seenNonZero = sb;
+    } else if (sb !== seenNonZero) {
+      return { distinctNonZero: 2, lone: seenNonZero };
+    }
+  }
+  return { distinctNonZero: seenNonZero === -1 ? 0 : 1, lone: seenNonZero === -1 ? 0 : seenNonZero };
+};
+
+const downsampleBuffer = (source, srcW, srcH, dstW, dstH) => {
+  if (!source) {
+    return source;
+  }
+  const out = new Uint8Array(dstW * dstH);
+  const scaleX = srcW / dstW;
+  const scaleY = srcH / dstH;
+  for (let y = 0; y < dstH; y += 1) {
+    const srcY = Math.min(srcH - 1, Math.floor(y * scaleY));
+    const srcRow = srcY * srcW;
+    const outRow = y * dstW;
+    for (let x = 0; x < dstW; x += 1) {
+      const srcX = Math.min(srcW - 1, Math.floor(x * scaleX));
+      out[outRow + x] = source[srcRow + srcX] ?? 0;
+    }
+  }
+  return out;
+};
 
 const resolveFlowMode = (flowBits) => {
   if (flowBits === FLOW_MODE_REVERSE) return FLOW_MODE_REVERSE;
   if (flowBits === FLOW_MODE_PINGPONG) return FLOW_MODE_PINGPONG;
   return FLOW_MODE_FORWARD;
+};
+
+const markTouchedSpeed = (player, sb) => {
+  if (player._touchedSpeedBytes[sb] === 0) {
+    player._touchedSpeedBytes[sb] = 1;
+    player._touchedSpeedList[player._touchedSpeedListLen++] = sb;
+  }
+};
+
+const clearTouchedTables = (player) => {
+  const slotLuts = player._slotLuts;
+  const fallback = player._fallbackLuts;
+  const touched = player._touchedSpeedList;
+  const n = player._touchedSpeedListLen;
+  for (let k = 0; k < n; k += 1) {
+    const sb = touched[k];
+    fallback[sb][0] = null;
+    fallback[sb][1] = null;
+    fallback[sb][2] = null;
+    const sbSlot = slotLuts[sb];
+    for (let m = 0; m < 3; m += 1) {
+      const arr = sbSlot[m];
+      for (let s = 0; s < SLOT_COUNT; s += 1) {
+        arr[s] = null;
+      }
+    }
+    player._touchedSpeedBytes[sb] = 0;
+  }
+  player._touchedSpeedListLen = 0;
+};
+
+const modeIdxFromFlowModeConst = (modeConst) => (
+  modeConst === FLOW_MODE_REVERSE ? 1 : (modeConst === FLOW_MODE_PINGPONG ? 2 : 0)
+);
+
+const populateTablesFromMaps = (player, lutsBySpeedModeSlot, fallbackLutsBySpeedMode) => {
+  const slotLuts = player._slotLuts;
+  const fallback = player._fallbackLuts;
+
+  for (const [sb, modeMap] of fallbackLutsBySpeedMode.entries()) {
+    markTouchedSpeed(player, sb);
+    for (const [modeConst, lut] of modeMap.entries()) {
+      const mi = modeIdxFromFlowModeConst(modeConst);
+      fallback[sb][mi] = lut;
+    }
+  }
+
+  for (const [sb, modeMap] of lutsBySpeedModeSlot.entries()) {
+    markTouchedSpeed(player, sb);
+    for (const [modeConst, slotMap] of modeMap.entries()) {
+      const mi = modeIdxFromFlowModeConst(modeConst);
+      const arr = slotLuts[sb][mi];
+      for (const [slot, lut] of slotMap.entries()) {
+        arr[slot & FLOW_SLOT_MASK] = lut;
+      }
+    }
+  }
 };
 
 const fillPixelsFromIndicesWithSpeedAndFlow = (
@@ -2272,34 +2425,49 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
   const length = Math.min(indices.length, outPixels32.length);
   const useAlpha = alpha && alpha.length >= length * 4;
 
+  const hasSpeed = Boolean(speedBytes);
+  const hasGid = Boolean(gradientIds);
+  const slotMask = FLOW_SLOT_MASK;
+  const slotBits = FLOW_SLOT_BITS;
+  const miForward = 0;
+
+  const slotLuts = lutsBySpeedModeSlot;
+  const fallbackLuts = fallbackLutsBySpeedMode;
+
   for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
-    const rawIndex = indices[i] ?? 0;
+    const rawIndex = indices[i];
     if (transparentZero && rawIndex === 0) {
       outPixels32[i] = 0;
       continue;
     }
     const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
-    const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
-    const gid = gradientIds ? (gradientIds[i] ?? 0) : 0;
-    const slot = gid & FLOW_SLOT_MASK;
-    const flowBits = gradientIds ? (gid >> FLOW_SLOT_BITS) : FLOW_MODE_FORWARD;
-    const mode = resolveFlowMode(flowBits);
-    const bySpeed = lutsBySpeedModeSlot.get(speedByte) ?? lutsBySpeedModeSlot.get(0);
-    const byMode = bySpeed?.get(mode) ?? bySpeed?.get(FLOW_MODE_FORWARD);
-    const fallbackModeMap = fallbackLutsBySpeedMode.get(speedByte) ?? fallbackLutsBySpeedMode.get(0);
-    const fallback = fallbackModeMap?.get(mode) ?? fallbackModeMap?.get(FLOW_MODE_FORWARD);
-    const lut = (byMode && byMode.get(slot)) ?? fallback;
+    const lutIndex = effective & 255;
+    const sb = hasSpeed ? speedBytes[i] : 0;
+    const gid = hasGid ? gradientIds[i] : 0;
+    const slot = gid & slotMask;
+    const flowBits = hasGid ? (gid >> slotBits) : FLOW_MODE_FORWARD;
+    const mi = flowBits === FLOW_MODE_REVERSE ? 1 : (flowBits === FLOW_MODE_PINGPONG ? 2 : 0);
+
+    let lut =
+      (slotLuts[sb] && slotLuts[sb][mi] && slotLuts[sb][mi][slot]) ||
+      (slotLuts[sb] && slotLuts[sb][miForward] && slotLuts[sb][miForward][slot]) ||
+      (slotLuts[0] && slotLuts[0][mi] && slotLuts[0][mi][slot]) ||
+      (slotLuts[0] && slotLuts[0][miForward] && slotLuts[0][miForward][slot]) ||
+      (fallbackLuts[sb] && (fallbackLuts[sb][mi] || fallbackLuts[sb][miForward])) ||
+      (fallbackLuts[0] && (fallbackLuts[0][mi] || fallbackLuts[0][miForward])) ||
+      null;
+
     if (!lut) {
       outPixels32[i] = 0;
       continue;
     }
-    const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
+
     if (useAlpha) {
-      const rgb = lut[capped] & 0x00ffffff;
+      const rgb = lut[lutIndex] & 0x00ffffff;
       const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
       outPixels32[i] = (a << 24) | rgb;
     } else {
-      outPixels32[i] = lut[capped];
+      outPixels32[i] = lut[lutIndex];
     }
   }
 };
@@ -2308,6 +2476,11 @@ class ColorCycleLayerPlayer {
   constructor(layer, textureImage) {
     this.layer = layer;
     this.image = textureImage;
+    const halfResPref = typeof window !== 'undefined'
+      && window.localStorage
+      && window.localStorage.getItem('vesselGobletHalfRes');
+    this.renderScale = halfResPref === 'true' ? 0.5 : 1;
+    this._adaptiveScaleEnabled = halfResPref !== 'true';
 
     const width = Math.max(1, Math.round(layer.source?.width ?? textureImage?.naturalWidth ?? textureImage?.width ?? 1));
     const height = Math.max(1, Math.round(layer.source?.height ?? textureImage?.naturalHeight ?? textureImage?.height ?? 1));
@@ -2320,6 +2493,8 @@ class ColorCycleLayerPlayer {
     this.indexBuffer = null;
     this.gradientIdBuffer = null;
     this.speedBuffer = null;
+    this.speedMode = null;
+    this.slotSpeeds = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
     this.gradient = DEFAULT_GRADIENT;
@@ -2336,6 +2511,20 @@ class ColorCycleLayerPlayer {
     this.frameAccumulator = 0;
     this.speedMin = null;
     this.speedMax = null;
+    this._distinctSpeedBytes = null;
+    this._usedSlots = null;
+    this._lutCacheBase = new Map();
+    this._lutCacheSlots = new Map();
+    this._lutCacheBands = null;
+    this._slotLuts = Array.from({ length: SB_COUNT }, () =>
+      Array.from({ length: MODE_COUNT }, () => new Array(SLOT_COUNT).fill(null))
+    );
+    this._fallbackLuts = Array.from({ length: SB_COUNT }, () => new Array(MODE_COUNT).fill(null));
+    this._touchedSpeedBytes = new Uint8Array(SB_COUNT);
+    this._touchedSpeedList = new Uint8Array(SB_COUNT);
+    this._touchedSpeedListLen = 0;
+    this._basePalette32BySlot = new Map();
+    this._basePaletteSize = 0;
     this.usePerPixelSpeed = false;
     this.hasNonZeroSpeedBuffer = false;
     this.currentTick = 0;
@@ -2343,22 +2532,45 @@ class ColorCycleLayerPlayer {
     this.mode = layer.colorCycle?.mode ?? 'brush';
     this.zeroTransparent = false;
     this.subtractIndexOffset = false;
+    this._fillMsAccum = 0;
+    this._fillWindowStartMs = 0;
+    this._lastScaleCheckMs = 0;
+    this._lastFps = null;
+    this._isReinitializing = false;
+    this._hasVisibleAlpha = true;
+    this._lastShiftKeyBySpeedByte = new Int32Array(SB_COUNT).fill(-1);
+    this._lastSlotShiftKeyBySlot = null;
+    this._lastSlotShiftBase = -1;
+    this._lastShiftKeyBase = -1;
+    this._lastShiftKeyKeyed = null;
+    this._lastShiftKeyMode = null;
   }
 
   createSurface(width, height) {
     const w = Math.max(1, Math.round(width));
     const h = Math.max(1, Math.round(height));
+    const renderW = Math.max(1, Math.round(w * this.renderScale));
+    const renderH = Math.max(1, Math.round(h * this.renderScale));
     this.canvas.width = w;
     this.canvas.height = h;
-    const ctx = this.canvas.getContext('2d', { willReadFrequently: true, alpha: true });
+    const outputCtx = this.canvas.getContext('2d', { alpha: true });
+    if (!outputCtx) {
+      throw new Error('Unable to create 2D context for color cycle layer');
+    }
+    outputCtx.imageSmoothingEnabled = false;
+    this.outputCtx = outputCtx;
+    this.width = renderW;
+    this.height = renderH;
+    this.renderCanvas = this.renderScale === 1 ? this.canvas : document.createElement('canvas');
+    this.renderCanvas.width = renderW;
+    this.renderCanvas.height = renderH;
+    const ctx = this.renderCanvas.getContext('2d', { alpha: true });
     if (!ctx) {
       throw new Error('Unable to create 2D context for color cycle layer');
     }
     ctx.imageSmoothingEnabled = false;
     this.ctx = ctx;
-    this.width = w;
-    this.height = h;
-    this.imageData = ctx.createImageData(w, h);
+    this.imageData = ctx.createImageData(renderW, renderH);
     this.pixels32 = new Uint32Array(this.imageData.data.buffer);
   }
 
@@ -2439,6 +2651,9 @@ class ColorCycleLayerPlayer {
       probeAlphaMask();
     }
 
+    this._hasVisibleAlpha = hasVisibleAlpha(this.alpha);
+    this.resetShiftKeyTracking();
+
     this.startTimeMs = typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
       : Date.now();
@@ -2488,13 +2703,18 @@ class ColorCycleLayerPlayer {
 
   async initializeBrushMode(colorCycle, brushState) {
     this.mode = 'brush';
-    const width = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : this.width));
-    const height = Math.max(1, Math.round(Number.isFinite(brushState.height) ? brushState.height : this.height));
-    if (width !== this.width || height !== this.height) {
-      this.createSurface(width, height);
+    const sourceWidth = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : this.width));
+    const sourceHeight = Math.max(1, Math.round(Number.isFinite(brushState.height) ? brushState.height : this.height));
+    const width = Math.max(1, Math.round(sourceWidth * this.renderScale));
+    const height = Math.max(1, Math.round(sourceHeight * this.renderScale));
+    if (width !== this.width || height !== this.height || this.canvas.width !== sourceWidth || this.canvas.height !== sourceHeight) {
+      this.createSurface(sourceWidth, sourceHeight);
     }
 
-    const indexBuffer = await resolveNumericBuffer(brushState.indexBuffer);
+    const rawIndexBuffer = await resolveNumericBuffer(brushState.indexBuffer);
+    const indexBuffer = this.renderScale === 1
+      ? rawIndexBuffer
+      : downsampleBuffer(rawIndexBuffer, sourceWidth, sourceHeight, width, height);
     if (!indexBuffer || indexBuffer.length === 0) {
       throw new Error('Brush state missing index buffer');
     }
@@ -2503,11 +2723,22 @@ class ColorCycleLayerPlayer {
     const gradientIdBuffer = brushState.gradientIdBuffer
       ? await resolveNumericBuffer(brushState.gradientIdBuffer)
       : null;
-    this.gradientIdBuffer = gradientIdBuffer && gradientIdBuffer.length ? gradientIdBuffer : null;
+    const resizedGradientIds = gradientIdBuffer && this.renderScale !== 1
+      ? downsampleBuffer(gradientIdBuffer, sourceWidth, sourceHeight, width, height)
+      : gradientIdBuffer;
+    this.gradientIdBuffer = resizedGradientIds && resizedGradientIds.length ? resizedGradientIds : null;
     const speedBuffer = brushState.speedBuffer
       ? await resolveNumericBuffer(brushState.speedBuffer)
       : null;
-    this.speedBuffer = speedBuffer && speedBuffer.length ? speedBuffer : null;
+    const resizedSpeedBuffer = speedBuffer && this.renderScale !== 1
+      ? downsampleBuffer(speedBuffer, sourceWidth, sourceHeight, width, height)
+      : speedBuffer;
+    this.speedBuffer = resizedSpeedBuffer && resizedSpeedBuffer.length ? resizedSpeedBuffer : null;
+    if (this.gradientIdBuffer) {
+      for (let i = 0; i < this.gradientIdBuffer.length; i += 1) {
+        this.gradientIdBuffer[i] = this.gradientIdBuffer[i] & FLOW_SLOT_MASK;
+      }
+    }
     const alphaMode = typeof brushState.alphaMode === 'string' ? brushState.alphaMode : 'source';
     if (alphaMode === 'opaque-indices') {
       const size = this.width * this.height * 4;
@@ -2521,6 +2752,14 @@ class ColorCycleLayerPlayer {
     const baseGradient = brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient;
     this.gradient = normalizeGradientStops(baseGradient);
     this.slotGradients = normalizeSlotPalettes(colorCycle.slotPalettes, this.gradient);
+    const explicitBufferMode = colorCycle?.speedMode === 'buffer';
+    this.speedMode = explicitBufferMode ? 'buffer' : 'slot';
+    this.slotSpeeds = !explicitBufferMode ? normalizeSlotSpeeds(colorCycle?.slotSpeeds) : null;
+    if (!explicitBufferMode && this.slotSpeeds) {
+      this.speedBuffer = null;
+    } else if (!this.slotSpeeds && this.speedBuffer && this.speedMode === 'slot') {
+      this.speedMode = 'buffer';
+    }
     this.cycleColors = Math.max(1, Math.floor(Array.isArray(brushState.palette) && brushState.palette.length > 0 ? brushState.palette.length : 256));
     this.mappingMode = 'continuous';
     this.flowMapping = 'palette';
@@ -2533,11 +2772,20 @@ class ColorCycleLayerPlayer {
       colorCycle?.brushSpeed,
       shouldAnimate
     );
+    console.log(
+      '[goblet][speed src]',
+      'brushState.animationSpeed=',
+      brushState?.animationSpeed,
+      'colorCycle.brushSpeed=',
+      colorCycle?.brushSpeed,
+      'resolved=',
+      this.speed
+    );
     const offset = Number.isFinite(brushState.animationOffset) ? brushState.animationOffset : 0;
     this.baseOffset = wrap01(offset);
     this.baseTimeSeconds = 0;
     this.currentTick = wrap01(offset) * this.cycleColors;
-    this.flowDirection = normalizeFlowDirection(brushState.flowDirection, 'reverse');
+    this.flowDirection = normalizeFlowDirection(brushState.flowDirection, 'forward');
     this.isAnimating = shouldAnimate;
     this.speedMin = toFiniteNumberOrNull(colorCycle.speedMin);
     this.speedMax = toFiniteNumberOrNull(colorCycle.speedMax);
@@ -2559,21 +2807,43 @@ class ColorCycleLayerPlayer {
       resized.set(this.speedBuffer.subarray(0, Math.min(expectedLength, this.speedBuffer.length)));
       this.speedBuffer = resized;
     }
-    this.usePerPixelSpeed = Boolean(this.speedBuffer && this.speedBuffer.length === expectedLength);
-    this.hasNonZeroSpeedBuffer = false;
-    if (this.usePerPixelSpeed && this.speedBuffer) {
-      for (let i = 0; i < this.speedBuffer.length; i += 1) {
-        if (this.speedBuffer[i]) {
-          this.hasNonZeroSpeedBuffer = true;
-          break;
-        }
-      }
+    const speedInfo = analyzeSpeedBuffer(this.speedBuffer);
+    this.usePerPixelSpeed = this.speedMode === 'buffer' && Boolean(this.speedBuffer && this.speedBuffer.length === expectedLength);
+    this.hasNonZeroSpeedBuffer = this.speedMode === 'buffer' && speedInfo.distinctNonZero > 0;
+    this._distinctSpeedBytes = this.speedMode === 'buffer' ? collectDistinctSpeedBytes(this.speedBuffer) : null;
+    this._usedSlots = collectDistinctSlots(this.gradientIdBuffer);
+    this._lutCacheBase.clear();
+    this._lutCacheSlots.clear();
+    this._lutCacheBands = null;
+    this._basePalette32BySlot.clear();
+    this._basePaletteSize = this.cycleColors | 0;
+    this._basePalette32BySlot.set(
+      0,
+      buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize)
+    );
+    if (this.slotGradients && this.slotGradients.size > 0) {
+      this.slotGradients.forEach((stops, slot) => {
+        this._basePalette32BySlot.set(
+          slot & FLOW_SLOT_MASK,
+          buildDiscretePalette32FromGradient(stops, this._basePaletteSize)
+        );
+      });
     }
   }
 
   async initializeRecolorMode(colorCycle, recolorSettings) {
     this.mode = colorCycle.mode ?? 'recolor';
-    const indexBuffer = await resolveNumericBuffer(recolorSettings.indexBuffer);
+    const sourceWidth = this.canvas.width;
+    const sourceHeight = this.canvas.height;
+    const width = Math.max(1, Math.round(sourceWidth * this.renderScale));
+    const height = Math.max(1, Math.round(sourceHeight * this.renderScale));
+    if (width !== this.width || height !== this.height) {
+      this.createSurface(sourceWidth, sourceHeight);
+    }
+    const rawIndexBuffer = await resolveNumericBuffer(recolorSettings.indexBuffer);
+    const indexBuffer = this.renderScale === 1
+      ? rawIndexBuffer
+      : downsampleBuffer(rawIndexBuffer, sourceWidth, sourceHeight, width, height);
     if (!indexBuffer || indexBuffer.length === 0) {
       throw new Error('Color cycle recolor settings missing index buffer');
     }
@@ -2582,10 +2852,16 @@ class ColorCycleLayerPlayer {
     this.zeroTransparent = false;
     this.subtractIndexOffset = false;
 
-    const indexPhaseMap = await resolveNumericBuffer(recolorSettings.indexPhaseMap);
+    const rawIndexPhaseMap = await resolveNumericBuffer(recolorSettings.indexPhaseMap);
+    const indexPhaseMap = rawIndexPhaseMap && this.renderScale !== 1
+      ? downsampleBuffer(rawIndexPhaseMap, sourceWidth, sourceHeight, width, height)
+      : rawIndexPhaseMap;
     this.indexPhaseMap = indexPhaseMap && indexPhaseMap.length ? indexPhaseMap : null;
 
-    const phaseMap = await resolveNumericBuffer(recolorSettings.phaseMap);
+    const rawPhaseMap = await resolveNumericBuffer(recolorSettings.phaseMap);
+    const phaseMap = rawPhaseMap && this.renderScale !== 1
+      ? downsampleBuffer(rawPhaseMap, sourceWidth, sourceHeight, width, height)
+      : rawPhaseMap;
     this.phaseMap = phaseMap && phaseMap.length ? phaseMap : null;
 
     this.gradient = normalizeGradientStops(recolorSettings.gradient);
@@ -2625,10 +2901,32 @@ class ColorCycleLayerPlayer {
     this.currentTick = Number.isFinite(animation.currentTick) ? animation.currentTick : 0;
     this.flowDirection = normalizeFlowDirection(animation.flowDirection, 'forward');
     this.isAnimating = shouldAnimate;
+    this._basePalette32BySlot.clear();
+    this._basePaletteSize = this.cycleColors | 0;
+    this._basePalette32BySlot.set(
+      0,
+      buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize)
+    );
+  }
+
+  resetShiftKeyTracking() {
+    if (this._lastShiftKeyBySpeedByte) {
+      this._lastShiftKeyBySpeedByte.fill(-1);
+    } else {
+      this._lastShiftKeyBySpeedByte = new Int32Array(SB_COUNT).fill(-1);
+    }
+    this._lastSlotShiftKeyBySlot = null;
+    this._lastSlotShiftBase = -1;
+    this._lastShiftKeyBase = -1;
+    this._lastShiftKeyKeyed = null;
+    this._lastShiftKeyMode = null;
   }
 
   hasAnimation() {
     if (!this.isAnimating || this.cycleColors <= 0) {
+      return false;
+    }
+    if (!this._hasVisibleAlpha) {
       return false;
     }
     if (this.usePerPixelSpeed) {
@@ -2641,23 +2939,11 @@ class ColorCycleLayerPlayer {
     if (!this.hasAnimation()) {
       return false;
     }
-    if (this.usePerPixelSpeed) {
-      const nowMs = typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now();
-      this.baseTimeSeconds = (nowMs - this.startTimeMs) / 1000;
-      this.renderFrame();
-      return true;
+    if (Number.isFinite(deltaSeconds) && deltaSeconds > 0) {
+      this._lastFps = 1 / deltaSeconds;
     }
-    const ticksPerSecond = this.speed * this.cycleColors;
-    if (!Number.isFinite(ticksPerSecond) || ticksPerSecond <= 0) {
-      return false;
-    }
-    const deltaTicks = ticksPerSecond * deltaSeconds;
-    if (!Number.isFinite(deltaTicks) || Math.abs(deltaTicks) < 1e-4) {
-      return false;
-    }
-    this.currentTick += deltaTicks;
+    this._lastDeltaSeconds = deltaSeconds;
+    this.baseTimeSeconds += deltaSeconds;
     this.renderFrame();
     return true;
   }
@@ -2666,44 +2952,105 @@ class ColorCycleLayerPlayer {
     if (!this.indexBuffer) {
       return;
     }
-    if (this.usePerPixelSpeed && (this.flowMapping === 'palette' || !this.phaseMap)) {
-      const bands = Math.max(1, Math.floor(Number.isFinite(this.cycleColors) ? this.cycleColors : 16));
-      const distinct = collectDistinctSpeedBytes(this.speedBuffer);
+    const profileEnabled = typeof window !== 'undefined'
+      && window.localStorage
+      && window.localStorage.getItem('vesselGobletProfile') === 'true';
+    const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now());
+    const nowMs = profileNow();
+    let fillMs = 0;
+    const getBaseLut = (speedByte, shiftKey, modeKey, buildFn) => {
+      let bySpeed = this._lutCacheBase.get(speedByte);
+      if (!bySpeed) {
+        bySpeed = new Map();
+        this._lutCacheBase.set(speedByte, bySpeed);
+      }
+      let byShift = bySpeed.get(shiftKey);
+      if (!byShift) {
+        byShift = new Map();
+        bySpeed.set(shiftKey, byShift);
+      }
+      let cached = byShift.get(modeKey);
+      if (!cached) {
+        cached = buildFn();
+        byShift.set(modeKey, cached);
+      }
+      return cached;
+    };
+    const getSlotLut = (speedByte, shiftKey, modeKey, slot, buildFn) => {
+      let bySpeed = this._lutCacheSlots.get(speedByte);
+      if (!bySpeed) {
+        bySpeed = new Map();
+        this._lutCacheSlots.set(speedByte, bySpeed);
+      }
+      let byShift = bySpeed.get(shiftKey);
+      if (!byShift) {
+        byShift = new Map();
+        bySpeed.set(shiftKey, byShift);
+      }
+      let byMode = byShift.get(modeKey);
+      if (!byMode) {
+        byMode = new Map();
+        byShift.set(modeKey, byMode);
+      }
+      let cached = byMode.get(slot);
+      if (!cached) {
+        cached = buildFn();
+        byMode.set(slot, cached);
+      }
+      return cached;
+    };
+    let usePerPixelPath = this.usePerPixelSpeed && this.speedBuffer && (this.flowMapping === 'palette' || !this.phaseMap);
+    if (usePerPixelPath) {
+      const n = this._basePaletteSize || (this.cycleColors | 0) || 1;
+      const distinct = this._distinctSpeedBytes ?? collectDistinctSpeedBytes(this.speedBuffer);
+      if (!this.maybeAdvanceShiftKeysPerPixel(distinct, n)) {
+        this.maybeAdjustRenderScale(nowMs, 0);
+        return;
+      }
+      const lutStart = profileEnabled ? profileNow() : 0;
+      if (this._lutCacheBands !== n) {
+        this._lutCacheBase.clear();
+        this._lutCacheSlots.clear();
+        this._lutCacheBands = n;
+      }
       const lutsBySpeedAndMode = new Map();
       const forward = FLOW_MODE_FORWARD;
       const reverse = FLOW_MODE_REVERSE;
       const pingpong = FLOW_MODE_PINGPONG;
 
       for (const sb of distinct) {
-        const hasSpeed = sb > 0;
-        const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
-        const offsetBase = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : this.baseOffset;
-        const quantizedOffset = ((offsetBase * 256) | 0) / 256;
-        const tickForward = computeTickForOffset(quantizedOffset, bands);
+        const defaultSpeed = Number.isFinite(this.speed) ? this.speed : 0;
+        const speed = sb > 0
+          ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
+          : defaultSpeed;
+        const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+        const shiftKey = (offsetBase * n) | 0;
         const modeMap = new Map();
-        modeMap.set(forward, buildGradientLUT({
-          gradient: this.gradient,
-          cycleColors: this.cycleColors,
-          tick: tickForward,
-          mappingMode: this.mappingMode,
-          flowDirection: 'forward',
-          indexPhaseMap: this.indexPhaseMap
+        modeMap.set(forward, getBaseLut(sb, shiftKey, forward, () => {
+          const basePal = this._basePalette32BySlot.get(0);
+          return buildPaletteShiftLUT256({
+            basePalette32: basePal,
+            cycleColors: this.cycleColors,
+            offset01: offsetBase
+          });
         }));
-        modeMap.set(reverse, buildGradientLUT({
-          gradient: this.gradient,
-          cycleColors: this.cycleColors,
-          tick: tickForward,
-          mappingMode: this.mappingMode,
-          flowDirection: 'reverse',
-          indexPhaseMap: this.indexPhaseMap
+        modeMap.set(reverse, getBaseLut(sb, shiftKey, reverse, () => {
+          const basePal = this._basePalette32BySlot.get(0);
+          return buildPaletteShiftLUT256({
+            basePalette32: basePal,
+            cycleColors: this.cycleColors,
+            offset01: offsetBase
+          });
         }));
-        modeMap.set(pingpong, buildGradientLUT({
-          gradient: this.gradient,
-          cycleColors: this.cycleColors,
-          tick: tickForward,
-          mappingMode: this.mappingMode,
-          flowDirection: 'pingpong',
-          indexPhaseMap: this.indexPhaseMap
+        modeMap.set(pingpong, getBaseLut(sb, shiftKey, pingpong, () => {
+          const basePal = this._basePalette32BySlot.get(0);
+          return buildPaletteShiftLUT256({
+            basePalette32: basePal,
+            cycleColors: this.cycleColors,
+            offset01: offsetBase
+          });
         }));
         lutsBySpeedAndMode.set(sb, modeMap);
       }
@@ -2712,44 +3059,38 @@ class ColorCycleLayerPlayer {
       if (canUseSlots) {
         const lutsBySpeedModeSlot = new Map();
         const fallbackLutsBySpeedMode = new Map();
+        const usedSlots = this._usedSlots ?? collectDistinctSlots(this.gradientIdBuffer);
 
         for (const sb of distinct) {
-          const hasSpeed = sb > 0;
-          const speed = hasSpeed ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax) : 0;
-          const offsetBase = hasSpeed ? ((this.baseTimeSeconds * speed) % 1) : this.baseOffset;
-          const quantizedOffset = ((offsetBase * 256) | 0) / 256;
-          const tickForward = computeTickForOffset(quantizedOffset, bands);
+          const defaultSpeed = Number.isFinite(this.speed) ? this.speed : 0;
+          const speed = sb > 0
+            ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
+            : defaultSpeed;
+          const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+          const shiftKey = (offsetBase * n) | 0;
           const modeMap = new Map();
           const forwardMap = new Map();
           const reverseMap = new Map();
           const pingpongMap = new Map();
 
-          this.slotGradients.forEach((gradientStops, slot) => {
-            forwardMap.set(slot, buildGradientLUT({
-              gradient: gradientStops,
+          for (const slot of usedSlots) {
+            const basePal = this._basePalette32BySlot.get(slot) ?? this._basePalette32BySlot.get(0);
+            forwardMap.set(slot, getSlotLut(sb, shiftKey, forward, slot, () => buildPaletteShiftLUT256({
+              basePalette32: basePal,
               cycleColors: this.cycleColors,
-              tick: tickForward,
-              mappingMode: this.mappingMode,
-              flowDirection: 'forward',
-              indexPhaseMap: this.indexPhaseMap
-            }));
-            reverseMap.set(slot, buildGradientLUT({
-              gradient: gradientStops,
+              offset01: offsetBase
+            })));
+            reverseMap.set(slot, getSlotLut(sb, shiftKey, reverse, slot, () => buildPaletteShiftLUT256({
+              basePalette32: basePal,
               cycleColors: this.cycleColors,
-              tick: tickForward,
-              mappingMode: this.mappingMode,
-              flowDirection: 'reverse',
-              indexPhaseMap: this.indexPhaseMap
-            }));
-            pingpongMap.set(slot, buildGradientLUT({
-              gradient: gradientStops,
+              offset01: offsetBase
+            })));
+            pingpongMap.set(slot, getSlotLut(sb, shiftKey, pingpong, slot, () => buildPaletteShiftLUT256({
+              basePalette32: basePal,
               cycleColors: this.cycleColors,
-              tick: tickForward,
-              mappingMode: this.mappingMode,
-              flowDirection: 'pingpong',
-              indexPhaseMap: this.indexPhaseMap
-            }));
-          });
+              offset01: offsetBase
+            })));
+          }
 
           modeMap.set(forward, forwardMap);
           modeMap.set(reverse, reverseMap);
@@ -2759,12 +3100,16 @@ class ColorCycleLayerPlayer {
           fallbackLutsBySpeedMode.set(sb, baseModeMap);
         }
 
+        const lutEnd = profileEnabled ? profileNow() : 0;
+        clearTouchedTables(this);
+        populateTablesFromMaps(this, lutsBySpeedModeSlot, fallbackLutsBySpeedMode);
+        const fillStart = profileEnabled ? profileNow() : 0;
         fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow(
           this.indexBuffer,
           this.gradientIdBuffer,
           this.speedBuffer,
-          lutsBySpeedModeSlot,
-          fallbackLutsBySpeedMode,
+          this._slotLuts,
+          this._fallbackLuts,
           this.pixels32,
           this.alpha,
           {
@@ -2772,7 +3117,20 @@ class ColorCycleLayerPlayer {
             subtractOne: this.subtractIndexOffset
           }
         );
+        const fillEnd = profileEnabled ? profileNow() : 0;
+        fillMs = fillEnd - fillStart;
+        if (profileEnabled) {
+          console.log(
+            '[goblet][profile] renderFrame(per-pixel/slots)',
+            this.layer?.id ?? null,
+            `layerSpeed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
+            `lut=${(lutEnd - lutStart).toFixed(2)}ms`,
+            `fill=${(fillEnd - fillStart).toFixed(2)}ms`
+          );
+        }
       } else {
+        const lutEnd = profileEnabled ? profileNow() : 0;
+        const fillStart = profileEnabled ? profileNow() : 0;
         fillPixelsFromIndicesWithSpeedAndFlow(
           this.indexBuffer,
           this.gradientIdBuffer,
@@ -2785,36 +3143,67 @@ class ColorCycleLayerPlayer {
             subtractOne: this.subtractIndexOffset
           }
         );
+        const fillEnd = profileEnabled ? profileNow() : 0;
+        fillMs = fillEnd - fillStart;
+        if (profileEnabled) {
+          console.log(
+            '[goblet][profile] renderFrame(per-pixel)',
+            this.layer?.id ?? null,
+            `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
+            `lut=${(lutEnd - lutStart).toFixed(2)}ms`,
+            `fill=${(fillEnd - fillStart).toFixed(2)}ms`
+          );
+        }
       }
-      this.ctx.putImageData(this.imageData, 0, 0);
+    const putStart = profileEnabled ? profileNow() : 0;
+    this.ctx.putImageData(this.imageData, 0, 0);
+    const putEnd = profileEnabled ? profileNow() : 0;
+    if (profileEnabled) {
+      console.log('[goblet][profile] blit', `put=${(putEnd - putStart).toFixed(2)}ms`);
+    }
+    if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
+      this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
+    }
+    this.maybeAdjustRenderScale(nowMs, fillMs);
+    return;
+  }
+    const lutStart = profileEnabled ? profileNow() : 0;
+    const speed = Number.isFinite(this.speed) ? this.speed : 0;
+    const slotSpeedMap = this.slotSpeeds;
+    const baseSpeed = Number.isFinite(slotSpeedMap?.get(0)) ? slotSpeedMap.get(0) : speed;
+    const offset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
+    const n = this._basePaletteSize || (this.cycleColors | 0) || 1;
+    const shiftKey = (offset01 * n) | 0;
+    const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
+    if (!this.maybeAdvanceShiftKeysSlotMode(shiftKey, slotSpeedMap, n, canUseSlots)) {
+      this.maybeAdjustRenderScale(nowMs, 0);
       return;
     }
-    const baseLut = buildGradientLUT({
-      gradient: this.gradient,
+    const basePal = this._basePalette32BySlot.get(0);
+    const baseLut = buildPaletteShiftLUT256({
+      basePalette32: basePal,
       cycleColors: this.cycleColors,
-      tick: this.currentTick,
-      mappingMode: this.mappingMode,
-      flowDirection: this.flowDirection,
-      indexPhaseMap: this.indexPhaseMap
+      offset01
     });
     if (this.flowMapping === 'palette' || !this.phaseMap) {
-      const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
       if (canUseSlots) {
         const lutsBySlot = new Map();
-        this.slotGradients.forEach((gradientStops, slot) => {
+        this._basePalette32BySlot.forEach((pal, slot) => {
+          const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot)) ? slotSpeedMap.get(slot) : baseSpeed;
+          const slotOffset = (((this.baseTimeSeconds * (slotSpeed ?? 0)) % 1) + 1) % 1;
           lutsBySlot.set(
             slot,
-            buildGradientLUT({
-              gradient: gradientStops,
+            buildPaletteShiftLUT256({
+              basePalette32: pal,
               cycleColors: this.cycleColors,
-              tick: this.currentTick,
-              mappingMode: this.mappingMode,
-              flowDirection: this.flowDirection,
-              indexPhaseMap: this.indexPhaseMap
+              offset01: slotOffset
             })
           );
         });
         const fallbackLut = lutsBySlot.get(0) ?? baseLut;
+        const lutEnd = profileEnabled ? profileNow() : 0;
+        const fillStart = profileEnabled ? profileNow() : 0;
         fillPixelsFromIndicesWithGradientIds(
           this.indexBuffer,
           this.gradientIdBuffer,
@@ -2827,16 +3216,171 @@ class ColorCycleLayerPlayer {
             subtractOne: this.subtractIndexOffset
           }
         );
+        const fillEnd = profileEnabled ? profileNow() : 0;
+        fillMs = fillEnd - fillStart;
+        if (profileEnabled) {
+          console.log(
+            '[goblet][profile] renderFrame(slots)',
+            this.layer?.id ?? null,
+            `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
+            `lut=${(lutEnd - lutStart).toFixed(2)}ms`,
+            `fill=${(fillEnd - fillStart).toFixed(2)}ms`
+          );
+        }
       } else {
+        const lutEnd = profileEnabled ? profileNow() : 0;
+        const fillStart = profileEnabled ? profileNow() : 0;
         fillPixelsFromIndices(this.indexBuffer, baseLut, this.pixels32, this.alpha, {
           transparentZero: this.zeroTransparent,
           subtractOne: this.subtractIndexOffset
         });
+        const fillEnd = profileEnabled ? profileNow() : 0;
+        fillMs = fillEnd - fillStart;
+        if (profileEnabled) {
+          console.log(
+            '[goblet][profile] renderFrame',
+            this.layer?.id ?? null,
+            `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
+            `lut=${(lutEnd - lutStart).toFixed(2)}ms`,
+            `fill=${(fillEnd - fillStart).toFixed(2)}ms`
+          );
+        }
       }
     } else {
+      const lutEnd = profileEnabled ? profileNow() : 0;
+      const fillStart = profileEnabled ? profileNow() : 0;
       fillPixelsFromPhaseMap(this.phaseMap, baseLut, this.pixels32, this.alpha);
+      const fillEnd = profileEnabled ? profileNow() : 0;
+      fillMs = fillEnd - fillStart;
+      if (profileEnabled) {
+        console.log(
+          '[goblet][profile] renderFrame(phaseMap)',
+          this.layer?.id ?? null,
+          `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
+          `lut=${(lutEnd - lutStart).toFixed(2)}ms`,
+          `fill=${(fillEnd - fillStart).toFixed(2)}ms`
+        );
+      }
     }
+    const putStart = profileEnabled ? profileNow() : 0;
     this.ctx.putImageData(this.imageData, 0, 0);
+    const putEnd = profileEnabled ? profileNow() : 0;
+    if (profileEnabled) {
+      console.log('[goblet][profile] blit', `put=${(putEnd - putStart).toFixed(2)}ms`);
+    }
+    if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
+      this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
+    }
+    this.maybeAdjustRenderScale(nowMs, fillMs);
+  }
+
+  maybeAdvanceShiftKeysPerPixel(distinct, cycleColors) {
+    let changed = false;
+    const speedDefault = Number.isFinite(this.speed) ? this.speed : 0;
+    for (const sb of distinct) {
+      const speed = sb > 0
+        ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
+        : speedDefault;
+      const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+      const shiftKey = (offsetBase * cycleColors) | 0;
+      if (this._lastShiftKeyBySpeedByte[sb] !== shiftKey) {
+        this._lastShiftKeyBySpeedByte[sb] = shiftKey;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  maybeAdvanceShiftKeysSlotMode(baseShiftKey, slotSpeedMap, cycleColors, canUseSlots) {
+    if (!canUseSlots) {
+      if (this._lastShiftKeyBase === baseShiftKey && this._lastShiftKeyMode === this.flowMapping) {
+        return false;
+      }
+      this._lastShiftKeyBase = baseShiftKey;
+      this._lastShiftKeyMode = this.flowMapping;
+      return true;
+    }
+    const slotEntries = this._basePalette32BySlot;
+    if (!this._lastSlotShiftKeyBySlot || this._lastSlotShiftKeyBySlot.size !== slotEntries.size) {
+      this._lastSlotShiftKeyBySlot = new Map();
+    }
+    let changed = false;
+    const baseSpeed = Number.isFinite(slotSpeedMap?.get(0)) ? slotSpeedMap.get(0) : this.speed;
+    slotEntries.forEach((_, slot) => {
+      const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot)) ? slotSpeedMap.get(slot) : baseSpeed;
+      const slotOffset = (((this.baseTimeSeconds * (slotSpeed ?? 0)) % 1) + 1) % 1;
+      const shiftKey = (slotOffset * cycleColors) | 0;
+      if (this._lastSlotShiftKeyBySlot.get(slot) !== shiftKey) {
+        this._lastSlotShiftKeyBySlot.set(slot, shiftKey);
+        changed = true;
+      }
+    });
+    if (this._lastSlotShiftBase !== baseShiftKey || this._lastShiftKeyMode !== this.flowMapping) {
+      this._lastSlotShiftBase = baseShiftKey;
+      this._lastShiftKeyMode = this.flowMapping;
+      changed = true;
+    }
+    return changed;
+  }
+
+  maybeAdjustRenderScale(nowMs, fillMs) {
+    if (!this._adaptiveScaleEnabled || this._isReinitializing) {
+      return;
+    }
+    if (!Number.isFinite(nowMs)) {
+      return;
+    }
+    if (!this._fillWindowStartMs) {
+      this._fillWindowStartMs = nowMs;
+      this._lastScaleCheckMs = nowMs;
+    }
+    if (Number.isFinite(fillMs) && fillMs > 0) {
+      this._fillMsAccum += fillMs;
+    }
+    if (nowMs - this._lastScaleCheckMs < 1000) {
+      return;
+    }
+    const slowFill = this._fillMsAccum > 20;
+    const fastFill = this._fillMsAccum < 12;
+    const fps = Number.isFinite(this._lastFps) ? this._lastFps : null;
+    const slowFps = fps !== null && fps < 50;
+    const fastFps = fps !== null && fps > 55;
+    let nextScale = this.renderScale;
+    if (this.renderScale === 1 && (slowFill || slowFps)) {
+      nextScale = 0.5;
+    } else if (this.renderScale !== 1 && fastFill && fastFps) {
+      nextScale = 1;
+    }
+    this._lastScaleCheckMs = nowMs;
+    this._fillMsAccum = 0;
+    if (nextScale !== this.renderScale) {
+      void this.applyRenderScale(nextScale);
+    }
+  }
+
+  async applyRenderScale(nextScale) {
+    if (!Number.isFinite(nextScale) || nextScale <= 0) {
+      return;
+    }
+    if (this.renderScale === nextScale || this._isReinitializing) {
+      return;
+    }
+    const clamped = nextScale >= 1 ? 1 : 0.5;
+    const prevBaseTime = this.baseTimeSeconds;
+    const prevTick = this.currentTick;
+    const prevAnimating = this.isAnimating;
+    this.renderScale = clamped;
+    this._isReinitializing = true;
+    try {
+      await this.initialize();
+      this.baseTimeSeconds = prevBaseTime;
+      this.currentTick = prevTick;
+      this.isAnimating = prevAnimating;
+      this.renderFrame();
+    } finally {
+      this._isReinitializing = false;
+    }
   }
 
   getCanvas() {
@@ -3523,6 +4067,13 @@ class VesselGoblet {
     if (this.destroyed) {
       return;
     }
+    const profileEnabled = typeof window !== 'undefined'
+      && window.localStorage
+      && window.localStorage.getItem('vesselGobletProfile') === 'true';
+    const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now());
+    const advanceStart = profileEnabled ? profileNow() : 0;
     const delta = Math.max(0, (timestamp - this.lastTimestamp) / 1000);
     this.lastTimestamp = timestamp;
     let needsRender = false;
@@ -3531,8 +4082,23 @@ class VesselGoblet {
         needsRender = true;
       }
     }
+    const advanceEnd = profileEnabled ? profileNow() : 0;
+    let renderEnd = 0;
+    let renderStart = 0;
     if (needsRender) {
+      renderStart = profileEnabled ? profileNow() : 0;
       this.renderOnce();
+      renderEnd = profileEnabled ? profileNow() : 0;
+    }
+    if (profileEnabled) {
+      const fps = delta > 0 ? (1 / delta) : 0;
+      console.log(
+        '[goblet][profile] frame',
+        `advance=${(advanceEnd - advanceStart).toFixed(2)}ms`,
+        `render=${renderStart ? (renderEnd - renderStart).toFixed(2) : '0.00'}ms`,
+        `layers=${this.dynamicPlayers.length}`,
+        `fps=${fps.toFixed(1)}`
+      );
     }
     this.rafId = requestAnimationFrame(this.handleAnimationFrame);
   }

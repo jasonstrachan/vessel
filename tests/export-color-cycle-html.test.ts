@@ -2,6 +2,7 @@ import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { hashStops } from '@/utils/colorCycleGradientDefs';
 import type { Layer, Project } from '@/types';
 
 jest.mock('@/stores/colorCycleBrushManager', () => {
@@ -154,6 +155,28 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
       ]
     }
   ];
+  const gradientDefStore = [
+    {
+      id: 1,
+      kind: 'linear' as const,
+      stops: gradientStops,
+      hash: hashStops(gradientStops, 'linear'),
+      source: 'manual' as const,
+      createdAtMs: Date.now(),
+      slot: 0,
+      speedCps: 0.25
+    },
+    {
+      id: 2,
+      kind: 'linear' as const,
+      stops: slotPalettes[1].stops,
+      hash: hashStops(slotPalettes[1].stops, 'linear'),
+      source: 'manual' as const,
+      createdAtMs: Date.now(),
+      slot: 1,
+      speedCps: 0.5
+    }
+  ];
 
   const mockBrush = {
     serialize: () => ({
@@ -208,6 +231,7 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
       brushSpeed: 0.35,
       gradient: gradientStops,
       slotPalettes,
+      gradientDefStore,
       canvas,
       colorCycleBrush: mockBrush as unknown as Layer['colorCycleData']['colorCycleBrush']
     },
@@ -447,6 +471,13 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     } else if (Array.isArray(gradientIdBuffer)) {
       expect(gradientIdBuffer.length).toBeGreaterThan(0);
     }
+
+    expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
+    const slotSpeeds = exportedLayer.colorCycle?.slotSpeeds ?? [];
+    expect(slotSpeeds).toHaveLength(2);
+    const speedBySlot = new Map(slotSpeeds.map((entry) => [entry.slot, entry.speed]));
+    expect(speedBySlot.get(0)).toBeCloseTo(0.25, 5);
+    expect(speedBySlot.get(1)).toBeCloseTo(0.5, 5);
   });
 
   it('preserves 8-bit gradient id buffers during export', async () => {

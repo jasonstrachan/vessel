@@ -146,6 +146,7 @@ interface SerializedLayerState {
     source: 'manual' | 'fg' | 'sampled';
     createdAtMs: number;
     slot?: number;
+    speedCps?: number;
   }>;
   nextGradientDefId?: number;
   paintSlot?: number;
@@ -2486,6 +2487,15 @@ export class ColorCycleBrushCanvas2D {
       strokeData.flow.encoded = true;
     }
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
+    const logCcFill = isDebugEnabled('cc-fill');
+    if (logCcFill) {
+      debugLog('cc-fill', '[CC fill] uses slot', {
+        layerId: id,
+        activeSlot,
+        flowSlot,
+        encoded: strokeData?.flow?.encoded,
+      });
+    }
     
     // Find bounds
     let minX = Infinity, maxX = -Infinity;
@@ -5094,6 +5104,7 @@ export class ColorCycleBrushCanvas2D {
             source: entry.source,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
+            speedCps: entry.speedCps,
           }))
         : undefined;
       const fgDerivedGradients = colorCycleMeta?.fgDerivedGradients ?? colorCycleMeta?.derivedGradients;

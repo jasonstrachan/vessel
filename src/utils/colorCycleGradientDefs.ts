@@ -3,6 +3,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { cloneStops, getNextGradientSlot } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
 import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { quantizeColorCycleSpeed } from '@/utils/colorCycleSpeed';
 
 export type StoredStop = { position: number; color: string };
 
@@ -16,6 +17,7 @@ export type ColorCycleGradientDefStore = {
   source: GradientDefSource;
   createdAtMs: number;
   slot?: number;
+  speedCps?: number;
 };
 
 const EDITOR_SLOT = 255;
@@ -74,6 +76,7 @@ export const ensureGradientDefForStops = (params: {
   stops: StoredStop[];
   source: GradientDefSource;
   preferredSlot?: number;
+  speedCps?: number;
 }): { def: ColorCycleGradientDefStore; slot: number; hash: string } | null => {
   const state = useAppStore.getState();
   const layer = state.layers.find((entry) => entry.id === params.layerId);
@@ -84,7 +87,24 @@ export const ensureGradientDefForStops = (params: {
   const frozenStops = cloneStops(params.stops);
   const hash = hashStops(frozenStops, params.kind);
   const defStore = colorCycleData.gradientDefStore ?? [];
-  const existing = findDefByHash(defStore, hash);
+  const incomingSpeed = Number.isFinite(params.speedCps) ? params.speedCps : null;
+  const incomingSpeedQ = quantizeColorCycleSpeed(incomingSpeed);
+  const matchesSpeed = (entry: ColorCycleGradientDefStore): boolean => {
+    if (incomingSpeedQ === null) {
+      return !Number.isFinite(entry.speedCps ?? NaN);
+    }
+    const entryQ = quantizeColorCycleSpeed(entry.speedCps);
+    if (entryQ === null) {
+      return false;
+    }
+    return Math.abs(entryQ - incomingSpeedQ) <= 1e-6;
+  };
+  let existing = defStore.find((entry) => entry.hash === hash && matchesSpeed(entry)) ?? null;
+  if (!existing && incomingSpeedQ !== null) {
+    existing = defStore.find(
+      (entry) => entry.hash === hash && !Number.isFinite(entry.speedCps ?? NaN)
+    ) ?? null;
+  }
   const existingSlot = existing?.slot;
   const slotPalettes = colorCycleData.slotPalettes ?? [];
   const usedSlots = collectUsedSlots({
@@ -110,8 +130,9 @@ export const ensureGradientDefForStops = (params: {
       reportSlotAllocationFailure({ layerId: params.layerId, usedSlots, context: 'existing-def' });
       return null;
     }
-    if (existing.slot !== slot) {
-      def = { ...existing, slot };
+    const nextSpeed = incomingSpeed !== null ? incomingSpeed : existing.speedCps;
+    if (existing.slot !== slot || (incomingSpeed !== null && existing.speedCps !== nextSpeed)) {
+      def = { ...existing, slot, speedCps: nextSpeed };
       nextDefStore = defStore.map((entry) => (entry.id === existing.id ? def : entry));
     } else {
       def = existing;
@@ -134,6 +155,7 @@ export const ensureGradientDefForStops = (params: {
       source: params.source,
       createdAtMs: Date.now(),
       slot,
+      speedCps: incomingSpeed ?? undefined,
     };
     nextDefStore = [...defStore, def];
     nextId += 1;

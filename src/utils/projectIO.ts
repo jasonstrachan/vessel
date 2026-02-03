@@ -322,6 +322,7 @@ interface SerializedBrushLayerSnapshot {
     source: 'manual' | 'fg' | 'sampled';
     createdAtMs: number;
     slot?: number;
+    speedCps?: number;
   }>;
   nextGradientDefId?: number;
   fgActiveSlot?: number;
@@ -406,6 +407,7 @@ interface SerializedColorCycleLayerData {
     source: 'manual' | 'fg' | 'sampled';
     createdAtMs: number;
     slot?: number;
+    speedCps?: number;
   }>;
   nextGradientDefId?: number;
   fgActiveSlot?: number;
@@ -520,6 +522,7 @@ interface ColorCycleBrushState {
       source: 'manual' | 'fg' | 'sampled';
       createdAtMs: number;
       slot?: number;
+      speedCps?: number;
     }>;
     nextGradientDefId?: number;
     fgActiveSlot?: number;
@@ -910,6 +913,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
             source: entry.source,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
+            speedCps: entry.speedCps,
           }))
         : undefined,
       nextGradientDefId: colorCycleData.nextGradientDefId,
@@ -1105,6 +1109,7 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
         source: entry.source,
         createdAtMs: entry.createdAtMs,
         slot: entry.slot,
+        speedCps: entry.speedCps,
       }));
     }
     if (typeof layer.nextGradientDefId === 'number') {
@@ -1239,6 +1244,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
             source: entry.source,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
+            speedCps: entry.speedCps,
           }))
         : undefined,
       nextGradientDefId: serializedLayer.colorCycleData.nextGradientDefId,

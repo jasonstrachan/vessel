@@ -910,6 +910,7 @@ const cloneColorCycleData = (
           source: entry.source,
           createdAtMs: entry.createdAtMs,
           slot: entry.slot,
+          speedCps: entry.speedCps,
         }))
       : undefined,
     nextGradientDefId: data.nextGradientDefId,
@@ -2472,6 +2473,7 @@ export const createLayersSlice = (
             source: 'manual' as const,
             createdAtMs: Date.now(),
             slot: activeDef.currentSlot,
+            speedCps: state.tools.brushSettings.colorCycleSpeed,
           }];
       const nextGradientDefId = existingDefStore.length > 0
         ? (existingNextDefId ?? seededDefId + 1)

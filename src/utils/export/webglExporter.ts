@@ -11,6 +11,7 @@ import { parseCssColor } from '@/utils/color/parseCssColor';
 import { posInt, round3, toNum } from '@/utils/num';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import type {
   ContentBounds,
   ExportContainerLayout,
@@ -23,6 +24,7 @@ import { packArrayToB64Z } from '@/utils/export/b64z';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
+import { useAppStore } from '@/stores/useAppStore';
 import {
   clampRectToDocument as clampBoundsToDocument,
   scaleMaskBoundsToDocument,
@@ -241,6 +243,8 @@ const PROPERTY_MINIFY_MAP = {
   gradient: 'gr',
   gradientRef: 'grf',
   brushSpeed: 'spd',
+  speedMode: 'smd',
+  slotSpeeds: 'ss',
   speedMin: 'smin',
   speedMax: 'smax',
   bundleFormat: 'bf',
@@ -300,6 +304,8 @@ interface WebGLSerializedColorCycle {
   gradient?: SerializedGradientStops;
   gradientRef?: number;
   brushSpeed?: number | null;
+  speedMode?: 'slot' | 'buffer';
+  slotSpeeds?: Array<{ slot: number; speed: number }>;
   speedMin?: number;
   speedMax?: number;
   isAnimating: boolean;
@@ -1168,6 +1174,197 @@ const resolveExportBrushSpeed = (layer: Layer): number | null => {
   }
 
   return null;
+};
+
+const SPEED_SLOT_LIMIT = 64;
+
+const resolveExportToolSpeed = (layer: Layer): number | null => {
+  try {
+    const toolSpeed = toFiniteNumberOrNull(useAppStore.getState().tools?.brushSettings?.colorCycleSpeed);
+    if (toolSpeed !== null) {
+      return toolSpeed;
+    }
+  } catch {}
+
+  const layerSpeed = toFiniteNumberOrNull(layer.colorCycleData?.brushSpeed);
+  return layerSpeed !== null ? layerSpeed : null;
+};
+
+const collectUsedSlots = (
+  gradientIds: number[],
+  indices?: number[]
+): Set<number> => {
+  const used = new Set<number>();
+  const length = Math.min(gradientIds.length, indices?.length ?? gradientIds.length);
+  for (let i = 0; i < length; i += 1) {
+    if (indices && indices[i] === 0) {
+      continue;
+    }
+    const slot = (gradientIds[i] ?? 0) & FLOW_SLOT_MASK;
+    used.add(slot);
+  }
+  return used;
+};
+
+const resolveSlotSpeedMap = (
+  data: Layer['colorCycleData'] | undefined
+): Map<number, number> => {
+  const slotSpeeds = new Map<number, { speed: number; createdAtMs: number }>();
+  const defs = data?.gradientDefStore ?? [];
+  for (const entry of defs) {
+    if (typeof entry.slot !== 'number') {
+      continue;
+    }
+    const speed = toFiniteNumberOrNull(entry.speedCps);
+    if (speed === null) {
+      continue;
+    }
+    const createdAtMs = Number.isFinite(entry.createdAtMs) ? entry.createdAtMs : 0;
+    const existing = slotSpeeds.get(entry.slot);
+    if (!existing || createdAtMs >= existing.createdAtMs) {
+      slotSpeeds.set(entry.slot, { speed, createdAtMs });
+    }
+  }
+  const resolved = new Map<number, number>();
+  slotSpeeds.forEach((value, slot) => {
+    resolved.set(slot, value.speed);
+  });
+  return resolved;
+};
+
+const detectSlotSpeedConflicts = (
+  gradientIds: number[],
+  speedBuffer: number[],
+  indices?: number[]
+): boolean => {
+  const length = Math.min(gradientIds.length, speedBuffer.length, indices?.length ?? gradientIds.length);
+  const speedBySlot = new Map<number, number>();
+  for (let i = 0; i < length; i += 1) {
+    if (indices && indices[i] === 0) {
+      continue;
+    }
+    const speedByte = speedBuffer[i] | 0;
+    if (speedByte <= 0) {
+      continue;
+    }
+    const slot = (gradientIds[i] ?? 0) & FLOW_SLOT_MASK;
+    const existing = speedBySlot.get(slot);
+    if (existing !== undefined && existing !== speedByte) {
+      return true;
+    }
+    speedBySlot.set(slot, speedByte);
+  }
+  return false;
+};
+
+const buildSpeedBufferFromSlots = (params: {
+  gradientIds: number[];
+  indices?: number[];
+  speedBySlot: Map<number, number>;
+  fallbackSpeed: number | null;
+  warnOnce: () => void;
+}): Uint8Array => {
+  const length = params.gradientIds.length;
+  const out = new Uint8Array(length);
+  const resolveSpeed = (slot: number): number => {
+    const resolved = params.speedBySlot.get(slot);
+    if (resolved !== undefined) {
+      return resolved;
+    }
+    params.warnOnce();
+    return params.fallbackSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED;
+  };
+  for (let i = 0; i < length; i += 1) {
+    if (params.indices && params.indices[i] === 0) {
+      continue;
+    }
+    const slot = (params.gradientIds[i] ?? 0) & FLOW_SLOT_MASK;
+    const speed = resolveSpeed(slot);
+    out[i] = speed > 0 ? encodeColorCycleSpeedByte(speed) : 0;
+  }
+  return out;
+};
+
+const prepareBrushSpeedExport = (params: {
+  layer: Layer;
+  brushState: WebGLSerializedBrushState;
+  warnOnce: () => void;
+}): {
+  speedMode?: 'slot' | 'buffer';
+  slotSpeeds?: Array<{ slot: number; speed: number }>;
+  speedBufferOverride?: Uint8Array | number[];
+} | null => {
+  const gradientIds = Array.isArray(params.brushState.gradientIdBuffer)
+    ? params.brushState.gradientIdBuffer
+    : null;
+  if (!gradientIds || gradientIds.length === 0) {
+    return null;
+  }
+
+  const indices = Array.isArray(params.brushState.indexBuffer) ? params.brushState.indexBuffer : undefined;
+  const usedSlots = collectUsedSlots(gradientIds, indices);
+  if (usedSlots.size === 0) {
+    return null;
+  }
+
+  const speedBySlot = resolveSlotSpeedMap(params.layer.colorCycleData);
+  const fallbackSpeed = resolveExportToolSpeed(params.layer);
+  const speedBufferValues = Array.isArray(params.brushState.speedBuffer)
+    ? params.brushState.speedBuffer
+    : null;
+
+  const hasConflict = speedBufferValues
+    ? detectSlotSpeedConflicts(gradientIds, speedBufferValues, indices)
+    : false;
+  const shouldUseBuffer = usedSlots.size > SPEED_SLOT_LIMIT || hasConflict;
+
+  if (shouldUseBuffer) {
+    const speedBufferOverride = speedBufferValues && speedBufferValues.length > 0
+      ? speedBufferValues
+      : buildSpeedBufferFromSlots({
+          gradientIds,
+          indices,
+          speedBySlot,
+          fallbackSpeed,
+          warnOnce: params.warnOnce,
+        });
+    return {
+      speedMode: 'buffer',
+      speedBufferOverride,
+    };
+  }
+
+  const slotSpeeds: Array<{ slot: number; speed: number }> = [];
+  usedSlots.forEach((slot) => {
+    const speed = speedBySlot.get(slot);
+    if (Number.isFinite(speed)) {
+      slotSpeeds.push({ slot, speed: speed as number });
+      return;
+    }
+    params.warnOnce();
+    if (Number.isFinite(fallbackSpeed)) {
+      slotSpeeds.push({ slot, speed: fallbackSpeed as number });
+    }
+  });
+
+  if (slotSpeeds.length === 0) {
+    const speedBufferOverride = buildSpeedBufferFromSlots({
+      gradientIds,
+      indices,
+      speedBySlot,
+      fallbackSpeed,
+      warnOnce: params.warnOnce,
+    });
+    return {
+      speedMode: 'buffer',
+      speedBufferOverride,
+    };
+  }
+
+  return {
+    speedMode: 'slot',
+    slotSpeeds,
+  };
 };
 
 const resolveFgDerivedStops = (
@@ -2217,7 +2414,11 @@ const shouldExportLayerAsAnimating = (
   return false;
 };
 
-const serializeColorCycleData = async (layer: Layer, project: Project): Promise<ColorCycleSerializationResult | undefined> => {
+const serializeColorCycleData = async (
+  layer: Layer,
+  project: Project,
+  speedWarning?: { warned: boolean }
+): Promise<ColorCycleSerializationResult | undefined> => {
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
@@ -2275,6 +2476,8 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
       } else if (shouldAnimate && animation.isPlaying === false) {
         animation.isPlaying = true;
       }
+      // Flow direction has been removed in-app; normalize export to forward.
+      animation.flowDirection = 'forward';
     }
 
     const serializedIndexBuffer = await packNumericArrayForExport(recolorSettings.indexBuffer ?? undefined);
@@ -2368,6 +2571,35 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
   }
 
   if (brushState) {
+    const warnOnceMissingSpeed = () => {
+      if (speedWarning?.warned) {
+        return;
+      }
+      if (speedWarning) {
+        speedWarning.warned = true;
+      }
+      console.warn(
+        '[webglExporter] Missing per-shape color cycle speed metadata; falling back to tool speed during export.'
+      );
+    };
+    const speedPlan = prepareBrushSpeedExport({
+      layer,
+      brushState,
+      warnOnce: warnOnceMissingSpeed,
+    });
+    if (speedPlan?.speedMode) {
+      serialized.speedMode = speedPlan.speedMode;
+    }
+    if (speedPlan?.slotSpeeds && speedPlan.slotSpeeds.length > 0) {
+      serialized.slotSpeeds = speedPlan.slotSpeeds;
+    }
+    let preparedSource = brushState;
+    if (speedPlan?.speedMode === 'slot') {
+      preparedSource = { ...preparedSource, speedBuffer: undefined };
+    }
+    if (speedPlan?.speedBufferOverride) {
+      preparedSource = { ...preparedSource, speedBuffer: speedPlan.speedBufferOverride };
+    }
     const resolvePackedBuffer = async (
       input?: number[] | Uint8Array | string
     ): Promise<number[] | string | undefined> => {
@@ -2380,8 +2612,8 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
       return packNumericArrayForExport(input);
     };
 
-    const encodedIndexBuffer = await packNumericArrayForExport(brushState.indexBuffer);
-    const rawGradientIds = brushState.gradientIdBuffer;
+    const encodedIndexBuffer = await packNumericArrayForExport(preparedSource.indexBuffer);
+    const rawGradientIds = preparedSource.gradientIdBuffer;
     const normalizedGradientIds = typeof rawGradientIds === 'string'
       ? undefined
       : stripFlowBitsFromGradientIds(rawGradientIds ?? undefined);
@@ -2393,13 +2625,15 @@ const serializeColorCycleData = async (layer: Layer, project: Project): Promise<
           ? rawGradientIds
           : undefined;
     const encodedGradientIdBuffer = await resolvePackedBuffer(gradientIdFallback);
-    const encodedSpeedBuffer = await resolvePackedBuffer(brushState.speedBuffer ?? undefined);
+    const encodedSpeedBuffer = await resolvePackedBuffer(preparedSource.speedBuffer ?? undefined);
     const preparedBrushState: WebGLSerializedBrushState = {
-      ...brushState,
+      ...preparedSource,
       indexBuffer: encodedIndexBuffer ?? [],
       gradientIdBuffer: encodedGradientIdBuffer ?? gradientIdFallback,
-      speedBuffer: encodedSpeedBuffer ?? brushState.speedBuffer
+      speedBuffer: encodedSpeedBuffer ?? preparedSource.speedBuffer
     };
+    // Flow direction has been removed in-app; normalize export to forward.
+    preparedBrushState.flowDirection = 'forward';
     if (typeof resolvedBrushSpeed === 'number' && Number.isFinite(resolvedBrushSpeed)) {
       if (!Number.isFinite(preparedBrushState.animationSpeed)) {
         preparedBrushState.animationSpeed = resolvedBrushSpeed;
@@ -3442,6 +3676,7 @@ export const exportProjectAsWebGL = async (
     width: options.project.width,
     height: options.project.height
   };
+  const speedWarning = { warned: false };
 
   for (let index = 0; index < options.layers.length; index += 1) {
     const layer = options.layers[index];
@@ -3458,7 +3693,7 @@ export const exportProjectAsWebGL = async (
     let documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
 
     let texture = await captureLayerTexture(layer);
-    const colorCycleResult = await serializeColorCycleData(layer, options.project);
+    const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning);
     const colorCycle = colorCycleResult?.colorCycle;
     const colorCycleRuntime = colorCycleResult?.runtime;
     const brushRuntime = colorCycleRuntime?.brushState;

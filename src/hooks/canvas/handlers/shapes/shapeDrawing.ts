@@ -508,6 +508,7 @@ export const startShapeDrawing = (
               gradientKind,
               source,
               stops: resolved.activeStops,
+              speedCps: s.tools.brushSettings.colorCycleSpeed,
             });
           }
         }
@@ -1062,11 +1063,11 @@ export const finalizeShapeDrawing = async (
               deps.drawingCanvasHasContent.current = false;
 
               const activeLayerId = deps.storeRef.current.activeLayerId;
-                if (activeLayerId && activeLayerCanvas) {
-                  const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
-                  if (activeLayer) {
-                    deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
-                  }
+              if (activeLayerId && activeLayerCanvas) {
+                const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+                if (activeLayer) {
+                  deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
+                }
                 let ditherPixelSize: number | undefined;
                 if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
                   const { pixelSize } = resolveColorCycleDitherPixelSize({
@@ -1086,25 +1087,26 @@ export const finalizeShapeDrawing = async (
                       activeLayer,
                     })
                   : { restore: null };
-              const session = finalizeMarkGradientSession(shapeLayerIdString);
-              if (!session) {
-                console.warn('[CC] Missing mark session before shape finalize', {
-                  layerId: shapeLayerIdString,
-                  stack: new Error().stack,
-                });
-              }
-              const resolvedMode = session?.gradientKind ?? fillMode;
-              const isLinearMode = resolvedMode === 'linear';
-              await deps.runColorCycleShapeFill({
-                mode: isLinearMode ? 'linear' : 'concentric',
-                session,
-                shapePoints: shapePointsSnapshot,
-                direction: isLinearMode
-                  ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
-                  : undefined,
-                activeLayerId,
-                activeLayerCanvas,
-                overlayCanvas,
+                const session = finalizeMarkGradientSession(shapeLayerIdString);
+                if (!session) {
+                  console.warn('[CC] Missing mark session before shape finalize', {
+                    layerId: shapeLayerIdString,
+                    stack: new Error().stack,
+                  });
+                }
+                const resolvedMode = session?.gradientKind ?? fillMode;
+                const isLinearMode = resolvedMode === 'linear';
+                const shouldResetLinearMode = isLinearMode;
+                await deps.runColorCycleShapeFill({
+                  mode: isLinearMode ? 'linear' : 'concentric',
+                  session,
+                  shapePoints: shapePointsSnapshot,
+                  direction: isLinearMode
+                    ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
+                    : undefined,
+                  activeLayerId,
+                  activeLayerCanvas,
+                  overlayCanvas,
                   overlayCtx,
                   fallbackBlendMode,
                   fallbackOpacity,
@@ -1130,12 +1132,12 @@ export const finalizeShapeDrawing = async (
                   debugTimeEnd: deps.debugTimeEnd,
                 });
                 sampleRestore.restore?.();
-              }
 
-              handledColorCycleShape = handledColorCycleShape || Boolean(deps.storeRef.current.activeLayerId && activeLayer?.colorCycleData?.canvas);
-              if (isLinearMode) {
-                args.refs.isSelectingDirectionRef.current = false;
-                args.refs.directionPreviewRef.current = null;
+                handledColorCycleShape = handledColorCycleShape || Boolean(deps.storeRef.current.activeLayerId && activeLayer?.colorCycleData?.canvas);
+                if (shouldResetLinearMode) {
+                  args.refs.isSelectingDirectionRef.current = false;
+                  args.refs.directionPreviewRef.current = null;
+                }
               }
             }
           }

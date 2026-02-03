@@ -28,6 +28,7 @@ export class AnimationController {
   
   // Performance tracking
   private frameTimeHistory: number[] = [];
+  private dbg = { t: 0, prevOff: 0 };
   private maxHistorySize: number = 60;
   private targetFrameTime: number = 1000 / 30; // Default to 30 FPS
   
@@ -334,6 +335,23 @@ export class AnimationController {
     this.totalElapsedTime += deltaWithSpeed;
     this.realElapsedTime += deltaSeconds;
     this.frameCount += 1;
+    this.dbg.t += deltaSeconds;
+    if (this.dbg.t >= 1) {
+      let doff = this.offset - this.dbg.prevOff;
+      if (doff < 0) doff += 1;
+      console.log(
+        '[vessel][dbg] dt',
+        this.dbg.t.toFixed(3),
+        'speed',
+        this.speed.toFixed(4),
+        'doff',
+        doff.toFixed(4),
+        'cyclesPerSec',
+        (doff / this.dbg.t).toFixed(4)
+      );
+      this.dbg.t = 0;
+      this.dbg.prevOff = this.offset;
+    }
   }
   
   /**

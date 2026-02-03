@@ -217,6 +217,7 @@ const cloneLayerForHistory = (
             source: entry.source,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
+            speedCps: entry.speedCps,
           }))
         : undefined,
       nextGradientDefId: existingColorCycleData.nextGradientDefId,
@@ -300,6 +301,7 @@ interface SerializedColorCycleLayerSnapshot {
     source: 'manual' | 'fg' | 'sampled';
     createdAtMs: number;
     slot?: number;
+    speedCps?: number;
   }>;
   nextGradientDefId?: number;
   strokeData?: {

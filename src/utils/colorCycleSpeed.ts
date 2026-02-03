@@ -4,6 +4,19 @@ import {
 } from '@/constants/colorCycle';
 
 const SPEED_BYTE_RANGE = 254;
+const MIN_SPEED_QUANT_STEP = 0.005;
+
+export const quantizeColorCycleSpeed = (speed?: number | null): number | null => {
+  if (!Number.isFinite(speed)) {
+    return null;
+  }
+  const clamped = Math.max(0, speed as number);
+  const step = Math.max(MIN_SPEED_QUANT_STEP, clamped * 0.02);
+  if (!Number.isFinite(step) || step <= 0) {
+    return clamped;
+  }
+  return Math.round(clamped / step) * step;
+};
 
 export const encodeColorCycleSpeedByte = (speed?: number | null): number => {
   if (!Number.isFinite(speed)) {

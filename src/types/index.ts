@@ -251,6 +251,7 @@ export interface Layer {
       source: 'manual' | 'fg' | 'sampled';
       createdAtMs: number;
       slot?: number;
+      speedCps?: number;
     }>;
     nextGradientDefId?: number;
     gradientVersion?: number;

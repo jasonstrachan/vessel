@@ -19,6 +19,7 @@ export type MarkGradientSession = {
   frozenStopsStored: StoredStop[];
   frozenHash: string;
   binding: { kind: 'def'; defId: number; slot: number } | null;
+  speedCps?: number | null;
   previewStopsStored?: StoredStop[] | null;
   previewHash?: string;
   fallbackStopsStored?: StoredStop[];
@@ -122,6 +123,7 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       stops: session.frozenStopsStored,
       source: session.source,
       preferredSlot: session.previewSlot,
+      speedCps: session.speedCps ?? undefined,
     });
     if (defResult) {
       session.binding = { kind: 'def', defId: defResult.def.id, slot: defResult.slot };
@@ -136,6 +138,7 @@ export const beginMarkGradientSession = (params: {
   gradientKind: 'linear' | 'concentric';
   source: GradientDefSource;
   stops: StoredStop[];
+  speedCps?: number;
 }): MarkGradientSession | null => {
   if (process.env.NODE_ENV !== 'production' && isFinalizingSession) {
     throw new Error('[CC] beginMarkGradientSession called during finalize/commit');
@@ -163,6 +166,7 @@ export const beginMarkGradientSession = (params: {
       frozenStopsStored: frozenStops,
       frozenHash: '',
       binding: null,
+      speedCps: params.speedCps,
       previewStopsStored: null,
       previewHash: '',
       fallbackStopsStored: cloneStops(frozenStops),
@@ -196,6 +200,7 @@ export const beginMarkGradientSession = (params: {
     kind: params.gradientKind,
     stops: frozenStops,
     source: params.source,
+    speedCps: params.speedCps,
   });
   if (!defResult) {
     return null;
@@ -210,6 +215,7 @@ export const beginMarkGradientSession = (params: {
     frozenStopsStored: frozenStops,
     frozenHash: defResult.hash,
     binding: { kind: 'def', defId: defResult.def.id, slot: defResult.slot },
+    speedCps: params.speedCps,
   };
   sessionsByLayer.set(params.layerId, session);
   ccLog('begin session', {
