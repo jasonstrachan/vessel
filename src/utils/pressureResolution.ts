@@ -64,8 +64,13 @@ export const computePressureResolution = (
   const dt = state.lastTime ? Math.max(1, timestamp - state.lastTime) : 16;
   state.lastTime = timestamp;
 
-  const alpha = 1 - Math.exp(-dt / PRESSURE_RESOLUTION_TIME_CONSTANT_MS);
-  state.smoothed = state.smoothed + (targetFloat - state.smoothed) * alpha;
+  if (targetFloat < state.smoothed) {
+    // Drop immediately when pressure decreases so resolution doesn't linger at large sizes.
+    state.smoothed = targetFloat;
+  } else {
+    const alpha = 1 - Math.exp(-dt / PRESSURE_RESOLUTION_TIME_CONSTANT_MS);
+    state.smoothed = state.smoothed + (targetFloat - state.smoothed) * alpha;
+  }
 
   const desired = Math.max(PRESSURE_RESOLUTION_MIN_PX, Math.min(maxSize, state.smoothed));
   const delta = desired - state.output;

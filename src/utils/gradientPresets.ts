@@ -39,6 +39,42 @@ export const GRADIENT_PRESETS: PresetGradient[] = [
     ]
   },
   {
+    id: 'classic-rgb',
+    name: 'Classic RGB',
+    stops: [
+      { position: 0.0, color: '#ff0000' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 1.0, color: '#0000ff' }
+    ]
+  },
+  {
+    id: 'acid',
+    name: 'Acid',
+    stops: [
+      { position: 0.0, color: '#b7ff00' },
+      { position: 0.5, color: '#fff200' },
+      { position: 1.0, color: '#7fff00' }
+    ]
+  },
+  {
+    id: 'neon',
+    name: 'Neon',
+    stops: [
+      { position: 0.0, color: '#ff4fd8' },
+      { position: 0.5, color: '#7a00ff' },
+      { position: 1.0, color: '#00e5ff' }
+    ]
+  },
+  {
+    id: 'cmy-split',
+    name: 'CMY Split',
+    stops: [
+      { position: 0.0, color: '#00ffff' },
+      { position: 0.5, color: '#ff00ff' },
+      { position: 1.0, color: '#ffff00' }
+    ]
+  },
+  {
     id: 'fire',
     name: 'Fire',
     stops: [

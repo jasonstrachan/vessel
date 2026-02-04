@@ -76,6 +76,16 @@ describe('computePressureResolution smoothing', () => {
     expect(state.output).toBeGreaterThan(1);
   });
 
+  it('drops immediately when pressure decreases', () => {
+    const state = createPressureResolutionState(12);
+    const lowerTarget = 3;
+    const pressure = toPressure(lowerTarget);
+
+    const result = computePressureResolution(slider, pressure, true, state, 0);
+
+    expect(result).toBeLessThanOrEqual(lowerTarget);
+  });
+
   it('uses explicit maxResolution when pressure-linked', () => {
     const state = createPressureResolutionState(1);
     const sliderMax = 8;
