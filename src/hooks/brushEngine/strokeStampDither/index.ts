@@ -31,6 +31,10 @@ export type StampDitherState = {
   stampDitherOrigin?: { x: number; y: number } | null;
   stampDitherSeed?: number;
   stampDitherPressureState?: ReturnType<typeof createPressureResolutionState> | null;
+  stampDitherPressureStable?: number;
+  stampDitherPressureLast?: number;
+  stampDitherPressureLastTime?: number;
+  stampDitherPressureSampleCount?: number;
   stampDitherTag?: Uint32Array;
   stampDitherStrokeEpoch?: number;
   stampDitherStampSeq?: number;
@@ -79,6 +83,11 @@ const STAMP_DITHER_COVERAGE_MIN = 0.25;
 const STAMP_DITHER_COVERAGE_MAX = 0.75;
 const STAMP_DITHER_COVERAGE_CLAMP_MIN = 0.35;
 const STAMP_DITHER_COVERAGE_CLAMP_MAX = 0.65;
+const STAMP_DITHER_PRESSURE_SMOOTHING = 0.6;
+const STAMP_DITHER_PRESSURE_MAX_DECAY_PER_MS = 0.003;
+const STAMP_DITHER_PRESSURE_MIN_DROP = 0.01;
+const STAMP_DITHER_PRESSURE_SAMPLE_WINDOW = 5;
+const STAMP_DITHER_PEN_LIFT_THRESHOLD = 0.02;
 
 export const STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<StampDitherAlgorithm> = new Set([
   'floyd-steinberg',
@@ -92,6 +101,43 @@ export const STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<StampDithe
 ]);
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+const resolveStampDitherPressure = (state: StampDitherState, pressure: number): number => {
+  const p = Math.max(0, Math.min(1, pressure));
+  const last = state.stampDitherPressureLast ?? 0;
+  const smoothed = last === 0
+    ? p
+    : last + (p - last) * STAMP_DITHER_PRESSURE_SMOOTHING;
+
+  const now = nowMs();
+  const lastTime = state.stampDitherPressureLastTime ?? 0;
+  const elapsed = lastTime === 0 ? 0 : Math.max(0, now - lastTime);
+  state.stampDitherPressureLastTime = now;
+
+  const sampleCount = (state.stampDitherPressureSampleCount ?? 0) + 1;
+  state.stampDitherPressureSampleCount = sampleCount;
+
+  const isEarlySample = sampleCount <= STAMP_DITHER_PRESSURE_SAMPLE_WINDOW;
+  const isPenLift = p <= STAMP_DITHER_PEN_LIFT_THRESHOLD;
+
+  let stable = state.stampDitherPressureStable ?? smoothed;
+  if (isPenLift) {
+    // Freeze stable on pen-lift to avoid resolution collapse at tail.
+  } else if (smoothed >= stable || isEarlySample) {
+    stable = smoothed;
+  } else {
+    const isLowPressure = smoothed < 0.25;
+    const decayMultiplier = isLowPressure ? 4.0 : 1.0;
+    const timeDrop = Math.max(0, elapsed * STAMP_DITHER_PRESSURE_MAX_DECAY_PER_MS * decayMultiplier);
+    const maxDrop = Math.max(timeDrop, STAMP_DITHER_PRESSURE_MIN_DROP);
+    stable = Math.max(smoothed, stable - maxDrop);
+  }
+
+  state.stampDitherPressureStable = stable;
+  state.stampDitherPressureLast = p;
+
+  return stable > 0 ? stable : p;
+};
 
 export const createStampDitherRuntime = (): StampDitherRuntime => ({
   baseTiles: new Map(),
@@ -827,9 +873,10 @@ export const applyStampDitherStamp = (args: {
     const pressureState =
       state.stampDitherPressureState ?? createPressureResolutionState(1);
     state.stampDitherPressureState = pressureState;
+    const stablePressure = resolveStampDitherPressure(state, pressure);
     const computed = computePressureResolution(
       baseTileScale,
-      pressure,
+      stablePressure,
       true,
       pressureState,
       undefined,

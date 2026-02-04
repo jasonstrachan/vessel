@@ -2032,6 +2032,10 @@ export class ColorCycleBrushCanvas2D {
         stampState.stampDitherSeed = nextSeed;
         stampState.stampDitherOrigin = null;
         stampState.stampDitherPressureState = null;
+        stampState.stampDitherPressureStable = undefined;
+        stampState.stampDitherPressureLast = undefined;
+        stampState.stampDitherPressureLastTime = undefined;
+        stampState.stampDitherPressureSampleCount = undefined;
         stampState.stampDitherBounds = null;
         stampState.stampDitherLastTileScale = null;
         stampState.stampDitherStrokeScale = undefined;
