@@ -460,6 +460,10 @@ export function readLayerSourcesForCrop(
         typeof layer.colorCycleData.brushSpeed === 'number'
           ? layer.colorCycleData.brushSpeed
           : undefined;
+      const controllerSpeedCps =
+        typeof layer.colorCycleData.controllerSpeedCps === 'number'
+          ? layer.colorCycleData.controllerSpeedCps
+          : undefined;
       const mode = layer.colorCycleData.mode ?? 'brush';
       const wasActiveLayer = options.activeLayerId === layer.id;
       let strokeSnapshot:
@@ -561,6 +565,7 @@ export function readLayerSourcesForCrop(
         gradientStops,
         wasAnimating,
         brushSpeed,
+        controllerSpeedCps,
         mode,
         wasActiveLayer,
         strokeSnapshot,

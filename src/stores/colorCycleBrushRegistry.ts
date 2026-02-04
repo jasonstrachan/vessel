@@ -114,7 +114,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       canvas.width = width;
       canvas.height = height;
 
-      const layer = getLayers().find(candidate => candidate.id === layerId);
+      // Layer lookup no longer needed here; keep flow logic focused on brush setup.
 
       const currentSettings = getBrushSettings();
       const BrushCanvas = deps.getBrushClass();
@@ -179,8 +179,8 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       if (typeof currentSettings.colorCycleSpeed === 'number') {
         brushWithOptionalControls.setSpeed?.(currentSettings.colorCycleSpeed);
       }
-      const perLayerFlowMode: 'forward' = 'forward';
-      const legacyFlowMode: 'forward' = 'forward';
+      const perLayerFlowMode = 'forward' as const;
+      const legacyFlowMode = 'forward' as const;
 
       if (typeof (brushWithOptionalControls as { setLegacyFlowMode?: (mode: typeof perLayerFlowMode) => void }).setLegacyFlowMode === 'function') {
         (brushWithOptionalControls as { setLegacyFlowMode: (mode: typeof perLayerFlowMode) => void }).setLegacyFlowMode(legacyFlowMode);

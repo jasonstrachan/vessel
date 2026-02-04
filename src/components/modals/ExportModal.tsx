@@ -14,7 +14,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { estimateExport, runExport } from '@/utils/export/exportService';
 import type { FrameProvider } from '@/utils/export/types';
-import type { Layer, WebGLExportBundleFormat } from '@/types';
+import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
 
@@ -28,6 +28,16 @@ const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
   zip: 'Goblet bundle zip',
   'single-html': 'single-file Goblet',
   json: 'Goblet JSON bundle'
+};
+
+const GOBLET_VERSION_LABELS: Record<WebGLExportGobletVersion, string> = {
+  goblet1: 'Goblet 1 (legacy)',
+  goblet2: 'Goblet 2 (GPU-first)'
+};
+
+const GOBLET_VERSION_DESCRIPTIONS: Record<WebGLExportGobletVersion, string> = {
+  goblet1: 'Legacy runtime. Keeps Goblet v1 semantics and CPU-first playback.',
+  goblet2: 'Goblet 2 runtime with per-pixel speed buffers and WebGL2-first playback.'
 };
 
 const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
@@ -172,6 +182,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglEmbedFallback = webglExportSettings.embedCanvasFallback;
   const webglMinify = webglExportSettings.minifyOutput;
   const webglBundleFormat = webglExportSettings.bundleFormat;
+  const webglGobletVersion = webglExportSettings.gobletVersion;
   const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
   const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
   const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('fill');
@@ -736,11 +747,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   minify: webglMinify,
                   filenameBase,
                   bundleFormat: webglBundleFormat,
+                  gobletVersion: webglGobletVersion,
                   enableGobletDiagnostics: webglEnableDiagnostics,
                   compositeLayersToCanvas,
                   htmlTitle: webglHtmlTitle
                 },
                 bundleFormat: webglBundleFormat,
+                gobletVersion: webglGobletVersion,
                 htmlTitle: webglHtmlTitle
               }
             }
@@ -1192,6 +1205,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
                     {BUNDLE_FORMAT_DESCRIPTIONS[webglBundleFormat]}
                   </p>
+                  <div className="flex flex-col gap-2 pt-1">
+                    <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Goblet runtime</label>
+                    <select
+                      className={INLINE_FIELD_CLASS}
+                      value={webglGobletVersion}
+                      onChange={(event) => updateWebglExportSettings({ gobletVersion: event.target.value as WebGLExportGobletVersion })}
+                      disabled={isExporting}
+                    >
+                      <option value="goblet1">{GOBLET_VERSION_LABELS.goblet1}</option>
+                      <option value="goblet2">{GOBLET_VERSION_LABELS.goblet2}</option>
+                    </select>
+                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                      {GOBLET_VERSION_DESCRIPTIONS[webglGobletVersion]}
+                    </p>
+                  </div>
                   <div className="flex flex-col gap-1">
                     <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`} htmlFor="goblet-html-title">
                       HTML title

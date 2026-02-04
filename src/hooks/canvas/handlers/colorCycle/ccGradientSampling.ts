@@ -1,9 +1,8 @@
 import type React from 'react';
 import type { BrushSettings } from '@/types';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { AutoSampleStops } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import { computeAutoSampleStops } from '@/hooks/canvas/handlers/brushSampling';
-
-export const TEMP_SAMPLE_SLOT = 254;
 export const CC_GRADIENT_SAMPLE_THROTTLE_MS = 120;
 
 export type CcGradientSampleSession = {

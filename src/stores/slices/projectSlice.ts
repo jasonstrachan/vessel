@@ -558,6 +558,7 @@ export const createProjectSlice =
         embedCanvasFallback: false,
         minifyOutput: true,
         bundleFormat: 'single-html',
+        gobletVersion: 'goblet2',
         // Verbose Goblet/WebGL export logs are noisy in day-to-day use; keep them
         // opt-in via explicit env or UI toggle instead of defaulting on in dev.
         enableGobletDiagnostics: process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true',

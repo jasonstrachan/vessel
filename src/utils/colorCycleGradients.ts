@@ -12,7 +12,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { DerivedGradientSpec } from '@/types';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
 import { cancelGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
-import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
 export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
 export const EDITOR_SLOT = 255;

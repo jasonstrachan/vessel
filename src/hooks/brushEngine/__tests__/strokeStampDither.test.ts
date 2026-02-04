@@ -1,4 +1,5 @@
 import * as stampDither from '../strokeStampDither';
+import type { StampDitherState } from '../strokeStampDither';
 
 describe('strokeStampDither', () => {
   const buildAnimator = (width: number, height: number) => {
@@ -22,7 +23,11 @@ describe('strokeStampDither', () => {
     const width = 8;
     const height = 8;
     const animator = buildAnimator(width, height);
-    const state = {
+    const state: StampDitherState & {
+      paintBuffer: Uint8Array;
+      gradientIdBuffer: Uint8Array;
+      speedBuffer: Uint8Array;
+    } = {
       paintBuffer: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
@@ -98,7 +103,11 @@ describe('strokeStampDither', () => {
     const width = 8;
     const height = 8;
     const animator = buildAnimator(width, height);
-    const state = {
+    const state: StampDitherState & {
+      paintBuffer: Uint8Array;
+      gradientIdBuffer: Uint8Array;
+      speedBuffer: Uint8Array;
+    } = {
       paintBuffer: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
@@ -142,7 +151,11 @@ describe('strokeStampDither', () => {
     const width = 16;
     const height = 16;
     const animator = buildAnimator(width, height);
-    const state = {
+    const state: StampDitherState & {
+      paintBuffer: Uint8Array;
+      gradientIdBuffer: Uint8Array;
+      speedBuffer: Uint8Array;
+    } = {
       paintBuffer: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),

@@ -63,6 +63,7 @@ const makeStore = () => ({
     embedCanvasFallback: false,
     minifyOutput: false,
     bundleFormat: 'zip' as const,
+    gobletVersion: 'goblet2' as const,
     enableGobletDiagnostics: false,
     htmlTitle: 'Goblet',
   },

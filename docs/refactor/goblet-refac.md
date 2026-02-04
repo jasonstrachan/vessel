@@ -13,8 +13,8 @@ It incorporates new facts from the codebase (A–D):
 ## 0) Non-negotiable goals
 
 ### Correctness invariants
-1) **Per-shape speed**: speed is owned by a *shape/gradient def*, not by a layer.
-2) **Palette-shift semantics**: animation is driven by `offset = frac(t * speedCps + startOffset)` and discrete shift of a palette (matching Vessel’s palette-shift semantics).
+1) **Authoritative speed source is explicit**: v1 uses per-pixel `speedBuffer` as the authority; per-shape speed remains the target in Phase 3 with `animIdBuffer`. Layer speed is never authoritative.
+2) **Palette-shift semantics**: animation is driven by `offset = frac(t * speedCps + startOffset01)` and discrete shift of a palette (matching Vessel’s palette-shift semantics).
 3) **Deterministic mapping**: the runtime must not guess between `layerSpeed`, `speedBuffer`, etc. The bundle defines the contract and Goblet follows it.
 4) **No silent fallbacks**: Goblet 2 refuses ambiguous bundles (explicitly versioned).
 
@@ -37,7 +37,7 @@ We do not need perfect shape ownership on day 1. We can derive animation groups 
 So the runtime-visible “shape identity” can be approximated initially as:
 - **animKey = (flowSlot, speedByte)**
 
-This gives immediate correctness improvements and allows Goblet 2 to ship without refactoring the brush engine.
+This gives immediate correctness improvements and allows Goblet 2 to ship without refactoring the brush engine. It does mean v1 speed ownership is *per pixel* (via `speedBuffer`), not per def.
 
 Later (optional), we can improve ownership by exporting a true `animIdBuffer` from brush engine metadata, but v1 of Goblet 2 can be correct enough using (slot, speedByte) grouping.
 
@@ -62,6 +62,17 @@ New (Goblet 2):
 
 No more “layerSpeed” as a correctness driver for brush-mode; layerSpeed becomes only a UI/debug display.
 
+#### Speed decode contract (explicit)
+- `speedByte == 0` means **no animation** (speedCps = 0), regardless of `speedMin/speedMax`.
+- For `speedByte > 0`, decode as:  
+  `speedCps = speedMin + (speedByte / 255) * (speedMax - speedMin)`
+- `speedMin`/`speedMax` are required and must match the encoding used by `encodeColorCycleSpeedByte` in the engine.
+
+#### Palette size + index contract (explicit)
+- `paletteSize` is the palette length used at draw time; **v1 sets this to 256** for brush-mode.
+- If the source palette length is < 256, bake to 256 by **repeating/tiling** the palette in order until filled (no interpolation at bake time).
+- `indexBuffer` uses `0` as transparent; non-zero `I` maps to `paletteIndex = clamp(I - 1, 0, paletteSize - 1)`.
+
 ### Recolor-mode
 Keep existing recolor contract; it already has a WebGL renderer in Vessel and uses offset uniform (D3).
 
@@ -74,7 +85,7 @@ Target: WebGL2 shader does palette lookup per fragment:
 - Fetch index `I` (0..255)
 - Fetch slot `S` (0..63) from `gradientIdBuffer`
 - Fetch speedByte `B` from `speedBuffer`
-- Decode `speedCps = decode(B, speedMin, speedMax)` (or treat B==0 as 0/no-anim for that pixel)
+- Decode `speedCps = decode(B, speedMin, speedMax)` (with `B==0` => `speedCps=0`)
 - Compute `offset01 = frac(timeSeconds * speedCps + startOffset01)`
 - Compute palette shift: `shift = floor(offset01 * paletteSize)`
 - Map `I` → `paletteIndex = clamp(I-1, 0, paletteSize-1)`
@@ -89,10 +100,16 @@ To avoid stop interpolation differences and reduce runtime cost:
 
 This matches Vessel semantics and is fast.
 
+#### WebGL2 texture + sampling requirements (explicit)
+- Upload `indexBuffer`, `gradientIdBuffer`, `speedBuffer` as `R8` (or `R8UI` if using integer sampling).
+- Sampling must be **nearest** (no filtering), and `UNPACK_ALIGNMENT = 1`.
+- Prefer `texelFetch` with integer coords to avoid normalization errors.
+- Palette texture is `RGBA8` and sampled with nearest (no interpolation).
+
 ### 3.2 CPU fallback (compat mode)
 If WebGL2 not available:
 - Use the existing fast array loop path, but add two strict optimizations:
-  1) **Shift-key early-out**: if no slot’s `shiftKey` changed since last frame, skip fill/blit.
+  1) **Shift-key early-out**: compute `shiftKey = (slot, shift)` for each slot used this frame; if the per-slot shift does not change vs. last frame, skip fill/blit.
   2) **Adaptive renderScale**: auto-drop to 0.5 when total fill time exceeds a threshold.
 
 CPU fallback is allowed to be slower; GPU is the default.
@@ -185,8 +202,8 @@ If needed for future correctness or scaling:
 ---
 
 ## 8) Open questions (explicit)
-1) **Palette size**: brush-mode uses `brushState.palette.length` (often 256). Confirm that Goblet 2 palette baking uses the same length used in Vessel.
-2) **Speed decode range**: ensure `speedMin/speedMax` in export match the encoding used by `encodeColorCycleSpeedByte` in engine paths (A2/A3).
+1) **Palette size**: confirm brush-mode uses a fixed `paletteSize = 256` for v1, or explicitly allow other sizes and update bake rules accordingly.
+2) **Speed encode/decode**: confirm the encode function maps `speedByte=0` to “no anim” and that decode uses the exact formula above.
 3) **Direction convention**: confirmed via `p - shift` fix; codify it as the contract (and test with a known ramp).
 
 ---

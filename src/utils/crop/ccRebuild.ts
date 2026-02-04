@@ -171,16 +171,17 @@ export function rebuildCCLayerAfterCrop({
       }
     }
 
-        const targetBrushSpeed =
-          typeof entry.brushSpeed === 'number'
-            ? entry.brushSpeed
-            : targetLayer.colorCycleData?.brushSpeed ??
+        const targetControllerSpeed =
+          typeof entry.controllerSpeedCps === 'number'
+            ? entry.controllerSpeedCps
+            : targetLayer.colorCycleData?.controllerSpeedCps ??
+              targetLayer.colorCycleData?.brushSpeed ??
               getState().tools.brushSettings.colorCycleSpeed ??
               0.1;
 
         if (typeof freshBrush.setSpeed === 'function') {
           try {
-            freshBrush.setSpeed(targetBrushSpeed);
+            freshBrush.setSpeed(targetControllerSpeed);
           } catch {
             // Ignore failures; downstream logic will handle fallback speed
           }
@@ -218,6 +219,10 @@ export function rebuildCCLayerAfterCrop({
                   typeof entry.brushSpeed === 'number'
                     ? entry.brushSpeed
                     : layer.colorCycleData.brushSpeed,
+                controllerSpeedCps:
+                  typeof entry.controllerSpeedCps === 'number'
+                    ? entry.controllerSpeedCps
+                    : layer.colorCycleData.controllerSpeedCps,
                 isAnimating: entry.wasAnimating
               }
             };

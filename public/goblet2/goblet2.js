@@ -395,7 +395,7 @@ const resolveDiagnosticsDefault = () => false;
 
 let diagnosticsEnabled = resolveDiagnosticsDefault();
 
-console.log('[goblet1] runtime version', '2026-02-04-legacyfix-01');
+console.log('[goblet2] runtime version', '2026-02-04-legacyfix-01');
 
 const diagnostics = {
   log: (...args) => {
@@ -1348,6 +1348,7 @@ const PROPERTY_UNMINIFY_MAP = {
   l: 'layers',
   grl: 'gradients',
   fb: 'fallback',
+  csv: 'schemaVersion',
   i: 'id',
   n: 'name',
   t: 'type',
@@ -1399,6 +1400,8 @@ const PROPERTY_UNMINIFY_MAP = {
   gr: 'gradient',
   grf: 'gradientRef',
   spd: 'brushSpeed',
+  csc: 'controllerSpeedCps',
+  lsc: 'legacySpeedCps',
   smd: 'speedMode',
   ss: 'slotSpeeds',
   smin: 'speedMin',
@@ -1611,7 +1614,7 @@ const normalizeLayerSpatialMetadata = (metadata) => {
 };
 
 const validateMetadata = (metadata) => {
-  if (!metadata || metadata.format !== 'vessel-goblet') {
+  if (!metadata || (metadata.format !== 'vessel-goblet' && metadata.format !== 'vessel-goblet2')) {
     throw new Error('Unsupported bundle format');
   }
   if (!metadata.viewport) {
@@ -2147,9 +2150,9 @@ const buildLuminancePhaseMap = (imageData) => {
 };
 
 const DEFAULT_ANIMATION_SPEED = 0.1;
-const SPEED_BYTE_RANGE = 254;
+const SPEED_BYTE_RANGE = 255;
 const DEFAULT_SPEED_MIN = 0.01;
-const DEFAULT_SPEED_MAX = 0.33;
+const DEFAULT_SPEED_MAX = 2.64;
 const FLOW_SLOT_BITS = 6;
 const FLOW_SLOT_MASK = (1 << FLOW_SLOT_BITS) - 1;
 const FLOW_MODE_FORWARD = 1;
@@ -2198,6 +2201,366 @@ const buildPaletteShiftLUT256 = ({ basePalette32, cycleColors, offset01 }) => {
   return lut;
 };
 
+const DEFAULT_PALETTE_SIZE = 256;
+const GOBLET2_SCHEMA_VERSION = 2;
+
+const buildPaletteTableRGBA = (slotGradients, fallbackGradient, paletteSize = DEFAULT_PALETTE_SIZE) => {
+  const size = Math.max(1, Math.round(paletteSize));
+  const slotCount = FLOW_SLOT_MASK + 1;
+  const data = new Uint8Array(size * slotCount * 4);
+  const fallbackStops = normalizeGradientStops(fallbackGradient);
+  for (let slot = 0; slot < slotCount; slot += 1) {
+    const stops = slotGradients?.get(slot) ?? fallbackStops;
+    for (let i = 0; i < size; i += 1) {
+      const t = size === 1 ? 0 : i / (size - 1);
+      const c = sampleGradient(stops, t);
+      const idx = (slot * size + i) * 4;
+      data[idx] = clamp255(c.r);
+      data[idx + 1] = clamp255(c.g);
+      data[idx + 2] = clamp255(c.b);
+      data[idx + 3] = clamp255(c.a);
+    }
+  }
+  return { data, width: size, height: slotCount };
+};
+
+const createShader = (gl, type, source) => {
+  const shader = gl.createShader(type);
+  if (!shader) {
+    throw new Error('Unable to allocate shader');
+  }
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const info = gl.getShaderInfoLog(shader) || 'Unknown shader error';
+    gl.deleteShader(shader);
+    throw new Error(info);
+  }
+  return shader;
+};
+
+const createProgram = (gl, vertexSource, fragmentSource) => {
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexSource);
+  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+  const program = gl.createProgram();
+  if (!program) {
+    throw new Error('Unable to allocate WebGL program');
+  }
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const info = gl.getProgramInfoLog(program) || 'Unknown program link error';
+    gl.deleteProgram(program);
+    throw new Error(info);
+  }
+  return program;
+};
+
+const configureTexture = (gl, texture, unit, target = gl.TEXTURE_2D) => {
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(target, texture);
+  gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+};
+
+const uploadR8Texture = (gl, texture, width, height, data, integer = false) => {
+  configureTexture(gl, texture, 0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  if (integer) {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, width, height, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, data);
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, data);
+  }
+};
+
+class BrushWebGLRenderer {
+  constructor(options) {
+    const {
+      width,
+      height,
+      paletteSize,
+      speedMin,
+      speedMax,
+      startOffset01,
+      alphaMode
+    } = options;
+    this.width = Math.max(1, Math.round(width));
+    this.height = Math.max(1, Math.round(height));
+    this.paletteSize = Math.max(1, Math.round(paletteSize));
+    this.speedMin = speedMin;
+    this.speedMax = speedMax;
+    this.startOffset01 = startOffset01;
+    this.alphaMode = alphaMode;
+
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = this.width;
+    this.canvas.height = this.height;
+    const gl = this.canvas.getContext('webgl2', {
+      alpha: true,
+      premultipliedAlpha: false,
+      antialias: false,
+      preserveDrawingBuffer: false,
+      depth: false,
+      stencil: false
+    });
+    if (!gl) {
+      throw new Error('WebGL2 unavailable');
+    }
+    this.gl = gl;
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+
+    const vertexSource = `#version 300 es
+      in vec2 a_pos;
+      in vec2 a_uv;
+      out vec2 v_uv;
+      void main() {
+        v_uv = a_uv;
+        gl_Position = vec4(a_pos, 0.0, 1.0);
+      }`;
+
+    const fragmentSource = `#version 300 es
+      precision highp float;
+      precision highp int;
+      precision highp usampler2D;
+
+      in vec2 v_uv;
+      out vec4 outColor;
+
+      uniform usampler2D u_index;
+      uniform usampler2D u_slot;
+      uniform usampler2D u_speed;
+      uniform sampler2D u_palette;
+      uniform sampler2D u_alpha;
+      uniform sampler2D u_mask;
+
+      uniform float u_time;
+      uniform float u_speedMin;
+      uniform float u_speedMax;
+      uniform float u_startOffset;
+      uniform float u_legacyOffset01;
+      uniform int u_paletteSize;
+      uniform int u_slotCount;
+      uniform bool u_hasAlpha;
+      uniform bool u_hasMask;
+      uniform bool u_opaqueIndices;
+
+      void main() {
+        ivec2 size = textureSize(u_index, 0);
+        int x = int(gl_FragCoord.x);
+        int y = size.y - 1 - int(gl_FragCoord.y);
+        ivec2 coord = ivec2(x, y);
+        uint idx = texelFetch(u_index, coord, 0).r;
+        if (idx == uint(0)) {
+          outColor = vec4(0.0);
+          return;
+        }
+        uint slot = texelFetch(u_slot, coord, 0).r;
+        uint speedByte = texelFetch(u_speed, coord, 0).r;
+        float shift = 0.0;
+        if (speedByte == uint(0)) {
+          shift = -u_legacyOffset01 * float(u_paletteSize);
+        } else {
+          float normalized = max(0.0, min(254.0, float(speedByte) - 1.0)) / 254.0;
+          float speed = u_speedMin + normalized * (u_speedMax - u_speedMin);
+          shift = -fract(u_time * speed) * float(u_paletteSize);
+        }
+        float base = float(int(idx) - 1);
+        base = clamp(base, 0.0, float(u_paletteSize - 1));
+        float modded = mod(base + shift + float(u_paletteSize) * 4.0, float(u_paletteSize));
+        int row = int(min(slot, uint(u_slotCount - 1)));
+        vec2 paletteUV = (vec2(modded + 0.5, float(row) + 0.5) / vec2(float(u_paletteSize), float(u_slotCount)));
+        vec3 color = texture(u_palette, paletteUV).rgb;
+        float alpha = 1.0;
+        vec2 sampleUV = vec2(v_uv.x, 1.0 - v_uv.y);
+        if (u_opaqueIndices) {
+          alpha = idx == uint(0) ? 0.0 : 1.0;
+        } else if (u_hasAlpha) {
+          alpha = texture(u_alpha, sampleUV).a;
+        }
+        if (u_hasMask) {
+          alpha *= 1.0 - texture(u_mask, sampleUV).r;
+        }
+        outColor = vec4(color, alpha);
+      }`;
+
+    const program = createProgram(gl, vertexSource, fragmentSource);
+    this.program = program;
+    gl.useProgram(program);
+
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    this.vao = vao;
+
+    const quad = new Float32Array([
+      -1, -1, 0, 0,
+      1, -1, 1, 0,
+      -1, 1, 0, 1,
+      1, 1, 1, 1
+    ]);
+    const buffer = gl.createBuffer();
+    this.vertexBuffer = buffer;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+
+    const aPos = gl.getAttribLocation(program, 'a_pos');
+    const aUv = gl.getAttribLocation(program, 'a_uv');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(aUv);
+    gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 16, 8);
+
+    this.uniforms = {
+      u_index: gl.getUniformLocation(program, 'u_index'),
+      u_slot: gl.getUniformLocation(program, 'u_slot'),
+      u_speed: gl.getUniformLocation(program, 'u_speed'),
+      u_palette: gl.getUniformLocation(program, 'u_palette'),
+      u_alpha: gl.getUniformLocation(program, 'u_alpha'),
+      u_mask: gl.getUniformLocation(program, 'u_mask'),
+      u_time: gl.getUniformLocation(program, 'u_time'),
+      u_speedMin: gl.getUniformLocation(program, 'u_speedMin'),
+      u_speedMax: gl.getUniformLocation(program, 'u_speedMax'),
+      u_startOffset: gl.getUniformLocation(program, 'u_startOffset'),
+      u_paletteSize: gl.getUniformLocation(program, 'u_paletteSize'),
+      u_slotCount: gl.getUniformLocation(program, 'u_slotCount'),
+      u_hasAlpha: gl.getUniformLocation(program, 'u_hasAlpha'),
+      u_hasMask: gl.getUniformLocation(program, 'u_hasMask'),
+      u_opaqueIndices: gl.getUniformLocation(program, 'u_opaqueIndices'),
+      u_legacyOffset01: gl.getUniformLocation(program, 'u_legacyOffset01')
+    };
+
+    this.textures = {
+      index: gl.createTexture(),
+      slot: gl.createTexture(),
+      speed: gl.createTexture(),
+      palette: gl.createTexture(),
+      alpha: gl.createTexture(),
+      mask: gl.createTexture()
+    };
+
+    gl.uniform1i(this.uniforms.u_index, 0);
+    gl.uniform1i(this.uniforms.u_slot, 1);
+    gl.uniform1i(this.uniforms.u_speed, 2);
+    gl.uniform1i(this.uniforms.u_palette, 3);
+    gl.uniform1i(this.uniforms.u_alpha, 4);
+    gl.uniform1i(this.uniforms.u_mask, 5);
+    gl.uniform1f(this.uniforms.u_speedMin, this.speedMin);
+    gl.uniform1f(this.uniforms.u_speedMax, this.speedMax);
+    gl.uniform1f(this.uniforms.u_startOffset, this.startOffset01);
+    gl.uniform1i(this.uniforms.u_paletteSize, this.paletteSize);
+    gl.uniform1i(this.uniforms.u_slotCount, FLOW_SLOT_MASK + 1);
+    gl.uniform1i(this.uniforms.u_opaqueIndices, this.alphaMode === 'opaque-indices');
+  }
+
+  setBuffers(indexBuffer, slotBuffer, speedBuffer) {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.index);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, this.width, this.height, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, indexBuffer);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.slot);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, this.width, this.height, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, slotBuffer);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.speed);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, this.width, this.height, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, speedBuffer);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  setPalette(paletteData, width, height) {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.palette);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, paletteData);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  setAlphaTexture(image) {
+    const gl = this.gl;
+    if (!image) {
+      gl.uniform1i(this.uniforms.u_hasAlpha, 0);
+      return;
+    }
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.alpha);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(this.uniforms.u_hasAlpha, 1);
+  }
+
+  setMaskTexture(maskData, width, height) {
+    const gl = this.gl;
+    if (!maskData) {
+      gl.uniform1i(this.uniforms.u_hasMask, 0);
+      return;
+    }
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.mask);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, maskData);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(this.uniforms.u_hasMask, 1);
+  }
+
+  render(timeSeconds, legacyOffset01) {
+    const gl = this.gl;
+    gl.viewport(0, 0, this.width, this.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(this.program);
+    gl.bindVertexArray(this.vao);
+    gl.uniform1f(this.uniforms.u_time, timeSeconds);
+    gl.uniform1f(this.uniforms.u_legacyOffset01, legacyOffset01);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  destroy() {
+    const gl = this.gl;
+    if (!gl) {
+      return;
+    }
+    gl.deleteBuffer(this.vertexBuffer);
+    gl.deleteVertexArray(this.vao);
+    gl.deleteProgram(this.program);
+    Object.values(this.textures || {}).forEach((texture) => {
+      if (texture) {
+        gl.deleteTexture(texture);
+      }
+    });
+  }
+}
+
 const toFiniteNumberOrNull = (value) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -2230,8 +2593,8 @@ const decodeColorCycleSpeedByte = (byte, minSpeed, maxSpeed) => {
   }
   const minV = Number.isFinite(minSpeed) ? Number(minSpeed) : DEFAULT_SPEED_MIN;
   const maxV = Number.isFinite(maxSpeed) ? Number(maxSpeed) : DEFAULT_SPEED_MAX;
-  const normalized = Math.max(0, Math.min(SPEED_BYTE_RANGE, Math.round(byte) - 1));
-  const t = normalized / SPEED_BYTE_RANGE;
+  const normalized = Math.max(0, Math.min(SPEED_BYTE_RANGE - 1, Math.round(byte) - 1));
+  const t = normalized / (SPEED_BYTE_RANGE - 1);
   return minV + t * (maxV - minV);
 };
 
@@ -2475,9 +2838,11 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
 };
 
 class ColorCycleLayerPlayer {
-  constructor(layer, textureImage) {
+  constructor(layer, textureImage, options = {}) {
     this.layer = layer;
     this.image = textureImage;
+    this.options = options;
+    this.isGoblet2 = options?.schemaVersion >= GOBLET2_SCHEMA_VERSION || options?.format === 'vessel-goblet2';
     const halfResPref = typeof window !== 'undefined'
       && window.localStorage
       && window.localStorage.getItem('vesselGobletHalfRes');
@@ -2509,6 +2874,8 @@ class ColorCycleLayerPlayer {
     this.baseTimeSeconds = 0;
     this.startTimeMs = 0;
     this.baseOffset = 0;
+    this.legacyOffset01 = 0;
+    this.legacySpeedCps = 0;
     this.targetFPS = null;
     this.frameAccumulator = 0;
     this.speedMin = null;
@@ -2546,6 +2913,11 @@ class ColorCycleLayerPlayer {
     this._lastShiftKeyBase = -1;
     this._lastShiftKeyKeyed = null;
     this._lastShiftKeyMode = null;
+    this.webglRenderer = null;
+    this.webglCanvas = null;
+    this.useWebGL = false;
+    this._dbgLegacy = null;
+    this._dbgSpeedStatsLogged = false;
   }
 
   createSurface(width, height) {
@@ -2623,25 +2995,27 @@ class ColorCycleLayerPlayer {
       throw new Error('Color cycle index buffer is empty');
     }
 
-    if (!this.alpha && this.image) {
-      const sampleCanvas = document.createElement('canvas');
-      sampleCanvas.width = this.width;
-      sampleCanvas.height = this.height;
-      const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true, alpha: true });
-      if (sampleCtx) {
-        sampleCtx.drawImage(this.image, 0, 0, this.width, this.height);
-        this.baseImageData = sampleCtx.getImageData(0, 0, this.width, this.height);
-        this.alpha = this.baseImageData.data;
+    if (!this.useWebGL) {
+      if (!this.alpha && this.image) {
+        const sampleCanvas = document.createElement('canvas');
+        sampleCanvas.width = this.width;
+        sampleCanvas.height = this.height;
+        const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true, alpha: true });
+        if (sampleCtx) {
+          sampleCtx.drawImage(this.image, 0, 0, this.width, this.height);
+          this.baseImageData = sampleCtx.getImageData(0, 0, this.width, this.height);
+          this.alpha = this.baseImageData.data;
+          probeAlphaMask();
+        }
+      }
+
+      if (!this.alpha) {
+        this.alpha = new Uint8ClampedArray(this.width * this.height * 4);
+        for (let i = 3; i < this.alpha.length; i += 4) {
+          this.alpha[i] = 255;
+        }
         probeAlphaMask();
       }
-    }
-
-    if (!this.alpha) {
-      this.alpha = new Uint8ClampedArray(this.width * this.height * 4);
-      for (let i = 3; i < this.alpha.length; i += 4) {
-        this.alpha[i] = 255;
-      }
-      probeAlphaMask();
     }
 
     if (this.mode === 'recolor' && this.flowMapping === 'luminance' && !this.phaseMap && this.baseImageData) {
@@ -2649,11 +3023,15 @@ class ColorCycleLayerPlayer {
     }
 
     if (colorCycle.alphaMask) {
-      await this.applyAlphaMask(colorCycle.alphaMask);
-      probeAlphaMask();
+      if (this.useWebGL && this.webglRenderer) {
+        await this.applyWebGLAlphaMask(colorCycle.alphaMask);
+      } else {
+        await this.applyAlphaMask(colorCycle.alphaMask);
+        probeAlphaMask();
+      }
     }
 
-    this._hasVisibleAlpha = hasVisibleAlpha(this.alpha);
+    this._hasVisibleAlpha = this.useWebGL ? true : hasVisibleAlpha(this.alpha);
     this.resetShiftKeyTracking();
 
     this.startTimeMs = typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -2703,8 +3081,214 @@ class ColorCycleLayerPlayer {
     applyMaskToAlphaChannel(this.alpha, resized);
   }
 
+  async applyWebGLAlphaMask(maskConfig) {
+    if (!maskConfig || !maskConfig.data || !this.webglRenderer) {
+      return;
+    }
+    const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
+    const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
+    const payload = await resolveNumericBuffer(maskConfig.data);
+    if (!payload || !payload.length) {
+      return;
+    }
+    const expected = width * height;
+    let working = payload;
+    if (working.length !== expected) {
+      const normalized = new Uint8Array(expected);
+      normalized.set(working.subarray(0, Math.min(working.length, normalized.length)));
+      working = normalized;
+    }
+    const resized = resizeAlphaMaskBuffer(working, width, height, this.width, this.height);
+    if (!resized || !resized.length) {
+      return;
+    }
+    this.webglRenderer.setMaskTexture(resized, this.width, this.height);
+  }
+
+  async initializeBrushModeWebGL(colorCycle, brushState) {
+    if (!this.isGoblet2) {
+      return false;
+    }
+    if (!brushState || !hasNumericPayload(brushState.indexBuffer)) {
+      return false;
+    }
+
+    const sourceWidth = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : this.width));
+    const sourceHeight = Math.max(1, Math.round(Number.isFinite(brushState.height) ? brushState.height : this.height));
+
+    const rawIndexBuffer = await resolveNumericBuffer(brushState.indexBuffer);
+    if (!rawIndexBuffer || rawIndexBuffer.length === 0) {
+      return false;
+    }
+
+    const rawGradientIds = brushState.gradientIdBuffer
+      ? await resolveNumericBuffer(brushState.gradientIdBuffer)
+      : null;
+    const rawSpeedBuffer = brushState.speedBuffer
+      ? await resolveNumericBuffer(brushState.speedBuffer)
+      : null;
+
+    const expectedLength = sourceWidth * sourceHeight;
+    const clampBuffer = (buffer, fallbackValue = 0) => {
+      const out = new Uint8Array(expectedLength);
+      if (buffer && buffer.length > 0) {
+        out.set(buffer.subarray(0, Math.min(buffer.length, out.length)));
+      } else if (fallbackValue !== 0) {
+        out.fill(fallbackValue);
+      }
+      return out;
+    };
+
+    const indexBuffer = clampBuffer(rawIndexBuffer);
+    const gradientIdBuffer = clampBuffer(rawGradientIds);
+    const speedBuffer = clampBuffer(rawSpeedBuffer);
+    if (gradientIdBuffer) {
+      for (let i = 0; i < gradientIdBuffer.length; i += 1) {
+        gradientIdBuffer[i] = gradientIdBuffer[i] & FLOW_SLOT_MASK;
+      }
+    }
+
+    this.indexBuffer = indexBuffer;
+    this.gradientIdBuffer = gradientIdBuffer;
+    this.speedBuffer = speedBuffer;
+    this.width = sourceWidth;
+    this.height = sourceHeight;
+
+    const baseGradient = brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient;
+    this.gradient = normalizeGradientStops(baseGradient);
+    this.slotGradients = normalizeSlotPalettes(colorCycle.slotPalettes, this.gradient);
+    this.cycleColors = DEFAULT_PALETTE_SIZE;
+    this.mappingMode = 'continuous';
+    this.flowMapping = 'palette';
+    this.zeroTransparent = true;
+    this.subtractIndexOffset = true;
+    this.speedMin = toFiniteNumberOrNull(colorCycle.speedMin) ?? DEFAULT_SPEED_MIN;
+    this.speedMax = toFiniteNumberOrNull(colorCycle.speedMax) ?? DEFAULT_SPEED_MAX;
+    const shouldAnimate = colorCycle.isAnimating !== false;
+    const rawCsc = this.layer?.colorCycle?.controllerSpeedCps;
+    console.log('[goblet2][csc raw]', rawCsc, typeof rawCsc);
+    this.isAnimating = shouldAnimate;
+    this.usePerPixelSpeed = true;
+    const speedInfo = analyzeSpeedBuffer(this.speedBuffer);
+    this.hasNonZeroSpeedBuffer = speedInfo.distinctNonZero > 0;
+
+    if (!this._dbgSpeedStatsLogged) {
+      const speedBuffer = this.speedBuffer;
+      const length = speedBuffer?.length ?? 0;
+      let zeroCount = 0;
+      let topByte = null;
+      let topCount = 0;
+      if (speedBuffer && length > 0) {
+        const counts = new Uint32Array(256);
+        for (let i = 0; i < length; i += 1) {
+          const sb = speedBuffer[i] | 0;
+          counts[sb] += 1;
+          if (sb === 0) zeroCount += 1;
+        }
+        for (let b = 1; b < 256; b += 1) {
+          const c = counts[b];
+          if (c > topCount) {
+            topCount = c;
+            topByte = b;
+          }
+        }
+      }
+      const paletteSize = this.cycleColors;
+      const percentZero = length > 0 ? (zeroCount / length) * 100 : null;
+      const decodedTop = topByte !== null
+        ? decodeColorCycleSpeedByte(topByte, this.speedMin, this.speedMax)
+        : null;
+      console.log('[goblet2][cc speed stats]', {
+        layerId: this.layer?.id ?? null,
+        paletteSize,
+        speedMin: this.speedMin,
+        speedMax: this.speedMax,
+        percentSpeedByteZero: percentZero,
+        topSpeedByte: topByte,
+        topSpeedByteDecoded: decodedTop
+      });
+      this._dbgSpeedStatsLogged = true;
+    }
+
+    const offset = Number.isFinite(brushState.animationOffset) ? brushState.animationOffset : 0;
+    const exportedControllerSpeed = toFiniteNumberOrNull(brushState?.legacySpeedCps)
+      ?? toFiniteNumberOrNull(colorCycle?.controllerSpeedCps);
+    this.legacySpeedCps = Number.isFinite(exportedControllerSpeed)
+      ? exportedControllerSpeed
+      : resolveAnimationSpeed(
+        brushState?.animationSpeed,
+        colorCycle?.brushSpeed,
+        shouldAnimate
+      );
+    if (!Number.isFinite(this.legacySpeedCps) || this.legacySpeedCps <= 0) {
+      const dbg = {
+        layerId: this.layer?.id ?? null,
+        shouldAnimate,
+        rawBrushStateKeys: this.layer?.colorCycle?.brushState ? Object.keys(this.layer.colorCycle.brushState) : null,
+        rawCCKeys: this.layer?.colorCycle ? Object.keys(this.layer.colorCycle) : null,
+        brush_legacySpeedCps: this.layer?.colorCycle?.brushState?.legacySpeedCps ?? null,
+        cc_controllerSpeedCps: this.layer?.colorCycle?.controllerSpeedCps ?? null,
+        brush_animationSpeed: this.layer?.colorCycle?.brushState?.animationSpeed ?? null,
+        cc_brushSpeed: this.layer?.colorCycle?.brushSpeed ?? null,
+        resolved_legacySpeedCps: this.legacySpeedCps
+      };
+      console.log('[goblet2][legacy debug]', JSON.stringify(dbg));
+      console.warn('[goblet2] legacySpeedCps missing/invalid, falling back', {
+        layerId: this.layer?.id,
+        legacySpeedCps: this.legacySpeedCps,
+        animationSpeed: this.layer?.colorCycle?.brushState?.animationSpeed,
+        brushSpeed: this.layer?.colorCycle?.brushSpeed
+      });
+      this.legacySpeedCps = shouldAnimate
+        ? (this.layer?.colorCycle?.brushState?.animationSpeed ?? this.layer?.colorCycle?.brushSpeed ?? 0.1)
+        : 0;
+    }
+    const alphaMode = typeof brushState.alphaMode === 'string' ? brushState.alphaMode : 'source';
+
+    try {
+      const renderer = new BrushWebGLRenderer({
+        width: sourceWidth,
+        height: sourceHeight,
+        paletteSize: DEFAULT_PALETTE_SIZE,
+        speedMin: this.speedMin,
+        speedMax: this.speedMax,
+        startOffset01: wrap01(offset),
+        alphaMode
+      });
+      const paletteTable = buildPaletteTableRGBA(this.slotGradients, this.gradient, DEFAULT_PALETTE_SIZE);
+      renderer.setPalette(paletteTable.data, paletteTable.width, paletteTable.height);
+      renderer.setBuffers(indexBuffer, gradientIdBuffer ?? new Uint8Array(expectedLength), speedBuffer ?? new Uint8Array(expectedLength));
+      if (alphaMode === 'opaque-indices') {
+        renderer.setAlphaTexture(null);
+      } else {
+        renderer.setAlphaTexture(this.image ?? null);
+      }
+      renderer.setMaskTexture(null);
+      this.webglRenderer = renderer;
+      this.webglCanvas = renderer.canvas;
+      this.canvas = renderer.canvas;
+      this.useWebGL = true;
+      this.renderScale = 1;
+      this._adaptiveScaleEnabled = false;
+      this.baseOffset = wrap01(offset);
+      this.legacyOffset01 = this.baseOffset;
+      this.baseTimeSeconds = 0;
+      this.currentTick = this.baseOffset * this.cycleColors;
+      return true;
+    } catch (error) {
+      diagnostics.warn('[goblet2] WebGL2 brush init failed, falling back to CPU', error);
+      this.webglRenderer = null;
+      this.webglCanvas = null;
+      this.useWebGL = false;
+      return false;
+    }
+  }
+
   async initializeBrushMode(colorCycle, brushState) {
     this.mode = 'brush';
+    if (await this.initializeBrushModeWebGL(colorCycle, brushState)) {
+      return;
+    }
     const sourceWidth = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : this.width));
     const sourceHeight = Math.max(1, Math.round(Number.isFinite(brushState.height) ? brushState.height : this.height));
     const width = Math.max(1, Math.round(sourceWidth * this.renderScale));
@@ -2762,18 +3346,42 @@ class ColorCycleLayerPlayer {
     } else if (!this.slotSpeeds && this.speedBuffer && this.speedMode === 'slot') {
       this.speedMode = 'buffer';
     }
-    this.cycleColors = Math.max(1, Math.floor(Array.isArray(brushState.palette) && brushState.palette.length > 0 ? brushState.palette.length : 256));
+    if (this.isGoblet2 && this.speedBuffer) {
+      this.speedMode = 'buffer';
+      this.slotSpeeds = null;
+    }
+    this.cycleColors = this.isGoblet2
+      ? DEFAULT_PALETTE_SIZE
+      : Math.max(1, Math.floor(Array.isArray(brushState.palette) && brushState.palette.length > 0 ? brushState.palette.length : 256));
     this.mappingMode = 'continuous';
     this.flowMapping = 'palette';
     this.zeroTransparent = true;
     this.subtractIndexOffset = true;
 
     const shouldAnimate = colorCycle.isAnimating !== false;
-    this.speed = resolveAnimationSpeed(
+    const exportedControllerSpeed = toFiniteNumberOrNull(brushState?.legacySpeedCps)
+      ?? toFiniteNumberOrNull(colorCycle?.controllerSpeedCps);
+    const resolvedSpeed = resolveAnimationSpeed(
       brushState?.animationSpeed,
       colorCycle?.brushSpeed,
       shouldAnimate
     );
+    this.speed = resolvedSpeed;
+    this.legacySpeedCps = Number.isFinite(exportedControllerSpeed)
+      ? exportedControllerSpeed
+      : resolvedSpeed;
+    if (!Number.isFinite(this.legacySpeedCps) || this.legacySpeedCps <= 0) {
+      console.warn('[goblet2] legacySpeedCps missing/invalid, falling back:', this.legacySpeedCps);
+      const fallback = resolveAnimationSpeed(
+        brushState?.animationSpeed,
+        colorCycle?.brushSpeed,
+        shouldAnimate
+      );
+      this.legacySpeedCps = Number.isFinite(fallback) && fallback > 0 ? fallback : DEFAULT_ANIMATION_SPEED;
+    }
+    if (this.isGoblet2 && this.speedMode === 'buffer') {
+      this.speed = 0;
+    }
     console.log(
       '[goblet][speed src]',
       'brushState.animationSpeed=',
@@ -2785,6 +3393,7 @@ class ColorCycleLayerPlayer {
     );
     const offset = Number.isFinite(brushState.animationOffset) ? brushState.animationOffset : 0;
     this.baseOffset = wrap01(offset);
+    this.legacyOffset01 = this.baseOffset;
     this.baseTimeSeconds = 0;
     this.currentTick = wrap01(offset) * this.cycleColors;
     this.flowDirection = normalizeFlowDirection(brushState.flowDirection, 'forward');
@@ -2814,6 +3423,44 @@ class ColorCycleLayerPlayer {
     this.hasNonZeroSpeedBuffer = this.speedMode === 'buffer' && speedInfo.distinctNonZero > 0;
     this._distinctSpeedBytes = this.speedMode === 'buffer' ? collectDistinctSpeedBytes(this.speedBuffer) : null;
     this._usedSlots = collectDistinctSlots(this.gradientIdBuffer);
+
+    if (!this._dbgSpeedStatsLogged) {
+      const speedBuffer = this.speedBuffer;
+      const length = speedBuffer?.length ?? 0;
+      let zeroCount = 0;
+      let topByte = null;
+      let topCount = 0;
+      if (speedBuffer && length > 0) {
+        const counts = new Uint32Array(256);
+        for (let i = 0; i < length; i += 1) {
+          const sb = speedBuffer[i] | 0;
+          counts[sb] += 1;
+          if (sb === 0) zeroCount += 1;
+        }
+        for (let b = 1; b < 256; b += 1) {
+          const c = counts[b];
+          if (c > topCount) {
+            topCount = c;
+            topByte = b;
+          }
+        }
+      }
+      const paletteSize = this.cycleColors;
+      const percentZero = length > 0 ? (zeroCount / length) * 100 : null;
+      const decodedTop = topByte !== null
+        ? decodeColorCycleSpeedByte(topByte, this.speedMin, this.speedMax)
+        : null;
+      console.log('[goblet2][cc speed stats]', {
+        layerId: this.layer?.id ?? null,
+        paletteSize,
+        speedMin: this.speedMin,
+        speedMax: this.speedMax,
+        percentSpeedByteZero: percentZero,
+        topSpeedByte: topByte,
+        topSpeedByteDecoded: decodedTop
+      });
+      this._dbgSpeedStatsLogged = true;
+    }
     this._lutCacheBase.clear();
     this._lutCacheSlots.clear();
     this._lutCacheBands = null;
@@ -2900,6 +3547,8 @@ class ColorCycleLayerPlayer {
       colorCycle?.brushSpeed,
       shouldAnimate
     );
+    this.legacySpeedCps = 0;
+    this.legacyOffset01 = 0;
     this.currentTick = Number.isFinite(animation.currentTick) ? animation.currentTick : 0;
     this.flowDirection = normalizeFlowDirection(animation.flowDirection, 'forward');
     this.isAnimating = shouldAnimate;
@@ -2932,9 +3581,9 @@ class ColorCycleLayerPlayer {
       return false;
     }
     if (this.usePerPixelSpeed) {
-      return this.hasNonZeroSpeedBuffer;
+      return (this.legacySpeedCps ?? 0) > 0 || this.hasNonZeroSpeedBuffer;
     }
-    return this.speed > 0;
+    return (this.legacySpeedCps ?? 0) > 0 || this.speed > 0;
   }
 
   advance(deltaSeconds) {
@@ -2946,12 +3595,54 @@ class ColorCycleLayerPlayer {
     }
     this._lastDeltaSeconds = deltaSeconds;
     this.baseTimeSeconds += deltaSeconds;
+    this.legacyOffset01 = wrap01(this.legacyOffset01 + deltaSeconds * (this.legacySpeedCps || 0));
+    if (this._dbgLegacy) {
+      const dbg = this._dbgLegacy;
+      dbg.t += deltaSeconds;
+      const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+      if (now - dbg.last > 1000) {
+        let dLegacy = this.legacyOffset01 - dbg.prevLegacy;
+        if (dLegacy < 0) dLegacy += 1;
+        const dt = dbg.t || 0;
+        console.log(
+          '[goblet2][dbg]',
+          'dt',
+          dt.toFixed(3),
+          'legacyOffset',
+          this.legacyOffset01.toFixed(4),
+          'legacyCyclesPerSec',
+          dt > 0 ? (dLegacy / dt).toFixed(4) : '0.0000',
+          'timeSeconds',
+          this.baseTimeSeconds.toFixed(3)
+        );
+        dbg.prevLegacy = this.legacyOffset01;
+        dbg.t = 0;
+        dbg.last = now;
+      }
+    }
     this.renderFrame();
     return true;
   }
 
   renderFrame() {
     if (!this.indexBuffer) {
+      return;
+    }
+    if (!this._dbgLegacy) {
+      const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+      this._dbgLegacy = {
+        t: 0,
+        prevLegacy: this.legacyOffset01,
+        prevTime: this.baseTimeSeconds,
+        last: now
+      };
+    }
+    if (this.useWebGL && this.webglRenderer) {
+      this.webglRenderer.render(this.baseTimeSeconds, this.legacyOffset01);
       return;
     }
     const profileEnabled = typeof window !== 'undefined'
@@ -3027,7 +3718,9 @@ class ColorCycleLayerPlayer {
         const speed = sb > 0
           ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
           : defaultSpeed;
-        const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+        const offsetBase = sb > 0
+          ? (((this.baseTimeSeconds * speed) % 1) + 1) % 1
+          : this.legacyOffset01;
         const shiftKey = (offsetBase * n) | 0;
         const modeMap = new Map();
         modeMap.set(forward, getBaseLut(sb, shiftKey, forward, () => {
@@ -3068,7 +3761,9 @@ class ColorCycleLayerPlayer {
           const speed = sb > 0
             ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
             : defaultSpeed;
-          const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+          const offsetBase = sb > 0
+            ? (((this.baseTimeSeconds * speed) % 1) + 1) % 1
+            : this.legacyOffset01;
           const shiftKey = (offsetBase * n) | 0;
           const modeMap = new Map();
           const forwardMap = new Map();
@@ -3284,7 +3979,9 @@ class ColorCycleLayerPlayer {
       const speed = sb > 0
         ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
         : speedDefault;
-      const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+      const offsetBase = sb > 0
+        ? (((this.baseTimeSeconds * speed) % 1) + 1) % 1
+        : this.legacyOffset01;
       const shiftKey = (offsetBase * cycleColors) | 0;
       if (this._lastShiftKeyBySpeedByte[sb] !== shiftKey) {
         this._lastShiftKeyBySpeedByte[sb] = shiftKey;
@@ -3372,6 +4069,8 @@ class ColorCycleLayerPlayer {
     const prevBaseTime = this.baseTimeSeconds;
     const prevTick = this.currentTick;
     const prevAnimating = this.isAnimating;
+    const prevLegacyOffset01 = this.legacyOffset01;
+    const prevLegacySpeedCps = this.legacySpeedCps;
     this.renderScale = clamped;
     this._isReinitializing = true;
     try {
@@ -3379,6 +4078,8 @@ class ColorCycleLayerPlayer {
       this.baseTimeSeconds = prevBaseTime;
       this.currentTick = prevTick;
       this.isAnimating = prevAnimating;
+      this.legacyOffset01 = prevLegacyOffset01;
+      this.legacySpeedCps = prevLegacySpeedCps;
       this.renderFrame();
     } finally {
       this._isReinitializing = false;
@@ -3399,6 +4100,11 @@ class ColorCycleLayerPlayer {
     this.alpha = null;
     this.baseImageData = null;
     this.slotGradients = null;
+    if (this.webglRenderer) {
+      this.webglRenderer.destroy();
+      this.webglRenderer = null;
+    }
+    this.webglCanvas = null;
   }
 }
 
@@ -3613,11 +4319,14 @@ class VesselGoblet {
 
       if (layerClone.colorCycle && (hasNumericPayload(layerClone.colorCycle.recolorSettings?.indexBuffer) || hasNumericPayload(layerClone.colorCycle.brushState?.indexBuffer))) {
         try {
-          player = new ColorCycleLayerPlayer(layerClone, source);
+          player = new ColorCycleLayerPlayer(layerClone, source, {
+            format: this.metadata?.format,
+            schemaVersion: this.metadata?.colorCycle?.schemaVersion
+          });
           await player.initialize();
           source = player.getCanvas();
         } catch (error) {
-          diagnostics.warn(`Failed to initialize color cycle for layer ${layerClone.id}`, error);
+          console.error('[goblet2] CC init failed', layerClone.id, error);
           player?.destroy();
           player = null;
         }
@@ -3654,6 +4363,33 @@ class VesselGoblet {
     this.dynamicPlayers = entries
       .map((entry) => entry.player)
       .filter((player) => player && player.hasAnimation());
+
+    for (const entry of entries) {
+      const p = entry.player;
+      const isCC = !!entry.layer?.colorCycle;
+      if (!isCC) continue;
+      console.log(
+        '[goblet2][cc]',
+        JSON.stringify({
+          layerId: entry.layer?.id ?? null,
+          playerCreated: !!p,
+          initOk: !!p && !!p.indexBuffer,
+          hasAnimation: (typeof p?.hasAnimation === 'function') ? p.hasAnimation() : null,
+          mode: p?.mode ?? null,
+          isAnimating: p?.isAnimating ?? null,
+          usePerPixelSpeed: p?.usePerPixelSpeed ?? null,
+          hasSpeedBuffer: !!p?.speedBuffer,
+          hasNonZeroSpeedBuffer: p?.hasNonZeroSpeedBuffer ?? null,
+          speed: Number.isFinite(p?.speed) ? p.speed : null,
+          legacySpeedCps: Number.isFinite(p?.legacySpeedCps) ? p.legacySpeedCps : null,
+          cycleColors: Number.isFinite(p?.cycleColors) ? p.cycleColors : null,
+          indexLen: p?.indexBuffer?.length ?? null,
+          gidLen: p?.gradientIdBuffer?.length ?? null,
+          speedLen: p?.speedBuffer?.length ?? null
+        })
+      );
+    }
+    console.log('[goblet2] dynamicPlayers', this.dynamicPlayers.length);
 
     const textureless = entries
       .filter((entry) => entry.layer.visible !== false)

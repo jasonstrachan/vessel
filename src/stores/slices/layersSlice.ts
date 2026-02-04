@@ -7,7 +7,7 @@ import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
-import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import {
   getColorCycleBrushManager,
   type ColorCycleBrushImplementation,
@@ -2202,7 +2202,7 @@ export const createLayersSlice = (
         customBrushColorCycle: true,
         ...(gradientForBrushSettings ? { colorCycleGradient: gradientForBrushSettings } : {})
       };
-      const resolvedFlowMode: 'forward' = 'forward';
+      const resolvedFlowMode = 'forward' as const;
       nextBrushSettings.colorCycleFlowMode = resolvedFlowMode;
 
       const result = {

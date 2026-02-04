@@ -13,6 +13,7 @@ import { Renderer2D } from '@/lib/colorCycle/Renderer2D';
 import { RendererWebGL, type PaletteRGBA } from '@/lib/colorCycle/rendering/RendererWebGL';
 import { FlowMode, StrokeOrderTracker } from '@/lib/colorCycle/StrokeOrderTracker';
 import type { CCIndexSurface, CCIndexSurfaceRect } from '@/lib/colorCycle/CCIndexSurface';
+import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -63,6 +64,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   // Palette upload guard for GPU renderer
   // One-time sample log guard
   private _renderSampledOnce: boolean = false;
+  private _dbgSpeedStatsLogged: boolean = false;
   // Track when index buffer changed to avoid re-uploading every frame
   private _glIndexDirty: boolean = true;
   private _glDefIdDirty: boolean = true;
@@ -588,6 +590,43 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const gradientIdData = this.indexBuffer.getDirectGradientIdData();
       const speedData = this.indexBuffer.getDirectSpeedData();
       if (!indexData) return;
+
+      if (!this._dbgSpeedStatsLogged && speedData && speedData.length > 0) {
+        const length = speedData.length;
+        let zeroCount = 0;
+        let topByte: number | null = null;
+        let topCount = 0;
+        const counts = new Uint32Array(256);
+        for (let i = 0; i < length; i += 1) {
+          const sb = speedData[i] | 0;
+          counts[sb] += 1;
+          if (sb === 0) zeroCount += 1;
+        }
+        for (let b = 1; b < 256; b += 1) {
+          const c = counts[b];
+          if (c > topCount) {
+            topCount = c;
+            topByte = b;
+          }
+        }
+        const paletteSize = this.paletteController.getPaletteHandle().uint32.length;
+        const percentZero = (zeroCount / length) * 100;
+        const decodedTop = topByte !== null
+          ? (MIN_BRUSH_COLOR_CYCLE_SPEED
+            + (Math.max(0, Math.min(254, topByte - 1)) / 254)
+              * (MAX_BRUSH_COLOR_CYCLE_SPEED - MIN_BRUSH_COLOR_CYCLE_SPEED))
+          : null;
+        console.log('[vessel][cc speed stats]', {
+          layerId: null,
+          paletteSize,
+          speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,
+          speedMax: MAX_BRUSH_COLOR_CYCLE_SPEED,
+          percentSpeedByteZero: percentZero,
+          topSpeedByte: topByte,
+          topSpeedByteDecoded: decodedTop
+        });
+        this._dbgSpeedStatsLogged = true;
+      }
       const defIdsInUse = this.getDefIdsInUse();
       this.validateDefPalettes(defIdsInUse);
       const hasDefIds = defIdsInUse.size > 0;

@@ -3,3 +3,4 @@ export const MAX_BRUSH_COLOR_CYCLE_SPEED = 2.64;
 export const MIN_RECOLOR_COLOR_CYCLE_SPEED = 0.01;
 export const MAX_RECOLOR_COLOR_CYCLE_SPEED = 4;
 export const COLOR_CYCLE_SPEED_STEP = 0.01;
+export const TEMP_SAMPLE_SLOT = 254;

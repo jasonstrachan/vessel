@@ -191,6 +191,7 @@ const PROPERTY_MINIFY_MAP = {
   layers: 'l',
   gradients: 'grl',
   fallback: 'fb',
+  schemaVersion: 'csv',
   id: 'i',
   name: 'n',
   type: 't',
@@ -243,6 +244,8 @@ const PROPERTY_MINIFY_MAP = {
   gradient: 'gr',
   gradientRef: 'grf',
   brushSpeed: 'spd',
+  controllerSpeedCps: 'csc',
+  legacySpeedCps: 'lsc',
   speedMode: 'smd',
   slotSpeeds: 'ss',
   speedMin: 'smin',
@@ -294,6 +297,7 @@ interface WebGLSerializedBrushState {
   palette?: Array<string | number>;
   animationOffset: number;
   animationSpeed?: number;
+  legacySpeedCps?: number;
   targetFPS?: number;
   flowDirection?: 'forward' | 'reverse' | 'pingpong';
   alphaMode?: 'source' | 'opaque-indices';
@@ -304,6 +308,7 @@ interface WebGLSerializedColorCycle {
   gradient?: SerializedGradientStops;
   gradientRef?: number;
   brushSpeed?: number | null;
+  controllerSpeedCps?: number | null;
   speedMode?: 'slot' | 'buffer';
   slotSpeeds?: Array<{ slot: number; speed: number }>;
   speedMin?: number;
@@ -421,7 +426,7 @@ interface WebGLExportAnimationMetadata {
 }
 
 export interface WebGLExportMetadata {
-  format: 'vessel-goblet';
+  format: 'vessel-goblet' | 'vessel-goblet2';
   version: 1;
   exportedAt: string;
   project: {
@@ -430,6 +435,9 @@ export interface WebGLExportMetadata {
     width: number;
     height: number;
     backgroundColor: string;
+  };
+  colorCycle?: {
+    schemaVersion: number;
   };
   viewport: WebGLViewport;
   container: ExportContainerLayout;
@@ -470,6 +478,7 @@ export interface WebGLExportRequest {
   minify: boolean;
   filenameBase: string;
   bundleFormat?: WebGLExportBundleFormat;
+  gobletVersion?: 'goblet1' | 'goblet2';
   enableGobletDiagnostics?: boolean;
   assetPrefix?: string;
   compositeLayersToCanvas?: (targetCanvas: HTMLCanvasElement) => void;
@@ -1176,6 +1185,30 @@ const resolveExportBrushSpeed = (layer: Layer): number | null => {
   return null;
 };
 
+const resolveExportControllerSpeed = (layer: Layer): number | null => {
+  const data = layer.colorCycleData;
+  if (!data) {
+    return null;
+  }
+
+  const controllerSpeed = toFiniteNumberOrNull(data.controllerSpeedCps);
+  if (controllerSpeed !== null) {
+    return controllerSpeed;
+  }
+
+  const brushSpeed = toFiniteNumberOrNull(data.brushSpeed);
+  if (brushSpeed !== null) {
+    return brushSpeed;
+  }
+
+  const recolorSpeed = toFiniteNumberOrNull(data.recolorSettings?.animation?.speed);
+  if (recolorSpeed !== null) {
+    return recolorSpeed;
+  }
+
+  return null;
+};
+
 const SPEED_SLOT_LIMIT = 64;
 
 const resolveExportToolSpeed = (layer: Layer): number | null => {
@@ -1289,10 +1322,11 @@ const prepareBrushSpeedExport = (params: {
   layer: Layer;
   brushState: WebGLSerializedBrushState;
   warnOnce: () => void;
+  forceBuffer?: boolean;
 }): {
   speedMode?: 'slot' | 'buffer';
   slotSpeeds?: Array<{ slot: number; speed: number }>;
-  speedBufferOverride?: Uint8Array | number[];
+  speedBufferOverride?: number[];
 } | null => {
   const gradientIds = Array.isArray(params.brushState.gradientIdBuffer)
     ? params.brushState.gradientIdBuffer
@@ -1316,7 +1350,7 @@ const prepareBrushSpeedExport = (params: {
   const hasConflict = speedBufferValues
     ? detectSlotSpeedConflicts(gradientIds, speedBufferValues, indices)
     : false;
-  const shouldUseBuffer = usedSlots.size > SPEED_SLOT_LIMIT || hasConflict;
+  const shouldUseBuffer = params.forceBuffer || usedSlots.size > SPEED_SLOT_LIMIT || hasConflict;
 
   if (shouldUseBuffer) {
     const speedBufferOverride = speedBufferValues && speedBufferValues.length > 0
@@ -1328,9 +1362,12 @@ const prepareBrushSpeedExport = (params: {
           fallbackSpeed,
           warnOnce: params.warnOnce,
         });
+    const normalizedSpeedBuffer = Array.isArray(speedBufferOverride)
+      ? speedBufferOverride
+      : Array.from(speedBufferOverride);
     return {
       speedMode: 'buffer',
-      speedBufferOverride,
+      speedBufferOverride: normalizedSpeedBuffer,
     };
   }
 
@@ -1355,9 +1392,10 @@ const prepareBrushSpeedExport = (params: {
       fallbackSpeed,
       warnOnce: params.warnOnce,
     });
+    const normalizedSpeedBuffer = Array.from(speedBufferOverride);
     return {
       speedMode: 'buffer',
-      speedBufferOverride,
+      speedBufferOverride: normalizedSpeedBuffer,
     };
   }
 
@@ -2417,7 +2455,8 @@ const shouldExportLayerAsAnimating = (
 const serializeColorCycleData = async (
   layer: Layer,
   project: Project,
-  speedWarning?: { warned: boolean }
+  speedWarning?: { warned: boolean },
+  options?: { forceSpeedBuffer?: boolean }
 ): Promise<ColorCycleSerializationResult | undefined> => {
   const data = layer.colorCycleData;
   if (!data) {
@@ -2442,6 +2481,7 @@ const serializeColorCycleData = async (
   }
 
   const resolvedBrushSpeed = resolveExportBrushSpeed(layer);
+  const resolvedControllerSpeed = resolveExportControllerSpeed(layer);
   const shouldAnimate = data.mode === 'recolor'
     ? shouldExportLayerAsAnimating(layer, brushState)
     : true;
@@ -2449,6 +2489,7 @@ const serializeColorCycleData = async (
     mode: data.mode ?? 'brush',
     gradient: data.gradient,
     brushSpeed: resolvedBrushSpeed,
+    controllerSpeedCps: resolvedControllerSpeed,
     speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,
     speedMax: MAX_BRUSH_COLOR_CYCLE_SPEED,
     isAnimating: shouldAnimate
@@ -2586,9 +2627,12 @@ const serializeColorCycleData = async (
       layer,
       brushState,
       warnOnce: warnOnceMissingSpeed,
+      forceBuffer: options?.forceSpeedBuffer === true,
     });
     if (speedPlan?.speedMode) {
       serialized.speedMode = speedPlan.speedMode;
+    } else if (options?.forceSpeedBuffer && brushState.speedBuffer) {
+      serialized.speedMode = 'buffer';
     }
     if (speedPlan?.slotSpeeds && speedPlan.slotSpeeds.length > 0) {
       serialized.slotSpeeds = speedPlan.slotSpeeds;
@@ -2620,17 +2664,25 @@ const serializeColorCycleData = async (
     const gradientIdFallback = Array.isArray(normalizedGradientIds)
       ? normalizedGradientIds
       : normalizedGradientIds
-        ? Array.from(normalizedGradientIds)
+        ? (Array.from(normalizedGradientIds) as number[])
         : typeof rawGradientIds === 'string'
           ? rawGradientIds
           : undefined;
     const encodedGradientIdBuffer = await resolvePackedBuffer(gradientIdFallback);
     const encodedSpeedBuffer = await resolvePackedBuffer(preparedSource.speedBuffer ?? undefined);
+    const fallbackSpeedBuffer = (() => {
+      const raw = preparedSource.speedBuffer;
+      if (!raw || typeof raw === 'string') {
+        return raw;
+      }
+      return Array.isArray(raw) ? raw : (Array.from(raw) as number[]);
+    })();
     const preparedBrushState: WebGLSerializedBrushState = {
       ...preparedSource,
       indexBuffer: encodedIndexBuffer ?? [],
       gradientIdBuffer: encodedGradientIdBuffer ?? gradientIdFallback,
-      speedBuffer: encodedSpeedBuffer ?? preparedSource.speedBuffer
+      speedBuffer: encodedSpeedBuffer ?? fallbackSpeedBuffer,
+      legacySpeedCps: resolvedControllerSpeed ?? undefined
     };
     // Flow direction has been removed in-app; normalize export to forward.
     preparedBrushState.flowDirection = 'forward';
@@ -2978,10 +3030,14 @@ const downloadBlob = (blob: Blob, filename: string) => {
 type GobletAssetName =
   | 'index.html'
   | 'goblet.js'
+  | 'goblet2.js'
   | 'alignFitResolver.js'
   | 'num.js'
   | 'fflate-inflate.js'
-  | 'goblet-inline.js';
+  | 'goblet-inline.js'
+  | 'goblet2-inline.js';
+
+type GobletAssetRoot = 'goblet' | 'goblet2';
 
 const gobletAssetCache = new Map<string, Promise<string>>();
 
@@ -3021,10 +3077,14 @@ const getDefaultAssetPrefix = (): string => {
   return '';
 };
 
-const resolveGobletAssetUrl = (asset: GobletAssetName, assetPrefix?: string): string => {
+const resolveGobletAssetUrl = (
+  asset: GobletAssetName,
+  assetPrefix?: string,
+  root: GobletAssetRoot = 'goblet'
+): string => {
   const prefix = assetPrefix ?? getDefaultAssetPrefix();
   const normalizedAsset = asset.startsWith('/') ? asset.slice(1) : asset;
-  const assetPath = `goblet/${normalizedAsset}`;
+  const assetPath = `${root}/${normalizedAsset}`;
 
   if (!prefix) {
     return `/${assetPath}`;
@@ -3040,15 +3100,19 @@ const resolveGobletAssetUrl = (asset: GobletAssetName, assetPrefix?: string): st
   return `${ensuredPrefix}/${assetPath}`;
 };
 
-const fetchGobletAsset = (asset: GobletAssetName, assetPrefix?: string): Promise<string> => {
-  const cacheKey = `${assetPrefix ?? '__default__'}::${asset}`;
+const fetchGobletAsset = (
+  asset: GobletAssetName,
+  assetPrefix?: string,
+  root: GobletAssetRoot = 'goblet'
+): Promise<string> => {
+  const cacheKey = `${assetPrefix ?? '__default__'}::${root}::${asset}`;
   const cached = gobletAssetCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const promise = (async () => {
-    const url = resolveGobletAssetUrl(asset, assetPrefix);
+    const url = resolveGobletAssetUrl(asset, assetPrefix, root);
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`Failed to load Goblet asset ${asset} from ${url} (${response.status})`);
@@ -3087,6 +3151,8 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
 };
 
 const DEFAULT_HTML_TITLE = 'Goblet';
+const GOBLET2_FORMAT = 'vessel-goblet2' as const;
+const GOBLET2_SCHEMA_VERSION = 2;
 
 const sanitizeHtmlTitle = (value: unknown): string => {
   if (typeof value !== 'string') {
@@ -3137,8 +3203,8 @@ const stripAllStaticImports = (content: string): string => {
   return content.replace(/\s*import\s+(?:[\w*$\s{},]+?\s+from\s+)?['\"][^'\"]+['\"];?\s*/g, '\n');
 };
 
-const stripGobletImport = (content: string): string => {
-  return stripModuleImportStatement(content, './goblet.js');
+const stripGobletImport = (content: string, runtimeModulePath = './goblet.js'): string => {
+  return stripModuleImportStatement(content, runtimeModulePath);
 };
 
 const appendZipAutoloadSnippet = (
@@ -3499,13 +3565,14 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
 const buildSingleFileScript = (
   scriptContent: string,
   gobletRuntime: string,
+  runtimeModulePath: string,
   alignRuntime: string,
   numRuntime: string,
   inflateRuntime: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
-  const withoutImport = stripGobletImport(scriptContent);
+  const withoutImport = stripGobletImport(scriptContent, runtimeModulePath);
   const runtimeWithoutAlignImport = stripModuleImportStatement(gobletRuntime, './alignFitResolver.js');
   const runtimeWithoutNumImport = stripModuleImportStatement(runtimeWithoutAlignImport, './num.js');
   const runtimeWithoutInflateImport = stripModuleImportStatement(runtimeWithoutNumImport, './fflate-inflate.js');
@@ -3532,10 +3599,11 @@ const buildSingleFileScript = (
 const buildSingleFileScriptFromBundledRuntime = (
   scriptContent: string,
   bundledRuntime: string,
+  runtimeModulePath: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
-  const withoutImport = stripGobletImport(scriptContent);
+  const withoutImport = stripGobletImport(scriptContent, runtimeModulePath);
   const runtime = bundledRuntime.endsWith('\n') ? bundledRuntime : `${bundledRuntime}\n`;
   const snippet = buildSingleFileRenderSnippet(metadataJson, diagnosticsEnabled);
   return `${runtime}${withoutImport}${snippet}`;
@@ -3558,6 +3626,7 @@ const stripGobletExports = (gobletJs: string): string => {
 const createSingleFileGobletHtml = (
   template: string,
   gobletJs: string,
+  runtimeModulePath: string,
   alignJs: string,
   numJs: string,
   inflateJs: string,
@@ -3598,18 +3667,19 @@ const createSingleFileGobletHtml = (
 
   const runtime = stripGobletExports(gobletJs);
   return transformModuleScript(template, (script) =>
-    buildSingleFileScript(script, runtime, alignJs, numJs, inflateJs, metadataJson, diagnosticsEnabled)
+    buildSingleFileScript(script, runtime, runtimeModulePath, alignJs, numJs, inflateJs, metadataJson, diagnosticsEnabled)
   );
 };
 
 const createSingleFileGobletHtmlFromBundledRuntime = (
   template: string,
   bundledRuntime: string,
+  runtimeModulePath: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
   return transformModuleScript(template, (script) =>
-    buildSingleFileScriptFromBundledRuntime(script, bundledRuntime, metadataJson, diagnosticsEnabled)
+    buildSingleFileScriptFromBundledRuntime(script, bundledRuntime, runtimeModulePath, metadataJson, diagnosticsEnabled)
   );
 };
 
@@ -3626,6 +3696,14 @@ export const exportProjectAsWebGL = async (
 
   try {
     const resolvedHtmlTitle = sanitizeHtmlTitle(options.htmlTitle ?? DEFAULT_HTML_TITLE);
+    const gobletVersion = options.gobletVersion === 'goblet1' ? 'goblet1' : 'goblet2';
+    const gobletFormat: WebGLExportMetadata['format'] = gobletVersion === 'goblet2'
+      ? GOBLET2_FORMAT
+      : 'vessel-goblet';
+    const gobletAssetRoot: GobletAssetRoot = gobletVersion === 'goblet2' ? 'goblet2' : 'goblet';
+    const gobletRuntimeAsset: GobletAssetName = gobletVersion === 'goblet2' ? 'goblet2.js' : 'goblet.js';
+    const gobletInlineAsset: GobletAssetName = gobletVersion === 'goblet2' ? 'goblet2-inline.js' : 'goblet-inline.js';
+    const gobletRuntimeModulePath = gobletVersion === 'goblet2' ? './goblet2.js' : './goblet.js';
 
   const metricsMap = new Map<string, LayerExportMetrics>();
   options.layers.forEach((layer) => {
@@ -3693,7 +3771,9 @@ export const exportProjectAsWebGL = async (
     let documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
 
     let texture = await captureLayerTexture(layer);
-    const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning);
+    const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning, {
+      forceSpeedBuffer: gobletVersion === 'goblet2',
+    });
     const colorCycle = colorCycleResult?.colorCycle;
     const colorCycleRuntime = colorCycleResult?.runtime;
     const brushRuntime = colorCycleRuntime?.brushState;
@@ -3914,7 +3994,7 @@ export const exportProjectAsWebGL = async (
   const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip';
 
   const metadata: WebGLExportMetadata = {
-    format: 'vessel-goblet',
+    format: gobletFormat,
     version: 1,
     exportedAt: new Date().toISOString(),
     project: {
@@ -3924,6 +4004,13 @@ export const exportProjectAsWebGL = async (
       height: options.project.height,
       backgroundColor: options.project.backgroundColor
     },
+    ...(gobletVersion === 'goblet2'
+      ? {
+          colorCycle: {
+            schemaVersion: GOBLET2_SCHEMA_VERSION
+          }
+        }
+      : {}),
     viewport: resolvedViewport,
     container: containerLayout,
     animation: {
@@ -3990,7 +4077,7 @@ export const exportProjectAsWebGL = async (
 
   let indexHtml: string;
   try {
-    indexHtml = await fetchGobletAsset('index.html', options.assetPrefix);
+    indexHtml = await fetchGobletAsset('index.html', options.assetPrefix, gobletAssetRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
       throw new Error(`[webglExporter] Failed to load Goblet template: ${message}`);
@@ -4001,10 +4088,10 @@ export const exportProjectAsWebGL = async (
   const ensureBaseRuntimeAssets = () => {
     if (!baseRuntimeAssetsPromise) {
       baseRuntimeAssetsPromise = Promise.all([
-        fetchGobletAsset('goblet.js', options.assetPrefix),
-        fetchGobletAsset('alignFitResolver.js', options.assetPrefix),
-        fetchGobletAsset('num.js', options.assetPrefix),
-        fetchGobletAsset('fflate-inflate.js', options.assetPrefix)
+        fetchGobletAsset(gobletRuntimeAsset, options.assetPrefix, gobletAssetRoot),
+        fetchGobletAsset('alignFitResolver.js', options.assetPrefix, gobletAssetRoot),
+        fetchGobletAsset('num.js', options.assetPrefix, gobletAssetRoot),
+        fetchGobletAsset('fflate-inflate.js', options.assetPrefix, gobletAssetRoot)
       ]);
     }
     return baseRuntimeAssetsPromise;
@@ -4012,7 +4099,7 @@ export const exportProjectAsWebGL = async (
 
   const loadBundledRuntime = async (): Promise<string | null> => {
     try {
-      return await fetchGobletAsset('goblet-inline.js', options.assetPrefix);
+      return await fetchGobletAsset(gobletInlineAsset, options.assetPrefix, gobletAssetRoot);
     } catch (error) {
       gobletDebugWarn('[webglExporter] Failed to load prebundled Goblet runtime, using legacy inline path', error);
       return null;
@@ -4025,6 +4112,7 @@ export const exportProjectAsWebGL = async (
       const singleFileHtml = createSingleFileGobletHtmlFromBundledRuntime(
         indexHtmlWithTitle,
         bundledRuntime,
+        gobletRuntimeModulePath,
         json,
         diagnosticsEnabled
       );
@@ -4048,6 +4136,7 @@ export const exportProjectAsWebGL = async (
     const singleFileHtml = createSingleFileGobletHtml(
       indexHtmlWithTitle,
       gobletJs,
+      gobletRuntimeModulePath,
       alignJs,
       numJs,
       inflateJs,
@@ -4075,7 +4164,7 @@ export const exportProjectAsWebGL = async (
     const JSZip = await loadJSZip();
     const zip = new JSZip();
     zip.file('index.html', createZipGobletHtml(indexHtmlWithTitle, jsonFilename, json, diagnosticsEnabled));
-    zip.file('goblet.js', gobletJs);
+    zip.file(gobletRuntimeAsset, gobletJs);
     zip.file('alignFitResolver.js', alignJs);
     zip.file('num.js', numJs);
     zip.file('fflate-inflate.js', inflateJs);

@@ -385,6 +385,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       bundleFormat: 'json'
     });
 
+    expect(metadata.format).toBe('vessel-goblet2');
+    expect(metadata.colorCycle?.schemaVersion).toBe(2);
     expect(metadata.layers).toHaveLength(1);
     const exportedLayer = metadata.layers[0];
     expect(exportedLayer.id).toBe('cc-layer');
@@ -420,6 +422,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       bundleFormat: 'json'
     });
 
+    expect(metadata.format).toBe('vessel-goblet2');
+    expect(metadata.colorCycle?.schemaVersion).toBe(2);
     expect(metadata.layers).toHaveLength(1);
     const exportedLayer = metadata.layers[0];
     expect(exportedLayer.id).toBe('cc-brush-layer');
@@ -453,7 +457,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       embedCanvasFallback: false,
       minify: false,
       filenameBase: 'color-cycle-brush-slots',
-      bundleFormat: 'json'
+      bundleFormat: 'json',
+      gobletVersion: 'goblet1'
     });
 
     const exportedLayer = metadata.layers[0];
@@ -673,7 +678,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       embedCanvasFallback: false,
       minify: false,
       filenameBase: 'color-cycle-single',
-      bundleFormat: 'single-html'
+      bundleFormat: 'single-html',
+      gobletVersion: 'goblet1'
     });
 
     expect(fetchMock).toHaveBeenCalled();

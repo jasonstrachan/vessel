@@ -626,7 +626,7 @@ export const useBrushEngineSimplified = () => {
   // Track per-layer CC brush speed for the active layer
   const activeLayerBrushSpeed = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
-    return layer?.colorCycleData?.brushSpeed;
+    return layer?.colorCycleData?.controllerSpeedCps ?? layer?.colorCycleData?.brushSpeed;
   });
   const activeLayerFlowMode = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
@@ -3823,7 +3823,8 @@ export const useBrushEngineSimplified = () => {
       try {
         const state = useAppStore.getState();
         const activeLayer = state.layers.find(l => l.id === activeLayerId);
-        const perLayerSpeed = activeLayer?.colorCycleData?.brushSpeed;
+        const perLayerSpeed = activeLayer?.colorCycleData?.controllerSpeedCps
+          ?? activeLayer?.colorCycleData?.brushSpeed;
         const speed = perLayerSpeed ?? tools.brushSettings.colorCycleSpeed;
         if (speed) {
           colorCycleBrush.setSpeed(speed);
@@ -3884,8 +3885,8 @@ export const useBrushEngineSimplified = () => {
         requestGradientApply(activeLayerId, 'brush-init');
       }
       
-      const flowMode: 'forward' = 'forward';
-      const legacyFlowMode: 'forward' = 'forward';
+      const flowMode = 'forward' as const;
+      const legacyFlowMode = 'forward' as const;
       if (typeof (colorCycleBrush as { setLegacyFlowMode?: (mode: typeof flowMode) => void }).setLegacyFlowMode === 'function') {
         (colorCycleBrush as { setLegacyFlowMode: (mode: typeof flowMode) => void }).setLegacyFlowMode(legacyFlowMode);
       }
@@ -3944,7 +3945,7 @@ export const useBrushEngineSimplified = () => {
     if (!colorCycleBrush) {
       return;
     }
-    const flowMode: 'forward' = 'forward';
+    const flowMode = 'forward' as const;
     if (typeof colorCycleBrush.setFlowMode === 'function') {
       colorCycleBrush.setFlowMode(flowMode);
     } else {
@@ -4872,6 +4873,7 @@ useEffect(() => {
     },
     
     setColorCycleFlowMode: (_mode: 'forward' | 'reverse' | 'pingpong') => {
+      void _mode;
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
         if (typeof colorCycleBrush.setFlowMode === 'function') {

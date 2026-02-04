@@ -7,7 +7,7 @@ import {
   type StoredStop,
   type GradientDefSource,
 } from '@/utils/colorCycleGradientDefs';
-import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
 
 export type MarkGradientSession = {

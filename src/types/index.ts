@@ -67,12 +67,14 @@ export interface ExportContainerLayout {
 }
 
 export type WebGLExportBundleFormat = 'zip' | 'single-html' | 'json';
+export type WebGLExportGobletVersion = 'goblet1' | 'goblet2';
 
 export interface WebGLExportSettings {
   includeHiddenLayers: boolean;
   embedCanvasFallback: boolean;
   minifyOutput: boolean;
   bundleFormat: WebGLExportBundleFormat;
+  gobletVersion: WebGLExportGobletVersion;
   enableGobletDiagnostics: boolean;
   htmlTitle: string;
 }
@@ -204,6 +206,10 @@ export interface Layer {
      * Authoritative slot for new writes (raw slot, 0..255). Never use 255 for paint.
      */
     paintSlot?: number;
+    /**
+     * Global controller speed (cycles per second) used by AnimationController.
+     */
+    controllerSpeedCps?: number;
     /**
      * Legacy gid remap for reserved slots -> dedicated slot.
      */

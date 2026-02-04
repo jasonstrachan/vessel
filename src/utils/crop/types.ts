@@ -21,6 +21,7 @@ export interface ColorCycleBrushResetEntry {
   gradientStops?: Array<{ position: number; color: string }>;
   wasAnimating: boolean;
   brushSpeed?: number;
+  controllerSpeedCps?: number;
   mode?: 'brush' | 'recolor';
   wasActiveLayer: boolean;
   strokeSnapshot?: {

@@ -14,8 +14,8 @@ import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/c
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import {
-  TEMP_SAMPLE_SLOT,
   isTempSampleSlotAvailable,
   resolveActiveGradientSlot,
 } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';

@@ -2,7 +2,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { cloneStops, getNextGradientSlot } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
-import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { quantizeColorCycleSpeed } from '@/utils/colorCycleSpeed';
 
 export type StoredStop = { position: number; color: string };

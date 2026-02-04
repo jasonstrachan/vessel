@@ -446,7 +446,7 @@ const BrushControls = () => {
     setActiveSettings({ colorCycleSpeed: next });
     if (activeLayer?.layerType === 'color-cycle' && activeLayerId) {
       updateLayer(activeLayerId, {
-        colorCycleData: { brushSpeed: next },
+        colorCycleData: { brushSpeed: next, controllerSpeedCps: next },
       });
     }
   }, [activeLayer?.layerType, activeLayerId, setActiveSettings, updateLayer]);

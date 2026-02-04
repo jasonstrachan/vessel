@@ -4839,10 +4839,12 @@ export class ColorCycleBrushCanvas2D {
    * Set flow direction (API compatible)
    */
   setFlowMode(_mode: 'forward' | 'reverse' | 'pingpong') {
+    void _mode;
     this.flowMode = 'forward';
   }
 
   setLegacyFlowMode(_mode: 'forward' | 'reverse' | 'pingpong') {
+    void _mode;
     this.legacyFlowMode = 'forward';
     this.animators.forEach(animator => animator.setFlowMode('forward'));
   }

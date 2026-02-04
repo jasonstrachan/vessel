@@ -1,6 +1,6 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import {
-  TEMP_SAMPLE_SLOT,
   createCcGradientSampleSession,
   isTempSampleSlotAvailable,
   shouldSampleCcGradient,

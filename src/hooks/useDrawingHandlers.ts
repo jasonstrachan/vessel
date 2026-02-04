@@ -19,7 +19,7 @@ import {
   deriveForegroundGradientStops,
   EDITOR_SLOT,
 } from '../utils/colorCycleGradients';
-import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { flushGradientApply, requestGradientApply } from './brushEngine/ccGradientApplyScheduler';
 import type { AppState, CCReason } from '@/stores/useAppStore';
 import {

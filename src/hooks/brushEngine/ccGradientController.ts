@@ -2,7 +2,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { requestGradientApply } from './ccGradientApplyScheduler';
-import { TEMP_SAMPLE_SLOT } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
 export type GradientStop = { position: number; color: string };
 
