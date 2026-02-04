@@ -3,6 +3,8 @@
  * Provides smooth, throttled animations with play/pause/speed controls
  */
 
+import { debugLog } from '@/utils/debug';
+
 export interface AnimationConfig {
   fps?: number;
   speed?: number;
@@ -339,7 +341,8 @@ export class AnimationController {
     if (this.dbg.t >= 1) {
       let doff = this.offset - this.dbg.prevOff;
       if (doff < 0) doff += 1;
-      console.log(
+      debugLog(
+        'cc-anim',
         '[vessel][dbg] dt',
         this.dbg.t.toFixed(3),
         'speed',
