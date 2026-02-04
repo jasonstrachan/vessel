@@ -4,7 +4,7 @@
  */
 
 import { IndexBuffer } from './IndexBuffer';
-import { debugWarn } from '../utils/debug';
+import { debugLog, debugWarn } from '../utils/debug';
 // Debug logs suppressed for color cycle GPU path
 import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
@@ -616,7 +616,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
             + (Math.max(0, Math.min(254, topByte - 1)) / 254)
               * (MAX_BRUSH_COLOR_CYCLE_SPEED - MIN_BRUSH_COLOR_CYCLE_SPEED))
           : null;
-        console.log('[vessel][cc speed stats]', {
+        debugLog('cc-speed', '[vessel][cc speed stats]', {
           layerId: null,
           paletteSize,
           speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,

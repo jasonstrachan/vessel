@@ -1206,6 +1206,11 @@ const resolveExportControllerSpeed = (layer: Layer): number | null => {
     return recolorSpeed;
   }
 
+  const toolSpeed = resolveExportToolSpeed(layer);
+  if (toolSpeed !== null) {
+    return toolSpeed;
+  }
+
   return null;
 };
 
@@ -2482,6 +2487,9 @@ const serializeColorCycleData = async (
 
   const resolvedBrushSpeed = resolveExportBrushSpeed(layer);
   const resolvedControllerSpeed = resolveExportControllerSpeed(layer);
+  const controllerSpeedForExport = data.mode === 'recolor'
+    ? resolvedControllerSpeed
+    : (resolvedControllerSpeed ?? resolvedBrushSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED);
   const shouldAnimate = data.mode === 'recolor'
     ? shouldExportLayerAsAnimating(layer, brushState)
     : true;
@@ -2489,7 +2497,7 @@ const serializeColorCycleData = async (
     mode: data.mode ?? 'brush',
     gradient: data.gradient,
     brushSpeed: resolvedBrushSpeed,
-    controllerSpeedCps: resolvedControllerSpeed,
+    controllerSpeedCps: controllerSpeedForExport,
     speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,
     speedMax: MAX_BRUSH_COLOR_CYCLE_SPEED,
     isAnimating: shouldAnimate
@@ -2682,7 +2690,7 @@ const serializeColorCycleData = async (
       indexBuffer: encodedIndexBuffer ?? [],
       gradientIdBuffer: encodedGradientIdBuffer ?? gradientIdFallback,
       speedBuffer: encodedSpeedBuffer ?? fallbackSpeedBuffer,
-      legacySpeedCps: resolvedControllerSpeed ?? undefined
+      legacySpeedCps: controllerSpeedForExport ?? undefined
     };
     // Flow direction has been removed in-app; normalize export to forward.
     preparedBrushState.flowDirection = 'forward';

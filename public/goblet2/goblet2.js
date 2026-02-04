@@ -395,7 +395,6 @@ const resolveDiagnosticsDefault = () => false;
 
 let diagnosticsEnabled = resolveDiagnosticsDefault();
 
-console.log('[goblet2] runtime version', '2026-02-04-legacyfix-01');
 
 const diagnostics = {
   log: (...args) => {
@@ -2540,7 +2539,14 @@ class BrushWebGLRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
-    gl.uniform1f(this.uniforms.u_time, timeSeconds);
+    // --------------------------------------------------------------------
+    // CC SPEED MULTIPLIER (viewer-only)
+    // Goblet2 currently plays slower than Vessel; multiply time here to
+    // speed up ALL color-cycle animation (legacy + per-pixel speed shader).
+    // Adjust this single constant to tune playback speed.
+    // --------------------------------------------------------------------
+    const CC_TIME_MULTIPLIER = 3.0;
+    gl.uniform1f(this.uniforms.u_time, timeSeconds * CC_TIME_MULTIPLIER);
     gl.uniform1f(this.uniforms.u_legacyOffset01, legacyOffset01);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
@@ -2649,6 +2655,18 @@ const analyzeSpeedBuffer = (speedBuffer) => {
     }
   }
   return { distinctNonZero: seenNonZero === -1 ? 0 : 1, lone: seenNonZero === -1 ? 0 : seenNonZero };
+};
+
+const hasAnyNonZeroSpeedByte = (speedBuffer) => {
+  if (!speedBuffer || !speedBuffer.length) {
+    return false;
+  }
+  for (let i = 0; i < speedBuffer.length; i += 1) {
+    if ((speedBuffer[i] | 0) !== 0) {
+      return true;
+    }
+  }
+  return false;
 };
 
 const downsampleBuffer = (source, srcW, srcH, dstW, dstH) => {
@@ -2916,8 +2934,6 @@ class ColorCycleLayerPlayer {
     this.webglRenderer = null;
     this.webglCanvas = null;
     this.useWebGL = false;
-    this._dbgLegacy = null;
-    this._dbgSpeedStatsLogged = false;
   }
 
   createSurface(width, height) {
@@ -3165,50 +3181,9 @@ class ColorCycleLayerPlayer {
     this.speedMin = toFiniteNumberOrNull(colorCycle.speedMin) ?? DEFAULT_SPEED_MIN;
     this.speedMax = toFiniteNumberOrNull(colorCycle.speedMax) ?? DEFAULT_SPEED_MAX;
     const shouldAnimate = colorCycle.isAnimating !== false;
-    const rawCsc = this.layer?.colorCycle?.controllerSpeedCps;
-    console.log('[goblet2][csc raw]', rawCsc, typeof rawCsc);
     this.isAnimating = shouldAnimate;
     this.usePerPixelSpeed = true;
-    const speedInfo = analyzeSpeedBuffer(this.speedBuffer);
-    this.hasNonZeroSpeedBuffer = speedInfo.distinctNonZero > 0;
-
-    if (!this._dbgSpeedStatsLogged) {
-      const speedBuffer = this.speedBuffer;
-      const length = speedBuffer?.length ?? 0;
-      let zeroCount = 0;
-      let topByte = null;
-      let topCount = 0;
-      if (speedBuffer && length > 0) {
-        const counts = new Uint32Array(256);
-        for (let i = 0; i < length; i += 1) {
-          const sb = speedBuffer[i] | 0;
-          counts[sb] += 1;
-          if (sb === 0) zeroCount += 1;
-        }
-        for (let b = 1; b < 256; b += 1) {
-          const c = counts[b];
-          if (c > topCount) {
-            topCount = c;
-            topByte = b;
-          }
-        }
-      }
-      const paletteSize = this.cycleColors;
-      const percentZero = length > 0 ? (zeroCount / length) * 100 : null;
-      const decodedTop = topByte !== null
-        ? decodeColorCycleSpeedByte(topByte, this.speedMin, this.speedMax)
-        : null;
-      console.log('[goblet2][cc speed stats]', {
-        layerId: this.layer?.id ?? null,
-        paletteSize,
-        speedMin: this.speedMin,
-        speedMax: this.speedMax,
-        percentSpeedByteZero: percentZero,
-        topSpeedByte: topByte,
-        topSpeedByteDecoded: decodedTop
-      });
-      this._dbgSpeedStatsLogged = true;
-    }
+    this.hasNonZeroSpeedBuffer = hasAnyNonZeroSpeedByte(this.speedBuffer);
 
     const offset = Number.isFinite(brushState.animationOffset) ? brushState.animationOffset : 0;
     const exportedControllerSpeed = toFiniteNumberOrNull(brushState?.legacySpeedCps)
@@ -3221,24 +3196,6 @@ class ColorCycleLayerPlayer {
         shouldAnimate
       );
     if (!Number.isFinite(this.legacySpeedCps) || this.legacySpeedCps <= 0) {
-      const dbg = {
-        layerId: this.layer?.id ?? null,
-        shouldAnimate,
-        rawBrushStateKeys: this.layer?.colorCycle?.brushState ? Object.keys(this.layer.colorCycle.brushState) : null,
-        rawCCKeys: this.layer?.colorCycle ? Object.keys(this.layer.colorCycle) : null,
-        brush_legacySpeedCps: this.layer?.colorCycle?.brushState?.legacySpeedCps ?? null,
-        cc_controllerSpeedCps: this.layer?.colorCycle?.controllerSpeedCps ?? null,
-        brush_animationSpeed: this.layer?.colorCycle?.brushState?.animationSpeed ?? null,
-        cc_brushSpeed: this.layer?.colorCycle?.brushSpeed ?? null,
-        resolved_legacySpeedCps: this.legacySpeedCps
-      };
-      console.log('[goblet2][legacy debug]', JSON.stringify(dbg));
-      console.warn('[goblet2] legacySpeedCps missing/invalid, falling back', {
-        layerId: this.layer?.id,
-        legacySpeedCps: this.legacySpeedCps,
-        animationSpeed: this.layer?.colorCycle?.brushState?.animationSpeed,
-        brushSpeed: this.layer?.colorCycle?.brushSpeed
-      });
       this.legacySpeedCps = shouldAnimate
         ? (this.layer?.colorCycle?.brushState?.animationSpeed ?? this.layer?.colorCycle?.brushSpeed ?? 0.1)
         : 0;
@@ -3371,7 +3328,6 @@ class ColorCycleLayerPlayer {
       ? exportedControllerSpeed
       : resolvedSpeed;
     if (!Number.isFinite(this.legacySpeedCps) || this.legacySpeedCps <= 0) {
-      console.warn('[goblet2] legacySpeedCps missing/invalid, falling back:', this.legacySpeedCps);
       const fallback = resolveAnimationSpeed(
         brushState?.animationSpeed,
         colorCycle?.brushSpeed,
@@ -3382,15 +3338,6 @@ class ColorCycleLayerPlayer {
     if (this.isGoblet2 && this.speedMode === 'buffer') {
       this.speed = 0;
     }
-    console.log(
-      '[goblet][speed src]',
-      'brushState.animationSpeed=',
-      brushState?.animationSpeed,
-      'colorCycle.brushSpeed=',
-      colorCycle?.brushSpeed,
-      'resolved=',
-      this.speed
-    );
     const offset = Number.isFinite(brushState.animationOffset) ? brushState.animationOffset : 0;
     this.baseOffset = wrap01(offset);
     this.legacyOffset01 = this.baseOffset;
@@ -3418,49 +3365,10 @@ class ColorCycleLayerPlayer {
       resized.set(this.speedBuffer.subarray(0, Math.min(expectedLength, this.speedBuffer.length)));
       this.speedBuffer = resized;
     }
-    const speedInfo = analyzeSpeedBuffer(this.speedBuffer);
     this.usePerPixelSpeed = this.speedMode === 'buffer' && Boolean(this.speedBuffer && this.speedBuffer.length === expectedLength);
-    this.hasNonZeroSpeedBuffer = this.speedMode === 'buffer' && speedInfo.distinctNonZero > 0;
+    this.hasNonZeroSpeedBuffer = this.speedMode === 'buffer' && hasAnyNonZeroSpeedByte(this.speedBuffer);
     this._distinctSpeedBytes = this.speedMode === 'buffer' ? collectDistinctSpeedBytes(this.speedBuffer) : null;
     this._usedSlots = collectDistinctSlots(this.gradientIdBuffer);
-
-    if (!this._dbgSpeedStatsLogged) {
-      const speedBuffer = this.speedBuffer;
-      const length = speedBuffer?.length ?? 0;
-      let zeroCount = 0;
-      let topByte = null;
-      let topCount = 0;
-      if (speedBuffer && length > 0) {
-        const counts = new Uint32Array(256);
-        for (let i = 0; i < length; i += 1) {
-          const sb = speedBuffer[i] | 0;
-          counts[sb] += 1;
-          if (sb === 0) zeroCount += 1;
-        }
-        for (let b = 1; b < 256; b += 1) {
-          const c = counts[b];
-          if (c > topCount) {
-            topCount = c;
-            topByte = b;
-          }
-        }
-      }
-      const paletteSize = this.cycleColors;
-      const percentZero = length > 0 ? (zeroCount / length) * 100 : null;
-      const decodedTop = topByte !== null
-        ? decodeColorCycleSpeedByte(topByte, this.speedMin, this.speedMax)
-        : null;
-      console.log('[goblet2][cc speed stats]', {
-        layerId: this.layer?.id ?? null,
-        paletteSize,
-        speedMin: this.speedMin,
-        speedMax: this.speedMax,
-        percentSpeedByteZero: percentZero,
-        topSpeedByte: topByte,
-        topSpeedByteDecoded: decodedTop
-      });
-      this._dbgSpeedStatsLogged = true;
-    }
     this._lutCacheBase.clear();
     this._lutCacheSlots.clear();
     this._lutCacheBands = null;
@@ -3596,32 +3504,6 @@ class ColorCycleLayerPlayer {
     this._lastDeltaSeconds = deltaSeconds;
     this.baseTimeSeconds += deltaSeconds;
     this.legacyOffset01 = wrap01(this.legacyOffset01 + deltaSeconds * (this.legacySpeedCps || 0));
-    if (this._dbgLegacy) {
-      const dbg = this._dbgLegacy;
-      dbg.t += deltaSeconds;
-      const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now();
-      if (now - dbg.last > 1000) {
-        let dLegacy = this.legacyOffset01 - dbg.prevLegacy;
-        if (dLegacy < 0) dLegacy += 1;
-        const dt = dbg.t || 0;
-        console.log(
-          '[goblet2][dbg]',
-          'dt',
-          dt.toFixed(3),
-          'legacyOffset',
-          this.legacyOffset01.toFixed(4),
-          'legacyCyclesPerSec',
-          dt > 0 ? (dLegacy / dt).toFixed(4) : '0.0000',
-          'timeSeconds',
-          this.baseTimeSeconds.toFixed(3)
-        );
-        dbg.prevLegacy = this.legacyOffset01;
-        dbg.t = 0;
-        dbg.last = now;
-      }
-    }
     this.renderFrame();
     return true;
   }
@@ -3630,22 +3512,12 @@ class ColorCycleLayerPlayer {
     if (!this.indexBuffer) {
       return;
     }
-    if (!this._dbgLegacy) {
-      const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now();
-      this._dbgLegacy = {
-        t: 0,
-        prevLegacy: this.legacyOffset01,
-        prevTime: this.baseTimeSeconds,
-        last: now
-      };
-    }
     if (this.useWebGL && this.webglRenderer) {
       this.webglRenderer.render(this.baseTimeSeconds, this.legacyOffset01);
       return;
     }
-    const profileEnabled = typeof window !== 'undefined'
+    const profileEnabled = diagnosticsEnabled
+      && typeof window !== 'undefined'
       && window.localStorage
       && window.localStorage.getItem('vesselGobletProfile') === 'true';
     const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -3817,7 +3689,7 @@ class ColorCycleLayerPlayer {
         const fillEnd = profileEnabled ? profileNow() : 0;
         fillMs = fillEnd - fillStart;
         if (profileEnabled) {
-          console.log(
+          diagnostics.log(
             '[goblet][profile] renderFrame(per-pixel/slots)',
             this.layer?.id ?? null,
             `layerSpeed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
@@ -3843,7 +3715,7 @@ class ColorCycleLayerPlayer {
         const fillEnd = profileEnabled ? profileNow() : 0;
         fillMs = fillEnd - fillStart;
         if (profileEnabled) {
-          console.log(
+          diagnostics.log(
             '[goblet][profile] renderFrame(per-pixel)',
             this.layer?.id ?? null,
             `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
@@ -3852,19 +3724,15 @@ class ColorCycleLayerPlayer {
           );
         }
       }
-    const putStart = profileEnabled ? profileNow() : 0;
-    this.ctx.putImageData(this.imageData, 0, 0);
-    const putEnd = profileEnabled ? profileNow() : 0;
-    if (profileEnabled) {
-      console.log('[goblet][profile] blit', `put=${(putEnd - putStart).toFixed(2)}ms`);
+      this.ctx.putImageData(this.imageData, 0, 0);
+      if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
+        this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
+      }
+      this.maybeAdjustRenderScale(nowMs, fillMs);
+      return;
     }
-    if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
-      this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
-    }
-    this.maybeAdjustRenderScale(nowMs, fillMs);
-    return;
-  }
+
     const lutStart = profileEnabled ? profileNow() : 0;
     const speed = Number.isFinite(this.speed) ? this.speed : 0;
     const slotSpeedMap = this.slotSpeeds;
@@ -3916,7 +3784,7 @@ class ColorCycleLayerPlayer {
         const fillEnd = profileEnabled ? profileNow() : 0;
         fillMs = fillEnd - fillStart;
         if (profileEnabled) {
-          console.log(
+          diagnostics.log(
             '[goblet][profile] renderFrame(slots)',
             this.layer?.id ?? null,
             `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
@@ -3934,7 +3802,7 @@ class ColorCycleLayerPlayer {
         const fillEnd = profileEnabled ? profileNow() : 0;
         fillMs = fillEnd - fillStart;
         if (profileEnabled) {
-          console.log(
+          diagnostics.log(
             '[goblet][profile] renderFrame',
             this.layer?.id ?? null,
             `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
@@ -3950,7 +3818,7 @@ class ColorCycleLayerPlayer {
       const fillEnd = profileEnabled ? profileNow() : 0;
       fillMs = fillEnd - fillStart;
       if (profileEnabled) {
-        console.log(
+        diagnostics.log(
           '[goblet][profile] renderFrame(phaseMap)',
           this.layer?.id ?? null,
           `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
@@ -3959,12 +3827,7 @@ class ColorCycleLayerPlayer {
         );
       }
     }
-    const putStart = profileEnabled ? profileNow() : 0;
     this.ctx.putImageData(this.imageData, 0, 0);
-    const putEnd = profileEnabled ? profileNow() : 0;
-    if (profileEnabled) {
-      console.log('[goblet][profile] blit', `put=${(putEnd - putStart).toFixed(2)}ms`);
-    }
     if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
       this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
@@ -4364,32 +4227,34 @@ class VesselGoblet {
       .map((entry) => entry.player)
       .filter((player) => player && player.hasAnimation());
 
-    for (const entry of entries) {
-      const p = entry.player;
-      const isCC = !!entry.layer?.colorCycle;
-      if (!isCC) continue;
-      console.log(
-        '[goblet2][cc]',
-        JSON.stringify({
-          layerId: entry.layer?.id ?? null,
-          playerCreated: !!p,
-          initOk: !!p && !!p.indexBuffer,
-          hasAnimation: (typeof p?.hasAnimation === 'function') ? p.hasAnimation() : null,
-          mode: p?.mode ?? null,
-          isAnimating: p?.isAnimating ?? null,
-          usePerPixelSpeed: p?.usePerPixelSpeed ?? null,
-          hasSpeedBuffer: !!p?.speedBuffer,
-          hasNonZeroSpeedBuffer: p?.hasNonZeroSpeedBuffer ?? null,
-          speed: Number.isFinite(p?.speed) ? p.speed : null,
-          legacySpeedCps: Number.isFinite(p?.legacySpeedCps) ? p.legacySpeedCps : null,
-          cycleColors: Number.isFinite(p?.cycleColors) ? p.cycleColors : null,
-          indexLen: p?.indexBuffer?.length ?? null,
-          gidLen: p?.gradientIdBuffer?.length ?? null,
-          speedLen: p?.speedBuffer?.length ?? null
-        })
-      );
+    if (diagnosticsEnabled) {
+      for (const entry of entries) {
+        if (!entry.layer?.colorCycle) {
+          continue;
+        }
+        const player = entry.player;
+        diagnostics.log(
+          '[goblet2][cc]',
+          JSON.stringify({
+            layerId: entry.layer?.id ?? null,
+            playerCreated: !!player,
+            initOk: !!player && !!player.indexBuffer,
+            hasAnimation: (typeof player?.hasAnimation === 'function') ? player.hasAnimation() : null,
+            mode: player?.mode ?? null,
+            isAnimating: player?.isAnimating ?? null,
+            usePerPixelSpeed: player?.usePerPixelSpeed ?? null,
+            hasSpeedBuffer: !!player?.speedBuffer,
+            hasNonZeroSpeedBuffer: player?.hasNonZeroSpeedBuffer ?? null,
+            speed: Number.isFinite(player?.speed) ? player.speed : null,
+            legacySpeedCps: Number.isFinite(player?.legacySpeedCps) ? player.legacySpeedCps : null,
+            cycleColors: Number.isFinite(player?.cycleColors) ? player.cycleColors : null,
+            indexLen: player?.indexBuffer?.length ?? null,
+            gidLen: player?.gradientIdBuffer?.length ?? null,
+            speedLen: player?.speedBuffer?.length ?? null
+          })
+        );
+      }
     }
-    console.log('[goblet2] dynamicPlayers', this.dynamicPlayers.length);
 
     const textureless = entries
       .filter((entry) => entry.layer.visible !== false)
@@ -4662,7 +4527,7 @@ class VesselGoblet {
       return;
     }
     this.stop();
-    this.lastTimestamp = performance.now();
+    this.lastTimestamp = 0;
     this.rafId = requestAnimationFrame(this.handleAnimationFrame);
   }
 
@@ -4701,7 +4566,7 @@ class VesselGoblet {
       return;
     }
     if (this.rafId === null && this.dynamicPlayers.length > 0) {
-      this.lastTimestamp = performance.now();
+      this.lastTimestamp = 0;
       this.rafId = requestAnimationFrame(this.handleAnimationFrame);
     }
   }
@@ -4805,14 +4670,20 @@ class VesselGoblet {
     if (this.destroyed) {
       return;
     }
-    const profileEnabled = typeof window !== 'undefined'
+    if (!this.lastTimestamp || timestamp <= this.lastTimestamp) {
+      this.lastTimestamp = timestamp;
+      this.rafId = requestAnimationFrame(this.handleAnimationFrame);
+      return;
+    }
+    const profileEnabled = diagnosticsEnabled
+      && typeof window !== 'undefined'
       && window.localStorage
       && window.localStorage.getItem('vesselGobletProfile') === 'true';
     const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
       : Date.now());
     const advanceStart = profileEnabled ? profileNow() : 0;
-    const delta = Math.max(0, (timestamp - this.lastTimestamp) / 1000);
+    const delta = (timestamp - this.lastTimestamp) / 1000;
     this.lastTimestamp = timestamp;
     let needsRender = false;
     for (const player of this.dynamicPlayers) {
@@ -4830,7 +4701,7 @@ class VesselGoblet {
     }
     if (profileEnabled) {
       const fps = delta > 0 ? (1 / delta) : 0;
-      console.log(
+      diagnostics.log(
         '[goblet][profile] frame',
         `advance=${(advanceEnd - advanceStart).toFixed(2)}ms`,
         `render=${renderStart ? (renderEnd - renderStart).toFixed(2) : '0.00'}ms`,
