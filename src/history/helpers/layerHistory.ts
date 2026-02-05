@@ -78,7 +78,39 @@ const bufferToU8 = (
   return null;
 };
 
-const inferFallbackRoiFromStateDiff = (
+const findDiffBounds = (
+  beforeBytes: Uint8Array,
+  afterBytes: Uint8Array,
+  width: number,
+  height: number,
+  stride: number
+): { minX: number; minY: number; maxX: number; maxY: number } | null => {
+  const step = Math.max(1, Math.floor(stride));
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += step) {
+    const row = y * width;
+    for (let x = 0; x < width; x += step) {
+      const idx = row + x;
+      if (beforeBytes[idx] !== afterBytes[idx]) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) {
+    return null;
+  }
+  return { minX, minY, maxX, maxY };
+};
+
+export const inferFallbackRoiFromStateDiff = (
   before: ColorCycleSerializedState,
   after: ColorCycleSerializedState,
   width: number,
@@ -97,33 +129,22 @@ const inferFallbackRoiFromStateDiff = (
   }
 
   const minStride = Math.max(1, Math.floor(stride));
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-
-  for (let y = 0; y < height; y += minStride) {
-    const row = y * width;
-    for (let x = 0; x < width; x += minStride) {
-      const idx = row + x;
-      if (beforeBytes[idx] !== afterBytes[idx]) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-      }
-    }
+  let bounds = findDiffBounds(beforeBytes, afterBytes, width, height, minStride);
+  let padStride = minStride;
+  if (!bounds && minStride > 1) {
+    bounds = findDiffBounds(beforeBytes, afterBytes, width, height, 1);
+    padStride = 1;
   }
 
-  if (maxX < 0 || maxY < 0) {
+  if (!bounds) {
     return null;
   }
 
-  const pad = minStride * 2;
-  const x = Math.max(0, minX - pad);
-  const y = Math.max(0, minY - pad);
-  const right = Math.min(width, maxX + pad);
-  const bottom = Math.min(height, maxY + pad);
+  const pad = Math.max(2, padStride * 2);
+  const x = Math.max(0, bounds.minX - pad);
+  const y = Math.max(0, bounds.minY - pad);
+  const right = Math.min(width, bounds.maxX + pad);
+  const bottom = Math.min(height, bounds.maxY + pad);
   const roiWidth = Math.max(1, right - x);
   const roiHeight = Math.max(1, bottom - y);
   return { x, y, width: roiWidth, height: roiHeight };

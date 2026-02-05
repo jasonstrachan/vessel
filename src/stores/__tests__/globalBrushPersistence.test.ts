@@ -81,6 +81,20 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('restores per-brush shape mode for mosaic', async () => {
+    loadMock.mockReturnValue({
+      shapeModeByBrush: { mosaic: true },
+      lastBrushId: 'mosaic',
+    });
+
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
+
+    expect(state.shapeModeByBrush?.mosaic).toBe(true);
+    expect(state.currentBrushPreset?.id).toBe('mosaic');
+    expect(state.tools.shapeMode).toBe(true);
+  });
+
   it('remembers polygon sampling toggle per brush', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {

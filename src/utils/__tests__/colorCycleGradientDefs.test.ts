@@ -102,4 +102,49 @@ describe('colorCycleGradientDefs', () => {
       })
     ).toThrow(/Slot overwrite blocked/);
   });
+
+  it('rebuilds slots on allocation failure and succeeds', () => {
+    const slotPalettes = Array.from({ length: 254 }, (_, slot) => ({
+      slot,
+      stops: baseStops,
+    }));
+    const defHash = hashStops(baseStops, 'linear');
+    const gradientDefStore = Array.from({ length: 254 }, (_, index) => ({
+      id: index + 1,
+      kind: 'linear' as const,
+      stops: baseStops,
+      hash: defHash,
+      source: 'manual' as const,
+      createdAtMs: 0,
+      slot: index,
+    }));
+    const gradientDefIdBuffer = new Uint16Array([1, 1, 1, 1]).buffer;
+    const layer = createLayer({
+      colorCycleData: {
+        slotPalettes,
+        gradientDefs: [],
+        gradientDefStore,
+        gradientDefIdBuffer,
+        nextGradientDefId: 255,
+      },
+    });
+
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const stateLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    expect(stateLayer?.colorCycleData?.gradientDefStore?.length).toBe(254);
+    expect(stateLayer?.colorCycleData?.gradientDefIdBuffer).toBeDefined();
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: altStops,
+      source: 'manual',
+    });
+
+    expect(result).not.toBeNull();
+    const updatedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    const updatedStore = updatedLayer?.colorCycleData?.gradientDefStore ?? [];
+    const deadDef = updatedStore.find((entry) => entry.id === 2);
+    expect(deadDef?.slot).toBeUndefined();
+  });
 });

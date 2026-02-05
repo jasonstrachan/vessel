@@ -89,6 +89,11 @@ import {
   stopContinuousColorCycleAnimationCore as stopContinuousColorCycleAnimationCoreExternal,
 } from '@/hooks/canvas/handlers/colorCycle/colorCyclePlayback';
 import {
+  rebuildGradientSlotUsageAndGC,
+  rebuildOnDemandAndRetryAllocate,
+  buildDefaultReservedSlots,
+} from '@/utils/colorCycleSlotGC';
+import {
   finalizeColorCycleBrush as finalizeColorCycleBrushExternal,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleFinalize';
 import {
@@ -203,6 +208,7 @@ import {
   resolveActiveColorCycleGradient,
 } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { getColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFlags';
+import { getCcEffectiveSpacing } from '@/hooks/canvas/utils/ccSpacing';
 import { resolveActiveCustomBrushData } from '@/hooks/canvas/utils/customBrushData';
 import { resolveBrushRotation } from '@/hooks/canvas/utils/brushRotation';
 import {
@@ -261,6 +267,34 @@ export {
 // 5) Tool flows: selection/crop, recolor sampling, shapes
 // 6) Color-cycle pipeline + history/commit/finalize
 // 7) Cleanup + __TESTING__ exports
+
+const runProjectSlotRebuild = (layerId: string) => {
+  const state = useAppStore.getState();
+  const result = rebuildGradientSlotUsageAndGC({
+    layers: state.layers,
+    scope: 'project',
+    reservedSlots: buildDefaultReservedSlots(),
+  });
+  if (!result) {
+    return null;
+  }
+  if (result.missingDefLayers && result.missingDefLayers.length > 0) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[CC] Slot GC aborted due to missing defs', {
+        layerId,
+        missingDefLayers: result.missingDefLayers,
+      });
+    }
+    return result;
+  }
+  result.updates.forEach((update) => {
+    state.updateLayer(update.layerId, { colorCycleData: update.colorCycleData });
+  });
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+    console.info('[CC] Slot GC rebuild summary', { layerId, ...result.stats });
+  }
+  return result;
+};
 
 // Pressure tuning shared with brush engine
 const MAX_PRESSURE_DECAY_PER_MS = 0.003;
@@ -487,14 +521,46 @@ export function useDrawingHandlers({
       defSlots.forEach((slot) => usedSlots.add(slot));
       usedSlots.add(EDITOR_SLOT);
       usedSlots.add(TEMP_SAMPLE_SLOT);
-      const nextSlot = getNextGradientSlot(usedSlots);
-      if (nextSlot !== null) {
-        targetSlot = nextSlot;
-        nextSlotPalettes = [...slotPalettes, { slot: nextSlot, stops: cloneStops(derivedStops) }];
+      const assignDerivedSlot = (slot: number | null) => {
+        if (slot === null) {
+          return;
+        }
+        targetSlot = slot;
+        nextSlotPalettes = [...slotPalettes, { slot, stops: cloneStops(derivedStops) }];
         nextDerivedGradients = [
           ...derivedGradients,
-          { key: derivedSpec.key, slot: nextSlot, spec: derivedSpec }
+          { key: derivedSpec.key, slot, spec: derivedSpec }
         ];
+      };
+      const nextSlot = getNextGradientSlot(usedSlots);
+      if (nextSlot !== null) {
+        assignDerivedSlot(nextSlot);
+      } else {
+        rebuildOnDemandAndRetryAllocate({
+          attemptAllocate: () => {
+            const retryUsed = new Set<number>();
+            const latest = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+            const latestData = latest?.colorCycleData;
+            latestData?.slotPalettes?.forEach((entry) => retryUsed.add(entry.slot));
+            latestData?.gradientDefs?.forEach((entry) => retryUsed.add(entry.currentSlot));
+            latestData?.gradientDefStore?.forEach((entry) => {
+              if (typeof entry.slot === 'number') {
+                retryUsed.add(entry.slot);
+              }
+            });
+            retryUsed.add(EDITOR_SLOT);
+            retryUsed.add(TEMP_SAMPLE_SLOT);
+            const retrySlot = getNextGradientSlot(retryUsed);
+            if (retrySlot !== null) {
+              assignDerivedSlot(retrySlot);
+              return retrySlot;
+            }
+            return null;
+          },
+          runRebuild: () => runProjectSlotRebuild(layer.id),
+          throttleKey: `cc-slot-rebuild:fg:${layer.id}`,
+          throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
+        });
       }
     }
 
@@ -1917,8 +1983,7 @@ export function useDrawingHandlers({
             }
           }
 
-          const rawSpacing = currentState.tools.brushSettings.spacing || 1;
-          const zoom = Math.max(1e-3, currentState.canvas?.zoom ?? 1);
+          const effectiveSpacing = getCcEffectiveSpacing(currentState);
           const pausedForStart = !selectEffectiveColorCyclePlaying(currentState);
           const pixelQueue = colorCyclePixelQueue.current ?? (() => {
             const queue = createPixelQueue();
@@ -1928,9 +1993,8 @@ export function useDrawingHandlers({
           const brushSize = currentState.tools.brushSettings.size || 1;
           const recomposeHalf = Math.ceil(brushSize / 2) + 2;
           const spacingScreenPx = pausedForStart
-            ? Math.max(1, Math.round(rawSpacing * 1.25))
-            : rawSpacing;
-          const effectiveSpacing = Math.max(1e-3, spacingScreenPx / zoom);
+            ? Math.max(1, Math.round(effectiveSpacing * 1.25))
+            : effectiveSpacing;
           const markDirty = (cx: number, cy: number) => {
             if (!pausedForStart) {
               return;
@@ -1967,7 +2031,7 @@ export function useDrawingHandlers({
               );
               colorCycleLastRotationRef.current = nextRotation;
 
-              if (colorCycleDistanceRef.current >= effectiveSpacing) {
+              if (colorCycleDistanceRef.current >= spacingScreenPx) {
                 const targetCtx = getCCStampTargetCtx();
                 if (!targetCtx) return;
                 targetCtx.globalCompositeOperation = 'source-over';
@@ -1980,7 +2044,7 @@ export function useDrawingHandlers({
                   });
                 });
                 markDirty(stampX, stampY);
-                colorCycleDistanceRef.current = Math.max(0, colorCycleDistanceRef.current - effectiveSpacing);
+                colorCycleDistanceRef.current = Math.max(0, colorCycleDistanceRef.current - spacingScreenPx);
               }
             } else {
               const targetCtx = getCCStampTargetCtx();
@@ -2017,7 +2081,7 @@ export function useDrawingHandlers({
             );
             colorCycleLastRotationRef.current = nextRotation;
 
-            if (colorCycleDistanceRef.current >= effectiveSpacing) {
+            if (colorCycleDistanceRef.current >= spacingScreenPx) {
               const targetCtx = getCCStampTargetCtx();
               if (!targetCtx) return;
               targetCtx.globalCompositeOperation = 'source-over';
@@ -2028,7 +2092,7 @@ export function useDrawingHandlers({
                 brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, rotation);
               });
               markDirty(stampX, stampY);
-              colorCycleDistanceRef.current = Math.max(0, colorCycleDistanceRef.current - effectiveSpacing);
+              colorCycleDistanceRef.current = Math.max(0, colorCycleDistanceRef.current - spacingScreenPx);
             }
           } else {
             const targetCtx = getCCStampTargetCtx();

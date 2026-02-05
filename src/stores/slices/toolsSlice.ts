@@ -18,7 +18,7 @@ import {
   brushPresets,
   applyBrushPreset,
   defaultBrushSettings,
-  pixelBrushPreset,
+  mosaicBrushPreset,
 } from '@/presets/brushPresets';
 import {
   PressureSettings,
@@ -51,7 +51,7 @@ const DEBUG_LOSTEDGE =
 type AppState = import('../useAppStore').AppState;
 type RecolorSamplingState = AppState['recolorSampling'];
 
-const initialBrushPreset = pixelBrushPreset;
+const initialBrushPreset = mosaicBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
 const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
 
@@ -197,6 +197,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   gradientBands: settings.gradientBands,
   gradientLength: settings.gradientLength,
   colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
+  ccGradientSource: settings.ccGradientSource,
   continuousSampling: settings.continuousSampling,
   resampleInterval: settings.resampleInterval,
   polygonSampleColors: settings.polygonSampleColors,
@@ -244,6 +245,7 @@ export interface ToolsSlice {
   recolorSampling: RecolorSamplingState;
   brushEditor: BrushEditorState;
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
+  shapeModeByBrush: Record<string, boolean>;
   setShapeDrawing: (isDrawing: boolean) => void;
   addShapePoint: (point: ShapePoint) => void;
   clearShapePoints: () => void;
@@ -312,6 +314,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   recolorSampling: createDefaultRecolorSamplingState(),
   brushEditor: defaultBrushEditorState,
   brushSpecificSettings: {},
+  shapeModeByBrush: {},
 
   setShapeDrawing: (isDrawing) =>
     set((state) => ({
@@ -818,6 +821,30 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleSpeed !== undefined) {
         settingsToSave.colorCycleSpeed = newSettings.colorCycleSpeed;
       }
+      if (settings.ccGradientSource !== undefined) {
+        settingsToSave.ccGradientSource = newSettings.ccGradientSource;
+      }
+      if (settings.mosaicTilePx !== undefined) {
+        settingsToSave.mosaicTilePx = newSettings.mosaicTilePx;
+      }
+      if (settings.mosaicBlocksCount !== undefined) {
+        settingsToSave.mosaicBlocksCount = newSettings.mosaicBlocksCount;
+      }
+      if (settings.mosaicPaletteCount !== undefined) {
+        settingsToSave.mosaicPaletteCount = newSettings.mosaicPaletteCount;
+      }
+      if (settings.mosaicSegmentPx !== undefined) {
+        settingsToSave.mosaicSegmentPx = newSettings.mosaicSegmentPx;
+      }
+      if (settings.mosaicSegmentJitter !== undefined) {
+        settingsToSave.mosaicSegmentJitter = newSettings.mosaicSegmentJitter;
+      }
+      if (settings.mosaicDitherEnabled !== undefined) {
+        settingsToSave.mosaicDitherEnabled = newSettings.mosaicDitherEnabled;
+      }
+      if (settings.mosaicSeed !== undefined) {
+        settingsToSave.mosaicSeed = newSettings.mosaicSeed;
+      }
       if (settings.colorCycleFlowMode !== undefined) {
         settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
       }
@@ -905,6 +932,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     
     // Clear temporary brush when switching away from custom brushes
     let nextCcGradientSource = state.tools.ccGradientSource;
+    if (Object.prototype.hasOwnProperty.call(settings, 'ccGradientSource')) {
+      const desired = settings.ccGradientSource;
+      if (desired) {
+        nextCcGradientSource = desired;
+      }
+    }
     if (Object.prototype.hasOwnProperty.call(settings, 'colorCycleUseForegroundGradient')) {
       if (settings.colorCycleUseForegroundGradient) {
         nextCcGradientSource = 'fg';
@@ -919,6 +952,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         nextCcGradientSource = 'manual';
       }
     }
+
+    newSettings.ccGradientSource = nextCcGradientSource;
 
     let updatedState = {
       ...state,
@@ -1099,36 +1134,30 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       fillSettings: { ...state.tools.fillSettings, ...settings }
     }
   })),
-  setCcGradientSource: (source) => set((state) => {
+  setCcGradientSource: (source) => {
     const nextSource = source ?? 'manual';
-    const nextBrushSettings: BrushSettings = {
-      ...state.tools.brushSettings,
+    const updates: Partial<BrushSettings> = {
+      ccGradientSource: nextSource,
     };
 
     if (nextSource === 'fg') {
-      nextBrushSettings.colorCycleUseForegroundGradient = true;
-      nextBrushSettings.autoSampleGradient = false;
-      nextBrushSettings.autoSampleGradientRealtime = false;
-      nextBrushSettings.ccGradientSamplePerShape = false;
+      updates.colorCycleUseForegroundGradient = true;
+      updates.autoSampleGradient = false;
+      updates.autoSampleGradientRealtime = false;
+      updates.ccGradientSamplePerShape = false;
     } else if (nextSource === 'sampled') {
-      nextBrushSettings.colorCycleUseForegroundGradient = false;
-      nextBrushSettings.autoSampleGradient = false;
-      nextBrushSettings.autoSampleGradientRealtime = false;
-      nextBrushSettings.ccGradientSamplePerShape = false;
+      updates.colorCycleUseForegroundGradient = false;
+      updates.autoSampleGradient = false;
+      updates.autoSampleGradientRealtime = false;
+      updates.ccGradientSamplePerShape = false;
     } else {
-      nextBrushSettings.colorCycleUseForegroundGradient = false;
-      nextBrushSettings.autoSampleGradient = false;
-      nextBrushSettings.autoSampleGradientRealtime = false;
+      updates.colorCycleUseForegroundGradient = false;
+      updates.autoSampleGradient = false;
+      updates.autoSampleGradientRealtime = false;
     }
 
-    return {
-      tools: {
-        ...state.tools,
-        ccGradientSource: nextSource,
-        brushSettings: nextBrushSettings,
-      }
-    };
-  }),
+    get().setBrushSettings(updates);
+  },
   setCcGradientSampleCount: (count) => set(() => ({
     ccGradientSampleCount: Math.max(0, Math.round(count)),
   })),
@@ -1209,7 +1238,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const isCC = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
                   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
                   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    const activeBrushId = state.currentBrushPreset?.id ?? null;
+    const nextShapeModeByBrush = activeBrushId
+      ? { ...state.shapeModeByBrush, [activeBrushId]: enabled }
+      : state.shapeModeByBrush;
     return {
+      ...(nextShapeModeByBrush !== state.shapeModeByBrush
+        ? { shapeModeByBrush: nextShapeModeByBrush }
+        : {}),
       tools: {
         ...state.tools,
         shapeMode: enabled,
@@ -1297,9 +1333,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           newShapeMode = false;
         } else if (!currentToolSupportsShapes && nextToolSupportsShapes) {
           const nextIsColorCycleBrush = isColorCycleBrushShape(newBrushSettings.brushShape);
+          const mosaicShapeMode = state.currentBrushPreset?.id === 'mosaic'
+            ? state.shapeModeByBrush['mosaic']
+            : undefined;
           newShapeMode = nextIsColorCycleBrush
             ? (lastColorCycleShapeMode ?? false)
-            : (lastRegularShapeMode ?? false);
+            : (mosaicShapeMode ?? lastRegularShapeMode ?? false);
         }
 
         if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser' || state.tools.currentTool === 'custom') &&
@@ -1622,6 +1661,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     } else if (preset.id === 'color-cycle-stroke') {
       newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
     }
+
+    let nextCcGradientSource = newBrushSettings.ccGradientSource ?? state.tools.ccGradientSource ?? 'manual';
+    if (newBrushSettings.colorCycleUseForegroundGradient) {
+      nextCcGradientSource = 'fg';
+    } else if (newBrushSettings.autoSampleGradientRealtime || newBrushSettings.autoSampleGradient) {
+      nextCcGradientSource = 'sampled';
+    }
+    newBrushSettings.ccGradientSource = nextCcGradientSource;
     
     // Decide shapeMode based on brush domain (Color Cycle vs regular)
     const isNewCC = newBrushSettings.brushShape === BrushShape.COLOR_CYCLE ||
@@ -1650,7 +1697,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     } else {
       // Non-CC brushes should not inherit CC shape mode
-      nextShapeMode = wasShapeFillBrush ? false : state.tools.lastRegularShapeMode ?? false;
+      if (preset.id === 'mosaic') {
+        nextShapeMode = state.shapeModeByBrush[preset.id] ?? false;
+      } else {
+        nextShapeMode = wasShapeFillBrush ? false : state.tools.lastRegularShapeMode ?? false;
+      }
     }
 
     // Clear temporary brush when switching away from custom brushes
@@ -1664,6 +1715,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       globalBrushSize: appropriateSize, // Update global size to match new brush
       tools: {
         ...state.tools,
+        ccGradientSource: nextCcGradientSource,
         // Keep shapeMode separate between CC and default brushes
         shapeMode: nextShapeMode,
         ...(isNewCC

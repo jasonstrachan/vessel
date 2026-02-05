@@ -317,6 +317,7 @@ export interface AppState {
   
   // Brush-specific settings storage
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
+  shapeModeByBrush: Record<string, boolean>;
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
   loadBrushSettings: (brushId: string) => Partial<BrushSettings>;
   clearBrushSettings: (brushId: string) => void;
@@ -530,6 +531,8 @@ export interface AppState {
   setLayers: (layers: Layer[]) => void;
   setReferenceLayer: (id: string | null) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
+  scheduleColorCycleSlotRebuild: (reason: string) => void;
+  runColorCycleSlotRebuild: (reason: string) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   
@@ -848,6 +851,16 @@ const hydrateGlobalBrushSettings = (): void => {
         }
       }
     }
+    if (payload.shapeModeByBrush && typeof payload.shapeModeByBrush === 'object') {
+      partial.shapeModeByBrush = payload.shapeModeByBrush;
+      const activePresetId = state.currentBrushPreset?.id ?? null;
+      if (activePresetId && typeof payload.shapeModeByBrush[activePresetId] === 'boolean') {
+        nextTools = {
+          ...nextTools,
+          shapeMode: payload.shapeModeByBrush[activePresetId],
+        };
+      }
+    }
 
     if (payload.pressureSettings) {
       const pressureUpdates = {
@@ -926,6 +939,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
   storeSubscribeWithSelector(
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
+      shapeModeByBrush: state.shapeModeByBrush,
       globalBrushSize: state.globalBrushSize,
       pressureSettings: state.pressureSettings,
       lastBrushId: getActiveBrushStorageId(state),
@@ -933,6 +947,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
     (next, prev) => {
       if (
         next.brushSpecificSettings === prev.brushSpecificSettings &&
+        next.shapeModeByBrush === prev.shapeModeByBrush &&
         next.globalBrushSize === prev.globalBrushSize &&
         next.pressureSettings === prev.pressureSettings &&
         next.lastBrushId === prev.lastBrushId
@@ -943,6 +958,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
       scheduleSave({
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
+        shapeModeByBrush: next.shapeModeByBrush,
         pressureSettings: next.pressureSettings,
         lastBrushId: next.lastBrushId ?? undefined,
       });
@@ -950,6 +966,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
     {
       equalityFn: (a, b) =>
         a.brushSpecificSettings === b.brushSpecificSettings &&
+        a.shapeModeByBrush === b.shapeModeByBrush &&
         a.globalBrushSize === b.globalBrushSize &&
         a.pressureSettings === b.pressureSettings &&
         a.lastBrushId === b.lastBrushId,

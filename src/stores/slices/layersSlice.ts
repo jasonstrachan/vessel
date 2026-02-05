@@ -9,6 +9,10 @@ import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplySchedul
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import {
+  rebuildGradientSlotUsageAndGC,
+  buildDefaultReservedSlots,
+} from '@/utils/colorCycleSlotGC';
+import {
   getColorCycleBrushManager,
   type ColorCycleBrushImplementation,
   type ColorCycleBrushManager,
@@ -982,6 +986,8 @@ export interface LayersSlice {
   setReferenceLayer: (id: string | null) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
+  scheduleColorCycleSlotRebuild: (reason: string) => void;
+  runColorCycleSlotRebuild: (reason: string) => void;
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
   cleanupColorCycleForLayer: (layerId: string) => void;
   getLayerColorCycleBrush: (layerId: string) => ColorCycleBrushImplementation | null;
@@ -1028,6 +1034,74 @@ export const createLayersSlice = (
       commitLayerStructureHistory,
       getVesselWindow,
     } = options;
+
+    let slotRebuildTimer: ReturnType<typeof setTimeout> | null = null;
+    const SLOT_REBUILD_DEBOUNCE_MS = 250;
+
+    const runSlotRebuild = (reason: string) => {
+      const state = get();
+      const result = rebuildGradientSlotUsageAndGC({
+        layers: state.layers,
+        scope: 'project',
+        reservedSlots: buildDefaultReservedSlots(),
+      });
+      if (!result) {
+        return;
+      }
+      if (result.missingDefLayers && result.missingDefLayers.length > 0) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[CC] Slot GC aborted due to missing defs', {
+            reason,
+            missingDefLayers: result.missingDefLayers,
+          });
+        }
+        return;
+      }
+      if (result.updates.length === 0) {
+        return;
+      }
+      const updateMap = new Map(result.updates.map((entry) => [entry.layerId, entry.colorCycleData]));
+      set((current) => {
+        const nextLayers = current.layers.map((layer) => {
+          const nextData = updateMap.get(layer.id);
+          if (!nextData) {
+            return layer;
+          }
+          return { ...layer, colorCycleData: nextData };
+        });
+        const syncedLayers = syncPercentOffsetsFromPixels(nextLayers, current.project ?? null);
+        return { layers: syncedLayers };
+      });
+      try {
+        const refreshed = get();
+        const updatedLayers = refreshed.layers.filter((layer) => updateMap.has(layer.id));
+        syncCCRuntimes(updatedLayers, 'slot-gc');
+        updatedLayers.forEach((layer) => {
+          if (layer.layerType === 'color-cycle') {
+            requestGradientApply(layer.id, 'slot-gc');
+          }
+        });
+      } catch (error) {
+        logError('[slot-gc] Failed to sync CC runtimes after rebuild', error);
+      }
+      if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+        console.info('[CC] Slot GC rebuild summary', { reason, ...result.stats });
+      }
+      return result;
+    };
+
+    const scheduleSlotRebuild = (reason: string) => {
+      if (typeof setTimeout === 'undefined') {
+        return;
+      }
+      if (slotRebuildTimer) {
+        clearTimeout(slotRebuildTimer);
+      }
+      slotRebuildTimer = setTimeout(() => {
+        slotRebuildTimer = null;
+        runSlotRebuild(reason);
+      }, SLOT_REBUILD_DEBOUNCE_MS);
+    };
 
     const createLayerTransferCanvas = (width: number, height: number) => {
       if (typeof OffscreenCanvas !== 'undefined') {
@@ -1645,11 +1719,11 @@ export const createLayersSlice = (
       
       trackLayerChanges('removeLayer RETURN', updatedLayers);
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
-      return {
-        layers: syncedLayers,
-        activeLayerId: newActiveLayerId,
-        selectedLayerIds: nextSelection,
-        referenceLayerId: state.referenceLayerId === id ? null : state.referenceLayerId
+    return {
+      layers: syncedLayers,
+      activeLayerId: newActiveLayerId,
+      selectedLayerIds: nextSelection,
+      referenceLayerId: state.referenceLayerId === id ? null : state.referenceLayerId
       // Remove the project update entirely - only update top-level layers
     };
     });
@@ -1668,6 +1742,13 @@ export const createLayersSlice = (
       metadata: { layerId: id, operation: 'remove' },
     });
     get().markAllCompositeSegmentsDirty();
+    scheduleSlotRebuild('remove-layer');
+  },
+  scheduleColorCycleSlotRebuild: (reason) => {
+    scheduleSlotRebuild(reason);
+  },
+  runColorCycleSlotRebuild: (reason) => {
+    runSlotRebuild(reason);
   },
   updateLayer: (id, updates, options?: UpdateLayerOptions) => {
     set((state) => {
@@ -2084,6 +2165,7 @@ export const createLayersSlice = (
       metadata: { sourceLayerIds: layerIds, mergedLayerId },
     });
     get().markAllCompositeSegmentsDirty();
+    scheduleSlotRebuild('merge-layers');
 
     return mergedLayerId;
   },

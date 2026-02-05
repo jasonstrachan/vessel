@@ -427,10 +427,10 @@ export const mosaicBrushComponents: BrushComponent[] = [
   }
 ];
 
-// Mosaic brush preset (display name intentionally spelled mosiac)
+// Mosaic brush preset
 export const mosaicBrushPreset: BrushPreset = {
   id: 'mosaic',
-  name: 'mosiac',
+  name: 'Mosaic',
   category: 'Digital Painting',
   components: mosaicBrushComponents,
   thumbnail: '/assets/images/Brush.png',

@@ -570,6 +570,40 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.continueDrawing).toHaveBeenCalled();
   });
 
+  it('falls back to current pressure when coalesced events omit pressure', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          pressureEnabled: true,
+        },
+      },
+    });
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+    deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
+    deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const coalescedEvents: any[] = [
+      { clientX: 20, clientY: 25, shiftKey: false },
+      { clientX: 22, clientY: 28, shiftKey: false },
+    ];
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({
+      pointerType: 'pen',
+      pressure: 0.72,
+      clientX: 22,
+      clientY: 28,
+      nativeEvent: { getCoalescedEvents: () => coalescedEvents as unknown as PointerEvent[] } as any,
+    }));
+
+    const firstCall = (deps.drawingHandlers.continueDrawing as jest.Mock).mock.calls[0];
+    expect(firstCall?.[1]).toBe(0.72);
+  });
+
   it('ends pan and restores cursor on pointer up', () => {
     const { deps } = createDeps();
     (deps.pan.panState as any).isPanning = true;

@@ -13,6 +13,11 @@ import type { DerivedGradientSpec } from '@/types';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
 import { cancelGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import {
+  rebuildGradientSlotUsageAndGC,
+  rebuildOnDemandAndRetryAllocate,
+  buildDefaultReservedSlots,
+} from '@/utils/colorCycleSlotGC';
 
 export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
 export const EDITOR_SLOT = 255;
@@ -73,6 +78,34 @@ const getNextGradientSlot = (usedSlots: Set<number>): number | null => {
     }
   }
   return null;
+};
+
+const runProjectSlotRebuild = (layerId: string) => {
+  const state = useAppStore.getState();
+  const result = rebuildGradientSlotUsageAndGC({
+    layers: state.layers,
+    scope: 'project',
+    reservedSlots: buildDefaultReservedSlots(),
+  });
+  if (!result) {
+    return null;
+  }
+  if (result.missingDefLayers && result.missingDefLayers.length > 0) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[CC] Slot GC aborted due to missing defs', {
+        layerId,
+        missingDefLayers: result.missingDefLayers,
+      });
+    }
+    return result;
+  }
+  result.updates.forEach((update) => {
+    state.updateLayer(update.layerId, { colorCycleData: update.colorCycleData });
+  });
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+    console.info('[CC] Slot GC rebuild summary', { layerId, ...result.stats });
+  }
+  return result;
 };
 
 type ForegroundSlotResult = {
@@ -154,14 +187,45 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
     defSlots.forEach((slot) => usedSlots.add(slot));
     usedSlots.add(EDITOR_SLOT);
     usedSlots.add(TEMP_SAMPLE_SLOT);
+    const tryAssign = (slot: number | null) => {
+      if (slot !== null) {
+        targetSlot = slot;
+        nextSlotPalettes = [...slotPalettes, { slot, stops: cloneStops(derivedStops) }];
+        nextDerivedGradients = [
+          ...derivedGradients,
+          { key: derivedSpec.key, slot, spec: derivedSpec },
+        ];
+      }
+    };
     const nextSlot = getNextGradientSlot(usedSlots);
     if (nextSlot !== null) {
-      targetSlot = nextSlot;
-      nextSlotPalettes = [...slotPalettes, { slot: nextSlot, stops: cloneStops(derivedStops) }];
-      nextDerivedGradients = [
-        ...derivedGradients,
-        { key: derivedSpec.key, slot: nextSlot, spec: derivedSpec },
-      ];
+      tryAssign(nextSlot);
+    } else {
+      rebuildOnDemandAndRetryAllocate({
+        attemptAllocate: () => {
+          const retryUsed = new Set<number>();
+          const latest = useAppStore.getState().layers.find((entry) => entry.id === layerId);
+          const latestData = latest?.colorCycleData;
+          latestData?.slotPalettes?.forEach((entry) => retryUsed.add(entry.slot));
+          latestData?.gradientDefs?.forEach((entry) => retryUsed.add(normalizeEditorSlot(entry.currentSlot)));
+          latestData?.gradientDefStore?.forEach((entry) => {
+            if (typeof entry.slot === 'number') {
+              retryUsed.add(normalizeEditorSlot(entry.slot));
+            }
+          });
+          retryUsed.add(EDITOR_SLOT);
+          retryUsed.add(TEMP_SAMPLE_SLOT);
+          const retrySlot = getNextGradientSlot(retryUsed);
+          if (retrySlot !== null) {
+            tryAssign(retrySlot);
+            return retrySlot;
+          }
+          return null;
+        },
+        runRebuild: () => runProjectSlotRebuild(layerId),
+        throttleKey: `cc-slot-rebuild:fg:${layerId}`,
+        throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
+      });
     }
   }
 
@@ -240,7 +304,30 @@ export const allocateSlotForNewShapeFill = (
   usedSlots.add(TEMP_SAMPLE_SLOT);
   usedSlots.add(TEMP_SAMPLE_SLOT);
 
-  const nextSlot = getNextGradientSlot(usedSlots);
+  let nextSlot = getNextGradientSlot(usedSlots);
+  if (nextSlot === null) {
+    rebuildOnDemandAndRetryAllocate({
+      attemptAllocate: () => {
+        const retryUsed = new Set<number>();
+        const latest = useAppStore.getState().layers.find((entry) => entry.id === layerId);
+        const latestData = latest?.colorCycleData;
+        latestData?.slotPalettes?.forEach((entry) => retryUsed.add(entry.slot));
+        latestData?.gradientDefs?.forEach((entry) => retryUsed.add(entry.currentSlot));
+        retryUsed.add(EDITOR_SLOT);
+        retryUsed.add(TEMP_SAMPLE_SLOT);
+        retryUsed.add(TEMP_SAMPLE_SLOT);
+        const retrySlot = getNextGradientSlot(retryUsed);
+        if (retrySlot !== null) {
+          nextSlot = retrySlot;
+          return retrySlot;
+        }
+        return null;
+      },
+      runRebuild: () => runProjectSlotRebuild(layerId),
+      throttleKey: `cc-slot-rebuild:shape:${layerId}`,
+      throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
+    });
+  }
   if (nextSlot === null) {
     return null;
   }
@@ -296,8 +383,8 @@ export function setSharedColorCycleGradient(
   const setEraserSettings = state.setEraserSettings;
   const activeLayerId = state.activeLayerId;
   
-  // Update brush settings
-  setBrushSettings({ ...state.tools.brushSettings, colorCycleGradient: gradient });
+  // Update brush settings without re-sending unrelated fields (avoids side-effects)
+  setBrushSettings({ colorCycleGradient: gradient });
   
   // Also update eraser settings if using color cycle
   const eraserSettings = state.tools.eraserSettings;

@@ -5,6 +5,7 @@ import type { AppState } from '@/stores/useAppStore';
 import type { Layer, BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import { updateContinuousResamplerSample } from '@/hooks/canvas/handlers/customBrushCapture';
+import { getCcEffectiveSpacing } from '@/hooks/canvas/utils/ccSpacing';
 
 type BrushEngine = {
   drawBrush: (
@@ -289,12 +290,10 @@ export const processBatchedStrokes = (
             if (usingCustomStamp && !stampData) {
               continue;
             }
-            const rawSpacing = brushSettings.spacing || 1;
-            const zoom = Math.max(1e-3, currentState.canvas?.zoom ?? 1);
+            const effectiveSpacing = getCcEffectiveSpacing(currentState);
             const spacingScreenPx = paused
-              ? Math.max(1, Math.round(rawSpacing * 1.25))
-              : rawSpacing;
-            const effectiveSpacing = Math.max(1e-3, spacingScreenPx / zoom);
+              ? Math.max(1, Math.round(effectiveSpacing * 1.25))
+              : effectiveSpacing;
             const rotationEnabled = !!brushSettings.rotationEnabled;
             const pixelQueue = args.colorCyclePixelQueueRef.current ?? (() => {
               const queue = deps.createPixelQueue();
@@ -332,8 +331,8 @@ export const processBatchedStrokes = (
               let roiMaxX = Number.NEGATIVE_INFINITY;
               let roiMaxY = Number.NEGATIVE_INFINITY;
 
-              while (distance > 0 && args.colorCycleDistanceRef.current >= effectiveSpacing) {
-                const t = 1 - (args.colorCycleDistanceRef.current - effectiveSpacing) / distance;
+              while (distance > 0 && args.colorCycleDistanceRef.current >= spacingScreenPx) {
+                const t = 1 - (args.colorCycleDistanceRef.current - spacingScreenPx) / distance;
                 let stampX = previousPos.x + dx * t;
                 let stampY = previousPos.y + dy * t;
 
@@ -366,7 +365,7 @@ export const processBatchedStrokes = (
                   roiMaxY = Math.max(roiMaxY, sy);
                 }
 
-                args.colorCycleDistanceRef.current -= effectiveSpacing;
+                args.colorCycleDistanceRef.current -= spacingScreenPx;
                 if (stampCmds.length >= MAX_STAMPS_PER_BATCH) {
                   break;
                 }

@@ -786,6 +786,7 @@ export interface BrushSettings {
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular'; // Fill mode for Color Cycle Shape
   colorCycleBandSpacingPx?: number; // Pixel distance between color-cycle bands for shapes
+  ccGradientSource?: 'manual' | 'fg' | 'sampled';
   // Foreground-derived gradient controls for Color Cycle brushes
   colorCycleUseForegroundGradient?: boolean; // true = derive gradient from foreground color per stroke
   colorCycleFgLightness?: number; // 0-100 center lightness for derived gradient

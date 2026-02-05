@@ -9,6 +9,11 @@ import {
 } from '@/utils/colorCycleGradientDefs';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
+import {
+  rebuildGradientSlotUsageAndGC,
+  rebuildOnDemandAndRetryAllocate,
+  buildDefaultReservedSlots,
+} from '@/utils/colorCycleSlotGC';
 
 export type MarkGradientSession = {
   markId: string;
@@ -76,6 +81,48 @@ const collectUsedSlots = (layer: {
   return used;
 };
 
+const collectActiveSessionSlots = (): Set<number> => {
+  const active = new Set<number>();
+  sessionsByLayer.forEach((session) => {
+    if (typeof session.binding?.slot === 'number') {
+      active.add(clampSlot(session.binding.slot));
+    }
+    if (typeof session.previewSlot === 'number') {
+      active.add(clampSlot(session.previewSlot));
+    }
+  });
+  return active;
+};
+
+const runProjectSlotRebuild = (layerId: string) => {
+  const state = useAppStore.getState();
+  const result = rebuildGradientSlotUsageAndGC({
+    layers: state.layers,
+    scope: 'project',
+    reservedSlots: buildDefaultReservedSlots(),
+    activeSessionSlots: collectActiveSessionSlots(),
+  });
+  if (!result) {
+    return null;
+  }
+  if (result.missingDefLayers && result.missingDefLayers.length > 0) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[CC] Slot GC aborted due to missing defs', {
+        layerId,
+        missingDefLayers: result.missingDefLayers,
+      });
+    }
+    return result;
+  }
+  result.updates.forEach((update) => {
+    state.updateLayer(update.layerId, { colorCycleData: update.colorCycleData });
+  });
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+    console.info('[CC] Slot GC rebuild summary', { layerId, ...result.stats });
+  }
+  return result;
+};
+
 const resolveSampledPreviewSlot = (
   layerId: string,
   layer: {
@@ -86,23 +133,49 @@ const resolveSampledPreviewSlot = (
   } | null;
 } | null | undefined
 ): number | null => {
-  const used = collectUsedSlots(layer);
-  if (!used.has(TEMP_SAMPLE_SLOT)) {
-    return TEMP_SAMPLE_SLOT;
+  const attemptPick = (targetLayer: typeof layer): number | null => {
+    const used = collectUsedSlots(targetLayer);
+    if (!used.has(TEMP_SAMPLE_SLOT)) {
+      return TEMP_SAMPLE_SLOT;
+    }
+    const picked = getNextGradientSlot(used);
+    if (typeof picked === 'number') {
+      return picked;
+    }
+    if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+      console.error('[CC] Sample preview slot allocation failed', {
+        layerId,
+        usedSlotsSize: used.size,
+        editorReserved: used.has(EDITOR_SLOT),
+        tempSampleReserved: used.has(TEMP_SAMPLE_SLOT),
+      });
+    }
+    return null;
+  };
+
+  const initial = attemptPick(layer);
+  if (typeof initial === 'number') {
+    return initial;
   }
-  const picked = getNextGradientSlot(used);
-  if (typeof picked === 'number') {
-    return picked;
-  }
-  if (process.env.NODE_ENV !== 'production') {
-    console.error('[CC] Sample preview slot allocation failed', {
-      layerId,
-      usedSlotsSize: used.size,
-      editorReserved: used.has(EDITOR_SLOT),
-      tempSampleReserved: used.has(TEMP_SAMPLE_SLOT),
-    });
-  }
-  return null;
+
+  let retrySlot: number | null = null;
+  rebuildOnDemandAndRetryAllocate({
+    attemptAllocate: () => {
+      const state = useAppStore.getState();
+      const nextLayer = state.layers.find((entry) => entry.id === layerId);
+      const slot = attemptPick(nextLayer ?? null);
+      if (typeof slot === 'number') {
+        retrySlot = slot;
+        return slot;
+      }
+      return null;
+    },
+    runRebuild: () => runProjectSlotRebuild(layerId),
+    throttleKey: `cc-slot-rebuild:preview:${layerId}`,
+    throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
+  });
+
+  return retrySlot;
 };
 
 const finalizeSampledSession = (session: MarkGradientSession): void => {

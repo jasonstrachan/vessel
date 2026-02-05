@@ -1275,6 +1275,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         captureResult.bounds.width,
         captureResult.bounds.height
       );
+      store.scheduleColorCycleSlotRebuild?.('extract-selection');
   } else if (activeLayer?.framebuffer) {
     const fbCtx = activeLayer.framebuffer.getContext('2d', { willReadFrequently: true });
     const canvasCtx = fbCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
@@ -2853,7 +2854,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
               }
             }
           }
-          const coalescedPressure = coalescedEvent.pressure ?? 0.5;
+          const coalescedPressure =
+            typeof coalescedEvent.pressure === 'number'
+              ? coalescedEvent.pressure
+              : pressure;
           
           // Draw with the intermediate position and pressure
           if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {

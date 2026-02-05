@@ -8,7 +8,7 @@ import {
   createDefaultPolygonGradientState,
   defaultShapeState,
 } from '@/stores/slices/toolsSlice';
-import { brushPresets } from '@/presets/brushPresets';
+import { brushPresets, mosaicBrushPreset } from '@/presets/brushPresets';
 import { createDefaultPalette } from '@/utils/layoutDefaults';
 import { BrushShape, Project, type CustomBrush } from '@/types';
 import { defaultCropState } from '@/stores/slices/cropSlice';
@@ -99,6 +99,28 @@ describe('tools slice', () => {
     const saved = state.brushSpecificSettings[preset!.id];
     expect(saved?.ditherGradSampleEnabled).toBe(true);
     expect(saved?.ditherGradStops).toEqual(['#111111', '#222222']);
+  });
+
+  it('persists mosaic brush settings per brush', () => {
+    const store = useAppStore.getState();
+    store.setBrushPreset(mosaicBrushPreset);
+
+    store.setBrushSettings({
+      mosaicTilePx: 9,
+      mosaicBlocksCount: 7,
+      mosaicPaletteCount: 5,
+      mosaicSegmentPx: 120,
+      mosaicSegmentJitter: 42,
+      mosaicDitherEnabled: true,
+    });
+
+    const saved = useAppStore.getState().brushSpecificSettings[mosaicBrushPreset.id];
+    expect(saved?.mosaicTilePx).toBe(9);
+    expect(saved?.mosaicBlocksCount).toBe(7);
+    expect(saved?.mosaicPaletteCount).toBe(5);
+    expect(saved?.mosaicSegmentPx).toBe(120);
+    expect(saved?.mosaicSegmentJitter).toBe(42);
+    expect(saved?.mosaicDitherEnabled).toBe(true);
   });
 
   it('keeps eraser size in sync when linking to brush size', () => {
@@ -214,6 +236,22 @@ describe('tools slice', () => {
     const cleared = useAppStore.getState().shapeState;
     expect(cleared.points).toHaveLength(0);
     expect(cleared.previewPath).toBeUndefined();
+  });
+
+  it('uses per-brush shape mode for the mosaic preset', () => {
+    const store = useAppStore.getState();
+    useAppStore.setState((state) => ({
+      ...state,
+      shapeModeByBrush: { mosaic: false },
+      tools: {
+        ...state.tools,
+        lastRegularShapeMode: true,
+        shapeMode: true,
+      },
+    }));
+
+    store.setBrushPreset(mosaicBrushPreset);
+    expect(useAppStore.getState().tools.shapeMode).toBe(false);
   });
 
   it('merges rectangle brush state updates', () => {

@@ -166,6 +166,15 @@ if (typeof window !== 'undefined') {
   }
 
   ((window as unknown) as Record<string, unknown>).CC_DEBUG = CC_DEBUG;
+  (window as Window & {
+    __CC_RUN_SLOT_GC__?: (reason?: string) => void;
+  }).__CC_RUN_SLOT_GC__ = (reason = 'manual') => {
+    try {
+      useAppStore.getState().runColorCycleSlotRebuild?.(`manual:${reason}`);
+    } catch (error) {
+      console.warn('[CC] manual slot GC failed', error);
+    }
+  };
 }
 
 let sequence = 0;

@@ -232,6 +232,7 @@ const BrushControls = () => {
   const isDitherStrokePreset = currentBrushPresetId === 'dither-stroke';
   const isDitherShapePreset = currentBrushPresetId === 'dither-shape';
   const hideShapeToggle = isDitherStrokePreset || isDitherShapePreset;
+  const isMosaicPreset = currentBrushPresetId === 'mosaic';
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -1167,6 +1168,23 @@ const BrushControls = () => {
               className="h-6 rounded border border-white/10"
               style={{ background: foregroundDerivedCss }}
             />
+            {showColorCycleBands && (
+              <div className="flex items-center gap-2 mt-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Bands
+                </label>
+                <NonCcSlider
+                  value={bandsSlider.value}
+                  min={2}
+                  max={64}
+                  step={1}
+                  onChange={(value) => bandsSlider.onChange(Math.round(value))}
+                  onCommit={bandsSlider.onCommit}
+                  aria-label="Gradient Bands"
+                  className="flex-1"
+                />
+              </div>
+            )}
           </div>
         ) : isGradientSampleMode ? (
           <div className="mb-3">
@@ -1198,11 +1216,6 @@ const BrushControls = () => {
                         background: `linear-gradient(90deg, ${previewCss})`,
                       }}
                     />
-                    {expectsSampled && !previewResult && (
-                      <div className="mt-1 text-[11px] text-[#E6C55F]">
-                        Sampled preview missing (no active session).
-                      </div>
-                    )}
                   </>
                 );
               })()}
@@ -1215,9 +1228,6 @@ const BrushControls = () => {
                 >
                   Reset
                 </button>
-              </div>
-              <div className="mt-1 text-xs text-[#A0A0A0]">
-                Drag to sample colors from the canvas.
               </div>
             </>
           </div>
@@ -1370,7 +1380,7 @@ const BrushControls = () => {
 
         {/* Animation + banding */}
 
-        {showColorCycleBands && (
+        {showColorCycleBands && !useForegroundDerivedGradient && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
@@ -3275,16 +3285,31 @@ const BrushControls = () => {
               className="text-[#D9D9D9] w-16"
               style={{ fontSize: "14px" }}
             >
-              Shape
+              {isMosaicPreset ? 'Mode' : 'Shape'}
             </label>
-            <CustomSwitch
-              id="shape-mode"
-              checked={shapeMode || false}
-              onChange={(checked) => {
-                try { console.log('[SHAPE/UI] toggle (default)', { checked }); } catch {}
-                setShapeMode(checked);
-              }}
-            />
+            {isMosaicPreset ? (
+              <ButtonGroup
+                options={[
+                  { label: 'Stroke', value: 'stroke' },
+                  { label: 'Shape', value: 'shape' },
+                ]}
+                value={shapeMode ? 'shape' : 'stroke'}
+                onChange={(value) => {
+                  setShapeMode(value === 'shape');
+                }}
+                size="sm"
+                className="flex-1"
+              />
+            ) : (
+              <CustomSwitch
+                id="shape-mode"
+                checked={shapeMode || false}
+                onChange={(checked) => {
+                  try { console.log('[SHAPE/UI] toggle (default)', { checked }); } catch {}
+                  setShapeMode(checked);
+                }}
+              />
+            )}
           </div>
         </div>
       )}

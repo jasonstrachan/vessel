@@ -1,5 +1,6 @@
 import type { StoreApi } from 'zustand';
 import type { Project, CustomBrush, Layer } from '@/types';
+import { BrushShape } from '@/types';
 import {
   normalizeProject,
   createDefaultPalette,
@@ -219,6 +220,36 @@ export const createProjectLifecycle = ({
       tools: toolsWithPalette,
     });
     get().setLayersNeedRecomposition(true);
+
+    try {
+      const stateAfterLoad = get();
+      const currentSettings = stateAfterLoad.tools.brushSettings;
+      const activeBrushId = stateAfterLoad.currentBrushPreset?.id
+        ?? (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush
+          ? currentSettings.selectedCustomBrush
+          : null);
+      if (activeBrushId) {
+        const overrides = stateAfterLoad.brushSpecificSettings?.[activeBrushId];
+        if (overrides) {
+          const rest = { ...overrides };
+          delete rest.size;
+          delete rest.pressureEnabled;
+          delete rest.minPressure;
+          delete rest.maxPressure;
+          if (Object.keys(rest).length > 0) {
+            set((s) => ({
+              tools: {
+                ...s.tools,
+                brushSettings: {
+                  ...s.tools.brushSettings,
+                  ...rest,
+                },
+              },
+            }));
+          }
+        }
+      }
+    } catch {}
 
     get().setCanvasDimensions(loadedProject.width, loadedProject.height);
 

@@ -281,6 +281,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           const eraseMask = activeLayer.colorCycleData?.eraseMask;
           const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
           eraseMaskCtx?.clearRect(x, y, width, height);
+          state.scheduleColorCycleSlotRebuild?.('delete-selected');
         }
       } else {
         const useMask = selectionMask && selectionMaskBounds;
@@ -504,6 +505,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   const eraseMask = activeLayer.colorCycleData?.eraseMask;
                   const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
                   eraseMaskCtx?.clearRect(capture.bounds.x, capture.bounds.y, capture.bounds.width, capture.bounds.height);
+                  state.scheduleColorCycleSlotRebuild?.('cut-selection');
                 }
               }
               if (!skipImageUpdate) {

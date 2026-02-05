@@ -16,6 +16,7 @@ export interface GlobalBrushSettingsPayload {
   brushSpecificSettings?: StoredBrushMap;
   lastBrushId?: string;
   pressureSettings?: PressureSettingsPayload;
+  shapeModeByBrush?: Record<string, boolean>;
 }
 
 let storageOverride: Storage | null = null;
@@ -104,6 +105,12 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
     }
     if (payload.lastBrushId && typeof payload.lastBrushId === 'string') {
       sanitized.lastBrushId = payload.lastBrushId;
+    }
+    if (payload.shapeModeByBrush && typeof payload.shapeModeByBrush === 'object') {
+      const entries = Object.entries(payload.shapeModeByBrush).filter(([, value]) => typeof value === 'boolean');
+      if (entries.length > 0) {
+        sanitized.shapeModeByBrush = Object.fromEntries(entries) as Record<string, boolean>;
+      }
     }
     storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch (error) {
