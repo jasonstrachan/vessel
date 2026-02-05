@@ -202,6 +202,13 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   polygonSampleColors: settings.polygonSampleColors,
   autoSampleColor: settings.autoSampleColor,
   autoSampleGradientRealtime: settings.autoSampleGradientRealtime,
+  mosaicTilePx: settings.mosaicTilePx,
+  mosaicBlocksCount: settings.mosaicBlocksCount,
+  mosaicPaletteCount: settings.mosaicPaletteCount,
+  mosaicSegmentPx: settings.mosaicSegmentPx,
+  mosaicSegmentJitter: settings.mosaicSegmentJitter,
+  mosaicDitherEnabled: settings.mosaicDitherEnabled,
+  mosaicSeed: settings.mosaicSeed,
 });
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';

@@ -1902,6 +1902,329 @@ const BrushControls = () => {
     );
   }
 
+  // Show special controls for Mosaic brush
+  if (activeSettings.brushShape === BrushShape.MOSAIC) {
+    return (
+      <div className="p-4">
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Size {sizeUnit}
+            </label>
+            <NonCcSlider
+              value={isActiveCustomBrush ? customBrushPercent : effectiveGlobalBrushSize}
+              min={isActiveCustomBrush ? 5 : 1}
+              max={isActiveCustomBrush ? 1000 : 500}
+              step={isActiveCustomBrush ? 5 : 1}
+              onChange={(value) => {
+                if (isActiveCustomBrush) {
+                  setCustomBrushSizePercent(value);
+                  if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
+                    const updatedSize =
+                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                    setEraserSettings({ size: updatedSize });
+                  }
+                  return;
+                }
+                const min = 1;
+                const max = 500;
+                const next = Math.min(max, Math.max(min, Math.round(value)));
+                setGlobalBrushSize(next);
+                if (currentTool === 'eraser') {
+                  setEraserSettings({ size: next });
+                }
+              }}
+              aria-label={`Brush Size (${sizeUnit})`}
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Spacing
+            </label>
+            <NonCcSlider
+              value={activeSettings.spacing ?? 1}
+              min={1}
+              max={64}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+              }
+              aria-label="Mosaic Spacing"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Opacity
+            </label>
+            <NonCcSlider
+              value={activeSettings.opacity}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => setActiveSettings({ opacity: value })}
+              aria-label="Opacity"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="mosaic-pixel-perfect"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: '14px' }}
+            >
+              Pixel
+            </label>
+            <CustomSwitch
+              id="mosaic-pixel-perfect"
+              checked={!activeSettings.antialiasing}
+              onChange={(checked) =>
+                setActiveSettings({ antialiasing: !checked })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <GradientEditor
+            sampleTarget="brush"
+            stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
+            onChange={(stops) => {
+              scheduleGradientFlush(stops);
+            }}
+            onEditStart={() => {
+              gradientForkRef.current = true;
+            }}
+          />
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Tile
+            </label>
+            <NonCcSlider
+              value={activeSettings.mosaicTilePx ?? 8}
+              min={1}
+              max={64}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ mosaicTilePx: Math.max(1, Math.round(value)) })
+              }
+              aria-label="Mosaic Tile Size"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Blocks
+            </label>
+            <NonCcSlider
+              value={activeSettings.mosaicBlocksCount ?? 6}
+              min={1}
+              max={32}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ mosaicBlocksCount: Math.max(1, Math.round(value)) })
+              }
+              aria-label="Mosaic Blocks Count"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Palette
+            </label>
+            <NonCcSlider
+              value={activeSettings.mosaicPaletteCount ?? 8}
+              min={2}
+              max={32}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ mosaicPaletteCount: Math.max(2, Math.round(value)) })
+              }
+              aria-label="Mosaic Palette Count"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Segment
+            </label>
+            <NonCcSlider
+              value={activeSettings.mosaicSegmentPx ?? 160}
+              min={1}
+              max={1000}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ mosaicSegmentPx: Math.max(1, Math.round(value)) })
+              }
+              aria-label="Mosaic Segment Length"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Seg Jit
+            </label>
+            <NonCcSlider
+              value={activeSettings.mosaicSegmentJitter ?? 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ mosaicSegmentJitter: Math.max(0, Math.min(100, Math.round(value))) })
+              }
+              aria-label="Mosaic Segment Jitter"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="mosaic-dither-enabled"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: '14px' }}
+            >
+              Dither
+            </label>
+            <CustomSwitch
+              id="mosaic-dither-enabled"
+              checked={activeSettings.mosaicDitherEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ mosaicDitherEnabled: checked })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Seed
+            </label>
+            <Input
+              type="number"
+              variant="compact"
+              value={activeSettings.mosaicSeed ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw.trim() === '') {
+                  setActiveSettings({ mosaicSeed: undefined });
+                  return;
+                }
+                const next = Number(raw);
+                if (!Number.isNaN(next)) {
+                  setActiveSettings({ mosaicSeed: Math.floor(next) });
+                }
+              }}
+              placeholder="auto"
+              className="w-20 bg-transparent text-right"
+            />
+            <button
+              type="button"
+              className="rounded border border-white/10 px-2 py-0.5 text-xs text-[#D9D9D9] hover:border-white/30"
+              onClick={() => {
+                const next = Math.floor(Math.random() * 1_000_000_000);
+                setActiveSettings({ mosaicSeed: next });
+              }}
+            >
+              Rand
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="pressure-enabled-mosaic"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: '14px' }}
+            >
+              Pressure
+            </label>
+            <CustomSwitch
+              id="pressure-enabled-mosaic"
+              checked={activeSettings.pressureEnabled || false}
+              onChange={(checked) => {
+                setActiveSettings({ pressureEnabled: checked });
+              }}
+            />
+            {(activeSettings.pressureEnabled || false) && (
+              <>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={pressureDraft.min}
+                  onChange={(e) => handleMinChange(e.target.value)}
+                  onFocus={handleMinFocus}
+                  onBlur={handleMinBlur}
+                  min="1"
+                  max="1000"
+                  className="w-12 bg-transparent text-right"
+                />
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={pressureDraft.max}
+                  onChange={(e) => handleMaxChange(e.target.value)}
+                  onFocus={handleMaxFocus}
+                  onBlur={handleMaxBlur}
+                  min="1"
+                  max="1000"
+                  className="w-12 bg-transparent text-right"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="rotation-enabled-mosaic"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: '14px' }}
+            >
+              Rotation
+            </label>
+            <CustomSwitch
+              id="rotation-enabled-mosaic"
+              checked={activeSettings.rotationEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ rotationEnabled: checked })
+              }
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Show special controls for Resampler brush
   if (activeSettings.brushShape === BrushShape.RESAMPLER) {
     if (typeof window !== 'undefined') {

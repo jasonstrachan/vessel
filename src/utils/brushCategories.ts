@@ -18,7 +18,8 @@ export const STROKE_BRUSHES: BrushShape[] = [
   BrushShape.COLOR_CYCLE,
   BrushShape.COLOR_CYCLE_TRIANGLE,
   BrushShape.RISOGRAPH_SOFT,
-  BrushShape.RISOGRAPH_ULTRA
+  BrushShape.RISOGRAPH_ULTRA,
+  BrushShape.MOSAIC
 ];
 
 /**
@@ -90,6 +91,9 @@ export function supportsDither(brushShape: BrushShape | string): boolean {
 
   // Exclude text/resampler by default; they can opt-in via preset capabilities.
   if (shape === BrushShape.SPAM_TEXT || shape === BrushShape.RESAMPLER) {
+    return false;
+  }
+  if (shape === BrushShape.MOSAIC) {
     return false;
   }
 

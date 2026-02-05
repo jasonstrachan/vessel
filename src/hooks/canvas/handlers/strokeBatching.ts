@@ -290,9 +290,11 @@ export const processBatchedStrokes = (
               continue;
             }
             const rawSpacing = brushSettings.spacing || 1;
-            const effectiveSpacing = paused
+            const zoom = Math.max(1e-3, currentState.canvas?.zoom ?? 1);
+            const spacingScreenPx = paused
               ? Math.max(1, Math.round(rawSpacing * 1.25))
               : rawSpacing;
+            const effectiveSpacing = Math.max(1e-3, spacingScreenPx / zoom);
             const rotationEnabled = !!brushSettings.rotationEnabled;
             const pixelQueue = args.colorCyclePixelQueueRef.current ?? (() => {
               const queue = deps.createPixelQueue();

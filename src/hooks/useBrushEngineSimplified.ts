@@ -1497,6 +1497,16 @@ export const useBrushEngineSimplified = () => {
     const pressureFactor = Number.isFinite(pressure) ? Math.max(pressure, 1) : 1;
     let effectiveSize = brushSize * pressureFactor;
 
+    if (brushSettings.brushShape === BrushShape.MOSAIC) {
+      const tilePx = clamp(Math.round(brushSettings.mosaicTilePx ?? 8), 1, 128);
+      const blocksCount = clamp(Math.round(brushSettings.mosaicBlocksCount ?? 6), 1, 32);
+      const rows = 1;
+      const stampW = tilePx * blocksCount;
+      const stampH = tilePx * rows;
+      const mosaicExtent = Math.max(stampW, stampH) * pressureFactor;
+      effectiveSize = Math.max(effectiveSize, mosaicExtent);
+    }
+
     if (customBrushData) {
       const maxDimension = Math.max(customBrushData.width || 0, customBrushData.height || 0);
       if (maxDimension > 0) {

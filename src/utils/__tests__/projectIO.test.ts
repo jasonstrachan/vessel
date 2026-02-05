@@ -203,6 +203,7 @@ describe('projectIO serialize/deserialize layering', () => {
       backgroundColor: '#000000',
       layers: [layer1, layer2],
       customBrushes: [],
+      referenceLayerId: 'layer-2',
       canvasShape: {
         kind: 'circle',
         center: { x: 1, y: 1 },
@@ -222,6 +223,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(readPixel(restoredLayer1.imageData, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(readPixel(restoredLayer2.imageData, 0, 0)).toEqual([0, 0, 255, 255]);
     expect(restored.canvasShape?.kind).toBe('circle');
+    expect(restored.referenceLayerId).toBe('layer-2');
   });
 
   it('migrates legacy flow-encoded gradient ids on load', async () => {

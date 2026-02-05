@@ -96,6 +96,12 @@ export const pixelBrushSettings: BrushSettings = {
   triangleFillSize: 36,
   triangleFillJitter: 35,
   triangleFillRotation: 0,
+  mosaicTilePx: 8,
+  mosaicBlocksCount: 6,
+  mosaicPaletteCount: 8,
+  mosaicSegmentPx: 160,
+  mosaicSegmentJitter: 0,
+  mosaicDitherEnabled: false,
   flowSeedSpacing: 18,
   flowStepSize: 4,
   flowMaxSteps: 120,
@@ -184,6 +190,12 @@ export const defaultBrushSettings: BrushSettings = {
   colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes
   rectGradientPresetId: 'none', // Default: sample from canvas for rectangle gradient
   polygonSampleColors: true,
+  mosaicTilePx: 8,
+  mosaicBlocksCount: 6,
+  mosaicPaletteCount: 8,
+  mosaicSegmentPx: 160,
+  mosaicSegmentJitter: 0,
+  mosaicDitherEnabled: false,
   contourSpacing: 4, // Default contour spacing (1-10)
   contourVariance: 5, // Default contour variance (0-10, medium variance)
   contourSmoothness: 0.5, // Default contour smoothness (0-5, low smoothness)
@@ -361,6 +373,87 @@ export const defaultBrushPreset: BrushPreset = {
     gridSnapEnabled: false,
     shapeEnabled: false
     // Removed opacity, spacing, colorJitter - these are user preferences, not brush technical requirements
+  }
+};
+
+// Mosaic brush components (stamp along path)
+export const mosaicBrushComponents: BrushComponent[] = [
+  {
+    id: 'mosaic-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 1000,
+      pressureInfluence: 0.5
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'mosaic-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.2
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'mosaic-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'pixel'
+    },
+    priority: 30,
+    enabled: true
+  },
+  {
+    id: 'mosaic-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.MOSAIC
+    },
+    priority: 40,
+    enabled: true
+  },
+  {
+    id: 'mosaic-rotation',
+    type: ComponentType.ROTATION_TRANSFORM,
+    parameters: {
+      enableRotation: true
+    },
+    priority: 50,
+    enabled: true
+  }
+];
+
+// Mosaic brush preset (display name intentionally spelled mosiac)
+export const mosaicBrushPreset: BrushPreset = {
+  id: 'mosaic',
+  name: 'mosiac',
+  category: 'Digital Painting',
+  components: mosaicBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['mosaic', 'stamp', 'tiles'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 60,
+    antialiasing: false,
+    pressureEnabled: true,
+    minPressure: 50,
+    maxPressure: 150,
+    rotationEnabled: false,
+    dashedEnabled: false,
+    gridSnapEnabled: false,
+    shapeEnabled: false,
+    mosaicTilePx: 8,
+    mosaicBlocksCount: 6,
+    mosaicPaletteCount: 8,
+    mosaicSegmentPx: 160,
+    mosaicSegmentJitter: 0,
+    mosaicDitherEnabled: false
   }
 };
 
@@ -1111,6 +1204,7 @@ export const brushPresets: BrushPreset[] = [
   roundSquare6Preset,
   roundPixel4Preset,
   defaultBrushPreset,
+  mosaicBrushPreset,
   pixelDitherPreset,
   shapeDitherPreset,
   ditherGradientBrushPreset,
@@ -1150,6 +1244,9 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   } else if (preset.id === 'soft-square') {
     settings.size = 6; // 6px default as per name
     settings.antialiasing = true;
+  } else if (preset.id === 'mosaic') {
+    settings.size = 60; // 60px default for mosaic brush
+    settings.antialiasing = false;
   } else if (preset.id === 'resampler') {
     settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;

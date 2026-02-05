@@ -250,6 +250,7 @@ export interface VesselProject {
     thumbnail?: string;
     brushSpecificSettings?: Record<string, unknown>;
     globalBrushSize?: number;
+    referenceLayerId?: string | null;
     exportLayout?: ExportContainerLayout;
     palette?: PaletteState;
     canvasShape?: Project['canvasShape'];
@@ -1526,6 +1527,7 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       thumbnail: thumbnail || undefined,
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
+      referenceLayerId: project.referenceLayerId ?? null,
       exportLayout: cloneExportLayout(project.exportLayout),
       palette: normalizePalette(project.palette),
       canvasShape: project.canvasShape,
@@ -1653,6 +1655,7 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
     updatedAt: new Date(vesselProject.metadata.modified),
     brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
     globalBrushSize: serializedProject.globalBrushSize,
+    referenceLayerId: serializedProject.referenceLayerId ?? null,
     exportLayout: cloneExportLayout(serializedProject.exportLayout),
     palette: normalizePalette(serializedProject.palette),
     canvasShape: serializedProject.canvasShape,

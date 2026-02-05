@@ -60,81 +60,49 @@ function calculateDirectionAngle(
   from: { x: number; y: number },
   to: { x: number; y: number },
   state: DirectionState,
-  smoothing: number = 0.5
+  smoothing: number = 0.5,
+  velocity?: number
 ): number {
-  const deltaX = to.x - from.x;
-  const deltaY = to.y - from.y;
+  const baseFrom = state.lastPosition ?? from;
+  const deltaX = to.x - baseFrom.x;
+  const deltaY = to.y - baseFrom.y;
   const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-  
-  // Detect input type based on distance
-  const isStylusInput = distance < 2; // Stylus typically has smaller movements
-  
-  // Adaptive parameters
-  const minDistance = isStylusInput ? 1.5 : 3;
-  const historySize = Math.round(3 + smoothing * 7); // 3-10 based on smoothing
-  
-  // Keep last direction for very small movements
+
+  // Update last position for adaptive smoothing and coarse sampling
+  state.lastPosition = { x: to.x, y: to.y };
+
+  // Keep last direction for truly negligible movements
+  const minDistance = 0.25;
   if (distance < minDistance && state.lastDirection !== 0) {
     return state.lastDirection;
   }
-  
+
   // Calculate raw direction
   const direction = Math.atan2(deltaY, deltaX);
-  
-  // Add to history
-  state.history.push(direction);
-  if (state.history.length > historySize) {
-    state.history.shift();
+
+  // Adaptive smoothing: smoother when slow, more responsive when fast
+  const speed = Number.isFinite(velocity) ? Math.max(velocity as number, distance) : distance;
+  const slow = 0.5;
+  const fast = 6;
+  const speedFactor = Math.max(0, Math.min(1, (speed - slow) / (fast - slow)));
+  const minSmoothing = 0.05;
+  const effectiveSmoothing = Math.max(minSmoothing, Math.min(1, smoothing)) * (1 - speedFactor);
+  const alpha = 1 - effectiveSmoothing;
+
+  if (state.lastDirection !== 0) {
+    const prevX = Math.cos(state.lastDirection);
+    const prevY = Math.sin(state.lastDirection);
+    const nextX = Math.cos(direction);
+    const nextY = Math.sin(direction);
+
+    const mixX = prevX * (1 - alpha) + nextX * alpha;
+    const mixY = prevY * (1 - alpha) + nextY * alpha;
+
+    const smoothed = Math.atan2(mixY, mixX);
+    state.lastDirection = smoothed;
+    return smoothed;
   }
-  
-  // Apply smoothing if we have history
-  if (state.history.length > 1 && smoothing > 0) {
-    // Create adaptive weights based on smoothing parameter
-    const weights: number[] = [];
-    for (let i = 0; i < state.history.length; i++) {
-      const weight = Math.pow(1 - smoothing * 0.8, state.history.length - 1 - i);
-      weights.push(weight);
-    }
-    
-    // Circular averaging for angle wraparound
-    let sinSum = 0;
-    let cosSum = 0;
-    let weightSum = 0;
-    
-    for (let i = 0; i < state.history.length; i++) {
-      const angle = state.history[i];
-      const weight = weights[i];
-      sinSum += Math.sin(angle) * weight;
-      cosSum += Math.cos(angle) * weight;
-      weightSum += weight;
-    }
-    
-    if (weightSum > 0) {
-      const smoothedDirection = Math.atan2(sinSum / weightSum, cosSum / weightSum);
-      
-      // Apply final smoothing with last direction
-      if (state.lastDirection !== 0) {
-        let angleDiff = smoothedDirection - state.lastDirection;
-        
-        // Normalize to [-PI, PI]
-        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        
-        // Clamp maximum rotation per frame
-        const maxRotation = Math.PI / 12; // 15 degrees max
-        const clampedDiff = Math.max(-maxRotation, Math.min(maxRotation, angleDiff));
-        
-        // Apply smoothing factor
-        const finalDirection = state.lastDirection + clampedDiff * (1 - smoothing * 0.3);
-        state.lastDirection = finalDirection;
-        return finalDirection;
-      }
-      
-      state.lastDirection = smoothedDirection;
-      return smoothedDirection;
-    }
-  }
-  
+
   state.lastDirection = direction;
   return direction;
 }
@@ -170,7 +138,7 @@ export function calculateRotation(
     case 'direction': {
       // Calculate direction-based rotation
       const smoothing = config.smoothing ?? 0.5;
-      rotation = calculateDirectionAngle(input.from, input.to, state, smoothing);
+      rotation = calculateDirectionAngle(input.from, input.to, state, smoothing, input.velocity);
       
       // Apply offset if specified
       if (config.offset) {

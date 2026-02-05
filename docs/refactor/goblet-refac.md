@@ -83,7 +83,7 @@ Keep existing recolor contract; it already has a WebGL renderer in Vessel and us
 ### 3.1 GPU-first pipeline
 Target: WebGL2 shader does palette lookup per fragment:
 - Fetch index `I` (0..255)
-- Fetch slot `S` (0..63) from `gradientIdBuffer`
+- Fetch slot `S` (0..255) from `gradientIdBuffer`
 - Fetch speedByte `B` from `speedBuffer`
 - Decode `speedCps = decode(B, speedMin, speedMax)` (with `B==0` => `speedCps=0`)
 - Compute `offset01 = frac(timeSeconds * speedCps + startOffset01)`
@@ -95,7 +95,7 @@ Target: WebGL2 shader does palette lookup per fragment:
 To avoid stop interpolation differences and reduce runtime cost:
 - Exporter (or Goblet 2 init) pre-bakes a **palette RGBA table** for each slot:
   - `paletteSize` = 256 (or brush palette length)
-  - `paletteTex` dimensions: width=paletteSize, height=slotCountUsed (≤64), RGBA8
+  - `paletteTex` dimensions: width=paletteSize, height=slotCountUsed (≤256), RGBA8
 - Slot → row index map.
 
 This matches Vessel semantics and is fast.

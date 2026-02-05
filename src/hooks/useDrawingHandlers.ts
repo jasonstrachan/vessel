@@ -1918,6 +1918,7 @@ export function useDrawingHandlers({
           }
 
           const rawSpacing = currentState.tools.brushSettings.spacing || 1;
+          const zoom = Math.max(1e-3, currentState.canvas?.zoom ?? 1);
           const pausedForStart = !selectEffectiveColorCyclePlaying(currentState);
           const pixelQueue = colorCyclePixelQueue.current ?? (() => {
             const queue = createPixelQueue();
@@ -1926,9 +1927,10 @@ export function useDrawingHandlers({
           })();
           const brushSize = currentState.tools.brushSettings.size || 1;
           const recomposeHalf = Math.ceil(brushSize / 2) + 2;
-          const effectiveSpacing = pausedForStart
+          const spacingScreenPx = pausedForStart
             ? Math.max(1, Math.round(rawSpacing * 1.25))
             : rawSpacing;
+          const effectiveSpacing = Math.max(1e-3, spacingScreenPx / zoom);
           const markDirty = (cx: number, cy: number) => {
             if (!pausedForStart) {
               return;

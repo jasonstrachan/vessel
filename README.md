@@ -20,6 +20,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 - **Brush Plugins**: Plugin registry for discoverable brush implementations
 - **Spacing & Patterns**: Distance-based spacing, dotted/dash patterns, and pixel-perfect modes
 - **Pressure Handling**: Pointer-pressure mapping via `pressureOptimizer`
+- **Settings Persistence**: Brush-specific slider/toggle values are saved between sessions
 
 ### Layers & Animation
 - **Layer Stack**: Visibility, ordering, alignment controls, and layer metadata

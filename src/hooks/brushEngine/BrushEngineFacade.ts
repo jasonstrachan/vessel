@@ -9,6 +9,7 @@ import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencie
 import { createBrushUtilities } from './utilities';
 import { applyThrottledColorJitter, parseColor } from './colorUtils';
 import { DEFAULT_COLOR_CYCLE_GRADIENT } from '@/utils/colorCycleGradients';
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
@@ -16,6 +17,13 @@ import {
 import { applyDithering } from './dithering';
 import { getGridPositionsBetween } from '@/utils/gridSnap';
 import { isStrokeBrush } from '@/utils/brushCategories';
+import {
+  createMosaicState,
+  DEFAULT_MOSAIC_SIZE,
+  rebuildMosaicStamp,
+  shuffleMosaicPalette,
+  type MosaicState
+} from './mosaic';
 import {
   calculateRotation,
   createDirectionState,
@@ -71,6 +79,7 @@ export class BrushEngineFacade {
   private pixelQueue: PixelQueue;
   private config: BrushEngineConfig;
   private directionState: DirectionState;
+  private mosaicState: MosaicState | null = null;
   private jitterState = {
     lastJitterColor: [0, 0, 0] as [number, number, number],
     nextJitterColor: [0, 0, 0] as [number, number, number],
@@ -288,6 +297,11 @@ export class BrushEngineFacade {
     ctx.fillStyle = settings.color;
     ctx.globalAlpha = settings.opacity;
 
+    if (settings.shape === BrushShape.MOSAIC) {
+      this.renderMosaicStroke(ctx, snappedFrom, snappedTo, pressure, rotation);
+      return;
+    }
+
     // Check if grid snapping is enabled
     const isGridSnapping = this.utilities.shouldApplyGridSnap();
     
@@ -493,6 +507,159 @@ export class BrushEngineFacade {
     );
   }
 
+  private renderMosaicStroke(
+    ctx: CanvasRenderingContext2D,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    pressure: number,
+    rotation: number
+  ): void {
+    const state = this.ensureMosaicState(from.x, from.y);
+    if (!state || !state.stampCanvas) {
+      return;
+    }
+
+    if (!state.hasStamped) {
+      this.drawMosaicStamp(ctx, from.x, from.y, state, pressure, rotation);
+      state.hasStamped = true;
+      state.spacingRemainingPx = state.spacingPx;
+    }
+
+    const dx = to.x - state.lastX;
+    const dy = to.y - state.lastY;
+    const distance = Math.hypot(dx, dy);
+
+    if (distance <= 0) {
+      return;
+    }
+
+    const dirX = dx / distance;
+    const dirY = dy / distance;
+    let remaining = distance;
+    let cursorX = state.lastX;
+    let cursorY = state.lastY;
+
+    while (remaining > 0) {
+      const step = Math.min(remaining, state.segmentRemainingPx);
+      const nextX = cursorX + dirX * step;
+      const nextY = cursorY + dirY * step;
+
+      this.stampMosaicSegment(ctx, cursorX, cursorY, nextX, nextY, state, pressure, rotation);
+
+      remaining -= step;
+      state.segmentRemainingPx -= step;
+      cursorX = nextX;
+      cursorY = nextY;
+
+      if (state.segmentRemainingPx <= 0) {
+        shuffleMosaicPalette(state);
+        rebuildMosaicStamp(state);
+      }
+    }
+
+    state.lastX = to.x;
+    state.lastY = to.y;
+  }
+
+  private stampMosaicSegment(
+    ctx: CanvasRenderingContext2D,
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    state: MosaicState,
+    pressure: number,
+    rotation: number
+  ): void {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= 0) {
+      return;
+    }
+
+    const dirX = dx / distance;
+    const dirY = dy / distance;
+    let remaining = distance;
+    let cursorX = fromX;
+    let cursorY = fromY;
+    let spacingRemaining = state.spacingRemainingPx;
+
+    if (spacingRemaining <= 0) {
+      this.drawMosaicStamp(ctx, cursorX, cursorY, state, pressure, rotation);
+      spacingRemaining = state.spacingPx;
+    }
+
+    while (remaining >= spacingRemaining) {
+      cursorX += dirX * spacingRemaining;
+      cursorY += dirY * spacingRemaining;
+      remaining -= spacingRemaining;
+      this.drawMosaicStamp(ctx, cursorX, cursorY, state, pressure, rotation);
+      spacingRemaining = state.spacingPx;
+    }
+
+    spacingRemaining -= remaining;
+    state.spacingRemainingPx = spacingRemaining;
+  }
+
+  private drawMosaicStamp(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    state: MosaicState,
+    pressure: number,
+    rotation: number
+  ): void {
+    if (!state.stampCanvas) {
+      return;
+    }
+
+    const baseSize = this.config.brushSettings.size || DEFAULT_MOSAIC_SIZE;
+    const pressureSize = this.utilities.calculatePressureSize(baseSize, pressure);
+    const scale = pressureSize > 0 ? pressureSize / DEFAULT_MOSAIC_SIZE : 1;
+
+    const drawW = Math.max(1, state.stampW * scale);
+    const drawH = Math.max(1, state.stampH * scale);
+    const centerX = Math.round(x);
+    const centerY = Math.round(y);
+
+    if (!this.canDrawAt(ctx, centerX, centerY)) {
+      return;
+    }
+
+    const rotationOffset = Math.PI / 2;
+    const totalRotation = rotation + rotationOffset;
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = Boolean(this.config.brushSettings.antialiasing);
+    ctx.translate(centerX, centerY);
+    if (totalRotation !== 0) {
+      ctx.rotate(totalRotation);
+    }
+    ctx.drawImage(state.stampCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+  }
+
+
+  private ensureMosaicState(startX: number, startY: number): MosaicState | null {
+    if (this.mosaicState) {
+      return this.mosaicState;
+    }
+
+    const stops = this.config.brushSettings.colorCycleGradient?.length
+      ? this.config.brushSettings.colorCycleGradient
+      : DEFAULT_GRADIENT_STOPS;
+
+    this.mosaicState = createMosaicState({
+      settings: this.config.brushSettings,
+      gradientStops: stops,
+      startX,
+      startY
+    });
+
+    return this.mosaicState;
+  }
+
   private hashGradient(stops?: Array<{ position: number; color: string }>): string {
     if (!stops || stops.length === 0) {
       return 'none';
@@ -663,6 +830,7 @@ export class BrushEngineFacade {
     this.strokeProcessor.reset();
     this.lastStrokePressure = null;
     this.lastCustomBrushData = null;
+    this.mosaicState = null;
   }
 
   /**

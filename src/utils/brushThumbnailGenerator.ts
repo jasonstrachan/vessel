@@ -85,6 +85,9 @@ export function generateBrushThumbnail(
     case BrushShape.SPAM_TEXT:
       generateSpamTextThumbnail(ctx, opts, baseStrokeWidth);
       break;
+    case BrushShape.MOSAIC:
+      generateMosaicThumbnail(ctx, opts, baseStrokeWidth);
+      break;
     case BrushShape.ROUND:
     default:
       generateRoundThumbnail(ctx, opts, baseStrokeWidth);
@@ -199,6 +202,30 @@ function generateRectangleGradientThumbnail(
   ctx.strokeStyle = gradient;
   ctx.strokeRect(x, y, width - strokeWidth, height - strokeWidth);
   ctx.strokeStyle = opts.brushColor;
+}
+
+function generateMosaicThumbnail(
+  ctx: CanvasRenderingContext2D,
+  opts: Required<ThumbnailOptions>,
+  strokeWidth: number
+) {
+  const tilePx = Math.max(6, Math.round(opts.size / 4));
+  const gap = 0;
+  const totalSize = tilePx * 2 + gap;
+  const startX = Math.round((opts.size - totalSize) / 2);
+  const startY = Math.round((opts.size - totalSize) / 2);
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.strokeStyle = opts.brushColor;
+  ctx.lineWidth = strokeWidth;
+
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 2; col++) {
+      const x = startX + col * (tilePx + gap);
+      const y = startY + row * (tilePx + gap);
+      ctx.strokeRect(x, y, tilePx, tilePx);
+    }
+  }
 }
 
 function generateResamplerThumbnail(

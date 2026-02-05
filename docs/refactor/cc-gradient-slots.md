@@ -6,10 +6,10 @@ This doc explains the slot system for Color Cycle (CC) gradients, how it interac
 
 ## Glossary
 
-**Slot (0–63):**  
+**Slot (0–255):**  
 An 8‑bit index stored per pixel in the **gid** buffer (`Uint8Array`). Slots point to a palette (stops) at render time.
 
-**Editor slot (63):**  
+**Editor slot (255):**  
 Reserved. Used by the UI/editor and never for committed marks.
 
 **Paint slot:**  
@@ -23,7 +23,7 @@ An immutable gradient stored in `gradientDefStore` with a unique `defId`.
 
 **Def slot:**  
 A slot allocated for a def at mark start. Used only for preview/runtime convenience.  
-**Important:** This slot must be treated as *reserved* until the def is no longer referenced.
+**Important:** This slot must be treated as *reserved* until the def is no longer referenced. There is currently no eviction/GC, so def slots accumulate.
 
 **Def buffer (`def`):**  
 A `Uint16Array` per pixel storing the **defId** (authoritative binding).
@@ -47,7 +47,7 @@ If the def buffer isn’t populated for a mark, that mark will keep following wh
 
 Slots are a scarce shared resource. To prevent mutation bugs:
 
-1) **Editor slot (63) is always reserved.**
+1) **Editor slot (255) is always reserved.**
 2) **All def slots are reserved.**  
    Any slot referenced by `gradientDefStore[].slot` is off‑limits for FG/manual allocation.
 3) **Active gradient slots and palette slots are reserved** for allocation purposes.
@@ -58,7 +58,7 @@ When allocating a slot (FG, manual, etc.), the **used slot set** must include:
 - `slotPalettes[].slot`
 - `gradientDefs[].currentSlot`
 - `gradientDefStore[].slot`
-- `EDITOR_SLOT (63)`
+- `EDITOR_SLOT (255)`
 
 This is now enforced in:
 - `useDrawingHandlers.ts` (FG slot allocation in stroke path)
@@ -82,7 +82,7 @@ This is now enforced in:
    - Persist `gradientDefStore` entry.
    - (Dev) Parity assert: `def.hash === session.frozenHash`.
 
-After commit, **changing FG should not affect the stroke**, because the def buffer is authoritative.
+After commit, **changing FG should not affect the stroke**, because the def buffer is authoritative. If a def slot cannot be allocated, the mark can fall back to a live slot palette, which makes old pixels appear to “reuse” or mutate to a newer gradient.
 
 ---
 
@@ -126,4 +126,3 @@ Fix: resolve stops from a fresh store snapshot at mark start.
 - Commit writes def buffer ✅
 - Def store includes the committed def ✅
 - Old strokes do not mutate on FG changes ✅
-

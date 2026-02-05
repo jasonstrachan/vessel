@@ -3890,10 +3890,24 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             ? tools.eraserSettings.size ?? baseBrushSize
             : baseBrushSize;
 
+        const mosaicCursorSize = (() => {
+          if (brushShapeForCursor !== BrushShape.MOSAIC) {
+            return null;
+          }
+          const tilePx = Math.max(1, Math.min(128, Math.round(tools.brushSettings.mosaicTilePx ?? 8)));
+          const blocksCount = Math.max(1, Math.min(32, Math.round(tools.brushSettings.mosaicBlocksCount ?? 6)));
+          const rows = 1;
+          const stampW = tilePx * blocksCount;
+          const stampH = tilePx * rows;
+          const baseSize = tools.brushSettings.size ?? globalBrushSize ?? 60;
+          const scale = baseSize / 60;
+          return Math.max(stampW, stampH) * scale;
+        })();
+
         const cursorSize =
           tools.currentTool === 'eraser'
             ? Math.max(1, eraserSize)
-            : Math.max(1, baseBrushSize);
+            : Math.max(1, mosaicCursorSize ?? baseBrushSize);
 
         return (
           <BrushCursor

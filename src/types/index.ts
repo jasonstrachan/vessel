@@ -127,6 +127,8 @@ export interface Project {
   brushSpecificSettings?: Record<string, Partial<BrushSettings>>;
   // Global brush size (applies to all brushes)
   globalBrushSize?: number;
+  // Layer ID to sample from when reference sampling is enabled
+  referenceLayerId?: string | null;
   exportLayout?: ExportContainerLayout;
   palette?: PaletteState;
 }
@@ -398,6 +400,7 @@ export enum BrushShape {
   COLOR_CYCLE = 'color_cycle',
   COLOR_CYCLE_TRIANGLE = 'color_cycle_triangle',
   COLOR_CYCLE_SHAPE = 'color_cycle_shape',
+  MOSAIC = 'mosaic',
   SPAM_TEXT = 'spam_text',
   SHAPE_FILL = 'shape_fill'
 }
@@ -699,6 +702,14 @@ export interface BrushSettings {
   autoSampleColor?: boolean; // true = pick brush color from canvas/reference at stroke start
   /** Color Cycle Gradient only: sample gradient per shape finalize */
   ccGradientSamplePerShape?: boolean;
+  // Mosaic brush settings
+  mosaicTilePx?: number;
+  mosaicSegmentPx?: number;
+  mosaicBlocksCount?: number;
+  mosaicPaletteCount?: number;
+  mosaicDitherEnabled?: boolean;
+  mosaicSegmentJitter?: number;
+  mosaicSeed?: number;
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

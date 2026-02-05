@@ -108,6 +108,7 @@ const createStoreStub = () => ({
     backgroundColor: '#FFFFFF',
     activeSlot: 'foreground' as const,
   },
+  referenceLayerId: 'layer-1',
   layers: [{ id: 'layer-1', layerType: 'normal' as const }],
   activeLayerId: 'layer-1',
   history: { isCapturing: false },
@@ -195,7 +196,7 @@ describe('AutosaveService', () => {
     await autosaveService.triggerAutosave();
 
     expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledWith(
-      expect.objectContaining({ palette: store.palette }),
+      expect.objectContaining({ palette: store.palette, referenceLayerId: store.referenceLayerId }),
       store.layers
     );
     expect(store.clearDirtyState).toHaveBeenCalled();

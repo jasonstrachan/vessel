@@ -194,6 +194,11 @@ export const createProjectLifecycle = ({
     const toolsWithPalette = updateToolsWithPalette(normalizedPalette, state.tools);
     const normalizedLayers = normalizeLayers(finalLayers);
     const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
+    const validLayerIds = new Set(syncedLayers.map((layer) => layer.id));
+    const nextReferenceLayerId =
+      loadedProject.referenceLayerId && validLayerIds.has(loadedProject.referenceLayerId)
+        ? loadedProject.referenceLayerId
+        : null;
 
     set({
       project: projectWithPalette,
@@ -202,7 +207,7 @@ export const createProjectLifecycle = ({
       layers: syncedLayers,
       activeLayerId: loadedProject.layers[0]?.id ?? null,
       selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
-      referenceLayerId: null,
+      referenceLayerId: nextReferenceLayerId,
       canvas: loadedProject.viewState
         ? {
             ...get().canvas,
@@ -388,6 +393,7 @@ export const createProjectLifecycle = ({
         },
         brushSpecificSettings: freshState.brushSpecificSettings,
         globalBrushSize: freshState.globalBrushSize,
+        referenceLayerId: freshState.referenceLayerId ?? null,
         palette: freshState.palette,
       };
 

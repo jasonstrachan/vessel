@@ -6,7 +6,7 @@
 ---
 
 ## 0) Summary of the problem (why it “runs out”)
-Your renderer currently selects palettes by **6-bit slot** (`gid & FLOW_SLOT_MASK`, GPU `mod(fGid, 64.0)`), which gives **64 total slots**. If committed marks are bound by slots, slot reuse is inevitable and older marks will mutate once a slot is reused.
+Your renderer currently selects palettes by **8-bit slot** (`gid & FLOW_SLOT_MASK`), which gives **256 total slots**. If committed marks are bound by slots, slot reuse is still inevitable over time and older marks will mutate once a slot is reused.
 
 You already have the correct long-lived storage primitive:
 - **`defBuffer: Uint16Array`** (per pixel gradientDefId)
@@ -48,7 +48,7 @@ With two explicit APIs:
   UI-only. Must not touch palette data.
 
 ### 2.2 Tripwires (dev-only)
-- **T0 Preview slot leak:** after commit, scan ROI and assert no `(gid & FLOW_SLOT_MASK) === 63`.
+- **T0 Preview slot leak:** after commit, scan ROI and assert no `(gid & FLOW_SLOT_MASK) === 254` (TEMP_SAMPLE_SLOT) and no editor slot (255) in committed pixels.
 - **T1 Def palette exists:** if `defIdData[i] > 0`, assert a palette exists for defId.
 - **T2 Parity:** `def.hash === session.frozenHash` on finalize/commit.
 - **T3 No “begin” during finalize:** forbid `beginMarkGradientSession` from any finalize/commit path.
@@ -126,7 +126,7 @@ On finalize stroke:
      - if `paintBuffer[idx] != 0` then `defBuffer[idx] = defId`
 
 Do **not** remap gid slots for correctness in Phase 1.  
-(You may still remap away slot 63 as a cleanliness step, but it is no longer required to prevent mutation once renderer prefers defId.)
+(You may still remap away TEMP_SAMPLE_SLOT (254) as a cleanliness step, but it is no longer required to prevent mutation once renderer prefers defId.)
 
 ### 4.3 CC Gradient shapes: commit writes defId directly
 On shape finalize (linear/concentric):
@@ -136,7 +136,7 @@ On shape finalize (linear/concentric):
    - `paintBuffer[idx] = computedIndex`
    - `defBuffer[idx] = defId`
 
-Preview while dragging can continue to use slot 63, but the commit must write defId.
+Preview while dragging can continue to use TEMP_SAMPLE_SLOT (254), but the commit must write defId.
 
 ---
 
@@ -173,8 +173,8 @@ To avoid GPU “running out”:
 ---
 
 ## 6) What changes after this plan
-### You keep 6-bit slots, but only for preview/legacy
-- Preview: slot 63 is always safe.
+### You keep 8-bit slots, but only for preview/legacy
+- Preview: TEMP_SAMPLE_SLOT (254) is always safe.
 - Committed identity: defId is unlimited and stable.
 
 ### You stop seeing:
@@ -196,7 +196,7 @@ To avoid GPU “running out”:
 - Preview == final (hash parity tripwire never fires).
 
 ### Tripwires
-- No preview slot (63) remains in committed ROI.
+- No preview slot (254) remains in committed ROI.
 - Renderer never encounters defId without a palette.
 
 ---
