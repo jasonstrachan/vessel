@@ -118,7 +118,7 @@ export const DitherControls: React.FC<Props> = ({
               <ProgressSlider
                 value={settings.fillResolution || 1}
                 min={1}
-                max={32}
+                max={64}
                 step={1}
                 onChange={(value) => onChange({ fillResolution: Math.max(1, Math.round(value)) })}
                 disabled={Boolean(settings.pressureLinkedFillResolution && isDitherPreset)}

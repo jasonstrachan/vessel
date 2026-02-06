@@ -733,8 +733,8 @@ export interface BrushSettings {
    */
   gradientLength?: number;
   shapeFillMode?: 'default' | 'linear' | 'concentric' | (string & {}); // mode for shape fill tools
-  // Fill resolution for dither block size (1-32 pixels per block)
-  fillResolution?: number; // 1-32 for dithering block size
+  // Fill resolution for dither block size (1-64 pixels per block)
+  fillResolution?: number; // 1-64 for dithering block size
   // Contour polygon settings
   contourSpacing?: number; // 1-10 (spacing between contour lines)
   contourVariance?: number; // 0-10 (variance in spacing, 0=uniform, 10=high variance)
