@@ -8,8 +8,8 @@ export interface CCIndexSurfaceRect {
 export interface CCIndexSurface {
   width: number;
   height: number;
-  getIndexBuffers(): { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array };
-  setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array): void;
+  getIndexBuffers(): { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array; flow?: Uint8Array };
+  setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array, flow?: Uint8Array): void;
   markDirty(bounds?: CCIndexSurfaceRect): void;
   renderToCanvas2D(ctx: CanvasRenderingContext2D): void;
 }

@@ -1150,9 +1150,6 @@ export function useDrawingHandlers({
       });
       if (result) {
         writeCcGradientSampleCount(result.sampleCount, now);
-        if (result.updated) {
-          requestGradientApply(targetLayerId, 'sampled-preview');
-        }
       }
     },
     [sampleHexAt, storeRef, writeCcGradientSampleCount]

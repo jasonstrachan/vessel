@@ -573,6 +573,7 @@ describe('pointerHandlers main flows', () => {
   it('falls back to current pressure when coalesced events omit pressure', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
+        ...baseDynamic.tools,
         brushSettings: {
           ...baseDynamic.tools.brushSettings,
           pressureEnabled: true,

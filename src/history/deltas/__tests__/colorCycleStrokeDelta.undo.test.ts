@@ -2,7 +2,9 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { ColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 
+// eslint-disable-next-line no-var
 var mockManager: { getBrush: jest.Mock };
 const mockBrush = {
   restoreFullState: jest.fn(),
@@ -53,6 +55,16 @@ const createLayer = (overrides?: Partial<Layer>): Layer => {
     ...(overrides ?? {}),
   };
 };
+
+const makeAnimatorState = () =>
+  new ColorCycleAnimator({
+    width: 2,
+    height: 2,
+    fps: 30,
+    speed: 1,
+    autoStart: false,
+    forceCanvas2D: true,
+  }).serialize();
 
 describe('ColorCycleStrokeDelta undo resurrection', () => {
   beforeEach(() => {
@@ -134,6 +146,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
       layers: [
         {
           layerId: layer.id,
+          data: makeAnimatorState(),
           strokeData: {
             paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
             gradientDefIdBuffer: new Uint16Array([1, 0, 0, 0]).buffer,
@@ -151,6 +164,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
       layers: [
         {
           layerId: layer.id,
+          data: makeAnimatorState(),
           strokeData: {
             paintBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
             gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,

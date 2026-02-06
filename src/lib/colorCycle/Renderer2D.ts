@@ -59,6 +59,7 @@ export class Renderer2D {
     defIdData?: Uint16Array;
     defPalettesById?: Map<number, Uint32Array>;
     speedData?: Uint8Array;
+    flowData?: Uint8Array;
     paletteSlots: Uint32Array[];
     basePalette: Uint32Array;
     phase: number;
@@ -74,6 +75,7 @@ export class Renderer2D {
     const defIdData = options.defIdData;
     const defPalettesById = options.defPalettesById;
     const speedData = options.speedData;
+    const flowData = options.flowData;
     const baseTime = options.baseTime;
     void (options.flowMode ?? 'forward');
 
@@ -86,15 +88,25 @@ export class Renderer2D {
       const gid = gradientIdData ? gradientIdData[i] : 0;
       const slot = gid & FLOW_SLOT_MASK;
       const speedByte = speedData ? speedData[i] : 0;
+      const flowByte = flowData ? flowData[i] : 0;
       const hasSpeed = speedByte > 0;
       const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
-      const speedOffset = hasSpeed ? (baseTime * speed) % 1 : offset;
+      const basePhase = hasSpeed ? (baseTime * speed) % 1 : offset;
+      let phase = basePhase;
+      if (flowByte === 3) {
+        const t = (basePhase * 2) % 2;
+        phase = t > 1 ? 2 - t : t;
+      }
+      const dir = flowByte === 2 ? 1 : -1;
+      const speedOffset = phase;
       const defId = defIdData ? defIdData[i] : 0;
       const palette =
         defId > 0
           ? defPalettesById?.get(defId) ?? options.basePalette
           : options.paletteSlots[slot] ?? options.basePalette;
-      const shift = hasSpeed ? -((speedOffset * 256) | 0) : -legacyShift;
+      const shift = hasSpeed
+        ? (dir * ((speedOffset * 256) | 0))
+        : (dir * legacyShift);
       pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
     }
 

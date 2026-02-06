@@ -144,11 +144,16 @@ function createStore() {
 
 jest.mock('@/stores/useAppStore', () => {
   const store = createStore();
-  const useAppStore = (selector: any) => selector(store.getState());
+  const useAppStore = (selector?: any) =>
+    typeof selector === 'function' ? selector(store.getState()) : store.getState();
   (useAppStore as any).getState = store.getState;
   (useAppStore as any).setState = store.setState;
   (useAppStore as any).subscribe = store.subscribe;
-  return { useAppStore };
+  return {
+    useAppStore,
+    selectEffectiveColorCyclePlaying: (state: StoreState) =>
+      state.colorCyclePlayback.desiredPlaying,
+  };
 });
 
 describe('BrushControls – Dither Gradient', () => {

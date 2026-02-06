@@ -19,7 +19,6 @@ const makeSession = (): MarkGradientSession => ({
     { position: 0, color: '#000000' },
     { position: 1, color: '#ffffff' },
   ],
-  previewSlot: 5,
   samples: [],
 });
 

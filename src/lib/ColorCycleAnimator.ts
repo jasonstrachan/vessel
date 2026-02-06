@@ -36,6 +36,7 @@ type DirectFillHandle = {
   data: Uint8Array;
   gradientId: Uint8Array;
   speedData: Uint8Array;
+  flowData: Uint8Array;
   width: number;
   height: number;
 };
@@ -144,16 +145,17 @@ export class ColorCycleAnimator implements CCIndexSurface {
     return this.indexBuffer.getDimensions().height;
   }
 
-  getIndexBuffers(): { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array } {
+  getIndexBuffers(): { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array; flow?: Uint8Array } {
     return {
       data: this.indexBuffer.getDirectData(),
       gid: this.indexBuffer.getDirectGradientIdData(),
       spd: this.indexBuffer.getDirectSpeedData(),
+      flow: this.indexBuffer.getDirectFlowData(),
     };
   }
 
-  setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array): void {
-    this.setIndexBufferFromArray(data, gid, spd);
+  setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array, flow?: Uint8Array): void {
+    this.setIndexBufferFromArray(data, gid, spd, flow);
   }
 
   setDefIdData(defIdData?: Uint16Array | null, options?: { forceDirty?: boolean }): void {
@@ -550,6 +552,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       data: this.indexBuffer.getDirectData(),
       gradientId: this.indexBuffer.getDirectGradientIdData(),
       speedData: this.indexBuffer.getDirectSpeedData(),
+      flowData: this.indexBuffer.getDirectFlowData(),
       width: canvas.width,
       height: canvas.height,
     };
@@ -589,6 +592,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const indexData = this.indexBuffer.getDirectData();
       const gradientIdData = this.indexBuffer.getDirectGradientIdData();
       const speedData = this.indexBuffer.getDirectSpeedData();
+      const flowData = this.indexBuffer.getDirectFlowData();
       if (!indexData) return;
 
       if (!this._dbgSpeedStatsLogged && speedData && speedData.length > 0) {
@@ -663,6 +667,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
             indexData,
             gradientIdData,
             speedData,
+            flowData,
             this.defIdData ?? undefined,
             rect,
             this._glDefIdDirty
@@ -702,6 +707,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
         defIdData: this.defIdData ?? undefined,
         defPalettesById: this.defPalettesById ?? undefined,
         speedData,
+        flowData,
         paletteSlots: this.paletteController.getPalettesBySlot(),
         basePalette: basePalette32,
         phase: legacyPhase,
@@ -728,8 +734,9 @@ export class ColorCycleAnimator implements CCIndexSurface {
     // Use provided index or auto-increment
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
     const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+    const flowBits = this.getFlowBits();
     // Paint to index buffer using numeric index
-    this.indexBuffer.paintWithIndex(x, y, brushSize, index, slot, this.currentSpeedByte);
+    this.indexBuffer.paintWithIndex(x, y, brushSize, index, slot, this.currentSpeedByte, flowBits);
     this._glIndexDirty = true;
     
     // If not animating, render immediately
@@ -756,7 +763,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
 
       const clamped = Math.max(1, Math.min(255, Math.round(colorIndex)));
       const slot = gradientSlot ?? this.paletteController.getActiveSlot();
-      this.indexBuffer.setPixel(x, y, clamped, slot, this.currentSpeedByte);
+      const flowBits = this.getFlowBits();
+      this.indexBuffer.setPixel(x, y, clamped, slot, this.currentSpeedByte, flowBits);
       this._glIndexDirty = true;
     } catch {
       // Fail silently for out-of-bounds or transient states
@@ -783,6 +791,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       // Use provided color index or auto-increment
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
       const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+      const flowBits = this.getFlowBits();
       
       // Paint to index buffer with the specific color index - NO RENDERING
       this.indexBuffer.paintSquareWithIndex(
@@ -797,7 +806,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
         slot,
         maskOriginX,
         maskOriginY,
-        this.currentSpeedByte
+        this.currentSpeedByte,
+        flowBits
       );
       this._glIndexDirty = true;
       
@@ -827,6 +837,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
       const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+      const flowBits = this.getFlowBits();
       this.indexBuffer.paintTriangleWithIndex(
         x,
         y,
@@ -839,7 +850,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
         slot,
         maskOriginX,
         maskOriginY,
-        this.currentSpeedByte
+        this.currentSpeedByte,
+        flowBits
       );
       this._glIndexDirty = true;
     } catch (error) {
@@ -866,6 +878,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
       const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+      const flowBits = this.getFlowBits();
       this.indexBuffer.paintCircleWithIndex(
         x,
         y,
@@ -878,7 +891,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
         slot,
         maskOriginX,
         maskOriginY,
-        this.currentSpeedByte
+        this.currentSpeedByte,
+        flowBits
       );
       this._glIndexDirty = true;
     } catch (error) {
@@ -905,6 +919,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     try {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
       const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+      const flowBits = this.getFlowBits();
       this.indexBuffer.paintDiamondWithIndex(
         x,
         y,
@@ -917,7 +932,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
         slot,
         maskOriginX,
         maskOriginY,
-        this.currentSpeedByte
+        this.currentSpeedByte,
+        flowBits
       );
       this._glIndexDirty = true;
     } catch (error) {
@@ -939,6 +955,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   ) {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
     const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+    const flowBits = this.getFlowBits();
     
     this.indexBuffer.paintLineWithIndex(
       x0,
@@ -948,7 +965,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
       brushSize,
       index,
       slot,
-      this.currentSpeedByte
+      this.currentSpeedByte,
+      flowBits
     );
     this._glIndexDirty = true;
     
@@ -962,7 +980,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
     const slot = gradientSlot ?? this.paletteController.getActiveSlot();
     
-    this.indexBuffer.fillWithIndex(x, y, index, slot, this.currentSpeedByte);
+    const flowBits = this.getFlowBits();
+    this.indexBuffer.fillWithIndex(x, y, index, slot, this.currentSpeedByte, flowBits);
     this._glIndexDirty = true;
     
     if (!this.animationController.isPlaying()) {
@@ -1303,6 +1322,20 @@ export class ColorCycleAnimator implements CCIndexSurface {
   getFlowMode(): FlowMode {
     return this.strokeTracker.getFlowMode();
   }
+
+  private getFlowBits(): number {
+    const mode = this.strokeTracker.getFlowMode();
+    switch (mode) {
+      case 'forward':
+        return 1;
+      case 'reverse':
+        return 2;
+      case 'pingpong':
+        return 3;
+      default:
+        return 0;
+    }
+  }
   
   /**
    * Toggle flow direction
@@ -1338,7 +1371,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
   setIndexBufferFromArray(
     data: Uint8Array,
     gradientIdData?: Uint8Array,
-    speedData?: Uint8Array
+    speedData?: Uint8Array,
+    flowData?: Uint8Array
   ): void {
     const { width, height } = this.indexBuffer.getDimensions();
     const expected = width * height;
@@ -1352,6 +1386,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const dest = this.indexBuffer.getDirectData();
       const gradientDest = this.indexBuffer.getDirectGradientIdData();
       const speedDest = this.indexBuffer.getDirectSpeedData();
+      const flowDest = this.indexBuffer.getDirectFlowData();
       dest.fill(0);
       dest.set(data.subarray(0, Math.min(dest.length, data.length)));
       if (gradientIdData) {
@@ -1370,6 +1405,12 @@ export class ColorCycleAnimator implements CCIndexSurface {
         speedDest.fill(0);
         this.indexBuffer.setHasNonZeroSpeed(false);
       }
+      if (flowData) {
+        flowDest.fill(0);
+        flowDest.set(flowData.subarray(0, Math.min(flowDest.length, flowData.length)));
+      } else {
+        flowDest.fill(0);
+      }
       this.indexBuffer.markDirty();
       this._glIndexDirty = true;
       return;
@@ -1379,6 +1420,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     dest.set(data);
     const gradientDest = this.indexBuffer.getDirectGradientIdData();
     const speedDest = this.indexBuffer.getDirectSpeedData();
+    const flowDest = this.indexBuffer.getDirectFlowData();
     if (gradientIdData) {
       gradientDest.set(gradientIdData.subarray(0, Math.min(gradientDest.length, gradientIdData.length)));
       this.indexBuffer.setHasNonZeroGradientIds(gradientIdData.some((value) => value !== 0));
@@ -1392,6 +1434,11 @@ export class ColorCycleAnimator implements CCIndexSurface {
     } else {
       speedDest.fill(0);
       this.indexBuffer.setHasNonZeroSpeed(false);
+    }
+    if (flowData) {
+      flowDest.set(flowData.subarray(0, Math.min(flowDest.length, flowData.length)));
+    } else {
+      flowDest.fill(0);
     }
     this.indexBuffer.markDirty();
     this._glIndexDirty = true;

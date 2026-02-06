@@ -46,10 +46,16 @@ jest.mock('@/stores/useAppStore', () => {
     setState: () => {},
     subscribe: () => () => {},
   };
-  const useAppStore = (selector: any) => selector(mockStore);
+  const useAppStore = (selector?: any) =>
+    typeof selector === 'function' ? selector(mockStore) : mockStore;
   (useAppStore as any).getState = api.getState;
   (useAppStore as any).subscribe = api.subscribe;
-  return { useAppStore, useAppStoreApi: () => api };
+  return {
+    useAppStore,
+    useAppStoreApi: () => api,
+    selectEffectiveColorCyclePlaying: (state: typeof mockStore) =>
+      state.colorCyclePlayback.desiredPlaying,
+  };
 });
 
 describe('BrushControls', () => {

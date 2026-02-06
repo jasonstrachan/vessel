@@ -1,19 +1,12 @@
 import { useAppStore } from '@/stores/useAppStore';
-import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
-import { cloneStops, getNextGradientSlot, resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { cloneStops, resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import {
   ensureGradientDefForStops,
   hashStops,
   type StoredStop,
   type GradientDefSource,
 } from '@/utils/colorCycleGradientDefs';
-import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
-import {
-  rebuildGradientSlotUsageAndGC,
-  rebuildOnDemandAndRetryAllocate,
-  buildDefaultReservedSlots,
-} from '@/utils/colorCycleSlotGC';
 
 export type MarkGradientSession = {
   markId: string;
@@ -28,7 +21,6 @@ export type MarkGradientSession = {
   previewStopsStored?: StoredStop[] | null;
   previewHash?: string;
   fallbackStopsStored?: StoredStop[];
-  previewSlot?: number;
   samples?: Array<{ t01: number; rgba: [number, number, number, number] }>;
 };
 
@@ -42,7 +34,6 @@ export type PreviewGradientResult = {
 const sessionsByLayer = new Map<string, MarkGradientSession>();
 let markSessionPointerDownRef: { current: boolean } | null = null;
 let isFinalizingSession = false;
-const EDITOR_SLOT = 255;
 
 export const registerMarkGradientPointerDownRef = (
   ref: { current: boolean } | null
@@ -54,128 +45,6 @@ let markCounter = 0;
 const nextMarkId = () => {
   markCounter += 1;
   return `cc-mark-${markCounter}`;
-};
-
-const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
-
-const collectUsedSlots = (layer: {
-  colorCycleData?: {
-    slotPalettes?: Array<{ slot: number }>;
-    gradientDefs?: Array<{ currentSlot: number }>;
-    gradientDefStore?: Array<{ slot?: number }>;
-  } | null;
-} | null | undefined): Set<number> => {
-  const used = new Set<number>();
-  if (!layer?.colorCycleData) {
-    return used;
-  }
-  layer.colorCycleData.slotPalettes?.forEach((entry) => used.add(clampSlot(entry.slot)));
-  layer.colorCycleData.gradientDefs?.forEach((entry) => used.add(clampSlot(entry.currentSlot)));
-  layer.colorCycleData.gradientDefStore?.forEach((entry) => {
-    if (typeof entry.slot === 'number') {
-      used.add(clampSlot(entry.slot));
-    }
-  });
-  used.add(EDITOR_SLOT);
-  used.add(TEMP_SAMPLE_SLOT);
-  return used;
-};
-
-const collectActiveSessionSlots = (): Set<number> => {
-  const active = new Set<number>();
-  sessionsByLayer.forEach((session) => {
-    if (typeof session.binding?.slot === 'number') {
-      active.add(clampSlot(session.binding.slot));
-    }
-    if (typeof session.previewSlot === 'number') {
-      active.add(clampSlot(session.previewSlot));
-    }
-  });
-  return active;
-};
-
-const runProjectSlotRebuild = (layerId: string) => {
-  const state = useAppStore.getState();
-  const result = rebuildGradientSlotUsageAndGC({
-    layers: state.layers,
-    scope: 'project',
-    reservedSlots: buildDefaultReservedSlots(),
-    activeSessionSlots: collectActiveSessionSlots(),
-  });
-  if (!result) {
-    return null;
-  }
-  if (result.missingDefLayers && result.missingDefLayers.length > 0) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('[CC] Slot GC aborted due to missing defs', {
-        layerId,
-        missingDefLayers: result.missingDefLayers,
-      });
-    }
-    return result;
-  }
-  result.updates.forEach((update) => {
-    state.updateLayer(update.layerId, { colorCycleData: update.colorCycleData });
-  });
-  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
-    console.info('[CC] Slot GC rebuild summary', { layerId, ...result.stats });
-  }
-  return result;
-};
-
-const resolveSampledPreviewSlot = (
-  layerId: string,
-  layer: {
-  colorCycleData?: {
-    slotPalettes?: Array<{ slot: number }>;
-    gradientDefs?: Array<{ currentSlot: number }>;
-    gradientDefStore?: Array<{ slot?: number }>;
-  } | null;
-} | null | undefined
-): number | null => {
-  const attemptPick = (targetLayer: typeof layer): number | null => {
-    const used = collectUsedSlots(targetLayer);
-    if (!used.has(TEMP_SAMPLE_SLOT)) {
-      return TEMP_SAMPLE_SLOT;
-    }
-    const picked = getNextGradientSlot(used);
-    if (typeof picked === 'number') {
-      return picked;
-    }
-    if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
-      console.error('[CC] Sample preview slot allocation failed', {
-        layerId,
-        usedSlotsSize: used.size,
-        editorReserved: used.has(EDITOR_SLOT),
-        tempSampleReserved: used.has(TEMP_SAMPLE_SLOT),
-      });
-    }
-    return null;
-  };
-
-  const initial = attemptPick(layer);
-  if (typeof initial === 'number') {
-    return initial;
-  }
-
-  let retrySlot: number | null = null;
-  rebuildOnDemandAndRetryAllocate({
-    attemptAllocate: () => {
-      const state = useAppStore.getState();
-      const nextLayer = state.layers.find((entry) => entry.id === layerId);
-      const slot = attemptPick(nextLayer ?? null);
-      if (typeof slot === 'number') {
-        retrySlot = slot;
-        return slot;
-      }
-      return null;
-    },
-    runRebuild: () => runProjectSlotRebuild(layerId),
-    throttleKey: `cc-slot-rebuild:preview:${layerId}`,
-    throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
-  });
-
-  return retrySlot;
 };
 
 const finalizeSampledSession = (session: MarkGradientSession): void => {
@@ -195,12 +64,10 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       kind: session.gradientKind,
       stops: session.frozenStopsStored,
       source: session.source,
-      preferredSlot: session.previewSlot,
       speedCps: session.speedCps ?? undefined,
     });
     if (defResult) {
       session.binding = { kind: 'def', defId: defResult.def.id, slot: defResult.slot };
-      session.previewSlot = clampSlot(defResult.slot);
     }
   }
 };
@@ -226,10 +93,6 @@ export const beginMarkGradientSession = (params: {
   }
   const frozenStops = cloneStops(params.stops);
   if (params.source === 'sampled') {
-    const previewSlot = resolveSampledPreviewSlot(params.layerId, layer);
-    if (typeof previewSlot !== 'number') {
-      return null;
-    }
     const session: MarkGradientSession = {
       markId: nextMarkId(),
       layerId: params.layerId,
@@ -243,7 +106,6 @@ export const beginMarkGradientSession = (params: {
       previewStopsStored: null,
       previewHash: '',
       fallbackStopsStored: cloneStops(frozenStops),
-      previewSlot: clampSlot(previewSlot),
       samples: [],
     };
     sessionsByLayer.set(params.layerId, session);
@@ -253,15 +115,12 @@ export const beginMarkGradientSession = (params: {
       source: params.source,
       kind: params.gradientKind,
       stopsLen: params.stops?.length ?? 0,
-      previewSlot: typeof session.previewSlot === 'number' ? clampSlot(session.previewSlot) : null,
     });
     ccLog('mark slot (during)', {
       layerId: params.layerId,
       markId: session.markId,
       defId: session.binding?.defId ?? null,
-      slot:
-        session.binding?.slot ??
-        (typeof session.previewSlot === 'number' ? clampSlot(session.previewSlot) : null),
+      slot: session.binding?.slot ?? null,
       phase: session.binding ? 'bound' : 'sampling',
     });
     ccLog('begin session stack', new Error('[CC] begin session stack').stack ?? null);
@@ -329,9 +188,7 @@ export const finalizeMarkGradientSession = (layerId: string): MarkGradientSessio
         layerId,
         markId: session.markId,
         defId: session.binding?.defId ?? null,
-        slot:
-          session.binding?.slot ??
-          (typeof session.previewSlot === 'number' ? clampSlot(session.previewSlot) : null),
+        slot: session.binding?.slot ?? null,
         phase: session.binding ? 'bound' : 'sampling',
       });
     }

@@ -1,4 +1,5 @@
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
@@ -105,25 +106,22 @@ export const buildRuntimeSnapshot = (
   brushSettings: BrushSettings
 ): CCRuntimeSnapshot => {
   const activeSession = resolveActiveMarkGradientSession(layer.id);
-  if (activeSession) {
-    const slot = activeSession.previewSlot ?? activeSession.binding?.slot;
-    const stops =
-      activeSession.previewStopsStored && activeSession.previewStopsStored.length > 0
+  if (activeSession?.source === 'sampled') {
+    const sampledStops =
+      activeSession.previewStopsStored && activeSession.previewStopsStored.length >= 2
         ? activeSession.previewStopsStored
+        : null;
+    const fallbackStops =
+      activeSession.fallbackStopsStored?.length
+        ? activeSession.fallbackStopsStored
         : activeSession.frozenStopsStored;
-    if (typeof slot === 'number' && stops.length > 0) {
-      return {
-        layerId: layer.id,
-        paintSlot: slot,
-        slotPalettes: [
-          {
-            slot,
-            stops: cloneStops(stops),
-          },
-        ],
-        flowMode: layer.colorCycleData?.flowMode,
-      };
-    }
+    const stops = cloneStops(sampledStops ?? fallbackStops);
+    return {
+      layerId: layer.id,
+      paintSlot: TEMP_SAMPLE_SLOT,
+      slotPalettes: [{ slot: TEMP_SAMPLE_SLOT, stops }],
+      flowMode: layer.colorCycleData?.flowMode,
+    };
   }
   if (activeSession?.binding?.slot !== undefined) {
     return {

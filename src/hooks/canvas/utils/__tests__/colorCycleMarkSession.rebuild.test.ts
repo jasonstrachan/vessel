@@ -47,27 +47,14 @@ describe('colorCycleMarkSession rebuild', () => {
     }));
   });
 
-  it('rebuilds and allocates a preview slot when slots are exhausted', () => {
-    const slotPalettes = Array.from({ length: 255 }, (_, slot) => ({
-      slot,
-      stops,
-    }));
-    const gradientDefStore = Array.from({ length: 255 }, (_, index) => ({
-      id: index + 1,
-      kind: 'linear' as const,
-      stops,
-      hash: `linear:${index + 1}`,
-      source: 'manual' as const,
-      createdAtMs: 0,
-      slot: index,
-    }));
+  it('begins sampled session without preallocating a slot', () => {
     const layer = createLayer({
       colorCycleData: {
         gradientDefs: [],
-        slotPalettes,
-        gradientDefStore,
-        nextGradientDefId: 256,
-        gradientDefIdBuffer: new Uint16Array([1, 0, 0, 0]).buffer,
+        slotPalettes: [],
+        gradientDefStore: [],
+        nextGradientDefId: 1,
+        gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
         paintSlot: 0,
       },
     });
@@ -89,7 +76,7 @@ describe('colorCycleMarkSession rebuild', () => {
     });
 
     expect(session).not.toBeNull();
-    expect(typeof session?.previewSlot).toBe('number');
+    expect(session?.binding).toBeNull();
 
     finalizeMarkGradientSession(layer.id);
   });

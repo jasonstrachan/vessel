@@ -9,8 +9,10 @@ import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCyc
 import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleHistory';
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
 import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
 
@@ -425,8 +427,6 @@ export const commitColorCycleLayerStroke = async (
         }
         return counts;
       };
-      let previewSlot: number | null = null;
-
       deps.bindBrushToCanvas(brush, layerCanvas);
       if (typeof brush.commitCurrentStroke === 'function') {
         brush.commitCurrentStroke(targetLayerId);
@@ -438,47 +438,33 @@ export const commitColorCycleLayerStroke = async (
       try {
         session = finalizeMarkGradientSession(targetLayerId);
         if (session) {
-          previewSlot = session.previewSlot ?? null;
           ccLog('mark slot (commit)', {
             layerId: targetLayerId,
             markId: session.markId,
             defId: session.binding?.defId ?? null,
-            slot: session.binding?.slot ?? session.previewSlot ?? null,
+            slot: session.binding?.slot ?? null,
             phase: session.binding ? 'bound' : 'sampling',
           });
-        }
-      } catch {}
-
-      const remapPreviewSlot =
-        session?.binding && typeof previewSlot === 'number' && previewSlot !== session.binding.slot
-          ? previewSlot
-          : null;
-      if (session?.binding && typeof brush.remapCommittedGradientSlot === 'function') {
-        if (Number.isFinite(remapPreviewSlot)) {
-          const bbox = strokeCaptureRoi
-            ? {
-                minX: strokeCaptureRoi.x,
-                minY: strokeCaptureRoi.y,
-                width: strokeCaptureRoi.width,
-                height: strokeCaptureRoi.height,
-              }
-            : undefined;
-          brush.remapCommittedGradientSlot(
-            targetLayerId,
-            remapPreviewSlot as number,
-            session.binding.slot,
-            bbox
-          );
           if (process.env.NODE_ENV !== 'production') {
-            const counts = logCommittedSlotsInRoi('after-remap', bbox);
-            console.assert(
-              !counts?.has(remapPreviewSlot as number),
-              '[CC] preview slot leaked into committed stroke',
-              { previewSlot: remapPreviewSlot, counts: counts ? [...counts.entries()] : null }
-            );
+            const st = useAppStore.getState();
+            const shapeSuffix = st.tools.shapeMode ? ':shape' : '';
+            const toolMode = `${st.tools.currentTool}${shapeSuffix}`;
+            console.log('[CC finalize] commit gradient', {
+              source: session.source,
+              stopsHash: session.frozenHash ?? signatureForStops(session.frozenStopsStored),
+              slot: session.binding?.slot ?? null,
+              defId: session.binding?.defId ?? null,
+              layerId: targetLayerId,
+              toolMode,
+              persisted: {
+                markId: session.markId,
+                kind: session.gradientKind,
+                hash: session.frozenHash ?? signatureForStops(session.frozenStopsStored),
+              },
+            });
           }
         }
-      }
+      } catch {}
 
       if (session?.binding && typeof brush.setGradientSlotStops === 'function') {
         brush.setGradientSlotStops(
@@ -509,12 +495,13 @@ export const commitColorCycleLayerStroke = async (
                 height: strokeCaptureRoi.height,
               }
             : undefined;
+          const previewSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
           brush.bindGradientDefIdToSlot(
             targetLayerId,
             session.binding.defId,
             session.binding.slot,
             bbox,
-            remapPreviewSlot
+            previewSlot
           );
 
           if (process.env.NODE_ENV !== 'production') {

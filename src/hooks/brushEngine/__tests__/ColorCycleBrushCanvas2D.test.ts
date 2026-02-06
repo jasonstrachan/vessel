@@ -30,6 +30,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     indexBuffer?: Uint8Array;
     gradientId?: Uint8Array;
     speedData?: Uint8Array;
+    flowData?: Uint8Array;
 
     constructor(opts: { width: number; height: number; fps?: number }) {
       this.width = opts.width;
@@ -44,6 +45,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
           height: this.height,
           data: new Uint8Array(this.width * this.height),
           speedData: new Uint8Array(this.width * this.height),
+          flowData: new Uint8Array(this.width * this.height),
           palette: [] as string[],
         },
         gradient: {
@@ -80,7 +82,12 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       this.height = h;
     }
 
-    setIndexBufferFromArray(arr: Uint8Array, gradientId?: Uint8Array, speedData?: Uint8Array) {
+    setIndexBufferFromArray(
+      arr: Uint8Array,
+      gradientId?: Uint8Array,
+      speedData?: Uint8Array,
+      flowData?: Uint8Array
+    ) {
       this.indexBuffer = arr;
       if (gradientId) {
         this.gradientId = gradientId;
@@ -88,7 +95,10 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       if (speedData) {
         this.speedData = speedData;
       }
-      setIndexBufferFromArrayMock(arr, gradientId, speedData);
+      if (flowData) {
+        this.flowData = flowData;
+      }
+      setIndexBufferFromArrayMock(arr, gradientId, speedData, flowData);
     }
 
     getDimensions() {
@@ -105,10 +115,14 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       if (!this.speedData) {
         this.speedData = new Uint8Array(this.width * this.height);
       }
+      if (!this.flowData) {
+        this.flowData = new Uint8Array(this.width * this.height);
+      }
       return {
         data: this.indexBuffer,
         gid: this.gradientId,
         spd: this.speedData,
+        flow: this.flowData,
       };
     }
 
@@ -144,10 +158,14 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       if (!this.speedData) {
         this.speedData = new Uint8Array(this.width * this.height);
       }
+      if (!this.flowData) {
+        this.flowData = new Uint8Array(this.width * this.height);
+      }
       return {
         data: this.indexBuffer,
         gradientId: this.gradientId,
         speedData: this.speedData,
+        flowData: this.flowData,
         width: this.width,
         height: this.height,
       };

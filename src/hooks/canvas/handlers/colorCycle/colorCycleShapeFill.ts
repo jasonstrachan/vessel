@@ -5,6 +5,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
 import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 
@@ -165,11 +166,13 @@ export const finalizeColorCycleShapeFillLinear = async (
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
           : undefined;
+        const previewSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
         colorCycleBrush.bindGradientDefIdToSlot(
           args.activeLayerId,
           session.binding.defId,
           session.binding.slot,
-          bbox
+          bbox,
+          previewSlot
         );
         if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
           const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
@@ -317,11 +320,13 @@ export const finalizeColorCycleShapeFillConcentric = async (
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
           : undefined;
+        const previewSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
         colorCycleBrush.bindGradientDefIdToSlot(
           args.activeLayerId,
           session.binding.defId,
           session.binding.slot,
-          bbox
+          bbox,
+          previewSlot
         );
         if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
           const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
