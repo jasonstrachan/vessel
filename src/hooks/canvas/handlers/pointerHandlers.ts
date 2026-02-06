@@ -405,6 +405,110 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     };
   };
 
+  const normalizePointerPressure = (params: {
+    rawPressure?: number;
+    pointerType?: string;
+    pressureEnabled: boolean;
+    pressureLinkedFillResolution?: boolean;
+    colorCycleStampDitherPressureLinked?: boolean;
+    shiftKey?: boolean;
+    ctrlKey?: boolean;
+    fallback?: number;
+  }): number => {
+    const {
+      rawPressure,
+      pointerType,
+      pressureEnabled,
+      pressureLinkedFillResolution = false,
+      colorCycleStampDitherPressureLinked = false,
+      shiftKey = false,
+      ctrlKey = false,
+      fallback = 0.5,
+    } = params;
+
+    if (pointerType === 'mouse') {
+      const raw = Number.isFinite(rawPressure) ? Math.max(0, Math.min(1, rawPressure as number)) : null;
+      const pressureFeaturesEnabled =
+        pressureEnabled ||
+        pressureLinkedFillResolution ||
+        colorCycleStampDitherPressureLinked;
+      const hasVariableMousePressure =
+        raw != null &&
+        raw > 0 &&
+        raw < 1 &&
+        Math.abs(raw - 0.5) > 0.02;
+
+      // Some pen/tablet drivers report pen input as pointerType=mouse while still
+      // providing variable pressure. Prefer that signal when pressure features are enabled.
+      if (pressureFeaturesEnabled && hasVariableMousePressure) {
+        return raw;
+      }
+
+      if (!pressureEnabled) {
+        return 0.5;
+      }
+      if (shiftKey) return 0.1;
+      if (ctrlKey) return 0.9;
+      return 1;
+    }
+
+    const value = Number.isFinite(rawPressure) ? (rawPressure as number) : fallback;
+    return Math.max(0, Math.min(1, value));
+  };
+
+  const isPresResDebugEnabled = (): boolean => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    const flag = (window as { __presResDebug?: unknown }).__presResDebug;
+    if (typeof flag === 'number') {
+      return flag > 0;
+    }
+    return Boolean(flag);
+  };
+
+  let presResLastPointerLogAt = 0;
+  let presResLastLoggedPressure = Number.NaN;
+  const logPresResPointerPressure = (payload: {
+    phase: 'down' | 'move' | 'coalesced' | 'bootstrap';
+    pointerType?: string;
+    rawPressure?: number;
+    normalizedPressure: number;
+  }) => {
+    if (!isPresResDebugEnabled()) {
+      return;
+    }
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const normalized = Number(payload.normalizedPressure.toFixed(4));
+    const changed = !Number.isFinite(presResLastLoggedPressure) || Math.abs(normalized - presResLastLoggedPressure) >= 0.02;
+    if (!changed && now - presResLastPointerLogAt < 120) {
+      return;
+    }
+    presResLastPointerLogAt = now;
+    presResLastLoggedPressure = normalized;
+    const raw = Number.isFinite(payload.rawPressure) ? Number((payload.rawPressure as number).toFixed(4)) : null;
+    const entry = {
+      phase: payload.phase,
+      pointerType: payload.pointerType ?? 'unknown',
+      rawPressure: raw,
+      normalizedPressure: normalized,
+    };
+    if (typeof window !== 'undefined') {
+      const w = window as Window & { __presResTrace?: Array<Record<string, unknown>> };
+      const trace = (w.__presResTrace ??= []);
+      trace.push({
+        t: Date.now(),
+        source: 'pointer',
+        ...entry,
+      });
+      const MAX_TRACE = 400;
+      if (trace.length > MAX_TRACE) {
+        trace.splice(0, trace.length - MAX_TRACE);
+      }
+    }
+    console.log('[PresRes:pointer]', entry);
+  };
+
   const resetFreehandCaptureState = () => {
     freehandCaptureState.active = false;
     freehandCaptureState.pointerId = null;
@@ -1816,20 +1920,22 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // rawPressure: hardware reading (or 0 if missing).
     // pressure: effective value after mouse fallbacks / modifiers.
     const rawPressure = event.pressure ?? 0;
-    let pressure = rawPressure;
-    if (event.pointerType === 'mouse') {
-      if (tools.brushSettings.pressureEnabled) {
-        if (event.shiftKey) {
-          pressure = 0.1; // Simulate low pressure with Shift
-        } else if (event.ctrlKey) {
-          pressure = 0.9; // Simulate high pressure with Ctrl
-        } else {
-          pressure = 1; // Treat mouse as full pressure to avoid shrinking/enlarging brushes
-        }
-      } else {
-        pressure = 0.5;
-      }
-    }
+    const pressure = normalizePointerPressure({
+      rawPressure,
+      pointerType: event.pointerType,
+      pressureEnabled: tools.brushSettings.pressureEnabled,
+      pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
+      colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      fallback: 0,
+    });
+    logPresResPointerPressure({
+      phase: 'down',
+      pointerType: event.pointerType,
+      rawPressure,
+      normalizedPressure: pressure,
+    });
     
     // Test Wacom functionality
     const wacomTest = testWacomPressure(event);
@@ -2639,10 +2745,21 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       (tools.currentTool === 'brush' || tools.currentTool === 'eraser')
     ) {
       // Recompute pressure similarly to pointerdown
-      let pressure = event.pressure ?? 0.5;
-      if (event.pointerType === 'mouse') {
-        pressure = tools.brushSettings.pressureEnabled ? 1 : 0.5;
-      }
+      const pressure = normalizePointerPressure({
+        rawPressure: event.pressure,
+        pointerType: event.pointerType,
+        pressureEnabled: tools.brushSettings.pressureEnabled,
+        pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
+        colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+      });
+      logPresResPointerPressure({
+        phase: 'bootstrap',
+        pointerType: event.pointerType,
+        rawPressure: event.pressure,
+        normalizedPressure: pressure,
+      });
 
       // Respect layer/brush compatibility
       if (tools.currentTool !== 'eraser') {
@@ -2796,21 +2913,22 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // Store pressure value (0-1, with reasonable defaults for mice)
     // rawPressure: hardware reading (or 0 if missing)
     const rawPressure = event.pressure ?? 0;
-    // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
-    let pressure = rawPressure ?? 0.5;
-    if (event.pointerType === 'mouse') {
-      if (tools.brushSettings.pressureEnabled) {
-        if (event.shiftKey) {
-          pressure = 0.1; // Simulate low pressure with Shift
-        } else if (event.ctrlKey) {
-          pressure = 0.9; // Simulate high pressure with Ctrl
-        } else {
-          pressure = 1;
-        }
-      } else {
-        pressure = 0.5;
-      }
-    }
+    const pressure = normalizePointerPressure({
+      rawPressure,
+      pointerType: event.pointerType,
+      pressureEnabled: tools.brushSettings.pressureEnabled,
+      pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
+      colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      fallback: 0,
+    });
+    logPresResPointerPressure({
+      phase: 'move',
+      pointerType: event.pointerType,
+      rawPressure,
+      normalizedPressure: pressure,
+    });
 
    
     // If Shift is currently not held, allow re-anchoring the next time it's pressed during this stroke
@@ -2854,10 +2972,22 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
               }
             }
           }
-          const coalescedPressure =
-            typeof coalescedEvent.pressure === 'number'
-              ? coalescedEvent.pressure
-              : pressure;
+          const coalescedPressure = normalizePointerPressure({
+            rawPressure: coalescedEvent.pressure,
+            pointerType: event.pointerType,
+            pressureEnabled: tools.brushSettings.pressureEnabled,
+            pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
+            colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
+            shiftKey: coalescedEvent.shiftKey,
+            ctrlKey: coalescedEvent.ctrlKey,
+            fallback: pressure,
+          });
+          logPresResPointerPressure({
+            phase: 'coalesced',
+            pointerType: event.pointerType,
+            rawPressure: coalescedEvent.pressure,
+            normalizedPressure: coalescedPressure,
+          });
           
           // Draw with the intermediate position and pressure
           if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {

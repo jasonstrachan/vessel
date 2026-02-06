@@ -41,6 +41,10 @@ declare global {
   interface Window {
     transparencyLockEnabled?: boolean;
     __alphaLockDebug?: number;
+    __presResDebug?: boolean | number;
+    __presResTrace?: Array<Record<string, unknown>>;
+    __clearPresResTrace?: () => void;
+    __summarizePresResTrace?: () => Record<string, unknown>;
     __AL_sample?: { x: number; y: number; tag?: string };
     __AL_maskSrc?: string;
   }
@@ -130,6 +134,72 @@ const DD = (step: string, obj: Record<string, unknown>) => {
     } catch {
       console.log('[DITHER]', step, obj);
     }
+  }
+};
+
+const isPresResDebugEnabled = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const flag = (window as { __presResDebug?: unknown }).__presResDebug;
+  if (typeof flag === 'number') {
+    return flag > 0;
+  }
+  return Boolean(flag);
+};
+
+const appendPresResTrace = (entry: Record<string, unknown>) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  ensurePresResTraceHelpers();
+  const trace = ((window as Window).__presResTrace ??= []);
+  trace.push(entry);
+  const MAX_TRACE = 400;
+  if (trace.length > MAX_TRACE) {
+    trace.splice(0, trace.length - MAX_TRACE);
+  }
+};
+
+const ensurePresResTraceHelpers = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const w = window as Window;
+  if (typeof w.__clearPresResTrace !== 'function') {
+    w.__clearPresResTrace = () => {
+      w.__presResTrace = [];
+    };
+  }
+  if (typeof w.__summarizePresResTrace !== 'function') {
+    w.__summarizePresResTrace = () => {
+      const trace = w.__presResTrace ?? [];
+      let pointer = 0;
+      let engine = 0;
+      let minPixelSize = Number.POSITIVE_INFINITY;
+      let maxPixelSize = Number.NEGATIVE_INFINITY;
+      for (const item of trace) {
+        const source = item?.source;
+        if (source === 'pointer') {
+          pointer += 1;
+        } else if (source === 'engine') {
+          engine += 1;
+          const px = Number(item?.pixelSize);
+          if (Number.isFinite(px)) {
+            minPixelSize = Math.min(minPixelSize, px);
+            maxPixelSize = Math.max(maxPixelSize, px);
+          }
+        }
+      }
+      return {
+        total: trace.length,
+        pointer,
+        engine,
+        minPixelSize: Number.isFinite(minPixelSize) ? minPixelSize : null,
+        maxPixelSize: Number.isFinite(maxPixelSize) ? maxPixelSize : null,
+        last: trace[trace.length - 1] ?? null,
+      };
+    };
   }
 };
 
@@ -889,6 +959,13 @@ export const useBrushEngineSimplified = () => {
     lastPressureDitherTimeRef.current = 0;
     lastPressureDitherPixelSizeRef.current = null;
     strokePressureResStateRef.current = createPressureResolutionState(1);
+    strokePresResPressureRef.current = {
+      last: 0,
+      stable: 0,
+      lastTime: 0,
+    };
+    presResLastLogAtRef.current = 0;
+    presResLastLoggedPixelSizeRef.current = null;
   }, [tools.brushSettings.pressureLinkedFillResolution]);
 
   const layerHasAnyAlpha = useCallback(() => {
@@ -1260,6 +1337,11 @@ export const useBrushEngineSimplified = () => {
     lastTime: number;
     sampleCount: number;
   };
+  type StrokePresResPressureState = {
+    last: number;
+    stable: number;
+    lastTime: number;
+  };
   const strokePressureRef = useRef<StrokePressureState>({
     min: 1,
     max: 0,
@@ -1269,6 +1351,11 @@ export const useBrushEngineSimplified = () => {
     isTail: false,
     lastTime: 0,
     sampleCount: 0
+  });
+  const strokePresResPressureRef = useRef<StrokePresResPressureState>({
+    last: 0,
+    stable: 0,
+    lastTime: 0,
   });
   const strokePressureResStateRef = useRef<PressureResolutionState>(createPressureResolutionState(1));
   // Pressure ratchet: limit decay by elapsed time so fast lift-offs keep peak resolution.
@@ -1282,6 +1369,10 @@ export const useBrushEngineSimplified = () => {
   const pendingSinceRef = useRef(0);
   const PRESSURE_DITHER_MIN_INTERVAL_MS = 30; // ~33 FPS throttle
   const PRESSURE_DITHER_MIN_DELTA_RES = 0.75; // px; revert to previous threshold
+  const PRES_RES_FALLBACK_PRESSURE = 0.01;
+  const PRES_RES_HOLD_ON_ZERO_MS = 40;
+  const presResLastLogAtRef = useRef(0);
+  const presResLastLoggedPixelSizeRef = useRef<number | null>(null);
   const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
 
   // Get color cycle brush from active layer instead of single instance
@@ -1654,15 +1745,67 @@ export const useBrushEngineSimplified = () => {
     );
   }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
 
+  const updateStrokePresResPressure = useCallback((pressure: number, now: number) => {
+    const stats = strokePresResPressureRef.current;
+    const p = Math.max(0, Math.min(1, Number.isFinite(pressure) ? pressure : 0));
+
+    const previousTime = stats.lastTime;
+    const elapsed = previousTime > 0 ? Math.max(0, now - previousTime) : 0;
+    stats.lastTime = now;
+
+    if (p > 0) {
+      if (stats.stable <= 0) {
+        stats.stable = p;
+      } else {
+        // PresRes should respond quickly to low-pressure changes to avoid floor sticking.
+        const alpha = p < stats.stable ? 0.8 : 0.45;
+        stats.stable = stats.stable + (p - stats.stable) * alpha;
+      }
+      stats.last = p;
+      return;
+    }
+
+    // Brief zero-pressure samples are common in coalesced pen streams.
+    if (elapsed <= PRES_RES_HOLD_ON_ZERO_MS) {
+      return;
+    }
+
+    stats.last = 0;
+  }, []);
+
   const getStrokeDitherPixelSize = useCallback(() => {
-    const stats = strokePressureRef.current;
-    // Use latched stable pressure so lift-off doesn't collapse to 1px
+    const stats = strokePresResPressureRef.current;
     let p = stats.stable;
-    if (typeof p !== 'number' || p === 0) {
-      p = stats.max || stats.last || 0.5;
+    if (typeof p !== 'number' || p <= 0) {
+      p = stats.last;
+    }
+    if (typeof p !== 'number' || p <= 0) {
+      p = PRES_RES_FALLBACK_PRESSURE;
     }
     p = Math.max(0, Math.min(1, p));
     const size = computePressureScaledResolution(p);
+    if (isPresResDebugEnabled()) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const lastAt = presResLastLogAtRef.current;
+      const lastPx = presResLastLoggedPixelSizeRef.current;
+      const pixelChanged = lastPx == null || Math.abs(size - lastPx) >= 1;
+      if (pixelChanged || now - lastAt >= 120) {
+        presResLastLogAtRef.current = now;
+        presResLastLoggedPixelSizeRef.current = size;
+        const payload = {
+          pressureUsed: Number(p.toFixed(4)),
+          stablePressure: Number((stats.stable || 0).toFixed(4)),
+          lastPressure: Number((stats.last || 0).toFixed(4)),
+          pixelSize: size,
+        };
+        appendPresResTrace({
+          t: Date.now(),
+          source: 'engine',
+          ...payload,
+        });
+        console.log('[PresRes]', payload);
+      }
+    }
     return size;
   }, [computePressureScaledResolution]);
 
@@ -2191,6 +2334,13 @@ export const useBrushEngineSimplified = () => {
     pendingPixelSizeRef.current = null;
     pendingSinceRef.current = 0;
     strokePressureResStateRef.current = createPressureResolutionState(1);
+    strokePresResPressureRef.current = {
+      last: 0,
+      stable: 0,
+      lastTime: 0,
+    };
+    presResLastLogAtRef.current = 0;
+    presResLastLoggedPixelSizeRef.current = null;
     clearBgOffHoleCanvas();
   }, [clearBgOffHoleCanvas]);
 
@@ -2238,6 +2388,7 @@ export const useBrushEngineSimplified = () => {
     };
     const rawPressure = strokeParams.pressure ?? 0;
     const p = Math.max(0, Math.min(1, rawPressure));
+    updateStrokePresResPressure(p, nowHighRes);
 
     const stats = strokePressureRef.current;
     // Time-based ratchet: smooth input then allow only time-bounded (and minimum) decay.
@@ -2455,7 +2606,8 @@ export const useBrushEngineSimplified = () => {
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
     applyLostEdgeMaskInRegion,
-    resetPressureDitherState
+    resetPressureDitherState,
+    updateStrokePresResPressure
   ]);
 
   /**
@@ -2486,6 +2638,7 @@ export const useBrushEngineSimplified = () => {
     };
     const rawPressure = pressure ?? 0;
     const p = Math.max(0, Math.min(1, rawPressure));
+    updateStrokePresResPressure(p, nowHighRes);
 
     const stats = strokePressureRef.current;
     const alpha = 0.6;
@@ -2657,7 +2810,8 @@ export const useBrushEngineSimplified = () => {
     shouldApplyStrokeDither,
     ditherRegionWithCurrentPressure,
     applyLostEdgeMaskInRegion,
-    resetPressureDitherState
+    resetPressureDitherState,
+    updateStrokePresResPressure
   ]);
 
   /**
@@ -2851,6 +3005,13 @@ export const useBrushEngineSimplified = () => {
     pendingPixelSizeRef.current = null;
     pendingSinceRef.current = 0;
     strokePressureResStateRef.current = createPressureResolutionState(1);
+    strokePresResPressureRef.current = {
+      last: 0,
+      stable: 0,
+      lastTime: 0,
+    };
+    presResLastLogAtRef.current = 0;
+    presResLastLoggedPixelSizeRef.current = null;
   }, [brushEngine, clearCoverageMaps, clearLiveStrokeBuffers, clearBgOffHoleCanvas]);
 
   /**

@@ -4,6 +4,7 @@ import { render, act } from '@testing-library/react';
 import { useBrushEngineSimplified } from '../useBrushEngineSimplified';
 
 // Mock dependencies
+const mockApplyDitheringWithFillResolution = jest.fn((...args: any[]) => args[0] as ImageData);
 const mockGetBrush = jest.fn(() => ({
   setTargetCanvas: jest.fn(),
 }));
@@ -61,6 +62,12 @@ jest.mock('@/hooks/brushEngine/BrushEngineFacade', () => {
   };
 });
 
+jest.mock('@/hooks/brushEngine/dithering', () => ({
+  applyDithering: jest.fn((imageData: ImageData) => imageData),
+  applyDitheringWithFillResolution: (...args: unknown[]) =>
+    mockApplyDitheringWithFillResolution(...args),
+}));
+
 // Harness component that invokes the hook
 const Harness: React.FC<{ onReady: (engine: ReturnType<typeof useBrushEngineSimplified>) => void }> = ({ onReady }) => {
   const engine = useBrushEngineSimplified();
@@ -71,6 +78,10 @@ const Harness: React.FC<{ onReady: (engine: ReturnType<typeof useBrushEngineSimp
 };
 
 describe('useBrushEngineSimplified harness', () => {
+  beforeEach(() => {
+    mockApplyDitheringWithFillResolution.mockClear();
+  });
+
   it('initializes and exposes API methods', async () => {
     let engineRef: any;
     await act(async () => {
@@ -227,4 +238,5 @@ describe('useBrushEngineSimplified harness', () => {
     getContextSpy.mockRestore();
     global.requestAnimationFrame = originalRaf;
   });
+
 });

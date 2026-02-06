@@ -605,6 +605,140 @@ describe('pointerHandlers main flows', () => {
     expect(firstCall?.[1]).toBe(0.72);
   });
 
+  it('preserves explicit zero pressure from pen coalesced events', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          pressureEnabled: true,
+        },
+      },
+    });
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+    deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
+    deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const coalescedEvents: any[] = [
+      { clientX: 20, clientY: 25, shiftKey: false, pressure: 0 },
+      { clientX: 22, clientY: 28, shiftKey: false, pressure: 0 },
+    ];
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({
+      pointerType: 'pen',
+      pressure: 0.61,
+      clientX: 22,
+      clientY: 28,
+      nativeEvent: { getCoalescedEvents: () => coalescedEvents as unknown as PointerEvent[] } as any,
+    }));
+
+    const firstCall = (deps.drawingHandlers.continueDrawing as jest.Mock).mock.calls[0];
+    expect(firstCall?.[1]).toBe(0);
+  });
+
+  it('applies mouse modifier pressure mapping for coalesced events', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          pressureEnabled: true,
+        },
+      },
+    });
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+    deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
+    deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const coalescedEvents: any[] = [
+      { clientX: 20, clientY: 25, shiftKey: true, ctrlKey: false },
+      { clientX: 22, clientY: 28, shiftKey: true, ctrlKey: false },
+    ];
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({
+      pointerType: 'mouse',
+      pressure: 0,
+      shiftKey: true,
+      clientX: 22,
+      clientY: 28,
+      nativeEvent: { getCoalescedEvents: () => coalescedEvents as unknown as PointerEvent[] } as any,
+    }));
+
+    const firstCall = (deps.drawingHandlers.continueDrawing as jest.Mock).mock.calls[0];
+    expect(firstCall?.[1]).toBe(0.1);
+  });
+
+  it('uses variable mouse pressure when pressure-linked fill resolution is enabled', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          pressureEnabled: false,
+          pressureLinkedFillResolution: true,
+        },
+      },
+    });
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+    deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
+    deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({
+      pointerType: 'mouse',
+      pressure: 0.21,
+      clientX: 22,
+      clientY: 28,
+      nativeEvent: { getCoalescedEvents: () => [] as unknown as PointerEvent[] } as any,
+    }));
+
+    const firstCall = (deps.drawingHandlers.continueDrawing as jest.Mock).mock.calls[0];
+    expect(firstCall?.[1]).toBeCloseTo(0.21, 3);
+  });
+
+  it('uses variable mouse pressure when color-cycle stamp PresRes is enabled', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          pressureEnabled: false,
+          pressureLinkedFillResolution: false,
+          colorCycleStampDitherPressureLinked: true,
+        },
+      },
+    });
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+    deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
+    deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({
+      pointerType: 'mouse',
+      pressure: 0.18,
+      clientX: 24,
+      clientY: 26,
+      nativeEvent: { getCoalescedEvents: () => [] as unknown as PointerEvent[] } as any,
+    }));
+
+    const firstCall = (deps.drawingHandlers.continueDrawing as jest.Mock).mock.calls[0];
+    expect(firstCall?.[1]).toBeCloseTo(0.18, 3);
+  });
+
   it('ends pan and restores cursor on pointer up', () => {
     const { deps } = createDeps();
     (deps.pan.panState as any).isPanning = true;
