@@ -1,5 +1,6 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
@@ -329,5 +330,49 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       }
     }
     expect(violations).toBe(0);
+  });
+
+  it('applies speed changes only to newly written pixels', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-speed-write-only';
+    brush.setBrushSize(1);
+
+    const firstSpeed = 0.2;
+    const secondSpeed = 1.6;
+    const firstExpectedByte = encodeColorCycleSpeedByte(firstSpeed);
+    const secondExpectedByte = encodeColorCycleSpeedByte(secondSpeed);
+
+    brush.setSpeed(firstSpeed);
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for speed write-only test');
+    }
+
+    const firstIndex = 2 + 2 * canvas.width;
+    const secondIndex = 12 + 12 * canvas.width;
+    const afterFirst = animator.getIndexBuffers().spd;
+    if (!afterFirst) {
+      throw new Error('Missing speed buffer for speed write-only test');
+    }
+    expect(afterFirst[firstIndex]).toBe(firstExpectedByte);
+
+    brush.setSpeed(secondSpeed);
+    brush.startStroke(layerId);
+    brush.paint(12, 12, layerId, 1);
+    brush.endStroke(layerId);
+
+    const afterSecond = animator.getIndexBuffers().spd;
+    if (!afterSecond) {
+      throw new Error('Missing speed buffer after second stroke');
+    }
+    expect(afterSecond[firstIndex]).toBe(firstExpectedByte);
+    expect(afterSecond[secondIndex]).toBe(secondExpectedByte);
   });
 });
