@@ -370,6 +370,7 @@ const SYNTHETIC_CC_STOP_REASONS = new Set<string>([
   'unknown',
   'event'
 ]);
+const CC_SAMPLED_RUNTIME_FLUSH_THROTTLE_MS = 90;
 
 const { debugTime, debugTimeEnd, debugVerbose, withTiming } = createPerfDebug({
   perfMark,
@@ -426,9 +427,10 @@ export function useDrawingHandlers({
       needsBootstrap
     } = resolveActiveColorCycleGradient(layer, brushSettings, getFgParamsFromState(state));
 
+    const preserveGradientPhase = true;
     if (!useForegroundGradient) {
       if (brush && typeof (brush as { setPreserveGradientPhase?: (enabled: boolean) => void }).setPreserveGradientPhase === 'function') {
-        (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(false);
+        (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(preserveGradientPhase);
       }
       if (needsBootstrap) {
         try {
@@ -449,7 +451,7 @@ export function useDrawingHandlers({
     }
 
     if (brush && typeof (brush as { setPreserveGradientPhase?: (enabled: boolean) => void }).setPreserveGradientPhase === 'function') {
-      (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(true);
+      (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(preserveGradientPhase);
     }
     const foregroundColor = state.palette.foregroundColor ?? brushSettings.color ?? '#ffffff';
     const bands = clampForegroundDerivedBands(brushSettings.colorCycleFgStops);
@@ -1032,6 +1034,7 @@ export function useDrawingHandlers({
   const ccGradientSampleLastUpdateRef = useRef<number>(0);
   const ccSampledPointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const ccSampledLastUpdateRef = useRef<number>(0);
+  const ccSampledRuntimeFlushAtRef = useRef<number>(0);
   const ccGradientSampleCountRef = useRef<number>(0);
   const ccGradientSampleCountLastUpdateRef = useRef<number>(0);
 
@@ -1150,6 +1153,13 @@ export function useDrawingHandlers({
       });
       if (result) {
         writeCcGradientSampleCount(result.sampleCount, now);
+        if (result.updated) {
+          requestGradientApply(targetLayerId, 'sampled-tick');
+          if (now - ccSampledRuntimeFlushAtRef.current >= CC_SAMPLED_RUNTIME_FLUSH_THROTTLE_MS) {
+            ccSampledRuntimeFlushAtRef.current = now;
+            flushGradientApply(targetLayerId);
+          }
+        }
       }
     },
     [sampleHexAt, storeRef, writeCcGradientSampleCount]

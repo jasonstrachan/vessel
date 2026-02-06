@@ -1048,7 +1048,7 @@ const BrushControls = () => {
       if (!activeSettings.colorCycleGradient || activeSettings.colorCycleGradient.length === 0) {
         updates.colorCycleGradient = DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }));
       }
-      if (!activeSettings.colorCycleSpeed) {
+      if (activeSettings.colorCycleSpeed === undefined || activeSettings.colorCycleSpeed === null) {
         updates.colorCycleSpeed = 0.1;
       }
     }

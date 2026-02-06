@@ -10,7 +10,7 @@ describe('Renderer2D forward-only flow', () => {
     return palette;
   };
 
-  it('uses forward legacy shift even when flowMode is reverse', () => {
+  it('treats speed byte 0 as static when speed data exists', () => {
     const renderer = new Renderer2D({ width: 1, height: 1 });
     const palette = buildPalette();
     const paletteSlots = Array.from({ length: 256 }, () => palette);
@@ -19,6 +19,28 @@ describe('Renderer2D forward-only flow', () => {
       indexData: new Uint8Array([1]),
       gradientIdData: new Uint8Array([5]),
       speedData: new Uint8Array([0]),
+      paletteSlots,
+      basePalette: palette,
+      phase: 0.1,
+      baseOffset: 0,
+      baseTime: 0,
+      flowMode: 'reverse',
+    });
+
+    const imageData = renderer.getImageData();
+    const pixels32 = new Uint32Array(imageData.data.buffer);
+    expect(pixels32[0]).toBe(palette[0]);
+    renderer.cleanup();
+  });
+
+  it('uses legacy shift when no speed data exists', () => {
+    const renderer = new Renderer2D({ width: 1, height: 1 });
+    const palette = buildPalette();
+    const paletteSlots = Array.from({ length: 256 }, () => palette);
+
+    renderer.render({
+      indexData: new Uint8Array([1]),
+      gradientIdData: new Uint8Array([5]),
       paletteSlots,
       basePalette: palette,
       phase: 0.1,

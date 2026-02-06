@@ -12,7 +12,6 @@ import { DEFAULT_COLOR_CYCLE_GRADIENT } from '@/utils/colorCycleGradients';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
-  MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 import { applyDithering } from './dithering';
 import { getGridPositionsBetween } from '@/utils/gridSnap';
@@ -709,8 +708,8 @@ export class BrushEngineFacade {
 
     const color = this.sampleGradientColor(stops, this.customColorCyclePhase);
     const step = Math.max(
-      MIN_BRUSH_COLOR_CYCLE_SPEED,
-      Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, this.config.brushSettings.colorCycleSpeed || 0.1)
+      0,
+      Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, this.config.brushSettings.colorCycleSpeed ?? 0.1)
     );
     this.customColorCyclePhase = (this.customColorCyclePhase + step) % 1;
     return color;

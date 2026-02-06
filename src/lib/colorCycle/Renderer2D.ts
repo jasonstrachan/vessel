@@ -89,9 +89,10 @@ export class Renderer2D {
       const slot = gid & FLOW_SLOT_MASK;
       const speedByte = speedData ? speedData[i] : 0;
       const flowByte = flowData ? flowData[i] : 0;
+      const hasPerPixelSpeed = Boolean(speedData);
       const hasSpeed = speedByte > 0;
       const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
-      const basePhase = hasSpeed ? (baseTime * speed) % 1 : offset;
+      const basePhase = hasSpeed ? (baseTime * speed) % 1 : (hasPerPixelSpeed ? 0 : offset);
       let phase = basePhase;
       if (flowByte === 3) {
         const t = (basePhase * 2) % 2;
@@ -106,7 +107,7 @@ export class Renderer2D {
           : options.paletteSlots[slot] ?? options.basePalette;
       const shift = hasSpeed
         ? (dir * ((speedOffset * 256) | 0))
-        : (dir * legacyShift);
+        : (hasPerPixelSpeed ? 0 : (dir * legacyShift));
       pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
     }
 

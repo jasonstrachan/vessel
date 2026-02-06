@@ -407,7 +407,7 @@ export function getSharedColorCycleSettings() {
   
   return {
     gradient: settings.colorCycleGradient || DEFAULT_GRADIENT_STOPS,
-    speed: settings.colorCycleSpeed || 0.1,
+    speed: settings.colorCycleSpeed ?? 0.1,
     fps: settings.colorCycleFPS || 30,
     flowMode: settings.colorCycleFlowMode ?? 'forward',
     gradientBands: settings.gradientBands || 12

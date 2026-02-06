@@ -22,6 +22,9 @@ export const encodeColorCycleSpeedByte = (speed?: number | null): number => {
   if (!Number.isFinite(speed)) {
     return 0;
   }
+  if ((speed as number) <= 0) {
+    return 0;
+  }
   const clamped = Math.max(
     MIN_BRUSH_COLOR_CYCLE_SPEED,
     Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, speed as number),

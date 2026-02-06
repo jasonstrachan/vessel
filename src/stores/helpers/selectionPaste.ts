@@ -163,15 +163,6 @@ export const createSelectionPasteHelpers = ({
 
       const hasColorCycleData = hasColorCycleIndices(floatingPaste);
 
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[floatingPaste] committing', {
-          layerId: activeLayer.id,
-          layerType: activeLayer.layerType,
-          hasIndices: hasColorCycleData,
-          indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
-        });
-      }
-
       if (activeLayer.layerType === 'color-cycle' && !hasColorCycleData) {
         if (process.env.NODE_ENV !== 'production') {
           console.warn('[floatingPaste] Missing color cycle indices for paste commit', {

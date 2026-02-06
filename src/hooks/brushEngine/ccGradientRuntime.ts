@@ -1,4 +1,5 @@
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
+import { GradientPalette } from '@/lib/GradientPalette';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -25,6 +26,8 @@ const DEFAULT_CC_GRADIENT: GradientStop[] = [
 ];
 
 const EDITOR_SLOT = 255;
+const RUNTIME_NORMALIZED_STOP_COUNT = 32;
+const MAX_NORMALIZED_CACHE_ENTRIES = 128;
 
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
@@ -69,6 +72,46 @@ const resolveActiveMarkGradientSession = (layerId: string): MarkGradientSession 
 
 export const signatureForStops = (stops: GradientStop[]): string =>
   stops.map((stop) => `${stop.position}:${stop.color}`).join('|');
+
+const normalizedStopsCache = new Map<string, GradientStop[]>();
+
+const normalizeStopsForRuntime = (
+  stops: GradientStop[],
+  targetCount: number = RUNTIME_NORMALIZED_STOP_COUNT
+): GradientStop[] => {
+  if (!Array.isArray(stops) || stops.length < 2) {
+    return cloneStops(stops);
+  }
+
+  const count = Math.max(2, Math.round(targetCount));
+  const cacheKey = `${count}:${signatureForStops(stops)}`;
+  const cached = normalizedStopsCache.get(cacheKey);
+  if (cached) {
+    return cloneStops(cached);
+  }
+
+  let normalized: GradientStop[] = [];
+  try {
+    const palette = new GradientPalette(stops);
+    normalized = Array.from({ length: count }, (_unused, index) => {
+      const position = count <= 1 ? 0 : index / (count - 1);
+      const paletteIndex = Math.max(0, Math.min(255, Math.round(position * 255)));
+      return { position, color: palette.getColorString(paletteIndex) };
+    });
+  } catch {
+    normalized = cloneStops(stops);
+  }
+
+  normalizedStopsCache.set(cacheKey, normalized);
+  if (normalizedStopsCache.size > MAX_NORMALIZED_CACHE_ENTRIES) {
+    const firstKey = normalizedStopsCache.keys().next().value;
+    if (firstKey) {
+      normalizedStopsCache.delete(firstKey);
+    }
+  }
+
+  return cloneStops(normalized);
+};
 
 const resolveFallbackStops = (layer: Layer | undefined, brushSettings: BrushSettings): GradientStop[] => {
   return (
@@ -119,7 +162,7 @@ export const buildRuntimeSnapshot = (
     return {
       layerId: layer.id,
       paintSlot: TEMP_SAMPLE_SLOT,
-      slotPalettes: [{ slot: TEMP_SAMPLE_SLOT, stops }],
+      slotPalettes: [{ slot: TEMP_SAMPLE_SLOT, stops: normalizeStopsForRuntime(stops) }],
       flowMode: layer.colorCycleData?.flowMode,
     };
   }
@@ -130,7 +173,7 @@ export const buildRuntimeSnapshot = (
       slotPalettes: [
         {
           slot: activeSession.binding.slot,
-          stops: cloneStops(activeSession.frozenStopsStored),
+          stops: normalizeStopsForRuntime(activeSession.frozenStopsStored),
         },
       ],
       flowMode: layer.colorCycleData?.flowMode,
@@ -139,11 +182,15 @@ export const buildRuntimeSnapshot = (
   const fallbackStops = resolveFallbackStops(layer, brushSettings);
   const paintSlot = resolvePaintSlot(layer, brushSettings);
   const palettes = normalizeSlotPalettes(layer.colorCycleData?.slotPalettes ?? []);
+  const normalizedPalettes = palettes.map((entry) => ({
+    slot: entry.slot,
+    stops: normalizeStopsForRuntime(entry.stops),
+  }));
 
-  const hasPaintPalette = palettes.some((entry) => entry.slot === paintSlot);
+  const hasPaintPalette = normalizedPalettes.some((entry) => entry.slot === paintSlot);
   const ensuredPalettes = hasPaintPalette
-    ? palettes
-    : [...palettes, { slot: paintSlot, stops: cloneStops(fallbackStops) }];
+    ? normalizedPalettes
+    : [...normalizedPalettes, { slot: paintSlot, stops: normalizeStopsForRuntime(fallbackStops) }];
 
   return {
     layerId: layer.id,

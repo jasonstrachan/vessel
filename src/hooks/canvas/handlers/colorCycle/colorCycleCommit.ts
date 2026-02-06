@@ -9,7 +9,6 @@ import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCyc
 import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleHistory';
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
 import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
@@ -445,24 +444,6 @@ export const commitColorCycleLayerStroke = async (
             slot: session.binding?.slot ?? null,
             phase: session.binding ? 'bound' : 'sampling',
           });
-          if (process.env.NODE_ENV !== 'production') {
-            const st = useAppStore.getState();
-            const shapeSuffix = st.tools.shapeMode ? ':shape' : '';
-            const toolMode = `${st.tools.currentTool}${shapeSuffix}`;
-            console.log('[CC finalize] commit gradient', {
-              source: session.source,
-              stopsHash: session.frozenHash ?? signatureForStops(session.frozenStopsStored),
-              slot: session.binding?.slot ?? null,
-              defId: session.binding?.defId ?? null,
-              layerId: targetLayerId,
-              toolMode,
-              persisted: {
-                markId: session.markId,
-                kind: session.gradientKind,
-                hash: session.frozenHash ?? signatureForStops(session.frozenStopsStored),
-              },
-            });
-          }
         }
       } catch {}
 
