@@ -57,6 +57,7 @@ import BrushControls from '../BrushControls';
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
+import * as colorCycleGradients from '@/utils/colorCycleGradients';
 
 // Lightweight mocks to keep the test focused on wiring
 jest.mock('@/components/ui/ProgressSlider', () => ({
@@ -372,6 +373,14 @@ jest.mock('@/stores/useAppStore', () => {
 });
 
 describe('BrushControls – Color Cycle stroke essentials', () => {
+  beforeEach(() => {
+    jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('shows gradient editor, speed, and bands for color cycle stroke', () => {
     render(<BrushControls />);
 
@@ -418,6 +427,27 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
 
     await user.click(dashedToggle);
     expect(useAppStore.getState().tools.brushSettings.dashedEnabled).toBe(true);
+  });
+
+  it('forks gradient when switching back to manual mode', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        ccGradientSource: 'fg',
+      },
+    }));
+
+    const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
+    render(<BrushControls />);
+
+    await user.click(screen.getByRole('button', { name: 'Man Grad' }));
+
+    expect(useAppStore.getState().tools.ccGradientSource).toBe('manual');
+    const lastCall = setSharedSpy.mock.calls.at(-1);
+    expect(lastCall).toBeTruthy();
+    expect(lastCall?.[1]).toEqual({ fork: true });
   });
 });
 

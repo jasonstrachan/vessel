@@ -1263,6 +1263,9 @@ const BrushControls = () => {
               const nextSource = value === 'fg' ? 'fg' : value === 'sample' ? 'sampled' : 'manual';
               setCcGradientSource(nextSource);
               if (nextSource === 'manual') {
+                // Switching back to manual must never recolor existing pixels.
+                // Force a fork so subsequent edits apply to future strokes only.
+                gradientForkRef.current = true;
                 flushPendingGradient();
               }
             }}
