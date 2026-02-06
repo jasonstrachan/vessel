@@ -87,6 +87,8 @@ type LayerStrokeState = {
   hasContent: boolean;
   strokeCounter: number;
   stampCounter: number;
+  strokeCycleSpeed: number;
+  strokeSpeedByte: number;
   lastPoint: Vec2 | null;
   skipStampDitherFinalize?: boolean;
   buffers: {
@@ -551,10 +553,14 @@ export class ColorCycleBrushCanvas2D {
 
   private createLayerStrokeState(options?: { hasContent?: boolean; bufferSize?: number }): LayerStrokeState {
     const size = Math.max(0, Math.floor(options?.bufferSize ?? this.width * this.height));
+    const initialStrokeCycleSpeed = Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1;
+    const initialStrokeSpeedByte = encodeColorCycleSpeedByte(initialStrokeCycleSpeed);
     return {
       hasContent: Boolean(options?.hasContent),
       strokeCounter: 0,
       stampCounter: 0,
+      strokeCycleSpeed: initialStrokeCycleSpeed,
+      strokeSpeedByte: initialStrokeSpeedByte,
       lastPoint: null,
       buffers: {
         paint: new Uint8Array(size),
@@ -599,7 +605,9 @@ export class ColorCycleBrushCanvas2D {
       width: initWidth,
       height: initHeight,
       fps: this.fps,
-      speed: this.cycleSpeed,
+      // Keep playback neutral so per-pixel speed bytes are absolute and
+      // unaffected by later write-speed slider changes.
+      speed: 1,
       autoStart: false,
       lazyInit: true,
       forceCanvas2D: this.forceCanvas2D
@@ -864,6 +872,28 @@ export class ColorCycleBrushCanvas2D {
     return { id, animator, strokeData };
   }
 
+  private getWriteCycleSpeed(strokeData?: LayerStrokeState | null): number {
+    const hasActiveStrokeSpeed =
+      Boolean(strokeData) &&
+      strokeData!.strokeCounter === this.strokeCounter &&
+      Number.isFinite(strokeData!.strokeCycleSpeed);
+    if (hasActiveStrokeSpeed) {
+      return strokeData!.strokeCycleSpeed;
+    }
+    return Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1;
+  }
+
+  private getWriteSpeedByte(strokeData?: LayerStrokeState | null): number {
+    const hasActiveStrokeSpeed =
+      Boolean(strokeData) &&
+      strokeData!.strokeCounter === this.strokeCounter &&
+      Number.isFinite(strokeData!.strokeSpeedByte);
+    if (hasActiveStrokeSpeed) {
+      return strokeData!.strokeSpeedByte;
+    }
+    return encodeColorCycleSpeedByte(this.getWriteCycleSpeed(strokeData));
+  }
+
   private logSetIndexSample(layerId: string, x: number, y: number) {
     if ((x & 31) === 0 && (y & 31) === 0) {
       ccLog('setIndex sample', { id: layerId, x, y });
@@ -1055,7 +1085,7 @@ export class ColorCycleBrushCanvas2D {
       const colorIndex = this.computeColorBandIndex(strokeData);
       const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-      const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
+      const speedByte = this.getWriteSpeedByte(strokeData);
       const flowBits =
         this.flowMode === 'reverse'
           ? 2
@@ -1111,7 +1141,7 @@ export class ColorCycleBrushCanvas2D {
           pressureSize,
           primaryIndex,
           flowSlot,
-          cycleSpeed: this.cycleSpeed,
+          cycleSpeed: this.getWriteCycleSpeed(strokeData),
           width: this.width,
           height: this.height,
           isAnimating: this.isAnimating,
@@ -1129,7 +1159,7 @@ export class ColorCycleBrushCanvas2D {
                   runtime: this.stampDitherRuntime,
                   animator,
                   flowSlot,
-                  cycleSpeed: this.cycleSpeed,
+                  cycleSpeed: this.getWriteCycleSpeed(strokeData),
                   tileScale: nextScale,
                 });
                 if (perfLocal) {
@@ -1268,7 +1298,7 @@ export class ColorCycleBrushCanvas2D {
     const targetLayerId = layerId || this.activeLayerId || 'default';
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
     const colorIndex = this.computeColorBandIndexPerStamp(strokeData);
-    const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
+    const speedByte = this.getWriteSpeedByte(strokeData);
     if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
       (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
     }
@@ -2025,14 +2055,15 @@ export class ColorCycleBrushCanvas2D {
     if (typeof animator.startStroke === 'function') {
       animator.startStroke();
     }
+    const strokeData = this.layerStrokes.get(id);
+    const strokeStartSpeed = Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1;
+    const speedByte = encodeColorCycleSpeedByte(strokeStartSpeed);
     try {
-      const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
       if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
         (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
       }
     } catch {}
-    
-    const strokeData = this.layerStrokes.get(id);
+
     if (strokeData && !strokeData.hasContent) {
       strokeData.hasContent = true;
     }
@@ -2077,6 +2108,8 @@ export class ColorCycleBrushCanvas2D {
         strokeData.stampCounter = preservedStampCounter;
       }
       strokeData.strokeCounter = this.strokeCounter;
+      strokeData.strokeCycleSpeed = strokeStartSpeed;
+      strokeData.strokeSpeedByte = speedByte;
       strokeData.lastPoint = null;
       if (this.stampDitherEnabled) {
         const perf = this.perfStroke;
@@ -2251,7 +2284,7 @@ export class ColorCycleBrushCanvas2D {
           width: this.width,
           height: this.height,
           flowSlot,
-          cycleSpeed: this.cycleSpeed,
+          cycleSpeed: this.getWriteCycleSpeed(strokeData),
           ditherStrength: this.ditherStrength,
         });
         if (perf) {
@@ -2764,7 +2797,7 @@ export class ColorCycleBrushCanvas2D {
     if (logCcFill) {
       debugLog('cc-fill', '[CC fill] linear USED CPU', { bbox, bands: numBands });
     }
-    const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
+    const speedByte = this.getWriteSpeedByte(strokeData);
     const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
     if (activeSlot !== 0) {
       animator.markGradientSlotUsed(activeSlot);
@@ -3609,7 +3642,7 @@ export class ColorCycleBrushCanvas2D {
     };
 
     const directConcentricHandle = animator.beginDirectFill();
-    const speedByte = encodeColorCycleSpeedByte(this.cycleSpeed);
+    const speedByte = this.getWriteSpeedByte(strokeData);
     const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
     if (activeSlot !== 0) {
       animator.markGradientSlotUsed(activeSlot);
@@ -4508,8 +4541,10 @@ export class ColorCycleBrushCanvas2D {
       console.warn(`Invalid animation speed: ${speed}`);
       return;
     }
+    // Write-speed only: this value is stamped into newly painted pixels.
+    // Playback remains neutral and should not globally scale existing content.
     this.cycleSpeed = speed;
-    this.animators.forEach(animator => animator.setSpeed(speed));
+    this.animators.forEach(animator => animator.setSpeed(1));
   }
   
   /**

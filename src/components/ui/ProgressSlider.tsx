@@ -27,6 +27,42 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
 }) => {
   const isDraggingRef = React.useRef(false);
   const percentage = ((value - min) / (max - min)) * 100;
+  const commitDrag = React.useCallback(() => {
+    if (!isDraggingRef.current) {
+      return;
+    }
+    isDraggingRef.current = false;
+    onCommit?.();
+  }, [onCommit]);
+
+  React.useEffect(() => {
+    const handlePointerUp = () => commitDrag();
+    const handlePointerCancel = () => commitDrag();
+    const handleMouseUp = () => commitDrag();
+    const handleTouchEnd = () => commitDrag();
+    const handleWindowBlur = () => commitDrag();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        commitDrag();
+      }
+    };
+
+    window.addEventListener('pointerup', handlePointerUp, { passive: true, capture: true });
+    window.addEventListener('pointercancel', handlePointerCancel, { passive: true, capture: true });
+    window.addEventListener('mouseup', handleMouseUp, { passive: true, capture: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true, capture: true });
+    window.addEventListener('blur', handleWindowBlur, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange, { passive: true });
+
+    return () => {
+      window.removeEventListener('pointerup', handlePointerUp, true);
+      window.removeEventListener('pointercancel', handlePointerCancel, true);
+      window.removeEventListener('mouseup', handleMouseUp, true);
+      window.removeEventListener('touchend', handleTouchEnd, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [commitDrag]);
 
   // Format value for display - show decimals only if step < 1
   const displayValue = step < 1 ? value.toFixed(2) : Math.round(value).toString();
@@ -75,18 +111,16 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         onPointerDown={() => {
           isDraggingRef.current = true;
         }}
-        onPointerUp={() => {
-          if (isDraggingRef.current) {
-            isDraggingRef.current = false;
-            onCommit?.();
-          }
+        onMouseDown={() => {
+          isDraggingRef.current = true;
         }}
-        onPointerCancel={() => {
-          if (isDraggingRef.current) {
-            isDraggingRef.current = false;
-            onCommit?.();
-          }
+        onTouchStart={() => {
+          isDraggingRef.current = true;
         }}
+        onPointerUp={() => commitDrag()}
+        onPointerCancel={() => commitDrag()}
+        onMouseUp={() => commitDrag()}
+        onTouchEnd={() => commitDrag()}
         onBlur={() => {
           if (!isDraggingRef.current) {
             onCommit?.();

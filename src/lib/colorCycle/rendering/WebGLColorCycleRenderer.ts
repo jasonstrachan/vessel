@@ -611,7 +611,9 @@ export class WebGLColorCycleRenderer {
         float base = (fIdx - 1.0);
         float basePhase;
         if (fSpd < 0.5) {
-          basePhase = u_legacyOffset;
+          // Per-pixel speed byte 0 means static (no cycling).
+          // Keep this aligned with CPU Renderer2D semantics.
+          basePhase = 0.0;
         } else {
           float tNorm = (fSpd - 1.0) / 254.0;
           float speed = mix(u_speedMin, u_speedMax, clamp(tNorm, 0.0, 1.0));

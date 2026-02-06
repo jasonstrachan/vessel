@@ -3997,7 +3997,7 @@ export const useBrushEngineSimplified = () => {
         const perLayerSpeed = activeLayer?.colorCycleData?.controllerSpeedCps
           ?? activeLayer?.colorCycleData?.brushSpeed;
         const speed = perLayerSpeed ?? tools.brushSettings.colorCycleSpeed;
-        if (speed) {
+        if (typeof speed === 'number' && Number.isFinite(speed)) {
           colorCycleBrush.setSpeed(speed);
         }
       } catch {}
