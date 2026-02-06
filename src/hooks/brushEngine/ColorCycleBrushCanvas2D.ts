@@ -5469,15 +5469,6 @@ export class ColorCycleBrushCanvas2D {
    * Apply a snapshot to a layer's stroke data
    */
   applyLayerSnapshot(layerId: string, snapshot: StrokeDataSnapshot, animatorIndex?: AnimatorIndexSnapshot) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[ColorCycleBrush] applyLayerSnapshot', {
-        layerId,
-        bufferBytes: snapshot.paintBuffer?.byteLength ?? 0,
-        hasContent: snapshot.hasContent,
-        strokeCounter: snapshot.strokeCounter,
-        stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
-      });
-    }
     // Ensure animator exists for this layer
     const animator = this.ensureFullResolution(layerId, 'restore');
     const buffer =
