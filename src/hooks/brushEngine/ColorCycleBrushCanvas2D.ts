@@ -1086,12 +1086,6 @@ export class ColorCycleBrushCanvas2D {
       const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
       const speedByte = this.getWriteSpeedByte(strokeData);
-      const flowBits =
-        this.flowMode === 'reverse'
-          ? 2
-          : this.flowMode === 'pingpong'
-            ? 3
-            : 1;
       if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
         (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
       }

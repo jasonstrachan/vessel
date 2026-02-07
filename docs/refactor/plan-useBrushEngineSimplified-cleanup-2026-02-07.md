@@ -9,8 +9,7 @@ Reduce complexity and risk in `src/hooks/useBrushEngineSimplified.ts` while pres
 ## Current State Snapshot
 - Hook size remains high (`~3697` LOC).
 - Multiple no-behavior refactor slices have already been extracted into `src/hooks/brushEngine/*`.
-- Existing repo-wide lint warning remains unrelated to this cleanup:
-  - `src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts:1089` (`flowBits` unused).
+- Previous repo-wide lint warning for `flowBits` has been removed during this cleanup stream.
 - Focused validation currently passes after each extraction:
   - `npm run type-check`
   - `npm run lint` (with the existing warning above)
@@ -137,3 +136,381 @@ For major phase completion:
 ## Progress Log
 - 2026-02-07: Plan created from active cleanup stream; baseline validation commands and priorities recorded.
 - 2026-02-07: Review feedback integrated: added explicit Phase 1 invariants and tests, per-slice runtime parity gate, measurable DoD thresholds, and dependency-array safety guardrails.
+- 2026-02-07: Phase 1 slice 1 completed for rectangle-gradient extraction.
+  - Extracted rectangle-gradient orchestration into `src/hooks/brushEngine/shapeRectangleGradientController.ts`.
+  - Kept `useBrushEngineSimplified` public API unchanged; `drawRectangleGradient` now delegates to the controller.
+  - Added focused parity tests in `src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass with existing repo warning: `ColorCycleBrushCanvas2D.ts:1089` `flowBits` unused)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts` (pass)
+- 2026-02-07: Phase 1 slice 2 completed for polygon-gradient extraction.
+  - Extracted polygon-gradient orchestration into `src/hooks/brushEngine/shapePolygonGradientController.ts`.
+  - Kept `useBrushEngineSimplified` public API unchanged; `drawPolygonGradient` now delegates to the controller.
+  - Added focused parity tests in `src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts`.
+- 2026-02-07: Phase 2 lint/static hygiene progress.
+  - Removed unused `flowBits` from `src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts` (pass)
+- 2026-02-07: Phase 1 slice 3 completed for risograph effect extraction.
+  - Extracted shape risograph overlay helper into `src/hooks/brushEngine/shapeRisographEffect.ts`.
+  - Kept `useBrushEngineSimplified` public API unchanged; `applyRisographEffect` now delegates to the controller.
+  - Added focused guard-path tests in `src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts` (pass)
+- 2026-02-07: Phase 1 slice 4 completed for color-cycle init/animation orchestration extraction.
+  - Extracted initialization/toggle logic into `src/hooks/brushEngine/colorCycleInitController.ts`:
+    - `initializeColorCycleBrushForActiveLayer`
+    - `ensureColorCycleAnimationForLayers`
+  - Kept `useBrushEngineSimplified` public API unchanged; `initializeColorCycleBrush` and `ensureColorCycleAnimation` now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts` (pass)
+- 2026-02-07: Phase 1 slice 5 completed for color-cycle render/draw orchestration extraction.
+  - Extracted draw/render orchestration into `src/hooks/brushEngine/colorCycleDrawController.ts`:
+    - `renderColorCycleToContext`
+    - `drawColorCycleStroke`
+  - Kept `useBrushEngineSimplified` public API unchanged; `renderColorCycle` and `drawColorCycle` now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts` (pass)
+- 2026-02-07: Phase 1 slice 6 completed for color-cycle stroke lifecycle extraction.
+  - Extracted stroke lifecycle helpers into `src/hooks/brushEngine/colorCycleStrokeLifecycleController.ts`:
+    - `resetColorCycleStroke`
+    - `endColorCycleStrokeForLayer`
+  - Kept `useBrushEngineSimplified` public API unchanged; `resetColorCycle` and `endColorCycleStroke` now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts` (pass)
+- 2026-02-07: Phase 1 slice 7 completed for color-cycle fill orchestration extraction.
+  - Extracted shape-fill orchestration into `src/hooks/brushEngine/colorCycleFillController.ts`:
+    - `fillColorCycleLinear`
+    - `fillColorCycleConcentric`
+  - Kept `useBrushEngineSimplified` public API unchanged; `fillCcGradientLinear` and `fillCcGradientConcentric` now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2512` LOC (`wc -l`), down from initial `~3697` LOC.
+- 2026-02-07: Phase 3 type contract consolidation progress.
+  - Added shared controller contracts in `src/hooks/brushEngine/shapeTypes.ts`:
+    - `Point2D`, `PolygonGradientData`, `RoiRect`, `GradientDitherOptions`
+    - `RectangleGradientSettings`, `PolygonGradientSettings`
+  - Updated extracted modules to use shared types (`shapeRectangleGradientController.ts`, `shapePolygonGradientController.ts`, `colorCycleFillController.ts`).
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts` (pass)
+- 2026-02-07: Phase 4 dependency-boundary cleanup progress.
+  - Introduced stable memoized settings adapters for extracted controller calls in `useBrushEngineSimplified` (`rectangleGradientSettings`, `polygonGradientSettings`, `drawColorCycleSettings`, `fillColorCycleSettings`).
+  - Reduced dependency-array noise by replacing broad `tools.brushSettings` dependencies in extracted callback boundaries with focused adapter dependencies.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts` (pass)
+- 2026-02-07: Phase 1 slice 8 completed for color-cycle risograph overlay extraction.
+  - Extracted overlay compositing logic into `src/hooks/brushEngine/colorCycleRisographOverlayController.ts`:
+    - `applyColorCycleRisographOverlay`
+  - Kept `useBrushEngineSimplified` public API unchanged; local `applyColorCycleRisographOverlay` now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2488` LOC (`wc -l`).
+- 2026-02-07: Additional Phase 4 dependency/effect cleanup.
+  - Removed duplicate color-cycle band-spacing update effect in `useBrushEngineSimplified` (kept the primary CC-layer effect that also re-renders + dispatches frame-ready event).
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2466` LOC (`wc -l`).
+- 2026-02-07: Additional Phase 4 effect-body decomposition.
+  - Extracted color-cycle settings/effect helpers into `src/hooks/brushEngine/colorCycleBrushSettingsController.ts`:
+    - `updateColorCycleGradientBandsForLayer`
+    - `updateColorCycleBandSpacingForLayer`
+    - `updateColorCycleDitherSettings`
+    - `updateColorCycleFillDitherPixelSize`
+    - `updateColorCycleStampDitherPixelSize`
+  - Replaced large inline effect bodies in `useBrushEngineSimplified` with thin delegated calls.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2407` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 9 completed for color-cycle blend/alpha-lock render extraction.
+  - Extracted `renderCCWithBlendAndLock` internals into `src/hooks/brushEngine/colorCycleBlendLockController.ts`:
+    - `renderColorCycleWithBlendAndLock`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callback now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2337` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 10 completed for generic alpha-lock paint orchestration extraction.
+  - Extracted `withAlphaLock` internals into `src/hooks/brushEngine/alphaLockController.ts`:
+    - `applyAlphaLockToPaint`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callback now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/alphaLockController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2203` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 11 completed for brush stamp/temp-canvas helper extraction.
+  - Extracted stamp helper internals into `src/hooks/brushEngine/brushStampController.ts`:
+    - `getPatternTempContext`
+    - `getRotationTempContext`
+    - `createPixelSquareStamp`
+    - `createPixelCircleStamp`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callbacks now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/brushStampController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2083` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 12 completed for stroke bounds estimation extraction.
+  - Extracted `estimateStrokeBounds` internals into `src/hooks/brushEngine/strokeBoundsController.ts`.
+  - Kept `useBrushEngineSimplified` public API unchanged; local callback now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2042` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 13 completed for stroke draw-core orchestration extraction.
+  - Extracted `runStrokeDrawCore` internals into `src/hooks/brushEngine/strokeDrawCoreController.ts`.
+  - Kept `useBrushEngineSimplified` public API unchanged; local callback now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2037` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 14 completed for live pressure-dither orchestration extraction.
+  - Extracted `runLivePressureDitherForCurrentStroke` internals into `src/hooks/brushEngine/livePressureDitherController.ts`.
+  - Kept `useBrushEngineSimplified` public API unchanged; local callback now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2034` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 15 completed for pressure-runtime helper extraction.
+  - Extracted pressure runtime helpers into `src/hooks/brushEngine/pressureRuntimeController.ts`:
+    - `resolveStrokePressureForRender`
+    - `resetPressureDitherState`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callbacks now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts`.
+- 2026-02-07: Phase 1 slice 16 completed for stroke-dither wrapper extraction.
+  - Extracted dither wrapper helpers into `src/hooks/brushEngine/strokeDitherController.ts`:
+    - `ditherRegionWithCurrentPressure`
+    - `applyStrokeDither`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callbacks now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/strokeDitherController.test.ts`.
+- 2026-02-07: Phase 1 slice 17 completed for live-preview/overlay scheduling extraction.
+  - Extracted live preview helpers into `src/hooks/brushEngine/liveStrokePreviewController.ts`:
+    - `applyStrokeRisographOverlay`
+    - `renderLiveStrokePreview`
+    - `scheduleLiveStrokeRender`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callbacks now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts`.
+  - Validation run (post slices 15-17):
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `2036` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 18 completed for pressure dither sampling extraction.
+  - Extracted pressure dither sampling helpers into `src/hooks/brushEngine/pressureDitherSamplingController.ts`:
+    - `updateStrokePresResPressure`
+    - `getStrokeDitherPixelSize`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callbacks now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts`.
+  - Validation run (post slices 18+):
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1997` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 19 completed for finalize-stroke orchestration extraction.
+  - Extracted finalize orchestration into `src/hooks/brushEngine/strokeFinalizeOrchestrator.ts`:
+    - `finalizeStrokeOrchestrated`
+  - Kept `useBrushEngineSimplified` public API unchanged; local `finalizeStroke` callback now delegates to orchestrator.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts`.
+- 2026-02-07: Phase 1 slice 20 completed for active-layer bitmap lookup extraction.
+  - Extracted active-layer bitmap resolution logic into `src/hooks/brushEngine/activeLayerBitmapController.ts`:
+    - `getActiveLayerBitmapCanvas`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callback now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts`.
+  - Validation run (post slices 19-20):
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1915` LOC (`wc -l`).
+- 2026-02-07: Phase 5 test expansion slice completed for direct extracted-unit coverage.
+  - Added direct unit coverage for `strokeDrawEntry.ts` in `src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts`:
+    - `runDrawBrushEntry` argument shaping (pressure/sampleTag/fallback flag/velocity/timestamp/custom brush forwarding)
+    - `runDrawStampEntry` argument shaping (point stamp params/sampleTag/fallback flag/velocity/timestamp)
+  - Added direct unit coverage for `strokeFinalizeController.ts` in `src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts`:
+    - `buildStrokeFinalizeContext` region normalization + context resolution and live-bounds fallback
+    - `finalizeStrokeEngineBuffers` raw-context finalize path vs alpha-lock finalize path
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts` (pass)
+  - Hook size checkpoint (no behavior/structure changes in this slice): `src/hooks/useBrushEngineSimplified.ts` at `1915` LOC (`wc -l`).
+- 2026-02-07: Phase 1 slice 21 completed for transparency/composite helper extraction.
+  - Extracted transparency/compositing helpers into `src/hooks/brushEngine/transparencyCompositeController.ts`:
+    - `withTransparencyLockComposite`
+    - `setBlendModeIfUnlocked`
+    - `setMultiplyIfUnlocked`
+  - Kept `useBrushEngineSimplified` public API unchanged; local callbacks now delegate to controller helpers.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1916` LOC (`wc -l`).
+- 2026-02-07: Major-phase validation checkpoint completed.
+  - Full repository test suite run:
+    1. `npm test` (pass: 205/206 suites passed, 1 skipped; 867/868 tests passed, 1 skipped)
+  - Plan DoD status checkpoint:
+    - `useBrushEngineSimplified.ts` remains below threshold at `1916` LOC.
+    - Largest remaining `useCallback` block in `useBrushEngineSimplified.ts` is `layerHasAnyAlpha` at `101` LOC, below the `<= 200` DoD cap.
+- 2026-02-07: Phase 1 slice 22 completed for alpha-presence detection extraction.
+  - Extracted active-layer alpha detection/cache logic into `src/hooks/brushEngine/alphaPresenceController.ts`:
+    - `detectLayerHasAnyAlpha`
+  - Kept `useBrushEngineSimplified` public API unchanged; local `layerHasAnyAlpha` callback now delegates to controller helper.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1825` LOC (`wc -l`).
+  - Largest remaining `useCallback` block now: `runStrokeDrawCore` at `59` LOC.
+- 2026-02-07: Phase 3 type-contract consolidation slice completed for stroke draw payloads.
+  - Replaced ad-hoc custom-brush payload types with shared `CustomBrushStrokeData` contracts:
+    - `src/hooks/brushEngine/strokeDrawCoreController.ts`
+    - `src/hooks/useBrushEngineSimplified.ts` (`drawBrush` cursor contract)
+  - Preserved behavior and callback flow; this is a type-surface cleanup only.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1820` LOC (`wc -l`).
+- 2026-02-07: Phase 4 dependency-boundary cleanup slice completed for stroke settings adapters.
+  - Added stable memoized adapters in `useBrushEngineSimplified`:
+    - `strokeDrawRuntimeSettings`
+    - `finalizeStrokeSettings`
+  - Replaced direct `tools.brushSettings.*` reads in `runStrokeDrawCore`/`finalizeStroke` callbacks with adapter fields.
+  - Reduced callback dependency-array noise by depending on stable settings adapters rather than individual setting keys in those callbacks.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1835` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `runStrokeDrawCore` at `58` LOC.
+- 2026-02-07: Phase 4 dependency-boundary cleanup slice completed for pressure-reset runtime deduplication.
+  - Consolidated repeated `resetStrokePressureDitherRuntime(...)` arg wiring behind a single stable helper in `useBrushEngineSimplified`:
+    - `runResetPressureDitherRuntime(resetCommittedAndPending)`
+  - Updated all call sites to use this helper:
+    - pressure-linked mode toggle effect
+    - `resetPressureDitherState`
+    - `resetStroke`
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1813` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `runStrokeDrawCore` at `58` LOC.
+- 2026-02-07: Phase 4 dependency-boundary cleanup slice completed for live-stroke runtime settings adapters.
+  - Added stable memoized adapters in `useBrushEngineSimplified` for remaining callback-local setting reads:
+    - `livePressureDitherSettings`
+    - `strokePressureRuntimeSettings`
+    - `liveStrokeTrackingSettings`
+  - Replaced direct `tools.brushSettings.*` reads in these callbacks with adapter fields:
+    - `runLivePressureDitherForCurrentStroke`
+    - `resolveStrokePressureForRender`
+    - `trackLiveStrokeSegment`
+  - Also consolidated the last ad-hoc inline `customBrushData` callback type in `runStrokeDrawCore` to shared `CustomBrushStrokeData`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1824` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `runStrokeDrawCore` at `53` LOC.
+- 2026-02-07: Phase 1 slice 23 completed for finalize-stroke callback entry extraction.
+  - Extracted finalize callback entry wiring into `src/hooks/brushEngine/strokeFinalizeEntryController.ts`:
+    - `finalizeStrokeCurrent`
+  - Kept `useBrushEngineSimplified` public API unchanged; local `finalizeStroke` callback now delegates to the new entry controller.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/strokeFinalizeEntryController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeEntryController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1822` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `runStrokeDrawCore` at `53` LOC.
+- 2026-02-07: Phase 1 slice 24 completed for stroke-draw callback entry extraction.
+  - Extracted stroke-draw callback entry wiring into `src/hooks/brushEngine/strokeDrawCoreEntryController.ts`:
+    - `runStrokeDrawCoreEntry`
+  - Kept `useBrushEngineSimplified` public API unchanged; local `runStrokeDrawCore` callback now delegates to the new entry controller.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/strokeDrawCoreEntryController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreEntryController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeEntryController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1821` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `runStrokeDrawCore` at `52` LOC.
+- 2026-02-07: Phase 3 type-contract consolidation follow-up for stroke-draw callback args.
+  - Exported and adopted shared entry-arg contract type:
+    - `RunStrokeDrawCoreEntryArgs` from `src/hooks/brushEngine/strokeDrawCoreEntryController.ts`
+  - Replaced hook-local inline `runStrokeDrawCore` argument typing with a typed `Omit<RunStrokeDrawCoreEntryArgs, ...>` contract in `src/hooks/useBrushEngineSimplified.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreEntryController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeEntryController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1825` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `runStrokeDrawCore` at `56` LOC.
+- 2026-02-07: Phase 3 type-contract consolidation completion for stroke-draw callback signature.
+  - Added shared hook-facing type alias:
+    - `RunStrokeDrawCoreHookArgs` in `src/hooks/brushEngine/strokeDrawCoreEntryController.ts`
+  - Simplified `useBrushEngineSimplified` `runStrokeDrawCore` callback signature/body to consume `RunStrokeDrawCoreHookArgs` and forward `...args` to `runStrokeDrawCoreEntry`.
+  - This removes duplicated callback arg shape declarations from the hook while keeping behavior unchanged.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreEntryController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeEntryController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1799` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `finalizeStroke` at `40` LOC.
+- 2026-02-07: Phase 1 slice 25 completed for reset-stroke callback entry extraction.
+  - Extracted reset callback entry wiring into `src/hooks/brushEngine/strokeResetEntryController.ts`:
+    - `resetStrokeCurrent`
+  - Kept `useBrushEngineSimplified` public API unchanged; local `resetStroke` callback now delegates to the new entry controller.
+  - Added focused tests in `src/hooks/brushEngine/__tests__/strokeResetEntryController.test.ts`.
+  - Validation run:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass, no ESLint warnings/errors)
+    3. `npm test -- src/hooks/__tests__/useBrushEngineSimplified.test.ts src/hooks/__tests__/useBrushEngineSimplified.harness.test.tsx src/stores/__tests__/colorCycleBrushManager.integration.test.ts src/hooks/brushEngine/__tests__/shapeRectangleGradientController.test.ts src/hooks/brushEngine/__tests__/shapePolygonGradientController.test.ts src/hooks/brushEngine/__tests__/shapeRisographEffect.test.ts src/hooks/brushEngine/__tests__/colorCycleInitController.test.ts src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts src/hooks/brushEngine/__tests__/colorCycleStrokeLifecycleController.test.ts src/hooks/brushEngine/__tests__/colorCycleFillController.test.ts src/hooks/brushEngine/__tests__/colorCycleRisographOverlayController.test.ts src/hooks/brushEngine/__tests__/colorCycleBrushSettingsController.test.ts src/hooks/brushEngine/__tests__/colorCycleBlendLockController.test.ts src/hooks/brushEngine/__tests__/alphaLockController.test.ts src/hooks/brushEngine/__tests__/brushStampController.test.ts src/hooks/brushEngine/__tests__/strokeBoundsController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreController.test.ts src/hooks/brushEngine/__tests__/strokeDrawCoreEntryController.test.ts src/hooks/brushEngine/__tests__/strokeResetEntryController.test.ts src/hooks/brushEngine/__tests__/livePressureDitherController.test.ts src/hooks/brushEngine/__tests__/pressureRuntimeController.test.ts src/hooks/brushEngine/__tests__/strokeDitherController.test.ts src/hooks/brushEngine/__tests__/liveStrokePreviewController.test.ts src/hooks/brushEngine/__tests__/pressureDitherSamplingController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeOrchestrator.test.ts src/hooks/brushEngine/__tests__/activeLayerBitmapController.test.ts src/hooks/brushEngine/__tests__/strokeDrawEntry.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeController.test.ts src/hooks/brushEngine/__tests__/strokeFinalizeEntryController.test.ts src/hooks/brushEngine/__tests__/transparencyCompositeController.test.ts src/hooks/brushEngine/__tests__/alphaPresenceController.test.ts` (pass)
+  - Hook size checkpoint: `src/hooks/useBrushEngineSimplified.ts` at `1799` LOC (`wc -l`).
+  - Largest remaining `useCallback` block: `finalizeStroke` at `40` LOC.
+- 2026-02-07: Final closure checkpoint after slice 25.
+  - Full repository suite re-run at HEAD:
+    1. `npm test` (pass: 209/210 suites passed, 1 skipped; 874/875 tests passed, 1 skipped)
+  - DoD metric re-check:
+    - `src/hooks/useBrushEngineSimplified.ts` remains at `1799` LOC (`wc -l`).
+    - Largest remaining `useCallback` block remains `finalizeStroke` at `40` LOC.
+  - Manual sanity status:
+    - Interactive drawing-flow sanity checklist from this plan is pending local UI verification (cannot be executed in headless CLI).
