@@ -514,3 +514,12 @@ For major phase completion:
     - Largest remaining `useCallback` block remains `finalizeStroke` at `40` LOC.
   - Manual sanity status:
     - Interactive drawing-flow sanity checklist from this plan is pending local UI verification (cannot be executed in headless CLI).
+- 2026-02-07: Final automated production validation checkpoint.
+  - Production build re-run at HEAD:
+    1. `npm run build` (pass; Next.js static export completed successfully)
+  - Supporting non-interactive gates at HEAD:
+    1. `npm run type-check` (pass)
+    2. `npm run lint` (pass; no ESLint warnings/errors)
+    3. `npm test` (pass: 209/210 suites passed, 1 skipped; 874/875 tests passed, 1 skipped)
+  - Remaining closure item:
+    - Interactive/manual drawing-flow sanity from the checklist remains the final pending gate outside headless CI/CLI execution.
