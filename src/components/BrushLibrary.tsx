@@ -118,15 +118,16 @@ const BrushLibrary = () => {
         if (bIsSquare && !aIsSquare) return 1;
       }
 
-      const ccOrder = new Map([
-        ['color-cycle-stroke', 0],
-        ['color-cycle-gradient', 1],
-        ['color-cycle-shape', 2],
+      const specialOrder = new Map([
+        ['shape-fill', 0],
+        ['color-cycle-stroke', 1],
+        ['color-cycle-gradient', 2],
+        ['color-cycle-shape', 3],
       ]);
-      const aCc = ccOrder.get(a.id);
-      const bCc = ccOrder.get(b.id);
-      if (aCc !== undefined && bCc !== undefined && aCc !== bCc) {
-        return aCc - bCc;
+      const aSpecial = specialOrder.get(a.id);
+      const bSpecial = specialOrder.get(b.id);
+      if (aSpecial !== undefined && bSpecial !== undefined && aSpecial !== bSpecial) {
+        return aSpecial - bSpecial;
       }
       
       // Keep original order for other brushes

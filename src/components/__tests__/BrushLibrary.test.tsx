@@ -124,6 +124,13 @@ const otherPreset = {
     category: 'Color Cycle',
     components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
   };
+  const shapeFillPreset = {
+    id: 'shape-fill',
+    name: 'Shape Fill',
+    isDefault: false,
+    category: 'Special',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.SHAPE_FILL } }],
+  };
 
 describe('BrushLibrary', () => {
   beforeEach(() => {
@@ -195,6 +202,26 @@ describe('BrushLibrary', () => {
     const stroke = screen.getByText('Color Cycle Stroke');
     const gradient = screen.getByText('Color Cycle Gradient');
     const relation = stroke.compareDocumentPosition(gradient);
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('orders Shape Fill above Color Cycle Stroke', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: shapeFillPreset as any,
+      brushPresets: [
+        basePreset as any,
+        ccStrokePreset as any,
+        shapeFillPreset as any,
+        ccGradientPreset as any,
+      ],
+    });
+
+    render(<BrushLibrary />);
+
+    const shapeFill = screen.getByText('Shape Fill');
+    const stroke = screen.getByText('Color Cycle Stroke');
+    const relation = shapeFill.compareDocumentPosition(stroke);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
