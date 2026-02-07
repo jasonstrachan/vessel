@@ -523,3 +523,28 @@ For major phase completion:
     3. `npm test` (pass: 209/210 suites passed, 1 skipped; 874/875 tests passed, 1 skipped)
   - Remaining closure item:
     - Interactive/manual drawing-flow sanity from the checklist remains the final pending gate outside headless CI/CLI execution.
+
+## Manual Sanity Execution Checklist (Pending Interactive Run)
+- Start app: `npm run dev` (or `npm run dev:raw`) and open `http://localhost:3000/vessel`.
+- Brush stroke parity:
+  - Draw continuous strokes on a normal layer.
+  - Confirm live preview, finalize, and undo/redo behavior match pre-refactor expectations.
+- Stamp parity:
+  - Draw repeated point stamps with variable spacing/pressure if enabled.
+  - Confirm stamp placement and blend behavior match expected output.
+- Alpha-lock parity:
+  - Enable alpha lock on a layer with existing pixels and paint over transparent and opaque regions.
+  - Confirm paint affects only opaque source pixels.
+- Dithered stroke parity:
+  - Enable dithered stroke mode and draw low/high pressure segments.
+  - Confirm dither intensity/pixel-size behavior remains stable across stroke lifecycle.
+- Color-cycle lifecycle parity:
+  - For color-cycle layer/brush, run initialize -> draw/render -> reset/end sequence.
+  - Confirm no missing render frames and no stale state after reset/end.
+- Gradient shape parity:
+  - Draw rectangle gradient and polygon gradient with the same palette/settings.
+  - Confirm fill coverage, dither options, and alpha-lock interactions match baseline behavior.
+- Risograph overlay parity:
+  - Enable risograph-related settings and verify overlay/composite sequencing during draw and finalize.
+- Exit criteria:
+  - No regressions observed in the flows above; if any mismatch is found, capture the exact flow and setting combination and append a dated note in this plan file.
