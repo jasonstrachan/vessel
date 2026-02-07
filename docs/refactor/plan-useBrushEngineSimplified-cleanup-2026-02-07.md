@@ -548,3 +548,19 @@ For major phase completion:
   - Enable risograph-related settings and verify overlay/composite sequencing during draw and finalize.
 - Exit criteria:
   - No regressions observed in the flows above; if any mismatch is found, capture the exact flow and setting combination and append a dated note in this plan file.
+
+### Manual Run Record (Fill During Interactive Validation)
+- Date:
+- Tester:
+- Environment: (browser + OS + build/dev mode)
+- Commit under test: `e7b665600`
+- Results:
+  - Brush stroke parity: `PASS/FAIL`
+  - Stamp parity: `PASS/FAIL`
+  - Alpha-lock parity: `PASS/FAIL`
+  - Dithered stroke parity: `PASS/FAIL`
+  - Color-cycle lifecycle parity: `PASS/FAIL`
+  - Gradient shape parity (rectangle/polygon): `PASS/FAIL`
+  - Risograph overlay parity: `PASS/FAIL`
+- Notes:
+- Final DoD decision: `READY TO CLOSE / FOLLOW-UP REQUIRED`
