@@ -46,6 +46,23 @@ export const resetCcGradientSampleSession = (session: CcGradientSampleSession): 
   session.polyline = [];
 };
 
+export const resetCcGradientSampleState = ({
+  session,
+  lastUpdateRef,
+  sampleCountRef,
+  sampleCountLastUpdateRef,
+}: {
+  session: CcGradientSampleSession;
+  lastUpdateRef: React.MutableRefObject<number>;
+  sampleCountRef: React.MutableRefObject<number>;
+  sampleCountLastUpdateRef: React.MutableRefObject<number>;
+}): void => {
+  resetCcGradientSampleSession(session);
+  lastUpdateRef.current = 0;
+  sampleCountRef.current = 0;
+  sampleCountLastUpdateRef.current = 0;
+};
+
 export const shouldSampleCcGradient = (
   settings: BrushSettings,
   brushPresetId: string | null | undefined

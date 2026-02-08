@@ -1,0 +1,143 @@
+import type { Layer } from '@/types';
+import type { CompositeSegment } from '@/stores/slices/layersSlice';
+
+interface VisibleRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface DrawVisibleCompositeStackOptions {
+  ctx: CanvasRenderingContext2D;
+  visibleRect: VisibleRect | null;
+  useSplitOverlay: boolean;
+  underCompositeCanvas: HTMLCanvasElement | null;
+  isActivelyErasing: boolean | undefined;
+  drawNonActiveVisibleLayers: (ctx: CanvasRenderingContext2D) => void;
+  segments: CompositeSegment[];
+  layerMap: Map<string, Layer>;
+  compositeBitmap: ImageBitmap | null;
+  compositeCanvas: HTMLCanvasElement | null;
+}
+
+interface DrawVisibleCompositeStackResult {
+  invalidCompositeBitmap: boolean;
+}
+
+export const drawVisibleCompositeStack = ({
+  ctx,
+  visibleRect,
+  useSplitOverlay,
+  underCompositeCanvas,
+  isActivelyErasing,
+  drawNonActiveVisibleLayers,
+  segments,
+  layerMap,
+  compositeBitmap,
+  compositeCanvas,
+}: DrawVisibleCompositeStackOptions): DrawVisibleCompositeStackResult => {
+  let invalidCompositeBitmap = false;
+  if (!visibleRect) {
+    return { invalidCompositeBitmap };
+  }
+
+  const { x, y, width, height } = visibleRect;
+  if (width <= 0 || height <= 0) {
+    return { invalidCompositeBitmap };
+  }
+
+  if (useSplitOverlay && underCompositeCanvas) {
+    ctx.drawImage(underCompositeCanvas, x, y, width, height, x, y, width, height);
+    return { invalidCompositeBitmap };
+  }
+
+  if (isActivelyErasing) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.clip();
+    drawNonActiveVisibleLayers(ctx);
+    ctx.restore();
+    return { invalidCompositeBitmap };
+  }
+
+  let compositeDrawn = false;
+  if (segments.length > 0) {
+    compositeDrawn = true;
+    segments.forEach((segment) => {
+      if (segment.kind === 'static') {
+        const source = segment.bitmap ?? segment.canvas;
+        try {
+          ctx.drawImage(source, x, y, width, height, x, y, width, height);
+        } catch (error) {
+          console.warn('[CompositeSegments] Failed to draw static segment', error);
+        }
+        return;
+      }
+
+      const layer = layerMap.get(segment.layerId);
+      if (!layer || !layer.visible || layer.layerType !== 'color-cycle') {
+        return;
+      }
+
+      const layerCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+      if (!layerCanvas) {
+        return;
+      }
+
+      ctx.save();
+      ctx.globalAlpha = segment.opacity;
+      ctx.globalCompositeOperation = segment.blendMode ?? 'source-over';
+      ctx.drawImage(layerCanvas, x, y, width, height, x, y, width, height);
+      ctx.restore();
+    });
+  }
+
+  if (!compositeDrawn && compositeBitmap) {
+    try {
+      ctx.drawImage(compositeBitmap, x, y, width, height, x, y, width, height);
+      compositeDrawn = true;
+    } catch (error) {
+      const isInvalidState = error instanceof DOMException && error.name === 'InvalidStateError';
+      if (isInvalidState) {
+        invalidCompositeBitmap = true;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  if (!compositeDrawn && compositeCanvas) {
+    ctx.drawImage(compositeCanvas, x, y, width, height, x, y, width, height);
+  }
+
+  return { invalidCompositeBitmap };
+};
+
+interface DrawOverCompositeLayerOptions {
+  ctx: CanvasRenderingContext2D;
+  useSplitOverlay: boolean;
+  overCompositeHasContent: boolean;
+  overCompositeCanvas: HTMLCanvasElement | null;
+  visibleRect: VisibleRect | null;
+}
+
+export const drawOverCompositeLayer = ({
+  ctx,
+  useSplitOverlay,
+  overCompositeHasContent,
+  overCompositeCanvas,
+  visibleRect,
+}: DrawOverCompositeLayerOptions): void => {
+  if (!useSplitOverlay || !overCompositeHasContent || !overCompositeCanvas || !visibleRect) {
+    return;
+  }
+
+  const { x, y, width, height } = visibleRect;
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  ctx.drawImage(overCompositeCanvas, x, y, width, height, x, y, width, height);
+};

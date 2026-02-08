@@ -116,6 +116,9 @@ export interface EventHandlerDependencies {
   isBusyRef: React.MutableRefObject<boolean>;
   isMouseDownRef: React.MutableRefObject<boolean>;
   isSpacePressedRef: React.MutableRefObject<boolean>;
+  mousePositionRef?: React.MutableRefObject<{ x: number; y: number }>;
+  isZoomingRef?: React.MutableRefObject<boolean>;
+  zoomEndTimeoutRef?: React.MutableRefObject<number | null>;
   drawAnimationFrameRef: React.MutableRefObject<number | null>;
   pointerMoveThrottled: React.MutableRefObject<number>;
   
@@ -127,6 +130,8 @@ export interface EventHandlerDependencies {
   activeLayerId: string | null;
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
+  selectionMask: ImageData | null;
+  selectionMaskBounds: { x: number; y: number; width: number; height: number } | null;
   floatingPaste: FloatingPaste | null;
   isDraggingFloatingPaste: boolean;
   palette: PaletteState;
@@ -160,9 +165,11 @@ export interface EventHandlerDependencies {
   floatingPasteOriginalPos: React.MutableRefObject<{ x: number; y: number } | null>;
   
   // Cursor state
+  setIsSpacePressed?: React.Dispatch<React.SetStateAction<boolean>>;
   setCursorStyle: React.Dispatch<React.SetStateAction<string>>;
   setShowBrushCursor: React.Dispatch<React.SetStateAction<boolean>>;
   setCursorPosition: (screenX: number, screenY: number) => void;
+  isPointerInsideCanvas?: () => boolean;
   
   // Hooks
   interaction: {
@@ -198,6 +205,8 @@ export interface EventHandlerDependencies {
   // View transform and drawing functions
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
   draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
+  setZoom?: (zoom: number) => void;
+  setPan?: (offsetX: number, offsetY: number, options?: { silent?: boolean }) => void;
   drawingAnimationFrameRef: React.MutableRefObject<number | null>;
   previewAnimationFrameRef?: React.MutableRefObject<number | null>;
   
@@ -209,6 +218,8 @@ export interface EventHandlerDependencies {
 
   // Optional feedback hook for surfacing errors/warnings
   feedback?: (message: string) => void;
+  selectionClipboardRef?: React.MutableRefObject<AppState['selectionClipboard']>;
+  getViewportPastePosition?: (contentWidth: number, contentHeight: number) => { x: number; y: number } | null;
 
   // Preview session coordination
   previewSessionIdRef: React.MutableRefObject<number>;

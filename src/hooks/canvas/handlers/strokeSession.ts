@@ -21,6 +21,12 @@ export type BeginStrokeSessionOptions = {
   startedAt?: number;
 };
 
+export type StrokeSessionDispatchers = {
+  beginStrokeSession: (options: BeginStrokeSessionOptions) => BrushStrokeSession;
+  endStrokeSession: (endedAt?: number) => void;
+  clearStrokeSession: () => void;
+};
+
 export const beginStrokeSession = (
   options: BeginStrokeSessionOptions,
   activeStrokeSessionRef: React.MutableRefObject<BrushStrokeSession | null>
@@ -50,8 +56,38 @@ export const endStrokeSession = (
   }
 };
 
+export const endStrokeSessionAndClearPointerDown = (
+  activeStrokeSessionRef: React.MutableRefObject<BrushStrokeSession | null>,
+  isPointerDownRef: React.MutableRefObject<boolean>,
+  endedAt?: number
+): void => {
+  endStrokeSession(activeStrokeSessionRef, endedAt);
+  isPointerDownRef.current = false;
+};
+
 export const clearStrokeSession = (
   activeStrokeSessionRef: React.MutableRefObject<BrushStrokeSession | null>
 ): void => {
   activeStrokeSessionRef.current = null;
 };
+
+export const clearStrokeSessionAndPointerDown = (
+  activeStrokeSessionRef: React.MutableRefObject<BrushStrokeSession | null>,
+  isPointerDownRef: React.MutableRefObject<boolean>
+): void => {
+  clearStrokeSession(activeStrokeSessionRef);
+  isPointerDownRef.current = false;
+};
+
+export const createStrokeSessionDispatchers = ({
+  activeStrokeSessionRef,
+  isPointerDownRef,
+}: {
+  activeStrokeSessionRef: React.MutableRefObject<BrushStrokeSession | null>;
+  isPointerDownRef: React.MutableRefObject<boolean>;
+}): StrokeSessionDispatchers => ({
+  beginStrokeSession: (options) => beginStrokeSession(options, activeStrokeSessionRef),
+  endStrokeSession: (endedAt) =>
+    endStrokeSessionAndClearPointerDown(activeStrokeSessionRef, isPointerDownRef, endedAt),
+  clearStrokeSession: () => clearStrokeSessionAndPointerDown(activeStrokeSessionRef, isPointerDownRef),
+});

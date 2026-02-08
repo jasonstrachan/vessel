@@ -28,6 +28,26 @@ export type CommitStrokeHistoryArgs = {
 
 export type CommitStrokeHistoryDeps = Parameters<typeof commitBrushHistory>[1];
 
+export const createCommitStrokeHistoryDeps = ({
+  scheduleDeferredColorCycleSave,
+  scheduleHistoryCommit,
+  captureColorCycleBrushState,
+  perfMark,
+  perfMeasure,
+  debugTime,
+  debugTimeEnd,
+  debugVerbose,
+}: CommitStrokeHistoryDeps): CommitStrokeHistoryDeps => ({
+  scheduleDeferredColorCycleSave,
+  scheduleHistoryCommit,
+  captureColorCycleBrushState,
+  perfMark,
+  perfMeasure,
+  debugTime,
+  debugTimeEnd,
+  debugVerbose,
+});
+
 export const commitStrokeHistoryIfNeeded = async (
   args: CommitStrokeHistoryArgs,
   deps: CommitStrokeHistoryDeps
@@ -62,3 +82,8 @@ export const commitStrokeHistoryIfNeeded = async (
 
   return true;
 };
+
+export const createCommitStrokeHistoryIfNeededDispatcher = (
+  deps: CommitStrokeHistoryDeps
+) => async (args: CommitStrokeHistoryArgs): Promise<boolean> =>
+  commitStrokeHistoryIfNeeded(args, deps);

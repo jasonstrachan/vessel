@@ -1,7 +1,10 @@
 import type React from 'react';
 import { BrushShape, type Layer } from '@/types';
 import type { AppState, CCReason } from '@/stores/useAppStore';
-import { selectColorCycleSuspendDepth } from '@/stores/useAppStore';
+import {
+  selectColorCycleSuspendDepth,
+  selectEffectiveColorCyclePlaying,
+} from '@/stores/useAppStore';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 
 type PauseAllDeps = {
@@ -44,6 +47,21 @@ type ResumeDeps = {
   ccGroup: (label: string, payload?: Record<string, unknown>) => void;
   ccGroupEnd: () => void;
   ccLog: (label: string, payload?: Record<string, unknown>) => void;
+};
+
+export type CreatePauseAllBrushCCAnimationsDispatcherArgs = {
+  pausedCCLayerIdsRef: React.MutableRefObject<string[]>;
+  recolorWasAnimatingRef: React.MutableRefObject<boolean>;
+  storeRef: React.MutableRefObject<AppState>;
+  getEffectiveColorCyclePlaying: () => boolean;
+  getColorCycleBrushManager: () => { getBrush: (layerId: string) => { pause?: () => void; stopAnimation?: () => void } | null | undefined };
+  continuousColorCycleAnimationRef: React.MutableRefObject<number | null>;
+  continuousColorCycleAnimationActiveRef: React.MutableRefObject<boolean>;
+  cancelAnimationFrame: (handle: number) => void;
+  ccGroup: (label: string, payload?: Record<string, unknown>) => void;
+  ccGroupEnd: () => void;
+  ccLog: (label: string, payload?: Record<string, unknown>) => void;
+  dumpLayerFlags: () => void;
 };
 
 export const pauseColorCycleForNonCCInteraction = ({
@@ -195,6 +213,28 @@ export const pauseAllBrushCCAnimationsNow = ({
   ccGroupEnd();
   return result;
 };
+
+export const createPauseAllBrushCCAnimationsDispatcher = (
+  args: CreatePauseAllBrushCCAnimationsDispatcherArgs
+): (() => boolean) => () =>
+  pauseAllBrushCCAnimationsNow({
+    pausedCCLayerIdsRef: args.pausedCCLayerIdsRef,
+    recolorWasAnimatingRef: args.recolorWasAnimatingRef,
+    storeRef: args.storeRef,
+    getEffectiveColorCyclePlaying: args.getEffectiveColorCyclePlaying,
+    getColorCycleBrushManager: args.getColorCycleBrushManager,
+    continuousColorCycleAnimationRef: args.continuousColorCycleAnimationRef,
+    continuousColorCycleAnimationActiveRef: args.continuousColorCycleAnimationActiveRef,
+    cancelAnimationFrame: args.cancelAnimationFrame,
+    ccGroup: args.ccGroup,
+    ccGroupEnd: args.ccGroupEnd,
+    ccLog: args.ccLog,
+    dumpLayerFlags: args.dumpLayerFlags,
+  });
+
+export const createEffectiveColorCyclePlayingGetter = (
+  storeRef: React.MutableRefObject<AppState>
+): (() => boolean) => () => selectEffectiveColorCyclePlaying(storeRef.current);
 
 // NOTE: Currently unused because global playback flow handles resume/restoration.
 export const resumePausedBrushCCAnimations = ({

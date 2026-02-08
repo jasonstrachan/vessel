@@ -28,6 +28,10 @@ export type FinalizeEraserStrokeDeps = {
   logError: (message: string) => void;
 };
 
+export const createFinalizeEraserStrokeDeps = (
+  deps: FinalizeEraserStrokeDeps
+): FinalizeEraserStrokeDeps => deps;
+
 type PendingEraserTool = {
   end: () => void;
   getROI: () => CaptureRegion | null;

@@ -82,3 +82,50 @@ export const capturePendingShapeSnapshot = ({
   }
   shapeBeforeSnapshotCapturedRef.current = true;
 };
+
+export type ShapeSnapshotRefs = {
+  shapeBeforeSnapshotCapturedRef: React.MutableRefObject<boolean>;
+  shapeBeforeImageRef: React.MutableRefObject<ShapeBeforeSnapshot | null>;
+  storeRef: React.MutableRefObject<AppState>;
+  shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
+  strokeCapturePaddingRef: React.MutableRefObject<number>;
+};
+
+export type ShapeSnapshotDeps = {
+  project: { width: number; height: number } | null;
+  roiPadding: number;
+  captureRegionFromPoints: (
+    points: Array<{ x: number; y: number }> | undefined,
+    padding: number,
+    project: { width: number; height: number } | null
+  ) => CaptureRegion | null | undefined;
+  captureLayerRegionImageData: (layer: Layer | null | undefined, roi: CaptureRegion) => ImageData | null;
+};
+
+export const createShapeSnapshotDispatchers = ({
+  refs,
+  deps,
+}: {
+  refs: ShapeSnapshotRefs;
+  deps: ShapeSnapshotDeps;
+}) => ({
+  clearShapeBeforeSnapshot: () => {
+    clearShapeBeforeSnapshot({
+      shapeBeforeImageRef: refs.shapeBeforeImageRef,
+      shapeBeforeSnapshotCapturedRef: refs.shapeBeforeSnapshotCapturedRef,
+    });
+  },
+  capturePendingShapeSnapshot: () => {
+    capturePendingShapeSnapshot({
+      shapeBeforeSnapshotCapturedRef: refs.shapeBeforeSnapshotCapturedRef,
+      shapeBeforeImageRef: refs.shapeBeforeImageRef,
+      storeRef: refs.storeRef,
+      project: deps.project,
+      shapePointsRef: refs.shapePointsRef,
+      strokeCapturePaddingRef: refs.strokeCapturePaddingRef,
+      roiPadding: deps.roiPadding,
+      captureRegionFromPoints: deps.captureRegionFromPoints,
+      captureLayerRegionImageData: deps.captureLayerRegionImageData,
+    });
+  },
+});

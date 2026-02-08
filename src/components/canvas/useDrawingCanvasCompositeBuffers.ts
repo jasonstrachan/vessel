@@ -1,0 +1,249 @@
+import type React from 'react';
+import { useCallback } from 'react';
+import { BrushShape, type Layer } from '@/types';
+
+interface UseDrawingCanvasCompositeBuffersOptions {
+  project: { width: number; height: number } | null;
+  layers: Layer[];
+  activeLayerId: string | null;
+  brushShape: BrushShape | undefined;
+  antialiasing: boolean;
+  displayMode: 'auto' | 'pixelated' | 'smooth';
+  layerTransferCacheRef: React.MutableRefObject<Map<string, HTMLCanvasElement | OffscreenCanvas>>;
+  underCompositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  overCompositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  underCompositeHasContentRef: React.MutableRefObject<boolean>;
+  overCompositeHasContentRef: React.MutableRefObject<boolean>;
+  compositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  renderStaticComposite: (canvas: HTMLCanvasElement) => boolean | Promise<boolean>;
+  setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
+}
+
+export const useDrawingCanvasCompositeBuffers = ({
+  project,
+  layers,
+  activeLayerId,
+  brushShape,
+  antialiasing,
+  displayMode,
+  layerTransferCacheRef,
+  underCompositeCanvasRef,
+  overCompositeCanvasRef,
+  underCompositeHasContentRef,
+  overCompositeHasContentRef,
+  compositeCanvasRef,
+  renderStaticComposite,
+  setCurrentOffscreenCanvas,
+}: UseDrawingCanvasCompositeBuffersOptions) => {
+  const renderSplitComposites = useCallback(() => {
+    if (!project || project.width <= 0 || project.height <= 0) {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    if (typeof document === 'undefined') {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    if (!underCompositeCanvasRef.current) {
+      underCompositeCanvasRef.current = document.createElement('canvas');
+    }
+    if (!overCompositeCanvasRef.current) {
+      overCompositeCanvasRef.current = document.createElement('canvas');
+    }
+
+    const underCanvas = underCompositeCanvasRef.current;
+    const overCanvas = overCompositeCanvasRef.current;
+
+    if (!underCanvas || !overCanvas) {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    if (underCanvas.width !== project.width || underCanvas.height !== project.height) {
+      underCanvas.width = project.width;
+      underCanvas.height = project.height;
+    }
+    if (overCanvas.width !== project.width || overCanvas.height !== project.height) {
+      overCanvas.width = project.width;
+      overCanvas.height = project.height;
+    }
+
+    const underCtx = underCanvas.getContext('2d', { willReadFrequently: true });
+    const overCtx = overCanvas.getContext('2d', { willReadFrequently: true });
+
+    if (!underCtx || !overCtx) {
+      underCompositeHasContentRef.current = false;
+      overCompositeHasContentRef.current = false;
+      return;
+    }
+
+    underCtx.clearRect(0, 0, project.width, project.height);
+    overCtx.clearRect(0, 0, project.width, project.height);
+
+    const isPixelBrush =
+      brushShape === BrushShape.PIXEL_ROUND ||
+      (brushShape === BrushShape.SQUARE && !antialiasing);
+    const isPixelatedDisplay = displayMode === 'pixelated';
+    const allowSmoothing = !isPixelatedDisplay && !isPixelBrush;
+    underCtx.imageSmoothingEnabled = allowSmoothing;
+    overCtx.imageSmoothingEnabled = allowSmoothing;
+
+    const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
+    const activeLayer = activeLayerId ? sortedLayers.find((layer) => layer.id === activeLayerId) ?? null : null;
+    const activeOrder = activeLayer ? activeLayer.order : Number.POSITIVE_INFINITY;
+
+    let drewUnder = false;
+    let drewOver = false;
+
+    for (const layer of sortedLayers) {
+      if (!layer.visible) {
+        continue;
+      }
+
+      const targetCtx: CanvasRenderingContext2D = layer.order > activeOrder ? overCtx : underCtx;
+
+      targetCtx.save();
+      targetCtx.globalCompositeOperation = layer.blendMode;
+      targetCtx.globalAlpha = layer.opacity;
+
+      let drewLayer = false;
+
+      if (
+        layer.layerType === 'color-cycle' &&
+        layer.colorCycleData?.canvas &&
+        layer.colorCycleData.mode !== 'recolor'
+      ) {
+        try {
+          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          drewLayer = true;
+        } catch {
+          // ignore draw errors for transient states
+        }
+      } else if (
+        layer.layerType === 'color-cycle' &&
+        layer.colorCycleData?.mode === 'recolor' &&
+        layer.colorCycleData.canvas
+      ) {
+        try {
+          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          drewLayer = true;
+        } catch {
+          // ignore draw errors for transient states
+        }
+      } else if (layer.framebuffer) {
+        try {
+          targetCtx.drawImage(layer.framebuffer as CanvasImageSource, 0, 0);
+          drewLayer = true;
+        } catch {
+          // ignore draw errors for transient states
+        }
+      } else if (layer.imageData) {
+        let transferCanvas = layerTransferCacheRef.current.get(layer.id);
+        if (!transferCanvas) {
+          const canvas = document.createElement('canvas');
+          canvas.width = layer.imageData.width;
+          canvas.height = layer.imageData.height;
+          transferCanvas = canvas;
+          layerTransferCacheRef.current.set(layer.id, transferCanvas);
+        }
+        if (
+          transferCanvas.width !== layer.imageData.width ||
+          transferCanvas.height !== layer.imageData.height
+        ) {
+          transferCanvas.width = layer.imageData.width;
+          transferCanvas.height = layer.imageData.height;
+        }
+
+        const transferCtx = transferCanvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        ) as CanvasRenderingContext2D | null;
+
+        if (transferCtx) {
+          transferCtx.clearRect(0, 0, transferCanvas.width, transferCanvas.height);
+          transferCtx.putImageData(layer.imageData, 0, 0);
+          try {
+            targetCtx.drawImage(transferCanvas, 0, 0);
+            drewLayer = true;
+          } catch {
+            // ignore draw errors for transient states
+          }
+        }
+      }
+
+      targetCtx.restore();
+
+      if (drewLayer) {
+        if (targetCtx === underCtx) {
+          drewUnder = true;
+        } else {
+          drewOver = true;
+        }
+      }
+    }
+
+    underCompositeHasContentRef.current = drewUnder;
+    overCompositeHasContentRef.current = drewOver;
+  }, [
+    activeLayerId,
+    antialiasing,
+    brushShape,
+    displayMode,
+    layerTransferCacheRef,
+    layers,
+    overCompositeCanvasRef,
+    overCompositeHasContentRef,
+    project,
+    underCompositeCanvasRef,
+    underCompositeHasContentRef,
+  ]);
+
+  const ensureStaticCompositeCanvas = useCallback(() => {
+    if (!project) {
+      return null;
+    }
+    if (!compositeCanvasRef.current && typeof document !== 'undefined') {
+      compositeCanvasRef.current = document.createElement('canvas');
+    }
+    if (compositeCanvasRef.current) {
+      if (
+        compositeCanvasRef.current.width !== project.width ||
+        compositeCanvasRef.current.height !== project.height
+      ) {
+        compositeCanvasRef.current.width = project.width;
+        compositeCanvasRef.current.height = project.height;
+      }
+    }
+    return compositeCanvasRef.current;
+  }, [compositeCanvasRef, project]);
+
+  const rebuildStaticComposite = useCallback((): boolean | Promise<boolean> => {
+    const canvas = ensureStaticCompositeCanvas();
+    if (!canvas) {
+      return false;
+    }
+    const rendered = renderStaticComposite(canvas);
+    if (typeof rendered === 'object' && rendered !== null && 'then' in rendered) {
+      return rendered.then((resolved) => {
+        if (resolved) {
+          setCurrentOffscreenCanvas(canvas);
+        }
+        return resolved;
+      });
+    }
+    if (rendered) {
+      setCurrentOffscreenCanvas(canvas);
+    }
+    return rendered;
+  }, [ensureStaticCompositeCanvas, renderStaticComposite, setCurrentOffscreenCanvas]);
+
+  return {
+    renderSplitComposites,
+    rebuildStaticComposite,
+  };
+};

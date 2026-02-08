@@ -1,3 +1,5 @@
+import type React from 'react';
+import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings, Layer } from '@/types';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { BoundingBox, CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
@@ -36,6 +38,58 @@ export type ColorCycleStrokeCommitResult = {
   brushForCleanup?: ManagedColorCycleBrush;
   deferredLayerCanvas?: HTMLCanvasElement | null;
   strokeCaptureRoi?: CaptureRegion;
+};
+
+export const createColorCycleStrokeCommitDeps = ({
+  storeRef,
+  getBrushForLayer,
+  bindBrushToCanvas,
+  perfMark,
+  perfMeasure,
+  startFinalizeVisibleTimer,
+  endFinalizeVisibleTimer,
+  dispatchColorCycleFrameUpdate,
+  ccLog,
+}: {
+  storeRef: React.MutableRefObject<AppState>;
+  getBrushForLayer: (layerId: string) => ManagedColorCycleBrush | undefined;
+  bindBrushToCanvas: (brush: ColorCycleBrushImplementation, canvas: HTMLCanvasElement) => void;
+  perfMark: (label: string) => void;
+  perfMeasure: (label: string, startLabel: string, endLabel: string) => void;
+  startFinalizeVisibleTimer: () => void;
+  endFinalizeVisibleTimer: () => void;
+  dispatchColorCycleFrameUpdate: () => void;
+  ccLog: (label: string, payload: Record<string, unknown>) => void;
+}): ColorCycleStrokeCommitDeps => ({
+  getBrushForLayer,
+  bindBrushToCanvas,
+  markLayerHasContent: (layerId) => markColorCycleLayerHasContent(storeRef, layerId),
+  perfMark,
+  perfMeasure,
+  startFinalizeVisibleTimer,
+  endFinalizeVisibleTimer,
+  dispatchFrameUpdate: (layerId) => {
+    dispatchColorCycleFrameUpdate();
+    ccLog('stroke: frameUpdate dispatched', { layerId: layerId.slice(-6) });
+  },
+});
+
+export const markColorCycleLayerHasContent = (
+  storeRef: React.MutableRefObject<AppState>,
+  layerId: string
+): void => {
+  try {
+    const st = storeRef.current;
+    const freshLayer = st.layers.find((l) => l.id === layerId);
+    if (freshLayer?.colorCycleData) {
+      st.updateLayer(layerId, {
+        colorCycleData: {
+          ...freshLayer.colorCycleData,
+          hasContent: true,
+        }
+      });
+    }
+  } catch {}
 };
 
 export const commitColorCycleStrokeIfNeeded = async (

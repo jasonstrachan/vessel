@@ -1,5 +1,22 @@
 import type React from 'react';
 
+export type FinalizeDrawingCleanupArgs = {
+  endMaskHealingStroke: () => void;
+  resetAutoSampleState: () => void;
+  clearStrokeSession: () => void;
+  strokeBeforeImageRef: React.MutableRefObject<ImageData | null>;
+  strokeBeforeColorStateRef: React.MutableRefObject<unknown>;
+  drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
+  drawingCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  drawingCanvasHasContent: React.MutableRefObject<boolean>;
+  resumeColorCycleAfterInteraction: () => Promise<void>;
+  endFinalizeVisibleTimer: () => void;
+  strokeBoundingBoxRef: React.MutableRefObject<unknown>;
+  strokeCapturePaddingRef: React.MutableRefObject<number>;
+  lastStrokePointRef: React.MutableRefObject<{ x: number; y: number } | null>;
+  isBusyRef?: React.MutableRefObject<boolean>;
+};
+
 export const finalizeDrawingCleanup = async ({
   endMaskHealingStroke,
   resetAutoSampleState,
@@ -15,22 +32,7 @@ export const finalizeDrawingCleanup = async ({
   strokeCapturePaddingRef,
   lastStrokePointRef,
   isBusyRef,
-}: {
-  endMaskHealingStroke: () => void;
-  resetAutoSampleState: () => void;
-  clearStrokeSession: () => void;
-  strokeBeforeImageRef: React.MutableRefObject<ImageData | null>;
-  strokeBeforeColorStateRef: React.MutableRefObject<unknown>;
-  drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
-  drawingCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
-  drawingCanvasHasContent: React.MutableRefObject<boolean>;
-  resumeColorCycleAfterInteraction: () => Promise<void>;
-  endFinalizeVisibleTimer: () => void;
-  strokeBoundingBoxRef: React.MutableRefObject<unknown>;
-  strokeCapturePaddingRef: React.MutableRefObject<number>;
-  lastStrokePointRef: React.MutableRefObject<{ x: number; y: number } | null>;
-  isBusyRef?: React.MutableRefObject<boolean>;
-}): Promise<void> => {
+}: FinalizeDrawingCleanupArgs): Promise<void> => {
   endMaskHealingStroke();
   resetAutoSampleState();
   clearStrokeSession();

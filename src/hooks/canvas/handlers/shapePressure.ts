@@ -31,6 +31,16 @@ export type ShapePressureDeps = {
   debugEnabled: () => boolean;
 };
 
+export type CreateUpdateShapePressureDispatcherArgs = {
+  refs: ShapePressureRefs;
+  constants: ShapePressureConstants;
+  deps: ShapePressureDeps;
+};
+
+export type CreateResetShapePressureStateDispatcherArgs = {
+  refs: ShapePressureRefs;
+};
+
 export const createShapePressureRefs = ({
   latestShapePressureRef,
   lastNonZeroShapePressureRef,
@@ -67,6 +77,13 @@ export const createShapePressureRefs = ({
   lastShapePressureTimeRef.current = 0;
   shapePressureGainRef.current = 1;
   shapePixelResStateRef.current = createPressureResolutionState(1);
+};
+
+export const shapePressureDebugEnabled = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return Boolean((window as { __shapePressureDebug?: unknown }).__shapePressureDebug);
 };
 
 export const computeShapePixelSize = ({
@@ -157,4 +174,26 @@ export const updateShapePressure = ({
       px: refs.latestShapePixelSizeRef.current,
     });
   }
+};
+
+export const createUpdateShapePressureDispatcher = ({
+  refs,
+  constants,
+  deps,
+}: CreateUpdateShapePressureDispatcherArgs): ((p?: number, timestamp?: number, raw?: number) => void) =>
+  (p?: number, timestamp?: number, raw?: number) => {
+    updateShapePressure({
+      refs,
+      constants,
+      deps,
+      pressure: p,
+      timestamp,
+      rawPressure: raw,
+    });
+  };
+
+export const createResetShapePressureStateDispatcher = ({
+  refs,
+}: CreateResetShapePressureStateDispatcherArgs): (() => void) => () => {
+  createShapePressureRefs(refs);
 };

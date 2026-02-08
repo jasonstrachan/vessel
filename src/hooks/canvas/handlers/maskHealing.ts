@@ -39,6 +39,14 @@ export type ExtendMaskHealingDeps = {
   isEnabled: boolean;
 };
 
+export type CreateMaskHealingDispatchersArgs = {
+  maskHealStateRef: React.MutableRefObject<MaskHealState | null>;
+  createBrushStampSource: () => BrushStampSource;
+  maskManager: MaskManager;
+  debugWarn: (message: string, error?: unknown) => void;
+  isEnabled: boolean;
+};
+
 export const endMaskHealingStroke = (
   maskHealStateRef: React.MutableRefObject<MaskHealState | null>,
   deps: EndMaskHealingDeps
@@ -113,3 +121,35 @@ export const extendMaskHealingStroke = (
     deps.debugWarn('[mask-heal] Failed to extend mask heal stroke', error);
   }
 };
+
+export const createMaskHealingDispatchers = (
+  args: CreateMaskHealingDispatchersArgs
+): {
+  beginMaskHealingStroke: (layerId: string, startPoint: { x: number; y: number }, pressure: number) => void;
+  extendMaskHealingStroke: (from: { x: number; y: number }, to: { x: number; y: number }, pressure: number) => void;
+  endMaskHealingStroke: () => void;
+} => ({
+  beginMaskHealingStroke: (layerId, startPoint, pressure) => {
+    beginMaskHealingStroke(
+      { layerId, startPoint, pressure, maskHealStateRef: args.maskHealStateRef },
+      {
+        createBrushStampSource: args.createBrushStampSource,
+        maskManager: args.maskManager,
+        debugWarn: args.debugWarn,
+        isEnabled: args.isEnabled,
+      }
+    );
+  },
+  extendMaskHealingStroke: (from, to, pressure) => {
+    extendMaskHealingStroke(
+      { from, to, pressure, maskHealStateRef: args.maskHealStateRef },
+      { debugWarn: args.debugWarn, isEnabled: args.isEnabled }
+    );
+  },
+  endMaskHealingStroke: () => {
+    endMaskHealingStroke(args.maskHealStateRef, {
+      maskManager: args.maskManager,
+      isEnabled: args.isEnabled,
+    });
+  },
+});

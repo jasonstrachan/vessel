@@ -28,3 +28,15 @@ export const getColorCycleStampTargetCtx = ({
 
   return drawingCtxRef.current;
 };
+
+export const createColorCycleStampTargetCtxGetter = ({
+  storeRef,
+  drawingCtxRef,
+}: {
+  storeRef: React.MutableRefObject<AppState>;
+  drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
+}): (() => CanvasRenderingContext2D | null) => () =>
+  getColorCycleStampTargetCtx({
+    storeRef,
+    drawingCtxRef,
+  });

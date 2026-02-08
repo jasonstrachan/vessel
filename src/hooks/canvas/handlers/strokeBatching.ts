@@ -448,3 +448,12 @@ export const processBatchedStrokes = (
   args.strokeBatchRef.current = [];
   args.strokeBatchTimerRef.current = null;
 };
+
+export type ProcessBatchedStrokesDispatcher = () => void;
+
+export const createProcessBatchedStrokesDispatcher = (
+  args: ProcessBatchedStrokesArgs,
+  deps: ProcessBatchedStrokesDeps
+): ProcessBatchedStrokesDispatcher => () => {
+  processBatchedStrokes(args, deps);
+};

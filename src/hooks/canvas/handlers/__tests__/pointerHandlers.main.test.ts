@@ -118,6 +118,8 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
     activeLayerId: dynamic.activeLayerId,
     selectionStart: dynamic.selectionStart,
     selectionEnd: dynamic.selectionEnd,
+    selectionMask: dynamic.selectionMask,
+    selectionMaskBounds: dynamic.selectionMaskBounds,
     floatingPaste: dynamic.floatingPaste,
     isDraggingFloatingPaste: dynamic.isDraggingFloatingPaste,
     palette: dynamic.palette,

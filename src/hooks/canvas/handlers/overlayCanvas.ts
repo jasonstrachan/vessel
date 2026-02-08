@@ -11,6 +11,8 @@ export type OverlayCanvasDeps = {
   activeLayerHeight: number | null;
 };
 
+export type CreateOverlayCanvasDispatchersArgs = OverlayCanvasDeps;
+
 export const initDrawingCanvas = ({
   project,
   storeRef,
@@ -137,3 +139,29 @@ export const ensureOverlaySize = ({
     drawingCanvasHasContent.current = false;
   }
 };
+
+export const createOverlayCanvasDispatchers = (
+  args: CreateOverlayCanvasDispatchersArgs
+): {
+  initDrawingCanvas: () => void;
+  ensureOverlayInitialized: () => boolean;
+} => ({
+  initDrawingCanvas: () => {
+    initDrawingCanvas({
+      project: args.project,
+      storeRef: args.storeRef,
+      drawingCanvasRef: args.drawingCanvasRef,
+      drawingCtxRef: args.drawingCtxRef,
+    });
+  },
+  ensureOverlayInitialized: () =>
+    ensureOverlayInitialized({
+      project: args.project,
+      storeRef: args.storeRef,
+      drawingCanvasRef: args.drawingCanvasRef,
+      drawingCtxRef: args.drawingCtxRef,
+      drawingCanvasHasContent: args.drawingCanvasHasContent,
+      activeLayerWidth: args.activeLayerWidth,
+      activeLayerHeight: args.activeLayerHeight,
+    }),
+});

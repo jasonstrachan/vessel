@@ -9,9 +9,9 @@ This directory contains a modular, maintainable architecture for canvas event ha
 canvas/
 ├── handlers/              # Event handler implementations
 │   ├── pointerHandlers.ts # Mouse/touch/stylus events
-│   ├── keyboardHandlers.ts # Keyboard events (TODO)
-│   ├── wheelHandlers.ts   # Scroll/zoom events (TODO)
-│   └── clipboardHandlers.ts # Copy/paste events (TODO)
+│   ├── keyboardHandlers.ts # Keyboard events
+│   ├── wheelHandlers.ts   # Scroll/zoom events
+│   └── clipboardHandlers.ts # Copy/paste events
 ├── utils/                 
 │   └── types.ts           # Shared TypeScript types
 └── useCanvasEventHandlers.ts # Main orchestrator hook
@@ -52,16 +52,15 @@ const eventHandlers = useCanvasEventHandlers({
 ## Migration Status
 
 - ✅ Pointer handlers (handlePointerDown, handlePointerMove, handlePointerUp)
+- ✅ Keyboard handlers
+- ✅ Wheel handlers
+- ✅ Clipboard handlers
 - ✅ Type definitions and dependencies
 - ✅ Main orchestrator hook
-- ⏳ Keyboard handlers (TODO)
-- ⏳ Wheel handlers (TODO)
-- ⏳ Clipboard handlers (TODO)
-- ⏳ Full DrawingCanvas integration (TODO)
+- ✅ DrawingCanvas integration for pointer/keyboard/wheel/paste/blur handlers
 
 ## Next Steps
 
-1. Extract remaining event handlers (keyboard, wheel, clipboard)
-2. Add comprehensive tests for each handler module
-3. Complete integration with DrawingCanvas.tsx
-4. Add performance optimizations if needed
+1. Add comprehensive unit tests for keyboard/wheel/clipboard modules
+2. Continue shrinking `DrawingCanvas.tsx` by extracting remaining effect-heavy sections
+3. Add performance optimizations if needed

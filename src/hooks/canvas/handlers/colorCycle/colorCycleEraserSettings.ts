@@ -47,3 +47,15 @@ export const getColorCycleBrushEraserSettings = ({
 
   return baseSettings;
 };
+
+export const createColorCycleBrushEraserSettingsGetter = ({
+  getState,
+  getResamplerBrushData,
+}: {
+  getState: () => AppState;
+  getResamplerBrushData: () => CustomBrushStrokeData | undefined;
+}): (() => ColorCycleEraserSettings) => () =>
+  getColorCycleBrushEraserSettings({
+    state: getState(),
+    resamplerBrushData: getResamplerBrushData(),
+  });
