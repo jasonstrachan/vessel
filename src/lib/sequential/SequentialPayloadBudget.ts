@@ -29,6 +29,24 @@ export const estimateSequentialStrokeEventPayloadBytes = (
     estimateStringBytes(brush.blendMode) +
     estimateStringBytes(brush.color) +
     estimateStringBytes(brush.customStampId) +
+    estimateStringBytes(brush.customStampHash) +
+    estimateStringBytes(brush.ditherAlgorithm) +
+    estimateStringBytes(brush.ditherStrokeTipShape) +
+    (Number.isFinite(brush.mosaicTilePx) ? 4 : 0) +
+    (Number.isFinite(brush.mosaicSegmentPx) ? 4 : 0) +
+    (Number.isFinite(brush.mosaicBlocksCount) ? 4 : 0) +
+    (Number.isFinite(brush.mosaicPaletteCount) ? 4 : 0) +
+    (Number.isFinite(brush.mosaicSegmentJitter) ? 4 : 0) +
+    (Number.isFinite(brush.mosaicSeed) ? 4 : 0) +
+    (Array.isArray(brush.colorCycleGradient)
+      ? brush.colorCycleGradient.reduce(
+          (sum, stop) => sum + 8 + (stop.color?.length ?? 0),
+          0
+        )
+      : 0) +
+    (brush.customStamp
+      ? estimateStringBytes(brush.customStamp.rgbaBase64) + 16
+      : 0) +
     event.stamps.length * SEQUENTIAL_STAMP_BYTES
   );
 };

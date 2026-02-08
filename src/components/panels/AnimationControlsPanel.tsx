@@ -27,8 +27,10 @@ const AnimationControlsPanel: React.FC = () => {
     Boolean(state.layers.find((layer) => layer.id === activeLayerId && layer.layerType === 'sequential'))
   );
 
+  const isPlaybackRunning = effectivePlaying || sequentialPlaybackActive;
+
   const handleTogglePlayback = React.useCallback(() => {
-    if (effectivePlaying) {
+    if (isPlaybackRunning) {
       pauseColorCycle('toolbar');
       return;
     }
@@ -36,7 +38,7 @@ const AnimationControlsPanel: React.FC = () => {
     if (suspendDepth > 0) {
       forceResumeColorCycle('toolbar');
     }
-  }, [effectivePlaying, pauseColorCycle, playColorCycle, forceResumeColorCycle, suspendDepth]);
+  }, [isPlaybackRunning, pauseColorCycle, playColorCycle, forceResumeColorCycle, suspendDepth]);
 
   const handleFpsChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,8 +84,8 @@ const AnimationControlsPanel: React.FC = () => {
           onClick={handleTogglePlayback}
           className="w-full h-11 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
         >
-          <span className="text-[10px]" aria-hidden="true">{effectivePlaying ? '⏸' : '▶'}</span>
-          <span className="ml-1 text-[10px]">{effectivePlaying ? 'Pause' : 'Play'}</span>
+          <span className="text-[10px]" aria-hidden="true">{isPlaybackRunning ? '⏸' : '▶'}</span>
+          <span className="ml-1 text-[10px]">{isPlaybackRunning ? 'Pause' : 'Play'}</span>
           {sequentialCaptureActive && (
             <span className="ml-2 rounded bg-[#B91C1C] px-1.5 py-0.5 text-[9px] font-semibold tracking-[0.08em] text-white">
               REC

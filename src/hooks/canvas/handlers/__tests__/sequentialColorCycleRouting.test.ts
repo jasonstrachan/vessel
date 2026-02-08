@@ -1,6 +1,9 @@
 import { setFeatureFlag } from '@/config/featureFlags';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
-import { __TESTING__ as sequentialCaptureTesting } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import {
+  __TESTING__ as sequentialCaptureTesting,
+  flushBufferedSequentialEvents,
+} from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import { startBrushToolStroke } from '@/hooks/canvas/handlers/startBrushToolStroke';
 import { processBatchedStrokes, type ProcessBatchedStrokesArgs, type ProcessBatchedStrokesDeps } from '@/hooks/canvas/handlers/strokeBatching';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
@@ -148,11 +151,65 @@ describe('sequential color-cycle routing', () => {
 
     expect(drawColorCycle).toHaveBeenCalledTimes(1);
     expect(colorCycleLastPosRef.current).toEqual({ x: 4, y: 5 });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     const events = layer?.sequentialData?.events ?? [];
     expect(events).toHaveLength(1);
     expect(events[0].brush.brushShape).toBe(BrushShape.COLOR_CYCLE);
     expect(events[0].stamps).toHaveLength(1);
+  });
+
+  it('captures sequential stamp from latest store state even when start snapshot is stale', () => {
+    const currentState = createSequentialState();
+    const staleState = {
+      ...currentState,
+      sequentialRecord: {
+        ...currentState.sequentialRecord,
+        isPointerDown: false,
+        isCaptureActive: false,
+      },
+    };
+    const drawCtx = document.createElement('canvas').getContext('2d');
+    if (!drawCtx) {
+      throw new Error('2d context unavailable');
+    }
+
+    startBrushToolStroke({
+      currentState: staleState,
+      currentBrushId: 'user-brush',
+      worldPos: { x: 6, y: 7 },
+      pressure: 0.7,
+      drawCtx,
+      userBrushEngine: {
+        isUserBrush: () => true,
+        setActiveBrush: jest.fn(),
+        startStroke: jest.fn(),
+      },
+      brushEngine: {
+        drawColorCycle: jest.fn(),
+        drawBrush: jest.fn(),
+      },
+      resolveCustomBrushData: () => undefined,
+      captureResamplerSingleSample: jest.fn(),
+      resamplerBrushDataRef: { current: undefined },
+      colorCyclePixelQueue: { current: null },
+      createPixelQueue,
+      scheduleRecompose: jest.fn(),
+      colorCycleLastPosRef: { current: null },
+      colorCycleDistanceRef: { current: 0 },
+      colorCycleLastRotationRef: { current: undefined },
+      getCCStampTargetCtx: () => null,
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      debugLog: jest.fn(),
+      isEraserV2: false,
+      beginMaskHealingStroke: jest.fn(),
+    });
+
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+    const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
+    expect(layer?.sequentialData?.events ?? []).toHaveLength(1);
   });
 
   it('continues color-cycle stroke batches on sequential layer and appends sequential events', () => {
@@ -226,6 +283,7 @@ describe('sequential color-cycle routing', () => {
     processBatchedStrokes(args, deps);
 
     expect(drawColorCycle).toHaveBeenCalled();
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     const events = layer?.sequentialData?.events ?? [];
     expect(events.length).toBeGreaterThan(0);

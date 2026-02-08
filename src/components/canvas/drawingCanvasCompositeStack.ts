@@ -3,7 +3,6 @@ import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { useAppStore } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
-  getSequentialLayerRendererStats,
 } from '@/lib/sequential/SequentialLayerRenderer';
 
 interface VisibleRect {
@@ -45,11 +44,6 @@ export const drawVisibleCompositeStack = ({
   const storeState = useAppStore.getState() as {
     project?: { width: number; height: number } | null;
     sequentialRecord?: { currentFrame?: number };
-    setSequentialFrameCacheStats?: (stats: {
-      frameCacheEntries: number;
-      frameCacheHits?: number;
-      frameCacheMisses?: number;
-    }) => void;
   };
 
   let invalidCompositeBitmap = false;
@@ -135,12 +129,6 @@ export const drawVisibleCompositeStack = ({
       ctx.restore();
     });
 
-    const stats = getSequentialLayerRendererStats();
-    if (typeof storeState.setSequentialFrameCacheStats === 'function') {
-      storeState.setSequentialFrameCacheStats({
-        frameCacheEntries: stats.entries,
-      });
-    }
   }
 
   if (!compositeDrawn && compositeBitmap) {

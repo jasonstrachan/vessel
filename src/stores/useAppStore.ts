@@ -548,6 +548,11 @@ export interface AppState {
     event: SequentialStrokeEvent,
     metadata: { frameCount: number; fps: number; durationMs: number }
   ) => void;
+  appendSequentialLayerEvents: (
+    layerId: string,
+    events: SequentialStrokeEvent[],
+    metadata: { frameCount: number; fps: number; durationMs: number }
+  ) => void;
   mergeLayers: (layerIds: string[]) => string | null;
   setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
   setLayers: (layers: Layer[]) => void;

@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppState } from '@/stores/useAppStore';
+import { useAppStore, type AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import { getColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFlags';
 import { startUserBrushStroke } from '@/hooks/canvas/handlers/startUserBrushStroke';
@@ -105,6 +105,7 @@ export const startBrushToolStroke = ({
   drawCtx.globalCompositeOperation = 'source-over';
 
   if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+    const customBrushData = resolveCustomBrushData(currentState);
     startUserBrushStroke({
       currentBrushId,
       userBrushEngine,
@@ -112,9 +113,11 @@ export const startBrushToolStroke = ({
       worldPos,
       pressure,
     });
+    const captureState = useAppStore.getState();
     captureSequentialStampsForActiveLayer({
-      state: currentState,
-      stamps: [createFallbackSequentialStamp(worldPos, pressure, currentState.tools.brushSettings)],
+      state: captureState,
+      stamps: [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
+      customBrushData,
     });
     return;
   }
@@ -144,9 +147,10 @@ export const startBrushToolStroke = ({
       colorCycleLastPosRef.current = worldPos;
       colorCycleDistanceRef.current = 0;
       colorCycleLastRotationRef.current = 0;
+      const captureState = useAppStore.getState();
       captureSequentialStampsForActiveLayer({
-        state: currentState,
-        stamps: [createFallbackSequentialStamp(worldPos, pressure, currentState.tools.brushSettings)],
+        state: captureState,
+        stamps: [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
         customBrushData: stampData,
       });
       return;

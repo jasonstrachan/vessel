@@ -172,4 +172,34 @@ describe('sequentialRecordSlice', () => {
     expect(selectSequentialCaptureActive(state)).toBe(true);
     expect(selectGlobalAnimationActive(state)).toBe(true);
   });
+
+  it('only enables sequential playback selector when active layer is sequential', () => {
+    useAppStore.setState({
+      layers: [
+        createLayer('layer-normal', 'normal'),
+        createLayer('layer-seq', 'sequential'),
+      ],
+      activeLayerId: 'layer-normal',
+      colorCyclePlayback: {
+        ...useAppStore.getState().colorCyclePlayback,
+        desiredPlaying: true,
+        suspendDepth: 2,
+      },
+      sequentialRecord: {
+        ...useAppStore.getState().sequentialRecord,
+        isPointerDown: true,
+      },
+    });
+
+    let state = useAppStore.getState();
+    expect(selectSequentialPlaybackActive(state)).toBe(false);
+    expect(selectSequentialCaptureActive(state)).toBe(false);
+    expect(selectGlobalAnimationActive(state)).toBe(false);
+
+    useAppStore.setState({ activeLayerId: 'layer-seq' });
+    state = useAppStore.getState();
+    expect(selectSequentialPlaybackActive(state)).toBe(true);
+    expect(selectSequentialCaptureActive(state)).toBe(true);
+    expect(selectGlobalAnimationActive(state)).toBe(true);
+  });
 });

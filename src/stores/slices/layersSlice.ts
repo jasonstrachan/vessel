@@ -1008,6 +1008,11 @@ export interface LayersSlice {
     event: SequentialStrokeEvent,
     metadata: { frameCount: number; fps: number; durationMs: number }
   ) => void;
+  appendSequentialLayerEvents: (
+    layerId: string,
+    events: SequentialStrokeEvent[],
+    metadata: { frameCount: number; fps: number; durationMs: number }
+  ) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   mergeLayers: (layerIds: string[]) => string | null;
   setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
@@ -2064,6 +2069,12 @@ export const createLayersSlice = (
     get().markCompositeSegmentsDirtyByLayerIds([id]);
   },
   appendSequentialLayerEvent: (layerId, event, metadata) => {
+    get().appendSequentialLayerEvents(layerId, [event], metadata);
+  },
+  appendSequentialLayerEvents: (layerId, events, metadata) => {
+    if (events.length === 0) {
+      return;
+    }
     set((state) => {
       let changed = false;
       const nextLayers = state.layers.map((layer) => {
@@ -2073,7 +2084,7 @@ export const createLayersSlice = (
 
         changed = true;
         const previousSequentialData = layer.sequentialData;
-        const nextEvents = [...(previousSequentialData?.events ?? []), event];
+        const nextEvents = [...(previousSequentialData?.events ?? []), ...events];
         return {
           ...layer,
           sequentialData: {
@@ -2091,7 +2102,7 @@ export const createLayersSlice = (
 
       return {
         layers: nextLayers,
-        layersNeedRecomposition: true,
+        layersNeedRecomposition: state.layersNeedRecomposition,
       };
     });
     get().markCompositeSegmentsDirtyByLayerIds([layerId]);

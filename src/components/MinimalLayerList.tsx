@@ -3,7 +3,7 @@
 import React, { useState, useCallback, memo, useEffect, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
 import { Eye, EyeOff, X } from 'lucide-react';
-import { useAppStore } from '../stores/useAppStore';
+import { useAppStore, selectSequentialPlaybackActive } from '@/stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
@@ -294,7 +294,9 @@ const MinimalLayerList = () => {
   const playColorCycle = useAppStore((state) => state.playColorCycle);
   const pauseColorCycle = useAppStore((state) => state.pauseColorCycle);
   const forceResumeColorCycle = useAppStore((state) => state.forceResumeColorCycle);
+  const sequentialPlaybackActive = useAppStore(selectSequentialPlaybackActive);
   const effectivePlaying = desiredPlaying && suspendDepth === 0;
+  const isPlaybackRunning = effectivePlaying || sequentialPlaybackActive;
   const isSuspended = desiredPlaying && suspendDepth > 0;
   
   // Store subscriptions
@@ -742,7 +744,7 @@ const MinimalLayerList = () => {
         <div className="border-t border-[#424242] p-2">
           <button
             onClick={() => {
-              if (effectivePlaying) {
+              if (isPlaybackRunning) {
                 pauseColorCycle('toolbar');
                 return;
               }
@@ -753,8 +755,8 @@ const MinimalLayerList = () => {
             }}
             className="w-full h-10 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
           >
-            <span className="text-[10px] mr-1">{effectivePlaying ? '⏸' : '▶'}</span>
-            <span className="text-[10px]">{effectivePlaying ? 'Pause' : 'Play'}</span>
+            <span className="text-[10px] mr-1">{isPlaybackRunning ? '⏸' : '▶'}</span>
+            <span className="text-[10px]">{isPlaybackRunning ? 'Pause' : 'Play'}</span>
           </button>
           {isSuspended && (
             <p className="text-center text-[#C4C4C4] text-xs mt-1">

@@ -134,6 +134,34 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     unmount();
   });
 
+  it('does not let time-smear change playback frame stepping speed', () => {
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        timeSmear: 4,
+        currentFrame: 0,
+      },
+    }));
+
+    const storeRef = { current: useAppStore.getState() as AppState };
+    const { unmount } = renderHook(() => {
+      storeRef.current = useAppStore.getState() as AppState;
+      useSequentialAnimationRuntimeEffect({ storeRef });
+    });
+
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1250);
+    });
+
+    const nextState = useAppStore.getState();
+    expect(nextState.sequentialRecord.currentFrame).toBe(2);
+
+    unmount();
+  });
+
   it('exposes a dev sequential perf probe with snapshot and reset actions', () => {
     const storeRef = { current: useAppStore.getState() as AppState };
 

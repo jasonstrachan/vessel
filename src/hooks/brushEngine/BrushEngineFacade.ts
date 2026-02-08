@@ -649,6 +649,17 @@ export class BrushEngineFacade {
     }
     ctx.drawImage(state.stampCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
+
+    if (this.stampTrackingActive) {
+      this.recentStamps.push({
+        x: centerX,
+        y: centerY,
+        pressure: this.trackedStampPressure,
+        rotation: Number.isFinite(rotation) ? rotation : 0,
+        size: Math.max(drawW, drawH),
+        alpha: this.trackedStampAlpha,
+      });
+    }
   }
 
 

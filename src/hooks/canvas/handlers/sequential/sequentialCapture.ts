@@ -40,6 +40,19 @@ export interface SequentialPayloadNotificationRuntime {
   hardCapBlockedAtBytes: number | null;
 }
 
+interface BufferedSequentialLayerEvents {
+  events: SequentialStrokeEvent[];
+  frameCount: number;
+  fps: number;
+  durationMs: number;
+}
+
+export interface SequentialEventBufferRuntime {
+  sessionKey: string | null;
+  pendingPayloadBytes: number;
+  layers: Map<string, BufferedSequentialLayerEvents>;
+}
+
 const defaultStampCapRuntime: SequentialStampCapRuntime = {
   sessionKey: null,
   tokens: STAMP_BURST_CAPACITY,
@@ -54,6 +67,11 @@ const defaultPayloadBudgetRuntime = createSequentialPayloadBudgetRuntime();
 const defaultPayloadNotificationRuntime: SequentialPayloadNotificationRuntime = {
   softWarningShown: false,
   hardCapBlockedAtBytes: null,
+};
+const defaultEventBufferRuntime: SequentialEventBufferRuntime = {
+  sessionKey: null,
+  pendingPayloadBytes: 0,
+  layers: new Map<string, BufferedSequentialLayerEvents>(),
 };
 
 export const createSequentialStampCapRuntime = (): SequentialStampCapRuntime => ({
@@ -70,6 +88,72 @@ export const createSequentialPayloadNotificationRuntime = (): SequentialPayloadN
   softWarningShown: false,
   hardCapBlockedAtBytes: null,
 });
+
+export const createSequentialEventBufferRuntime = (): SequentialEventBufferRuntime => ({
+  sessionKey: null,
+  pendingPayloadBytes: 0,
+  layers: new Map<string, BufferedSequentialLayerEvents>(),
+});
+
+export const flushBufferedSequentialEvents = ({
+  state,
+  runtime,
+}: {
+  state: AppState;
+  runtime?: SequentialEventBufferRuntime;
+}): number => {
+  const targetRuntime = runtime ?? defaultEventBufferRuntime;
+  if (targetRuntime.layers.size === 0) {
+    return 0;
+  }
+
+  let flushedEventCount = 0;
+  targetRuntime.layers.forEach((entry, layerId) => {
+    if (entry.events.length === 0) {
+      return;
+    }
+    state.appendSequentialLayerEvents(layerId, entry.events, {
+      frameCount: entry.frameCount,
+      fps: entry.fps,
+      durationMs: entry.durationMs,
+    });
+    flushedEventCount += entry.events.length;
+  });
+
+  targetRuntime.layers.clear();
+  targetRuntime.pendingPayloadBytes = 0;
+  return flushedEventCount;
+};
+
+const enqueueBufferedSequentialEvent = ({
+  layerId,
+  event,
+  metadata,
+  payloadBytes,
+  runtime,
+}: {
+  layerId: string;
+  event: SequentialStrokeEvent;
+  metadata: { frameCount: number; fps: number; durationMs: number };
+  payloadBytes: number;
+  runtime: SequentialEventBufferRuntime;
+}): void => {
+  const existing = runtime.layers.get(layerId);
+  if (existing) {
+    existing.events.push(event);
+    existing.frameCount = metadata.frameCount;
+    existing.fps = metadata.fps;
+    existing.durationMs = metadata.durationMs;
+  } else {
+    runtime.layers.set(layerId, {
+      events: [event],
+      frameCount: metadata.frameCount,
+      fps: metadata.fps,
+      durationMs: metadata.durationMs,
+    });
+  }
+  runtime.pendingPayloadBytes += payloadBytes;
+};
 
 export const noteSequentialCaptureActivity = ({
   isActive,
@@ -97,6 +181,7 @@ const buildBrushSnapshot = (
   customBrushData?: CustomBrushStrokeData
 ): SequentialBrushSnapshot => {
   const settings = state.tools.brushSettings;
+  const customStamp = buildSequentialCustomStampSnapshot(customBrushData);
   return {
     tool: state.tools.currentTool,
     brushShape: settings.brushShape ?? BrushShape.ROUND,
@@ -107,6 +192,31 @@ const buildBrushSnapshot = (
     spacing: Math.max(0.25, Number.isFinite(settings.spacing) ? settings.spacing : 1),
     color: settings.color || '#000000',
     customStampId: customBrushData?.cacheKey ?? null,
+    customStampHash: customStamp?.hash ?? null,
+    customStamp: customStamp
+      ? {
+          width: customStamp.width,
+          height: customStamp.height,
+          rgbaBase64: customStamp.rgbaBase64,
+          isColorizable: customStamp.isColorizable,
+        }
+      : null,
+    ditherEnabled: Boolean(settings.ditherEnabled || settings.colorCycleStampDitherEnabled),
+    ditherAlgorithm: settings.ditherAlgorithm,
+    ditherStrokeTipShape:
+      settings.ditherStrokeTipShape ??
+      settings.colorCycleStampShape,
+    mosaicTilePx: settings.mosaicTilePx,
+    mosaicSegmentPx: settings.mosaicSegmentPx,
+    mosaicBlocksCount: settings.mosaicBlocksCount,
+    mosaicPaletteCount: settings.mosaicPaletteCount,
+    mosaicDitherEnabled: settings.mosaicDitherEnabled,
+    mosaicSegmentJitter: settings.mosaicSegmentJitter,
+    mosaicSeed: settings.mosaicSeed,
+    colorCycleGradient: settings.colorCycleGradient?.map((stop) => ({
+      position: stop.position,
+      color: stop.color,
+    })),
   };
 };
 
@@ -121,7 +231,88 @@ const buildBrushSnapshotKey = (snapshot: SequentialBrushSnapshot): string =>
     snapshot.spacing,
     snapshot.color,
     snapshot.customStampId ?? '',
+    snapshot.customStampHash ?? '',
+    snapshot.ditherEnabled ? '1' : '0',
+    snapshot.ditherAlgorithm ?? '',
+    snapshot.ditherStrokeTipShape ?? '',
+    snapshot.mosaicTilePx ?? '',
+    snapshot.mosaicSegmentPx ?? '',
+    snapshot.mosaicBlocksCount ?? '',
+    snapshot.mosaicPaletteCount ?? '',
+    snapshot.mosaicDitherEnabled ? '1' : '0',
+    snapshot.mosaicSegmentJitter ?? '',
+    snapshot.mosaicSeed ?? '',
+    snapshot.colorCycleGradient
+      ? snapshot.colorCycleGradient
+          .map((stop) => `${stop.position}:${stop.color}`)
+          .join(',')
+      : '',
   ].join('|');
+
+const bytesToBase64 = (bytes: ArrayLike<number>): string => {
+  const byteLength = bytes.length;
+  if (byteLength === 0) {
+    return '';
+  }
+  const asUint8 = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(asUint8).toString('base64');
+  }
+  if (typeof btoa === 'function') {
+    let binary = '';
+    for (let i = 0; i < asUint8.length; i += 1) {
+      binary += String.fromCharCode(asUint8[i]);
+    }
+    return btoa(binary);
+  }
+  return '';
+};
+
+const fnv1aHashHex = (bytes: ArrayLike<number>): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i += 1) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+};
+
+const customStampSnapshotCache = new WeakMap<
+  ImageData,
+  { hash: string; width: number; height: number; rgbaBase64: string; isColorizable: boolean }
+>();
+
+const buildSequentialCustomStampSnapshot = (
+  customBrushData?: CustomBrushStrokeData
+):
+  | { hash: string; width: number; height: number; rgbaBase64: string; isColorizable: boolean }
+  | null => {
+  if (!customBrushData?.imageData) {
+    return null;
+  }
+
+  const imageData = customBrushData.imageData;
+  const cached = customStampSnapshotCache.get(imageData);
+  if (cached) {
+    return {
+      ...cached,
+      isColorizable: Boolean(customBrushData.isColorizable),
+    };
+  }
+
+  const bytes = imageData.data;
+  const hash = fnv1aHashHex(bytes);
+  const rgbaBase64 = bytesToBase64(bytes);
+  const snapshot = {
+    hash,
+    width: imageData.width,
+    height: imageData.height,
+    rgbaBase64,
+    isColorizable: Boolean(customBrushData.isColorizable),
+  };
+  customStampSnapshotCache.set(imageData, snapshot);
+  return snapshot;
+};
 
 const coerceStamp = (stamp: SequentialStampPoint): SequentialStampPoint | null => {
   if (!Number.isFinite(stamp.x) || !Number.isFinite(stamp.y)) {
@@ -135,6 +326,49 @@ const coerceStamp = (stamp: SequentialStampPoint): SequentialStampPoint | null =
     size: Number.isFinite(stamp.size) ? Math.max(0, stamp.size) : 0,
     alpha: Number.isFinite(stamp.alpha) ? Math.max(0, Math.min(1, stamp.alpha)) : 1,
   };
+};
+
+const densifySequentialStampsForSmear = ({
+  stamps,
+  timeSmear,
+}: {
+  stamps: SequentialStampPoint[];
+  timeSmear: number;
+}): SequentialStampPoint[] => {
+  const smearFactor = Number.isFinite(timeSmear) ? Math.max(0.1, timeSmear) : 1;
+  if (smearFactor <= 1.01 || stamps.length < 2) {
+    return stamps;
+  }
+
+  const densified: SequentialStampPoint[] = [stamps[0]];
+  for (let i = 1; i < stamps.length; i += 1) {
+    const from = stamps[i - 1];
+    const to = stamps[i];
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const extraPoints = Math.min(
+      4,
+      Math.max(0, Math.floor((distance / 8) * (smearFactor - 1)))
+    );
+
+    for (let j = 1; j <= extraPoints; j += 1) {
+      const t = j / (extraPoints + 1);
+      const alphaFalloff = 1 - t * 0.2;
+      densified.push({
+        x: from.x + dx * t,
+        y: from.y + dy * t,
+        pressure: from.pressure + (to.pressure - from.pressure) * t,
+        rotation: from.rotation + (to.rotation - from.rotation) * t,
+        size: from.size + (to.size - from.size) * t,
+        alpha: Math.max(0, Math.min(1, (from.alpha + (to.alpha - from.alpha) * t) * alphaFalloff)),
+      });
+    }
+
+    densified.push(to);
+  }
+
+  return densified;
 };
 
 const resolveCaptureLayer = (state: AppState) => {
@@ -210,6 +444,7 @@ export const captureSequentialStampsForActiveLayer = ({
   runtime,
   payloadRuntime,
   notificationRuntime,
+  eventBufferRuntime,
   payloadLimits,
   nowMs,
 }: {
@@ -219,6 +454,7 @@ export const captureSequentialStampsForActiveLayer = ({
   runtime?: SequentialStampCapRuntime;
   payloadRuntime?: ReturnType<typeof createSequentialPayloadBudgetRuntime>;
   notificationRuntime?: SequentialPayloadNotificationRuntime;
+  eventBufferRuntime?: SequentialEventBufferRuntime;
   payloadLimits?: {
     softLimitBytes?: number;
     hardLimitBytes?: number;
@@ -245,6 +481,10 @@ export const captureSequentialStampsForActiveLayer = ({
     capRuntime.captureWasActive = true;
     return 0;
   }
+  const smearedStamps = densifySequentialStampsForSmear({
+    stamps: normalizedStamps,
+    timeSmear: state.sequentialRecord.timeSmear,
+  });
 
   const captureNowMs = Number.isFinite(nowMs) ? Number(nowMs) : Date.now();
   const sessionStartMs = state.sequentialRecord.sessionStartMs ?? captureNowMs;
@@ -260,7 +500,7 @@ export const captureSequentialStampsForActiveLayer = ({
   const cappedStamps = applyDeterministicStampCap({
     runtime: capRuntime,
     sessionKey,
-    stamps: normalizedStamps,
+    stamps: smearedStamps,
     nowMs: captureNowMs,
   });
   if (cappedStamps.length === 0) {
@@ -288,6 +528,14 @@ export const captureSequentialStampsForActiveLayer = ({
   const strokeId = `stroke-${sessionStartMs}-${capRuntime.strokeSegment}`;
   const sequentialPayloadRuntime = payloadRuntime ?? defaultPayloadBudgetRuntime;
   const payloadNotificationRuntime = notificationRuntime ?? defaultPayloadNotificationRuntime;
+  const captureEventBufferRuntime = eventBufferRuntime ?? defaultEventBufferRuntime;
+  if (
+    captureEventBufferRuntime.sessionKey !== null &&
+    captureEventBufferRuntime.sessionKey !== sessionKey
+  ) {
+    flushBufferedSequentialEvents({ state, runtime: captureEventBufferRuntime });
+  }
+  captureEventBufferRuntime.sessionKey = sessionKey;
   const softLimitBytes = Math.max(
     0,
     Math.round(payloadLimits?.softLimitBytes ?? SEQUENTIAL_PAYLOAD_SOFT_LIMIT_BYTES)
@@ -300,12 +548,14 @@ export const captureSequentialStampsForActiveLayer = ({
     layers: state.layers,
     runtime: sequentialPayloadRuntime,
   });
-  if (currentProjectPayloadBytes < softLimitBytes) {
+  const currentBufferedPayloadBytes = captureEventBufferRuntime.pendingPayloadBytes;
+  const currentTotalPayloadBytes = currentProjectPayloadBytes + currentBufferedPayloadBytes;
+  if (currentTotalPayloadBytes < softLimitBytes) {
     payloadNotificationRuntime.softWarningShown = false;
   }
   if (
     payloadNotificationRuntime.hardCapBlockedAtBytes !== null &&
-    payloadNotificationRuntime.hardCapBlockedAtBytes !== currentProjectPayloadBytes
+    payloadNotificationRuntime.hardCapBlockedAtBytes !== currentTotalPayloadBytes
   ) {
     payloadNotificationRuntime.hardCapBlockedAtBytes = null;
   }
@@ -319,11 +569,11 @@ export const captureSequentialStampsForActiveLayer = ({
     brush,
     stamps: cappedStamps,
   };
-  const projectedPayloadBytes =
-    currentProjectPayloadBytes + estimateSequentialStrokeEventPayloadBytes(event);
+  const eventPayloadBytes = estimateSequentialStrokeEventPayloadBytes(event);
+  const projectedPayloadBytes = currentTotalPayloadBytes + eventPayloadBytes;
 
   if (projectedPayloadBytes > hardLimitBytes) {
-    if (payloadNotificationRuntime.hardCapBlockedAtBytes !== currentProjectPayloadBytes) {
+    if (payloadNotificationRuntime.hardCapBlockedAtBytes !== currentTotalPayloadBytes) {
       state.addNotification({
         type: 'error',
         title: 'Sequential Capture Paused',
@@ -332,7 +582,7 @@ export const captureSequentialStampsForActiveLayer = ({
         timestamp: new Date(),
       });
     }
-    payloadNotificationRuntime.hardCapBlockedAtBytes = currentProjectPayloadBytes;
+    payloadNotificationRuntime.hardCapBlockedAtBytes = currentTotalPayloadBytes;
     return 0;
   }
 
@@ -348,10 +598,16 @@ export const captureSequentialStampsForActiveLayer = ({
     payloadNotificationRuntime.softWarningShown = true;
   }
 
-  state.appendSequentialLayerEvent(activeLayer.id, event, {
-    frameCount,
-    fps,
-    durationMs,
+  enqueueBufferedSequentialEvent({
+    layerId: activeLayer.id,
+    event,
+    metadata: {
+      frameCount,
+      fps,
+      durationMs,
+    },
+    payloadBytes: eventPayloadBytes,
+    runtime: captureEventBufferRuntime,
   });
   appendSequentialEventPayloadBytes({
     layerId: activeLayer.id,
@@ -367,6 +623,7 @@ export const captureSequentialStampsForActiveLayer = ({
 export const __TESTING__ = {
   STAMP_BURST_CAPACITY,
   defaultStampCapRuntime,
+  defaultEventBufferRuntime,
   resetDefaultRuntime: () => {
     defaultStampCapRuntime.sessionKey = null;
     defaultStampCapRuntime.tokens = STAMP_BURST_CAPACITY;
@@ -375,6 +632,9 @@ export const __TESTING__ = {
     defaultStampCapRuntime.lastBrushSnapshotKey = null;
     defaultStampCapRuntime.captureWasActive = false;
     defaultStampCapRuntime.eventCounter = 0;
+    defaultEventBufferRuntime.sessionKey = null;
+    defaultEventBufferRuntime.pendingPayloadBytes = 0;
+    defaultEventBufferRuntime.layers.clear();
     resetSequentialPayloadBudgetRuntime(defaultPayloadBudgetRuntime);
     defaultPayloadNotificationRuntime.softWarningShown = false;
     defaultPayloadNotificationRuntime.hardCapBlockedAtBytes = null;

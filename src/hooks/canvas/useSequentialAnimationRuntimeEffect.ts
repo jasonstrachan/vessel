@@ -4,11 +4,15 @@ import {
   dispatchGlobalAnimationFrameUpdate,
   getSharedAnimationRuntime,
 } from '@/hooks/canvas/handlers/animation/animationRuntime';
-import { noteSequentialCaptureActivity } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import {
+  flushBufferedSequentialEvents,
+  noteSequentialCaptureActivity,
+} from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
   createSequentialPayloadBudgetRuntime,
   readSequentialProjectPayloadBytes,
 } from '@/lib/sequential/SequentialPayloadBudget';
+import { getSequentialLayerRendererStats } from '@/lib/sequential/SequentialLayerRenderer';
 import {
   selectSequentialCaptureActive,
   selectSequentialPlaybackActive,
@@ -54,6 +58,7 @@ interface SequentialPerfProbeApi {
 }
 
 const payloadBudgetRuntime = createSequentialPayloadBudgetRuntime();
+const SEQUENTIAL_METRICS_SAMPLE_MS = 250;
 
 const hasSequentialRuntimeState = (
   state: Partial<AppState> | null | undefined
@@ -184,6 +189,7 @@ export const useSequentialAnimationRuntimeEffect = ({
 }: UseSequentialAnimationRuntimeEffectOptions) => {
   const sequentialRecordModeEnabled = useFeatureFlag('enableSequentialRecordMode');
   const accumMsRef = useRef(0);
+  const lastMetricsSampleMsRef = useRef(-Infinity);
 
   useEffect(() => installSequentialPerfProbe(), []);
 
@@ -191,6 +197,7 @@ export const useSequentialAnimationRuntimeEffect = ({
     const runtime = getSharedAnimationRuntime();
     if (!sequentialRecordModeEnabled) {
       accumMsRef.current = 0;
+      flushBufferedSequentialEvents({ state: useAppStore.getState() });
       noteSequentialCaptureActivity({ isActive: false });
       const state = useAppStore.getState() as Partial<AppState>;
       if (hasSequentialRuntimeState(state) && state.sequentialRecord.isCaptureActive) {
@@ -207,6 +214,9 @@ export const useSequentialAnimationRuntimeEffect = ({
         return;
       }
       const captureActive = selectSequentialCaptureActive(state);
+      if (!captureActive) {
+        flushBufferedSequentialEvents({ state });
+      }
       if (state.sequentialRecord.isCaptureActive !== captureActive) {
         state.setSequentialCaptureActive(captureActive);
       }
@@ -244,6 +254,7 @@ export const useSequentialAnimationRuntimeEffect = ({
     return () => {
       unsubscribe();
       accumMsRef.current = 0;
+      flushBufferedSequentialEvents({ state: useAppStore.getState() });
       noteSequentialCaptureActivity({ isActive: false });
       runtime.stop();
     };
@@ -256,6 +267,7 @@ export const useSequentialAnimationRuntimeEffect = ({
 
     const runtime = getSharedAnimationRuntime();
     const unregister = runtime.register((_timestampMs, deltaMs) => {
+      const timestampMs = Number.isFinite(_timestampMs) ? _timestampMs : Date.now();
       const state = useAppStore.getState() as Partial<AppState>;
       if (!hasSequentialRuntimeState(state)) {
         accumMsRef.current = 0;
@@ -263,6 +275,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       }
       if (!selectSequentialPlaybackActive(state)) {
         accumMsRef.current = 0;
+        flushBufferedSequentialEvents({ state });
         if (state.sequentialRecord.isCaptureActive) {
           state.setSequentialCaptureActive(false);
         }
@@ -276,10 +289,9 @@ export const useSequentialAnimationRuntimeEffect = ({
           : Date.now();
       const fps = Math.max(1, state.sequentialRecord.fps);
       const frameDurationMs = 1000 / fps;
-      const timeSmear = Math.max(0.1, state.sequentialRecord.timeSmear);
       const maxFrameAdvances = Math.max(1, state.sequentialRecord.frameCount * 2);
 
-      accumMsRef.current += Math.max(0, deltaMs) * timeSmear;
+      accumMsRef.current += Math.max(0, deltaMs);
       let advancedFrames = 0;
       while (accumMsRef.current >= frameDurationMs && advancedFrames < maxFrameAdvances) {
         state.stepSequentialFrame(1);
@@ -299,6 +311,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       noteSequentialCaptureActivity({ isActive: captureActive });
 
       if (advancedFrames > 0) {
+        flushBufferedSequentialEvents({ state: nextState });
         try {
           if (captureActive && typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
@@ -314,11 +327,22 @@ export const useSequentialAnimationRuntimeEffect = ({
           ? performance.now()
           : Date.now();
       nextState.recordSequentialRuntimeTick(Math.max(0, tickEnd - tickStart));
+
+      if (timestampMs - lastMetricsSampleMsRef.current >= SEQUENTIAL_METRICS_SAMPLE_MS) {
+        lastMetricsSampleMsRef.current = timestampMs;
+        const cacheStats = getSequentialLayerRendererStats();
+        nextState.setSequentialFrameCacheStats({
+          frameCacheEntries: cacheStats.entries,
+          frameCacheHits: cacheStats.hits,
+          frameCacheMisses: cacheStats.misses,
+        });
+      }
     });
 
     return () => {
       unregister();
       accumMsRef.current = 0;
+      lastMetricsSampleMsRef.current = -Infinity;
     };
   }, [sequentialRecordModeEnabled]);
 };

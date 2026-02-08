@@ -4,7 +4,6 @@ import { BrushShape, type Layer } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
-  getSequentialLayerRendererStats,
 } from '@/lib/sequential/SequentialLayerRenderer';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
@@ -103,11 +102,6 @@ export const useDrawingCanvasCompositeBuffers = ({
     const activeOrder = activeLayer ? activeLayer.order : Number.POSITIVE_INFINITY;
     const storeState = useAppStore.getState() as {
       sequentialRecord?: { currentFrame?: number };
-      setSequentialFrameCacheStats?: (stats: {
-        frameCacheEntries: number;
-        frameCacheHits?: number;
-        frameCacheMisses?: number;
-      }) => void;
     };
     const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
 
@@ -219,12 +213,6 @@ export const useDrawingCanvasCompositeBuffers = ({
     underCompositeHasContentRef.current = drewUnder;
     overCompositeHasContentRef.current = drewOver;
 
-    const stats = getSequentialLayerRendererStats();
-    if (typeof storeState.setSequentialFrameCacheStats === 'function') {
-      storeState.setSequentialFrameCacheStats({
-        frameCacheEntries: stats.entries,
-      });
-    }
   }, [
     activeLayerId,
     antialiasing,

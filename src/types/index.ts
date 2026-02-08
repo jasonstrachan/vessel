@@ -165,6 +165,36 @@ export interface SequentialBrushSnapshot {
   spacing: number;
   color: string;
   customStampId?: string | null;
+  customStampHash?: string | null;
+  customStamp?: {
+    width: number;
+    height: number;
+    rgbaBase64: string;
+    isColorizable: boolean;
+  } | null;
+  ditherEnabled?: boolean;
+  ditherAlgorithm?:
+    | 'floyd-steinberg'
+    | 'jarvis-judice-ninke'
+    | 'stucki'
+    | 'burkes'
+    | 'sierra-3'
+    | 'sierra-2'
+    | 'sierra-lite'
+    | 'atkinson'
+    | 'bayer'
+    | 'blue-noise'
+    | 'void-and-cluster'
+    | 'pattern';
+  ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond';
+  mosaicTilePx?: number;
+  mosaicSegmentPx?: number;
+  mosaicBlocksCount?: number;
+  mosaicPaletteCount?: number;
+  mosaicDitherEnabled?: boolean;
+  mosaicSegmentJitter?: number;
+  mosaicSeed?: number;
+  colorCycleGradient?: Array<{ position: number; color: string }>;
 }
 
 export interface SequentialStrokeEvent {

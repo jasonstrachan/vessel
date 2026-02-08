@@ -1,6 +1,6 @@
 import type React from 'react';
 import { BrushShape } from '@/types';
-import type { AppState } from '@/stores/useAppStore';
+import { useAppStore, type AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import {
   captureSequentialStampsForActiveLayer,
@@ -75,13 +75,14 @@ export const startNonColorCycleBrushStroke = ({
     typeof brushEngine.consumeRecentStamps === 'function'
       ? brushEngine.consumeRecentStamps()
       : [];
+  const captureState = useAppStore.getState();
 
   captureSequentialStampsForActiveLayer({
-    state: currentState,
+    state: captureState,
     stamps:
       emittedStamps.length > 0
         ? emittedStamps
-        : [createFallbackSequentialStamp(worldPos, pressure, currentState.tools.brushSettings)],
+        : [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
     customBrushData,
   });
 };

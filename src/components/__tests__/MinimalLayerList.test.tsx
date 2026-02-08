@@ -58,7 +58,15 @@ jest.mock('@/stores/useAppStore', () => {
     return () => listeners.delete(listener);
   };
 
-  return { useAppStore };
+  const selectSequentialPlaybackActive = (s: any) => {
+    if (!s.colorCyclePlayback?.desiredPlaying) {
+      return false;
+    }
+    const activeLayer = s.layers.find((layer: Layer) => layer.id === s.activeLayerId);
+    return activeLayer?.layerType === 'sequential';
+  };
+
+  return { useAppStore, selectSequentialPlaybackActive };
 });
 import { useAppStore } from '@/stores/useAppStore';
 
@@ -136,6 +144,11 @@ const createProject = (layers: Layer[]): Project => ({
 
 describe('MinimalLayerList visibility toggling', () => {
   beforeEach(() => {
+    const store = useAppStore.getState();
+    (store.playColorCycle as unknown as jest.Mock).mockClear();
+    (store.pauseColorCycle as unknown as jest.Mock).mockClear();
+    (store.forceResumeColorCycle as unknown as jest.Mock).mockClear();
+
     const layers = [createLayer('layer-1', 1, true), createLayer('layer-2', 0, true)];
     const project = createProject(layers);
 
@@ -199,5 +212,33 @@ describe('MinimalLayerList visibility toggling', () => {
     const store = useAppStore.getState();
     expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
     expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
+  });
+
+  it('pauses when sequential playback is active even while suspended', () => {
+    const sequentialLayer = {
+      ...createLayer('layer-seq', 0, true),
+      layerType: 'sequential' as const,
+      sequentialData: {
+        frameCount: 12,
+        fps: 12,
+        durationMs: 1000,
+        events: [],
+      },
+    };
+
+    useAppStore.setState({
+      layers: [sequentialLayer],
+      activeLayerId: 'layer-seq',
+      selectedLayerIds: ['layer-seq'],
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
+    });
+
+    render(<MinimalLayerList />);
+    fireEvent.click(screen.getByRole('button', { name: /pause/i }));
+
+    const store = useAppStore.getState();
+    expect(store.pauseColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(store.playColorCycle).not.toHaveBeenCalled();
+    expect(store.forceResumeColorCycle).not.toHaveBeenCalled();
   });
 });

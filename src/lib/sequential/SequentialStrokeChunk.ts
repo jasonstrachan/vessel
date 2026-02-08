@@ -125,6 +125,26 @@ const brushSnapshotKey = (brush: SequentialBrushSnapshot): string => {
     toFiniteNumber(brush.spacing, 0),
     brush.color,
     brush.customStampId ?? '',
+    brush.customStampHash ?? '',
+    brush.customStamp?.width ?? 0,
+    brush.customStamp?.height ?? 0,
+    brush.customStamp?.rgbaBase64 ?? '',
+    brush.customStamp?.isColorizable ? '1' : '0',
+    brush.ditherEnabled ? '1' : '0',
+    brush.ditherAlgorithm ?? '',
+    brush.ditherStrokeTipShape ?? '',
+    brush.mosaicTilePx ?? '',
+    brush.mosaicSegmentPx ?? '',
+    brush.mosaicBlocksCount ?? '',
+    brush.mosaicPaletteCount ?? '',
+    brush.mosaicDitherEnabled ? '1' : '0',
+    brush.mosaicSegmentJitter ?? '',
+    brush.mosaicSeed ?? '',
+    brush.colorCycleGradient
+      ? brush.colorCycleGradient
+          .map((stop) => `${stop.position}:${stop.color}`)
+          .join(',')
+      : '',
   ].join('|');
 };
 
@@ -140,6 +160,23 @@ const hashString = (value: string): string => {
 const cloneBrushSnapshot = (brush: SequentialBrushSnapshot): SequentialBrushSnapshot => ({
   ...brush,
   customStampId: brush.customStampId ?? null,
+  customStampHash: brush.customStampHash ?? null,
+  customStamp: brush.customStamp
+    ? {
+        width: brush.customStamp.width,
+        height: brush.customStamp.height,
+        rgbaBase64: brush.customStamp.rgbaBase64,
+        isColorizable: brush.customStamp.isColorizable,
+      }
+    : null,
+  mosaicTilePx: brush.mosaicTilePx,
+  mosaicSegmentPx: brush.mosaicSegmentPx,
+  mosaicBlocksCount: brush.mosaicBlocksCount,
+  mosaicPaletteCount: brush.mosaicPaletteCount,
+  mosaicDitherEnabled: brush.mosaicDitherEnabled,
+  mosaicSegmentJitter: brush.mosaicSegmentJitter,
+  mosaicSeed: brush.mosaicSeed,
+  colorCycleGradient: brush.colorCycleGradient?.map((stop) => ({ ...stop })),
 });
 
 type StrokeBucket = {

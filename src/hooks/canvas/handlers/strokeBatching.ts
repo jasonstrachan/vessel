@@ -1,7 +1,7 @@
 import type { PixelQueue } from '@/hooks/brushEngine/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
-import type { AppState } from '@/stores/useAppStore';
+import { useAppStore, type AppState } from '@/stores/useAppStore';
 import type { Layer, BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import { updateContinuousResamplerSample } from '@/hooks/canvas/handlers/customBrushCapture';
@@ -185,8 +185,9 @@ export const processBatchedStrokes = (
     if (stamps.length === 0) {
       return;
     }
+    const captureState = useAppStore.getState();
     captureSequentialStampsForActiveLayer({
-      state: deps.storeRef.current,
+      state: captureState,
       stamps,
       customBrushData,
     });
@@ -281,9 +282,10 @@ export const processBatchedStrokes = (
       } else {
         if (currentBrushId && deps.userBrushEngine.isUserBrush(currentBrushId)) {
           deps.userBrushEngine.continueStroke(drawCtx, drawTo.x, drawTo.y, pressure);
+          const customBrushData = deps.resolveActiveCustomBrushData(currentState);
           captureSequentialStamps([
             createFallbackSequentialStamp(drawTo, pressure, currentState.tools.brushSettings),
-          ]);
+          ], customBrushData);
         } else if (deps.brushEngine) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';

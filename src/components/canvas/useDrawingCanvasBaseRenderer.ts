@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type React from 'react';
 import { BrushShape } from '@/types';
 import type { CanvasShape, Layer, Project, Tool } from '@/types';
@@ -146,8 +146,10 @@ export const useDrawingCanvasBaseRenderer = ({
   selectionEnd,
   selectionMask,
   selectionMaskBounds,
-}: UseDrawingCanvasBaseRendererOptions) =>
-  useCallback(
+}: UseDrawingCanvasBaseRendererOptions) => {
+  const lastSplitCompositeSequentialFrameRef = useRef<number | null>(null);
+
+  return useCallback(
     (
       ctx: CanvasRenderingContext2D,
       transform: { scale: number; offsetX: number; offsetY: number },
@@ -232,6 +234,10 @@ export const useDrawingCanvasBaseRenderer = ({
       const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
 
       if (overlayEligibleForSplit) {
+        const sequentialFrame = useAppStore.getState().sequentialRecord.currentFrame;
+        const sequentialFrameChanged =
+          activeLayer?.layerType === 'sequential' &&
+          sequentialFrame !== lastSplitCompositeSequentialFrameRef.current;
         const anyAnimatingColorCycle = layers.some(
           (layer) =>
             layer.visible &&
@@ -243,13 +249,16 @@ export const useDrawingCanvasBaseRenderer = ({
           !underCompositeHasContentRef.current ||
           compositeCanvasDirtyRef.current ||
           activeLayer?.layerType === 'color-cycle' ||
-          activeLayer?.layerType === 'sequential' ||
+          sequentialFrameChanged ||
           anyAnimatingColorCycle;
 
         if (requiresLiveRefresh) {
           renderSplitComposites();
           compositeCanvasDirtyRef.current = false;
+          lastSplitCompositeSequentialFrameRef.current = sequentialFrame;
         }
+      } else {
+        lastSplitCompositeSequentialFrameRef.current = null;
       }
 
       const useSplitOverlay = Boolean(overlayEligibleForSplit && underCompositeCanvasRef.current);
@@ -377,3 +386,4 @@ export const useDrawingCanvasBaseRenderer = ({
       selectionMaskBounds,
     ]
   );
+};

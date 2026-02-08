@@ -5,7 +5,6 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const mockGetState = jest.fn();
 const mockGetSequentialLayerRenderCanvas = jest.fn();
-const mockGetSequentialLayerRendererStats = jest.fn();
 
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: {
@@ -15,7 +14,6 @@ jest.mock('@/stores/useAppStore', () => ({
 
 jest.mock('@/lib/sequential/SequentialLayerRenderer', () => ({
   getSequentialLayerRenderCanvas: (...args: unknown[]) => mockGetSequentialLayerRenderCanvas(...args),
-  getSequentialLayerRendererStats: () => mockGetSequentialLayerRendererStats(),
 }));
 
 type DrawCall = {
@@ -83,11 +81,6 @@ const createLayer = (overrides: Partial<Layer>): Layer => {
 describe('drawVisibleCompositeStack', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetSequentialLayerRendererStats.mockReturnValue({
-      entries: 2,
-      hits: 10,
-      misses: 4,
-    });
   });
 
   it('draws static, color-cycle, and sequential segments in order with layer blend and opacity', () => {
@@ -95,12 +88,10 @@ describe('drawVisibleCompositeStack', () => {
     const ccCanvas = document.createElement('canvas');
     const seqCanvas = document.createElement('canvas');
     const compositeCanvas = document.createElement('canvas');
-    const updateStats = jest.fn();
 
     mockGetState.mockReturnValue({
       project: { width: 16, height: 16 },
       sequentialRecord: { currentFrame: 7 },
-      setSequentialFrameCacheStats: updateStats,
     });
     mockGetSequentialLayerRenderCanvas.mockReturnValue(seqCanvas);
 
@@ -195,27 +186,21 @@ describe('drawVisibleCompositeStack', () => {
       height: 16,
       frameIndex: 7,
     });
-    expect(updateStats).toHaveBeenCalledWith({
-      frameCacheEntries: 2,
-    });
   });
 
   it('keeps sequential-below-cc blend ordering stable across playback and capture draws', () => {
     const ccCanvas = document.createElement('canvas');
     const seqCanvas = document.createElement('canvas');
     const compositeCanvas = document.createElement('canvas');
-    const updateStats = jest.fn();
 
     mockGetState
       .mockReturnValueOnce({
         project: { width: 16, height: 16 },
         sequentialRecord: { currentFrame: 2, isCaptureActive: false },
-        setSequentialFrameCacheStats: updateStats,
       })
       .mockReturnValueOnce({
         project: { width: 16, height: 16 },
         sequentialRecord: { currentFrame: 3, isCaptureActive: true },
-        setSequentialFrameCacheStats: updateStats,
       });
     mockGetSequentialLayerRenderCanvas.mockReturnValue(seqCanvas);
 
@@ -331,12 +316,10 @@ describe('drawVisibleCompositeStack', () => {
   it('skips hidden sequential layers and does not draw sequential segment when no render canvas exists', () => {
     const staticCanvas = document.createElement('canvas');
     const compositeCanvas = document.createElement('canvas');
-    const updateStats = jest.fn();
 
     mockGetState.mockReturnValue({
       project: { width: 16, height: 16 },
       sequentialRecord: { currentFrame: 3 },
-      setSequentialFrameCacheStats: updateStats,
     });
     mockGetSequentialLayerRenderCanvas.mockReturnValue(null);
 
@@ -395,8 +378,5 @@ describe('drawVisibleCompositeStack', () => {
     expect(drawCalls).toHaveLength(1);
     expect(drawCalls[0].source).toBe(staticCanvas);
     expect(mockGetSequentialLayerRenderCanvas).not.toHaveBeenCalled();
-    expect(updateStats).toHaveBeenCalledWith({
-      frameCacheEntries: 2,
-    });
   });
 });

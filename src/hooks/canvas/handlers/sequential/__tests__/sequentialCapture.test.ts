@@ -3,6 +3,7 @@ import {
   __TESTING__,
   applyDeterministicStampCap,
   captureSequentialStampsForActiveLayer,
+  flushBufferedSequentialEvents,
   createSequentialPayloadNotificationRuntime,
   createSequentialStampCapRuntime,
   noteSequentialCaptureActivity,
@@ -147,6 +148,7 @@ describe('sequentialCapture', () => {
         { x: 12, y: 14, pressure: 0.9, rotation: 0.2, size: 6, alpha: 0.7 },
       ],
     });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
 
     expect(appended).toBe(2);
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
@@ -230,6 +232,7 @@ describe('sequentialCapture', () => {
       stamps: [{ x: 8, y: 8, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
     });
     expect(blockedSecond).toBe(0);
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
 
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events ?? []).toHaveLength(0);
@@ -258,6 +261,7 @@ describe('sequentialCapture', () => {
         stamps: [{ x: index % 32, y: (index * 3) % 32, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
       });
     }
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
 
     const stateAfterCapture = useAppStore.getState();
     const events = stateAfterCapture.layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
@@ -332,6 +336,7 @@ describe('sequentialCapture', () => {
       stamps: [{ x: 4, y: 1, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
     });
     expect(third).toBe(1);
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
 
     const events =
       useAppStore
@@ -366,6 +371,7 @@ describe('sequentialCapture', () => {
       stamps: [{ x: 2, y: 1, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
     });
     expect(second).toBe(1);
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
 
     const events =
       useAppStore
@@ -376,5 +382,33 @@ describe('sequentialCapture', () => {
       'stroke-1000-0',
       'stroke-1000-1',
     ]);
+  });
+
+  it('uses time-smear for capture stamp densification without changing playback clock semantics', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        timeSmear: 3,
+      },
+    }));
+
+    const appended = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1300,
+      stamps: [
+        { x: 0, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 },
+        { x: 40, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 },
+      ],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    expect(appended).toBeGreaterThan(2);
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].stamps.length).toBeGreaterThan(2);
   });
 });

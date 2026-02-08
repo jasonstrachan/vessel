@@ -183,6 +183,28 @@ describe('AnimationControlsPanel', () => {
     expect(screen.getByText(/capture active\. changes apply next take\./i)).toBeInTheDocument();
   });
 
+  it('pauses when sequential playback is active even if color-cycle playback is suspended', () => {
+    appStore.setState({
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
+      layers: [{ id: 'layer-seq', layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 24,
+        timeSmear: 1,
+        currentFrame: 0,
+        isPointerDown: false,
+      },
+    });
+
+    render(<AnimationControlsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: /pause/i }));
+
+    const store = appStore.getState();
+    expect(store.pauseColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(store.playColorCycle).not.toHaveBeenCalled();
+  });
+
   it('updates sequential controls when active sequential layer is selected', () => {
     appStore.setState({
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],

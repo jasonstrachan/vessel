@@ -4,7 +4,6 @@ import { BrushShape, type Layer } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
-  getSequentialLayerRendererStats,
 } from '@/lib/sequential/SequentialLayerRenderer';
 
 interface UseDrawingCanvasLayerRenderingOptions {
@@ -33,11 +32,6 @@ export const useDrawingCanvasLayerRendering = ({
     const activeId = activeLayerId;
     const storeState = useAppStore.getState() as {
       sequentialRecord?: { currentFrame?: number };
-      setSequentialFrameCacheStats?: (stats: {
-        frameCacheEntries: number;
-        frameCacheHits?: number;
-        frameCacheMisses?: number;
-      }) => void;
     };
     const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
     const isPixelatedDisplay = displayMode === 'pixelated';
@@ -141,11 +135,5 @@ export const useDrawingCanvasLayerRendering = ({
 
     ctx.restore();
 
-    const stats = getSequentialLayerRendererStats();
-    if (typeof storeState.setSequentialFrameCacheStats === 'function') {
-      storeState.setSequentialFrameCacheStats({
-        frameCacheEntries: stats.entries,
-      });
-    }
   }, [activeLayerId, antialiasing, brushShape, displayMode, layerTransferCacheRef, layers, project]);
 };
