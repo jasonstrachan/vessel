@@ -298,6 +298,36 @@ File-Specific Guardrails
 - tsconfig.json: preserve @/* paths and compiler options unless justified.
 - Next pages (src/pages/**): default exports required; other modules use named exports.
 
+Orchestration File Guardrails
+
+- Applies to all changes: refactors, bug fixes, and new feature development.
+- Treat orchestration-first files as composition shells only; move heavy logic to `src/hooks/canvas/handlers/**` or `src/hooks/canvas/utils/**`.
+- Scope:
+  - `src/hooks/useDrawingHandlers.ts`
+  - `src/components/canvas/DrawingCanvas.tsx`
+  - `src/hooks/canvas/useCanvasEventHandlers.ts`
+- Size budgets:
+  - Soft warning: 400 LOC
+  - Hard stop: 700 LOC (requires documented exception + split follow-up in `docs/refactor/`)
+- Extraction triggers:
+  - Third-concern rule: if a file owns 3+ independent concerns, extract before merge.
+  - Repeat rule: if a helper/pattern repeats 3 times, extract.
+  - Testability rule: if logic is hard to test without mounting large UI state, extract to handler/util.
+- PR expectation for touched orchestration files:
+  - verify line budget with `wc -l`
+  - run `npm run type-check`, `npm run lint`, `npm test`
+  - update docs when making boundary changes (`docs/refactor/module-size-guardrails.md` and active plan file)
+
+Feature Architecture Rule
+
+- New features must be added through existing architectural seams (components -> hooks -> handlers/utils -> store/lib), not by expanding orchestration shells with inline workflow logic.
+- For any feature touching canvas input/render flows:
+  - keep orchestration files focused on wiring/composition,
+  - place workflow logic in `handlers/**`,
+  - place pure computation in `utils/**`,
+  - add targeted tests beside extracted modules.
+- If a feature cannot fit current seams cleanly, define a small boundary module first, then implement the feature within that boundary.
+
 Verification Checklist
 
 - npm run type-check passes.

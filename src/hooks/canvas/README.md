@@ -59,8 +59,17 @@ const eventHandlers = useCanvasEventHandlers({
 - ✅ Main orchestrator hook
 - ✅ DrawingCanvas integration for pointer/keyboard/wheel/paste/blur handlers
 
-## Next Steps
+## Guardrails (Preventing Re-Bloat)
 
-1. Add comprehensive unit tests for keyboard/wheel/clipboard modules
-2. Continue shrinking `DrawingCanvas.tsx` by extracting remaining effect-heavy sections
-3. Add performance optimizations if needed
+1. Keep orchestration hooks/components thin:
+   - `useDrawingHandlers.ts`, `DrawingCanvas.tsx`, `useCanvasEventHandlers.ts` should only wire dependencies and compose handlers.
+   - Heavy logic belongs in `handlers/**` or `utils/**`.
+2. Enforce soft/hard line budgets in PR review:
+   - Soft warning at 400 LOC for orchestration files.
+   - Hard stop at 700 LOC unless there is a documented exception in `docs/refactor/module-size-guardrails.md`.
+3. Require extraction trigger at review time:
+   - If a file adds a third independent concern (input orchestration, render wiring, history, tool workflow, etc.), extract before merge.
+4. Keep tests close to extracted modules:
+   - Add/update targeted tests under `src/hooks/canvas/handlers/**/__tests__/` for each extraction slice.
+
+See `docs/refactor/module-size-guardrails.md` for the full policy and CI suggestions.

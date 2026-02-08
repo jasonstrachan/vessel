@@ -1,7 +1,7 @@
 # Plan: Phase 4 Completion for `useDrawingHandlers` + `DrawingCanvas` Decomposition
 
 Date: 2026-02-07  
-Status: Active (Reviewed/updated 2026-02-08)  
+Status: Completed (Validated 2026-02-08)  
 Owner: Canvas/Hook refactor lane
 
 ## Goal
@@ -44,8 +44,7 @@ Finish Phase 4 of the active roadmap (`docs/refactor/plan-useDrawingHandlers-dec
   - Feature changes to drawing behavior, history semantics, export, layer model, or store public API.
 
 ## Current Gaps To Close
-- Remaining major gap is Workstream B (`useDrawingHandlers.ts` size and orchestration boundary tightening).
-- Workstream A and C are now executed in this pass; see Progress Log.
+- None for Phase 4 scope. Remaining work is optional follow-on extraction for readability only.
 
 ## Non-Goals (to prevent scope creep)
 - No changes to store slice public interfaces.
@@ -178,6 +177,18 @@ Acceptance checks:
 - `DrawingCanvas.tsx` shrinks by delegating non-render event concerns.
 - `ShapeToolHandler.flush.test.tsx` is unskipped and green.
 - Full validation suite passes (`type-check`, `lint`, `test`).
+
+## Completion Summary (2026-02-08)
+- LOC outcomes:
+  - `src/hooks/useDrawingHandlers.ts`: 79 LOC
+  - `src/components/canvas/DrawingCanvas.tsx`: 42 LOC
+  - `src/hooks/canvas/useCanvasEventHandlers.ts`: 43 LOC
+- Acceptance checks:
+  - No TODO placeholders in `src/hooks/canvas/useCanvasEventHandlers.ts`.
+  - No skipped tests in `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`.
+  - `npm run type-check` passed.
+  - `npm run lint` passed.
+  - `npm test` passed (210 suites / 875 tests).
 
 ## Documentation Update Requirement
 After each completed slice, update:
