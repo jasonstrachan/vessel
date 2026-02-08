@@ -15,16 +15,17 @@ export const useDrawingCanvasColorCycleLayerSuspension = ({
 }: UseDrawingCanvasColorCycleLayerSuspensionOptions) => {
   useEffect(() => {
     const activeLayer = layers.find((layer) => layer.id === activeLayerId);
-    const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+    const keepsPlaybackActive =
+      activeLayer?.layerType === 'color-cycle' || activeLayer?.layerType === 'sequential';
     const st = useAppStore.getState();
 
-    if (!isColorCycleLayer && !suspendedForNonCCActiveLayerRef.current) {
+    if (!keepsPlaybackActive && !suspendedForNonCCActiveLayerRef.current) {
       st.suspendColorCycle('active-layer-not-cc');
       suspendedForNonCCActiveLayerRef.current = true;
       return;
     }
 
-    if (isColorCycleLayer && suspendedForNonCCActiveLayerRef.current) {
+    if (keepsPlaybackActive && suspendedForNonCCActiveLayerRef.current) {
       st.resumeColorCycle('active-layer-not-cc');
       suspendedForNonCCActiveLayerRef.current = false;
     }

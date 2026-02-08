@@ -273,4 +273,48 @@ describe('AutosaveService', () => {
     );
     expect(store.updateFileBackupTime).toHaveBeenCalled();
   });
+
+  it('forwards sequential layer payloads to background autosave persistence', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    store.layers = [
+      {
+        id: 'layer-seq',
+        layerType: 'sequential',
+        sequentialData: {
+          frameCount: 12,
+          fps: 12,
+          durationMs: 1000,
+          events: [
+            {
+              id: 'seq-event-1',
+              layerId: 'layer-seq',
+              strokeId: 'stroke-1',
+              timestampMs: 100,
+              frameIndex: 2,
+              brush: {
+                tool: 'brush',
+                brushShape: 'round',
+                size: 8,
+                opacity: 0.8,
+                blendMode: 'source-over',
+                rotation: 0,
+                spacing: 1,
+                color: '#ff0000',
+                customStampId: null,
+              },
+              stamps: [{ x: 4, y: 5, pressure: 1, rotation: 0, size: 8, alpha: 0.8 }],
+            },
+          ],
+        },
+      },
+    ];
+
+    await autosaveService.triggerAutosave();
+
+    const persistedLayers = (backgroundStorageService.saveProjectInBackground as jest.Mock).mock.calls[0]?.[1];
+    expect(Array.isArray(persistedLayers)).toBe(true);
+    expect(persistedLayers[0].layerType).toBe('sequential');
+    expect(persistedLayers[0].sequentialData).toEqual(store.layers[0].sequentialData);
+  });
 });

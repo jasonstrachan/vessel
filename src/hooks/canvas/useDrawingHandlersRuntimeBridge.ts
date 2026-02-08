@@ -57,6 +57,11 @@ export const useDrawingHandlersRuntimeBridge = ({
       processBatchedStrokes,
       setPointerDown: (isDown) => {
         isPointerDownRef.current = isDown;
+        const setSequentialPointerDown =
+          finalizeRuntimeOptions.runtimeOptions.storeRef.current.setSequentialPointerDown;
+        if (typeof setSequentialPointerDown === 'function') {
+          setSequentialPointerDown(isDown);
+        }
       },
     },
   });

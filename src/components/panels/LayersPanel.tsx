@@ -39,6 +39,7 @@ const LayersPanel: React.FC = () => {
   const referenceLayerId = useAppStore((state) => state.referenceLayerId);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const mergeLayers = useAppStore((state) => state.mergeLayers);
+  const sequentialRecord = useAppStore((state) => state.sequentialRecord);
 
   const handleAddRegularLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
@@ -115,6 +116,42 @@ const LayersPanel: React.FC = () => {
       }
     }
   }, [activeLayerId, addLayer, initColorCycleForLayer, layers, setActiveLayer, setBrushSettings, setSelectedLayerIds]);
+
+  const handleAddSequentialLayer = React.useCallback(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+
+    const frameCount = Math.max(1, Math.round(sequentialRecord.frameCount || 12));
+    const fps = Math.max(1, Math.round(sequentialRecord.fps || 12));
+    const durationMs = Math.round((frameCount * 1000) / fps);
+
+    const newLayer: Omit<Layer, 'id' | 'order'> = {
+      name: `SEQ Layer ${layers.filter((layer) => layer.layerType === 'sequential').length + 1}`,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount,
+        fps,
+        durationMs,
+        events: [],
+      },
+    };
+
+    const newLayerId = addLayer(newLayer);
+
+    if (newLayerId && !activeLayerId) {
+      setActiveLayer(newLayerId);
+      setSelectedLayerIds([newLayerId]);
+    }
+  }, [activeLayerId, addLayer, layers, sequentialRecord, setActiveLayer, setSelectedLayerIds]);
 
   const handleDeleteLayer = React.useCallback((layerId: string) => {
     if (layers.length > 1) {
@@ -288,15 +325,23 @@ const LayersPanel: React.FC = () => {
           title="Add Regular Layer"
         >
           <Plus size={14} className="text-[#D9D9D9]" />
-          <span>Regular</span>
+          <span>Layer</span>
+        </button>
+        <button
+          onClick={handleAddSequentialLayer}
+          className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          title="Add Animation Layer"
+        >
+          <Plus size={14} className="text-[#D9D9D9]" />
+          <span>Animation</span>
         </button>
         <button
           onClick={handleAddColorCycleLayer}
           className="flex-1 flex items-center justify-center gap-1 py-2 text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
-          title="Add Color Cycle Layer"
+          title="Add CC Layer"
         >
           <Plus size={14} className="text-[#D9D9D9]" />
-          <span>Color cycle</span>
+          <span>CC</span>
         </button>
       </div>
 
@@ -306,6 +351,7 @@ const LayersPanel: React.FC = () => {
           const isSelected = selectedLayerIds.includes(layer.id);
           const isHighlighted = isActive || isSelected;
           const isColorCycle = layer.layerType === 'color-cycle';
+          const isSequential = layer.layerType === 'sequential';
           const gradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
           const isMenuOpen = layerMenuState?.layerId === layer.id;
           const isReferenceLayer = referenceLayerId === layer.id;
@@ -388,6 +434,21 @@ const LayersPanel: React.FC = () => {
                         <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>CC</span>
                         <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
                           {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
+                        </span>
+                        {isReferenceLayer && (
+                          <span
+                            className="px-1 text-[9px] leading-4 bg-[#2F3C27] text-[#C9F6B5] border border-[#47603D]"
+                            title="Reference layer for sampling"
+                          >
+                            Reference
+                          </span>
+                        )}
+                      </>
+                    ) : isSequential ? (
+                      <>
+                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>SEQ</span>
+                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
+                          {Math.max(1, Math.round(layer.sequentialData?.frameCount ?? sequentialRecord.frameCount))}f
                         </span>
                         {isReferenceLayer && (
                           <span

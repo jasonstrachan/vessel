@@ -40,8 +40,10 @@ export const runStrokeStartLayerGuards = ({
   }
 
   const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
-  if (isAnyColorCycleBrush && !isColorCycleLayer) {
-    feedbackMessageRef.current?.("Can't use Color Cycle brush on a normal layer. Create a new layer.");
+  const isSequentialLayer = activeLayer.layerType === 'sequential';
+  const canUseColorCycleBrush = isColorCycleLayer || isSequentialLayer;
+  if (isAnyColorCycleBrush && !canUseColorCycleBrush) {
+    feedbackMessageRef.current?.("Can't use Color Cycle brush on this layer. Switch to a sequential or Color Cycle layer.");
     return false;
   }
 

@@ -1,6 +1,11 @@
 import type React from 'react';
 import { useCallback } from 'react';
 import { BrushShape, type Layer } from '@/types';
+import { useAppStore } from '@/stores/useAppStore';
+import {
+  getSequentialLayerRenderCanvas,
+  getSequentialLayerRendererStats,
+} from '@/lib/sequential/SequentialLayerRenderer';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
   project: { width: number; height: number } | null;
@@ -96,6 +101,15 @@ export const useDrawingCanvasCompositeBuffers = ({
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
     const activeLayer = activeLayerId ? sortedLayers.find((layer) => layer.id === activeLayerId) ?? null : null;
     const activeOrder = activeLayer ? activeLayer.order : Number.POSITIVE_INFINITY;
+    const storeState = useAppStore.getState() as {
+      sequentialRecord?: { currentFrame?: number };
+      setSequentialFrameCacheStats?: (stats: {
+        frameCacheEntries: number;
+        frameCacheHits?: number;
+        frameCacheMisses?: number;
+      }) => void;
+    };
+    const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
 
     let drewUnder = false;
     let drewOver = false;
@@ -134,6 +148,21 @@ export const useDrawingCanvasCompositeBuffers = ({
           drewLayer = true;
         } catch {
           // ignore draw errors for transient states
+        }
+      } else if (layer.layerType === 'sequential' && layer.sequentialData) {
+        const source = getSequentialLayerRenderCanvas({
+          layer,
+          width: project.width,
+          height: project.height,
+          frameIndex: sequentialFrameIndex,
+        });
+        if (source) {
+          try {
+            targetCtx.drawImage(source as CanvasImageSource, 0, 0);
+            drewLayer = true;
+          } catch {
+            // ignore draw errors for transient states
+          }
         }
       } else if (layer.framebuffer) {
         try {
@@ -189,6 +218,13 @@ export const useDrawingCanvasCompositeBuffers = ({
 
     underCompositeHasContentRef.current = drewUnder;
     overCompositeHasContentRef.current = drewOver;
+
+    const stats = getSequentialLayerRendererStats();
+    if (typeof storeState.setSequentialFrameCacheStats === 'function') {
+      storeState.setSequentialFrameCacheStats({
+        frameCacheEntries: stats.entries,
+      });
+    }
   }, [
     activeLayerId,
     antialiasing,

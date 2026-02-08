@@ -1,5 +1,5 @@
 import { createDefaultExportLayout, createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import type { CustomBrush, Layer, Project } from '@/types';
+import { BrushShape, type CustomBrush, type Layer, type Project } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import { exportProjectAsPNG, saveProjectToFile } from '@/utils/projectIO';
@@ -295,6 +295,67 @@ describe('project slice lifecycle flows', () => {
       backupPath: 'imported.vessel',
       lastBackupTime: null,
     });
+  });
+
+  it('imports sequential layers and preserves sequential capture payload', async () => {
+    const sequentialLayer = makeLayer('layer-seq', {
+      imageData: null,
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 16,
+        fps: 8,
+        durationMs: 2000,
+        events: [
+          {
+            id: 'seq-event-1',
+            layerId: 'layer-seq',
+            strokeId: 'stroke-1',
+            timestampMs: 120,
+            frameIndex: 3,
+            brush: {
+              tool: 'brush',
+              brushShape: BrushShape.ROUND,
+              size: 6,
+              opacity: 0.75,
+              blendMode: 'source-over',
+              rotation: 0.1,
+              spacing: 1.5,
+              color: '#00ff00',
+              customStampId: null,
+            },
+            stamps: [{ x: 4, y: 5, pressure: 1, rotation: 0, size: 6, alpha: 0.75 }],
+          },
+        ],
+      },
+    });
+
+    const project: Project = {
+      id: 'project-seq-import',
+      name: 'Sequential Import',
+      width: 320,
+      height: 180,
+      layers: [sequentialLayer],
+      backgroundColor: '#101010',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#111111',
+        backgroundColor: '#eeeeee',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    await useAppStore.getState().importProject(project, { fileName: 'sequential.vessel' });
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers).toHaveLength(1);
+    expect(nextState.layers[0].layerType).toBe('sequential');
+    expect(nextState.layers[0].sequentialData).toEqual(sequentialLayer.sequentialData);
+    expect(nextState.activeLayerId).toBe('layer-seq');
+    expect(nextState.projectFilename).toBe('sequential.vessel');
   });
 
   it('exports the current project as PNG and emits a success notification', async () => {

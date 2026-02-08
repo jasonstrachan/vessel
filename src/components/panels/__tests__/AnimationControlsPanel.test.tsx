@@ -3,19 +3,25 @@ import { render, fireEvent, screen } from '@testing-library/react';
 
 jest.mock('@/stores/useAppStore', () => {
   type ColorCyclePlayback = { desiredPlaying: boolean; suspendDepth: number };
-  type BrushSettings = { colorCycleSpeed: number; colorCycleFlowMode: string };
+  type Layer = { id: string; layerType: 'normal' | 'color-cycle' | 'sequential' };
+  type SequentialRecord = {
+    fps: number;
+    frameCount: number;
+    timeSmear: number;
+    currentFrame: number;
+    isPointerDown: boolean;
+  };
   type MockState = {
     colorCyclePlayback: ColorCyclePlayback;
-    layers: Array<unknown>;
+    layers: Layer[];
     activeLayerId: string | null;
-    selectedLayerIds: string[];
-    tools: { brushSettings: BrushSettings };
-    updateLayer: jest.Mock;
-    setBrushSettings: jest.Mock;
+    sequentialRecord: SequentialRecord;
     playColorCycle: jest.Mock;
     pauseColorCycle: jest.Mock;
     forceResumeColorCycle: jest.Mock;
-    colorCycleRuntimeHandlers: Record<string, unknown>;
+    setRecordFPS: jest.Mock;
+    setRecordFrameCount: jest.Mock;
+    setTimeSmear: jest.Mock;
   };
   type Selector<T> = (state: MockState) => T;
   type StoreHook = {
@@ -28,16 +34,21 @@ jest.mock('@/stores/useAppStore', () => {
   const listeners = new Set<(state: MockState) => void>();
   const state: MockState = {
     colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
-    layers: [],
-    activeLayerId: null,
-    selectedLayerIds: [],
-    tools: { brushSettings: { colorCycleSpeed: 0.1, colorCycleFlowMode: 'forward' } },
-    updateLayer: jest.fn(),
-    setBrushSettings: jest.fn(),
+    layers: [{ id: 'layer-regular', layerType: 'normal' }],
+    activeLayerId: 'layer-regular',
+    sequentialRecord: {
+      fps: 12,
+      frameCount: 12,
+      timeSmear: 1,
+      currentFrame: 0,
+      isPointerDown: false,
+    },
     playColorCycle: jest.fn(),
     pauseColorCycle: jest.fn(),
     forceResumeColorCycle: jest.fn(),
-    colorCycleRuntimeHandlers: {},
+    setRecordFPS: jest.fn(),
+    setRecordFrameCount: jest.fn(),
+    setTimeSmear: jest.fn(),
   };
 
   const useAppStore = ((selector?: Selector<unknown>) =>
@@ -56,73 +67,150 @@ jest.mock('@/stores/useAppStore', () => {
   const selectEffectiveColorCyclePlaying = (s: MockState) =>
     s.colorCyclePlayback.desiredPlaying && s.colorCyclePlayback.suspendDepth === 0;
   const selectColorCycleSuspendDepth = (s: MockState) => s.colorCyclePlayback.suspendDepth;
+  const selectSequentialRecordState = (s: MockState) => s.sequentialRecord;
+  const selectSequentialPlaybackActive = (s: MockState) => {
+    const activeLayer = s.layers.find((layer) => layer.id === s.activeLayerId);
+    return s.colorCyclePlayback.desiredPlaying && activeLayer?.layerType === 'sequential';
+  };
+  const selectSequentialCaptureActive = (s: MockState) =>
+    selectSequentialPlaybackActive(s) && s.sequentialRecord.isPointerDown;
 
   return {
     useAppStore,
     selectEffectiveColorCyclePlaying,
     selectColorCycleSuspendDepth,
+    selectSequentialRecordState,
+    selectSequentialPlaybackActive,
+    selectSequentialCaptureActive,
   };
-});
-
-jest.mock('@/components/ui/ProgressSlider', () => {
-  const ProgressSliderMock = () => <div data-testid="progress-slider" />;
-  ProgressSliderMock.displayName = 'ProgressSliderMock';
-  return { __esModule: true, default: ProgressSliderMock };
 });
 
 import AnimationControlsPanel from '@/components/panels/AnimationControlsPanel';
 import { useAppStore } from '@/stores/useAppStore';
 
-describe('AnimationControlsPanel playback button', () => {
+type PanelMockState = {
+  colorCyclePlayback: { desiredPlaying: boolean; suspendDepth: number };
+  layers: Array<{ id: string; layerType: 'normal' | 'color-cycle' | 'sequential' }>;
+  activeLayerId: string | null;
+  sequentialRecord: {
+    fps: number;
+    frameCount: number;
+    timeSmear: number;
+    currentFrame: number;
+    isPointerDown: boolean;
+  };
+  playColorCycle: jest.Mock;
+  pauseColorCycle: jest.Mock;
+  forceResumeColorCycle: jest.Mock;
+  setRecordFPS: jest.Mock;
+  setRecordFrameCount: jest.Mock;
+  setTimeSmear: jest.Mock;
+};
+
+const appStore = useAppStore as unknown as {
+  getState: () => PanelMockState;
+  setState: (updater: Partial<PanelMockState>) => void;
+};
+
+describe('AnimationControlsPanel', () => {
   beforeEach(() => {
-    const store = useAppStore.getState();
-    (store.playColorCycle as jest.Mock).mockClear();
-    (store.pauseColorCycle as jest.Mock).mockClear();
-    (store.forceResumeColorCycle as jest.Mock).mockClear();
-    useAppStore.setState({
+    const store = appStore.getState();
+    store.playColorCycle.mockClear();
+    store.pauseColorCycle.mockClear();
+    store.forceResumeColorCycle.mockClear();
+    store.setRecordFPS.mockClear();
+    store.setRecordFrameCount.mockClear();
+    store.setTimeSmear.mockClear();
+    appStore.setState({
       colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+      layers: [{ id: 'layer-regular', layerType: 'normal' }],
+      activeLayerId: 'layer-regular',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 12,
+        timeSmear: 1,
+        currentFrame: 0,
+        isPointerDown: false,
+      },
     });
   });
 
   it('pauses when effective playback is active', () => {
-    useAppStore.setState({
+    appStore.setState({
       colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
     });
 
     render(<AnimationControlsPanel />);
-
     fireEvent.click(screen.getByRole('button', { name: /pause/i }));
 
-    const store = useAppStore.getState();
+    const store = appStore.getState();
     expect(store.pauseColorCycle).toHaveBeenCalledWith('toolbar');
     expect(store.playColorCycle).not.toHaveBeenCalled();
   });
 
   it('plays and force-resumes when suspended', () => {
-    useAppStore.setState({
+    appStore.setState({
       colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
     });
 
     render(<AnimationControlsPanel />);
-
     fireEvent.click(screen.getByRole('button', { name: /play/i }));
 
-    const store = useAppStore.getState();
+    const store = appStore.getState();
     expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
     expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
   });
 
-  it('plays without force-resume when not suspended', () => {
-    useAppStore.setState({
-      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+  it('shows REC badge and disables sequential controls while capturing', () => {
+    appStore.setState({
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
+      layers: [{ id: 'layer-seq', layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 24,
+        timeSmear: 1.5,
+        currentFrame: 2,
+        isPointerDown: true,
+      },
     });
 
     render(<AnimationControlsPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+    expect(screen.getByText('REC')).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeDisabled();
+    expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeDisabled();
+    expect(screen.getByText(/capture active\. changes apply next take\./i)).toBeInTheDocument();
+  });
 
-    const store = useAppStore.getState();
-    expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
-    expect(store.forceResumeColorCycle).not.toHaveBeenCalled();
+  it('updates sequential controls when active sequential layer is selected', () => {
+    appStore.setState({
+      layers: [{ id: 'layer-seq', layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        fps: 8,
+        frameCount: 16,
+        timeSmear: 1,
+        currentFrame: 0,
+        isPointerDown: false,
+      },
+    });
+
+    render(<AnimationControlsPanel />);
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: /fps/i }), {
+      target: { value: '24' },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /frames/i }), {
+      target: { value: '32' },
+    });
+    fireEvent.change(screen.getByRole('slider', { name: /time-smear/i }), {
+      target: { value: '2.5' },
+    });
+
+    const store = appStore.getState();
+    expect(store.setRecordFPS).toHaveBeenCalledWith(24);
+    expect(store.setRecordFrameCount).toHaveBeenCalledWith(32);
+    expect(store.setTimeSmear).toHaveBeenCalledWith(2.5);
   });
 });

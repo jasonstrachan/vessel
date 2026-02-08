@@ -1789,6 +1789,7 @@ export const useBrushEngineSimplified = () => {
     // Utilities
     canDrawAt: (ctx: CanvasRenderingContext2D, x: number, y: number) => 
       brushEngine.canDrawAt(ctx, x, y),
+    consumeRecentStamps: () => brushEngine.consumeRecentStamps(),
     
     // Direct access to engine for advanced use
     engine: brushEngine

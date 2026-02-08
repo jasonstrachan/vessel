@@ -121,6 +121,9 @@ const formatLabel = (value: string): string => (
   )).join(' ')
 );
 
+const hasSequentialExportLayers = (layers: Layer[] | undefined): boolean =>
+  Array.isArray(layers) && layers.some((layer) => layer.layerType === 'sequential' && !!layer.sequentialData);
+
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -516,6 +519,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     beginAnimationSession: ({ fps, kind }) => {
       const recolorManager = RecolorManager.getInstance();
       const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
+      const initialStore = useAppStore.getState() as {
+        layers?: Layer[];
+        sequentialRecord?: { currentFrame?: number };
+        setSequentialFrame?: (frame: number) => void;
+      };
+      const initialSequentialFrame = (
+        hasSequentialExportLayers(initialStore.layers) &&
+        typeof initialStore.setSequentialFrame === 'function'
+      )
+        ? initialStore.sequentialRecord?.currentFrame ?? 0
+        : null;
 
       if (kind !== 'estimate') {
         try {
@@ -549,6 +563,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }
 
       const stepFrame = ({ frameIndex, totalFrames, useAbsolutePhase }: { frameIndex: number; totalFrames: number; useAbsolutePhase: boolean }) => {
+        if (initialSequentialFrame !== null) {
+          try {
+            const store = useAppStore.getState() as {
+              layers?: Layer[];
+              setSequentialFrame?: (frame: number) => void;
+            };
+            if (
+              typeof store.setSequentialFrame === 'function' &&
+              hasSequentialExportLayers(store.layers)
+            ) {
+              store.setSequentialFrame(frameIndex);
+            }
+          } catch {}
+        }
+
         try {
           const store = useAppStore.getState();
           const phase = useAbsolutePhase ? (frameIndex / totalFrames) : null;
@@ -587,6 +616,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       };
 
       const finish = () => {
+        if (initialSequentialFrame !== null) {
+          try {
+            const store = useAppStore.getState() as {
+              setSequentialFrame?: (frame: number) => void;
+            };
+            if (typeof store.setSequentialFrame === 'function') {
+              store.setSequentialFrame(initialSequentialFrame);
+            }
+          } catch {}
+        }
+
         if (kind === 'estimate') return;
         try {
           const store = useAppStore.getState();

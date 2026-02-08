@@ -1,0 +1,187 @@
+import { BrushShape, type Layer, type SequentialStrokeEvent } from '@/types';
+import { setFeatureFlag } from '@/config/featureFlags';
+import {
+  clearSequentialLayerRendererAll,
+  getSequentialLayerRenderCanvas,
+  getSequentialLayerRendererStats,
+} from '@/lib/sequential/SequentialLayerRenderer';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+
+const createEvent = (
+  id: string,
+  frameIndex: number,
+  color: string
+): SequentialStrokeEvent => ({
+  id,
+  layerId: 'layer-seq',
+  strokeId: 'stroke-1',
+  timestampMs: 0,
+  frameIndex,
+  brush: {
+    tool: 'brush',
+    brushShape: BrushShape.ROUND,
+    size: 6,
+    opacity: 1,
+    blendMode: 'source-over',
+    rotation: 0,
+    spacing: 1,
+    color,
+    customStampId: null,
+  },
+  stamps: [{ x: 8, y: 8, pressure: 1, rotation: 0, size: 6, alpha: 1 }],
+});
+
+const createLayer = (events: SequentialStrokeEvent[]): Layer => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+
+  return {
+    id: 'layer-seq',
+    name: 'SEQ',
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    order: 0,
+    imageData: null,
+    framebuffer: canvas,
+    alignment: createDefaultLayerAlignment(),
+    layerType: 'sequential',
+    sequentialData: {
+      frameCount: 2,
+      fps: 12,
+      durationMs: 167,
+      events,
+    },
+  };
+};
+
+const createLayerWithFrameCount = (
+  events: SequentialStrokeEvent[],
+  frameCount: number
+): Layer => {
+  const layer = createLayer(events);
+  return {
+    ...layer,
+    sequentialData: {
+      ...layer.sequentialData!,
+      frameCount,
+      durationMs: Math.round((frameCount * 1000) / Math.max(1, layer.sequentialData?.fps ?? 12)),
+    },
+  };
+};
+
+const readCenterPixel = (
+  canvas: HTMLCanvasElement | OffscreenCanvas
+): [number, number, number, number] => {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return [0, 0, 0, 0];
+  }
+  const sample = ctx.getImageData(8, 8, 1, 1).data;
+  return [sample[0], sample[1], sample[2], sample[3]];
+};
+
+describe('SequentialLayerRenderer', () => {
+  beforeEach(() => {
+    setFeatureFlag('enableSequentialGpuAcceleration', false);
+    clearSequentialLayerRendererAll();
+  });
+
+  afterEach(() => {
+    setFeatureFlag('enableSequentialGpuAcceleration', false);
+  });
+
+  it('materializes frame-specific canvases and updates cache stats', () => {
+    const layer = createLayer([
+      createEvent('f0', 0, '#ff0000'),
+      createEvent('f1', 1, '#00ff00'),
+    ]);
+
+    const frame0 = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+    });
+    expect(frame0).not.toBeNull();
+    const p0 = readCenterPixel(frame0!);
+
+    const frame1 = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 1,
+    });
+    expect(frame1).not.toBeNull();
+    const p1 = readCenterPixel(frame1!);
+    expect(p0[0]).toBeGreaterThan(p0[1]);
+    expect(p1[1]).toBeGreaterThan(p1[0]);
+
+    const statsAfterMisses = getSequentialLayerRendererStats();
+    expect(statsAfterMisses.entries).toBeGreaterThan(0);
+    expect(statsAfterMisses.misses).toBeGreaterThan(0);
+
+    void getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 1,
+    });
+    const statsAfterHit = getSequentialLayerRendererStats();
+    expect(statsAfterHit.hits).toBeGreaterThan(statsAfterMisses.hits);
+  });
+
+  it('falls back to CPU materializer when GPU backend is unavailable', () => {
+    setFeatureFlag('enableSequentialGpuAcceleration', true);
+    const layer = createLayer([createEvent('f0', 0, '#ff0000')]);
+
+    const canvas = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+    });
+
+    expect(canvas).not.toBeNull();
+    const pixel = readCenterPixel(canvas!);
+    expect(pixel[3]).toBeGreaterThan(0);
+    expect(pixel[0]).toBeGreaterThan(pixel[1]);
+  });
+
+  it('keeps sequential frame cache bounded under long multi-frame playback workloads', () => {
+    const frameCount = 220;
+    const events = Array.from({ length: frameCount }, (_, frameIndex) =>
+      createEvent(`f-${frameIndex}`, frameIndex, frameIndex % 2 === 0 ? '#ff0000' : '#00ff00')
+    );
+    const layer = createLayerWithFrameCount(events, frameCount);
+
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+      const canvas = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex,
+      });
+      expect(canvas).not.toBeNull();
+    }
+
+    const statsAfterWarmup = getSequentialLayerRendererStats();
+    expect(statsAfterWarmup.entries).toBeLessThanOrEqual(128);
+
+    for (let frameIndex = frameCount; frameIndex < frameCount + 80; frameIndex += 1) {
+      const canvas = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex,
+      });
+      expect(canvas).not.toBeNull();
+    }
+
+    const statsAfterStress = getSequentialLayerRendererStats();
+    expect(statsAfterStress.entries).toBeLessThanOrEqual(128);
+    expect(statsAfterStress.misses).toBeGreaterThan(0);
+  });
+});

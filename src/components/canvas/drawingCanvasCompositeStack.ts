@@ -1,5 +1,10 @@
 import type { Layer } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
+import { useAppStore } from '@/stores/useAppStore';
+import {
+  getSequentialLayerRenderCanvas,
+  getSequentialLayerRendererStats,
+} from '@/lib/sequential/SequentialLayerRenderer';
 
 interface VisibleRect {
   x: number;
@@ -37,6 +42,16 @@ export const drawVisibleCompositeStack = ({
   compositeBitmap,
   compositeCanvas,
 }: DrawVisibleCompositeStackOptions): DrawVisibleCompositeStackResult => {
+  const storeState = useAppStore.getState() as {
+    project?: { width: number; height: number } | null;
+    sequentialRecord?: { currentFrame?: number };
+    setSequentialFrameCacheStats?: (stats: {
+      frameCacheEntries: number;
+      frameCacheHits?: number;
+      frameCacheMisses?: number;
+    }) => void;
+  };
+
   let invalidCompositeBitmap = false;
   if (!visibleRect) {
     return { invalidCompositeBitmap };
@@ -76,22 +91,56 @@ export const drawVisibleCompositeStack = ({
         return;
       }
 
-      const layer = layerMap.get(segment.layerId);
-      if (!layer || !layer.visible || layer.layerType !== 'color-cycle') {
+      if (segment.kind === 'color-cycle') {
+        const layer = layerMap.get(segment.layerId);
+        if (!layer || !layer.visible || layer.layerType !== 'color-cycle') {
+          return;
+        }
+
+        const layerCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+        if (!layerCanvas) {
+          return;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = segment.opacity;
+        ctx.globalCompositeOperation = segment.blendMode ?? 'source-over';
+        ctx.drawImage(layerCanvas, x, y, width, height, x, y, width, height);
+        ctx.restore();
         return;
       }
 
-      const layerCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
-      if (!layerCanvas) {
+      const layer = layerMap.get(segment.layerId);
+      if (!layer || !layer.visible || layer.layerType !== 'sequential') {
+        return;
+      }
+
+      const projectWidth = storeState.project?.width ?? layer.framebuffer?.width ?? width;
+      const projectHeight = storeState.project?.height ?? layer.framebuffer?.height ?? height;
+      const frameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+      const sequentialCanvas = getSequentialLayerRenderCanvas({
+        layer,
+        width: projectWidth,
+        height: projectHeight,
+        frameIndex,
+      });
+      if (!sequentialCanvas) {
         return;
       }
 
       ctx.save();
       ctx.globalAlpha = segment.opacity;
       ctx.globalCompositeOperation = segment.blendMode ?? 'source-over';
-      ctx.drawImage(layerCanvas, x, y, width, height, x, y, width, height);
+      ctx.drawImage(sequentialCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
       ctx.restore();
     });
+
+    const stats = getSequentialLayerRendererStats();
+    if (typeof storeState.setSequentialFrameCacheStats === 'function') {
+      storeState.setSequentialFrameCacheStats({
+        frameCacheEntries: stats.entries,
+      });
+    }
   }
 
   if (!compositeDrawn && compositeBitmap) {

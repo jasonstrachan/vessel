@@ -4,8 +4,10 @@ import type { AppState, CCReason } from '@/stores/useAppStore';
 import {
   selectColorCycleSuspendDepth,
   selectEffectiveColorCyclePlaying,
+  selectSequentialCaptureActive,
 } from '@/stores/useAppStore';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { clearSharedColorCycleRuntimeConsumer } from '@/hooks/canvas/handlers/colorCycle/colorCyclePlayback';
 
 type PauseAllDeps = {
   pausedCCLayerIdsRef: React.MutableRefObject<string[]>;
@@ -96,6 +98,17 @@ export const pauseColorCycleForNonCCInteraction = ({
     return;
   }
 
+  const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+  if (activeLayer?.layerType === 'sequential') {
+    ccLog('pauseColorCycleForNonCCInteraction skipped (active sequential layer)', { reason });
+    return;
+  }
+
+  if (selectSequentialCaptureActive(state)) {
+    ccLog('pauseColorCycleForNonCCInteraction skipped (sequential capture active)', { reason });
+    return;
+  }
+
   const wasPlaying = isPlaying;
   ccLog('pauseColorCycleForNonCCInteraction', { wasPlaying, reason });
   const pausedAny = pauseAllBrushCCAnimationsNow();
@@ -178,9 +191,14 @@ export const pauseAllBrushCCAnimationsNow = ({
     }
   });
 
-  if (continuousColorCycleAnimationRef.current) {
+  const hadContinuousRuntime =
+    continuousColorCycleAnimationActiveRef.current || continuousColorCycleAnimationRef.current !== null;
+  if (hadContinuousRuntime) {
     continuousColorCycleAnimationActiveRef.current = false;
-    cancelAnimationFrame(continuousColorCycleAnimationRef.current);
+    if (continuousColorCycleAnimationRef.current !== null && continuousColorCycleAnimationRef.current > 0) {
+      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
+    }
+    clearSharedColorCycleRuntimeConsumer(storeRef);
     continuousColorCycleAnimationRef.current = null;
     ccLog('cancel global RAF (pause helper)');
     if (typeof window !== 'undefined') {

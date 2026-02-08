@@ -2,6 +2,10 @@ import type React from 'react';
 import { BrushShape } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
+import {
+  captureSequentialStampsForActiveLayer,
+  createFallbackSequentialStamp,
+} from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 
 export const startNonColorCycleBrushStroke = ({
   currentState,
@@ -24,6 +28,14 @@ export const startNonColorCycleBrushStroke = ({
       to: { x: number; y: number },
       options: { pressure: number; customBrushData?: CustomBrushStrokeData }
     ) => void;
+    consumeRecentStamps?: () => Array<{
+      x: number;
+      y: number;
+      pressure: number;
+      rotation: number;
+      size: number;
+      alpha: number;
+    }>;
   };
   resolveCustomBrushData: (state: AppState) => CustomBrushStrokeData | undefined;
   captureResamplerSingleSample: (args: {
@@ -55,5 +67,21 @@ export const startNonColorCycleBrushStroke = ({
     customBrushData = resamplerBrushDataRef.current ?? customBrushData;
   }
 
+  if (typeof brushEngine.consumeRecentStamps === 'function') {
+    brushEngine.consumeRecentStamps();
+  }
   brushEngine.drawBrush(drawCtx, worldPos, worldPos, { pressure, customBrushData });
+  const emittedStamps =
+    typeof brushEngine.consumeRecentStamps === 'function'
+      ? brushEngine.consumeRecentStamps()
+      : [];
+
+  captureSequentialStampsForActiveLayer({
+    state: currentState,
+    stamps:
+      emittedStamps.length > 0
+        ? emittedStamps
+        : [createFallbackSequentialStamp(worldPos, pressure, currentState.tools.brushSettings)],
+    customBrushData,
+  });
 };

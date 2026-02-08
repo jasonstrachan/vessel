@@ -1,5 +1,11 @@
 import type { StateCreator } from 'zustand';
-import type { CanvasSnapshot, Layer, LayerAlignmentSettings, Project } from '@/types';
+import type {
+  CanvasSnapshot,
+  Layer,
+  LayerAlignmentSettings,
+  Project,
+  SequentialStrokeEvent,
+} from '@/types';
 import { cloneLayerAlignment, normalizeLayers } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { clamp } from '@/utils/num';
@@ -18,6 +24,12 @@ import {
   type ColorCycleBrushManager,
 } from '@/stores/colorCycleBrushManager';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
+import {
+  clearSequentialLayerRendererAll,
+  clearSequentialLayerRendererLayer,
+  getSequentialLayerRenderCanvas,
+  getSequentialLayerRendererStats,
+} from '@/lib/sequential/SequentialLayerRenderer';
 import type {
   CommitLayerStructureHistoryOptions,
   LayerHistorySnapshotOptions,
@@ -43,7 +55,18 @@ type ColorCycleCompositeSegment = {
   opacity: number;
 };
 
-export type CompositeSegment = StaticCompositeSegment | ColorCycleCompositeSegment;
+type SequentialCompositeSegment = {
+  kind: 'sequential';
+  id: string;
+  layerId: string;
+  blendMode: GlobalCompositeOperation;
+  opacity: number;
+};
+
+export type CompositeSegment =
+  | StaticCompositeSegment
+  | ColorCycleCompositeSegment
+  | SequentialCompositeSegment;
 
 const normalizeCaptureROI = (
   roi: CaptureROI | undefined,
@@ -980,6 +1003,11 @@ export interface LayersSlice {
   duplicateLayer: (layerId: string) => string | null;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
+  appendSequentialLayerEvent: (
+    layerId: string,
+    event: SequentialStrokeEvent,
+    metadata: { frameCount: number; fps: number; durationMs: number }
+  ) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   mergeLayers: (layerIds: string[]) => string | null;
   setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
@@ -1139,7 +1167,11 @@ export const createLayersSlice = (
       }
 
       for (const layer of sortedLayers) {
-        if (!layer.visible || layer.layerType === 'color-cycle') {
+        if (
+          !layer.visible ||
+          layer.layerType === 'color-cycle' ||
+          layer.layerType === 'sequential'
+        ) {
           continue;
         }
         let source: CanvasImageSource | null = null;
@@ -1172,6 +1204,48 @@ export const createLayersSlice = (
 
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
+    };
+
+    const drawSequentialLayers = (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      sortedLayers: Layer[],
+      project: Project,
+      frameIndex: number
+    ): boolean => {
+      let drewLayer = false;
+
+      for (const layer of sortedLayers) {
+        if (
+          !layer.visible ||
+          layer.layerType !== 'sequential' ||
+          !layer.sequentialData
+        ) {
+          continue;
+        }
+
+        const source = getSequentialLayerRenderCanvas({
+          layer,
+          width: project.width,
+          height: project.height,
+          frameIndex,
+        });
+        if (!source) {
+          continue;
+        }
+
+        try {
+          ctx.globalCompositeOperation = layer.blendMode;
+          ctx.globalAlpha = layer.opacity;
+          ctx.drawImage(source as CanvasImageSource, 0, 0);
+          drewLayer = true;
+        } catch {
+          // ignore transient draw failures
+        }
+      }
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      return drewLayer;
     };
 
     const drawColorCycleLayers = (
@@ -1348,6 +1422,7 @@ export const createLayersSlice = (
         }));
       },
       setLayers: (incomingLayers) => {
+        clearSequentialLayerRendererAll();
         set((state) => {
           const normalized = normalizeLayers(
             incomingLayers.map((layer, index) => ({
@@ -1430,6 +1505,15 @@ export const createLayersSlice = (
         hasCC: !!l.colorCycleData
       }));
       
+      const resolvedLayerType = layer.layerType || (
+        (logError('CRITICAL: Layer missing layerType!', {
+          layerId: newLayerId?.substring(0, 20),
+          hasColorCycleData: !!layer.colorCycleData,
+          fallbackToNormal: true
+        }),
+        'normal')
+      );
+
       const newLayer = {
         ...layer,
         id: newLayerId,
@@ -1438,14 +1522,17 @@ export const createLayersSlice = (
         alignment: cloneLayerAlignment(layer.alignment),
         transparencyLocked: layer.transparencyLocked === true,
         // CRITICAL: Preserve layerType EXACTLY - DO NOT convert CC layers to normal!
-        layerType: layer.layerType || (
-          (logError('CRITICAL: Layer missing layerType!', {
-            layerId: newLayerId?.substring(0, 20),
-            hasColorCycleData: !!layer.colorCycleData,
-            fallbackToNormal: true
-          }),
-          'normal')
-        )
+        layerType: resolvedLayerType,
+        sequentialData: resolvedLayerType === 'sequential'
+          ? {
+              frameCount: layer.sequentialData?.frameCount ?? 12,
+              fps: layer.sequentialData?.fps ?? 12,
+              durationMs:
+                layer.sequentialData?.durationMs ??
+                Math.round(((layer.sequentialData?.frameCount ?? 12) * 1000) / (layer.sequentialData?.fps ?? 12)),
+              events: layer.sequentialData?.events ?? [],
+            }
+          : layer.sequentialData
       };
       
       // Insert the new layer directly ABOVE the currently active layer
@@ -1692,6 +1779,7 @@ export const createLayersSlice = (
     return newLayerId;
   },
   removeLayer: (id) => {
+    clearSequentialLayerRendererLayer(id);
     const stateBeforeRemove = get();
     const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeRemove, {
       actionType: 'layer-remove',
@@ -1751,6 +1839,9 @@ export const createLayersSlice = (
     runSlotRebuild(reason);
   },
   updateLayer: (id, updates, options?: UpdateLayerOptions) => {
+    if ('layerType' in updates && updates.layerType !== 'sequential') {
+      clearSequentialLayerRendererLayer(id);
+    }
     set((state) => {
     const logCC =
       process.env.NODE_ENV !== 'production' &&
@@ -1972,6 +2063,39 @@ export const createLayersSlice = (
     });
     get().markCompositeSegmentsDirtyByLayerIds([id]);
   },
+  appendSequentialLayerEvent: (layerId, event, metadata) => {
+    set((state) => {
+      let changed = false;
+      const nextLayers = state.layers.map((layer) => {
+        if (layer.id !== layerId || layer.layerType !== 'sequential') {
+          return layer;
+        }
+
+        changed = true;
+        const previousSequentialData = layer.sequentialData;
+        const nextEvents = [...(previousSequentialData?.events ?? []), event];
+        return {
+          ...layer,
+          sequentialData: {
+            frameCount: Math.max(1, Math.round(metadata.frameCount)),
+            fps: Math.max(1, Math.round(metadata.fps)),
+            durationMs: Math.max(1, Math.round(metadata.durationMs)),
+            events: nextEvents,
+          },
+        };
+      });
+
+      if (!changed) {
+        return state;
+      }
+
+      return {
+        layers: nextLayers,
+        layersNeedRecomposition: true,
+      };
+    });
+    get().markCompositeSegmentsDirtyByLayerIds([layerId]);
+  },
   setSelectedLayerIds: (layerIds) => set((state) => {
     const validIds = layerIds.filter((layerId, index, list) => {
       return list.indexOf(layerId) === index && state.layers.some(layer => layer.id === layerId);
@@ -2003,6 +2127,7 @@ export const createLayersSlice = (
       }
 
       const sortedByOrder = [...layersToMerge].sort((a, b) => a.order - b.order);
+      const sequentialFrameIndex = state.sequentialRecord.currentFrame;
       const anchorOrder = (() => {
         const anchorId = uniqueIds[0];
         const anchorLayer = state.layers.find(layer => layer.id === anchorId);
@@ -2070,6 +2195,29 @@ export const createLayersSlice = (
               ctx.drawImage(ccCanvas as CanvasImageSource, 0, 0, projectWidth, projectHeight);
             } catch (error) {
               logError('[mergeLayers] Failed to draw CC layer', error);
+            }
+          }
+          return;
+        }
+
+        if (layer.layerType === 'sequential' && layer.sequentialData) {
+          const sequentialCanvas = getSequentialLayerRenderCanvas({
+            layer,
+            width: projectWidth,
+            height: projectHeight,
+            frameIndex: sequentialFrameIndex,
+          });
+          if (sequentialCanvas) {
+            try {
+              ctx.drawImage(
+                sequentialCanvas as CanvasImageSource,
+                0,
+                0,
+                projectWidth,
+                projectHeight
+              );
+            } catch (error) {
+              logError('[mergeLayers] Failed to draw sequential layer', error);
             }
           }
           return;
@@ -2148,6 +2296,10 @@ export const createLayersSlice = (
 
     if (!mergedLayerId) {
       return null;
+    }
+
+    for (const sourceLayerId of layerIds) {
+      clearSequentialLayerRendererLayer(sourceLayerId);
     }
 
     const stateAfterMerge = get();
@@ -2811,6 +2963,18 @@ export const createLayersSlice = (
         }
         drawStaticLayers(ctx, sortedLayers, state.project!);
         drawColorCycleLayers(ctx, sortedLayers, state.project!, colorCycleBrushManager, { clear: false });
+        drawSequentialLayers(
+          ctx,
+          sortedLayers,
+          state.project!,
+          get().sequentialRecord.currentFrame
+        );
+        const stats = getSequentialLayerRendererStats();
+        get().setSequentialFrameCacheStats({
+          frameCacheEntries: stats.entries,
+          frameCacheHits: stats.hits,
+          frameCacheMisses: stats.misses,
+        });
       };
 
       const renderWithFallback = () => {
@@ -2890,6 +3054,12 @@ export const createLayersSlice = (
             layerId: string;
             blendMode: GlobalCompositeOperation;
             opacity: number;
+          }
+        | {
+            kind: 'sequential';
+            layerId: string;
+            blendMode: GlobalCompositeOperation;
+            opacity: number;
           };
 
       const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
@@ -2932,6 +3102,16 @@ export const createLayersSlice = (
           flushStaticSegment();
           descriptors.push({
             kind: 'color-cycle',
+            layerId: layer.id,
+            blendMode: layer.blendMode,
+            opacity: layer.opacity,
+          });
+          continue;
+        }
+        if (layer.layerType === 'sequential') {
+          flushStaticSegment();
+          descriptors.push({
+            kind: 'sequential',
             layerId: layer.id,
             blendMode: layer.blendMode,
             opacity: layer.opacity,
@@ -2993,6 +3173,9 @@ export const createLayersSlice = (
           if (descriptor.kind === 'color-cycle' && segment.kind === 'color-cycle') {
             return segment.layerId === descriptor.layerId;
           }
+          if (descriptor.kind === 'sequential' && segment.kind === 'sequential') {
+            return segment.layerId === descriptor.layerId;
+          }
           return false;
         });
 
@@ -3010,11 +3193,22 @@ export const createLayersSlice = (
           return makeStaticSegment(descriptor, index);
         }
         if (structuresMatch) {
-          const previous = state.compositeSegments[index] as ColorCycleCompositeSegment;
+          const previous = state.compositeSegments[index] as
+            | ColorCycleCompositeSegment
+            | SequentialCompositeSegment;
           return {
             ...previous,
             blendMode: descriptor.blendMode,
             opacity: descriptor.opacity
+          };
+        }
+        if (descriptor.kind === 'sequential') {
+          return {
+            kind: 'sequential',
+            id: `seq-${descriptor.layerId}-${index}`,
+            layerId: descriptor.layerId,
+            blendMode: descriptor.blendMode,
+            opacity: descriptor.opacity,
           };
         }
         return {
@@ -3048,7 +3242,12 @@ export const createLayersSlice = (
         }
         for (const layerId of layerIds) {
           const layer = layerLookup.get(layerId);
-          if (!layer || !layer.visible || layer.layerType === 'color-cycle') {
+          if (
+            !layer ||
+            !layer.visible ||
+            layer.layerType === 'color-cycle' ||
+            layer.layerType === 'sequential'
+          ) {
             continue;
           }
           let source: CanvasImageSource | null = null;

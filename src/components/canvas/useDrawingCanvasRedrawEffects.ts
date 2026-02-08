@@ -129,10 +129,12 @@ export const useDrawingCanvasRedrawEffects = ({
 
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
     window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrame);
+    window.addEventListener('vessel:animationFrameUpdate', handleColorCycleFrame);
 
     return () => {
       window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
       window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrame);
+      window.removeEventListener('vessel:animationFrameUpdate', handleColorCycleFrame);
     };
   }, [refreshColorCycleSegments, setNeedsRedraw, canvasRef, drawRef, viewTransformRef]);
 

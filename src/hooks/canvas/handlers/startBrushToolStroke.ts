@@ -5,6 +5,10 @@ import { getColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFla
 import { startUserBrushStroke } from '@/hooks/canvas/handlers/startUserBrushStroke';
 import { startColorCycleStroke } from '@/hooks/canvas/handlers/startColorCycleStroke';
 import { startNonColorCycleBrushStroke } from '@/hooks/canvas/handlers/startBrushStroke';
+import {
+  captureSequentialStampsForActiveLayer,
+  createFallbackSequentialStamp,
+} from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 
@@ -108,6 +112,10 @@ export const startBrushToolStroke = ({
       worldPos,
       pressure,
     });
+    captureSequentialStampsForActiveLayer({
+      state: currentState,
+      stamps: [createFallbackSequentialStamp(worldPos, pressure, currentState.tools.brushSettings)],
+    });
     return;
   }
 
@@ -118,6 +126,32 @@ export const startBrushToolStroke = ({
   const customBrushData = resolveCustomBrushData(currentState);
   const ccStrokeFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
   if (ccStrokeFlags.isAny) {
+    const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
+    if (activeLayer?.layerType === 'sequential') {
+      const usingCustomStamp = ccStrokeFlags.isCustom;
+      const stampData = usingCustomStamp
+        ? customBrushData ?? resamplerBrushDataRef.current
+        : undefined;
+      if (usingCustomStamp && !stampData) {
+        return;
+      }
+
+      drawCtx.globalCompositeOperation = 'source-over';
+      drawCtx.globalAlpha = 1;
+      brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, 0, stampData
+        ? { customStamp: stampData }
+        : undefined);
+      colorCycleLastPosRef.current = worldPos;
+      colorCycleDistanceRef.current = 0;
+      colorCycleLastRotationRef.current = 0;
+      captureSequentialStampsForActiveLayer({
+        state: currentState,
+        stamps: [createFallbackSequentialStamp(worldPos, pressure, currentState.tools.brushSettings)],
+        customBrushData: stampData,
+      });
+      return;
+    }
+
     startColorCycleStroke({
       currentState,
       worldPos,

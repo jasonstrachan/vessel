@@ -486,64 +486,68 @@ export const estimateExport = async (
     useAbsolutePhase: options.autoFrames
   });
 
-  let captured = 0;
-  for (let i = 0; i < totalFrames; i++) {
-    if (signal?.aborted) {
-      return { paletteSize: null, estimatedBytes: null };
-    }
-    if (sampleIndices.has(i)) {
-      animationSession?.stepFrame({
-        frameIndex: i,
-        totalFrames,
-        useAbsolutePhase: options.autoFrames
-      });
-      const img = renderFrameToScaled(frameProvider, targets);
-      frames.push(img);
-      const data = img.data;
-      for (let p = 0; p < data.length; p += 4) {
-        const a = data[p + 3];
-        if (a <= ALPHA_THRESHOLD) { usesTransparency = true; continue; }
-        usedRGB.add((data[p] << 16) | (data[p + 1] << 8) | data[p + 2]);
-      }
-      captured += 1;
-      if (captured >= sampleFrames) break;
-    }
-    animationSession?.advanceFrame?.();
-  }
-
-  const { palette, paletteSize } = sampleGifPalette(frames, options, usedRGB, usesTransparency);
-
   try {
-    const enc = GIFEncoder();
-    const tIndex = palette.findIndex((c) => (c.length >= 4 && c[3] === 0));
-    for (const img of frames) {
-      let index: Uint8Array;
-      if (options.ditherMethod === 'none') {
-        index = applyPalette(img.data, toGifPalette(palette));
-        if (tIndex >= 0) {
-          for (let p = 0, px = 0; p < img.data.length; p += 4, px++) {
-            if (img.data[p + 3] <= ALPHA_THRESHOLD) index[px] = tIndex;
-          }
-        }
-      } else {
-        index = mapToIndexedWithDithering(
-          img.data, targets.scaledWidth, targets.scaledHeight, palette,
-          { method: options.ditherMethod, strength: options.ditherStrength, alphaThreshold: ALPHA_THRESHOLD }
-        );
+    let captured = 0;
+    for (let i = 0; i < totalFrames; i++) {
+      if (signal?.aborted) {
+        return { paletteSize: null, estimatedBytes: null };
       }
-      enc.writeFrame(index, targets.scaledWidth, targets.scaledHeight, {
-        palette: toGifPalette(palette),
-        delay: Math.round(1000 / fps),
-        repeat: options.repeat,
-        transparentIndex: tIndex >= 0 ? tIndex : undefined,
-      });
+      if (sampleIndices.has(i)) {
+        animationSession?.stepFrame({
+          frameIndex: i,
+          totalFrames,
+          useAbsolutePhase: options.autoFrames
+        });
+        const img = renderFrameToScaled(frameProvider, targets);
+        frames.push(img);
+        const data = img.data;
+        for (let p = 0; p < data.length; p += 4) {
+          const a = data[p + 3];
+          if (a <= ALPHA_THRESHOLD) { usesTransparency = true; continue; }
+          usedRGB.add((data[p] << 16) | (data[p + 1] << 8) | data[p + 2]);
+        }
+        captured += 1;
+        if (captured >= sampleFrames) break;
+      }
+      animationSession?.advanceFrame?.();
     }
-    enc.finish();
-    const size = enc.bytes().length;
-    const estimatedBytes = Math.max(1, Math.round(size * (totalFrames / Math.max(1, frames.length))));
-    return { paletteSize, estimatedBytes };
-  } catch {
-    return { paletteSize, estimatedBytes: null };
+
+    const { palette, paletteSize } = sampleGifPalette(frames, options, usedRGB, usesTransparency);
+
+    try {
+      const enc = GIFEncoder();
+      const tIndex = palette.findIndex((c) => (c.length >= 4 && c[3] === 0));
+      for (const img of frames) {
+        let index: Uint8Array;
+        if (options.ditherMethod === 'none') {
+          index = applyPalette(img.data, toGifPalette(palette));
+          if (tIndex >= 0) {
+            for (let p = 0, px = 0; p < img.data.length; p += 4, px++) {
+              if (img.data[p + 3] <= ALPHA_THRESHOLD) index[px] = tIndex;
+            }
+          }
+        } else {
+          index = mapToIndexedWithDithering(
+            img.data, targets.scaledWidth, targets.scaledHeight, palette,
+            { method: options.ditherMethod, strength: options.ditherStrength, alphaThreshold: ALPHA_THRESHOLD }
+          );
+        }
+        enc.writeFrame(index, targets.scaledWidth, targets.scaledHeight, {
+          palette: toGifPalette(palette),
+          delay: Math.round(1000 / fps),
+          repeat: options.repeat,
+          transparentIndex: tIndex >= 0 ? tIndex : undefined,
+        });
+      }
+      enc.finish();
+      const size = enc.bytes().length;
+      const estimatedBytes = Math.max(1, Math.round(size * (totalFrames / Math.max(1, frames.length))));
+      return { paletteSize, estimatedBytes };
+    } catch {
+      return { paletteSize, estimatedBytes: null };
+    }
+  } finally {
+    animationSession?.finish?.();
   }
 };
 

@@ -243,6 +243,7 @@ export const useDrawingCanvasBaseRenderer = ({
           !underCompositeHasContentRef.current ||
           compositeCanvasDirtyRef.current ||
           activeLayer?.layerType === 'color-cycle' ||
+          activeLayer?.layerType === 'sequential' ||
           anyAnimatingColorCycle;
 
         if (requiresLiveRefresh) {

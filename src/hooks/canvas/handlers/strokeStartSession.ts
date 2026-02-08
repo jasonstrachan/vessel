@@ -4,6 +4,7 @@ import type { Tool } from '@/types';
 
 export const beginStrokeStartSession = ({
   isPointerDownRef,
+  onPointerDownChange,
   beginStrokeSession,
   activeLayerId,
   currentTool,
@@ -11,6 +12,7 @@ export const beginStrokeStartSession = ({
   ensureOverlayInitialized,
 }: {
   isPointerDownRef: React.MutableRefObject<boolean>;
+  onPointerDownChange?: (isDown: boolean) => void;
   beginStrokeSession: (args: {
     pointerId: number;
     layerId: string | null;
@@ -23,6 +25,7 @@ export const beginStrokeStartSession = ({
   ensureOverlayInitialized: () => void;
 }): void => {
   isPointerDownRef.current = true;
+  onPointerDownChange?.(true);
   beginStrokeSession({
     pointerId: 0,
     layerId: activeLayerId ?? null,

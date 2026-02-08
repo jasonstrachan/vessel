@@ -1,7 +1,38 @@
 # Plan: CC-Native Sequential Record Mode
 
 Date: 2026-02-07
-Status: Proposed (updated after architecture review)
+Status: In progress (implementation largely complete as of 2026-02-08)
+
+## Implementation Status (2026-02-08)
+- Completed: Step 0, Step 1, Step 2, Step 3, Step 4, Step 5, Step 6, Step 7, Step 8, Step 9, Step 10.
+- Partial: Step 11 performance hardening is implemented at the code guardrail level (payload budget bounds, cache stats hooks, shared runtime consumer cleanup, bounded frame-cache stress test, per-tick large-delta frame-advance cap coverage), but manual benchmark target sign-off remains.
+- Validation snapshot:
+  - `npm run type-check` passes.
+  - `npm run lint` passes.
+  - Sequential-focused suites pass, including shared-runtime integration, bounded-cache stress coverage, and perf-smoke benchmarking.
+- Perf-smoke command:
+  - `npm run perf:sequential`
+- Manual sign-off checklist:
+  - `docs/perf/sequential-signoff.md`
+- Manual sign-off probe (dev build):
+  - `window.vesselSequentialPerf.getSnapshot()`
+  - `window.vesselSequentialPerf.printSnapshot()`
+  - `window.vesselSequentialPerf.resetMetrics()`
+  - `window.vesselSequentialPerf.recordSample()`
+  - `window.vesselSequentialPerf.summarizeSamples()`
+- Latest perf-smoke sample (2026-02-08 local run):
+  - `baseline-1024`: avg `0.406ms`, p95 `1.323ms`, max `3.374ms`, cache hit `100%`.
+  - `stress-2048x1536`: avg `0.545ms`, p95 `1.855ms`, max `3.405ms`, cache hit `100%`.
+  - `cold-miss-1024`: avg `3.774ms`, p95 `5.326ms`, max `6.538ms`, cache hit `0%` (expected miss stress path).
+- Perf-smoke enforced budgets (`SequentialPerformance.smoke`):
+  - avg frame materialization path under `33.333ms`.
+  - p95 under `50ms`.
+  - hot-cache scenarios require cache hit rate >= `80%`.
+  - cold-miss scenario requires cache misses > `0` and hit-rate < `20%`.
+- Remaining to fully close Step 11:
+  - Manual interactive benchmark/sign-off in browser for the product-level target:
+    - 30 FPS recording perception on representative canvases and brush families.
+    - Capture `vesselSequentialPerf` snapshots before/after a 2-minute sequential recording session and attach to PR notes.
 
 ## Goal
 Implement sequential capture in Vessel where users draw while frames advance, producing moving brush stamps, with smooth performance and minimal architectural entanglement.

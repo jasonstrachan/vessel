@@ -227,6 +227,7 @@ import type {
   ColorAdjustState,
   ColorAdjustParams,
   PaletteState,
+  SequentialStrokeEvent,
 } from '@/types';
 import { BrushShape } from '@/types';
 import { createCustomBrushPersistence } from '@/stores/helpers/customBrushPersistence';
@@ -237,6 +238,8 @@ import {
 } from '@/stores/helpers/toolsState';
 import { createColorCycleSlice } from '@/stores/slices/colorCycleSlice';
 import type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
+import { createSequentialRecordSlice } from '@/stores/slices/sequentialRecordSlice';
+import type { SequentialRecordSlice, SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
 import { createHistorySlice } from '@/stores/slices/historySlice';
 import { createLayersSlice } from '@/stores/slices/layersSlice';
 import type { CompositeSegment, UpdateLayerOptions } from '@/stores/slices/layersSlice';
@@ -267,6 +270,7 @@ import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
 import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
+export type { SequentialRecordSlice, SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
 
 
 
@@ -292,6 +296,19 @@ export interface AppState {
   withColorCycleSuspended: <T>(reason: CCReason, fn: () => T | Promise<T>) => Promise<T>;
   colorCycleRuntimeHandlers: ColorCycleRuntimeHandlers;
   setColorCycleRuntimeHandlers: (handlers: ColorCycleRuntimeHandlers | null) => void;
+
+  // Sequential record state
+  sequentialRecord: SequentialRecordState;
+  setRecordFPS: SequentialRecordSlice['setRecordFPS'];
+  setRecordFrameCount: SequentialRecordSlice['setRecordFrameCount'];
+  setTimeSmear: SequentialRecordSlice['setTimeSmear'];
+  stepSequentialFrame: SequentialRecordSlice['stepSequentialFrame'];
+  setSequentialFrame: SequentialRecordSlice['setSequentialFrame'];
+  setSequentialPointerDown: SequentialRecordSlice['setSequentialPointerDown'];
+  setSequentialCaptureActive: SequentialRecordSlice['setSequentialCaptureActive'];
+  recordSequentialRuntimeTick: SequentialRecordSlice['recordSequentialRuntimeTick'];
+  setSequentialFrameCacheStats: SequentialRecordSlice['setSequentialFrameCacheStats'];
+  resetSequentialRuntimeMetrics: SequentialRecordSlice['resetSequentialRuntimeMetrics'];
   
   // Layer composition trigger
   layersNeedRecomposition: boolean;
@@ -526,6 +543,11 @@ export interface AppState {
   duplicateLayer: (id: string) => string | null;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
+  appendSequentialLayerEvent: (
+    layerId: string,
+    event: SequentialStrokeEvent,
+    metadata: { frameCount: number; fps: number; durationMs: number }
+  ) => void;
   mergeLayers: (layerIds: string[]) => string | null;
   setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
   setLayers: (layers: Layer[]) => void;
@@ -647,6 +669,7 @@ export const useAppStore = createVesselStore<AppState>(
 
       setActiveHistoryDocument('default-project');
       const colorCycleSlice = createColorCycleSlice(set, get, store);
+      const sequentialRecordSlice = createSequentialRecordSlice(set, get, store);
 
       const historySlice = createHistorySlice({
         runWithColorCycleSuspended: colorCycleSlice.withColorCycleSuspended,
@@ -691,6 +714,7 @@ export const useAppStore = createVesselStore<AppState>(
         ...shapeFillSlice,
         ...colorAdjustSlice,
         ...colorCycleSlice,
+        ...sequentialRecordSlice,
         ...paletteSlice,
         ...autosaveSlice,
         selectLayerAlpha: selectionSlice.selectLayerAlpha,
@@ -708,6 +732,23 @@ export const selectColorCycleSuspendDepth = (state: AppState): number =>
   state.colorCyclePlayback.suspendDepth;
 export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>
   state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0;
+export const selectSequentialRecordState = (state: AppState): SequentialRecordState =>
+  state.sequentialRecord;
+export const selectSequentialPlaybackActive = (state: AppState): boolean => {
+  if (!selectColorCycleDesiredPlaying(state)) {
+    return false;
+  }
+  const activeLayerId = state.activeLayerId;
+  if (!activeLayerId) {
+    return false;
+  }
+  const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
+  return activeLayer?.layerType === 'sequential';
+};
+export const selectSequentialCaptureActive = (state: AppState): boolean =>
+  selectSequentialPlaybackActive(state) && state.sequentialRecord.isPointerDown;
+export const selectGlobalAnimationActive = (state: AppState): boolean =>
+  selectEffectiveColorCyclePlaying(state) || selectSequentialPlaybackActive(state);
 export const selectActivePaletteColor = (state: AppState): string =>
   state.palette.activeSlot === 'background'
     ? state.palette.backgroundColor

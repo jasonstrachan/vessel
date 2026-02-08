@@ -4,6 +4,8 @@
 import type {
   Project,
   Layer,
+  SequentialLayerData,
+  SequentialStrokeEvent,
   CustomBrush,
   BrushSettings,
   LayerAlignmentSettings,
@@ -16,6 +18,11 @@ import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/util
 import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import {
+  decodeSequentialChunksToEvents,
+  encodeSequentialEventsToChunks,
+  type SerializedSequentialStrokeChunkV1,
+} from '@/lib/sequential/SequentialStrokeChunk';
 import {
   LEGACY_PROJECT_FILE_EXTENSION,
   LEGACY_PROJECT_FILE_MIME,
@@ -135,6 +142,41 @@ const migrateLegacyColorCycleEncoding = (layers: Layer[], version: string) => {
       });
     }
   }
+};
+
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+};
+
+const sanitizeSequentialLayerData = (
+  data: SerializedSequentialLayerData | SequentialLayerData | undefined
+): SequentialLayerData => {
+  const frameCount = Math.max(1, Math.round(toFiniteNumber(data?.frameCount, 12)));
+  const fps = Math.max(1, Math.round(toFiniteNumber(data?.fps, 12)));
+  const durationMs = Math.max(1, Math.round(toFiniteNumber(data?.durationMs, Math.round((frameCount * 1000) / fps))));
+  let events = Array.isArray(data?.events) ? data.events : [];
+  const serializedChunkData =
+    data && typeof data === 'object' && 'chunks' in data
+      ? (data as SerializedSequentialLayerData)
+      : null;
+  if (events.length === 0 && Array.isArray(serializedChunkData?.chunks) && serializedChunkData.chunks.length > 0) {
+    try {
+      events = decodeSequentialChunksToEvents({
+        chunks: serializedChunkData.chunks,
+        brushSnapshots: serializedChunkData.brushSnapshots,
+      });
+    } catch (error) {
+      console.warn('[projectIO] Failed to decode sequential chunks, falling back to empty events:', error);
+      events = [];
+    }
+  }
+
+  return {
+    frameCount,
+    fps,
+    durationMs,
+    events,
+  };
 };
 
 export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
@@ -267,10 +309,20 @@ interface SerializedLayer {
   transparencyLocked?: boolean;
   order: number;
   imageDataUrl: string; // Base64 encoded ImageData
-  layerType?: 'normal' | 'color-cycle' | 'colorCycle';
+  layerType?: 'normal' | 'color-cycle' | 'colorCycle' | 'sequential';
   alignment?: LayerAlignmentSettings;
   colorCycleData?: SerializedColorCycleLayerData;
+  sequentialData?: SerializedSequentialLayerData;
 }
+
+type SerializedSequentialLayerData = {
+  frameCount: number;
+  fps: number;
+  durationMs: number;
+  events?: SequentialLayerData['events'] | null;
+  chunks?: SerializedSequentialStrokeChunkV1[];
+  brushSnapshots?: Record<string, SequentialStrokeEvent['brush']>;
+};
 
 type SerializedColorMapEntry = [number, number];
 
@@ -1035,7 +1087,22 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
 
     serialized.colorCycleData = serializedColorCycle;
   }
-  
+
+  if (layer.layerType === 'sequential') {
+    const sanitized = sanitizeSequentialLayerData(layer.sequentialData);
+    const encoded = encodeSequentialEventsToChunks({
+      layerId: layer.id,
+      fps: sanitized.fps,
+      frameCount: sanitized.frameCount,
+      events: sanitized.events,
+    });
+    serialized.sequentialData = {
+      ...sanitized,
+      chunks: encoded.chunks,
+      brushSnapshots: encoded.brushSnapshots,
+    };
+  }
+
   return serialized;
 }
 
@@ -1198,6 +1265,10 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     ),
     version: Date.now()
   };
+
+  if (layer.layerType === 'sequential') {
+    layer.sequentialData = sanitizeSequentialLayerData(serializedLayer.sequentialData);
+  }
 
   if (imageData) {
     try {

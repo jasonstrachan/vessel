@@ -21,8 +21,13 @@ export const runFinalizeColorCycleBrush = async ({
   drawingCanvas: HTMLCanvasElement | null;
   drawingCtx: CanvasRenderingContext2D | null;
   baseDeps: FinalizeColorCycleBrushBaseDeps;
-}): Promise<{ shouldReturn: boolean }> =>
-  finalizeColorCycleBrush(
+}): Promise<{ shouldReturn: boolean }> => {
+  const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
+  if (activeLayer?.layerType !== 'color-cycle') {
+    return { shouldReturn: false };
+  }
+
+  return finalizeColorCycleBrush(
     {
       activeFlags: getColorCycleBrushFlags(activeSettings),
       activeSettings,
@@ -34,3 +39,4 @@ export const runFinalizeColorCycleBrush = async ({
       drawingCtx,
     })
   );
+};

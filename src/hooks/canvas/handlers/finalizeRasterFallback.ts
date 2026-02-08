@@ -62,6 +62,11 @@ export const handleFinalizeRasterFallback = async (
     return false;
   }
 
+  if (activeLayer.layerType === 'sequential') {
+    // Sequential layers are event-log based; history commits run through sequential deltas.
+    return false;
+  }
+
   if (!skipSave && !layerBeforeImage) {
     deps.logError('[finalize] brush beforeImage missing; skipping history to avoid destructive undo.');
     return true;

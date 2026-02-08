@@ -1,6 +1,11 @@
 import type React from 'react';
 import { useCallback } from 'react';
 import { BrushShape, type Layer } from '@/types';
+import { useAppStore } from '@/stores/useAppStore';
+import {
+  getSequentialLayerRenderCanvas,
+  getSequentialLayerRendererStats,
+} from '@/lib/sequential/SequentialLayerRenderer';
 
 interface UseDrawingCanvasLayerRenderingOptions {
   project: { width: number; height: number; backgroundColor?: string | null } | null;
@@ -26,6 +31,15 @@ export const useDrawingCanvasLayerRendering = ({
 
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
     const activeId = activeLayerId;
+    const storeState = useAppStore.getState() as {
+      sequentialRecord?: { currentFrame?: number };
+      setSequentialFrameCacheStats?: (stats: {
+        frameCacheEntries: number;
+        frameCacheHits?: number;
+        frameCacheMisses?: number;
+      }) => void;
+    };
+    const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
     const isPixelatedDisplay = displayMode === 'pixelated';
     const shouldSmooth = !isPixelatedDisplay && !(
       brushShape === BrushShape.PIXEL_ROUND ||
@@ -68,6 +82,20 @@ export const useDrawingCanvasLayerRendering = ({
           ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
         } catch {
           // ignore transient color cycle draw errors
+        }
+      } else if (layer.layerType === 'sequential' && layer.sequentialData) {
+        const source = getSequentialLayerRenderCanvas({
+          layer,
+          width: project.width,
+          height: project.height,
+          frameIndex: sequentialFrameIndex,
+        });
+        if (source) {
+          try {
+            ctx.drawImage(source as CanvasImageSource, 0, 0);
+          } catch {
+            // ignore transient draw errors
+          }
         }
       } else if (layer.framebuffer) {
         try {
@@ -112,5 +140,12 @@ export const useDrawingCanvasLayerRendering = ({
     }
 
     ctx.restore();
+
+    const stats = getSequentialLayerRendererStats();
+    if (typeof storeState.setSequentialFrameCacheStats === 'function') {
+      storeState.setSequentialFrameCacheStats({
+        frameCacheEntries: stats.entries,
+      });
+    }
   }, [activeLayerId, antialiasing, brushShape, displayMode, layerTransferCacheRef, layers, project]);
 };

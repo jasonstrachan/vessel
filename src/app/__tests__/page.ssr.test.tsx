@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { autosaveService as mockAutosaveService } from '@/utils/autosave';
-import Home from '../page';
+import Home from '../HomeClient';
 
 function createMockComponent<P extends Record<string, unknown> = Record<string, never>>(
   testId: string,

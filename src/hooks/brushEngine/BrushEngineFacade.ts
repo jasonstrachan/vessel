@@ -3,7 +3,7 @@
  * Simplified interface that combines all brush engine modules
  */
 
-import { BrushShape, type BrushSettings, type CustomBrush } from '@/types';
+import { BrushShape, type BrushSettings, type CustomBrush, type SequentialStampPoint } from '@/types';
 import { createStrokeProcessor } from './strokeProcessor';
 import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencies } from './shapes';
 import { createBrushUtilities } from './utilities';
@@ -94,6 +94,10 @@ export class BrushEngineFacade {
   private customColorCyclePhase = 0;
   private lastCustomColorCycleEnabled = false;
   private lastCustomGradientHash = '';
+  private recentStamps: SequentialStampPoint[] = [];
+  private stampTrackingActive = false;
+  private trackedStampPressure = 1;
+  private trackedStampAlpha = 1;
 
   constructor(config: BrushEngineConfig) {
     this.config = config;
@@ -123,7 +127,9 @@ export class BrushEngineFacade {
       getNextSpamChar: this.getNextSpamChar.bind(this)
     };
 
-    this._shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
+    this._shapeDrawer = this.createTrackedShapeDrawer(
+      createShapeDrawer(shapeSettings, shapeDeps)
+    );
 
     // Initialize utilities
     this.utilities = createBrushUtilities(() => config.brushSettings);
@@ -156,7 +162,9 @@ export class BrushEngineFacade {
       getNextSpamChar: this.getNextSpamChar.bind(this)
     };
 
-    this._shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
+    this._shapeDrawer = this.createTrackedShapeDrawer(
+      createShapeDrawer(shapeSettings, shapeDeps)
+    );
     
     if (config.brushSettings) {
       this.utilities = createBrushUtilities(() => this.config.brushSettings);
@@ -295,82 +303,86 @@ export class BrushEngineFacade {
     // Apply color for the stroke
     ctx.fillStyle = settings.color;
     ctx.globalAlpha = settings.opacity;
-
-    if (settings.shape === BrushShape.MOSAIC) {
-      this.renderMosaicStroke(ctx, snappedFrom, snappedTo, pressure, rotation);
-      return;
-    }
-
-    // Check if grid snapping is enabled
-    const isGridSnapping = this.utilities.shouldApplyGridSnap();
-    
-    // When grid snapping is enabled, draw stamps at grid positions
-    if (isGridSnapping) {
-      // Use pressure-modified size for grid (matches monolithic implementation)
-      const gridSize = settings.size;
-      
-      // Get all grid positions between last and current position
-      // This matches the monolithic implementation
-      const lastX = this.pixelQueue.lastDrawnX || snappedFrom.x;
-      const lastY = this.pixelQueue.lastDrawnY || snappedFrom.y;
-      
-      const gridPositions = getGridPositionsBetween(
-        lastX,
-        lastY, 
-        snappedTo.x,
-        snappedTo.y,
-        gridSize
-      );
-      
-      // Set image smoothing based on brush type
-      if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
-        ctx.imageSmoothingEnabled = false;
-      } else {
-        ctx.imageSmoothingEnabled = true;
+    this.beginStampTracking(pressure, settings.opacity);
+    try {
+      if (settings.shape === BrushShape.MOSAIC) {
+        this.renderMosaicStroke(ctx, snappedFrom, snappedTo, pressure, rotation);
+        return;
       }
+
+      // Check if grid snapping is enabled
+      const isGridSnapping = this.utilities.shouldApplyGridSnap();
       
-      // Draw at each grid position that hasn't been stamped
-      const stampedPositions = this.pixelQueue.stampedGridPositions || new Set<string>();
-      
-      for (const pos of gridPositions) {
-        const posKey = `${pos.x},${pos.y}`;
-        if (!stampedPositions.has(posKey)) {
-          // Check if we can draw at this position
-          if (this.canDrawAt(ctx, pos.x, pos.y)) {
-            this.shapeDrawer(
-              ctx,
-              pos.x,
-              pos.y,
-              settings.size,
-              settings.shape,
-              settings.antiAliasing,
-              settings.rotation,
-              settings.risographIntensity,
-              settings.pattern,
-              settings.centerAlignment
-            );
+      // When grid snapping is enabled, draw stamps at grid positions
+      if (isGridSnapping) {
+        // Use pressure-modified size for grid (matches monolithic implementation)
+        const gridSize = settings.size;
+        
+        // Get all grid positions between last and current position
+        // This matches the monolithic implementation
+        const lastX = this.pixelQueue.lastDrawnX || snappedFrom.x;
+        const lastY = this.pixelQueue.lastDrawnY || snappedFrom.y;
+        
+        const gridPositions = getGridPositionsBetween(
+          lastX,
+          lastY, 
+          snappedTo.x,
+          snappedTo.y,
+          gridSize
+        );
+        
+        // Set image smoothing based on brush type
+        if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
+          ctx.imageSmoothingEnabled = false;
+        } else {
+          ctx.imageSmoothingEnabled = true;
+        }
+        
+        // Draw at each grid position that hasn't been stamped
+        const stampedPositions = this.pixelQueue.stampedGridPositions || new Set<string>();
+        
+        for (const pos of gridPositions) {
+          const posKey = `${pos.x},${pos.y}`;
+          if (!stampedPositions.has(posKey)) {
+            // Check if we can draw at this position
+            if (this.canDrawAt(ctx, pos.x, pos.y)) {
+              this.shapeDrawer(
+                ctx,
+                pos.x,
+                pos.y,
+                settings.size,
+                settings.shape,
+                settings.antiAliasing,
+                settings.rotation,
+                settings.risographIntensity,
+                settings.pattern,
+                settings.centerAlignment
+              );
+            }
+            stampedPositions.add(posKey);
           }
-          stampedPositions.add(posKey);
+        }
+        
+        // Update tracking
+        this.pixelQueue.stampedGridPositions = stampedPositions;
+        this.pixelQueue.lastDrawnX = snappedTo.x;
+        this.pixelQueue.lastDrawnY = snappedTo.y;
+      } else {
+        // Normal rendering with interpolation
+        if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
+          // Ensure pixel-perfect rendering
+          ctx.imageSmoothingEnabled = false;
+          // Pixel-perfect brush
+          this.renderPixelPerfectStroke(ctx, snappedFrom, snappedTo, settings);
+        } else {
+          // Ensure smooth rendering
+          ctx.imageSmoothingEnabled = true;
+          // Smooth brush - use stroke interpolation
+          this.renderSmoothStroke(ctx, snappedFrom, snappedTo, settings);
         }
       }
-      
-      // Update tracking
-      this.pixelQueue.stampedGridPositions = stampedPositions;
-      this.pixelQueue.lastDrawnX = snappedTo.x;
-      this.pixelQueue.lastDrawnY = snappedTo.y;
-    } else {
-      // Normal rendering with interpolation
-      if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
-        // Ensure pixel-perfect rendering
-        ctx.imageSmoothingEnabled = false;
-        // Pixel-perfect brush
-        this.renderPixelPerfectStroke(ctx, snappedFrom, snappedTo, settings);
-      } else {
-        // Ensure smooth rendering
-        ctx.imageSmoothingEnabled = true;
-        // Smooth brush - use stroke interpolation
-        this.renderSmoothStroke(ctx, snappedFrom, snappedTo, settings);
-      }
+    } finally {
+      this.endStampTracking();
     }
   }
 
@@ -713,6 +725,74 @@ export class BrushEngineFacade {
     );
     this.customColorCyclePhase = (this.customColorCyclePhase + step) % 1;
     return color;
+  }
+
+  private createTrackedShapeDrawer(
+    drawer: ReturnType<typeof createShapeDrawer>
+  ): ReturnType<typeof createShapeDrawer> {
+    return ((
+      ctx: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      size: number,
+      shape: BrushShape,
+      antiAliasing: boolean,
+      rotation: number,
+      risographIntensity: number,
+      pattern?: ImageData,
+      centerAlignment?: boolean
+    ) => {
+      drawer(
+        ctx,
+        x,
+        y,
+        size,
+        shape,
+        antiAliasing,
+        rotation,
+        risographIntensity,
+        pattern,
+        centerAlignment
+      );
+
+      if (!this.stampTrackingActive) {
+        return;
+      }
+
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return;
+      }
+
+      this.recentStamps.push({
+        x,
+        y,
+        pressure: this.trackedStampPressure,
+        rotation: Number.isFinite(rotation) ? rotation : 0,
+        size: Number.isFinite(size) ? Math.max(0, size) : 0,
+        alpha: this.trackedStampAlpha,
+      });
+    }) as ReturnType<typeof createShapeDrawer>;
+  }
+
+  private beginStampTracking(pressure: number, alpha: number): void {
+    this.recentStamps = [];
+    this.stampTrackingActive = true;
+    this.trackedStampPressure = Number.isFinite(pressure)
+      ? Math.max(0, Math.min(1, pressure))
+      : 1;
+    this.trackedStampAlpha = Number.isFinite(alpha)
+      ? Math.max(0, Math.min(1, alpha))
+      : 1;
+  }
+
+  private endStampTracking(): void {
+    this.stampTrackingActive = false;
+  }
+
+  consumeRecentStamps(): SequentialStampPoint[] {
+    const stamps = this.recentStamps.map((stamp) => ({ ...stamp }));
+    this.recentStamps = [];
+    return stamps;
   }
 
   /**

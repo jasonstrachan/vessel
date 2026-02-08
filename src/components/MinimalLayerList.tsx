@@ -468,6 +468,54 @@ const MinimalLayerList = () => {
     }
     // quiet
   };
+
+  const handleAddSequentialLayer = () => {
+    const layersSnapshot = layersRef.current;
+    recordBreadcrumb('layers', { event: 'ui-add-sequential-click', count: layersSnapshot.length, activeLayerId });
+
+    const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      return canvas;
+    };
+
+    const sequentialLayerCount = layersSnapshot.filter((layer) => layer.layerType === 'sequential').length;
+    const frameCount = 12;
+    const fps = 12;
+    const durationMs = Math.round((frameCount * 1000) / fps);
+
+    const newLayer: Omit<Layer, 'id' | 'order'> = {
+      name: `Animation ${sequentialLayerCount + 1}`,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      imageData: null,
+      framebuffer: makeFramebuffer(),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount,
+        fps,
+        durationMs,
+        events: [],
+      },
+    };
+
+    const newLayerId = addLayer(newLayer);
+    if (newLayerId) {
+      setActiveLayer(newLayerId);
+      const activeBrushShape = brushSettingsRef.current.brushShape;
+      if (
+        activeBrushShape === BrushShape.COLOR_CYCLE ||
+        activeBrushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+      ) {
+        setBrushSettings({ brushShape: BrushShape.ROUND });
+      }
+    }
+  };
   
   const handleToggleVisibility = useCallback((event: React.MouseEvent, layerId: string) => {
     event.stopPropagation();
@@ -636,14 +684,21 @@ const MinimalLayerList = () => {
           className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors border-r border-[#424242] text-[11px] text-[#D9D9D9]"
           title="Add Regular Layer"
         >
-          +Regular
+          +Layer
+        </button>
+        <button
+          onClick={handleAddSequentialLayer}
+          className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors border-r border-[#424242] text-[11px] text-[#D9D9D9]"
+          title="Add Animation Layer"
+        >
+          +Animation
         </button>
         <button
           onClick={handleAddCCLayer}
           className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors text-[11px] text-[#D9D9D9]"
-          title="Add Color Cycle Layer"
+          title="Add CC Layer"
         >
-          +Color cycle
+          +CC
         </button>
       </div>
       

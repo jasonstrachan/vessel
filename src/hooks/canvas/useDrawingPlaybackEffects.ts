@@ -3,6 +3,7 @@ import { useDrawingPlaybackOverlayEffects } from '@/hooks/canvas/useDrawingPlayb
 import { useDrawingPlaybackStartupKickEffect } from '@/hooks/canvas/useDrawingPlaybackStartupKickEffect';
 import { useDrawingPlaybackStoreTraceEffect } from '@/hooks/canvas/useDrawingPlaybackStoreTraceEffect';
 import { useDrawingPlaybackSyncEffect } from '@/hooks/canvas/useDrawingPlaybackSyncEffect';
+import { useSequentialAnimationRuntimeEffect } from '@/hooks/canvas/useSequentialAnimationRuntimeEffect';
 import type { UseDrawingPlaybackEffectsOptions } from '@/hooks/canvas/useDrawingPlaybackEffects.types';
 
 export const useDrawingPlaybackEffects = ({
@@ -27,6 +28,8 @@ export const useDrawingPlaybackEffects = ({
   initDrawingCanvas,
   shapeMode,
 }: UseDrawingPlaybackEffectsOptions) => {
+  useSequentialAnimationRuntimeEffect({ storeRef });
+
   useDrawingPlaybackLifecycleEffects({
     startPlaybackRef,
     startContinuousColorCycleAnimation,

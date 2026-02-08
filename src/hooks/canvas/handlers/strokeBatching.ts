@@ -6,6 +6,10 @@ import type { Layer, BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import { updateContinuousResamplerSample } from '@/hooks/canvas/handlers/customBrushCapture';
 import { getCcEffectiveSpacing } from '@/hooks/canvas/utils/ccSpacing';
+import {
+  captureSequentialStampsForActiveLayer,
+  createFallbackSequentialStamp,
+} from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 
 type BrushEngine = {
   drawBrush: (
@@ -14,6 +18,14 @@ type BrushEngine = {
     to: { x: number; y: number },
     options: { pressure: number; customBrushData?: CustomBrushStrokeData }
   ) => void;
+  consumeRecentStamps?: () => Array<{
+    x: number;
+    y: number;
+    pressure: number;
+    rotation: number;
+    size: number;
+    alpha: number;
+  }>;
   drawColorCycle: (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -159,6 +171,26 @@ export const processBatchedStrokes = (
   const boundary = { x: 0, y: 0, width: deps.project.width, height: deps.project.height };
   const ccProcessFlags = deps.getColorCycleBrushFlags(currentState.tools.brushSettings);
   const shouldAlignStroke = alignPixelStrokes && !ccProcessFlags.isAny;
+  const captureSequentialStamps = (
+    stamps: Array<{
+      x: number;
+      y: number;
+      pressure: number;
+      rotation: number;
+      size: number;
+      alpha: number;
+    }>,
+    customBrushData?: CustomBrushStrokeData
+  ) => {
+    if (stamps.length === 0) {
+      return;
+    }
+    captureSequentialStampsForActiveLayer({
+      state: deps.storeRef.current,
+      stamps,
+      customBrushData,
+    });
+  };
 
   for (let i = 0; i < batch.length; i++) {
     const { pos: worldPos, pressure } = batch[i];
@@ -249,6 +281,9 @@ export const processBatchedStrokes = (
       } else {
         if (currentBrushId && deps.userBrushEngine.isUserBrush(currentBrushId)) {
           deps.userBrushEngine.continueStroke(drawCtx, drawTo.x, drawTo.y, pressure);
+          captureSequentialStamps([
+            createFallbackSequentialStamp(drawTo, pressure, currentState.tools.brushSettings),
+          ]);
         } else if (deps.brushEngine) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
@@ -259,24 +294,28 @@ export const processBatchedStrokes = (
           if (ccProcessFlags.isAny) {
             const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
             const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+            const isSequentialLayer = activeLayer?.layerType === 'sequential';
 
-            if (!isColorCycleLayer && activeLayer?.layerType) {
+            if (!isColorCycleLayer && !isSequentialLayer && activeLayer?.layerType) {
               continue;
             }
 
-            const targetCtx = deps.getCCStampTargetCtx();
+            const targetCtx = isColorCycleLayer ? deps.getCCStampTargetCtx() : drawCtx;
             const layerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
-            if (!targetCtx || targetCtx.canvas !== layerCanvas) {
+            if (
+              !targetCtx ||
+              (isColorCycleLayer && targetCtx.canvas !== layerCanvas)
+            ) {
               args.colorCycleLastPosRef.current = clippedEnd;
               continue;
             }
-            if (activeLayer && deps.isEraserV2) {
+            if (activeLayer && deps.isEraserV2 && isColorCycleLayer) {
               deps.extendMaskHealingStroke(drawFrom, drawTo, pressure);
             }
             targetCtx.globalCompositeOperation = 'source-over';
             targetCtx.globalAlpha = 1;
 
-            if (activeLayer) {
+            if (activeLayer && isColorCycleLayer) {
               const colorCycleBrushManager = deps.getColorCycleBrushManager();
               const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
               deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
@@ -393,9 +432,22 @@ export const processBatchedStrokes = (
                     }
                   }
                 });
+                if (isSequentialLayer) {
+                  captureSequentialStamps(
+                    cmds.map((stamp) => ({
+                      x: stamp.x,
+                      y: stamp.y,
+                      pressure: stamp.pressure,
+                      rotation: stamp.rotation,
+                      size: brushSize,
+                      alpha: currentState.tools.brushSettings.opacity ?? 1,
+                    })),
+                    stampData
+                  );
+                }
               }
 
-              if (paused && enqueuedStamps) {
+              if (isColorCycleLayer && paused && enqueuedStamps) {
                 const pad = Math.ceil(brushSize / 2) + 2;
                 const minX = Math.floor(Math.min(roiMinX, previousPos.x, clippedEnd.x) - pad);
                 const minY = Math.floor(Math.min(roiMinY, previousPos.y, clippedEnd.y) - pad);
@@ -437,7 +489,20 @@ export const processBatchedStrokes = (
             }
           }
 
+          if (typeof deps.brushEngine.consumeRecentStamps === 'function') {
+            deps.brushEngine.consumeRecentStamps();
+          }
           deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, { pressure, customBrushData });
+          const emittedStamps =
+            typeof deps.brushEngine.consumeRecentStamps === 'function'
+              ? deps.brushEngine.consumeRecentStamps()
+              : [];
+          captureSequentialStamps(
+            emittedStamps.length > 0
+              ? emittedStamps
+              : [createFallbackSequentialStamp(drawTo, pressure, currentState.tools.brushSettings)],
+            customBrushData
+          );
         }
       }
     }

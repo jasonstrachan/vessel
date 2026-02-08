@@ -2,6 +2,7 @@ export type HistoryDirection = 'forward' | 'backward';
 
 export type HistoryActionId =
   | 'brush-stroke'
+  | 'sequential-stroke'
   | 'cc-stroke'
   | 'eraser-stroke'
   | 'fill'

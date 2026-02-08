@@ -1,10 +1,13 @@
 import type { CanvasSnapshot } from '@/types';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
+import { commitSequentialLayerHistory } from '@/history/helpers/sequentialLayerHistory';
+import { cloneSequentialLayerData } from '@/history/deltas/sequentialFrameDelta';
 import {
   commitBrushHistory,
   type ManagedColorCycleBrush,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import { useAppStore } from '@/stores/useAppStore';
 
 type LayerHistoryPayload = Parameters<typeof commitBrushHistory>[0];
 
@@ -54,6 +57,62 @@ export const commitStrokeHistoryIfNeeded = async (
 ): Promise<boolean> => {
   if (!args.shouldCommit) {
     return false;
+  }
+
+  const state = useAppStore.getState();
+  const activeLayer = state.layers.find((layer) => layer.id === args.activeLayerId);
+  if (activeLayer?.layerType === 'sequential' && activeLayer.sequentialData) {
+    const sessionStartMs = state.sequentialRecord.sessionStartMs;
+    if (!Number.isFinite(sessionStartMs)) {
+      return false;
+    }
+    const strokePrefix = `stroke-${Math.round(Number(sessionStartMs))}`;
+    const afterSequentialData = cloneSequentialLayerData(activeLayer.sequentialData);
+    const matchesSessionStroke = (strokeId: string): boolean =>
+      strokeId === strokePrefix || strokeId.startsWith(`${strokePrefix}-`);
+    const sessionStrokeIds: string[] = [];
+    afterSequentialData.events.forEach((event) => {
+      if (!matchesSessionStroke(event.strokeId)) {
+        return;
+      }
+      if (!sessionStrokeIds.includes(event.strokeId)) {
+        sessionStrokeIds.push(event.strokeId);
+      }
+    });
+    if (sessionStrokeIds.length <= 0) {
+      return false;
+    }
+    let previousSequentialData = {
+      ...afterSequentialData,
+      events: afterSequentialData.events.filter((event) => !matchesSessionStroke(event.strokeId)),
+    };
+    for (let index = 0; index < sessionStrokeIds.length; index += 1) {
+      const strokeId = sessionStrokeIds[index];
+      const nextSequentialData = {
+        ...previousSequentialData,
+        events: previousSequentialData.events.concat(
+          afterSequentialData.events.filter((event) => event.strokeId === strokeId)
+        ),
+      };
+      const nextCoalesce =
+        args.coalesce && sessionStrokeIds.length > 1
+          ? {
+              ...args.coalesce,
+              key: `${args.coalesce.key}:${strokeId}`,
+            }
+          : args.coalesce;
+      await commitSequentialLayerHistory({
+        layerId: args.activeLayerId,
+        beforeSequentialData: previousSequentialData,
+        afterSequentialData: nextSequentialData,
+        actionType: args.actionType,
+        description: args.description,
+        tool: args.tool,
+        coalesce: nextCoalesce,
+      });
+      previousSequentialData = nextSequentialData;
+    }
+    return true;
   }
 
   if (args.brushForCleanup?.flush) {

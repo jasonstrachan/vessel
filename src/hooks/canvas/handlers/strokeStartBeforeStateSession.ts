@@ -103,6 +103,7 @@ export const prepareStrokeStartBeforeStateSession = ({
 
   beginStrokeStartSession({
     isPointerDownRef,
+    onPointerDownChange: currentState.setSequentialPointerDown,
     beginStrokeSession,
     activeLayerId: currentState.activeLayerId,
     currentTool,

@@ -1,11 +1,46 @@
 import type React from 'react';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
+import {
+  dispatchGlobalAnimationFrameUpdate,
+  getSharedAnimationRuntime,
+} from '@/hooks/canvas/handlers/animation/animationRuntime';
 import type { AppState, CCReason } from '@/stores/useAppStore';
 import { selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
 import { BrushShape, type Layer } from '@/types';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 
 const lastSyntheticStopAtMap = new Map<string, number>();
+const colorCycleRuntimeConsumerByStoreRef = new WeakMap<
+  React.MutableRefObject<AppState>,
+  () => void
+>();
+const SHARED_RUNTIME_HANDLE_SENTINEL = -1;
+
+const hasSharedColorCycleRuntimeConsumer = (
+  storeRef: React.MutableRefObject<AppState>
+): boolean => colorCycleRuntimeConsumerByStoreRef.has(storeRef);
+
+const setSharedColorCycleRuntimeConsumer = (
+  storeRef: React.MutableRefObject<AppState>,
+  unregister: () => void
+): void => {
+  const existing = colorCycleRuntimeConsumerByStoreRef.get(storeRef);
+  if (existing) {
+    existing();
+  }
+  colorCycleRuntimeConsumerByStoreRef.set(storeRef, unregister);
+};
+
+export const clearSharedColorCycleRuntimeConsumer = (
+  storeRef: React.MutableRefObject<AppState>
+): void => {
+  const unregister = colorCycleRuntimeConsumerByStoreRef.get(storeRef);
+  if (!unregister) {
+    return;
+  }
+  unregister();
+  colorCycleRuntimeConsumerByStoreRef.delete(storeRef);
+};
 
 export type StopPlaybackDeps = {
   cancelDeferredOverlayRender: () => void;
@@ -90,11 +125,9 @@ export const stopContinuousColorCycleAnimationCore = (
     ccLog('stopContinuousColorCycleAnimation synthetic stop', { reason });
 
     continuousColorCycleAnimationActiveRef.current = false;
-    if (continuousColorCycleAnimationRef.current) {
-      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
-      continuousColorCycleAnimationRef.current = null;
-      ccLog('cancel global RAF (synthetic)', { reason });
-    }
+    clearSharedColorCycleRuntimeConsumer(storeRef);
+    continuousColorCycleAnimationRef.current = null;
+    ccLog('cancel shared animation consumer (synthetic)', { reason });
     if (colorCycleAnimationRef.current) {
       cancelAnimationFrame(colorCycleAnimationRef.current);
       colorCycleAnimationRef.current = null;
@@ -175,11 +208,9 @@ export const stopContinuousColorCycleAnimationCore = (
   }
 
   continuousColorCycleAnimationActiveRef.current = false;
-  if (continuousColorCycleAnimationRef.current) {
-    cancelAnimationFrame(continuousColorCycleAnimationRef.current);
-    continuousColorCycleAnimationRef.current = null;
-    ccLog('cancel global RAF', { reason });
-  }
+  clearSharedColorCycleRuntimeConsumer(storeRef);
+  continuousColorCycleAnimationRef.current = null;
+  ccLog('cancel shared animation consumer', { reason });
   if (typeof window !== 'undefined') {
     window.__ccRafAlive = false;
   }
@@ -287,7 +318,11 @@ export const startContinuousColorCycleAnimationCore = (
     startCooldownMs,
   } = deps;
 
-  if (continuousColorCycleAnimationActiveRef.current && !continuousColorCycleAnimationRef.current) {
+  if (
+    continuousColorCycleAnimationActiveRef.current &&
+    !continuousColorCycleAnimationRef.current &&
+    !hasSharedColorCycleRuntimeConsumer(storeRef)
+  ) {
     ccLog('CC RAF stuck: activeRef=true but no RAF id -> resetting');
     continuousColorCycleAnimationActiveRef.current = false;
   }
@@ -353,13 +388,11 @@ export const startContinuousColorCycleAnimationCore = (
       return;
     }
 
-    if (continuousColorCycleAnimationRef.current) {
-      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
-      continuousColorCycleAnimationRef.current = null;
-      ccLog('cancel prior RAF');
-      if (typeof window !== 'undefined') {
-        window.__ccRafAlive = false;
-      }
+    clearSharedColorCycleRuntimeConsumer(storeRef);
+    continuousColorCycleAnimationRef.current = null;
+    ccLog('cancel prior shared animation consumer');
+    if (typeof window !== 'undefined') {
+      window.__ccRafAlive = false;
     }
 
     let overlayReady = ensureOverlayInitialized();
@@ -433,74 +466,71 @@ export const startContinuousColorCycleAnimationCore = (
     const frameInterval = 1000 / targetFPS;
 
     continuousColorCycleAnimationActiveRef.current = true;
+    continuousColorCycleAnimationRef.current = SHARED_RUNTIME_HANDLE_SENTINEL;
 
-    const animateContinuousColorCycle = (timestamp: number) => {
-      if (continuousColorCycleAnimationActiveRef.current) {
-        continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
-        if (typeof window !== 'undefined') {
-          window.__ccRafAlive = true;
-        }
-      } else {
-        continuousColorCycleAnimationRef.current = null;
-        if (typeof window !== 'undefined') {
-          window.__ccRafAlive = false;
-        }
+    const runtime = getSharedAnimationRuntime();
+    const unregister = runtime.register((timestamp) => {
+      if (!continuousColorCycleAnimationActiveRef.current) {
         return;
       }
 
-      if (timestamp - lastRenderTime >= frameInterval) {
-        const renderedAny = renderAllColorCycleLayers(undefined, false);
-
-        if (renderedAny) {
-          drawingCanvasHasContent.current = false;
-        } else if (drawingCtxRef.current && drawingCanvasRef.current) {
-          drawingCtxRef.current.clearRect(
-            0,
-            0,
-            drawingCanvasRef.current.width,
-            drawingCanvasRef.current.height
-          );
-          let shouldAdvance = false;
-          try {
-            shouldAdvance = !!(brushEngine.isColorCycleAnimating && brushEngine.isColorCycleAnimating());
-            if (!shouldAdvance) {
-              const st = storeRef.current;
-              shouldAdvance = st.layers.some(
-                (layer) => layer.layerType === 'color-cycle' && !!layer.colorCycleData?.isAnimating
-              );
-            }
-          } catch {}
-          if (shouldAdvance) {
-            brushEngine.updateColorCycleAnimation?.();
-          }
-          brushEngine.renderColorCycle(drawingCtxRef.current, true);
-          drawingCanvasHasContent.current = true;
-        }
-
-        if (firstPaintRef.current) {
-          ccLog('RAF first paint', { hadContent: renderedAny, reason });
-          firstPaintRef.current = false;
-        }
-
-        const logNow = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        if (logNow - lastRendererLogTS.current > 1000) {
-          const snapshot = storeRef.current;
-          const animatingLayers = snapshot.layers.filter(
-            (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.isAnimating
-          ).length;
-          ccLog('RAF tick', { animatingLayers, reason });
-          lastRendererLogTS.current = logNow;
-        }
-
-        try {
-          window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-        } catch {}
-
-        lastRenderTime = timestamp;
+      if (timestamp - lastRenderTime < frameInterval) {
+        return;
       }
-    };
 
-    continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
+      const renderedAny = renderAllColorCycleLayers(undefined, false);
+
+      if (renderedAny) {
+        drawingCanvasHasContent.current = false;
+      } else if (drawingCtxRef.current && drawingCanvasRef.current) {
+        drawingCtxRef.current.clearRect(
+          0,
+          0,
+          drawingCanvasRef.current.width,
+          drawingCanvasRef.current.height
+        );
+        let shouldAdvance = false;
+        try {
+          shouldAdvance = !!(brushEngine.isColorCycleAnimating && brushEngine.isColorCycleAnimating());
+          if (!shouldAdvance) {
+            const st = storeRef.current;
+            shouldAdvance = st.layers.some(
+              (layer) => layer.layerType === 'color-cycle' && !!layer.colorCycleData?.isAnimating
+            );
+          }
+        } catch {}
+        if (shouldAdvance) {
+          brushEngine.updateColorCycleAnimation?.();
+        }
+        brushEngine.renderColorCycle(drawingCtxRef.current, true);
+        drawingCanvasHasContent.current = true;
+      }
+
+      if (firstPaintRef.current) {
+        ccLog('RAF first paint', { hadContent: renderedAny, reason });
+        firstPaintRef.current = false;
+      }
+
+      const logNow = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (logNow - lastRendererLogTS.current > 1000) {
+        const snapshot = storeRef.current;
+        const animatingLayers = snapshot.layers.filter(
+          (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.isAnimating
+        ).length;
+        ccLog('RAF tick', { animatingLayers, reason });
+        lastRendererLogTS.current = logNow;
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+      } catch {}
+      dispatchGlobalAnimationFrameUpdate();
+
+      lastRenderTime = timestamp;
+    });
+    setSharedColorCycleRuntimeConsumer(storeRef, unregister);
+    runtime.start();
+
     if (typeof window !== 'undefined') {
       window.__ccRafAlive = true;
     }

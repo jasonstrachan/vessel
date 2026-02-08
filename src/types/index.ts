@@ -146,6 +146,44 @@ export type DerivedGradientSpec = {
   key: string;
 };
 
+export interface SequentialStampPoint {
+  x: number;
+  y: number;
+  pressure: number;
+  rotation: number;
+  size: number;
+  alpha: number;
+}
+
+export interface SequentialBrushSnapshot {
+  tool: string;
+  brushShape: BrushShape;
+  size: number;
+  opacity: number;
+  blendMode: BlendMode;
+  rotation: number;
+  spacing: number;
+  color: string;
+  customStampId?: string | null;
+}
+
+export interface SequentialStrokeEvent {
+  id: string;
+  layerId: string;
+  strokeId: string;
+  timestampMs: number;
+  frameIndex: number;
+  brush: SequentialBrushSnapshot;
+  stamps: SequentialStampPoint[];
+}
+
+export interface SequentialLayerData {
+  frameCount: number;
+  fps: number;
+  durationMs: number;
+  events: SequentialStrokeEvent[];
+}
+
 export interface Layer {
   id: string;
   name: string;
@@ -165,7 +203,7 @@ export interface Layer {
   alignment: LayerAlignmentSettings;
   
   // Layer type system for supporting different rendering modes
-  layerType: 'normal' | 'color-cycle'; // REQUIRED - not optional
+  layerType: 'normal' | 'color-cycle' | 'sequential'; // REQUIRED - not optional
   
   // Color cycle specific data (only present for CC layers)
   colorCycleData?: {
@@ -331,6 +369,9 @@ export interface Layer {
       originalImageData?: ImageData;
     };
   };
+
+  // Sequential recording data (only present for sequential layers)
+  sequentialData?: SequentialLayerData;
   
   // Version tracking for detecting content changes
   version?: number;

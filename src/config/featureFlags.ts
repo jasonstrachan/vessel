@@ -3,7 +3,9 @@ import { useSyncExternalStore } from 'react';
 export type FeatureFlagKey =
   | 'useCanvas2DColorCycle'
   | 'logColorCycleOperations'
-  | 'useColorCycleWorker';
+  | 'useColorCycleWorker'
+  | 'enableSequentialRecordMode'
+  | 'enableSequentialGpuAcceleration';
 
 type FeatureFlagState = Record<FeatureFlagKey, boolean>;
 
@@ -11,12 +13,16 @@ const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
   useCanvas2DColorCycle: 'vessel:flag:useCanvas2DColorCycle',
   logColorCycleOperations: 'vessel:flag:logColorCycleOperations',
   useColorCycleWorker: 'vessel:flag:useColorCycleWorker',
+  enableSequentialRecordMode: 'vessel:flag:enableSequentialRecordMode',
+  enableSequentialGpuAcceleration: 'vessel:flag:enableSequentialGpuAcceleration',
 };
 
 const defaultState: FeatureFlagState = {
   useCanvas2DColorCycle: false,
   logColorCycleOperations: false,
   useColorCycleWorker: false,
+  enableSequentialRecordMode: false,
+  enableSequentialGpuAcceleration: false,
 };
 
 const state: FeatureFlagState = { ...defaultState };

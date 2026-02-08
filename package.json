@@ -20,6 +20,7 @@
     "preview:prod": "PORT=3001 node scripts/preview-server.mjs",
     "lint": "next lint",
     "test": "jest",
+    "perf:sequential": "jest --runInBand src/lib/sequential/__tests__/SequentialPerformance.smoke.test.ts",
     "type-check": "tsc --noEmit",
     "validate:wgsl": "node scripts/validate-wgsl.mjs",
     "cache:clear": "rm -rf .next node_modules/.cache .turbo",
