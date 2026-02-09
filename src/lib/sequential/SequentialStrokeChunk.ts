@@ -1,4 +1,5 @@
 import type { SequentialBrushSnapshot, SequentialStampPoint, SequentialStrokeEvent } from '@/types';
+import { clonePluginConfig, serializePluginConfigForKey } from '@/lib/sequential/pluginConfig';
 
 const Q8_8_SCALE = 256;
 const ROTATION_SCALE = 1024;
@@ -124,6 +125,8 @@ const brushSnapshotKey = (brush: SequentialBrushSnapshot): string => {
     toFiniteNumber(brush.rotation, 0),
     toFiniteNumber(brush.spacing, 0),
     brush.color,
+    brush.pluginBrushId ?? '',
+    serializePluginConfigForKey(brush.pluginConfig),
     brush.customStampId ?? '',
     brush.customStampHash ?? '',
     brush.customStamp?.width ?? 0,
@@ -159,6 +162,7 @@ const hashString = (value: string): string => {
 
 const cloneBrushSnapshot = (brush: SequentialBrushSnapshot): SequentialBrushSnapshot => ({
   ...brush,
+  pluginConfig: clonePluginConfig(brush.pluginConfig),
   customStampId: brush.customStampId ?? null,
   customStampHash: brush.customStampHash ?? null,
   customStamp: brush.customStamp

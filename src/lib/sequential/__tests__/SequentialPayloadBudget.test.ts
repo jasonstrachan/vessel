@@ -70,6 +70,34 @@ describe('SequentialPayloadBudget', () => {
     expect(tenStamps - singleStamp).toBeGreaterThan(0);
   });
 
+  it('includes plugin config strings in payload estimates', () => {
+    const base = createEvent('plugin-base', 1);
+    const withPluginConfig: SequentialStrokeEvent = {
+      ...base,
+      brush: {
+        ...base.brush,
+        pluginBrushId: 'spam-brush',
+        pluginConfig: {
+          spamFont: 'courier',
+          spamContentType: 'mixed',
+          spamCustomText: 'LIMITED TIME OFFER',
+          ditherAlgorithm: 'pattern',
+          ditherIntensity: 42,
+          ditherBayerMatrixSize: 8,
+          particleDensity: 52,
+          particleScatterRadius: 2.4,
+          customNibMode: 'spray-v2',
+          customSeed: 1337,
+          customEnabled: true,
+        },
+      },
+    };
+
+    expect(estimateSequentialStrokeEventPayloadBytes(withPluginConfig)).toBeGreaterThan(
+      estimateSequentialStrokeEventPayloadBytes(base)
+    );
+  });
+
   it('tracks payload bytes incrementally when appending events', () => {
     const firstEvent = createEvent('first', 2);
     const layer = createLayer([firstEvent]);

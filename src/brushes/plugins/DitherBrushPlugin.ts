@@ -1,5 +1,5 @@
 import { BaseBrushPlugin, BrushDrawContext, BrushMetadata, BrushConfig } from '../BrushPlugin';
-import { BrushSettings } from '../../types';
+import type { BrushSettings, SequentialBrushSnapshot } from '../../types';
 import { 
   applyFloydSteinbergDither,
   applyBayerDither,
@@ -8,6 +8,27 @@ import {
   APPLE_II_PALETTE,
   createGrayscalePalette
 } from '../../utils/ditherAlgorithms';
+
+const resolveSerializedBayerMatrixSize = (fillResolution?: number): 2 | 4 | 8 => {
+  if (Number.isFinite(fillResolution) && (fillResolution ?? 0) >= 8) {
+    return 8;
+  }
+  if (Number.isFinite(fillResolution) && (fillResolution ?? 0) >= 4) {
+    return 4;
+  }
+  return 8;
+};
+
+export const serializeDitherPluginConfig = (
+  settings: BrushSettings
+): SequentialBrushSnapshot['pluginConfig'] => ({
+  ditherAlgorithm: settings.ditherAlgorithm ?? 'bayer',
+  ditherIntensity: Math.max(
+    0,
+    Math.min(100, Number.isFinite(settings.ditherPaletteSpread) ? settings.ditherPaletteSpread ?? 80 : 80)
+  ),
+  ditherBayerMatrixSize: resolveSerializedBayerMatrixSize(settings.fillResolution),
+});
 
 /**
  * Dither Brush Plugin - Creates dithered drawing effects
@@ -42,6 +63,22 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
     requiresImageData: true,
     maxStrokePoints: 500
   };
+
+  serializeSequentialConfig(settings: BrushSettings) {
+    return serializeDitherPluginConfig(settings);
+  }
+
+  applySettings(settings: BrushSettings): void {
+    const config = this.serializeSequentialConfig(settings);
+    if (config?.ditherAlgorithm) {
+      this.ditherSettings.algorithm = config.ditherAlgorithm;
+    }
+    this.ditherSettings.intensity = Math.max(0, Math.min(1, (config?.ditherIntensity ?? 80) / 100));
+    const matrixSize = config?.ditherBayerMatrixSize ?? 8;
+    this.ditherSettings.bayerMatrixSize = matrixSize === 2 || matrixSize === 4 || matrixSize === 8
+      ? matrixSize
+      : 8;
+  }
 
   initialize(config?: BrushConfig): void {
     if (config?.algorithm) {
@@ -80,6 +117,7 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
 
   draw(context: BrushDrawContext): void {
     const { ctx, x, y, pressure, settings } = context;
+    this.applySettings(settings);
     const size = Math.round(settings.size * (pressure || 1));
     
     if (!this.stampCanvas || !this.stampCtx) {
@@ -146,8 +184,10 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
     ctx: CanvasRenderingContext2D,
     x1: number,
     y1: number,
+    pressure1: number,
     x2: number,
     y2: number,
+    pressure2: number,
     settings: BrushSettings
   ): void {
     // Draw multiple stamps along the line for dithered effect
@@ -163,9 +203,15 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
         ctx,
         x,
         y,
-        pressure: 1,
+        pressure: pressure1 + (pressure2 - pressure1) * t,
         settings,
-        lastPoint: i === 0 ? null : { x: x1 + (x2 - x1) * ((i - 1) / steps), y: y1 + (y2 - y1) * ((i - 1) / steps), pressure: 1 }
+        lastPoint: i === 0
+          ? null
+          : {
+            x: x1 + (x2 - x1) * ((i - 1) / steps),
+            y: y1 + (y2 - y1) * ((i - 1) / steps),
+            pressure: pressure1 + (pressure2 - pressure1) * ((i - 1) / steps),
+          }
       });
     }
   }

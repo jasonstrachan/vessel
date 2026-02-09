@@ -15,6 +15,7 @@ const customSourceCacheByKey = new Map<string, HTMLCanvasElement>();
 const customSourceCacheByImage = new WeakMap<ImageData, HTMLCanvasElement>();
 const customScaledCache = new Map<string, HTMLCanvasElement>();
 const customTintedCache = new Map<string, HTMLCanvasElement>();
+const CUSTOM_SOURCE_CACHE_LIMIT = 120;
 const CUSTOM_SCALED_CACHE_LIMIT = 200;
 const CUSTOM_TINTED_CACHE_LIMIT = 300;
 
@@ -51,6 +52,7 @@ const getCustomSourceCanvas = (pattern: ImageData, cacheKey: string | null): HTM
 
   if (cacheKey) {
     customSourceCacheByKey.set(cacheKey, canvas);
+    trimCache(customSourceCacheByKey, CUSTOM_SOURCE_CACHE_LIMIT);
   } else {
     customSourceCacheByImage.set(pattern, canvas);
   }
@@ -222,31 +224,6 @@ export const drawShape = (
     return;
   }
 
-  // Check transparency lock before drawing
-  if (settings?.transparencyLockEnabled) {
-    // Sample the center pixel to check if we can draw here
-    const centerX = Math.floor(x);
-    const centerY = Math.floor(y);
-    
-    // Ensure coordinates are within canvas bounds before getImageData
-    const canvasWidth = ctx.canvas.width;
-    const canvasHeight = ctx.canvas.height;
-    
-    if (centerX >= 0 && centerX < canvasWidth && centerY >= 0 && centerY < canvasHeight) {
-      try {
-        const imageData = ctx.getImageData(centerX, centerY, 1, 1);
-        const alpha = imageData.data[3]; // Alpha channel
-        
-        // If transparency lock is enabled and pixel is fully transparent, skip drawing
-        if (alpha === 0) {
-          return;
-        }
-      } catch {
-        // If we can't read the pixel data, allow drawing
-      }
-    }
-  }
-  
   // Save the current composite operation before save() overwrites it
   const currentCompositeOp = ctx.globalCompositeOperation;
   

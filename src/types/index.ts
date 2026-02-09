@@ -155,6 +155,8 @@ export interface SequentialStampPoint {
   alpha: number;
 }
 
+export type SequentialPluginConfigValue = string | number | boolean | null | undefined;
+
 export interface SequentialBrushSnapshot {
   tool: string;
   brushShape: BrushShape;
@@ -164,6 +166,31 @@ export interface SequentialBrushSnapshot {
   rotation: number;
   spacing: number;
   color: string;
+  pluginBrushId?: string | null;
+  pluginConfig?: {
+    [key: string]: SequentialPluginConfigValue;
+    spamFont?: string | null;
+    spamContentType?: string | null;
+    spamCustomText?: string | null;
+    ditherAlgorithm?:
+      | 'floyd-steinberg'
+      | 'jarvis-judice-ninke'
+      | 'stucki'
+      | 'burkes'
+      | 'sierra-3'
+      | 'sierra-2'
+      | 'sierra-lite'
+      | 'atkinson'
+      | 'bayer'
+      | 'blue-noise'
+      | 'void-and-cluster'
+      | 'pattern'
+      | null;
+    ditherIntensity?: number | null;
+    ditherBayerMatrixSize?: 2 | 4 | 8 | null;
+    particleDensity?: number | null;
+    particleScatterRadius?: number | null;
+  } | null;
   customStampId?: string | null;
   customStampHash?: string | null;
   customStamp?: {
@@ -881,6 +908,9 @@ export interface BrushSettings {
   spamFont?: string; // Font ID for the Spam Text brush
   spamContentType?: string; // Type of spam content to use
   spamCustomText?: string; // Custom text to use instead of preset content
+  // Particle brush settings
+  particleDensity?: number; // 1-200 particles per stamp (pressure-scaled)
+  particleScatterRadius?: number; // 0.1-5x brush size
   // Shape gradient mode settings
   shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle' | 'crosshatch' | 'flow' | 'inkRibbons'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
   linkSizeToBrush?: boolean;

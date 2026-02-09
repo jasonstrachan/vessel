@@ -19,6 +19,8 @@ const createEvent = (eventId: string, strokeId: string, frameIndex: number, time
     rotation: 0.25,
     spacing: 1.5,
     color: '#00ff88',
+    pluginBrushId: null,
+    pluginConfig: null,
     customStampId: null,
   },
   stamps: [
@@ -29,10 +31,30 @@ const createEvent = (eventId: string, strokeId: string, frameIndex: number, time
 
 describe('SequentialStrokeChunk', () => {
   it('encodes and decodes sequential events with stable event boundaries', () => {
+    const pluginEvent = createEvent('event-2', 'stroke-b', 3, 130);
     const sourceEvents: SequentialStrokeEvent[] = [
       createEvent('event-1', 'stroke-a', 2, 100),
-      createEvent('event-2', 'stroke-a', 3, 130),
-      createEvent('event-3', 'stroke-b', 7, 210),
+      {
+        ...pluginEvent,
+        brush: {
+          ...pluginEvent.brush,
+          pluginBrushId: 'spam-brush',
+          pluginConfig: {
+            spamFont: 'courier',
+            spamContentType: 'mixed',
+            spamCustomText: 'WINNER!!!',
+            ditherAlgorithm: 'bayer',
+            ditherIntensity: 25,
+            ditherBayerMatrixSize: 4,
+            particleDensity: 36,
+            particleScatterRadius: 2.1,
+            customNibMode: 'spray-v2',
+            customSeed: 1337,
+            customEnabled: true,
+          },
+        },
+      },
+      createEvent('event-3', 'stroke-c', 7, 210),
     ];
 
     const encoded = encodeSequentialEventsToChunks({
@@ -42,8 +64,8 @@ describe('SequentialStrokeChunk', () => {
       events: sourceEvents,
     });
 
-    expect(encoded.chunks).toHaveLength(2);
-    expect(Object.keys(encoded.brushSnapshots)).toHaveLength(1);
+    expect(encoded.chunks).toHaveLength(3);
+    expect(Object.keys(encoded.brushSnapshots)).toHaveLength(2);
 
     const decoded = decodeSequentialChunksToEvents({
       chunks: encoded.chunks,
@@ -54,6 +76,18 @@ describe('SequentialStrokeChunk', () => {
     expect(decoded.map((event) => event.strokeId)).toEqual(sourceEvents.map((event) => event.strokeId));
     expect(decoded.map((event) => event.frameIndex)).toEqual(sourceEvents.map((event) => event.frameIndex));
     expect(decoded.map((event) => event.timestampMs)).toEqual(sourceEvents.map((event) => event.timestampMs));
+    expect(decoded[1].brush.pluginBrushId).toBe('spam-brush');
+    expect(decoded[1].brush.pluginConfig?.spamFont).toBe('courier');
+    expect(decoded[1].brush.pluginConfig?.spamContentType).toBe('mixed');
+    expect(decoded[1].brush.pluginConfig?.spamCustomText).toBe('WINNER!!!');
+    expect(decoded[1].brush.pluginConfig?.ditherAlgorithm).toBe('bayer');
+    expect(decoded[1].brush.pluginConfig?.ditherIntensity).toBe(25);
+    expect(decoded[1].brush.pluginConfig?.ditherBayerMatrixSize).toBe(4);
+    expect(decoded[1].brush.pluginConfig?.particleDensity).toBe(36);
+    expect(decoded[1].brush.pluginConfig?.particleScatterRadius).toBe(2.1);
+    expect(decoded[1].brush.pluginConfig?.customNibMode).toBe('spray-v2');
+    expect(decoded[1].brush.pluginConfig?.customSeed).toBe(1337);
+    expect(decoded[1].brush.pluginConfig?.customEnabled).toBe(true);
     expect(decoded[0].stamps).toHaveLength(2);
     expect(decoded[0].stamps[0].x).toBeCloseTo(sourceEvents[0].stamps[0].x, 2);
     expect(decoded[0].stamps[0].y).toBeCloseTo(sourceEvents[0].stamps[0].y, 2);

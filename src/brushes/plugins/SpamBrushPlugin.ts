@@ -50,6 +50,12 @@ export const SPAM_FONTS = [
   { id: 'menlo', name: 'Menlo', value: 'Menlo, monospace' }
 ];
 
+export const serializeSpamPluginConfig = (settings: BrushSettings) => ({
+  spamFont: settings.spamFont ?? null,
+  spamContentType: settings.spamContentType ?? null,
+  spamCustomText: settings.spamCustomText ?? null,
+});
+
 export class SpamBrushPlugin extends BaseBrushPlugin {
   readonly id = 'spam-brush';
   readonly metadata: BrushMetadata = {
@@ -68,6 +74,7 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
   private lastX = 0;
   private lastY = 0;
   private minDistance = 10;
+  private customText = '';
 
   performanceHints = {
     preferredFPS: 60,
@@ -95,7 +102,28 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
     console.log('Spam Text brush deactivated');
   }
 
+  applySettings(settings: BrushSettings): void {
+    const config = this.serializeSequentialConfig(settings);
+    if (typeof settings.spamFont === 'string') {
+      this.setFont(config?.spamFont ?? settings.spamFont);
+    }
+    if (typeof settings.spamContentType === 'string' && settings.spamContentType in SPAM_CONTENT) {
+      const contentType = config?.spamContentType ?? settings.spamContentType;
+      this.setContentType(contentType as keyof typeof SPAM_CONTENT);
+    }
+    if (typeof settings.spamCustomText === 'string') {
+      this.customText = config?.spamCustomText ?? settings.spamCustomText;
+    }
+  }
+
+  serializeSequentialConfig(settings: BrushSettings) {
+    return serializeSpamPluginConfig(settings);
+  }
+
   private getNextSpamText(): string {
+    if (this.customText.trim().length > 0) {
+      return this.customText;
+    }
     const content = SPAM_CONTENT[this.contentType];
     if (content.length === 0) return 'SPAM';
     
@@ -114,6 +142,7 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
 
   draw(context: BrushDrawContext): void {
     const { ctx, x, y, pressure, settings } = context;
+    this.applySettings(settings);
     
     // Calculate distance from last point
     const distance = Math.hypot(x - this.lastX, y - this.lastY);
@@ -149,8 +178,10 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
     ctx: CanvasRenderingContext2D,
     x1: number,
     y1: number,
+    pressure1: number,
     x2: number,
     y2: number,
+    pressure2: number,
     settings: BrushSettings
   ): void {
     const distance = Math.hypot(x2 - x1, y2 - y1);
@@ -165,9 +196,15 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
         ctx,
         x,
         y,
-        pressure: 1,
+        pressure: pressure1 + (pressure2 - pressure1) * t,
         settings,
-        lastPoint: i === 0 ? null : { x: x1 + (x2 - x1) * ((i - 1) / steps), y: y1 + (y2 - y1) * ((i - 1) / steps), pressure: 1 }
+        lastPoint: i === 0
+          ? null
+          : {
+            x: x1 + (x2 - x1) * ((i - 1) / steps),
+            y: y1 + (y2 - y1) * ((i - 1) / steps),
+            pressure: pressure1 + (pressure2 - pressure1) * ((i - 1) / steps),
+          }
       });
     }
   }
@@ -183,6 +220,7 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
     this.charIndex = 0;
     this.lastX = 0;
     this.lastY = 0;
+    this.customText = '';
   }
 
   getControls(): React.ComponentType | null {

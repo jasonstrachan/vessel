@@ -9,6 +9,8 @@ const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 type SequentialStampShape = 'round' | 'square' | 'triangle';
 type SequentialTextureMode = 'solid' | 'dither' | 'mosaic' | 'risograph-soft' | 'risograph-ultra';
+type SequentialPluginRenderMode = 'none' | 'dither-brush' | 'particle-brush' | 'spam-brush';
+type SupportedBlendMode = 'source-over' | 'destination-out';
 type ParsedCustomStamp = {
   width: number;
   height: number;
@@ -53,6 +55,10 @@ const resolveStampShape = (brushShape: BrushShape): SequentialStampShape => {
 };
 
 const resolveTextureMode = (event: SequentialStrokeEvent): SequentialTextureMode => {
+  const pluginMode = resolvePluginRenderMode(event.brush.pluginBrushId);
+  if (pluginMode === 'dither-brush') {
+    return 'dither';
+  }
   if (event.brush.brushShape === BrushShape.MOSAIC) {
     return 'mosaic';
   }
@@ -71,6 +77,23 @@ const resolveTextureMode = (event: SequentialStrokeEvent): SequentialTextureMode
       return 'solid';
   }
 };
+
+const resolvePluginRenderMode = (pluginBrushId?: string | null): SequentialPluginRenderMode => {
+  const normalizedId = pluginBrushId?.trim().toLowerCase();
+  switch (normalizedId) {
+    case 'dither-brush':
+      return 'dither-brush';
+    case 'particle-brush':
+      return 'particle-brush';
+    case 'spam-brush':
+      return 'spam-brush';
+    default:
+      return 'none';
+  }
+};
+
+const resolveBlendMode = (event: SequentialStrokeEvent): SupportedBlendMode =>
+  event.brush.blendMode === 'destination-out' ? 'destination-out' : 'source-over';
 
 const resolveMosaicConfig = (event: SequentialStrokeEvent): SequentialMosaicConfig => ({
   tilePx: Math.max(1, Math.round(event.brush.mosaicTilePx ?? 4)),
@@ -284,6 +307,38 @@ const BAYER_4 = [
   [3, 11, 1, 9],
   [15, 7, 13, 5],
 ];
+const BAYER_2 = [
+  [0, 2],
+  [3, 1],
+];
+const BAYER_8 = [
+  [0, 48, 12, 60, 3, 51, 15, 63],
+  [32, 16, 44, 28, 35, 19, 47, 31],
+  [8, 56, 4, 52, 11, 59, 7, 55],
+  [40, 24, 36, 20, 43, 27, 39, 23],
+  [2, 50, 14, 62, 1, 49, 13, 61],
+  [34, 18, 46, 30, 33, 17, 45, 29],
+  [10, 58, 6, 54, 9, 57, 5, 53],
+  [42, 26, 38, 22, 41, 25, 37, 21],
+];
+
+const resolveDitherMatrixThreshold = ({
+  x,
+  y,
+  matrixSize,
+}: {
+  x: number;
+  y: number;
+  matrixSize: 2 | 4 | 8;
+}): number => {
+  if (matrixSize === 2) {
+    return (BAYER_2[y & 1][x & 1] + 0.5) / 4;
+  }
+  if (matrixSize === 8) {
+    return (BAYER_8[y & 7][x & 7] + 0.5) / 64;
+  }
+  return (BAYER_4[y & 3][x & 3] + 0.5) / 16;
+};
 
 const shouldKeepDitherPixel = ({
   x,
@@ -294,7 +349,7 @@ const shouldKeepDitherPixel = ({
   y: number;
   alpha: number;
 }): boolean => {
-  const threshold = (BAYER_4[y & 3][x & 3] + 0.5) / 16;
+  const threshold = resolveDitherMatrixThreshold({ x, y, matrixSize: 4 });
   const coverage = Math.max(0.1, Math.min(0.9, alpha * 0.5));
   return coverage >= threshold;
 };
@@ -306,22 +361,102 @@ const hash2D01 = (x: number, y: number): number => {
   return (h & 0xffff) / 0xffff;
 };
 
+const hashString32 = (value: string): number => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+};
+
+const hashSeed01 = (seed: number, index: number): number => {
+  const mixed = (Math.imul(index + 1, 374761393) ^ Math.imul(seed + 1, 668265263)) >>> 0;
+  return hash2D01(mixed, seed ^ 0x9e3779b9);
+};
+
+const compositePremultipliedPixel = ({
+  pixels,
+  index,
+  srcR,
+  srcG,
+  srcB,
+  srcA,
+  blendMode,
+}: {
+  pixels: Uint8ClampedArray;
+  index: number;
+  srcR: number;
+  srcG: number;
+  srcB: number;
+  srcA: number;
+  blendMode: SupportedBlendMode;
+}): void => {
+  if (srcA <= 0) {
+    return;
+  }
+  const dstR = pixels[index] / 255;
+  const dstG = pixels[index + 1] / 255;
+  const dstB = pixels[index + 2] / 255;
+  const dstA = pixels[index + 3] / 255;
+
+  if (blendMode === 'destination-out') {
+    const outScale = 1 - srcA;
+    pixels[index] = Math.round(clamp01(dstR * outScale) * 255);
+    pixels[index + 1] = Math.round(clamp01(dstG * outScale) * 255);
+    pixels[index + 2] = Math.round(clamp01(dstB * outScale) * 255);
+    pixels[index + 3] = Math.round(clamp01(dstA * outScale) * 255);
+    return;
+  }
+
+  const outA = srcA + dstA * (1 - srcA);
+  const outR = srcR + dstR * (1 - srcA);
+  const outG = srcG + dstG * (1 - srcA);
+  const outB = srcB + dstB * (1 - srcA);
+  pixels[index] = Math.round(clamp01(outR) * 255);
+  pixels[index + 1] = Math.round(clamp01(outG) * 255);
+  pixels[index + 2] = Math.round(clamp01(outB) * 255);
+  pixels[index + 3] = Math.round(clamp01(outA) * 255);
+};
+
 const shouldKeepTexturedPixel = ({
   mode,
   x,
   y,
   alpha,
+  pluginConfig,
 }: {
   mode: SequentialTextureMode;
   x: number;
   y: number;
   alpha: number;
+  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
 }): boolean => {
   if (mode === 'solid') {
     return true;
   }
   if (mode === 'dither') {
-    return shouldKeepDitherPixel({ x, y, alpha });
+    const algorithm = pluginConfig?.ditherAlgorithm ?? null;
+    const intensity = clamp01((pluginConfig?.ditherIntensity ?? 80) / 100);
+    const coverage = Math.max(0.05, Math.min(0.95, alpha * (0.35 + (1 - intensity) * 0.4)));
+    if (algorithm === 'bayer') {
+      const matrixSize = pluginConfig?.ditherBayerMatrixSize ?? 8;
+      const threshold = resolveDitherMatrixThreshold({
+        x,
+        y,
+        matrixSize: matrixSize === 2 || matrixSize === 8 ? matrixSize : 4,
+      });
+      return coverage >= threshold;
+    }
+    if (algorithm === 'pattern') {
+      const pattern = (x + y + Math.floor(intensity * 8)) % 3;
+      return pattern !== 0 && coverage > 0.2;
+    }
+    const noise = hash2D01(
+      x + Math.floor((algorithm ? hashString32(algorithm) : 0) & 15),
+      y + Math.floor((algorithm ? hashString32(algorithm) : 0) >>> 4 & 15)
+    );
+    return noise <= coverage;
   }
   const noise = hash2D01(x, y);
   if (mode === 'risograph-soft') {
@@ -341,7 +476,9 @@ const paintStamp = ({
   shape,
   textureMode,
   color,
+  blendMode,
   mosaicConfig,
+  pluginConfig,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
@@ -353,7 +490,9 @@ const paintStamp = ({
   shape: SequentialStampShape;
   textureMode: SequentialTextureMode;
   color: { r: number; g: number; b: number; a: number };
+  blendMode: SupportedBlendMode;
   mosaicConfig?: SequentialMosaicConfig | null;
+  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
 }) => {
   if (stampSize <= 0 || stampAlpha <= 0) {
     return;
@@ -401,7 +540,7 @@ const paintStamp = ({
         ) {
           continue;
         }
-      } else if (!shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA })) {
+      } else if (!shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA, pluginConfig })) {
         continue;
       }
 
@@ -410,20 +549,15 @@ const paintStamp = ({
       const srcB = (color.b / 255) * srcA * toneFactor;
 
       const index = (y * width + x) * 4;
-      const dstR = pixels[index] / 255;
-      const dstG = pixels[index + 1] / 255;
-      const dstB = pixels[index + 2] / 255;
-      const dstA = pixels[index + 3] / 255;
-
-      const outA = srcA + dstA * (1 - srcA);
-      const outR = srcR + dstR * (1 - srcA);
-      const outG = srcG + dstG * (1 - srcA);
-      const outB = srcB + dstB * (1 - srcA);
-
-      pixels[index] = Math.round(clamp01(outR) * 255);
-      pixels[index + 1] = Math.round(clamp01(outG) * 255);
-      pixels[index + 2] = Math.round(clamp01(outB) * 255);
-      pixels[index + 3] = Math.round(clamp01(outA) * 255);
+      compositePremultipliedPixel({
+        pixels,
+        index,
+        srcR,
+        srcG,
+        srcB,
+        srcA,
+        blendMode,
+      });
     }
   }
 };
@@ -439,6 +573,7 @@ const paintMosaicStamp = ({
   rotation,
   runtime,
   config,
+  blendMode,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
@@ -450,6 +585,7 @@ const paintMosaicStamp = ({
   rotation: number;
   runtime: SequentialMosaicRuntime;
   config: SequentialMosaicConfig;
+  blendMode: SupportedBlendMode;
 }): void => {
   if (stampSize <= 0 || stampAlpha <= 0) {
     return;
@@ -496,23 +632,18 @@ const paintMosaicStamp = ({
       }
 
       const dstIndex = (y * width + x) * 4;
-      const dstR = pixels[dstIndex] / 255;
-      const dstG = pixels[dstIndex + 1] / 255;
-      const dstB = pixels[dstIndex + 2] / 255;
-      const dstA = pixels[dstIndex + 3] / 255;
-
       const srcR = (rgb[0] / 255) * srcA;
       const srcG = (rgb[1] / 255) * srcA;
       const srcB = (rgb[2] / 255) * srcA;
-      const outA = srcA + dstA * (1 - srcA);
-      const outR = srcR + dstR * (1 - srcA);
-      const outG = srcG + dstG * (1 - srcA);
-      const outB = srcB + dstB * (1 - srcA);
-
-      pixels[dstIndex] = Math.round(clamp01(outR) * 255);
-      pixels[dstIndex + 1] = Math.round(clamp01(outG) * 255);
-      pixels[dstIndex + 2] = Math.round(clamp01(outB) * 255);
-      pixels[dstIndex + 3] = Math.round(clamp01(outA) * 255);
+      compositePremultipliedPixel({
+        pixels,
+        index: dstIndex,
+        srcR,
+        srcG,
+        srcB,
+        srcA,
+        blendMode,
+      });
     }
   }
 };
@@ -527,6 +658,7 @@ const paintCustomStamp = ({
   stampAlpha,
   color,
   stamp,
+  blendMode,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
@@ -537,6 +669,7 @@ const paintCustomStamp = ({
   stampAlpha: number;
   color: { r: number; g: number; b: number; a: number };
   stamp: ParsedCustomStamp;
+  blendMode: SupportedBlendMode;
 }): void => {
   if (stampSize <= 0 || stampAlpha <= 0 || stamp.width <= 0 || stamp.height <= 0) {
     return;
@@ -582,20 +715,162 @@ const paintCustomStamp = ({
         : (stamp.rgba[srcIndex + 2] / 255) * srcAlpha;
 
       const dstIndex = (y * width + x) * 4;
-      const dstR = pixels[dstIndex] / 255;
-      const dstG = pixels[dstIndex + 1] / 255;
-      const dstB = pixels[dstIndex + 2] / 255;
-      const dstA = pixels[dstIndex + 3] / 255;
+      compositePremultipliedPixel({
+        pixels,
+        index: dstIndex,
+        srcR,
+        srcG,
+        srcB,
+        srcA: srcAlpha,
+        blendMode,
+      });
+    }
+  }
+};
 
-      const outA = srcAlpha + dstA * (1 - srcAlpha);
-      const outR = srcR + dstR * (1 - srcAlpha);
-      const outG = srcG + dstG * (1 - srcAlpha);
-      const outB = srcB + dstB * (1 - srcAlpha);
+const paintParticleStamp = ({
+  pixels,
+  width,
+  height,
+  stampX,
+  stampY,
+  stampSize,
+  stampAlpha,
+  color,
+  blendMode,
+  seed,
+  pluginConfig,
+}: {
+  pixels: Uint8ClampedArray;
+  width: number;
+  height: number;
+  stampX: number;
+  stampY: number;
+  stampSize: number;
+  stampAlpha: number;
+  color: { r: number; g: number; b: number; a: number };
+  blendMode: SupportedBlendMode;
+  seed: number;
+  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
+}): void => {
+  const density = Number.isFinite(pluginConfig?.particleDensity)
+    ? Math.max(1, Math.min(200, pluginConfig?.particleDensity ?? 20))
+    : 20;
+  const scatterRadiusFactor = Number.isFinite(pluginConfig?.particleScatterRadius)
+    ? Math.max(0.1, Math.min(5, pluginConfig?.particleScatterRadius ?? 1.5))
+    : 1.5;
+  const particleCount = Math.max(4, Math.min(200, Math.round(density * clamp01(stampAlpha) * 1.2)));
+  const scatterRadius = stampSize * scatterRadiusFactor;
+  const alphaScale = clamp01(Math.min(0.7, 1.8 / Math.sqrt(particleCount)));
+  for (let i = 0; i < particleCount; i += 1) {
+    const angle = hashSeed01(seed, i * 3) * Math.PI * 2;
+    const distance = hashSeed01(seed, i * 3 + 1) * scatterRadius;
+    const px = stampX + Math.cos(angle) * distance;
+    const py = stampY + Math.sin(angle) * distance;
+    const particleSize = Math.max(1, stampSize * (0.08 + hashSeed01(seed, i * 3 + 2) * 0.25));
+    paintStamp({
+      pixels,
+      width,
+      height,
+      stampX: px,
+      stampY: py,
+      stampSize: particleSize,
+      stampAlpha: clamp01(stampAlpha * alphaScale),
+      shape: 'round',
+      textureMode: 'solid',
+      color,
+      blendMode,
+      mosaicConfig: null,
+      pluginConfig: null,
+    });
+  }
+};
 
-      pixels[dstIndex] = Math.round(clamp01(outR) * 255);
-      pixels[dstIndex + 1] = Math.round(clamp01(outG) * 255);
-      pixels[dstIndex + 2] = Math.round(clamp01(outB) * 255);
-      pixels[dstIndex + 3] = Math.round(clamp01(outA) * 255);
+const paintSpamStamp = ({
+  pixels,
+  width,
+  height,
+  stampX,
+  stampY,
+  stampSize,
+  stampAlpha,
+  color,
+  blendMode,
+  seed,
+  pluginConfig,
+}: {
+  pixels: Uint8ClampedArray;
+  width: number;
+  height: number;
+  stampX: number;
+  stampY: number;
+  stampSize: number;
+  stampAlpha: number;
+  color: { r: number; g: number; b: number; a: number };
+  blendMode: SupportedBlendMode;
+  seed: number;
+  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
+}): void => {
+  if (stampSize <= 0 || stampAlpha <= 0) {
+    return;
+  }
+  const fontBias =
+    typeof pluginConfig?.spamFont === 'string'
+      ? clamp01((pluginConfig.spamFont.length % 10) / 10)
+      : 0.5;
+  const contentBias =
+    typeof pluginConfig?.spamContentType === 'string'
+      ? clamp01((pluginConfig.spamContentType.length % 12) / 12)
+      : 0.5;
+  const customTextBias =
+    typeof pluginConfig?.spamCustomText === 'string'
+      ? clamp01(Math.min(1, pluginConfig.spamCustomText.length / 32))
+      : 0;
+  const glyphWidthScale = 1.7 + fontBias * 0.8;
+  const glyphHeightScale = 0.75 + contentBias * 0.4;
+  const glyphWidth = Math.max(4, Math.round(stampSize * glyphWidthScale));
+  const glyphHeight = Math.max(4, Math.round(stampSize * glyphHeightScale));
+  const cols = Math.max(5, Math.min(12, Math.round(glyphWidth / 2)));
+  const rows = Math.max(5, Math.min(9, Math.round(6 + customTextBias * 2)));
+  const left = Math.round(stampX - glyphWidth * 0.5);
+  const top = Math.round(stampY - glyphHeight * 0.5);
+  const cellW = glyphWidth / cols;
+  const cellH = glyphHeight / rows;
+  const tintA = clamp01(stampAlpha) * clamp01(color.a / 255);
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const keepThreshold = 0.35 + contentBias * 0.2;
+      const keepCell = hashSeed01(seed + row * 97 + col * 131, row + col) > keepThreshold;
+      if (!keepCell) {
+        continue;
+      }
+      const minX = Math.max(0, Math.floor(left + col * cellW));
+      const maxX = Math.min(width - 1, Math.ceil(left + (col + 1) * cellW));
+      const minY = Math.max(0, Math.floor(top + row * cellH));
+      const maxY = Math.min(height - 1, Math.ceil(top + (row + 1) * cellH));
+      const srcA = clamp01(
+        tintA * (0.4 + hashSeed01(seed, row * cols + col) * (0.5 + customTextBias * 0.2))
+      );
+      if (srcA <= 0) {
+        continue;
+      }
+      const srcR = (color.r / 255) * srcA;
+      const srcG = (color.g / 255) * srcA;
+      const srcB = (color.b / 255) * srcA;
+      for (let y = minY; y <= maxY; y += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+          const index = (y * width + x) * 4;
+          compositePremultipliedPixel({
+            pixels,
+            index,
+            srcR,
+            srcG,
+            srcB,
+            srcA,
+            blendMode,
+          });
+        }
+      }
     }
   }
 };
@@ -731,6 +1006,8 @@ const paintEventsToPixels = ({
     const stampShape = resolveStampShape(event.brush.brushShape);
     const customStamp = parseCustomStamp(event);
     const textureMode = resolveTextureMode(event);
+    const pluginMode = resolvePluginRenderMode(event.brush.pluginBrushId);
+    const blendMode = resolveBlendMode(event);
     const mosaicConfig = textureMode === 'mosaic' ? resolveMosaicConfig(event) : null;
     const mosaicRuntime =
       textureMode === 'mosaic' && mosaicConfig
@@ -751,6 +1028,39 @@ const paintEventsToPixels = ({
           stampAlpha: clamp01(stamp.alpha),
           color: parsedColor,
           stamp: customStamp,
+          blendMode,
+        });
+        continue;
+      }
+      if (pluginMode === 'particle-brush') {
+        paintParticleStamp({
+          pixels,
+          width,
+          height,
+          stampX: stamp.x,
+          stampY: stamp.y,
+          stampSize: stamp.size || event.brush.size,
+          stampAlpha: clamp01(stamp.alpha),
+          color: parsedColor,
+          blendMode,
+          seed: hashString32(`${event.id}:${stampIndex}`),
+          pluginConfig: event.brush.pluginConfig,
+        });
+        continue;
+      }
+      if (pluginMode === 'spam-brush') {
+        paintSpamStamp({
+          pixels,
+          width,
+          height,
+          stampX: stamp.x,
+          stampY: stamp.y,
+          stampSize: stamp.size || event.brush.size,
+          stampAlpha: clamp01(stamp.alpha),
+          color: parsedColor,
+          blendMode,
+          seed: hashString32(`${event.id}:${stampIndex}:spam`),
+          pluginConfig: event.brush.pluginConfig,
         });
         continue;
       }
@@ -771,6 +1081,7 @@ const paintEventsToPixels = ({
           rotation: stamp.rotation || event.brush.rotation || 0,
           runtime: mosaicRuntime,
           config: mosaicConfig,
+          blendMode,
         });
         previousMosaicStamp = { x: stamp.x, y: stamp.y };
         continue;
@@ -786,7 +1097,9 @@ const paintEventsToPixels = ({
         shape: stampShape,
         textureMode,
         color: parsedColor,
+        blendMode,
         mosaicConfig,
+        pluginConfig: event.brush.pluginConfig,
       });
     }
   }

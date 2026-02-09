@@ -180,7 +180,8 @@ export const processBatchedStrokes = (
       size: number;
       alpha: number;
     }>,
-    customBrushData?: CustomBrushStrokeData
+    customBrushData?: CustomBrushStrokeData,
+    pluginBrushId?: string | null
   ) => {
     if (stamps.length === 0) {
       return;
@@ -190,6 +191,7 @@ export const processBatchedStrokes = (
       state: captureState,
       stamps,
       customBrushData,
+      pluginBrushId,
     });
   };
 
@@ -285,7 +287,7 @@ export const processBatchedStrokes = (
           const customBrushData = deps.resolveActiveCustomBrushData(currentState);
           captureSequentialStamps([
             createFallbackSequentialStamp(drawTo, pressure, currentState.tools.brushSettings),
-          ], customBrushData);
+          ], customBrushData, currentBrushId);
         } else if (deps.brushEngine) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';

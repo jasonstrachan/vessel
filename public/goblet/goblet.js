@@ -1383,6 +1383,7 @@ const PROPERTY_UNMINIFY_MAP = {
   dh: 'designHeight',
   txr: 'texture',
   txf: 'textureFrames',
+  txfm: 'textureFrameMap',
   md: 'mode',
   ia: 'isAnimating',
   bs: 'brushState',
@@ -1686,20 +1687,54 @@ class SequentialLayerPlayer {
   constructor(layer, frames, defaultFps) {
     this.layer = layer;
     this.frames = Array.isArray(frames) ? frames.filter(Boolean) : [];
+    this.frameMap = Array.isArray(layer?.assets?.textureFrameMap) ? layer.assets.textureFrameMap.slice() : null;
     const sequential = layer?.sequential;
-    const metadataFrameCount = Math.max(
-      1,
-      posInt(sequential?.totalFrames ?? this.frames.length ?? 1, this.frames.length || 1)
-    );
-    this.frameCount = Math.max(1, Math.min(metadataFrameCount, this.frames.length || metadataFrameCount));
-    this.fps = Math.max(1, toNum(sequential?.fps, defaultFps));
+    const fallbackFps = Number.isFinite(defaultFps) && defaultFps > 0 ? defaultFps : 12;
+    const mappedFrameCount = this.frameMap?.length ?? 0;
+    const metadataFrameCount = Math.max(1, posInt(sequential?.totalFrames, 1));
+    this.frameCount = Math.max(1, Math.max(metadataFrameCount, mappedFrameCount));
+    this.fps = Math.max(1, toNum(sequential?.fps, fallbackFps));
     this.currentFrame = 0;
     this.frameAccumulatorSeconds = 0;
     this.frameDurationSeconds = 1 / this.fps;
+
+    if (this.frameMap && this.frameMap.length > 0) {
+      const safeMap = new Array(this.frameCount).fill(-1);
+      const sourceMap = this.frameMap;
+      for (let i = 0; i < this.frameCount; i += 1) {
+        safeMap[i] = sourceMap[i] ?? -1;
+      }
+      const normalizedMap = safeMap.map((entry) => {
+        if (!Number.isFinite(entry) || entry < 0) {
+          return -1;
+        }
+        return Math.max(0, Math.min(this.frames.length - 1, Math.round(entry)));
+      });
+      let firstValid = -1;
+      for (let i = 0; i < normalizedMap.length; i += 1) {
+        if (normalizedMap[i] >= 0) {
+          firstValid = normalizedMap[i];
+          break;
+        }
+      }
+      if (firstValid >= 0) {
+        let carry = firstValid;
+        for (let i = 0; i < normalizedMap.length; i += 1) {
+          if (normalizedMap[i] >= 0) {
+            carry = normalizedMap[i];
+          } else {
+            normalizedMap[i] = carry;
+          }
+        }
+        this.frameMap = normalizedMap;
+      } else {
+        this.frameMap = null;
+      }
+    }
   }
 
   hasAnimation() {
-    return this.frameCount > 1 && this.frames.length > 1 && this.fps > 0;
+    return this.frames.length > 1 && this.fps > 0;
   }
 
   advance(deltaSeconds) {
@@ -1726,7 +1761,16 @@ class SequentialLayerPlayer {
     if (this.frames.length === 0) {
       return null;
     }
-    const index = Math.max(0, Math.min(this.frameCount - 1, this.currentFrame));
+    if (this.frameMap && this.frameMap.length > 0) {
+      const logicalIndex = Math.max(0, Math.min(this.frameCount - 1, this.currentFrame));
+      const mapped = this.frameMap[logicalIndex];
+      if (Number.isFinite(mapped) && mapped >= 0) {
+        const mappedIndex = Math.max(0, Math.min(this.frames.length - 1, Math.round(mapped)));
+        return this.frames[mappedIndex] ?? null;
+      }
+    }
+    const frameSpan = Math.max(1, Math.min(this.frameCount, this.frames.length));
+    const index = Math.max(0, Math.min(frameSpan - 1, this.currentFrame % frameSpan));
     return this.frames[index] ?? this.frames[0] ?? null;
   }
 
@@ -3854,9 +3898,19 @@ class VesselGoblet {
           && rect.height >= sourceHeight - tolerance;
       };
 
-      const shouldPreferDocumentRect = isColorCycleLayer
-        && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds))
-        && Boolean(paintedRectFromDocument);
+      const tinyContentBounds = Boolean(
+        normalizedContentBounds
+        && normalizedContentBounds.width <= 1.5
+        && normalizedContentBounds.height <= 1.5
+        && (sourceWidth > 2 || sourceHeight > 2)
+      );
+      const shouldPreferDocumentRect = Boolean(
+        paintedRectFromDocument
+        && (
+          (isColorCycleLayer && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
+          || (entry.layer.type === 'sequential' && tinyContentBounds)
+        )
+      );
 
       const paintedRect = shouldPreferDocumentRect
         ? paintedRectFromDocument

@@ -31,7 +31,7 @@ describe('useDrawingHandlers custom brush resolution', () => {
     } as any;
 
     const result = resolveActiveCustomBrushData(state);
-    expect(result?.cacheKey).toBe('temp:temp-1');
+    expect(result?.cacheKey).toMatch(/^temp:temp-1:\d+x\d+:[a-f0-9]{8}$/);
     expect(result?.width).toBe(2);
   });
 
@@ -50,7 +50,7 @@ describe('useDrawingHandlers custom brush resolution', () => {
     } as any;
 
     const result = resolveActiveCustomBrushData(state);
-    expect(result?.cacheKey).toBe('project:saved-1');
+    expect(result?.cacheKey).toMatch(/^project:saved-1:\d+x\d+:[a-f0-9]{8}$/);
     expect(result?.isColorizable).toBe(false);
   });
 

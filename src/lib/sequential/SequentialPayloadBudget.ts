@@ -1,4 +1,5 @@
 import type { Layer, SequentialStrokeEvent } from '@/types';
+import { estimatePluginConfigPayloadBytes } from '@/lib/sequential/pluginConfig';
 
 export const SEQUENTIAL_PAYLOAD_SOFT_LIMIT_BYTES = 32 * 1024 * 1024;
 export const SEQUENTIAL_PAYLOAD_HARD_LIMIT_BYTES = 96 * 1024 * 1024;
@@ -28,6 +29,8 @@ export const estimateSequentialStrokeEventPayloadBytes = (
     estimateStringBytes(brush.brushShape) +
     estimateStringBytes(brush.blendMode) +
     estimateStringBytes(brush.color) +
+    estimateStringBytes(brush.pluginBrushId) +
+    estimatePluginConfigPayloadBytes(brush.pluginConfig) +
     estimateStringBytes(brush.customStampId) +
     estimateStringBytes(brush.customStampHash) +
     estimateStringBytes(brush.ditherAlgorithm) +

@@ -118,6 +118,7 @@ export const startBrushToolStroke = ({
       state: captureState,
       stamps: [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
       customBrushData,
+      pluginBrushId: currentBrushId,
     });
     return;
   }

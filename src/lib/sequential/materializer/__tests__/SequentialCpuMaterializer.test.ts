@@ -11,6 +11,9 @@ const createEvent = ({
   brushShape = BrushShape.ROUND,
   alpha = 1,
   ditherEnabled = false,
+  blendMode = 'source-over',
+  pluginBrushId,
+  pluginConfig,
   mosaicTilePx,
   mosaicBlocksCount,
   mosaicPaletteCount,
@@ -30,6 +33,9 @@ const createEvent = ({
   brushShape?: BrushShape;
   alpha?: number;
   ditherEnabled?: boolean;
+  blendMode?: SequentialStrokeEvent['brush']['blendMode'];
+  pluginBrushId?: string;
+  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'];
   mosaicTilePx?: number;
   mosaicBlocksCount?: number;
   mosaicPaletteCount?: number;
@@ -56,10 +62,12 @@ const createEvent = ({
     brushShape,
     size,
     opacity: 1,
-    blendMode: 'source-over',
+    blendMode,
     rotation: 0,
     spacing: 1,
     color,
+    pluginBrushId,
+    pluginConfig,
     customStampId: null,
     customStampHash: customStamp?.hash ?? null,
     customStamp: customStamp
@@ -127,6 +135,33 @@ const countVisibleWithPredicate = (
     }
   }
   return count;
+};
+
+const getVisibleBounds = (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): { minX: number; minY: number; maxX: number; maxY: number } | null => {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha <= 0) {
+        continue;
+      }
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (maxX < minX || maxY < minY) {
+    return null;
+  }
+  return { minX, minY, maxX, maxY };
 };
 
 const materializeToPixels = (
@@ -303,6 +338,240 @@ describe('SequentialCpuMaterializer', () => {
     expect(sumAlpha(textured)).toBeLessThan(sumAlpha(solid));
   });
 
+  it('applies dither texture for dither-brush plugin replays', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 24,
+      height: 24,
+      frameIndex: 0,
+    };
+    const standard = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'standard',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+        }),
+      ],
+    });
+    const pluginDither = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'plugin-dither',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          pluginBrushId: 'dither-brush',
+        }),
+      ],
+    });
+
+    expect(sumAlpha(pluginDither)).toBeLessThan(sumAlpha(standard));
+  });
+
+  it('uses dither plugin config to vary deterministic replay output', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 24,
+      height: 24,
+      frameIndex: 0,
+    };
+    const pluginBayer = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'plugin-bayer',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          pluginBrushId: 'dither-brush',
+          pluginConfig: {
+            ditherAlgorithm: 'bayer',
+            ditherIntensity: 10,
+            ditherBayerMatrixSize: 2,
+          },
+        }),
+      ],
+    });
+    const pluginPattern = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'plugin-pattern',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          pluginBrushId: 'dither-brush',
+          pluginConfig: {
+            ditherAlgorithm: 'pattern',
+            ditherIntensity: 70,
+            ditherBayerMatrixSize: 8,
+          },
+        }),
+      ],
+    });
+
+    expect(sumAlpha(pluginBayer)).toBeGreaterThan(0);
+    expect(sumAlpha(pluginPattern)).toBeGreaterThan(0);
+    expect(Array.from(pluginBayer)).not.toEqual(Array.from(pluginPattern));
+  });
+
+  it('replays particle-brush with wider deterministic scatter than a plain stamp', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 40,
+      height: 40,
+      frameIndex: 0,
+    };
+    const standard = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'std-particle-compare',
+          frameIndex: 0,
+          x: 20,
+          y: 20,
+          color: '#ffffff',
+          size: 10,
+        }),
+      ],
+    });
+    const particle = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'particle',
+          frameIndex: 0,
+          x: 20,
+          y: 20,
+          color: '#ffffff',
+          size: 10,
+          pluginBrushId: 'particle-brush',
+        }),
+      ],
+    });
+
+    const standardBounds = getVisibleBounds(standard, inputBase.width, inputBase.height);
+    const particleBounds = getVisibleBounds(particle, inputBase.width, inputBase.height);
+    expect(standardBounds).not.toBeNull();
+    expect(particleBounds).not.toBeNull();
+    expect((particleBounds?.maxX ?? 0) - (particleBounds?.minX ?? 0)).toBeGreaterThan(
+      (standardBounds?.maxX ?? 0) - (standardBounds?.minX ?? 0)
+    );
+  });
+
+  it('uses particle plugin config to vary deterministic replay spread', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 48,
+      height: 48,
+      frameIndex: 0,
+    };
+    const tightParticle = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'particle-tight',
+          frameIndex: 0,
+          x: 24,
+          y: 24,
+          color: '#ffffff',
+          size: 10,
+          pluginBrushId: 'particle-brush',
+          pluginConfig: {
+            particleDensity: 12,
+            particleScatterRadius: 0.8,
+          },
+        }),
+      ],
+    });
+    const wideParticle = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'particle-wide',
+          frameIndex: 0,
+          x: 24,
+          y: 24,
+          color: '#ffffff',
+          size: 10,
+          pluginBrushId: 'particle-brush',
+          pluginConfig: {
+            particleDensity: 90,
+            particleScatterRadius: 2.8,
+          },
+        }),
+      ],
+    });
+
+    const tightBounds = getVisibleBounds(tightParticle, inputBase.width, inputBase.height);
+    const wideBounds = getVisibleBounds(wideParticle, inputBase.width, inputBase.height);
+    expect(tightBounds).not.toBeNull();
+    expect(wideBounds).not.toBeNull();
+    expect((wideBounds?.maxX ?? 0) - (wideBounds?.minX ?? 0)).toBeGreaterThan(
+      (tightBounds?.maxX ?? 0) - (tightBounds?.minX ?? 0)
+    );
+    expect(sumAlpha(wideParticle)).toBeGreaterThan(sumAlpha(tightParticle));
+  });
+
+  it('uses spam plugin config to influence deterministic replay pattern', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 40,
+      height: 40,
+      frameIndex: 0,
+    };
+    const spamA = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'spam-a',
+          frameIndex: 0,
+          x: 20,
+          y: 20,
+          color: '#ffffff',
+          size: 10,
+          pluginBrushId: 'spam-brush',
+          pluginConfig: {
+            spamFont: 'courier',
+            spamContentType: 'classic',
+            spamCustomText: 'WINNER',
+          },
+        }),
+      ],
+    });
+    const spamB = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'spam-b',
+          frameIndex: 0,
+          x: 20,
+          y: 20,
+          color: '#ffffff',
+          size: 10,
+          pluginBrushId: 'spam-brush',
+          pluginConfig: {
+            spamFont: 'menlo',
+            spamContentType: 'crypto',
+            spamCustomText: 'TO THE MOON',
+          },
+        }),
+      ],
+    });
+
+    expect(sumAlpha(spamA)).toBeGreaterThan(0);
+    expect(sumAlpha(spamB)).toBeGreaterThan(0);
+    expect(Array.from(spamA)).not.toEqual(Array.from(spamB));
+  });
+
   it('renders custom stamp texture when provided', () => {
     const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
     const rgba = new Uint8Array([
@@ -414,5 +683,52 @@ describe('SequentialCpuMaterializer', () => {
     const patchedBytes = patched.tiles.flatMap((tile) => Array.from(tile.data));
     const fullBytes = fullyMaterialized.tiles.flatMap((tile) => Array.from(tile.data));
     expect(patchedBytes).toEqual(fullBytes);
+  });
+
+  it('respects destination-out blend mode during sequential replay', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
+    const withErase = materializeToPixels(materializer, {
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [
+        createEvent({
+          id: 'base-solid',
+          frameIndex: 0,
+          x: 8,
+          y: 8,
+          color: '#ff0000',
+          size: 10,
+        }),
+        createEvent({
+          id: 'erase-center',
+          frameIndex: 0,
+          x: 8,
+          y: 8,
+          color: '#000000',
+          size: 6,
+          blendMode: 'destination-out',
+        }),
+      ],
+    });
+    const withoutErase = materializeToPixels(materializer, {
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [
+        createEvent({
+          id: 'base-solid',
+          frameIndex: 0,
+          x: 8,
+          y: 8,
+          color: '#ff0000',
+          size: 10,
+        }),
+      ],
+    });
+
+    const centerAlpha = withErase[(8 * 16 + 8) * 4 + 3];
+    const baselineCenterAlpha = withoutErase[(8 * 16 + 8) * 4 + 3];
+    expect(centerAlpha).toBeLessThan(baselineCenterAlpha);
   });
 });

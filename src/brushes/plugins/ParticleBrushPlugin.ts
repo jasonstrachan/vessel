@@ -1,6 +1,15 @@
 import { BaseBrushPlugin, BrushDrawContext, BrushMetadata } from '../BrushPlugin';
 import { BrushSettings } from '../../types';
 
+export const serializeParticlePluginConfig = (settings: BrushSettings) => ({
+  particleDensity: Number.isFinite(settings.particleDensity)
+    ? Math.max(1, Math.min(200, settings.particleDensity ?? 20))
+    : 20,
+  particleScatterRadius: Number.isFinite(settings.particleScatterRadius)
+    ? Math.max(0.1, Math.min(5, settings.particleScatterRadius ?? 1.5))
+    : 1.5,
+});
+
 /**
  * Particle Brush Plugin - Creates scattered particle effects
  * Example of a simple user-created brush plugin
@@ -27,10 +36,21 @@ export class ParticleBrushPlugin extends BaseBrushPlugin {
     maxStrokePoints: 1000
   };
 
+  serializeSequentialConfig(settings: BrushSettings) {
+    return serializeParticlePluginConfig(settings);
+  }
+
+  applySettings(settings: BrushSettings): void {
+    const config = this.serializeSequentialConfig(settings);
+    this.particleDensity = config?.particleDensity ?? 20;
+    this.scatterRadius = config?.particleScatterRadius ?? 1.5;
+  }
+
   draw(context: BrushDrawContext): void {
     const { ctx, x, y, pressure, settings } = context;
+    this.applySettings(settings);
     const size = settings.size * (pressure || 1);
-    const particleCount = Math.floor(this.particleDensity * pressure);
+    const particleCount = Math.max(1, Math.floor(this.particleDensity * pressure));
     const scatter = size * this.scatterRadius;
 
     ctx.save();
@@ -62,8 +82,10 @@ export class ParticleBrushPlugin extends BaseBrushPlugin {
     ctx: CanvasRenderingContext2D,
     x1: number,
     y1: number,
+    pressure1: number,
     x2: number,
     y2: number,
+    pressure2: number,
     settings: BrushSettings
   ): void {
     // Draw particles along the line
@@ -79,7 +101,7 @@ export class ParticleBrushPlugin extends BaseBrushPlugin {
         ctx,
         x,
         y,
-        pressure: 1,
+        pressure: pressure1 + (pressure2 - pressure1) * t,
         settings,
         lastPoint: null
       });

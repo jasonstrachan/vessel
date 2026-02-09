@@ -1,4 +1,5 @@
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
+import { serializeBuiltinPluginSequentialConfig } from '@/brushes/plugins';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import {
   createSequentialPayloadBudgetRuntime,
@@ -8,6 +9,7 @@ import {
   SEQUENTIAL_PAYLOAD_HARD_LIMIT_BYTES,
   SEQUENTIAL_PAYLOAD_SOFT_LIMIT_BYTES,
 } from '@/lib/sequential/SequentialPayloadBudget';
+import { serializePluginConfigForKey } from '@/lib/sequential/pluginConfig';
 import {
   recordSequentialFlushPerf,
   recordSequentialTemporalDistributionPerf,
@@ -16,6 +18,7 @@ import {
   selectSequentialCaptureActive,
   type AppState,
 } from '@/stores/useAppStore';
+import { brushRegistry } from '@/brushes/BrushRegistry';
 import {
   BrushShape,
   type Layer,
@@ -40,6 +43,7 @@ export interface SequentialStampCapRuntime {
   lastResolvedBrushSnapshot: SequentialBrushSnapshot | null;
   lastBrushSettingsRef: AppState['tools']['brushSettings'] | null;
   lastToolRef: AppState['tools']['currentTool'] | null;
+  lastPluginBrushIdRef?: string | null;
   lastCustomBrushDataRef?: CustomBrushStrokeData;
   lastGradientRef: BrushSettings['colorCycleGradient'] | null | undefined;
   lastGradientSnapshot: SequentialBrushSnapshot['colorCycleGradient'];
@@ -88,6 +92,7 @@ const defaultStampCapRuntime: SequentialStampCapRuntime = {
   lastResolvedBrushSnapshot: null,
   lastBrushSettingsRef: null,
   lastToolRef: null,
+  lastPluginBrushIdRef: null,
   lastCustomBrushDataRef: undefined,
   lastGradientRef: undefined,
   lastGradientSnapshot: undefined,
@@ -128,6 +133,7 @@ export const createSequentialStampCapRuntime = (): SequentialStampCapRuntime => 
   lastResolvedBrushSnapshot: null,
   lastBrushSettingsRef: null,
   lastToolRef: null,
+  lastPluginBrushIdRef: null,
   lastCustomBrushDataRef: undefined,
   lastGradientRef: undefined,
   lastGradientSnapshot: undefined,
@@ -459,14 +465,20 @@ const resolveTemporalDistributionReason = ({
 const buildBrushSnapshot = ({
   state,
   customBrushData,
+  pluginBrushId,
   gradientSnapshot,
 }: {
   state: AppState;
   customBrushData?: CustomBrushStrokeData;
+  pluginBrushId?: string | null;
   gradientSnapshot?: SequentialBrushSnapshot['colorCycleGradient'];
 }): SequentialBrushSnapshot => {
   const settings = state.tools.brushSettings;
   const customStamp = buildSequentialCustomStampSnapshot(customBrushData);
+  const pluginConfig = pluginBrushId
+    ? brushRegistry.get(pluginBrushId)?.serializeSequentialConfig?.(settings) ??
+      serializeBuiltinPluginSequentialConfig(pluginBrushId, settings)
+    : null;
   return {
     tool: state.tools.currentTool,
     brushShape: settings.brushShape ?? BrushShape.ROUND,
@@ -476,6 +488,8 @@ const buildBrushSnapshot = ({
     rotation: Number.isFinite(settings.rotation) ? settings.rotation : 0,
     spacing: Math.max(0.25, Number.isFinite(settings.spacing) ? settings.spacing : 1),
     color: settings.color || '#000000',
+    ...(pluginBrushId ? { pluginBrushId } : {}),
+    ...(pluginConfig ? { pluginConfig } : {}),
     customStampId: customBrushData?.cacheKey ?? null,
     customStampHash: customStamp?.hash ?? null,
     customStamp: customStamp
@@ -515,6 +529,8 @@ const buildBrushSnapshotKey = (
     snapshot.rotation,
     snapshot.spacing,
     snapshot.color,
+    snapshot.pluginBrushId ?? '',
+    serializePluginConfigForKey(snapshot.pluginConfig),
     snapshot.customStampId ?? '',
     snapshot.customStampHash ?? '',
     snapshot.ditherEnabled ? '1' : '0',
@@ -563,8 +579,8 @@ const fnv1aHashHex = (bytes: ArrayLike<number>): string => {
   return hash.toString(16).padStart(8, '0');
 };
 
-const customStampSnapshotCache = new WeakMap<
-  ImageData,
+const customStampSnapshotCache = new Map<
+  string,
   { hash: string; width: number; height: number; rgbaBase64: string; isColorizable: boolean }
 >();
 
@@ -578,7 +594,11 @@ const buildSequentialCustomStampSnapshot = (
   }
 
   const imageData = customBrushData.imageData;
-  const cached = customStampSnapshotCache.get(imageData);
+  const cacheKey =
+    customBrushData.cacheKey ??
+    (imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey ??
+    null;
+  const cached = cacheKey ? customStampSnapshotCache.get(cacheKey) : null;
   if (cached) {
     const nextIsColorizable = Boolean(customBrushData.isColorizable);
     if (cached.isColorizable === nextIsColorizable) {
@@ -597,7 +617,15 @@ const buildSequentialCustomStampSnapshot = (
     rgbaBase64,
     isColorizable: Boolean(customBrushData.isColorizable),
   };
-  customStampSnapshotCache.set(imageData, snapshot);
+  if (cacheKey) {
+    customStampSnapshotCache.set(cacheKey, snapshot);
+    if (customStampSnapshotCache.size > 256) {
+      const first = customStampSnapshotCache.keys().next().value;
+      if (typeof first === 'string') {
+        customStampSnapshotCache.delete(first);
+      }
+    }
+  }
   return snapshot;
 };
 
@@ -804,10 +832,12 @@ const resolveCaptureLayer = (
 const resolveBrushSnapshotForCapture = ({
   state,
   customBrushData,
+  pluginBrushId,
   runtime,
 }: {
   state: AppState;
   customBrushData?: CustomBrushStrokeData;
+  pluginBrushId?: string | null;
   runtime: SequentialStampCapRuntime;
 }): { brush: SequentialBrushSnapshot; key: string } => {
   const settings = state.tools.brushSettings;
@@ -815,6 +845,7 @@ const resolveBrushSnapshotForCapture = ({
   if (
     runtime.lastBrushSettingsRef === settings &&
     runtime.lastToolRef === tool &&
+    runtime.lastPluginBrushIdRef === (pluginBrushId ?? null) &&
     runtime.lastCustomBrushDataRef === customBrushData &&
     runtime.lastResolvedBrushSnapshot &&
     runtime.lastResolvedBrushSnapshotKey
@@ -850,11 +881,13 @@ const resolveBrushSnapshotForCapture = ({
   const brush = buildBrushSnapshot({
     state,
     customBrushData,
+    pluginBrushId,
     gradientSnapshot,
   });
   const key = buildBrushSnapshotKey(brush, gradientKey);
   runtime.lastBrushSettingsRef = settings;
   runtime.lastToolRef = tool;
+  runtime.lastPluginBrushIdRef = pluginBrushId ?? null;
   runtime.lastCustomBrushDataRef = customBrushData;
   runtime.lastResolvedBrushSnapshot = brush;
   runtime.lastResolvedBrushSnapshotKey = key;
@@ -964,6 +997,7 @@ export const captureSequentialStampsForActiveLayer = ({
   state,
   stamps,
   customBrushData,
+  pluginBrushId,
   runtime,
   payloadRuntime,
   notificationRuntime,
@@ -974,6 +1008,7 @@ export const captureSequentialStampsForActiveLayer = ({
   state: AppState;
   stamps: SequentialStampPoint[];
   customBrushData?: CustomBrushStrokeData;
+  pluginBrushId?: string | null;
   runtime?: SequentialStampCapRuntime;
   payloadRuntime?: ReturnType<typeof createSequentialPayloadBudgetRuntime>;
   notificationRuntime?: SequentialPayloadNotificationRuntime;
@@ -1024,6 +1059,7 @@ export const captureSequentialStampsForActiveLayer = ({
     capRuntime.lastResolvedBrushSnapshot = null;
     capRuntime.lastBrushSettingsRef = null;
     capRuntime.lastToolRef = null;
+    capRuntime.lastPluginBrushIdRef = null;
     capRuntime.lastCustomBrushDataRef = undefined;
     capRuntime.lastGradientRef = undefined;
     capRuntime.lastGradientSnapshot = undefined;
@@ -1064,6 +1100,7 @@ export const captureSequentialStampsForActiveLayer = ({
   const { brush, key: brushSnapshotKey } = resolveBrushSnapshotForCapture({
     state,
     customBrushData,
+    pluginBrushId,
     runtime: capRuntime,
   });
   if (
@@ -1240,6 +1277,7 @@ export const __TESTING__ = {
     defaultStampCapRuntime.lastResolvedBrushSnapshot = null;
     defaultStampCapRuntime.lastBrushSettingsRef = null;
     defaultStampCapRuntime.lastToolRef = null;
+    defaultStampCapRuntime.lastPluginBrushIdRef = null;
     defaultStampCapRuntime.lastCustomBrushDataRef = undefined;
     defaultStampCapRuntime.lastGradientRef = undefined;
     defaultStampCapRuntime.lastGradientSnapshot = undefined;

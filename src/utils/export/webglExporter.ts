@@ -117,6 +117,7 @@ interface WebGLViewport {
 interface WebGLLayerAsset {
   texture?: string;
   textureFrames?: string[];
+  textureFrameMap?: number[];
 }
 
 type LayerExportMetrics = LayerContentMetrics;
@@ -230,6 +231,7 @@ const PROPERTY_MINIFY_MAP = {
   designHeight: 'dh',
   texture: 'txr',
   textureFrames: 'txf',
+  textureFrameMap: 'txfm',
   mode: 'md',
   isAnimating: 'ia',
   brushState: 'bs',
@@ -2936,17 +2938,66 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
   }
 };
 
+const deriveSequentialContentBounds = (
+  layer: Layer,
+  project: Project
+): WebGLLayerBounds | null => {
+  if (layer.layerType !== 'sequential' || !layer.sequentialData || layer.sequentialData.events.length === 0) {
+    return null;
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (let i = 0; i < layer.sequentialData.events.length; i += 1) {
+    const event = layer.sequentialData.events[i];
+    const brushSize = Math.max(1, toNum(event.brush?.size, 1));
+    for (let j = 0; j < event.stamps.length; j += 1) {
+      const stamp = event.stamps[j];
+      const stampSize = Math.max(1, toNum(stamp.size, brushSize));
+      const half = stampSize / 2;
+      const x = toNum(stamp.x, 0);
+      const y = toNum(stamp.y, 0);
+      minX = Math.min(minX, x - half);
+      minY = Math.min(minY, y - half);
+      maxX = Math.max(maxX, x + half);
+      maxY = Math.max(maxY, y + half);
+    }
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null;
+  }
+
+  return clampBoundsToDocument(
+    {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    },
+    {
+      width: project.width,
+      height: project.height
+    }
+  );
+};
+
 const captureSequentialLayerFrameTextures = async ({
   layer,
   width,
   height,
   frameCount,
+  cropBounds,
 }: {
   layer: Layer;
   width: number;
   height: number;
   frameCount: number;
-}): Promise<string[] | undefined> => {
+  cropBounds?: WebGLLayerBounds | null;
+}): Promise<{ frames: string[]; frameMap: number[]; sourceSize: { width: number; height: number } } | undefined> => {
   if (
     layer.layerType !== 'sequential' ||
     !layer.sequentialData ||
@@ -2961,8 +3012,34 @@ const captureSequentialLayerFrameTextures = async ({
   const safeHeight = Math.max(1, Math.round(height));
   const safeFrameCount = Math.max(1, Math.round(frameCount));
   const frames: string[] = [];
+  const frameMap = new Array<number>(safeFrameCount).fill(-1);
+  const hasCrop = Boolean(cropBounds && cropBounds.width > 0 && cropBounds.height > 0);
+  const cropX = hasCrop ? Math.max(0, Math.floor(toNum(cropBounds!.x, 0))) : 0;
+  const cropY = hasCrop ? Math.max(0, Math.floor(toNum(cropBounds!.y, 0))) : 0;
+  const cropW = hasCrop ? Math.max(1, Math.round(toNum(cropBounds!.width, safeWidth))) : safeWidth;
+  const cropH = hasCrop ? Math.max(1, Math.round(toNum(cropBounds!.height, safeHeight))) : safeHeight;
+  let cropCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  if (hasCrop) {
+    if (typeof document !== 'undefined') {
+      const canvas = document.createElement('canvas');
+      canvas.width = cropW;
+      canvas.height = cropH;
+      cropCanvas = canvas;
+    } else if (typeof OffscreenCanvas !== 'undefined') {
+      cropCanvas = new OffscreenCanvas(cropW, cropH);
+    }
+  }
+  const byFrame = new Set<number>();
+  for (let i = 0; i < layer.sequentialData.events.length; i += 1) {
+    const event = layer.sequentialData.events[i];
+    const normalized = ((Math.round(event.frameIndex) % safeFrameCount) + safeFrameCount) % safeFrameCount;
+    byFrame.add(normalized);
+  }
+  const dedupe = new Map<string, number>();
+  const frameIndexes = Array.from(byFrame.values()).sort((a, b) => a - b);
 
-  for (let frameIndex = 0; frameIndex < safeFrameCount; frameIndex += 1) {
+  for (let i = 0; i < frameIndexes.length; i += 1) {
+    const frameIndex = frameIndexes[i];
     const frameCanvas = getSequentialLayerRenderCanvas({
       layer,
       width: safeWidth,
@@ -2972,14 +3049,54 @@ const captureSequentialLayerFrameTextures = async ({
     if (!frameCanvas) {
       continue;
     }
-    const { dataUrl } = await canvasToDataURL(frameCanvas);
+    let encodedCanvas: HTMLCanvasElement | OffscreenCanvas = frameCanvas;
+    if (cropCanvas) {
+      const cropCtx = cropCanvas.getContext(
+        '2d',
+        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+      ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+      if (cropCtx) {
+        cropCtx.clearRect(0, 0, cropW, cropH);
+        cropCtx.drawImage(
+          frameCanvas as unknown as CanvasImageSource,
+          cropX,
+          cropY,
+          cropW,
+          cropH,
+          0,
+          0,
+          cropW,
+          cropH
+        );
+        encodedCanvas = cropCanvas;
+      }
+    }
+
+    const { dataUrl } = await canvasToDataURL(encodedCanvas);
     const normalized = normalizeImageDataUrl(dataUrl);
     if (normalized) {
+      const existing = dedupe.get(normalized);
+      if (typeof existing === 'number') {
+        frameMap[frameIndex] = existing;
+        continue;
+      }
+      const nextIndex = frames.length;
+      dedupe.set(normalized, nextIndex);
       frames.push(normalized);
+      frameMap[frameIndex] = nextIndex;
     }
   }
 
-  return frames.length > 1 ? frames : undefined;
+  return frames.length > 0
+    ? {
+        frames,
+        frameMap,
+        sourceSize: {
+          width: cropW,
+          height: cropH
+        }
+      }
+    : undefined;
 };
 
 type RGBAColor = { r: number; g: number; b: number; a: number };
@@ -3171,6 +3288,22 @@ const fetchGobletAsset = (
   assetPrefix?: string,
   root: GobletAssetRoot = 'goblet'
 ): Promise<string> => {
+  const bypassCache =
+    asset === 'goblet.js'
+    || asset === 'goblet2.js'
+    || asset === 'goblet-inline.js'
+    || asset === 'goblet2-inline.js';
+  if (bypassCache) {
+    return (async () => {
+      const url = resolveGobletAssetUrl(asset, assetPrefix, root);
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to load Goblet asset ${asset} from ${url} (${response.status})`);
+      }
+      return await response.text();
+    })();
+  }
+
   const cacheKey = `${assetPrefix ?? '__default__'}::${root}::${asset}`;
   const cached = gobletAssetCache.get(cacheKey);
   if (cached) {
@@ -3858,6 +3991,10 @@ export const exportProjectAsWebGL = async (
     };
     const surfaceSize = { ...originalSurfaceSize };
     let documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
+    const sequentialContentBounds = deriveSequentialContentBounds(layer, options.project);
+    if (sequentialContentBounds) {
+      documentBoundsPx = sequentialContentBounds;
+    }
 
     let texture = await captureLayerTexture(layer);
     const sequentialFrameCount = Math.max(
@@ -3866,12 +4003,15 @@ export const exportProjectAsWebGL = async (
     );
     const sequentialFrames = await captureSequentialLayerFrameTextures({
       layer,
-      width: originalSurfaceSize.width,
-      height: originalSurfaceSize.height,
+      width: Math.max(originalSurfaceSize.width, options.project.width),
+      height: Math.max(originalSurfaceSize.height, options.project.height),
       frameCount: sequentialFrameCount,
+      cropBounds: sequentialContentBounds,
     });
-    if (Array.isArray(sequentialFrames) && sequentialFrames.length > 0) {
-      texture = sequentialFrames[0] ?? texture;
+    if (sequentialFrames && sequentialFrames.frames.length > 0) {
+      texture = sequentialFrames.frames[0] ?? texture;
+      surfaceSize.width = sequentialFrames.sourceSize.width;
+      surfaceSize.height = sequentialFrames.sourceSize.height;
     }
     const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning, {
       forceSpeedBuffer: gobletVersion === 'goblet2',
@@ -3898,6 +4038,11 @@ export const exportProjectAsWebGL = async (
         surfaceSize.width = Math.max(surfaceSize.width, Math.max(1, brushRuntime.width));
         surfaceSize.height = Math.max(surfaceSize.height, Math.max(1, brushRuntime.height));
       }
+    }
+
+    if (colorCycle?.mode === 'brush' && colorCycle.brushState) {
+      // Preserve brush alpha/texture detail in Goblet when an exported texture exists.
+      colorCycle.brushState.alphaMode = texture ? 'source' : 'opaque-indices';
     }
 
     if (colorCycle?.coverageBoundsPx) {
@@ -3974,9 +4119,18 @@ export const exportProjectAsWebGL = async (
       ccWarn('NO CC PAYLOAD FOR LAYER', layer.id);
     }
 
+    const sequentialSurfaceBounds = sequentialFrames
+      ? {
+          x: 0,
+          y: 0,
+          width: Math.max(1, sequentialFrames.sourceSize.width),
+          height: Math.max(1, sequentialFrames.sourceSize.height)
+        }
+      : null;
+
     const surfaceBounds = colorCycle?.coverageBoundsSourcePx
       ? clampBoundsToSurface(colorCycle.coverageBoundsSourcePx, surfaceSize)
-      : metrics.contentBounds;
+      : (sequentialSurfaceBounds ?? metrics.contentBounds);
 
     if (syntheticTextureApplied) {
       surfaceSize.width = Math.max(1, round3(surfaceBounds.width));
@@ -4023,7 +4177,12 @@ export const exportProjectAsWebGL = async (
       assets: texture || sequentialFrames
         ? {
             ...(texture ? { texture } : {}),
-            ...(sequentialFrames ? { textureFrames: sequentialFrames } : {}),
+            ...(sequentialFrames
+              ? {
+                  textureFrames: sequentialFrames.frames,
+                  textureFrameMap: sequentialFrames.frameMap
+                }
+              : {}),
           }
         : undefined,
       colorCycle,

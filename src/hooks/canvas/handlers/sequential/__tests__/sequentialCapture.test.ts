@@ -382,6 +382,136 @@ describe('sequentialCapture', () => {
     ]);
   });
 
+  it('captures plugin config and invalidates brush snapshot cache when plugin brush changes', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    const runtime = createSequentialStampCapRuntime();
+
+    const first = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1100,
+      runtime,
+      pluginBrushId: 'spam-brush',
+      stamps: [{ x: 1, y: 1, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    expect(first).toBe(1);
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          spamFont: 'menlo',
+          spamContentType: 'crypto',
+          spamCustomText: 'TO THE MOON',
+        },
+      },
+    }));
+
+    const second = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1200,
+      runtime,
+      pluginBrushId: 'particle-brush',
+      stamps: [{ x: 2, y: 1, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    expect(second).toBe(1);
+
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+
+    expect(events).toHaveLength(2);
+    expect(events[0].brush.pluginBrushId).toBe('spam-brush');
+    expect(events[0].brush.pluginConfig).toEqual({
+      spamFont: null,
+      spamContentType: null,
+      spamCustomText: null,
+    });
+    expect(events[1].brush.pluginBrushId).toBe('particle-brush');
+    expect(events[1].brush.pluginConfig).toEqual({
+      particleDensity: 20,
+      particleScatterRadius: 1.5,
+    });
+    expect(events.map((event) => event.strokeId)).toEqual([
+      'stroke-1000-0',
+      'stroke-1000-1',
+    ]);
+  });
+
+  it('captures dither plugin config from brush settings', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherAlgorithm: 'atkinson',
+          ditherPaletteSpread: 33,
+          fillResolution: 8,
+        },
+      },
+    }));
+
+    const appended = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1250,
+      pluginBrushId: 'dither-brush',
+      stamps: [{ x: 5, y: 5, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    expect(appended).toBe(1);
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].brush.pluginBrushId).toBe('dither-brush');
+    expect(events[0].brush.pluginConfig).toEqual({
+      ditherAlgorithm: 'atkinson',
+      ditherIntensity: 33,
+      ditherBayerMatrixSize: 8,
+    });
+  });
+
+  it('captures particle plugin config from brush settings', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          particleDensity: 48,
+          particleScatterRadius: 2.25,
+        },
+      },
+    }));
+
+    const appended = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1260,
+      pluginBrushId: 'particle-brush',
+      stamps: [{ x: 7, y: 6, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    expect(appended).toBe(1);
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].brush.pluginBrushId).toBe('particle-brush');
+    expect(events[0].brush.pluginConfig).toEqual({
+      particleDensity: 48,
+      particleScatterRadius: 2.25,
+    });
+  });
+
   it('segments stroke ids after runtime capture deactivation without an inactive append call', () => {
     setFeatureFlag('enableSequentialRecordMode', true);
     const runtime = createSequentialStampCapRuntime();

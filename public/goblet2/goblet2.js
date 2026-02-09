@@ -1383,6 +1383,7 @@ const PROPERTY_UNMINIFY_MAP = {
   dh: 'designHeight',
   txr: 'texture',
   txf: 'textureFrames',
+  txfm: 'textureFrameMap',
   md: 'mode',
   ia: 'isAnimating',
   bs: 'brushState',
@@ -1684,24 +1685,85 @@ const loadImage = (src) => {
   });
 };
 
+const hasVisibleImageAlpha = (image, width, height) => {
+  if (!image || typeof document === 'undefined') {
+    return false;
+  }
+  try {
+    const w = Math.max(1, Math.round(width || image.naturalWidth || image.width || 1));
+    const h = Math.max(1, Math.round(height || image.naturalHeight || image.height || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: true });
+    if (!ctx) {
+      return false;
+    }
+    ctx.drawImage(image, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 0) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 class SequentialLayerPlayer {
   constructor(layer, frames, defaultFps) {
     this.layer = layer;
     this.frames = Array.isArray(frames) ? frames.filter(Boolean) : [];
+    this.frameMap = Array.isArray(layer?.assets?.textureFrameMap) ? layer.assets.textureFrameMap.slice() : null;
     const sequential = layer?.sequential;
-    const metadataFrameCount = Math.max(
-      1,
-      posInt(sequential?.totalFrames ?? this.frames.length ?? 1, this.frames.length || 1)
-    );
-    this.frameCount = Math.max(1, Math.min(metadataFrameCount, this.frames.length || metadataFrameCount));
-    this.fps = Math.max(1, toNum(sequential?.fps, defaultFps));
+    const fallbackFps = Number.isFinite(defaultFps) && defaultFps > 0 ? defaultFps : 12;
+    const mappedFrameCount = this.frameMap?.length ?? 0;
+    const metadataFrameCount = Math.max(1, posInt(sequential?.totalFrames, 1));
+    this.frameCount = Math.max(1, Math.max(metadataFrameCount, mappedFrameCount));
+    this.fps = Math.max(1, toNum(sequential?.fps, fallbackFps));
     this.currentFrame = 0;
     this.frameAccumulatorSeconds = 0;
     this.frameDurationSeconds = 1 / this.fps;
+
+    if (this.frameMap && this.frameMap.length > 0) {
+      const safeMap = new Array(this.frameCount).fill(-1);
+      const sourceMap = this.frameMap;
+      for (let i = 0; i < this.frameCount; i += 1) {
+        safeMap[i] = sourceMap[i] ?? -1;
+      }
+      const normalizedMap = safeMap.map((entry) => {
+        if (!Number.isFinite(entry) || entry < 0) {
+          return -1;
+        }
+        return Math.max(0, Math.min(this.frames.length - 1, Math.round(entry)));
+      });
+      let firstValid = -1;
+      for (let i = 0; i < normalizedMap.length; i += 1) {
+        if (normalizedMap[i] >= 0) {
+          firstValid = normalizedMap[i];
+          break;
+        }
+      }
+      if (firstValid >= 0) {
+        let carry = firstValid;
+        for (let i = 0; i < normalizedMap.length; i += 1) {
+          if (normalizedMap[i] >= 0) {
+            carry = normalizedMap[i];
+          } else {
+            normalizedMap[i] = carry;
+          }
+        }
+        this.frameMap = normalizedMap;
+      } else {
+        this.frameMap = null;
+      }
+    }
   }
 
   hasAnimation() {
-    return this.frameCount > 1 && this.frames.length > 1 && this.fps > 0;
+    return this.frames.length > 1 && this.fps > 0;
   }
 
   advance(deltaSeconds) {
@@ -1728,7 +1790,16 @@ class SequentialLayerPlayer {
     if (this.frames.length === 0) {
       return null;
     }
-    const index = Math.max(0, Math.min(this.frameCount - 1, this.currentFrame));
+    if (this.frameMap && this.frameMap.length > 0) {
+      const logicalIndex = Math.max(0, Math.min(this.frameCount - 1, this.currentFrame));
+      const mapped = this.frameMap[logicalIndex];
+      if (Number.isFinite(mapped) && mapped >= 0) {
+        const mappedIndex = Math.max(0, Math.min(this.frames.length - 1, Math.round(mapped)));
+        return this.frames[mappedIndex] ?? null;
+      }
+    }
+    const frameSpan = Math.max(1, Math.min(this.frameCount, this.frames.length));
+    const index = Math.max(0, Math.min(frameSpan - 1, this.currentFrame % frameSpan));
     return this.frames[index] ?? this.frames[0] ?? null;
   }
 
@@ -2235,6 +2306,28 @@ const buildDiscretePalette32FromGradient = (gradientStops, cycleColors) => {
     pal[i] = packABGR32(c);
   }
   return pal;
+};
+
+const buildDiscretePalette32FromExplicitPalette = (palette, cycleColors) => {
+  if (!Array.isArray(palette) || palette.length === 0) {
+    return null;
+  }
+  const targetSize = Math.max(1, cycleColors | 0);
+  const parsed = palette.map((entry) => packABGR32(parseColor(entry)));
+  if (parsed.length === 0) {
+    return null;
+  }
+  const out = new Uint32Array(targetSize);
+  if (parsed.length >= targetSize) {
+    for (let i = 0; i < targetSize; i += 1) {
+      out[i] = parsed[i];
+    }
+    return out;
+  }
+  for (let i = 0; i < targetSize; i += 1) {
+    out[i] = parsed[i % parsed.length];
+  }
+  return out;
 };
 
 const buildPaletteShiftLUT256 = ({ basePalette32, cycleColors, offset01 }) => {
@@ -3180,6 +3273,10 @@ class ColorCycleLayerPlayer {
     if (!this.isGoblet2) {
       return false;
     }
+    if (Array.isArray(brushState?.palette) && brushState.palette.length > 1) {
+      // Palette-driven brush data preserves dither/detail better in CPU mode.
+      return false;
+    }
     if (!brushState || !hasNumericPayload(brushState.indexBuffer)) {
       return false;
     }
@@ -3256,6 +3353,17 @@ class ColorCycleLayerPlayer {
         : 0;
     }
     const alphaMode = typeof brushState.alphaMode === 'string' ? brushState.alphaMode : 'source';
+    let effectiveAlphaMode = alphaMode;
+    let alphaTexture = this.image ?? null;
+    if (alphaMode !== 'opaque-indices') {
+      const hasSourceAlpha = hasVisibleImageAlpha(alphaTexture, sourceWidth, sourceHeight);
+      if (!hasSourceAlpha) {
+        effectiveAlphaMode = 'opaque-indices';
+        alphaTexture = null;
+      }
+    } else {
+      alphaTexture = null;
+    }
 
     try {
       const renderer = new BrushWebGLRenderer({
@@ -3265,15 +3373,15 @@ class ColorCycleLayerPlayer {
         speedMin: this.speedMin,
         speedMax: this.speedMax,
         startOffset01: wrap01(offset),
-        alphaMode
+        alphaMode: effectiveAlphaMode
       });
       const paletteTable = buildPaletteTableRGBA(this.slotGradients, this.gradient, DEFAULT_PALETTE_SIZE);
       renderer.setPalette(paletteTable.data, paletteTable.width, paletteTable.height);
       renderer.setBuffers(indexBuffer, gradientIdBuffer ?? new Uint8Array(expectedLength), speedBuffer ?? new Uint8Array(expectedLength));
-      if (alphaMode === 'opaque-indices') {
+      if (effectiveAlphaMode === 'opaque-indices') {
         renderer.setAlphaTexture(null);
       } else {
-        renderer.setAlphaTexture(this.image ?? null);
+        renderer.setAlphaTexture(alphaTexture);
       }
       renderer.setMaskTexture(null);
       this.webglRenderer = renderer;
@@ -3429,9 +3537,13 @@ class ColorCycleLayerPlayer {
     this._lutCacheBands = null;
     this._basePalette32BySlot.clear();
     this._basePaletteSize = this.cycleColors | 0;
+    const explicitPalette32 = buildDiscretePalette32FromExplicitPalette(
+      brushState.palette,
+      this._basePaletteSize
+    );
     this._basePalette32BySlot.set(
       0,
-      buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize)
+      explicitPalette32 ?? buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize)
     );
     if (this.slotGradients && this.slotGradients.size > 0) {
       this.slotGradients.forEach((stops, slot) => {
@@ -4455,9 +4567,19 @@ class VesselGoblet {
           && rect.height >= sourceHeight - tolerance;
       };
 
-      const shouldPreferDocumentRect = isColorCycleLayer
-        && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds))
-        && Boolean(paintedRectFromDocument);
+      const tinyContentBounds = Boolean(
+        normalizedContentBounds
+        && normalizedContentBounds.width <= 1.5
+        && normalizedContentBounds.height <= 1.5
+        && (sourceWidth > 2 || sourceHeight > 2)
+      );
+      const shouldPreferDocumentRect = Boolean(
+        paintedRectFromDocument
+        && (
+          (isColorCycleLayer && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
+          || (entry.layer.type === 'sequential' && tinyContentBounds)
+        )
+      );
 
       const paintedRect = shouldPreferDocumentRect
         ? paintedRectFromDocument

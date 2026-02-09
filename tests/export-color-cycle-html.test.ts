@@ -482,7 +482,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.brushState).toBeDefined();
     expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
     expect(exportedLayer.colorCycle?.brushState?.gradientStops).toHaveLength(3);
-    expect(exportedLayer.colorCycle?.brushState?.alphaMode).toBe('opaque-indices');
+    expect(exportedLayer.colorCycle?.brushState?.alphaMode).toBe('source');
   });
 
   it('exports sequential layer frame textures for Goblet playback', async () => {
@@ -516,7 +516,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     const exportedLayer = metadata.layers[0];
     expect(exportedLayer.type).toBe('sequential');
     expect(Array.isArray(exportedLayer.assets?.textureFrames)).toBe(true);
-    expect(exportedLayer.assets?.textureFrames).toHaveLength(2);
+    expect(exportedLayer.assets?.textureFrames).toHaveLength(1);
+    expect(exportedLayer.assets?.textureFrameMap).toEqual([0, -1]);
     expect(exportedLayer.assets?.texture).toBe(exportedLayer.assets?.textureFrames?.[0]);
     expect(exportedLayer.sequential?.fps).toBe(12);
     expect(exportedLayer.sequential?.totalFrames).toBe(2);
@@ -564,12 +565,13 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       reader.readAsText(capturedBlob!);
     });
     const payload = JSON.parse(minifiedJson) as {
-      l?: Array<{ as?: { txf?: string[] }; sq?: { fps?: number; tfm?: number } }>;
+      l?: Array<{ as?: { txf?: string[]; txfm?: number[] }; sq?: { fps?: number; tfm?: number } }>;
     };
     expect(Array.isArray(payload.l)).toBe(true);
     const firstLayer = payload.l?.[0];
     expect(Array.isArray(firstLayer?.as?.txf)).toBe(true);
-    expect(firstLayer?.as?.txf).toHaveLength(2);
+    expect(firstLayer?.as?.txf).toHaveLength(1);
+    expect(firstLayer?.as?.txfm).toEqual([0, -1]);
     expect(firstLayer?.sq?.fps).toBe(12);
     expect(firstLayer?.sq?.tfm).toBe(2);
 

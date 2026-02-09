@@ -1,4 +1,4 @@
-import { BrushSettings } from '../types';
+import type { BrushSettings, SequentialBrushSnapshot } from '../types';
 
 /**
  * Metadata for a brush plugin
@@ -79,8 +79,10 @@ export interface BrushPlugin {
     ctx: CanvasRenderingContext2D,
     x1: number,
     y1: number,
+    pressure1: number,
     x2: number,
     y2: number,
+    pressure2: number,
     settings: BrushSettings
   ): void;
 
@@ -94,6 +96,19 @@ export interface BrushPlugin {
    * Validate if brush can work with given settings
    */
   validateSettings?(settings: BrushSettings): boolean;
+
+  /**
+   * Sync live brush settings from the app state.
+   * Called before stroke draw work so plugin runtime stays aligned with UI/store values.
+   */
+  applySettings?(settings: BrushSettings): void;
+
+  /**
+   * Serialize plugin-specific settings into sequential stroke snapshots.
+   */
+  serializeSequentialConfig?(
+    settings: BrushSettings
+  ): SequentialBrushSnapshot['pluginConfig'] | null;
 
   /**
    * Clean up resources when brush is unloaded
@@ -134,5 +149,17 @@ export abstract class BaseBrushPlugin implements BrushPlugin {
 
   cleanup?(): void {
     // Override in subclass if needed
+  }
+
+  applySettings?(_settings: BrushSettings): void {
+    void _settings;
+    // Override in subclass if needed
+  }
+
+  serializeSequentialConfig?(
+    _settings: BrushSettings
+  ): SequentialBrushSnapshot['pluginConfig'] | null {
+    void _settings;
+    return null;
   }
 }
