@@ -97,6 +97,12 @@ export const createAutosaveSlice: StateCreator<AppState, [], [], AutosaveSlice> 
 
   markAutosaveDirty: (reason) =>
     set((state) => {
+      if (
+        state.autosave.hasUnsavedChanges &&
+        state.autosave.lastDirtyReason === reason
+      ) {
+        return state;
+      }
       const projectId = get().project?.id;
       if (projectId) {
         void backgroundStorageService.updateSession(projectId, true).catch(() => undefined);

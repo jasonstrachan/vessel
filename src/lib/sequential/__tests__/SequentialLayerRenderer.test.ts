@@ -76,10 +76,10 @@ const readCenterPixel = (
   canvas: HTMLCanvasElement | OffscreenCanvas
 ): [number, number, number, number] => {
   const ctx = canvas.getContext('2d');
-  if (!ctx) {
+  if (!ctx || typeof (ctx as CanvasRenderingContext2D).getImageData !== 'function') {
     return [0, 0, 0, 0];
   }
-  const sample = ctx.getImageData(8, 8, 1, 1).data;
+  const sample = (ctx as CanvasRenderingContext2D).getImageData(8, 8, 1, 1).data;
   return [sample[0], sample[1], sample[2], sample[3]];
 };
 

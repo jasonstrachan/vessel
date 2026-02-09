@@ -3,7 +3,7 @@
 import React, { useState, useCallback, memo, useEffect, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
 import { Eye, EyeOff, X } from 'lucide-react';
-import { useAppStore, selectSequentialPlaybackActive } from '@/stores/useAppStore';
+import { useAppStore } from '@/stores/useAppStore';
 import {
   selectLayers,
   selectActiveLayerId,
@@ -289,15 +289,11 @@ const DropSlot: React.FC<{
 const MinimalLayerList = () => {
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
   const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
-  const desiredPlaying = useAppStore((state) => state.colorCyclePlayback.desiredPlaying);
-  const suspendDepth = useAppStore((state) => state.colorCyclePlayback.suspendDepth);
-  const playColorCycle = useAppStore((state) => state.playColorCycle);
-  const pauseColorCycle = useAppStore((state) => state.pauseColorCycle);
-  const forceResumeColorCycle = useAppStore((state) => state.forceResumeColorCycle);
-  const sequentialPlaybackActive = useAppStore(selectSequentialPlaybackActive);
-  const effectivePlaying = desiredPlaying && suspendDepth === 0;
-  const isPlaybackRunning = effectivePlaying || sequentialPlaybackActive;
-  const isSuspended = desiredPlaying && suspendDepth > 0;
+  const effectivePlaying = useAppStore(
+    (state) =>
+      state.colorCyclePlayback.desiredPlaying &&
+      state.colorCyclePlayback.suspendDepth === 0
+  );
   
   // Store subscriptions
   const displayedLayerIds = useAppStore(selectLayerIdsDescending, shallow);
@@ -739,31 +735,6 @@ const MinimalLayerList = () => {
       
       <div className="border-t border-[#424242]">
         <LayerAlignmentControls />
-
-        {/* Bottom Controls: Play/Pause for Color Cycle animation only */}
-        <div className="border-t border-[#424242] p-2">
-          <button
-            onClick={() => {
-              if (isPlaybackRunning) {
-                pauseColorCycle('toolbar');
-                return;
-              }
-              playColorCycle('toolbar');
-              if (suspendDepth > 0) {
-                forceResumeColorCycle('toolbar');
-              }
-            }}
-            className="w-full h-10 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
-          >
-            <span className="text-[10px] mr-1">{isPlaybackRunning ? '⏸' : '▶'}</span>
-            <span className="text-[10px]">{isPlaybackRunning ? 'Pause' : 'Play'}</span>
-          </button>
-          {isSuspended && (
-            <p className="text-center text-[#C4C4C4] text-xs mt-1">
-              Suspended while busy
-            </p>
-          )}
-        </div>
       </div>
     </div>
   );

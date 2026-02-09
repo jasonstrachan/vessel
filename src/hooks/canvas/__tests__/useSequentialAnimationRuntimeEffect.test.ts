@@ -108,6 +108,55 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     window.removeEventListener('vessel:animationFrameUpdate', frameUpdateListener as EventListener);
   });
 
+  it('advances frames while capturing with playback paused, then stops on pointer up', () => {
+    useAppStore.setState((state) => ({
+      colorCyclePlayback: {
+        ...state.colorCyclePlayback,
+        desiredPlaying: false,
+        suspendDepth: 0,
+      },
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        isPointerDown: true,
+        isCaptureActive: false,
+        currentFrame: 0,
+      },
+    }));
+
+    const storeRef = { current: useAppStore.getState() as AppState };
+    const initialTickCount = useAppStore.getState().sequentialRecord.metrics.tickCount;
+    const { unmount } = renderHook(() => {
+      storeRef.current = useAppStore.getState() as AppState;
+      useSequentialAnimationRuntimeEffect({ storeRef });
+    });
+
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+    expect(rafCallback).toBeTruthy();
+
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1250);
+    });
+
+    const nextState = useAppStore.getState();
+    expect(nextState.sequentialRecord.isCaptureActive).toBe(true);
+    expect(nextState.sequentialRecord.metrics.tickCount).toBeGreaterThan(initialTickCount);
+    expect(nextState.sequentialRecord.currentFrame).toBe(2);
+
+    act(() => {
+      useAppStore.getState().setSequentialPointerDown(false);
+      rafCallback?.(1500);
+    });
+
+    const afterPointerUp = useAppStore.getState();
+    expect(afterPointerUp.sequentialRecord.currentFrame).toBe(2);
+    expect(afterPointerUp.sequentialRecord.isCaptureActive).toBe(false);
+
+    unmount();
+  });
+
   it('caps large delta frame advances per tick to avoid runaway runtime loops', () => {
     const storeRef = { current: useAppStore.getState() as AppState };
 

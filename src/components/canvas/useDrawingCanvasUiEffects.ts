@@ -1,5 +1,6 @@
 import type React from 'react';
 import { useEffect } from 'react';
+import { useAppStore } from '@/stores/useAppStore';
 
 interface UseDrawingCanvasUiEffectsOptions {
   selectionStart: unknown;
@@ -79,6 +80,10 @@ export const useDrawingCanvasUiEffects = ({
 
   useEffect(() => {
     const handleInteractionReset = () => {
+      const store = useAppStore.getState();
+      if (typeof store.setSequentialPointerDown === 'function') {
+        store.setSequentialPointerDown(false);
+      }
       if (stateMachineIsSpacePressed) {
         setCursorStyle(defaultCursorStyle);
         setShowBrushCursor(isPointerInsideCanvas());

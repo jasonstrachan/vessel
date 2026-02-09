@@ -743,17 +743,23 @@ export const selectSequentialPlaybackActive = (state: AppState): boolean => {
   if (!selectColorCycleDesiredPlaying(state)) {
     return false;
   }
+  return state.layers.some((layer) => layer.layerType === 'sequential');
+};
+export const selectSequentialCaptureActive = (state: AppState): boolean => {
   const activeLayerId = state.activeLayerId;
   if (!activeLayerId) {
     return false;
   }
   const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
-  return activeLayer?.layerType === 'sequential';
+  if (activeLayer?.layerType !== 'sequential') {
+    return false;
+  }
+  return state.sequentialRecord.isPointerDown;
 };
-export const selectSequentialCaptureActive = (state: AppState): boolean =>
-  selectSequentialPlaybackActive(state) && state.sequentialRecord.isPointerDown;
 export const selectGlobalAnimationActive = (state: AppState): boolean =>
-  selectEffectiveColorCyclePlaying(state) || selectSequentialPlaybackActive(state);
+  selectEffectiveColorCyclePlaying(state) ||
+  selectSequentialPlaybackActive(state) ||
+  selectSequentialCaptureActive(state);
 export const selectActivePaletteColor = (state: AppState): string =>
   state.palette.activeSlot === 'background'
     ? state.palette.backgroundColor
@@ -799,10 +805,19 @@ useAppStore.subscribe((state) => {
 });
 
 const subscribeToAutosaveDirtyTracking = (): void => {
+  let isMarkingDirty = false;
   const ensureMarkDirty = (reason: AutosaveDirtyReason) => {
+    if (isMarkingDirty) {
+      return;
+    }
     const store = useAppStore.getState();
     if (store.markAutosaveDirty) {
-      store.markAutosaveDirty(reason);
+      isMarkingDirty = true;
+      try {
+        store.markAutosaveDirty(reason);
+      } finally {
+        isMarkingDirty = false;
+      }
     }
   };
 

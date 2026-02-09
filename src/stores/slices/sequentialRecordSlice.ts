@@ -146,15 +146,26 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
       },
     })),
   setSequentialPointerDown: (isPointerDown) =>
-    set((state) => ({
-      sequentialRecord: {
-        ...state.sequentialRecord,
-        isPointerDown,
-        sessionStartMs: isPointerDown
-          ? state.sequentialRecord.sessionStartMs ?? Date.now()
-          : null,
-      },
-    })),
+    set((state) => {
+      const previous = state.sequentialRecord;
+      const nextSessionStartMs = isPointerDown
+        ? previous.sessionStartMs ?? Date.now()
+        : null;
+      if (
+        previous.isPointerDown === isPointerDown &&
+        previous.sessionStartMs === nextSessionStartMs
+      ) {
+        return state;
+      }
+      return {
+        sequentialRecord: {
+          ...previous,
+          isPointerDown,
+          isCaptureActive: isPointerDown ? previous.isCaptureActive : false,
+          sessionStartMs: nextSessionStartMs,
+        },
+      };
+    }),
   setSequentialCaptureActive: (isCaptureActive) =>
     set((state) => ({
       sequentialRecord: {

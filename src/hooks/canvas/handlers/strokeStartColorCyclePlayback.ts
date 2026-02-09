@@ -37,7 +37,12 @@ export const syncStrokeStartColorCyclePlayback = ({
   const desiredPlaying = selectColorCycleDesiredPlaying(refreshedState);
   const effectivePlaying = selectEffectiveColorCyclePlaying(refreshedState);
   const lastReason = refreshedState.colorCyclePlayback.lastReason;
-  if (!desiredPlaying && !effectivePlaying && (lastReason === 'startup' || lastReason === 'auto-start')) {
+  if (
+    refreshedLayer?.layerType === 'color-cycle' &&
+    !desiredPlaying &&
+    !effectivePlaying &&
+    (lastReason === 'startup' || lastReason === 'auto-start')
+  ) {
     refreshedState.playColorCycle('auto-start');
   }
 

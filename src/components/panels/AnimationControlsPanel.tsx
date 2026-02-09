@@ -27,7 +27,8 @@ const AnimationControlsPanel: React.FC = () => {
     Boolean(state.layers.find((layer) => layer.id === activeLayerId && layer.layerType === 'sequential'))
   );
 
-  const isPlaybackRunning = effectivePlaying || sequentialPlaybackActive;
+  const isPlaybackRunning =
+    effectivePlaying || sequentialPlaybackActive || sequentialCaptureActive;
 
   const handleTogglePlayback = React.useCallback(() => {
     if (isPlaybackRunning) {
@@ -86,11 +87,6 @@ const AnimationControlsPanel: React.FC = () => {
         >
           <span className="text-[10px]" aria-hidden="true">{isPlaybackRunning ? '⏸' : '▶'}</span>
           <span className="ml-1 text-[10px]">{isPlaybackRunning ? 'Pause' : 'Play'}</span>
-          {sequentialCaptureActive && (
-            <span className="ml-2 rounded bg-[#B91C1C] px-1.5 py-0.5 text-[9px] font-semibold tracking-[0.08em] text-white">
-              REC
-            </span>
-          )}
         </button>
 
         {showSequentialControls && (

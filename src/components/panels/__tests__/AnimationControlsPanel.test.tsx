@@ -73,7 +73,8 @@ jest.mock('@/stores/useAppStore', () => {
     return s.colorCyclePlayback.desiredPlaying && activeLayer?.layerType === 'sequential';
   };
   const selectSequentialCaptureActive = (s: MockState) =>
-    selectSequentialPlaybackActive(s) && s.sequentialRecord.isPointerDown;
+    s.sequentialRecord.isPointerDown &&
+    s.layers.some((layer) => layer.id === s.activeLayerId && layer.layerType === 'sequential');
 
   return {
     useAppStore,
@@ -161,9 +162,9 @@ describe('AnimationControlsPanel', () => {
     expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
   });
 
-  it('shows REC badge and disables sequential controls while capturing', () => {
+  it('disables sequential controls while capturing', () => {
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
       activeLayerId: 'layer-seq',
       sequentialRecord: {
@@ -177,10 +178,38 @@ describe('AnimationControlsPanel', () => {
 
     render(<AnimationControlsPanel />);
 
-    expect(screen.getByText('REC')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeDisabled();
     expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeDisabled();
     expect(screen.getByText(/capture active\. changes apply next take\./i)).toBeInTheDocument();
+  });
+
+  it('shows pause while sequential capture is active and returns to play on pointer up', () => {
+    appStore.setState({
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+      layers: [{ id: 'layer-seq', layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 24,
+        timeSmear: 1,
+        currentFrame: 1,
+        isPointerDown: true,
+      },
+    });
+
+    const { unmount } = render(<AnimationControlsPanel />);
+    expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument();
+
+    unmount();
+    appStore.setState({
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+      sequentialRecord: {
+        ...appStore.getState().sequentialRecord,
+        isPointerDown: false,
+      },
+    });
+    render(<AnimationControlsPanel />);
+    expect(screen.getByRole('button', { name: /play/i })).toBeInTheDocument();
   });
 
   it('pauses when sequential playback is active even if color-cycle playback is suspended', () => {

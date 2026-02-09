@@ -3,6 +3,7 @@ import {
   __TESTING__,
   applyDeterministicStampCap,
   captureSequentialStampsForActiveLayer,
+  createSequentialEventBufferRuntime,
   flushBufferedSequentialEvents,
   createSequentialPayloadNotificationRuntime,
   createSequentialStampCapRuntime,
@@ -293,9 +294,9 @@ describe('sequentialCapture', () => {
     expect(first).toBe(1);
 
     useAppStore.setState((state) => ({
-      colorCyclePlayback: {
-        ...state.colorCyclePlayback,
-        desiredPlaying: false,
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        isPointerDown: false,
       },
     }));
     const inactiveAppend = captureSequentialStampsForActiveLayer({
@@ -307,9 +308,9 @@ describe('sequentialCapture', () => {
     expect(inactiveAppend).toBe(0);
 
     useAppStore.setState((state) => ({
-      colorCyclePlayback: {
-        ...state.colorCyclePlayback,
-        desiredPlaying: true,
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        isPointerDown: true,
       },
     }));
     const second = captureSequentialStampsForActiveLayer({
@@ -382,6 +383,53 @@ describe('sequentialCapture', () => {
       'stroke-1000-0',
       'stroke-1000-1',
     ]);
+  });
+
+  it('guards against reentrant flush recursion', () => {
+    const runtime = createSequentialEventBufferRuntime();
+    const state = useAppStore.getState();
+    const event = {
+      id: 'evt-1',
+      layerId: 'layer-seq',
+      strokeId: 'stroke-1',
+      timestampMs: 0,
+      frameIndex: 0,
+      brush: {
+        tool: 'brush',
+        brushShape: BrushShape.ROUND,
+        size: 4,
+        opacity: 1,
+        blendMode: 'source-over' as const,
+        rotation: 0,
+        spacing: 1,
+        color: '#000000',
+        customStampId: null,
+        customStampHash: null,
+        customStamp: null,
+        ditherEnabled: false,
+      },
+      stamps: [{ x: 1, y: 1, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    };
+    runtime.layers.set('layer-seq', {
+      events: [event],
+      frameCount: 12,
+      fps: 12,
+      durationMs: 1000,
+    });
+    runtime.pendingPayloadBytes = 1234;
+
+    const originalAppend = state.appendSequentialLayerEvents;
+    state.appendSequentialLayerEvents = ((layerId, events, metadata) => {
+      originalAppend(layerId, events, metadata);
+      // Reentrant call should be a no-op and must not recurse.
+      flushBufferedSequentialEvents({ state, runtime });
+    }) as typeof state.appendSequentialLayerEvents;
+
+    expect(() => flushBufferedSequentialEvents({ state, runtime })).not.toThrow();
+    expect(runtime.layers.size).toBe(0);
+    expect(runtime.pendingPayloadBytes).toBe(0);
+
+    state.appendSequentialLayerEvents = originalAppend;
   });
 
   it('uses time-smear for capture stamp densification without changing playback clock semantics', () => {

@@ -3584,6 +3584,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     void isDraggingFloatingPaste;
     // Clear pointer down state
     isMouseDownRef.current = false;
+    const store = useAppStore.getState();
+    if (typeof store.setSequentialPointerDown === 'function') {
+      store.setSequentialPointerDown(false);
+    }
     // Reset snapping anchors at end of action
     strokeStartWorldPosRef.current = null;
     shiftAnchorWorldPosRef.current = null;
@@ -4014,6 +4018,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
+    const store = useAppStore.getState();
+    if (typeof store.setSequentialPointerDown === 'function') {
+      store.setSequentialPointerDown(false);
+    }
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
 
     drawingHandlers.endStrokeSession(Date.now());

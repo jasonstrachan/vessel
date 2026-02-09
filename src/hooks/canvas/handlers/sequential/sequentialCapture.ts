@@ -67,6 +67,7 @@ export interface SequentialEventBufferRuntime {
   pendingPayloadBytes: number;
   lastKnownLayersRef: Layer[] | null;
   lastKnownProjectPayloadBytes: number | null;
+  isFlushing: boolean;
   layers: Map<string, BufferedSequentialLayerEvents>;
 }
 
@@ -104,6 +105,7 @@ const defaultEventBufferRuntime: SequentialEventBufferRuntime = {
   pendingPayloadBytes: 0,
   lastKnownLayersRef: null,
   lastKnownProjectPayloadBytes: null,
+  isFlushing: false,
   layers: new Map<string, BufferedSequentialLayerEvents>(),
 };
 
@@ -141,6 +143,7 @@ export const createSequentialEventBufferRuntime = (): SequentialEventBufferRunti
   pendingPayloadBytes: 0,
   lastKnownLayersRef: null,
   lastKnownProjectPayloadBytes: null,
+  isFlushing: false,
   layers: new Map<string, BufferedSequentialLayerEvents>(),
 });
 
@@ -156,25 +159,31 @@ export const flushBufferedSequentialEvents = ({
       ? performance.now()
       : Date.now();
   const targetRuntime = runtime ?? defaultEventBufferRuntime;
-  if (targetRuntime.layers.size === 0) {
+  if (targetRuntime.isFlushing || targetRuntime.layers.size === 0) {
     return 0;
   }
 
-  let flushedEventCount = 0;
-  targetRuntime.layers.forEach((entry, layerId) => {
-    if (entry.events.length === 0) {
-      return;
-    }
-    state.appendSequentialLayerEvents(layerId, entry.events, {
-      frameCount: entry.frameCount,
-      fps: entry.fps,
-      durationMs: entry.durationMs,
-    });
-    flushedEventCount += entry.events.length;
-  });
-
+  targetRuntime.isFlushing = true;
+  const queuedLayerEntries = Array.from(targetRuntime.layers.entries());
   targetRuntime.layers.clear();
   targetRuntime.pendingPayloadBytes = 0;
+
+  let flushedEventCount = 0;
+  try {
+    queuedLayerEntries.forEach(([layerId, entry]) => {
+      if (entry.events.length === 0) {
+        return;
+      }
+      state.appendSequentialLayerEvents(layerId, entry.events, {
+        frameCount: entry.frameCount,
+        fps: entry.fps,
+        durationMs: entry.durationMs,
+      });
+      flushedEventCount += entry.events.length;
+    });
+  } finally {
+    targetRuntime.isFlushing = false;
+  }
   const flushDurationMs =
     (typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
@@ -962,6 +971,7 @@ export const __TESTING__ = {
     defaultEventBufferRuntime.pendingPayloadBytes = 0;
     defaultEventBufferRuntime.lastKnownLayersRef = null;
     defaultEventBufferRuntime.lastKnownProjectPayloadBytes = null;
+    defaultEventBufferRuntime.isFlushing = false;
     defaultEventBufferRuntime.layers.clear();
     resetSequentialPayloadBudgetRuntime(defaultPayloadBudgetRuntime);
     defaultPayloadNotificationRuntime.softWarningShown = false;

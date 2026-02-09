@@ -200,45 +200,4 @@ describe('MinimalLayerList visibility toggling', () => {
     expect(layers.find((l) => l.id === 'layer-2')?.visible).toBeDefined();
   });
 
-  it('forces resume when playback is suspended and play is pressed', () => {
-    useAppStore.setState({
-      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
-    });
-
-    render(<MinimalLayerList />);
-
-    fireEvent.click(screen.getByRole('button', { name: /play/i }));
-
-    const store = useAppStore.getState();
-    expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
-    expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
-  });
-
-  it('pauses when sequential playback is active even while suspended', () => {
-    const sequentialLayer = {
-      ...createLayer('layer-seq', 0, true),
-      layerType: 'sequential' as const,
-      sequentialData: {
-        frameCount: 12,
-        fps: 12,
-        durationMs: 1000,
-        events: [],
-      },
-    };
-
-    useAppStore.setState({
-      layers: [sequentialLayer],
-      activeLayerId: 'layer-seq',
-      selectedLayerIds: ['layer-seq'],
-      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
-    });
-
-    render(<MinimalLayerList />);
-    fireEvent.click(screen.getByRole('button', { name: /pause/i }));
-
-    const store = useAppStore.getState();
-    expect(store.pauseColorCycle).toHaveBeenCalledWith('toolbar');
-    expect(store.playColorCycle).not.toHaveBeenCalled();
-    expect(store.forceResumeColorCycle).not.toHaveBeenCalled();
-  });
 });

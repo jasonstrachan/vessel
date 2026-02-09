@@ -102,6 +102,13 @@ describe('sequentialRecordSlice', () => {
     store.setSequentialPointerDown(true);
     expect(useAppStore.getState().sequentialRecord.isPointerDown).toBe(true);
     expect(useAppStore.getState().sequentialRecord.sessionStartMs).not.toBeNull();
+    useAppStore.getState().setSequentialCaptureActive(true);
+    expect(useAppStore.getState().sequentialRecord.isCaptureActive).toBe(true);
+
+    store.setSequentialPointerDown(false);
+    expect(useAppStore.getState().sequentialRecord.isPointerDown).toBe(false);
+    expect(useAppStore.getState().sequentialRecord.sessionStartMs).toBeNull();
+    expect(useAppStore.getState().sequentialRecord.isCaptureActive).toBe(false);
 
     store.recordSequentialRuntimeTick(6);
     store.recordSequentialRuntimeTick(10);
@@ -173,7 +180,7 @@ describe('sequentialRecordSlice', () => {
     expect(selectGlobalAnimationActive(state)).toBe(true);
   });
 
-  it('only enables sequential playback selector when active layer is sequential', () => {
+  it('enables sequential playback selector when any sequential layer exists', () => {
     useAppStore.setState({
       layers: [
         createLayer('layer-normal', 'normal'),
@@ -192,13 +199,34 @@ describe('sequentialRecordSlice', () => {
     });
 
     let state = useAppStore.getState();
-    expect(selectSequentialPlaybackActive(state)).toBe(false);
+    expect(selectSequentialPlaybackActive(state)).toBe(true);
     expect(selectSequentialCaptureActive(state)).toBe(false);
-    expect(selectGlobalAnimationActive(state)).toBe(false);
+    expect(selectGlobalAnimationActive(state)).toBe(true);
 
     useAppStore.setState({ activeLayerId: 'layer-seq' });
     state = useAppStore.getState();
     expect(selectSequentialPlaybackActive(state)).toBe(true);
+    expect(selectSequentialCaptureActive(state)).toBe(true);
+    expect(selectGlobalAnimationActive(state)).toBe(true);
+  });
+
+  it('keeps sequential capture active on sequential layers even when playback is paused', () => {
+    useAppStore.setState({
+      layers: [createLayer('layer-seq', 'sequential')],
+      activeLayerId: 'layer-seq',
+      colorCyclePlayback: {
+        ...useAppStore.getState().colorCyclePlayback,
+        desiredPlaying: false,
+        suspendDepth: 0,
+      },
+      sequentialRecord: {
+        ...useAppStore.getState().sequentialRecord,
+        isPointerDown: true,
+      },
+    });
+
+    const state = useAppStore.getState();
+    expect(selectSequentialPlaybackActive(state)).toBe(false);
     expect(selectSequentialCaptureActive(state)).toBe(true);
     expect(selectGlobalAnimationActive(state)).toBe(true);
   });

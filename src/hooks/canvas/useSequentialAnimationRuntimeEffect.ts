@@ -15,6 +15,7 @@ import {
 } from '@/lib/sequential/SequentialPayloadBudget';
 import { setSequentialFrameCacheSnapshot } from '@/lib/sequential/SequentialPerfCounters';
 import { getSequentialLayerRendererStats } from '@/lib/sequential/SequentialLayerRenderer';
+import { logError } from '@/utils/debug';
 import {
   selectSequentialCaptureActive,
   selectSequentialPlaybackActive,
@@ -209,14 +210,12 @@ export const useSequentialAnimationRuntimeEffect = ({
       if (hasSequentialRuntimeState(state) && state.sequentialRecord.isCaptureActive) {
         state.setSequentialCaptureActive(false);
       }
-      runtime.stop();
       return;
     }
 
     const unsubscribe = useAppStore.subscribe((state) => {
       if (!hasSequentialRuntimeState(state)) {
         accumMsRef.current = 0;
-        runtime.stop();
         return;
       }
       const captureActive = selectSequentialCaptureActive(state);
@@ -235,18 +234,15 @@ export const useSequentialAnimationRuntimeEffect = ({
       } else {
         accumMsRef.current = 0;
         lastCheckpointFlushMsRef.current = -Infinity;
-        runtime.stop();
       }
     });
 
     const initialState = storeRef.current as Partial<AppState>;
     if (!hasSequentialRuntimeState(initialState)) {
-      runtime.stop();
       return () => {
         unsubscribe();
         accumMsRef.current = 0;
         lastCheckpointFlushMsRef.current = -Infinity;
-        runtime.stop();
       };
     }
     const initialCaptureActive = selectSequentialCaptureActive(initialState);
@@ -256,8 +252,6 @@ export const useSequentialAnimationRuntimeEffect = ({
     noteSequentialCaptureActivity({ isActive: initialCaptureActive });
     if (selectSequentialPlaybackActive(initialState) || initialCaptureActive) {
       runtime.start();
-    } else {
-      runtime.stop();
     }
 
     return () => {
@@ -266,7 +260,6 @@ export const useSequentialAnimationRuntimeEffect = ({
       lastCheckpointFlushMsRef.current = -Infinity;
       flushBufferedSequentialEvents({ state: useAppStore.getState() });
       noteSequentialCaptureActivity({ isActive: false });
-      runtime.stop();
     };
   }, [sequentialRecordModeEnabled, storeRef]);
 
@@ -277,96 +270,106 @@ export const useSequentialAnimationRuntimeEffect = ({
 
     const runtime = getSharedAnimationRuntime();
     const unregister = runtime.register((_timestampMs, deltaMs) => {
-      const timestampMs = Number.isFinite(_timestampMs) ? _timestampMs : Date.now();
-      const state = useAppStore.getState() as Partial<AppState>;
-      if (!hasSequentialRuntimeState(state)) {
-        accumMsRef.current = 0;
-        return;
-      }
-      if (!selectSequentialPlaybackActive(state)) {
+      try {
+        const timestampMs = Number.isFinite(_timestampMs) ? _timestampMs : Date.now();
+        const state = useAppStore.getState() as Partial<AppState>;
+        if (!hasSequentialRuntimeState(state)) {
+          accumMsRef.current = 0;
+          return;
+        }
+        const playbackActive = selectSequentialPlaybackActive(state);
+        const captureActiveNow = selectSequentialCaptureActive(state);
+        const shouldAdvanceFrames = playbackActive || captureActiveNow;
+        if (!shouldAdvanceFrames) {
+          accumMsRef.current = 0;
+          lastCheckpointFlushMsRef.current = -Infinity;
+          flushBufferedSequentialEvents({ state });
+          if (state.sequentialRecord.isCaptureActive) {
+            state.setSequentialCaptureActive(false);
+          }
+          noteSequentialCaptureActivity({ isActive: false });
+          return;
+        }
+        const tickStart =
+          typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        const fps = Math.max(1, state.sequentialRecord.fps);
+        const frameDurationMs = 1000 / fps;
+        const maxFrameAdvances = Math.max(1, state.sequentialRecord.frameCount * 2);
+
+        let advancedFrames = 0;
+        if (shouldAdvanceFrames) {
+          accumMsRef.current += Math.max(0, deltaMs);
+          while (accumMsRef.current >= frameDurationMs && advancedFrames < maxFrameAdvances) {
+            state.stepSequentialFrame(1);
+            accumMsRef.current -= frameDurationMs;
+            advancedFrames += 1;
+          }
+        }
+
+        const nextState = useAppStore.getState() as Partial<AppState>;
+        if (!hasSequentialRuntimeState(nextState)) {
+          accumMsRef.current = 0;
+          return;
+        }
+        const captureActive = selectSequentialCaptureActive(nextState);
+        if (nextState.sequentialRecord.isCaptureActive !== captureActive) {
+          nextState.setSequentialCaptureActive(captureActive);
+        }
+        noteSequentialCaptureActivity({ isActive: captureActive });
+
+        if (advancedFrames > 0) {
+          try {
+            if (captureActive && typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
+            }
+          } catch {
+            // no-op
+          }
+          dispatchGlobalAnimationFrameUpdate();
+        }
+
+        if (
+          captureActive
+        ) {
+          const elapsedSinceFlush = timestampMs - lastCheckpointFlushMsRef.current;
+          const pendingPayloadBytes = getBufferedSequentialPendingPayloadBytes();
+          const shouldFlushForSafety =
+            elapsedSinceFlush >= SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS;
+          const shouldFlushForPayload =
+            elapsedSinceFlush >= SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS &&
+            pendingPayloadBytes >= SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES;
+          if (shouldFlushForSafety || shouldFlushForPayload) {
+            flushBufferedSequentialEvents({ state: nextState });
+            lastCheckpointFlushMsRef.current = timestampMs;
+          }
+        }
+
+        const tickEnd =
+          typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        nextState.recordSequentialRuntimeTick(Math.max(0, tickEnd - tickStart));
+
+        if (timestampMs - lastMetricsSampleMsRef.current >= SEQUENTIAL_METRICS_SAMPLE_MS) {
+          lastMetricsSampleMsRef.current = timestampMs;
+          const cacheStats = getSequentialLayerRendererStats();
+          setSequentialFrameCacheSnapshot({
+            entries: cacheStats.entries,
+            hits: cacheStats.hits,
+            misses: cacheStats.misses,
+          });
+          nextState.setSequentialFrameCacheStats({
+            frameCacheEntries: cacheStats.entries,
+            frameCacheHits: cacheStats.hits,
+            frameCacheMisses: cacheStats.misses,
+          });
+        }
+      } catch (error) {
         accumMsRef.current = 0;
         lastCheckpointFlushMsRef.current = -Infinity;
-        flushBufferedSequentialEvents({ state });
-        if (state.sequentialRecord.isCaptureActive) {
-          state.setSequentialCaptureActive(false);
-        }
-        noteSequentialCaptureActivity({ isActive: false });
-        return;
-      }
-
-      const tickStart =
-        typeof performance !== 'undefined' && typeof performance.now === 'function'
-          ? performance.now()
-          : Date.now();
-      const fps = Math.max(1, state.sequentialRecord.fps);
-      const frameDurationMs = 1000 / fps;
-      const maxFrameAdvances = Math.max(1, state.sequentialRecord.frameCount * 2);
-
-      accumMsRef.current += Math.max(0, deltaMs);
-      let advancedFrames = 0;
-      while (accumMsRef.current >= frameDurationMs && advancedFrames < maxFrameAdvances) {
-        state.stepSequentialFrame(1);
-        accumMsRef.current -= frameDurationMs;
-        advancedFrames += 1;
-      }
-
-      const nextState = useAppStore.getState() as Partial<AppState>;
-      if (!hasSequentialRuntimeState(nextState)) {
-        accumMsRef.current = 0;
-        return;
-      }
-      const captureActive = selectSequentialCaptureActive(nextState);
-      if (nextState.sequentialRecord.isCaptureActive !== captureActive) {
-        nextState.setSequentialCaptureActive(captureActive);
-      }
-      noteSequentialCaptureActivity({ isActive: captureActive });
-
-      if (advancedFrames > 0) {
-        try {
-          if (captureActive && typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
-          }
-        } catch {
-          // no-op
-        }
-        dispatchGlobalAnimationFrameUpdate();
-      }
-
-      if (
-        captureActive
-      ) {
-        const elapsedSinceFlush = timestampMs - lastCheckpointFlushMsRef.current;
-        const pendingPayloadBytes = getBufferedSequentialPendingPayloadBytes();
-        const shouldFlushForSafety =
-          elapsedSinceFlush >= SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS;
-        const shouldFlushForPayload =
-          elapsedSinceFlush >= SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS &&
-          pendingPayloadBytes >= SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES;
-        if (shouldFlushForSafety || shouldFlushForPayload) {
-          flushBufferedSequentialEvents({ state: nextState });
-          lastCheckpointFlushMsRef.current = timestampMs;
-        }
-      }
-
-      const tickEnd =
-        typeof performance !== 'undefined' && typeof performance.now === 'function'
-          ? performance.now()
-          : Date.now();
-      nextState.recordSequentialRuntimeTick(Math.max(0, tickEnd - tickStart));
-
-      if (timestampMs - lastMetricsSampleMsRef.current >= SEQUENTIAL_METRICS_SAMPLE_MS) {
-        lastMetricsSampleMsRef.current = timestampMs;
-        const cacheStats = getSequentialLayerRendererStats();
-        setSequentialFrameCacheSnapshot({
-          entries: cacheStats.entries,
-          hits: cacheStats.hits,
-          misses: cacheStats.misses,
-        });
-        nextState.setSequentialFrameCacheStats({
-          frameCacheEntries: cacheStats.entries,
-          frameCacheHits: cacheStats.hits,
-          frameCacheMisses: cacheStats.misses,
-        });
+        logError('[useSequentialAnimationRuntimeEffect] runtime tick failed', error);
       }
     });
 
