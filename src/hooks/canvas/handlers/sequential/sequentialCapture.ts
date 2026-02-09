@@ -1,7 +1,6 @@
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import {
-  appendSequentialEventPayloadBytes,
   createSequentialPayloadBudgetRuntime,
   estimateSequentialStrokeEventPayloadBytes,
   readSequentialProjectPayloadBytes,
@@ -9,12 +8,14 @@ import {
   SEQUENTIAL_PAYLOAD_HARD_LIMIT_BYTES,
   SEQUENTIAL_PAYLOAD_SOFT_LIMIT_BYTES,
 } from '@/lib/sequential/SequentialPayloadBudget';
+import { recordSequentialFlushPerf } from '@/lib/sequential/SequentialPerfCounters';
 import {
   selectSequentialCaptureActive,
   type AppState,
 } from '@/stores/useAppStore';
 import {
   BrushShape,
+  type Layer,
   type BrushSettings,
   type SequentialBrushSnapshot,
   type SequentialStampPoint,
@@ -31,6 +32,20 @@ export interface SequentialStampCapRuntime {
   lastTimestampMs: number | null;
   strokeSegment: number;
   lastBrushSnapshotKey: string | null;
+  lastResolvedBrushSnapshotKey: string | null;
+  lastResolvedBrushSnapshot: SequentialBrushSnapshot | null;
+  lastBrushSettingsRef: AppState['tools']['brushSettings'] | null;
+  lastToolRef: AppState['tools']['currentTool'] | null;
+  lastCustomBrushDataRef?: CustomBrushStrokeData;
+  lastGradientRef: BrushSettings['colorCycleGradient'] | null | undefined;
+  lastGradientSnapshot: SequentialBrushSnapshot['colorCycleGradient'];
+  lastGradientKey: string;
+  cachedStrokeId: string | null;
+  cachedEventIdPrefix: string | null;
+  cachedIdSegment: number | null;
+  lastCaptureLayersRef: Layer[] | null;
+  lastCaptureLayerId: string | null;
+  lastResolvedCaptureLayer: Layer | null;
   captureWasActive: boolean;
   eventCounter: number;
 }
@@ -50,6 +65,8 @@ interface BufferedSequentialLayerEvents {
 export interface SequentialEventBufferRuntime {
   sessionKey: string | null;
   pendingPayloadBytes: number;
+  lastKnownLayersRef: Layer[] | null;
+  lastKnownProjectPayloadBytes: number | null;
   layers: Map<string, BufferedSequentialLayerEvents>;
 }
 
@@ -59,6 +76,20 @@ const defaultStampCapRuntime: SequentialStampCapRuntime = {
   lastTimestampMs: null,
   strokeSegment: 0,
   lastBrushSnapshotKey: null,
+  lastResolvedBrushSnapshotKey: null,
+  lastResolvedBrushSnapshot: null,
+  lastBrushSettingsRef: null,
+  lastToolRef: null,
+  lastCustomBrushDataRef: undefined,
+  lastGradientRef: undefined,
+  lastGradientSnapshot: undefined,
+  lastGradientKey: '',
+  cachedStrokeId: null,
+  cachedEventIdPrefix: null,
+  cachedIdSegment: null,
+  lastCaptureLayersRef: null,
+  lastCaptureLayerId: null,
+  lastResolvedCaptureLayer: null,
   captureWasActive: false,
   eventCounter: 0,
 };
@@ -71,6 +102,8 @@ const defaultPayloadNotificationRuntime: SequentialPayloadNotificationRuntime = 
 const defaultEventBufferRuntime: SequentialEventBufferRuntime = {
   sessionKey: null,
   pendingPayloadBytes: 0,
+  lastKnownLayersRef: null,
+  lastKnownProjectPayloadBytes: null,
   layers: new Map<string, BufferedSequentialLayerEvents>(),
 };
 
@@ -80,6 +113,20 @@ export const createSequentialStampCapRuntime = (): SequentialStampCapRuntime => 
   lastTimestampMs: null,
   strokeSegment: 0,
   lastBrushSnapshotKey: null,
+  lastResolvedBrushSnapshotKey: null,
+  lastResolvedBrushSnapshot: null,
+  lastBrushSettingsRef: null,
+  lastToolRef: null,
+  lastCustomBrushDataRef: undefined,
+  lastGradientRef: undefined,
+  lastGradientSnapshot: undefined,
+  lastGradientKey: '',
+  cachedStrokeId: null,
+  cachedEventIdPrefix: null,
+  cachedIdSegment: null,
+  lastCaptureLayersRef: null,
+  lastCaptureLayerId: null,
+  lastResolvedCaptureLayer: null,
   captureWasActive: false,
   eventCounter: 0,
 });
@@ -92,6 +139,8 @@ export const createSequentialPayloadNotificationRuntime = (): SequentialPayloadN
 export const createSequentialEventBufferRuntime = (): SequentialEventBufferRuntime => ({
   sessionKey: null,
   pendingPayloadBytes: 0,
+  lastKnownLayersRef: null,
+  lastKnownProjectPayloadBytes: null,
   layers: new Map<string, BufferedSequentialLayerEvents>(),
 });
 
@@ -102,6 +151,10 @@ export const flushBufferedSequentialEvents = ({
   state: AppState;
   runtime?: SequentialEventBufferRuntime;
 }): number => {
+  const flushStartMs =
+    typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
   const targetRuntime = runtime ?? defaultEventBufferRuntime;
   if (targetRuntime.layers.size === 0) {
     return 0;
@@ -122,7 +175,24 @@ export const flushBufferedSequentialEvents = ({
 
   targetRuntime.layers.clear();
   targetRuntime.pendingPayloadBytes = 0;
+  const flushDurationMs =
+    (typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now()) - flushStartMs;
+  recordSequentialFlushPerf({
+    events: flushedEventCount,
+    durationMs: flushDurationMs,
+  });
   return flushedEventCount;
+};
+
+export const getBufferedSequentialPendingPayloadBytes = ({
+  runtime,
+}: {
+  runtime?: SequentialEventBufferRuntime;
+} = {}): number => {
+  const targetRuntime = runtime ?? defaultEventBufferRuntime;
+  return Math.max(0, targetRuntime.pendingPayloadBytes);
 };
 
 const enqueueBufferedSequentialEvent = ({
@@ -155,6 +225,30 @@ const enqueueBufferedSequentialEvent = ({
   runtime.pendingPayloadBytes += payloadBytes;
 };
 
+const readCachedProjectPayloadBytes = ({
+  state,
+  payloadRuntime,
+  eventBufferRuntime,
+}: {
+  state: AppState;
+  payloadRuntime: ReturnType<typeof createSequentialPayloadBudgetRuntime>;
+  eventBufferRuntime: SequentialEventBufferRuntime;
+}): number => {
+  if (
+    eventBufferRuntime.lastKnownLayersRef === state.layers &&
+    Number.isFinite(eventBufferRuntime.lastKnownProjectPayloadBytes)
+  ) {
+    return Math.max(0, eventBufferRuntime.lastKnownProjectPayloadBytes ?? 0);
+  }
+  const projectPayloadBytes = readSequentialProjectPayloadBytes({
+    layers: state.layers,
+    runtime: payloadRuntime,
+  });
+  eventBufferRuntime.lastKnownLayersRef = state.layers;
+  eventBufferRuntime.lastKnownProjectPayloadBytes = projectPayloadBytes;
+  return projectPayloadBytes;
+};
+
 export const noteSequentialCaptureActivity = ({
   isActive,
   runtime,
@@ -176,10 +270,15 @@ const normalizeFrameIndex = (frame: number, frameCount: number): number => {
   return normalized < 0 ? normalized + safeFrameCount : normalized;
 };
 
-const buildBrushSnapshot = (
-  state: AppState,
-  customBrushData?: CustomBrushStrokeData
-): SequentialBrushSnapshot => {
+const buildBrushSnapshot = ({
+  state,
+  customBrushData,
+  gradientSnapshot,
+}: {
+  state: AppState;
+  customBrushData?: CustomBrushStrokeData;
+  gradientSnapshot?: SequentialBrushSnapshot['colorCycleGradient'];
+}): SequentialBrushSnapshot => {
   const settings = state.tools.brushSettings;
   const customStamp = buildSequentialCustomStampSnapshot(customBrushData);
   return {
@@ -213,14 +312,14 @@ const buildBrushSnapshot = (
     mosaicDitherEnabled: settings.mosaicDitherEnabled,
     mosaicSegmentJitter: settings.mosaicSegmentJitter,
     mosaicSeed: settings.mosaicSeed,
-    colorCycleGradient: settings.colorCycleGradient?.map((stop) => ({
-      position: stop.position,
-      color: stop.color,
-    })),
+    colorCycleGradient: gradientSnapshot,
   };
 };
 
-const buildBrushSnapshotKey = (snapshot: SequentialBrushSnapshot): string =>
+const buildBrushSnapshotKey = (
+  snapshot: SequentialBrushSnapshot,
+  gradientKeyOverride?: string
+): string =>
   [
     snapshot.tool,
     snapshot.brushShape,
@@ -242,11 +341,12 @@ const buildBrushSnapshotKey = (snapshot: SequentialBrushSnapshot): string =>
     snapshot.mosaicDitherEnabled ? '1' : '0',
     snapshot.mosaicSegmentJitter ?? '',
     snapshot.mosaicSeed ?? '',
-    snapshot.colorCycleGradient
-      ? snapshot.colorCycleGradient
-          .map((stop) => `${stop.position}:${stop.color}`)
-          .join(',')
-      : '',
+    gradientKeyOverride ??
+      (snapshot.colorCycleGradient
+        ? snapshot.colorCycleGradient
+            .map((stop) => `${stop.position}:${stop.color}`)
+            .join(',')
+        : ''),
   ].join('|');
 
 const bytesToBase64 = (bytes: ArrayLike<number>): string => {
@@ -294,10 +394,11 @@ const buildSequentialCustomStampSnapshot = (
   const imageData = customBrushData.imageData;
   const cached = customStampSnapshotCache.get(imageData);
   if (cached) {
-    return {
-      ...cached,
-      isColorizable: Boolean(customBrushData.isColorizable),
-    };
+    const nextIsColorizable = Boolean(customBrushData.isColorizable);
+    if (cached.isColorizable === nextIsColorizable) {
+      return cached;
+    }
+    return { ...cached, isColorizable: nextIsColorizable };
   }
 
   const bytes = imageData.data;
@@ -318,13 +419,25 @@ const coerceStamp = (stamp: SequentialStampPoint): SequentialStampPoint | null =
   if (!Number.isFinite(stamp.x) || !Number.isFinite(stamp.y)) {
     return null;
   }
+  const pressure = Number.isFinite(stamp.pressure) ? Math.max(0, Math.min(1, stamp.pressure)) : 1;
+  const rotation = Number.isFinite(stamp.rotation) ? stamp.rotation : 0;
+  const size = Number.isFinite(stamp.size) ? Math.max(0, stamp.size) : 0;
+  const alpha = Number.isFinite(stamp.alpha) ? Math.max(0, Math.min(1, stamp.alpha)) : 1;
+  if (
+    pressure === stamp.pressure &&
+    rotation === stamp.rotation &&
+    size === stamp.size &&
+    alpha === stamp.alpha
+  ) {
+    return stamp;
+  }
   return {
     x: stamp.x,
     y: stamp.y,
-    pressure: Number.isFinite(stamp.pressure) ? Math.max(0, Math.min(1, stamp.pressure)) : 1,
-    rotation: Number.isFinite(stamp.rotation) ? stamp.rotation : 0,
-    size: Number.isFinite(stamp.size) ? Math.max(0, stamp.size) : 0,
-    alpha: Number.isFinite(stamp.alpha) ? Math.max(0, Math.min(1, stamp.alpha)) : 1,
+    pressure,
+    rotation,
+    size,
+    alpha,
   };
 };
 
@@ -340,7 +453,26 @@ const densifySequentialStampsForSmear = ({
     return stamps;
   }
 
-  const densified: SequentialStampPoint[] = [stamps[0]];
+  let totalPointCount = stamps.length;
+  for (let i = 1; i < stamps.length; i += 1) {
+    const from = stamps[i - 1];
+    const to = stamps[i];
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    totalPointCount += Math.min(
+      4,
+      Math.max(0, Math.floor((distance / 8) * (smearFactor - 1)))
+    );
+  }
+  if (totalPointCount <= stamps.length) {
+    return stamps;
+  }
+
+  const densified = new Array<SequentialStampPoint>(totalPointCount);
+  let writeIndex = 0;
+  densified[writeIndex] = stamps[0];
+  writeIndex += 1;
   for (let i = 1; i < stamps.length; i += 1) {
     const from = stamps[i - 1];
     const to = stamps[i];
@@ -355,23 +487,53 @@ const densifySequentialStampsForSmear = ({
     for (let j = 1; j <= extraPoints; j += 1) {
       const t = j / (extraPoints + 1);
       const alphaFalloff = 1 - t * 0.2;
-      densified.push({
+      densified[writeIndex] = {
         x: from.x + dx * t,
         y: from.y + dy * t,
         pressure: from.pressure + (to.pressure - from.pressure) * t,
         rotation: from.rotation + (to.rotation - from.rotation) * t,
         size: from.size + (to.size - from.size) * t,
         alpha: Math.max(0, Math.min(1, (from.alpha + (to.alpha - from.alpha) * t) * alphaFalloff)),
-      });
+      };
+      writeIndex += 1;
     }
 
-    densified.push(to);
+    densified[writeIndex] = to;
+    writeIndex += 1;
   }
 
-  return densified;
+  return writeIndex === densified.length ? densified : densified.slice(0, writeIndex);
 };
 
-const resolveCaptureLayer = (state: AppState) => {
+const normalizeSequentialStamps = (stamps: SequentialStampPoint[]): SequentialStampPoint[] => {
+  if (stamps.length === 0) {
+    return [];
+  }
+
+  let normalized: SequentialStampPoint[] | null = null;
+  for (let i = 0; i < stamps.length; i += 1) {
+    const coerced = coerceStamp(stamps[i]);
+    if (!coerced) {
+      if (!normalized) {
+        normalized = stamps.slice(0, i);
+      }
+      continue;
+    }
+    if (!normalized) {
+      if (coerced === stamps[i]) {
+        continue;
+      }
+      normalized = stamps.slice(0, i);
+    }
+    normalized.push(coerced);
+  }
+  return normalized ?? stamps;
+};
+
+const resolveCaptureLayer = (
+  state: AppState,
+  runtime: SequentialStampCapRuntime
+): Layer | null => {
   if (!selectSequentialCaptureActive(state)) {
     return null;
   }
@@ -379,11 +541,135 @@ const resolveCaptureLayer = (state: AppState) => {
   if (!activeLayerId) {
     return null;
   }
+  if (
+    runtime.lastCaptureLayersRef === state.layers &&
+    runtime.lastCaptureLayerId === activeLayerId &&
+    runtime.lastResolvedCaptureLayer
+  ) {
+    const cachedLayer = runtime.lastResolvedCaptureLayer;
+    if (cachedLayer.layerType === 'sequential' && cachedLayer.id === activeLayerId) {
+      return cachedLayer;
+    }
+  }
+
   const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
   if (!activeLayer || activeLayer.layerType !== 'sequential') {
+    runtime.lastCaptureLayersRef = state.layers;
+    runtime.lastCaptureLayerId = activeLayerId;
+    runtime.lastResolvedCaptureLayer = null;
     return null;
   }
+  runtime.lastCaptureLayersRef = state.layers;
+  runtime.lastCaptureLayerId = activeLayerId;
+  runtime.lastResolvedCaptureLayer = activeLayer;
   return activeLayer;
+};
+
+const resolveBrushSnapshotForCapture = ({
+  state,
+  customBrushData,
+  runtime,
+}: {
+  state: AppState;
+  customBrushData?: CustomBrushStrokeData;
+  runtime: SequentialStampCapRuntime;
+}): { brush: SequentialBrushSnapshot; key: string } => {
+  const settings = state.tools.brushSettings;
+  const tool = state.tools.currentTool;
+  if (
+    runtime.lastBrushSettingsRef === settings &&
+    runtime.lastToolRef === tool &&
+    runtime.lastCustomBrushDataRef === customBrushData &&
+    runtime.lastResolvedBrushSnapshot &&
+    runtime.lastResolvedBrushSnapshotKey
+  ) {
+    return {
+      brush: runtime.lastResolvedBrushSnapshot,
+      key: runtime.lastResolvedBrushSnapshotKey,
+    };
+  }
+
+  let gradientSnapshot: SequentialBrushSnapshot['colorCycleGradient'];
+  let gradientKey = '';
+  if (runtime.lastGradientRef === settings.colorCycleGradient) {
+    gradientSnapshot = runtime.lastGradientSnapshot;
+    gradientKey = runtime.lastGradientKey;
+  } else if (Array.isArray(settings.colorCycleGradient) && settings.colorCycleGradient.length > 0) {
+    gradientSnapshot = settings.colorCycleGradient.map((stop) => ({
+      position: stop.position,
+      color: stop.color,
+    }));
+    gradientKey = gradientSnapshot.map((stop) => `${stop.position}:${stop.color}`).join(',');
+    runtime.lastGradientRef = settings.colorCycleGradient;
+    runtime.lastGradientSnapshot = gradientSnapshot;
+    runtime.lastGradientKey = gradientKey;
+  } else {
+    gradientSnapshot = undefined;
+    gradientKey = '';
+    runtime.lastGradientRef = settings.colorCycleGradient;
+    runtime.lastGradientSnapshot = undefined;
+    runtime.lastGradientKey = '';
+  }
+
+  const brush = buildBrushSnapshot({
+    state,
+    customBrushData,
+    gradientSnapshot,
+  });
+  const key = buildBrushSnapshotKey(brush, gradientKey);
+  runtime.lastBrushSettingsRef = settings;
+  runtime.lastToolRef = tool;
+  runtime.lastCustomBrushDataRef = customBrushData;
+  runtime.lastResolvedBrushSnapshot = brush;
+  runtime.lastResolvedBrushSnapshotKey = key;
+  return { brush, key };
+};
+
+const formatSequentialEventCounter = (value: number): string => {
+  if (value < 10) {
+    return `00000${value}`;
+  }
+  if (value < 100) {
+    return `0000${value}`;
+  }
+  if (value < 1000) {
+    return `000${value}`;
+  }
+  if (value < 10000) {
+    return `00${value}`;
+  }
+  if (value < 100000) {
+    return `0${value}`;
+  }
+  return String(value);
+};
+
+const resolveStrokeIdentifiers = ({
+  runtime,
+  sessionStartMs,
+}: {
+  runtime: SequentialStampCapRuntime;
+  sessionStartMs: number;
+}): {
+  strokeId: string;
+  eventIdPrefix: string;
+} => {
+  if (
+    runtime.cachedIdSegment === runtime.strokeSegment &&
+    runtime.cachedStrokeId &&
+    runtime.cachedEventIdPrefix
+  ) {
+    return {
+      strokeId: runtime.cachedStrokeId,
+      eventIdPrefix: runtime.cachedEventIdPrefix,
+    };
+  }
+  const strokeId = `stroke-${sessionStartMs}-${runtime.strokeSegment}`;
+  const eventIdPrefix = `seq-${sessionStartMs}-${runtime.strokeSegment}-`;
+  runtime.cachedIdSegment = runtime.strokeSegment;
+  runtime.cachedStrokeId = strokeId;
+  runtime.cachedEventIdPrefix = eventIdPrefix;
+  return { strokeId, eventIdPrefix };
 };
 
 export const createFallbackSequentialStamp = (
@@ -426,15 +712,16 @@ export const applyDeterministicStampCap = ({
     runtime.lastTimestampMs = nowMs;
   }
 
-  const capped: SequentialStampPoint[] = [];
-  for (let i = 0; i < stamps.length; i += 1) {
-    if (runtime.tokens < 1) {
-      break;
-    }
-    capped.push(stamps[i]);
-    runtime.tokens -= 1;
+  const availableTokens = Math.max(0, Math.floor(runtime.tokens));
+  const acceptedCount = Math.min(stamps.length, availableTokens);
+  if (acceptedCount <= 0) {
+    return [];
   }
-  return capped;
+  runtime.tokens -= acceptedCount;
+  if (acceptedCount >= stamps.length) {
+    return stamps;
+  }
+  return stamps.slice(0, acceptedCount);
 };
 
 export const captureSequentialStampsForActiveLayer = ({
@@ -468,15 +755,13 @@ export const captureSequentialStampsForActiveLayer = ({
     return 0;
   }
 
-  const activeLayer = resolveCaptureLayer(state);
+  const activeLayer = resolveCaptureLayer(state, capRuntime);
   if (!activeLayer) {
     capRuntime.captureWasActive = false;
     return 0;
   }
 
-  const normalizedStamps = stamps
-    .map(coerceStamp)
-    .filter((stamp): stamp is SequentialStampPoint => Boolean(stamp));
+  const normalizedStamps = normalizeSequentialStamps(stamps);
   if (normalizedStamps.length === 0) {
     capRuntime.captureWasActive = true;
     return 0;
@@ -492,6 +777,20 @@ export const captureSequentialStampsForActiveLayer = ({
   if (capRuntime.sessionKey !== sessionKey) {
     capRuntime.strokeSegment = 0;
     capRuntime.lastBrushSnapshotKey = null;
+    capRuntime.lastResolvedBrushSnapshotKey = null;
+    capRuntime.lastResolvedBrushSnapshot = null;
+    capRuntime.lastBrushSettingsRef = null;
+    capRuntime.lastToolRef = null;
+    capRuntime.lastCustomBrushDataRef = undefined;
+    capRuntime.lastGradientRef = undefined;
+    capRuntime.lastGradientSnapshot = undefined;
+    capRuntime.lastGradientKey = '';
+    capRuntime.cachedStrokeId = null;
+    capRuntime.cachedEventIdPrefix = null;
+    capRuntime.cachedIdSegment = null;
+    capRuntime.lastCaptureLayersRef = null;
+    capRuntime.lastCaptureLayerId = null;
+    capRuntime.lastResolvedCaptureLayer = null;
     capRuntime.eventCounter = 0;
   } else if (!capRuntime.captureWasActive) {
     capRuntime.strokeSegment += 1;
@@ -515,8 +814,11 @@ export const captureSequentialStampsForActiveLayer = ({
   const durationMs = Math.round((frameCount * 1000) / fps);
   const frameIndex = normalizeFrameIndex(state.sequentialRecord.currentFrame, frameCount);
   const timestampMs = Math.max(0, Math.round(captureNowMs - sessionStartMs));
-  const brush = buildBrushSnapshot(state, customBrushData);
-  const brushSnapshotKey = buildBrushSnapshotKey(brush);
+  const { brush, key: brushSnapshotKey } = resolveBrushSnapshotForCapture({
+    state,
+    customBrushData,
+    runtime: capRuntime,
+  });
   if (
     capRuntime.lastBrushSnapshotKey !== null &&
     capRuntime.lastBrushSnapshotKey !== brushSnapshotKey
@@ -525,7 +827,10 @@ export const captureSequentialStampsForActiveLayer = ({
   }
   capRuntime.lastBrushSnapshotKey = brushSnapshotKey;
   capRuntime.captureWasActive = true;
-  const strokeId = `stroke-${sessionStartMs}-${capRuntime.strokeSegment}`;
+  const { strokeId, eventIdPrefix } = resolveStrokeIdentifiers({
+    runtime: capRuntime,
+    sessionStartMs,
+  });
   const sequentialPayloadRuntime = payloadRuntime ?? defaultPayloadBudgetRuntime;
   const payloadNotificationRuntime = notificationRuntime ?? defaultPayloadNotificationRuntime;
   const captureEventBufferRuntime = eventBufferRuntime ?? defaultEventBufferRuntime;
@@ -533,7 +838,18 @@ export const captureSequentialStampsForActiveLayer = ({
     captureEventBufferRuntime.sessionKey !== null &&
     captureEventBufferRuntime.sessionKey !== sessionKey
   ) {
+    const pendingBytesBeforeFlush = captureEventBufferRuntime.pendingPayloadBytes;
     flushBufferedSequentialEvents({ state, runtime: captureEventBufferRuntime });
+    const baselineProjectPayloadBytes =
+      Number.isFinite(captureEventBufferRuntime.lastKnownProjectPayloadBytes)
+        ? Math.max(0, captureEventBufferRuntime.lastKnownProjectPayloadBytes ?? 0)
+        : readSequentialProjectPayloadBytes({
+            layers: state.layers,
+            runtime: sequentialPayloadRuntime,
+          });
+    captureEventBufferRuntime.lastKnownLayersRef = state.layers;
+    captureEventBufferRuntime.lastKnownProjectPayloadBytes =
+      baselineProjectPayloadBytes + pendingBytesBeforeFlush;
   }
   captureEventBufferRuntime.sessionKey = sessionKey;
   const softLimitBytes = Math.max(
@@ -544,9 +860,10 @@ export const captureSequentialStampsForActiveLayer = ({
     softLimitBytes + 1,
     Math.round(payloadLimits?.hardLimitBytes ?? SEQUENTIAL_PAYLOAD_HARD_LIMIT_BYTES)
   );
-  const currentProjectPayloadBytes = readSequentialProjectPayloadBytes({
-    layers: state.layers,
-    runtime: sequentialPayloadRuntime,
+  const currentProjectPayloadBytes = readCachedProjectPayloadBytes({
+    state,
+    payloadRuntime: sequentialPayloadRuntime,
+    eventBufferRuntime: captureEventBufferRuntime,
   });
   const currentBufferedPayloadBytes = captureEventBufferRuntime.pendingPayloadBytes;
   const currentTotalPayloadBytes = currentProjectPayloadBytes + currentBufferedPayloadBytes;
@@ -561,7 +878,7 @@ export const captureSequentialStampsForActiveLayer = ({
   }
 
   const event: SequentialStrokeEvent = {
-    id: `seq-${sessionStartMs}-${capRuntime.strokeSegment}-${String(capRuntime.eventCounter).padStart(6, '0')}`,
+    id: `${eventIdPrefix}${formatSequentialEventCounter(capRuntime.eventCounter)}`,
     layerId: activeLayer.id,
     strokeId,
     timestampMs,
@@ -609,11 +926,6 @@ export const captureSequentialStampsForActiveLayer = ({
     payloadBytes: eventPayloadBytes,
     runtime: captureEventBufferRuntime,
   });
-  appendSequentialEventPayloadBytes({
-    layerId: activeLayer.id,
-    event,
-    runtime: sequentialPayloadRuntime,
-  });
   payloadNotificationRuntime.hardCapBlockedAtBytes = null;
   capRuntime.eventCounter += 1;
 
@@ -630,10 +942,26 @@ export const __TESTING__ = {
     defaultStampCapRuntime.lastTimestampMs = null;
     defaultStampCapRuntime.strokeSegment = 0;
     defaultStampCapRuntime.lastBrushSnapshotKey = null;
+    defaultStampCapRuntime.lastResolvedBrushSnapshotKey = null;
+    defaultStampCapRuntime.lastResolvedBrushSnapshot = null;
+    defaultStampCapRuntime.lastBrushSettingsRef = null;
+    defaultStampCapRuntime.lastToolRef = null;
+    defaultStampCapRuntime.lastCustomBrushDataRef = undefined;
+    defaultStampCapRuntime.lastGradientRef = undefined;
+    defaultStampCapRuntime.lastGradientSnapshot = undefined;
+    defaultStampCapRuntime.lastGradientKey = '';
+    defaultStampCapRuntime.cachedStrokeId = null;
+    defaultStampCapRuntime.cachedEventIdPrefix = null;
+    defaultStampCapRuntime.cachedIdSegment = null;
+    defaultStampCapRuntime.lastCaptureLayersRef = null;
+    defaultStampCapRuntime.lastCaptureLayerId = null;
+    defaultStampCapRuntime.lastResolvedCaptureLayer = null;
     defaultStampCapRuntime.captureWasActive = false;
     defaultStampCapRuntime.eventCounter = 0;
     defaultEventBufferRuntime.sessionKey = null;
     defaultEventBufferRuntime.pendingPayloadBytes = 0;
+    defaultEventBufferRuntime.lastKnownLayersRef = null;
+    defaultEventBufferRuntime.lastKnownProjectPayloadBytes = null;
     defaultEventBufferRuntime.layers.clear();
     resetSequentialPayloadBudgetRuntime(defaultPayloadBudgetRuntime);
     defaultPayloadNotificationRuntime.softWarningShown = false;

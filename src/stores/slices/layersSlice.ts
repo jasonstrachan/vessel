@@ -30,6 +30,7 @@ import {
   getSequentialLayerRenderCanvas,
   getSequentialLayerRendererStats,
 } from '@/lib/sequential/SequentialLayerRenderer';
+import { recordSequentialAppendPerf } from '@/lib/sequential/SequentialPerfCounters';
 import type {
   CommitLayerStructureHistoryOptions,
   LayerHistorySnapshotOptions,
@@ -67,6 +68,28 @@ export type CompositeSegment =
   | StaticCompositeSegment
   | ColorCycleCompositeSegment
   | SequentialCompositeSegment;
+
+let cachedSequentialAppendLayerId: string | null = null;
+let cachedSequentialAppendLayerIndex = -1;
+
+const resolveSequentialAppendLayerIndex = (
+  layers: Layer[],
+  layerId: string
+): number => {
+  if (cachedSequentialAppendLayerId === layerId && cachedSequentialAppendLayerIndex >= 0) {
+    const cachedLayer = layers[cachedSequentialAppendLayerIndex];
+    if (cachedLayer?.id === layerId && cachedLayer.layerType === 'sequential') {
+      return cachedSequentialAppendLayerIndex;
+    }
+  }
+
+  const scannedIndex = layers.findIndex(
+    (layer) => layer.id === layerId && layer.layerType === 'sequential'
+  );
+  cachedSequentialAppendLayerId = scannedIndex >= 0 ? layerId : null;
+  cachedSequentialAppendLayerIndex = scannedIndex;
+  return scannedIndex;
+};
 
 const normalizeCaptureROI = (
   roi: CaptureROI | undefined,
@@ -2075,37 +2098,53 @@ export const createLayersSlice = (
     if (events.length === 0) {
       return;
     }
+    const normalizedFrameCount = Math.max(1, Math.round(metadata.frameCount));
+    const normalizedFps = Math.max(1, Math.round(metadata.fps));
+    const normalizedDurationMs = Math.max(1, Math.round(metadata.durationMs));
+    const appendStartMs =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    let didAppend = false;
     set((state) => {
-      let changed = false;
-      const nextLayers = state.layers.map((layer) => {
-        if (layer.id !== layerId || layer.layerType !== 'sequential') {
-          return layer;
-        }
-
-        changed = true;
-        const previousSequentialData = layer.sequentialData;
-        const nextEvents = [...(previousSequentialData?.events ?? []), ...events];
-        return {
-          ...layer,
-          sequentialData: {
-            frameCount: Math.max(1, Math.round(metadata.frameCount)),
-            fps: Math.max(1, Math.round(metadata.fps)),
-            durationMs: Math.max(1, Math.round(metadata.durationMs)),
-            events: nextEvents,
-          },
-        };
-      });
-
-      if (!changed) {
+      const targetIndex = resolveSequentialAppendLayerIndex(state.layers, layerId);
+      if (targetIndex < 0) {
         return state;
       }
+
+      const targetLayer = state.layers[targetIndex];
+      const previousSequentialData = targetLayer.sequentialData;
+      const nextEvents = [...(previousSequentialData?.events ?? []), ...events];
+      const updatedLayer: Layer = {
+        ...targetLayer,
+        sequentialData: {
+          frameCount: normalizedFrameCount,
+          fps: normalizedFps,
+          durationMs: normalizedDurationMs,
+          events: nextEvents,
+        },
+      };
+      const nextLayers = [...state.layers];
+      nextLayers[targetIndex] = updatedLayer;
+      didAppend = true;
 
       return {
         layers: nextLayers,
         layersNeedRecomposition: state.layersNeedRecomposition,
       };
     });
+    if (!didAppend) {
+      return;
+    }
     get().markCompositeSegmentsDirtyByLayerIds([layerId]);
+    const appendDurationMs =
+      (typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()) - appendStartMs;
+    recordSequentialAppendPerf({
+      events: events.length,
+      durationMs: appendDurationMs,
+    });
   },
   setSelectedLayerIds: (layerIds) => set((state) => {
     const validIds = layerIds.filter((layerId, index, list) => {

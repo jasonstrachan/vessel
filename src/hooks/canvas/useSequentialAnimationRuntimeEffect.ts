@@ -6,12 +6,14 @@ import {
 } from '@/hooks/canvas/handlers/animation/animationRuntime';
 import {
   flushBufferedSequentialEvents,
+  getBufferedSequentialPendingPayloadBytes,
   noteSequentialCaptureActivity,
 } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
   createSequentialPayloadBudgetRuntime,
   readSequentialProjectPayloadBytes,
 } from '@/lib/sequential/SequentialPayloadBudget';
+import { setSequentialFrameCacheSnapshot } from '@/lib/sequential/SequentialPerfCounters';
 import { getSequentialLayerRendererStats } from '@/lib/sequential/SequentialLayerRenderer';
 import {
   selectSequentialCaptureActive,
@@ -59,6 +61,9 @@ interface SequentialPerfProbeApi {
 
 const payloadBudgetRuntime = createSequentialPayloadBudgetRuntime();
 const SEQUENTIAL_METRICS_SAMPLE_MS = 250;
+const SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS = 1000;
+const SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS = 4000;
+const SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES = 64 * 1024;
 
 const hasSequentialRuntimeState = (
   state: Partial<AppState> | null | undefined
@@ -190,6 +195,7 @@ export const useSequentialAnimationRuntimeEffect = ({
   const sequentialRecordModeEnabled = useFeatureFlag('enableSequentialRecordMode');
   const accumMsRef = useRef(0);
   const lastMetricsSampleMsRef = useRef(-Infinity);
+  const lastCheckpointFlushMsRef = useRef(-Infinity);
 
   useEffect(() => installSequentialPerfProbe(), []);
 
@@ -216,6 +222,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       const captureActive = selectSequentialCaptureActive(state);
       if (!captureActive) {
         flushBufferedSequentialEvents({ state });
+        lastCheckpointFlushMsRef.current = -Infinity;
       }
       if (state.sequentialRecord.isCaptureActive !== captureActive) {
         state.setSequentialCaptureActive(captureActive);
@@ -227,6 +234,7 @@ export const useSequentialAnimationRuntimeEffect = ({
         runtime.start();
       } else {
         accumMsRef.current = 0;
+        lastCheckpointFlushMsRef.current = -Infinity;
         runtime.stop();
       }
     });
@@ -237,6 +245,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       return () => {
         unsubscribe();
         accumMsRef.current = 0;
+        lastCheckpointFlushMsRef.current = -Infinity;
         runtime.stop();
       };
     }
@@ -254,6 +263,7 @@ export const useSequentialAnimationRuntimeEffect = ({
     return () => {
       unsubscribe();
       accumMsRef.current = 0;
+      lastCheckpointFlushMsRef.current = -Infinity;
       flushBufferedSequentialEvents({ state: useAppStore.getState() });
       noteSequentialCaptureActivity({ isActive: false });
       runtime.stop();
@@ -275,6 +285,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       }
       if (!selectSequentialPlaybackActive(state)) {
         accumMsRef.current = 0;
+        lastCheckpointFlushMsRef.current = -Infinity;
         flushBufferedSequentialEvents({ state });
         if (state.sequentialRecord.isCaptureActive) {
           state.setSequentialCaptureActive(false);
@@ -311,7 +322,6 @@ export const useSequentialAnimationRuntimeEffect = ({
       noteSequentialCaptureActivity({ isActive: captureActive });
 
       if (advancedFrames > 0) {
-        flushBufferedSequentialEvents({ state: nextState });
         try {
           if (captureActive && typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
@@ -320,6 +330,22 @@ export const useSequentialAnimationRuntimeEffect = ({
           // no-op
         }
         dispatchGlobalAnimationFrameUpdate();
+      }
+
+      if (
+        captureActive
+      ) {
+        const elapsedSinceFlush = timestampMs - lastCheckpointFlushMsRef.current;
+        const pendingPayloadBytes = getBufferedSequentialPendingPayloadBytes();
+        const shouldFlushForSafety =
+          elapsedSinceFlush >= SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS;
+        const shouldFlushForPayload =
+          elapsedSinceFlush >= SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS &&
+          pendingPayloadBytes >= SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES;
+        if (shouldFlushForSafety || shouldFlushForPayload) {
+          flushBufferedSequentialEvents({ state: nextState });
+          lastCheckpointFlushMsRef.current = timestampMs;
+        }
       }
 
       const tickEnd =
@@ -331,6 +357,11 @@ export const useSequentialAnimationRuntimeEffect = ({
       if (timestampMs - lastMetricsSampleMsRef.current >= SEQUENTIAL_METRICS_SAMPLE_MS) {
         lastMetricsSampleMsRef.current = timestampMs;
         const cacheStats = getSequentialLayerRendererStats();
+        setSequentialFrameCacheSnapshot({
+          entries: cacheStats.entries,
+          hits: cacheStats.hits,
+          misses: cacheStats.misses,
+        });
         nextState.setSequentialFrameCacheStats({
           frameCacheEntries: cacheStats.entries,
           frameCacheHits: cacheStats.hits,
@@ -343,6 +374,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       unregister();
       accumMsRef.current = 0;
       lastMetricsSampleMsRef.current = -Infinity;
+      lastCheckpointFlushMsRef.current = -Infinity;
     };
   }, [sequentialRecordModeEnabled]);
 };

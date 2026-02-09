@@ -184,4 +184,40 @@ describe('SequentialLayerRenderer', () => {
     expect(statsAfterStress.entries).toBeLessThanOrEqual(128);
     expect(statsAfterStress.misses).toBeGreaterThan(0);
   });
+
+  it('patches cached frame tiles incrementally when appending events to an existing frame', () => {
+    const initialLayer = createLayer([createEvent('f0-initial', 0, '#ff0000')]);
+
+    const first = getSequentialLayerRenderCanvas({
+      layer: initialLayer,
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+    });
+    expect(first).not.toBeNull();
+    const statsAfterFirst = getSequentialLayerRendererStats();
+
+    const appendedLayer: Layer = {
+      ...initialLayer,
+      sequentialData: {
+        ...initialLayer.sequentialData!,
+        events: [
+          ...initialLayer.sequentialData!.events,
+          createEvent('f0-appended', 0, '#00ff00'),
+        ],
+      },
+    };
+
+    const second = getSequentialLayerRenderCanvas({
+      layer: appendedLayer,
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+    });
+    expect(second).not.toBeNull();
+    const statsAfterSecond = getSequentialLayerRendererStats();
+
+    expect(statsAfterSecond.misses).toBe(statsAfterFirst.misses);
+    expect(statsAfterSecond.hits).toBeGreaterThan(statsAfterFirst.hits);
+  });
 });

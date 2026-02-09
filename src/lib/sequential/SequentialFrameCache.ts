@@ -5,14 +5,6 @@ interface CacheEntry {
   lastAccessTick: number;
 }
 
-const cloneTileSet = (tileSet: FrameTileSet): FrameTileSet => ({
-  ...tileSet,
-  tiles: tileSet.tiles.map((tile) => ({
-    ...tile,
-    data: new Uint8ClampedArray(tile.data),
-  })),
-});
-
 const keyFor = (layerId: string, frameIndex: number): string => `${layerId}:${frameIndex}`;
 
 export class SequentialFrameCache {
@@ -49,14 +41,23 @@ export class SequentialFrameCache {
     this.hits += 1;
     this.accessTick += 1;
     existing.lastAccessTick = this.accessTick;
-    return cloneTileSet(existing.tileSet);
+    return existing.tileSet;
+  }
+
+  peek(layerId: string, frameIndex: number): FrameTileSet | null {
+    const dirty = this.dirtyFramesByLayer.get(layerId);
+    if (dirty?.has(frameIndex)) {
+      return null;
+    }
+    const existing = this.entries.get(keyFor(layerId, frameIndex));
+    return existing ? existing.tileSet : null;
   }
 
   set(layerId: string, frameIndex: number, tileSet: FrameTileSet): void {
     const key = keyFor(layerId, frameIndex);
     this.accessTick += 1;
     this.entries.set(key, {
-      tileSet: cloneTileSet(tileSet),
+      tileSet,
       lastAccessTick: this.accessTick,
     });
     this.markClean(layerId, frameIndex);

@@ -2,6 +2,7 @@ import type { Layer } from '@/types';
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import { SequentialEventLog } from '@/lib/sequential/SequentialEventLog';
 import { SequentialFrameCache } from '@/lib/sequential/SequentialFrameCache';
+import { recordSequentialPatchOutcome } from '@/lib/sequential/SequentialPerfCounters';
 import { SequentialCpuMaterializer } from '@/lib/sequential/materializer/SequentialCpuMaterializer';
 import { SequentialGpuMaterializer } from '@/lib/sequential/materializer/SequentialGpuMaterializer';
 import type {
@@ -177,7 +178,7 @@ const copyTileSetToCanvas = ({
       continue;
     }
     const imageData = new ImageData(
-      new Uint8ClampedArray(tile.data),
+      tile.data,
       tile.width,
       tile.height
     );
@@ -225,12 +226,73 @@ export const getSequentialLayerRenderCanvas = ({
     runtime.eventCount = eventCount;
     runtime.lastEventId = eventCount > 0 ? allEvents[eventCount - 1]?.id ?? null : null;
   } else if (eventCount > runtime.eventCount) {
-    const appendedEvents = allEvents.slice(runtime.eventCount);
-    runtime.eventLog.append(layer.id, appendedEvents);
-    runtime.frameCache.markDirtyFrames(
-      layer.id,
-      appendedEvents.map((event) => event.frameIndex)
-    );
+    const previousEventCount = runtime.eventCount;
+    runtime.eventLog.appendFromIndex(layer.id, allEvents, previousEventCount);
+
+    const applyFramePatch = (
+      appendedFrameIndex: number,
+      frameEvents: Array<(typeof allEvents)[number]>
+    ): { attempted: boolean; applied: boolean; fallback: boolean } => {
+      const cachedTileSet = runtime.frameCache.peek(layer.id, appendedFrameIndex);
+      if (!cachedTileSet || !runtime.materializer.patchFrame) {
+        runtime.frameCache.markDirty(layer.id, appendedFrameIndex);
+        return { attempted: false, applied: false, fallback: false };
+      }
+      try {
+        const patchedTileSet = runtime.materializer.patchFrame({
+          width,
+          height,
+          frameIndex: appendedFrameIndex,
+          events: frameEvents,
+          eventsAreFrameScoped: true,
+          baseTileSet: cachedTileSet,
+        });
+        runtime.frameCache.set(layer.id, appendedFrameIndex, patchedTileSet);
+        return { attempted: true, applied: true, fallback: false };
+      } catch {
+        runtime.frameCache.markDirty(layer.id, appendedFrameIndex);
+        return { attempted: true, applied: false, fallback: true };
+      }
+    };
+
+    const appendedCount = eventCount - previousEventCount;
+    let patchAttempts = 0;
+    let patchApplied = 0;
+    let patchFallbacks = 0;
+
+    if (appendedCount === 1) {
+      const appendedEvent = allEvents[previousEventCount];
+      if (appendedEvent) {
+        const outcome = applyFramePatch(appendedEvent.frameIndex, [appendedEvent]);
+        patchAttempts += outcome.attempted ? 1 : 0;
+        patchApplied += outcome.applied ? 1 : 0;
+        patchFallbacks += outcome.fallback ? 1 : 0;
+      }
+    } else {
+      const appendedEventsByFrame = new Map<number, Array<(typeof allEvents)[number]>>();
+      for (let i = previousEventCount; i < allEvents.length; i += 1) {
+        const event = allEvents[i];
+        const current = appendedEventsByFrame.get(event.frameIndex);
+        if (current) {
+          current.push(event);
+        } else {
+          appendedEventsByFrame.set(event.frameIndex, [event]);
+        }
+      }
+      appendedEventsByFrame.forEach((frameEvents, appendedFrameIndex) => {
+        const outcome = applyFramePatch(appendedFrameIndex, frameEvents);
+        patchAttempts += outcome.attempted ? 1 : 0;
+        patchApplied += outcome.applied ? 1 : 0;
+        patchFallbacks += outcome.fallback ? 1 : 0;
+      });
+    }
+    if (patchAttempts > 0 || patchFallbacks > 0) {
+      recordSequentialPatchOutcome({
+        attempts: patchAttempts,
+        applied: patchApplied,
+        fallbacks: patchFallbacks,
+      });
+    }
     runtime.eventCount = eventCount;
     runtime.lastEventId = allEvents[eventCount - 1]?.id ?? null;
   }
@@ -242,12 +304,16 @@ export const getSequentialLayerRenderCanvas = ({
 
   let tileSet = runtime.frameCache.get(layer.id, normalizedFrameIndex);
   if (!tileSet) {
-    const events = runtime.eventLog.getLayerEvents(layer.id);
+    const events = runtime.eventLog.getLayerFrameEventsReadonly(
+      layer.id,
+      normalizedFrameIndex
+    );
     tileSet = runtime.materializer.materializeFrame({
       width,
       height,
       frameIndex: normalizedFrameIndex,
       events,
+      eventsAreFrameScoped: true,
     });
     runtime.frameCache.set(layer.id, normalizedFrameIndex, tileSet);
   }

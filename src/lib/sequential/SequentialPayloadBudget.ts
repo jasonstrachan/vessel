@@ -179,13 +179,18 @@ export const readSequentialProjectPayloadBytes = ({
 export const appendSequentialEventPayloadBytes = ({
   layerId,
   event,
+  eventBytes,
   runtime,
 }: {
   layerId: string;
   event: SequentialStrokeEvent;
+  eventBytes?: number;
   runtime: SequentialPayloadBudgetRuntime;
 }): number => {
-  const eventBytes = estimateSequentialStrokeEventPayloadBytes(event);
+  const resolvedEventBytes =
+    typeof eventBytes === 'number' && Number.isFinite(eventBytes)
+      ? Math.max(0, Math.round(eventBytes))
+      : estimateSequentialStrokeEventPayloadBytes(event);
   const currentLayerBytes = runtime.layerPayloadBytes.get(layerId);
   const currentEventCount = runtime.layerEventCounts.get(layerId);
 
@@ -193,9 +198,9 @@ export const appendSequentialEventPayloadBytes = ({
     return runtime.projectPayloadBytes;
   }
 
-  runtime.layerPayloadBytes.set(layerId, currentLayerBytes + eventBytes);
+  runtime.layerPayloadBytes.set(layerId, currentLayerBytes + resolvedEventBytes);
   runtime.layerEventCounts.set(layerId, currentEventCount + 1);
   runtime.layerLastEventIds.set(layerId, event.id);
-  runtime.projectPayloadBytes += eventBytes;
+  runtime.projectPayloadBytes += resolvedEventBytes;
   return runtime.projectPayloadBytes;
 };

@@ -5,5 +5,8 @@ export type SequentialMaterializerBackendKind = 'cpu' | 'gpu';
 export interface SequentialMaterializerBackend {
   readonly kind: SequentialMaterializerBackendKind;
   materializeFrame(input: SequentialMaterializeFrameInput): FrameTileSet;
+  patchFrame?(
+    input: SequentialMaterializeFrameInput & { baseTileSet: FrameTileSet }
+  ): FrameTileSet;
   dispose?: () => void;
 }

@@ -1,4 +1,5 @@
 import { BrushShape, type SequentialStrokeEvent } from '@/types';
+import { recordSequentialMaterializePerf } from '@/lib/sequential/SequentialPerfCounters';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import type { FrameTile, FrameTileSet, SequentialMaterializeFrameInput } from '@/lib/sequential/types';
@@ -678,18 +679,168 @@ const buildTiles = ({
   return tiles;
 };
 
+const inflatePixelsFromTileSet = ({
+  tileSet,
+  width,
+  height,
+  target,
+}: {
+  tileSet: FrameTileSet;
+  width: number;
+  height: number;
+  target: Uint8ClampedArray;
+}): void => {
+  target.fill(0, 0, width * height * 4);
+  const tiles = tileSet.tiles;
+  for (let tileIndex = 0; tileIndex < tiles.length; tileIndex += 1) {
+    const tile = tiles[tileIndex];
+    if (tile.width <= 0 || tile.height <= 0) {
+      continue;
+    }
+    for (let row = 0; row < tile.height; row += 1) {
+      const sourceOffset = row * tile.width * 4;
+      const targetOffset = ((tile.y + row) * width + tile.x) * 4;
+      target.set(
+        tile.data.subarray(sourceOffset, sourceOffset + tile.width * 4),
+        targetOffset
+      );
+    }
+  }
+};
+
+const paintEventsToPixels = ({
+  pixels,
+  width,
+  height,
+  events,
+}: {
+  pixels: Uint8ClampedArray;
+  width: number;
+  height: number;
+  events: ReadonlyArray<SequentialStrokeEvent>;
+}): void => {
+  const parsedColorCache = new Map<string, ReturnType<typeof parseCssColor>>();
+  for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+    const event = events[eventIndex];
+    const colorKey = event.brush.color;
+    let parsedColor = parsedColorCache.get(colorKey);
+    if (!parsedColor) {
+      parsedColor = parseCssColor(colorKey);
+      parsedColorCache.set(colorKey, parsedColor);
+    }
+    const stampShape = resolveStampShape(event.brush.brushShape);
+    const customStamp = parseCustomStamp(event);
+    const textureMode = resolveTextureMode(event);
+    const mosaicConfig = textureMode === 'mosaic' ? resolveMosaicConfig(event) : null;
+    const mosaicRuntime =
+      textureMode === 'mosaic' && mosaicConfig
+        ? createMosaicRuntime(mosaicConfig, event.brush.spacing)
+        : null;
+    let previousMosaicStamp: { x: number; y: number } | null = null;
+
+    for (let stampIndex = 0; stampIndex < event.stamps.length; stampIndex += 1) {
+      const stamp = event.stamps[stampIndex];
+      if (customStamp) {
+        paintCustomStamp({
+          pixels,
+          width,
+          height,
+          stampX: stamp.x,
+          stampY: stamp.y,
+          stampSize: stamp.size || event.brush.size,
+          stampAlpha: clamp01(stamp.alpha),
+          color: parsedColor,
+          stamp: customStamp,
+        });
+        continue;
+      }
+      if (textureMode === 'mosaic' && mosaicConfig && mosaicRuntime) {
+        if (previousMosaicStamp) {
+          const dx = stamp.x - previousMosaicStamp.x;
+          const dy = stamp.y - previousMosaicStamp.y;
+          advanceMosaicRuntimeByDistance(mosaicRuntime, mosaicConfig, Math.hypot(dx, dy));
+        }
+        paintMosaicStamp({
+          pixels,
+          width,
+          height,
+          stampX: stamp.x,
+          stampY: stamp.y,
+          stampSize: stamp.size || event.brush.size,
+          stampAlpha: clamp01(stamp.alpha),
+          rotation: stamp.rotation || event.brush.rotation || 0,
+          runtime: mosaicRuntime,
+          config: mosaicConfig,
+        });
+        previousMosaicStamp = { x: stamp.x, y: stamp.y };
+        continue;
+      }
+      paintStamp({
+        pixels,
+        width,
+        height,
+        stampX: stamp.x,
+        stampY: stamp.y,
+        stampSize: stamp.size || event.brush.size,
+        stampAlpha: clamp01(stamp.alpha),
+        shape: stampShape,
+        textureMode,
+        color: parsedColor,
+        mosaicConfig,
+      });
+    }
+  }
+};
+
 const getFrameEvents = (
   events: ReadonlyArray<SequentialStrokeEvent>,
-  frameIndex: number
-): SequentialStrokeEvent[] =>
-  events.filter((event) => event.frameIndex === frameIndex);
+  frameIndex: number,
+  eventsAreFrameScoped: boolean
+): ReadonlyArray<SequentialStrokeEvent> => {
+  if (events.length === 0) {
+    return [];
+  }
+  if (eventsAreFrameScoped) {
+    return events;
+  }
+  let allMatch = true;
+  for (let i = 0; i < events.length; i += 1) {
+    if (events[i].frameIndex !== frameIndex) {
+      allMatch = false;
+      break;
+    }
+  }
+  if (allMatch) {
+    return events;
+  }
+  const matches: SequentialStrokeEvent[] = [];
+  for (let i = 0; i < events.length; i += 1) {
+    if (events[i].frameIndex === frameIndex) {
+      matches.push(events[i]);
+    }
+  }
+  return matches;
+};
 
 export class SequentialCpuMaterializer implements SequentialMaterializerBackend {
   readonly kind = 'cpu' as const;
   private readonly tileSize: number;
+  private scratchPixels: Uint8ClampedArray | null = null;
+  private scratchCapacity = 0;
 
   constructor(options?: { tileSize?: number }) {
     this.tileSize = Math.max(1, Math.round(options?.tileSize ?? 128));
+  }
+
+  private acquireScratchPixels(width: number, height: number): Uint8ClampedArray {
+    const requiredCapacity = width * height * 4;
+    if (!this.scratchPixels || this.scratchCapacity < requiredCapacity) {
+      this.scratchPixels = new Uint8ClampedArray(requiredCapacity);
+      this.scratchCapacity = requiredCapacity;
+    } else {
+      this.scratchPixels.fill(0, 0, requiredCapacity);
+    }
+    return this.scratchPixels;
   }
 
   materializeFrame({
@@ -697,78 +848,75 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
     height,
     frameIndex,
     events,
+    eventsAreFrameScoped = false,
   }: SequentialMaterializeFrameInput): FrameTileSet {
+    const materializeStartMs =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
     const safeWidth = Math.max(1, Math.round(width));
     const safeHeight = Math.max(1, Math.round(height));
-    const pixels = new Uint8ClampedArray(safeWidth * safeHeight * 4);
-    const frameEvents = getFrameEvents(events, frameIndex);
+    const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
+    const frameEvents = getFrameEvents(events, frameIndex, eventsAreFrameScoped);
 
-    for (let eventIndex = 0; eventIndex < frameEvents.length; eventIndex += 1) {
-      const event = frameEvents[eventIndex];
-      const parsedColor = parseCssColor(event.brush.color);
-      const stampShape = resolveStampShape(event.brush.brushShape);
-      const customStamp = parseCustomStamp(event);
-      const textureMode = resolveTextureMode(event);
-      const mosaicConfig = textureMode === 'mosaic' ? resolveMosaicConfig(event) : null;
-      const mosaicRuntime =
-        textureMode === 'mosaic' && mosaicConfig
-          ? createMosaicRuntime(mosaicConfig, event.brush.spacing)
-          : null;
-      let previousMosaicStamp: { x: number; y: number } | null = null;
+    paintEventsToPixels({
+      pixels,
+      width: safeWidth,
+      height: safeHeight,
+      events: frameEvents,
+    });
 
-      for (let stampIndex = 0; stampIndex < event.stamps.length; stampIndex += 1) {
-        const stamp = event.stamps[stampIndex];
-        if (customStamp) {
-          paintCustomStamp({
-            pixels,
-            width: safeWidth,
-            height: safeHeight,
-            stampX: stamp.x,
-            stampY: stamp.y,
-            stampSize: stamp.size || event.brush.size,
-            stampAlpha: clamp01(stamp.alpha),
-            color: parsedColor,
-            stamp: customStamp,
-          });
-          continue;
-        }
-        if (textureMode === 'mosaic' && mosaicConfig && mosaicRuntime) {
-          if (previousMosaicStamp) {
-            const dx = stamp.x - previousMosaicStamp.x;
-            const dy = stamp.y - previousMosaicStamp.y;
-            advanceMosaicRuntimeByDistance(mosaicRuntime, mosaicConfig, Math.hypot(dx, dy));
-          }
-          paintMosaicStamp({
-            pixels,
-            width: safeWidth,
-            height: safeHeight,
-            stampX: stamp.x,
-            stampY: stamp.y,
-            stampSize: stamp.size || event.brush.size,
-            stampAlpha: clamp01(stamp.alpha),
-            rotation: stamp.rotation || event.brush.rotation || 0,
-            runtime: mosaicRuntime,
-            config: mosaicConfig,
-          });
-          previousMosaicStamp = { x: stamp.x, y: stamp.y };
-          continue;
-        }
-        paintStamp({
-          pixels,
-          width: safeWidth,
-          height: safeHeight,
-          stampX: stamp.x,
-          stampY: stamp.y,
-          stampSize: stamp.size || event.brush.size,
-          stampAlpha: clamp01(stamp.alpha),
-          shape: stampShape,
-          textureMode,
-          color: parsedColor,
-          mosaicConfig,
-        });
-      }
+    const tileSet: FrameTileSet = {
+      frameIndex,
+      tileSize: this.tileSize,
+      pixelFormat: 'rgba8',
+      premultipliedAlpha: true,
+      colorSpace: 'srgb',
+      tiles: buildTiles({
+        pixels,
+        width: safeWidth,
+        height: safeHeight,
+        tileSize: this.tileSize,
+      }),
+    };
+    const materializeDurationMs =
+      (typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()) - materializeStartMs;
+    recordSequentialMaterializePerf({
+      events: frameEvents.length,
+      durationMs: materializeDurationMs,
+    });
+    return tileSet;
+  }
+
+  patchFrame({
+    width,
+    height,
+    frameIndex,
+    events,
+    baseTileSet,
+    eventsAreFrameScoped = false,
+  }: SequentialMaterializeFrameInput & { baseTileSet: FrameTileSet }): FrameTileSet {
+    const safeWidth = Math.max(1, Math.round(width));
+    const safeHeight = Math.max(1, Math.round(height));
+    const frameEvents = getFrameEvents(events, frameIndex, eventsAreFrameScoped);
+    if (frameEvents.length === 0) {
+      return baseTileSet;
     }
-
+    const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
+    inflatePixelsFromTileSet({
+      tileSet: baseTileSet,
+      width: safeWidth,
+      height: safeHeight,
+      target: pixels,
+    });
+    paintEventsToPixels({
+      pixels,
+      width: safeWidth,
+      height: safeHeight,
+      events: frameEvents,
+    });
     return {
       frameIndex,
       tileSize: this.tileSize,

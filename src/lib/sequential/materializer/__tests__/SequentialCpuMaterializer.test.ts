@@ -379,4 +379,40 @@ describe('SequentialCpuMaterializer', () => {
     // Should be sourced from mosaic gradient palette, not the brush FG color (#ff5500).
     expect(pixels[center + 1]).toBeLessThan(40);
   });
+
+  it('patches frame tiles equivalently to full rematerialization', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
+    const baseEvent = createEvent({ id: 'base', frameIndex: 0, x: 5, y: 5, color: '#ff0000' });
+    const appendedEvent = createEvent({
+      id: 'append',
+      frameIndex: 0,
+      x: 9,
+      y: 9,
+      color: '#00ff00',
+    });
+
+    const baseTileSet = materializer.materializeFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [baseEvent],
+    });
+    const patched = materializer.patchFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [appendedEvent],
+      baseTileSet,
+    });
+    const fullyMaterialized = materializer.materializeFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [baseEvent, appendedEvent],
+    });
+
+    const patchedBytes = patched.tiles.flatMap((tile) => Array.from(tile.data));
+    const fullBytes = fullyMaterialized.tiles.flatMap((tile) => Array.from(tile.data));
+    expect(patchedBytes).toEqual(fullBytes);
+  });
 });

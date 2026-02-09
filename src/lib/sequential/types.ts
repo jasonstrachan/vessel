@@ -31,4 +31,5 @@ export interface SequentialMaterializeFrameInput {
   height: number;
   frameIndex: number;
   events: ReadonlyArray<SequentialStrokeEvent>;
+  eventsAreFrameScoped?: boolean;
 }

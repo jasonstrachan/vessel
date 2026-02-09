@@ -25,4 +25,10 @@ export class SequentialGpuMaterializer implements SequentialMaterializerBackend 
     // GPU backend shape is in place; v1 keeps CPU parity as the canonical path.
     return this.cpuFallback.materializeFrame(input);
   }
+
+  patchFrame(
+    input: SequentialMaterializeFrameInput & { baseTileSet: FrameTileSet }
+  ): FrameTileSet {
+    return this.cpuFallback.patchFrame(input);
+  }
 }

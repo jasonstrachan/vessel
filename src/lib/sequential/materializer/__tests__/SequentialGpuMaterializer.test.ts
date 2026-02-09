@@ -100,5 +100,16 @@ describe('SequentialGpuMaterializer', () => {
 
     expect(gpu.kind).toBe('gpu');
     expect(gpu.materializeFrame(input)).toEqual(cpu.materializeFrame(input));
+    const baseTileSet = cpu.materializeFrame({
+      ...input,
+      events: [input.events[0]],
+    });
+    expect(
+      gpu.patchFrame({
+        ...input,
+        events: [input.events[1]],
+        baseTileSet,
+      })
+    ).toEqual(cpu.patchFrame({ ...input, events: [input.events[1]], baseTileSet }));
   });
 });
