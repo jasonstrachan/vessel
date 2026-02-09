@@ -180,7 +180,7 @@ describe('AnimationControlsPanel', () => {
 
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeDisabled();
     expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeDisabled();
-    expect(screen.getByText(/capture active\. changes apply next take\./i)).toBeInTheDocument();
+    expect(screen.queryByText(/capture active\. changes apply next take\./i)).not.toBeInTheDocument();
   });
 
   it('shows pause while sequential capture is active and returns to play on pointer up', () => {

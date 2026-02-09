@@ -218,6 +218,14 @@ export const useDrawingCanvasBaseRenderer = ({
 
       const activeLayer =
         activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
+      const runtimeState = useAppStore.getState() as {
+        activeLayerId?: string | null;
+        sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
+      };
+      const isSequentialCaptureDrawing =
+        activeLayer?.layerType === 'sequential' &&
+        runtimeState.activeLayerId === activeLayer.id &&
+        Boolean(runtimeState.sequentialRecord?.isPointerDown);
 
       const isPixelBrush =
         brushShape === BrushShape.PIXEL_ROUND ||
@@ -230,11 +238,14 @@ export const useDrawingCanvasBaseRenderer = ({
       const isActivelyErasing =
         currentTool === 'eraser' && isDrawing && hasOverlayCanvas && drawingCanvasHasContent;
       const overlayActive =
-        !skipDrawingCanvas && hasOverlayCanvas && (isDrawing || drawingCanvasHasContent);
+        !skipDrawingCanvas &&
+        hasOverlayCanvas &&
+        !isSequentialCaptureDrawing &&
+        (isDrawing || drawingCanvasHasContent);
       const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
 
       if (overlayEligibleForSplit) {
-        const sequentialFrame = useAppStore.getState().sequentialRecord.currentFrame;
+        const sequentialFrame = runtimeState.sequentialRecord?.currentFrame ?? 0;
         const sequentialFrameChanged =
           activeLayer?.layerType === 'sequential' &&
           sequentialFrame !== lastSplitCompositeSequentialFrameRef.current;

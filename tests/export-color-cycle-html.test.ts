@@ -3,7 +3,7 @@ import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
-import type { Layer, Project } from '@/types';
+import { BrushShape, type Layer, type Project } from '@/types';
 
 jest.mock('@/stores/colorCycleBrushManager', () => {
   const mockManager = {
@@ -344,6 +344,56 @@ const createProject = (layer: Layer): Project => ({
   viewState: { zoom: 1 }
 });
 
+const createSequentialLayer = (canvas: HTMLCanvasElement): Layer => ({
+  id: 'seq-layer',
+  name: 'Sequential Layer',
+  visible: true,
+  opacity: 1,
+  blendMode: 'source-over',
+  locked: false,
+  transparencyLocked: false,
+  order: 0,
+  imageData: null,
+  framebuffer: canvas,
+  alignment: createDefaultLayerAlignment(),
+  layerType: 'sequential',
+  sequentialData: {
+    frameCount: 2,
+    fps: 12,
+    durationMs: Math.round((2 * 1000) / 12),
+    events: [
+      {
+        id: 'seq-event-0',
+        layerId: 'seq-layer',
+        strokeId: 'seq-stroke-0',
+        timestampMs: 0,
+        frameIndex: 0,
+        brush: {
+          tool: 'brush',
+          brushShape: BrushShape.ROUND,
+          size: 6,
+          opacity: 1,
+          blendMode: 'source-over',
+          rotation: 0,
+          spacing: 1,
+          color: '#ff0000'
+        },
+        stamps: [
+          {
+            x: 16,
+            y: 16,
+            pressure: 1,
+            rotation: 0,
+            size: 6,
+            alpha: 1
+          }
+        ]
+      }
+    ]
+  },
+  version: 1
+});
+
 const createEraseMaskData = (
   width: number,
   height: number,
@@ -433,6 +483,97 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
     expect(exportedLayer.colorCycle?.brushState?.gradientStops).toHaveLength(3);
     expect(exportedLayer.colorCycle?.brushState?.alphaMode).toBe('opaque-indices');
+  });
+
+  it('exports sequential layer frame textures for Goblet playback', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const sequentialLayer = createSequentialLayer(canvas);
+    const project = createProject(sequentialLayer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [sequentialLayer],
+      layout: createDefaultExportLayout(),
+      viewport: {
+        mode: 'fit',
+        designWidth: project.width,
+        designHeight: project.height
+      },
+      fps: 12,
+      totalFrames: 2,
+      durationSeconds: 2 / 12,
+      perfectLoop: true,
+      includeHiddenLayers: false,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'sequential-goblet',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.type).toBe('sequential');
+    expect(Array.isArray(exportedLayer.assets?.textureFrames)).toBe(true);
+    expect(exportedLayer.assets?.textureFrames).toHaveLength(2);
+    expect(exportedLayer.assets?.texture).toBe(exportedLayer.assets?.textureFrames?.[0]);
+    expect(exportedLayer.sequential?.fps).toBe(12);
+    expect(exportedLayer.sequential?.totalFrames).toBe(2);
+  });
+
+  it('emits minified sequential frame metadata keys in JSON bundles', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const sequentialLayer = createSequentialLayer(canvas);
+    const project = createProject(sequentialLayer);
+
+    let capturedBlob: Blob | null = null;
+    (URL.createObjectURL as jest.Mock).mockImplementation((blob: Blob) => {
+      capturedBlob = blob;
+      return mockBlobUrl;
+    });
+
+    await exportProjectAsWebGL({
+      project,
+      layers: [sequentialLayer],
+      layout: createDefaultExportLayout(),
+      viewport: {
+        mode: 'fit',
+        designWidth: project.width,
+        designHeight: project.height
+      },
+      fps: 12,
+      totalFrames: 2,
+      durationSeconds: 2 / 12,
+      perfectLoop: true,
+      includeHiddenLayers: false,
+      embedCanvasFallback: false,
+      minify: true,
+      filenameBase: 'sequential-goblet-min',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    expect(capturedBlob).not.toBeNull();
+    const minifiedJson = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read blob'));
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.readAsText(capturedBlob!);
+    });
+    const payload = JSON.parse(minifiedJson) as {
+      l?: Array<{ as?: { txf?: string[] }; sq?: { fps?: number; tfm?: number } }>;
+    };
+    expect(Array.isArray(payload.l)).toBe(true);
+    const firstLayer = payload.l?.[0];
+    expect(Array.isArray(firstLayer?.as?.txf)).toBe(true);
+    expect(firstLayer?.as?.txf).toHaveLength(2);
+    expect(firstLayer?.sq?.fps).toBe(12);
+    expect(firstLayer?.sq?.tfm).toBe(2);
+
+    (URL.createObjectURL as jest.Mock).mockImplementation(() => mockBlobUrl);
   });
 
   it('exports slot palettes and gradient id buffers for brush-mode color-cycle layers', async () => {

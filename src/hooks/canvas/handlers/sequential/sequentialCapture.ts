@@ -8,7 +8,10 @@ import {
   SEQUENTIAL_PAYLOAD_HARD_LIMIT_BYTES,
   SEQUENTIAL_PAYLOAD_SOFT_LIMIT_BYTES,
 } from '@/lib/sequential/SequentialPayloadBudget';
-import { recordSequentialFlushPerf } from '@/lib/sequential/SequentialPerfCounters';
+import {
+  recordSequentialFlushPerf,
+  recordSequentialTemporalDistributionPerf,
+} from '@/lib/sequential/SequentialPerfCounters';
 import {
   selectSequentialCaptureActive,
   type AppState,
@@ -25,6 +28,7 @@ import {
 export const MAX_SEQUENTIAL_STAMPS_PER_SEC = 6000;
 const STAMP_BURST_WINDOW_SECONDS = 0.1;
 const STAMP_BURST_CAPACITY = MAX_SEQUENTIAL_STAMPS_PER_SEC * STAMP_BURST_WINDOW_SECONDS;
+const MAX_TEMPORAL_DISTRIBUTION_FRAMES = 3;
 
 export interface SequentialStampCapRuntime {
   sessionKey: string | null;
@@ -48,6 +52,8 @@ export interface SequentialStampCapRuntime {
   lastResolvedCaptureLayer: Layer | null;
   captureWasActive: boolean;
   eventCounter: number;
+  lastAcceptedStamp: SequentialStampPoint | null;
+  lastAcceptedStampAtMs: number | null;
 }
 
 export interface SequentialPayloadNotificationRuntime {
@@ -57,6 +63,7 @@ export interface SequentialPayloadNotificationRuntime {
 
 interface BufferedSequentialLayerEvents {
   events: SequentialStrokeEvent[];
+  byFrame: Map<number, SequentialStrokeEvent[]>;
   frameCount: number;
   fps: number;
   durationMs: number;
@@ -93,6 +100,8 @@ const defaultStampCapRuntime: SequentialStampCapRuntime = {
   lastResolvedCaptureLayer: null,
   captureWasActive: false,
   eventCounter: 0,
+  lastAcceptedStamp: null,
+  lastAcceptedStampAtMs: null,
 };
 
 const defaultPayloadBudgetRuntime = createSequentialPayloadBudgetRuntime();
@@ -131,6 +140,8 @@ export const createSequentialStampCapRuntime = (): SequentialStampCapRuntime => 
   lastResolvedCaptureLayer: null,
   captureWasActive: false,
   eventCounter: 0,
+  lastAcceptedStamp: null,
+  lastAcceptedStampAtMs: null,
 });
 
 export const createSequentialPayloadNotificationRuntime = (): SequentialPayloadNotificationRuntime => ({
@@ -179,6 +190,7 @@ export const flushBufferedSequentialEvents = ({
         fps: entry.fps,
         durationMs: entry.durationMs,
       });
+      entry.byFrame.clear();
       flushedEventCount += entry.events.length;
     });
   } finally {
@@ -204,6 +216,27 @@ export const getBufferedSequentialPendingPayloadBytes = ({
   return Math.max(0, targetRuntime.pendingPayloadBytes);
 };
 
+export const getBufferedSequentialLayerFrameEvents = ({
+  layerId,
+  frameIndex,
+  runtime,
+}: {
+  layerId: string;
+  frameIndex: number;
+  runtime?: SequentialEventBufferRuntime;
+}): ReadonlyArray<SequentialStrokeEvent> => {
+  if (!layerId) {
+    return [];
+  }
+  const targetRuntime = runtime ?? defaultEventBufferRuntime;
+  const layerEvents = targetRuntime.layers.get(layerId);
+  if (!layerEvents) {
+    return [];
+  }
+  const normalizedFrameIndex = Number.isFinite(frameIndex) ? Math.round(frameIndex) : 0;
+  return layerEvents.byFrame.get(normalizedFrameIndex) ?? [];
+};
+
 const enqueueBufferedSequentialEvent = ({
   layerId,
   event,
@@ -220,12 +253,19 @@ const enqueueBufferedSequentialEvent = ({
   const existing = runtime.layers.get(layerId);
   if (existing) {
     existing.events.push(event);
+    const existingFrameEvents = existing.byFrame.get(event.frameIndex);
+    if (existingFrameEvents) {
+      existingFrameEvents.push(event);
+    } else {
+      existing.byFrame.set(event.frameIndex, [event]);
+    }
     existing.frameCount = metadata.frameCount;
     existing.fps = metadata.fps;
     existing.durationMs = metadata.durationMs;
   } else {
     runtime.layers.set(layerId, {
       events: [event],
+      byFrame: new Map([[event.frameIndex, [event]]]),
       frameCount: metadata.frameCount,
       fps: metadata.fps,
       durationMs: metadata.durationMs,
@@ -271,12 +311,149 @@ export const noteSequentialCaptureActivity = ({
   }
   targetRuntime.captureWasActive = false;
   targetRuntime.lastBrushSnapshotKey = null;
+  targetRuntime.lastAcceptedStamp = null;
+  targetRuntime.lastAcceptedStampAtMs = null;
 };
 
 const normalizeFrameIndex = (frame: number, frameCount: number): number => {
   const safeFrameCount = Math.max(1, Math.round(frameCount));
   const normalized = Math.round(frame) % safeFrameCount;
   return normalized < 0 ? normalized + safeFrameCount : normalized;
+};
+
+const clamp01 = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  if (value <= 0) {
+    return 0;
+  }
+  if (value >= 1) {
+    return 1;
+  }
+  return value;
+};
+
+const buildTemporalFrameBuckets = ({
+  stamps,
+  frameCount,
+  baseFrameIndex,
+  timeSmear,
+  forceSplit,
+}: {
+  stamps: SequentialStampPoint[];
+  frameCount: number;
+  baseFrameIndex: number;
+  timeSmear: number;
+  forceSplit?: boolean;
+}): Array<{ frameIndex: number; stamps: SequentialStampPoint[] }> => {
+  if (
+    !isFeatureFlagEnabled('enableSequentialTemporalDistribution') ||
+    frameCount <= 1 ||
+    stamps.length <= 1
+  ) {
+    return [{ frameIndex: baseFrameIndex, stamps }];
+  }
+
+  const smearFactor = Number.isFinite(timeSmear) ? Math.max(0.1, timeSmear) : 1;
+  const requestedBucketCount = Math.round(smearFactor);
+  const baseDensityBucketCount = Math.min(
+    MAX_TEMPORAL_DISTRIBUTION_FRAMES,
+    stamps.length >= 12 ? 3 : stamps.length >= 6 ? 2 : 1
+  );
+  const densityBucketCount =
+    smearFactor > 1.01
+      ? Math.min(
+          MAX_TEMPORAL_DISTRIBUTION_FRAMES,
+          Math.max(baseDensityBucketCount, Math.floor(stamps.length / 4))
+        )
+      : baseDensityBucketCount;
+  const minimumSmearBucketCount =
+    smearFactor > 1.01
+      ? Math.min(
+          MAX_TEMPORAL_DISTRIBUTION_FRAMES,
+          stamps.length >= 8 ? 3 : stamps.length >= 2 ? 2 : 1
+        )
+      : 1;
+  const bucketCount = Math.max(
+    1,
+    Math.min(
+      MAX_TEMPORAL_DISTRIBUTION_FRAMES,
+      stamps.length,
+      Math.max(requestedBucketCount, densityBucketCount, minimumSmearBucketCount)
+    )
+  );
+  const effectiveBucketCount = forceSplit && stamps.length >= 2
+    ? Math.max(2, bucketCount)
+    : bucketCount;
+
+  if (effectiveBucketCount <= 1) {
+    return [{ frameIndex: baseFrameIndex, stamps }];
+  }
+
+  const buckets = Array.from({ length: effectiveBucketCount }, () => [] as SequentialStampPoint[]);
+  const maxStampIndex = Math.max(1, stamps.length - 1);
+  const spreadStrength = clamp01((smearFactor - 1) / 7);
+  const easingStrength = 0.55 * spreadStrength;
+  const bucketScale = Math.max(1, effectiveBucketCount - 1);
+  for (let i = 0; i < stamps.length; i += 1) {
+    const linearProgress = i / maxStampIndex;
+    const smoothProgress = linearProgress * linearProgress * (3 - 2 * linearProgress);
+    const easedProgress =
+      linearProgress * (1 - easingStrength) + smoothProgress * easingStrength;
+    const bucketIndex = Math.min(
+      effectiveBucketCount - 1,
+      Math.round(easedProgress * bucketScale)
+    );
+    buckets[bucketIndex].push(stamps[i]);
+  }
+
+  const distributed: Array<{ frameIndex: number; stamps: SequentialStampPoint[] }> = [];
+  for (let i = 0; i < buckets.length; i += 1) {
+    const bucketStamps = buckets[i];
+    if (bucketStamps.length === 0) {
+      continue;
+    }
+    distributed.push({
+      frameIndex: normalizeFrameIndex(baseFrameIndex + i, frameCount),
+      stamps: bucketStamps,
+    });
+  }
+
+  return distributed.length > 0
+    ? distributed
+    : [{ frameIndex: baseFrameIndex, stamps }];
+};
+
+const resolveTemporalDistributionReason = ({
+  frameCount,
+  stampCount,
+  bucketCount,
+  smear,
+  forceSplit,
+}: {
+  frameCount: number;
+  stampCount: number;
+  bucketCount: number;
+  smear: number;
+  forceSplit: boolean;
+}): string => {
+  if (!isFeatureFlagEnabled('enableSequentialTemporalDistribution')) {
+    return 'flag-disabled';
+  }
+  if (frameCount <= 1) {
+    return 'frame-count-1';
+  }
+  if (stampCount <= 1) {
+    return 'insufficient-stamps';
+  }
+  if (!Number.isFinite(smear) || smear <= 1.01) {
+    if (forceSplit) {
+      return 'forced-bridge-split';
+    }
+    return bucketCount > 1 ? 'density-split' : 'smear-low';
+  }
+  return bucketCount > 1 ? 'split' : 'bucket-single';
 };
 
 const buildBrushSnapshot = ({
@@ -539,6 +716,56 @@ const normalizeSequentialStamps = (stamps: SequentialStampPoint[]): SequentialSt
   return normalized ?? stamps;
 };
 
+const maybeBridgeSingleStampFromPrevious = ({
+  stamps,
+  runtime,
+  timeSmear,
+  nowMs,
+}: {
+  stamps: SequentialStampPoint[];
+  runtime: SequentialStampCapRuntime;
+  timeSmear: number;
+  nowMs: number;
+}): SequentialStampPoint[] => {
+  const smearFactor = Number.isFinite(timeSmear) ? Math.max(0.1, timeSmear) : 1;
+  if (stamps.length !== 1 || !runtime.lastAcceptedStamp) {
+    return stamps;
+  }
+  const current = stamps[0];
+  const previous = runtime.lastAcceptedStamp;
+  const dx = current.x - previous.x;
+  const dy = current.y - previous.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  if (!Number.isFinite(distance) || distance < 1) {
+    return stamps;
+  }
+  if (smearFactor <= 1.01) {
+    // Low-smear mode still benefits from a short bridge on sparse single-point streams.
+    const lastAcceptedAtMs = runtime.lastAcceptedStampAtMs;
+    const deltaMs = Number.isFinite(lastAcceptedAtMs) ? Math.max(0, nowMs - (lastAcceptedAtMs ?? nowMs)) : Infinity;
+    if (deltaMs > 42) {
+      return stamps;
+    }
+    if (distance < 8) {
+      return stamps;
+    }
+    return [previous, current];
+  }
+  const bridged = densifySequentialStampsForSmear({
+    stamps: [previous, current],
+    timeSmear,
+  });
+  if (bridged.length <= 1) {
+    return stamps;
+  }
+  if (bridged.length <= 2) {
+    // Keep both points for short bridge segments so temporal bucketing has enough signal.
+    return bridged;
+  }
+  // Drop the previous-anchor point on longer bridges to avoid overweighting stale stamps.
+  return bridged.slice(1);
+};
+
 const resolveCaptureLayer = (
   state: AppState,
   runtime: SequentialStampCapRuntime
@@ -775,12 +1002,19 @@ export const captureSequentialStampsForActiveLayer = ({
     capRuntime.captureWasActive = true;
     return 0;
   }
-  const smearedStamps = densifySequentialStampsForSmear({
+  const captureNowMs = Number.isFinite(nowMs) ? Number(nowMs) : Date.now();
+  const bridgedStamps = maybeBridgeSingleStampFromPrevious({
     stamps: normalizedStamps,
+    runtime: capRuntime,
+    timeSmear: state.sequentialRecord.timeSmear,
+    nowMs: captureNowMs,
+  });
+  const forceTemporalSplit = bridgedStamps !== normalizedStamps && bridgedStamps.length >= 2;
+  const smearedStamps = densifySequentialStampsForSmear({
+    stamps: bridgedStamps,
     timeSmear: state.sequentialRecord.timeSmear,
   });
 
-  const captureNowMs = Number.isFinite(nowMs) ? Number(nowMs) : Date.now();
   const sessionStartMs = state.sequentialRecord.sessionStartMs ?? captureNowMs;
   const sessionKey = `${activeLayer.id}:${sessionStartMs}`;
   if (capRuntime.sessionKey !== sessionKey) {
@@ -801,9 +1035,13 @@ export const captureSequentialStampsForActiveLayer = ({
     capRuntime.lastCaptureLayerId = null;
     capRuntime.lastResolvedCaptureLayer = null;
     capRuntime.eventCounter = 0;
+    capRuntime.lastAcceptedStamp = null;
+    capRuntime.lastAcceptedStampAtMs = null;
   } else if (!capRuntime.captureWasActive) {
     capRuntime.strokeSegment += 1;
     capRuntime.lastBrushSnapshotKey = null;
+    capRuntime.lastAcceptedStamp = null;
+    capRuntime.lastAcceptedStampAtMs = null;
   }
   const cappedStamps = applyDeterministicStampCap({
     runtime: capRuntime,
@@ -886,8 +1124,8 @@ export const captureSequentialStampsForActiveLayer = ({
     payloadNotificationRuntime.hardCapBlockedAtBytes = null;
   }
 
-  const event: SequentialStrokeEvent = {
-    id: `${eventIdPrefix}${formatSequentialEventCounter(capRuntime.eventCounter)}`,
+  const baseEvent: SequentialStrokeEvent = {
+    id: '',
     layerId: activeLayer.id,
     strokeId,
     timestampMs,
@@ -895,8 +1133,48 @@ export const captureSequentialStampsForActiveLayer = ({
     brush,
     stamps: cappedStamps,
   };
-  const eventPayloadBytes = estimateSequentialStrokeEventPayloadBytes(event);
-  const projectedPayloadBytes = currentTotalPayloadBytes + eventPayloadBytes;
+  const distributedFrameBuckets = buildTemporalFrameBuckets({
+    stamps: cappedStamps,
+    frameCount,
+    baseFrameIndex: frameIndex,
+    timeSmear: state.sequentialRecord.timeSmear,
+    forceSplit: forceTemporalSplit,
+  });
+  const distributedEvents: SequentialStrokeEvent[] = [];
+  const distributedEventPayloadBytes: number[] = [];
+  let distributedPayloadBytesTotal = 0;
+  for (let i = 0; i < distributedFrameBuckets.length; i += 1) {
+    const bucket = distributedFrameBuckets[i];
+    const candidateEvent: SequentialStrokeEvent = {
+      ...baseEvent,
+      id: `${eventIdPrefix}${formatSequentialEventCounter(capRuntime.eventCounter + i)}`,
+      timestampMs: timestampMs + i,
+      frameIndex: bucket.frameIndex,
+      stamps: bucket.stamps,
+    };
+    const candidateEventBytes = estimateSequentialStrokeEventPayloadBytes(candidateEvent);
+    distributedEvents.push(candidateEvent);
+    distributedEventPayloadBytes.push(candidateEventBytes);
+    distributedPayloadBytesTotal += candidateEventBytes;
+  }
+  const projectedPayloadBytes = currentTotalPayloadBytes + distributedPayloadBytesTotal;
+  if (distributedEvents.length > 0) {
+    const smear = state.sequentialRecord.timeSmear;
+    recordSequentialTemporalDistributionPerf({
+      events: distributedEvents.length,
+      buckets: distributedFrameBuckets.length,
+      splitCapture: distributedFrameBuckets.length > 1,
+      reason: resolveTemporalDistributionReason({
+        frameCount,
+        stampCount: cappedStamps.length,
+        bucketCount: distributedFrameBuckets.length,
+        smear,
+        forceSplit: forceTemporalSplit,
+      }),
+      smear,
+      inputStamps: cappedStamps.length,
+    });
+  }
 
   if (projectedPayloadBytes > hardLimitBytes) {
     if (payloadNotificationRuntime.hardCapBlockedAtBytes !== currentTotalPayloadBytes) {
@@ -924,19 +1202,26 @@ export const captureSequentialStampsForActiveLayer = ({
     payloadNotificationRuntime.softWarningShown = true;
   }
 
-  enqueueBufferedSequentialEvent({
-    layerId: activeLayer.id,
-    event,
-    metadata: {
-      frameCount,
-      fps,
-      durationMs,
-    },
-    payloadBytes: eventPayloadBytes,
-    runtime: captureEventBufferRuntime,
-  });
+  for (let i = 0; i < distributedEvents.length; i += 1) {
+    enqueueBufferedSequentialEvent({
+      layerId: activeLayer.id,
+      event: distributedEvents[i],
+      metadata: {
+        frameCount,
+        fps,
+        durationMs,
+      },
+      payloadBytes: distributedEventPayloadBytes[i],
+      runtime: captureEventBufferRuntime,
+    });
+  }
   payloadNotificationRuntime.hardCapBlockedAtBytes = null;
-  capRuntime.eventCounter += 1;
+  capRuntime.eventCounter += distributedEvents.length;
+  const lastAcceptedStamp = cappedStamps[cappedStamps.length - 1];
+  if (lastAcceptedStamp) {
+    capRuntime.lastAcceptedStamp = lastAcceptedStamp;
+    capRuntime.lastAcceptedStampAtMs = captureNowMs;
+  }
 
   return cappedStamps.length;
 };
@@ -967,6 +1252,8 @@ export const __TESTING__ = {
     defaultStampCapRuntime.lastResolvedCaptureLayer = null;
     defaultStampCapRuntime.captureWasActive = false;
     defaultStampCapRuntime.eventCounter = 0;
+    defaultStampCapRuntime.lastAcceptedStamp = null;
+    defaultStampCapRuntime.lastAcceptedStampAtMs = null;
     defaultEventBufferRuntime.sessionKey = null;
     defaultEventBufferRuntime.pendingPayloadBytes = 0;
     defaultEventBufferRuntime.lastKnownLayersRef = null;

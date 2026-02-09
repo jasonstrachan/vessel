@@ -220,4 +220,39 @@ describe('SequentialLayerRenderer', () => {
     expect(statsAfterSecond.misses).toBe(statsAfterFirst.misses);
     expect(statsAfterSecond.hits).toBeGreaterThan(statsAfterFirst.hits);
   });
+
+  it('renders preview events transiently without mutating committed frame cache output', () => {
+    const layer = createLayer([createEvent('f0-base', 0, '#ff0000')]);
+
+    const committed = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+    });
+    expect(committed).not.toBeNull();
+    const committedPixel = readCenterPixel(committed!);
+    expect(committedPixel[0]).toBeGreaterThan(committedPixel[1]);
+
+    const previewCanvas = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      previewEvents: [createEvent('f0-preview', 0, '#00ff00')],
+    });
+    expect(previewCanvas).not.toBeNull();
+    const previewPixel = readCenterPixel(previewCanvas!);
+    expect(previewPixel[1]).toBeGreaterThan(previewPixel[0]);
+
+    const committedAgain = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+    });
+    expect(committedAgain).not.toBeNull();
+    const committedAgainPixel = readCenterPixel(committedAgain!);
+    expect(committedAgainPixel[0]).toBeGreaterThan(committedAgainPixel[1]);
+  });
 });

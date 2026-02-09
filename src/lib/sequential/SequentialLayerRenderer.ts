@@ -1,4 +1,4 @@
-import type { Layer } from '@/types';
+import type { Layer, SequentialStrokeEvent } from '@/types';
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import { SequentialEventLog } from '@/lib/sequential/SequentialEventLog';
 import { SequentialFrameCache } from '@/lib/sequential/SequentialFrameCache';
@@ -192,11 +192,13 @@ export const getSequentialLayerRenderCanvas = ({
   width,
   height,
   frameIndex,
+  previewEvents,
 }: {
   layer: Layer;
   width: number;
   height: number;
   frameIndex: number;
+  previewEvents?: ReadonlyArray<SequentialStrokeEvent>;
 }): HTMLCanvasElement | OffscreenCanvas | null => {
   if (layer.layerType !== 'sequential' || !layer.sequentialData) {
     return null;
@@ -302,20 +304,52 @@ export const getSequentialLayerRenderCanvas = ({
     layer.sequentialData.frameCount
   );
 
+  const committedFrameEvents = runtime.eventLog.getLayerFrameEventsReadonly(
+    layer.id,
+    normalizedFrameIndex
+  );
   let tileSet = runtime.frameCache.get(layer.id, normalizedFrameIndex);
   if (!tileSet) {
-    const events = runtime.eventLog.getLayerFrameEventsReadonly(
-      layer.id,
-      normalizedFrameIndex
-    );
     tileSet = runtime.materializer.materializeFrame({
       width,
       height,
       frameIndex: normalizedFrameIndex,
-      events,
+      events: committedFrameEvents,
       eventsAreFrameScoped: true,
     });
     runtime.frameCache.set(layer.id, normalizedFrameIndex, tileSet);
+  }
+  let renderTileSet = tileSet;
+  const framePreviewEvents = previewEvents ?? [];
+  if (framePreviewEvents.length > 0) {
+    if (runtime.materializer.patchFrame) {
+      try {
+        renderTileSet = runtime.materializer.patchFrame({
+          width,
+          height,
+          frameIndex: normalizedFrameIndex,
+          events: framePreviewEvents,
+          eventsAreFrameScoped: true,
+          baseTileSet: tileSet,
+        });
+      } catch {
+        renderTileSet = runtime.materializer.materializeFrame({
+          width,
+          height,
+          frameIndex: normalizedFrameIndex,
+          events: [...committedFrameEvents, ...framePreviewEvents],
+          eventsAreFrameScoped: true,
+        });
+      }
+    } else {
+      renderTileSet = runtime.materializer.materializeFrame({
+        width,
+        height,
+        frameIndex: normalizedFrameIndex,
+        events: [...committedFrameEvents, ...framePreviewEvents],
+        eventsAreFrameScoped: true,
+      });
+    }
   }
 
   const canvas = ensureCanvas(runtime, width, height);
@@ -323,7 +357,7 @@ export const getSequentialLayerRenderCanvas = ({
     return null;
   }
 
-  if (!copyTileSetToCanvas({ canvas, tileSet })) {
+  if (!copyTileSetToCanvas({ canvas, tileSet: renderTileSet })) {
     return null;
   }
 

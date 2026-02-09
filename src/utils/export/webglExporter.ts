@@ -23,6 +23,7 @@ import type {
 import { packArrayToB64Z } from '@/utils/export/b64z';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
+import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { useAppStore } from '@/stores/useAppStore';
 import {
@@ -115,6 +116,7 @@ interface WebGLViewport {
 
 interface WebGLLayerAsset {
   texture?: string;
+  textureFrames?: string[];
 }
 
 type LayerExportMetrics = LayerContentMetrics;
@@ -227,6 +229,7 @@ const PROPERTY_MINIFY_MAP = {
   designWidth: 'dw',
   designHeight: 'dh',
   texture: 'txr',
+  textureFrames: 'txf',
   mode: 'md',
   isAnimating: 'ia',
   brushState: 'bs',
@@ -260,7 +263,8 @@ const PROPERTY_MINIFY_MAP = {
   totalFrames: 'tfm',
   durationSeconds: 'ds',
   phaseMap: 'pm',
-  coverageBoundsSourcePx: 'cbsp'
+  coverageBoundsSourcePx: 'cbsp',
+  sequential: 'sq'
 } as const;
 
 type PropertyMinifyKey = keyof typeof PROPERTY_MINIFY_MAP;
@@ -320,6 +324,13 @@ interface WebGLSerializedColorCycle {
   alphaMask?: WebGLSerializedAlphaMask;
   coverageBoundsPx?: WebGLLayerBounds;
   coverageBoundsSourcePx?: WebGLLayerBounds;
+}
+
+interface WebGLSerializedSequential {
+  fps: number;
+  totalFrames: number;
+  durationSeconds: number;
+  perfectLoop: boolean;
 }
 
 interface BrushStateRuntimePayload {
@@ -414,6 +425,7 @@ export interface WebGLLayerMetadata {
   paintedSize?: { width: number; height: number };
   assets?: WebGLLayerAsset;
   colorCycle?: WebGLSerializedColorCycle;
+  sequential?: WebGLSerializedSequential;
   stackIndex?: number;
   version?: number;
 }
@@ -2924,6 +2936,52 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
   }
 };
 
+const captureSequentialLayerFrameTextures = async ({
+  layer,
+  width,
+  height,
+  frameCount,
+}: {
+  layer: Layer;
+  width: number;
+  height: number;
+  frameCount: number;
+}): Promise<string[] | undefined> => {
+  if (
+    layer.layerType !== 'sequential' ||
+    !layer.sequentialData ||
+    !Array.isArray(layer.sequentialData.events) ||
+    layer.sequentialData.events.length === 0 ||
+    frameCount <= 1
+  ) {
+    return undefined;
+  }
+
+  const safeWidth = Math.max(1, Math.round(width));
+  const safeHeight = Math.max(1, Math.round(height));
+  const safeFrameCount = Math.max(1, Math.round(frameCount));
+  const frames: string[] = [];
+
+  for (let frameIndex = 0; frameIndex < safeFrameCount; frameIndex += 1) {
+    const frameCanvas = getSequentialLayerRenderCanvas({
+      layer,
+      width: safeWidth,
+      height: safeHeight,
+      frameIndex,
+    });
+    if (!frameCanvas) {
+      continue;
+    }
+    const { dataUrl } = await canvasToDataURL(frameCanvas);
+    const normalized = normalizeImageDataUrl(dataUrl);
+    if (normalized) {
+      frames.push(normalized);
+    }
+  }
+
+  return frames.length > 1 ? frames : undefined;
+};
+
 type RGBAColor = { r: number; g: number; b: number; a: number };
 
 const DEFAULT_BRUSH_COLOR: RGBAColor = { r: 255, g: 255, b: 255, a: 255 };
@@ -3289,7 +3347,12 @@ const appendZipAutoloadSnippet = (
         emitLog('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
         emitLog('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
           id: layer?.id ?? layer?.i,
-          hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
+          hasTexture: Boolean(
+            layer?.assets?.texture
+            ?? layer?.as?.txr
+            ?? (Array.isArray(layer?.assets?.textureFrames) && layer.assets.textureFrames.length > 0)
+            ?? (Array.isArray(layer?.as?.txf) && layer.as.txf.length > 0)
+          ),
           visible: layer?.visible ?? layer?.vi
         })));
       }
@@ -3504,7 +3567,12 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
         emitLog('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
         emitLog('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
           id: layer?.id ?? layer?.i,
-          hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
+          hasTexture: Boolean(
+            layer?.assets?.texture
+            ?? layer?.as?.txr
+            ?? (Array.isArray(layer?.assets?.textureFrames) && layer.assets.textureFrames.length > 0)
+            ?? (Array.isArray(layer?.as?.txf) && layer.as.txf.length > 0)
+          ),
           visible: layer?.visible ?? layer?.vi
         })));
       }
@@ -3650,23 +3718,36 @@ const createSingleFileGobletHtml = (
     });
     try {
       const metadata = JSON.parse(metadataJson) as {
-        layers?: Array<{ id: string; assets?: { texture?: string } }>;
-        l?: Array<{ i?: string; as?: { txr?: string } }>;
+        layers?: Array<{ id: string; assets?: { texture?: string; textureFrames?: string[] } }>;
+        l?: Array<{ i?: string; as?: { txr?: string; txf?: string[] } }>;
       };
       const layersRaw = Array.isArray(metadata.layers)
         ? metadata.layers
         : Array.isArray(metadata.l)
           ? metadata.l.map((layer) => ({
               id: (layer as { id?: string; i?: string }).id ?? (layer as { i?: string }).i ?? 'unknown',
-              assets: layer.as?.txr ? { texture: layer.as.txr } : undefined
+              assets: layer.as?.txr || layer.as?.txf
+                ? {
+                    ...(layer.as?.txr ? { texture: layer.as.txr } : {}),
+                    ...(Array.isArray(layer.as?.txf) ? { textureFrames: layer.as.txf } : {})
+                  }
+                : undefined
             }))
           : [];
       gobletDebugLog('[webglExporter] Metadata summary', {
         layerCount: layersRaw.length,
         textures: layersRaw
-          .filter((layer) => typeof layer?.assets?.texture === 'string')
+          .filter((layer) => typeof layer?.assets?.texture === 'string' || Array.isArray(layer?.assets?.textureFrames))
           .slice(0, 8)
-          .map((layer) => ({ id: layer.id, texturePreview: layer.assets!.texture!.slice(0, 48) }))
+          .map((layer) => ({
+            id: layer.id,
+            texturePreview: typeof layer.assets?.texture === 'string'
+              ? layer.assets.texture.slice(0, 48)
+              : null,
+            frameCount: Array.isArray(layer.assets?.textureFrames)
+              ? layer.assets.textureFrames.length
+              : 0
+          }))
       });
     } catch (error) {
       gobletDebugWarn('[webglExporter] Failed to parse metadata JSON for diagnostics', error);
@@ -3779,6 +3860,19 @@ export const exportProjectAsWebGL = async (
     let documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
 
     let texture = await captureLayerTexture(layer);
+    const sequentialFrameCount = Math.max(
+      1,
+      Math.round(layer.sequentialData?.frameCount ?? options.totalFrames)
+    );
+    const sequentialFrames = await captureSequentialLayerFrameTextures({
+      layer,
+      width: originalSurfaceSize.width,
+      height: originalSurfaceSize.height,
+      frameCount: sequentialFrameCount,
+    });
+    if (Array.isArray(sequentialFrames) && sequentialFrames.length > 0) {
+      texture = sequentialFrames[0] ?? texture;
+    }
     const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning, {
       forceSpeedBuffer: gobletVersion === 'goblet2',
     });
@@ -3926,8 +4020,34 @@ export const exportProjectAsWebGL = async (
         width: contentBoundsPayload.width,
         height: contentBoundsPayload.height
       },
-      assets: texture ? { texture } : undefined,
+      assets: texture || sequentialFrames
+        ? {
+            ...(texture ? { texture } : {}),
+            ...(sequentialFrames ? { textureFrames: sequentialFrames } : {}),
+          }
+        : undefined,
       colorCycle,
+      sequential: layer.layerType === 'sequential'
+        ? {
+            fps: Math.max(1, Math.round(layer.sequentialData?.fps ?? options.fps)),
+            totalFrames: sequentialFrameCount,
+            durationSeconds: Math.max(
+              0.001,
+              Number(
+                (
+                  (
+                    layer.sequentialData?.durationMs
+                    ?? Math.round(
+                      (sequentialFrameCount * 1000)
+                      / Math.max(1, Math.round(layer.sequentialData?.fps ?? options.fps))
+                    )
+                  ) / 1000
+                ).toFixed(6)
+              )
+            ),
+            perfectLoop: true
+          }
+        : undefined,
       stackIndex: Number.isFinite(layer.order) ? layer.order : index,
       version: layer.version
     };

@@ -4,6 +4,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
+import { getBufferedSequentialLayerFrameEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 
 interface VisibleRect {
   x: number;
@@ -43,7 +44,8 @@ export const drawVisibleCompositeStack = ({
 }: DrawVisibleCompositeStackOptions): DrawVisibleCompositeStackResult => {
   const storeState = useAppStore.getState() as {
     project?: { width: number; height: number } | null;
-    sequentialRecord?: { currentFrame?: number };
+    activeLayerId?: string | null;
+    sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
   };
 
   let invalidCompositeBitmap = false;
@@ -112,11 +114,20 @@ export const drawVisibleCompositeStack = ({
       const projectWidth = storeState.project?.width ?? layer.framebuffer?.width ?? width;
       const projectHeight = storeState.project?.height ?? layer.framebuffer?.height ?? height;
       const frameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+      const includePreviewEvents =
+        Boolean(storeState.sequentialRecord?.isPointerDown) && storeState.activeLayerId === layer.id;
+      const previewEvents = includePreviewEvents
+        ? getBufferedSequentialLayerFrameEvents({
+            layerId: layer.id,
+            frameIndex,
+          })
+        : undefined;
       const sequentialCanvas = getSequentialLayerRenderCanvas({
         layer,
         width: projectWidth,
         height: projectHeight,
         frameIndex,
+        previewEvents,
       });
       if (!sequentialCanvas) {
         return;

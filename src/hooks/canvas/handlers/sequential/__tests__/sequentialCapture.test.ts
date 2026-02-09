@@ -5,6 +5,7 @@ import {
   captureSequentialStampsForActiveLayer,
   createSequentialEventBufferRuntime,
   flushBufferedSequentialEvents,
+  getBufferedSequentialLayerFrameEvents,
   createSequentialPayloadNotificationRuntime,
   createSequentialStampCapRuntime,
   noteSequentialCaptureActivity,
@@ -61,6 +62,7 @@ describe('sequentialCapture', () => {
   beforeEach(() => {
     __TESTING__.resetDefaultRuntime();
     setFeatureFlag('enableSequentialRecordMode', false);
+    setFeatureFlag('enableSequentialTemporalDistribution', true);
     useAppStore.setState((state) => ({
       colorCyclePlayback: {
         ...state.colorCyclePlayback,
@@ -159,6 +161,35 @@ describe('sequentialCapture', () => {
     expect(events[0].timestampMs).toBe(250);
     expect(events[0].stamps).toHaveLength(2);
     expect(events[0].brush.brushShape).toBe(BrushShape.ROUND);
+  });
+
+  it('exposes buffered frame events before flush and clears them after flush', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    const runtime = createSequentialEventBufferRuntime();
+
+    const appended = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1250,
+      eventBufferRuntime: runtime,
+      stamps: [{ x: 10, y: 12, pressure: 0.8, rotation: 0.1, size: 5, alpha: 0.7 }],
+    });
+    expect(appended).toBe(1);
+
+    const bufferedBeforeFlush = getBufferedSequentialLayerFrameEvents({
+      layerId: 'layer-seq',
+      frameIndex: 3,
+      runtime,
+    });
+    expect(bufferedBeforeFlush).toHaveLength(1);
+
+    flushBufferedSequentialEvents({ state: useAppStore.getState(), runtime });
+
+    const bufferedAfterFlush = getBufferedSequentialLayerFrameEvents({
+      layerId: 'layer-seq',
+      frameIndex: 3,
+      runtime,
+    });
+    expect(bufferedAfterFlush).toHaveLength(0);
   });
 
   it('does not append when the feature flag is disabled', () => {
@@ -412,6 +443,7 @@ describe('sequentialCapture', () => {
     };
     runtime.layers.set('layer-seq', {
       events: [event],
+      byFrame: new Map([[0, [event]]]),
       frameCount: 12,
       fps: 12,
       durationMs: 1000,
@@ -432,7 +464,7 @@ describe('sequentialCapture', () => {
     state.appendSequentialLayerEvents = originalAppend;
   });
 
-  it('uses time-smear for capture stamp densification without changing playback clock semantics', () => {
+  it('uses time-smear for capture stamp densification and distributes events across adjacent frames', () => {
     setFeatureFlag('enableSequentialRecordMode', true);
     useAppStore.setState((state) => ({
       sequentialRecord: {
@@ -456,7 +488,128 @@ describe('sequentialCapture', () => {
       useAppStore
         .getState()
         .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events.length).toBeGreaterThan(1);
+    expect(events[0].stamps.length).toBeGreaterThan(0);
+    expect(events[1].stamps.length).toBeGreaterThan(0);
+    expect(events.map((event) => event.frameIndex)).toEqual([3, 4, 5]);
+  });
+
+  it('bridges consecutive single-point captures so temporal distribution can split frames', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        timeSmear: 3,
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1300,
+      stamps: [{ x: 0, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 }],
+    });
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1316,
+      stamps: [{ x: 40, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(events.map((event) => event.frameIndex)).size).toBeGreaterThan(1);
+    expect(events.some((event) => event.frameIndex === 4)).toBe(true);
+  });
+
+  it('forces bounded frame splitting on bridged single-point captures even at low smear', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        timeSmear: 1,
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1300,
+      stamps: [{ x: 0, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 }],
+    });
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1316,
+      stamps: [{ x: 24, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(events.map((event) => event.frameIndex)).size).toBeGreaterThan(1);
+    expect(events.some((event) => event.frameIndex === 4)).toBe(true);
+  });
+
+  it('uses density-based temporal splitting for multi-stamp captures at smear 1', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        timeSmear: 1,
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1300,
+      stamps: Array.from({ length: 8 }, (_, index) => ({
+        x: index * 4,
+        y: 0,
+        pressure: 1,
+        rotation: 0,
+        size: 5,
+        alpha: 1,
+      })),
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(events.map((event) => event.frameIndex)).size).toBeGreaterThan(1);
+  });
+
+  it('keeps capture on a single frame when temporal distribution is disabled', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    setFeatureFlag('enableSequentialTemporalDistribution', false);
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        timeSmear: 3,
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1300,
+      stamps: [
+        { x: 0, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 },
+        { x: 40, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 },
+      ],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
     expect(events).toHaveLength(1);
-    expect(events[0].stamps.length).toBeGreaterThan(2);
+    expect(events[0].frameIndex).toBe(3);
   });
 });

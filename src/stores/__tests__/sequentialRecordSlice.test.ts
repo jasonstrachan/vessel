@@ -4,7 +4,7 @@ import {
   selectSequentialPlaybackActive,
   useAppStore,
 } from '@/stores/useAppStore';
-import type { Layer } from '@/types';
+import { BrushShape, type Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const createLayer = (id: string, layerType: Layer['layerType']): Layer => {
@@ -79,10 +79,66 @@ describe('sequentialRecordSlice', () => {
     expect(useAppStore.getState().sequentialRecord.frameCount).toBe(512);
 
     store.setTimeSmear(100);
-    expect(useAppStore.getState().sequentialRecord.timeSmear).toBe(8);
+    expect(useAppStore.getState().sequentialRecord.timeSmear).toBe(20);
 
     const next = useAppStore.getState().sequentialRecord;
     expect(next.durationMs).toBe(Math.round((next.frameCount * 1000) / next.fps));
+  });
+
+  it('syncs active sequential layer playback metadata when controls change', () => {
+    useAppStore.setState({
+      layers: [createLayer('layer-seq', 'sequential')],
+      activeLayerId: 'layer-seq',
+    });
+    useAppStore.setState((state) => ({
+      layers: state.layers.map((layer) =>
+        layer.id === 'layer-seq'
+          ? {
+              ...layer,
+              sequentialData: {
+                ...layer.sequentialData!,
+                frameCount: 12,
+                fps: 12,
+                durationMs: 1000,
+                events: [
+                  {
+                    id: 'event-1',
+                    layerId: 'layer-seq',
+                    strokeId: 'stroke-1',
+                    timestampMs: 0,
+                    frameIndex: 11,
+                    brush: {
+                      tool: 'brush',
+                      brushShape: BrushShape.ROUND,
+                      size: 6,
+                      opacity: 1,
+                      blendMode: 'source-over',
+                      rotation: 0,
+                      spacing: 1,
+                      color: '#000000',
+                      customStampId: null,
+                      customStampHash: null,
+                      customStamp: null,
+                      ditherEnabled: false,
+                    },
+                    stamps: [{ x: 1, y: 1, pressure: 1, rotation: 0, size: 6, alpha: 1 }],
+                  },
+                ],
+              },
+            }
+          : layer
+      ),
+    }));
+
+    const store = useAppStore.getState();
+    store.setRecordFrameCount(4);
+    store.setRecordFPS(24);
+
+    const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
+    expect(layer?.sequentialData?.frameCount).toBe(4);
+    expect(layer?.sequentialData?.fps).toBe(24);
+    expect(layer?.sequentialData?.durationMs).toBe(Math.round((4 * 1000) / 24));
+    expect(layer?.sequentialData?.events[0]?.frameIndex).toBe(3);
   });
 
   it('steps and sets sequential frame with wrap-around', () => {

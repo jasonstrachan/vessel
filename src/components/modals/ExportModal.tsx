@@ -124,6 +124,25 @@ const formatLabel = (value: string): string => (
 const hasSequentialExportLayers = (layers: Layer[] | undefined): boolean =>
   Array.isArray(layers) && layers.some((layer) => layer.layerType === 'sequential' && !!layer.sequentialData);
 
+interface SequentialExportRiskSummary {
+  frameBudget: number;
+  estimatedBytes: number;
+  bundleFormat: WebGLExportBundleFormat;
+  level: 'low' | 'medium' | 'high';
+  optimizedBytes: number;
+  estimatedSavingsBytes: number;
+}
+
+type SequentialOptimizationBackup = {
+  projectId: string | null;
+  bundleFormat: WebGLExportBundleFormat;
+  minifyOutput: boolean;
+  createdAtMs: number;
+};
+
+let lastSequentialOptimizationBackup: SequentialOptimizationBackup | null = null;
+const SEQUENTIAL_OPTIMIZATION_BACKUP_TTL_MS = 10 * 60 * 1000;
+
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -189,6 +208,49 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
   const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
   const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('fill');
+  const hasSequentialLayers = useMemo(
+    () => hasSequentialExportLayers(layers),
+    [layers]
+  );
+  const sequentialExportRisk = useMemo<SequentialExportRiskSummary | null>(() => {
+    if (!hasSequentialLayers) {
+      return null;
+    }
+
+    const frameBudget = layers.reduce((sum, layer) => {
+      if (layer.layerType !== 'sequential' || !layer.sequentialData) {
+        return sum;
+      }
+      const frames = Math.max(1, Math.round(layer.sequentialData.frameCount || 1));
+      return sum + frames;
+    }, 0);
+    const width = Math.max(1, Math.round(project?.width ?? 1));
+    const height = Math.max(1, Math.round(project?.height ?? 1));
+    const rawBytes = frameBudget * width * height * 4;
+    const textureCompressionRatio = webglMinify ? 0.16 : 0.19;
+    const formatMultiplier = webglBundleFormat === 'single-html'
+      ? 1.2
+      : (webglBundleFormat === 'zip' ? 0.72 : 1);
+    const estimatedBytes = Math.round(rawBytes * textureCompressionRatio * formatMultiplier);
+    const optimizedBytes = Math.round(rawBytes * 0.16 * 0.72);
+    const estimatedSavingsBytes = Math.max(0, estimatedBytes - optimizedBytes);
+
+    let level: SequentialExportRiskSummary['level'] = 'low';
+    if (frameBudget >= 480 || estimatedBytes >= 70 * 1024 * 1024) {
+      level = 'high';
+    } else if (frameBudget >= 192 || estimatedBytes >= 25 * 1024 * 1024) {
+      level = 'medium';
+    }
+
+    return {
+      frameBudget,
+      estimatedBytes,
+      bundleFormat: webglBundleFormat,
+      level,
+      optimizedBytes,
+      estimatedSavingsBytes
+    };
+  }, [hasSequentialLayers, layers, project?.height, project?.width, webglBundleFormat, webglMinify]);
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -517,6 +579,44 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }
     },
     beginAnimationSession: ({ fps, kind }) => {
+      const setSequentialExportFrame = (frame: number) => {
+        try {
+          const rawStore = useAppStore as unknown as {
+            setState?: (updater: (state: unknown) => unknown) => void;
+            getState: () => unknown;
+          };
+          if (typeof rawStore.setState === 'function') {
+            rawStore.setState((state: unknown) => {
+              const typedState = state as {
+                sequentialRecord?: { currentFrame?: number };
+              };
+              if (!typedState?.sequentialRecord) {
+                return state;
+              }
+              return {
+                ...typedState,
+                sequentialRecord: {
+                  ...typedState.sequentialRecord,
+                  currentFrame: frame,
+                },
+              };
+            });
+            return;
+          }
+        } catch {
+          // fallback below
+        }
+
+        try {
+          const fallbackStore = useAppStore.getState() as {
+            setSequentialFrame?: (nextFrame: number) => void;
+          };
+          fallbackStore.setSequentialFrame?.(frame);
+        } catch {
+          // no-op
+        }
+      };
+
       const recolorManager = RecolorManager.getInstance();
       const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
       const initialStore = useAppStore.getState() as {
@@ -564,18 +664,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
       const stepFrame = ({ frameIndex, totalFrames, useAbsolutePhase }: { frameIndex: number; totalFrames: number; useAbsolutePhase: boolean }) => {
         if (initialSequentialFrame !== null) {
-          try {
-            const store = useAppStore.getState() as {
-              layers?: Layer[];
-              setSequentialFrame?: (frame: number) => void;
-            };
-            if (
-              typeof store.setSequentialFrame === 'function' &&
-              hasSequentialExportLayers(store.layers)
-            ) {
-              store.setSequentialFrame(frameIndex);
-            }
-          } catch {}
+          setSequentialExportFrame(frameIndex);
         }
 
         try {
@@ -617,14 +706,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
       const finish = () => {
         if (initialSequentialFrame !== null) {
-          try {
-            const store = useAppStore.getState() as {
-              setSequentialFrame?: (frame: number) => void;
-            };
-            if (typeof store.setSequentialFrame === 'function') {
-              store.setSequentialFrame(initialSequentialFrame);
-            }
-          } catch {}
+          setSequentialExportFrame(initialSequentialFrame);
         }
 
         if (kind === 'estimate') return;
@@ -713,6 +795,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
     return `${v.toFixed(u === 0 ? 0 : v < 10 ? 2 : 1)} ${units[u]}`;
   };
+
+  const formatMegabytes = (bytes: number): string =>
+    `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+  const canRevertOptimization = useMemo(() => {
+    if (!lastSequentialOptimizationBackup) {
+      return false;
+    }
+    const ageMs = Date.now() - lastSequentialOptimizationBackup.createdAtMs;
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > SEQUENTIAL_OPTIMIZATION_BACKUP_TTL_MS) {
+      lastSequentialOptimizationBackup = null;
+      return false;
+    }
+    return (
+      lastSequentialOptimizationBackup.projectId === (project?.id ?? null) &&
+      webglBundleFormat === 'zip' &&
+      webglMinify
+    );
+  }, [project?.id, webglBundleFormat, webglMinify]);
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -813,6 +914,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       const result = await runExport(request, (progress) => setProgress(progress.percent), controller.signal);
 
       if (result.kind === 'webgl') {
+        if (lastSequentialOptimizationBackup?.projectId === (project?.id ?? null)) {
+          lastSequentialOptimizationBackup = null;
+        }
         addNotification({
           type: 'success',
           title: 'Goblet bundle saved',
@@ -1245,6 +1349,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
                     {BUNDLE_FORMAT_DESCRIPTIONS[webglBundleFormat]}
                   </p>
+                  {hasSequentialLayers && sequentialExportRisk && (
+                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                      Current sequential estimate: {formatMegabytes(sequentialExportRisk.estimatedBytes)} ({sequentialExportRisk.bundleFormat}, {webglMinify ? 'minified' : 'not minified'}).
+                    </p>
+                  )}
                   <div className="flex flex-col gap-2 pt-1">
                     <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Goblet runtime</label>
                     <select
@@ -1260,6 +1369,71 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       {GOBLET_VERSION_DESCRIPTIONS[webglGobletVersion]}
                     </p>
                   </div>
+                  {hasSequentialLayers && (
+                    <div className="flex flex-col gap-2">
+                      <p className="rounded border border-[#6B4A20] bg-[#2D2113] px-3 py-2 text-xs text-[#E5C79A]">
+                        Sequential layers export as per-frame textures for Goblet playback. Large frame counts can increase bundle size significantly.
+                      </p>
+                      {sequentialExportRisk && sequentialExportRisk.level !== 'low' && (
+                        <div className={`rounded border px-3 py-2 text-xs ${
+                          sequentialExportRisk.level === 'high'
+                            ? 'border-[#7A2A2A] bg-[#311818] text-[#F2B3B3]'
+                            : 'border-[#6B4A20] bg-[#2D2113] text-[#E5C79A]'
+                        }`}>
+                          <p>
+                            Estimated sequential texture payload ({sequentialExportRisk.bundleFormat}): {formatMegabytes(sequentialExportRisk.estimatedBytes)} ({sequentialExportRisk.frameBudget} total frames across sequential layers).
+                          </p>
+                          {sequentialExportRisk.estimatedSavingsBytes > 0 && (
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <p className="opacity-90">
+                                Tip: `zip` + minify is estimated to save about {formatMegabytes(sequentialExportRisk.estimatedSavingsBytes)} (down to ~{formatMegabytes(sequentialExportRisk.optimizedBytes)}).
+                              </p>
+                              {(webglBundleFormat !== 'zip' || !webglMinify) && (
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-[11px] font-medium rounded border border-[#E5C79A]/60 bg-[#E5C79A]/15 text-[#F3D7AA] hover:bg-[#E5C79A]/25 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  onClick={() => {
+                                    lastSequentialOptimizationBackup = {
+                                      projectId: project?.id ?? null,
+                                      bundleFormat: webglBundleFormat,
+                                      minifyOutput: webglMinify,
+                                      createdAtMs: Date.now()
+                                    };
+                                    updateWebglExportSettings({ bundleFormat: 'zip', minifyOutput: true });
+                                  }}
+                                  disabled={isExporting}
+                                >
+                                  Optimize now
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {canRevertOptimization && (
+                            <div className="mt-1">
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-[11px] font-medium rounded border border-[#E5C79A]/40 bg-transparent text-[#E5C79A] hover:bg-[#E5C79A]/10 disabled:opacity-60 disabled:cursor-not-allowed"
+                                onClick={() => {
+                                  const previous = lastSequentialOptimizationBackup;
+                                  if (!previous) {
+                                    return;
+                                  }
+                                  updateWebglExportSettings({
+                                    bundleFormat: previous.bundleFormat,
+                                    minifyOutput: previous.minifyOutput
+                                  });
+                                  lastSequentialOptimizationBackup = null;
+                                }}
+                                disabled={isExporting}
+                              >
+                                Revert optimization
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1">
                     <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`} htmlFor="goblet-html-title">
                       HTML title

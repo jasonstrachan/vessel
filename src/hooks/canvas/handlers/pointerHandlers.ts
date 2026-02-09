@@ -4,6 +4,7 @@ import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
   DEFAULT_COLOR_CYCLE_GRADIENT,
   buildForegroundDerivedGradientSpec,
@@ -3588,6 +3589,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     if (typeof store.setSequentialPointerDown === 'function') {
       store.setSequentialPointerDown(false);
     }
+    flushBufferedSequentialEvents({ state: store });
     // Reset snapping anchors at end of action
     strokeStartWorldPosRef.current = null;
     shiftAnchorWorldPosRef.current = null;
@@ -4022,6 +4024,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     if (typeof store.setSequentialPointerDown === 'function') {
       store.setSequentialPointerDown(false);
     }
+    flushBufferedSequentialEvents({ state: store });
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
 
     drawingHandlers.endStrokeSession(Date.now());

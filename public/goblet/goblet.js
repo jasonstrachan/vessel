@@ -1382,6 +1382,7 @@ const PROPERTY_UNMINIFY_MAP = {
   dw: 'designWidth',
   dh: 'designHeight',
   txr: 'texture',
+  txf: 'textureFrames',
   md: 'mode',
   ia: 'isAnimating',
   bs: 'brushState',
@@ -1412,7 +1413,8 @@ const PROPERTY_UNMINIFY_MAP = {
   fps: 'fps',
   tfm: 'totalFrames',
   ds: 'durationSeconds',
-  pm: 'phaseMap'
+  pm: 'phaseMap',
+  sq: 'sequential'
 };
 
 const expandMinifiedProperties = (value) => {
@@ -1679,6 +1681,59 @@ const loadImage = (src) => {
     img.src = src;
   });
 };
+
+class SequentialLayerPlayer {
+  constructor(layer, frames, defaultFps) {
+    this.layer = layer;
+    this.frames = Array.isArray(frames) ? frames.filter(Boolean) : [];
+    const sequential = layer?.sequential;
+    const metadataFrameCount = Math.max(
+      1,
+      posInt(sequential?.totalFrames ?? this.frames.length ?? 1, this.frames.length || 1)
+    );
+    this.frameCount = Math.max(1, Math.min(metadataFrameCount, this.frames.length || metadataFrameCount));
+    this.fps = Math.max(1, toNum(sequential?.fps, defaultFps));
+    this.currentFrame = 0;
+    this.frameAccumulatorSeconds = 0;
+    this.frameDurationSeconds = 1 / this.fps;
+  }
+
+  hasAnimation() {
+    return this.frameCount > 1 && this.frames.length > 1 && this.fps > 0;
+  }
+
+  advance(deltaSeconds) {
+    if (!this.hasAnimation()) {
+      return false;
+    }
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+      return false;
+    }
+    this.frameAccumulatorSeconds += deltaSeconds;
+    if (this.frameAccumulatorSeconds < this.frameDurationSeconds) {
+      return false;
+    }
+    const steps = Math.floor(this.frameAccumulatorSeconds / this.frameDurationSeconds);
+    if (steps <= 0) {
+      return false;
+    }
+    this.frameAccumulatorSeconds -= steps * this.frameDurationSeconds;
+    this.currentFrame = (this.currentFrame + steps) % this.frameCount;
+    return true;
+  }
+
+  getSource() {
+    if (this.frames.length === 0) {
+      return null;
+    }
+    const index = Math.max(0, Math.min(this.frameCount - 1, this.currentFrame));
+    return this.frames[index] ?? this.frames[0] ?? null;
+  }
+
+  destroy() {
+    this.frames = [];
+  }
+}
 
 // ------------------------------------------------------------
 // Numeric payload helpers (matching exporter contract)
@@ -3600,6 +3655,7 @@ class VesselGoblet {
       const layerClone = deepClone(layer);
       let source = null;
       let player = null;
+      let sequentialPlayer = null;
 
       if (layerClone.assets?.texture) {
         diagnostics.log('[goblet] Layer has texture, length:', layerClone.assets.texture.length);
@@ -3631,17 +3687,35 @@ class VesselGoblet {
         diagnostics.log('[goblet] No texture for layer', layerClone.id);
       }
 
-      if (!source && !player) {
+      if (Array.isArray(layerClone.assets?.textureFrames) && layerClone.assets.textureFrames.length > 0) {
+        try {
+          const frameSources = await Promise.all(
+            layerClone.assets.textureFrames.map((textureSrc) => loadImage(textureSrc))
+          );
+          sequentialPlayer = new SequentialLayerPlayer(
+            layerClone,
+            frameSources,
+            Math.max(1, toNum(this.metadata?.animation?.fps, 12))
+          );
+          source = sequentialPlayer.getSource() || source;
+        } catch (error) {
+          diagnostics.warn(`[goblet] Failed to load sequential frame textures for layer ${layerClone.id}`, error);
+          sequentialPlayer = null;
+        }
+      }
+
+      if (!source && !player && !sequentialPlayer) {
         diagnostics.warn('[goblet] Layer has no drawable source', {
           id: layerClone.id,
           hasTextureProp: Boolean(layerClone.assets?.texture),
+          hasSequentialFrames: Array.isArray(layerClone.assets?.textureFrames) && layerClone.assets.textureFrames.length > 0,
           hasColorCycle: Boolean(layerClone.colorCycle),
           contentBounds: layerClone.contentBounds,
           documentBoundsPx: layerClone.documentBoundsPx
         });
       }
 
-      return { layer: layerClone, source, player };
+      return { layer: layerClone, source, player, sequentialPlayer };
     }));
 
     entries.forEach((entry) => {
@@ -3652,12 +3726,12 @@ class VesselGoblet {
 
     this.layerEntries = entries;
     this.dynamicPlayers = entries
-      .map((entry) => entry.player)
-      .filter((player) => player && player.hasAnimation());
+      .flatMap((entry) => [entry.player, entry.sequentialPlayer])
+      .filter((entryPlayer) => entryPlayer && typeof entryPlayer.hasAnimation === 'function' && entryPlayer.hasAnimation());
 
     const textureless = entries
       .filter((entry) => entry.layer.visible !== false)
-      .filter((entry) => !entry.source && !entry.player);
+      .filter((entry) => !entry.source && !entry.player && !entry.sequentialPlayer);
     if (textureless.length > 0) {
       diagnostics.warn('Some layers are missing textures', textureless.map((entry) => entry.layer.id));
     }
@@ -3713,7 +3787,7 @@ class VesselGoblet {
 
     diagnostics.log('[goblet] Layers to render:', sorted.map((entry) => ({
       id: entry.layer.id,
-      hasSource: Boolean(entry.source || entry.player),
+      hasSource: Boolean(entry.source || entry.player || entry.sequentialPlayer),
       visible: entry.layer.visible
     })));
 
@@ -3733,7 +3807,9 @@ class VesselGoblet {
         diagnostics.log(`[goblet] Skipping invisible layer ${entry.layer.id}`);
         return;
       }
-      const source = entry.player ? entry.player.getCanvas() : entry.source;
+      const source = entry.player
+        ? entry.player.getCanvas()
+        : (entry.sequentialPlayer ? entry.sequentialPlayer.getSource() : entry.source);
       if (!source) {
         diagnostics.log(`[goblet] No source for layer ${entry.layer.id}`);
         return;

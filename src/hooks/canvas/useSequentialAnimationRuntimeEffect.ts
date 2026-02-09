@@ -197,6 +197,17 @@ export const useSequentialAnimationRuntimeEffect = ({
   const accumMsRef = useRef(0);
   const lastMetricsSampleMsRef = useRef(-Infinity);
   const lastCheckpointFlushMsRef = useRef(-Infinity);
+  const lastCaptureActiveRef = useRef(false);
+
+  const dispatchClearOverlay = () => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
+      }
+    } catch {
+      // no-op
+    }
+  };
 
   useEffect(() => installSequentialPerfProbe(), []);
 
@@ -206,6 +217,8 @@ export const useSequentialAnimationRuntimeEffect = ({
       accumMsRef.current = 0;
       flushBufferedSequentialEvents({ state: useAppStore.getState() });
       noteSequentialCaptureActivity({ isActive: false });
+      lastCaptureActiveRef.current = false;
+      dispatchClearOverlay();
       const state = useAppStore.getState() as Partial<AppState>;
       if (hasSequentialRuntimeState(state) && state.sequentialRecord.isCaptureActive) {
         state.setSequentialCaptureActive(false);
@@ -223,6 +236,10 @@ export const useSequentialAnimationRuntimeEffect = ({
         flushBufferedSequentialEvents({ state });
         lastCheckpointFlushMsRef.current = -Infinity;
       }
+      if (lastCaptureActiveRef.current && !captureActive) {
+        dispatchClearOverlay();
+      }
+      lastCaptureActiveRef.current = captureActive;
       if (state.sequentialRecord.isCaptureActive !== captureActive) {
         state.setSequentialCaptureActive(captureActive);
       }
@@ -260,6 +277,8 @@ export const useSequentialAnimationRuntimeEffect = ({
       lastCheckpointFlushMsRef.current = -Infinity;
       flushBufferedSequentialEvents({ state: useAppStore.getState() });
       noteSequentialCaptureActivity({ isActive: false });
+      lastCaptureActiveRef.current = false;
+      dispatchClearOverlay();
     };
   }, [sequentialRecordModeEnabled, storeRef]);
 
@@ -284,6 +303,10 @@ export const useSequentialAnimationRuntimeEffect = ({
           accumMsRef.current = 0;
           lastCheckpointFlushMsRef.current = -Infinity;
           flushBufferedSequentialEvents({ state });
+          if (lastCaptureActiveRef.current) {
+            dispatchClearOverlay();
+          }
+          lastCaptureActiveRef.current = false;
           if (state.sequentialRecord.isCaptureActive) {
             state.setSequentialCaptureActive(false);
           }
@@ -314,6 +337,10 @@ export const useSequentialAnimationRuntimeEffect = ({
           return;
         }
         const captureActive = selectSequentialCaptureActive(nextState);
+        if (lastCaptureActiveRef.current && !captureActive) {
+          dispatchClearOverlay();
+        }
+        lastCaptureActiveRef.current = captureActive;
         if (nextState.sequentialRecord.isCaptureActive !== captureActive) {
           nextState.setSequentialCaptureActive(captureActive);
         }
@@ -378,6 +405,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       accumMsRef.current = 0;
       lastMetricsSampleMsRef.current = -Infinity;
       lastCheckpointFlushMsRef.current = -Infinity;
+      lastCaptureActiveRef.current = false;
     };
   }, [sequentialRecordModeEnabled]);
 };

@@ -7,11 +7,11 @@ const MAX_RECORD_FPS = 60;
 const MIN_RECORD_FRAME_COUNT = 1;
 const MAX_RECORD_FRAME_COUNT = 512;
 const MIN_TIME_SMEAR = 0.1;
-const MAX_TIME_SMEAR = 8;
+const MAX_TIME_SMEAR = 20;
 
-const DEFAULT_RECORD_FPS = 12;
-const DEFAULT_RECORD_FRAME_COUNT = 12;
-const DEFAULT_TIME_SMEAR = 1;
+const DEFAULT_RECORD_FPS = 18;
+const DEFAULT_RECORD_FRAME_COUNT = 24;
+const DEFAULT_TIME_SMEAR = MAX_TIME_SMEAR;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
@@ -87,14 +87,41 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
   setRecordFPS: (fps) =>
     set((state) => {
       const nextFps = Math.round(clamp(fps, MIN_RECORD_FPS, MAX_RECORD_FPS));
-      if (nextFps === state.sequentialRecord.fps) {
+      const nextDurationMs = deriveDurationMs(state.sequentialRecord.frameCount, nextFps);
+      const activeSequentialLayerIndex = state.layers.findIndex(
+        (layer) => layer.id === state.activeLayerId && layer.layerType === 'sequential' && !!layer.sequentialData
+      );
+      const shouldUpdateActiveLayer = activeSequentialLayerIndex >= 0;
+      if (!shouldUpdateActiveLayer && nextFps === state.sequentialRecord.fps) {
         return state;
       }
+
+      let nextLayers = state.layers;
+      if (shouldUpdateActiveLayer) {
+        const activeLayer = state.layers[activeSequentialLayerIndex];
+        const layerSequential = activeLayer.sequentialData!;
+        if (layerSequential.fps !== nextFps) {
+          const updatedLayer = {
+            ...activeLayer,
+            sequentialData: {
+              ...layerSequential,
+              fps: nextFps,
+              durationMs: deriveDurationMs(
+                Math.max(MIN_RECORD_FRAME_COUNT, Math.round(layerSequential.frameCount)),
+                nextFps
+              ),
+            },
+          };
+          nextLayers = [...state.layers];
+          nextLayers[activeSequentialLayerIndex] = updatedLayer;
+        }
+      }
       return {
+        layers: nextLayers,
         sequentialRecord: {
           ...state.sequentialRecord,
           fps: nextFps,
-          durationMs: deriveDurationMs(state.sequentialRecord.frameCount, nextFps),
+          durationMs: nextDurationMs,
         },
       };
     }),
@@ -103,15 +130,44 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
       const nextFrameCount = Math.round(
         clamp(frameCount, MIN_RECORD_FRAME_COUNT, MAX_RECORD_FRAME_COUNT)
       );
-      if (nextFrameCount === state.sequentialRecord.frameCount) {
+      const nextCurrentFrame = normalizeFrameIndex(state.sequentialRecord.currentFrame, nextFrameCount);
+      const nextDurationMs = deriveDurationMs(nextFrameCount, state.sequentialRecord.fps);
+      const activeSequentialLayerIndex = state.layers.findIndex(
+        (layer) => layer.id === state.activeLayerId && layer.layerType === 'sequential' && !!layer.sequentialData
+      );
+      const shouldUpdateActiveLayer = activeSequentialLayerIndex >= 0;
+      if (!shouldUpdateActiveLayer && nextFrameCount === state.sequentialRecord.frameCount) {
         return state;
       }
+
+      let nextLayers = state.layers;
+      if (shouldUpdateActiveLayer) {
+        const activeLayer = state.layers[activeSequentialLayerIndex];
+        const layerSequential = activeLayer.sequentialData!;
+        const normalizedLayerFps = Math.max(MIN_RECORD_FPS, Math.round(layerSequential.fps));
+        const remappedEvents = layerSequential.events.map((event) => ({
+          ...event,
+          frameIndex: normalizeFrameIndex(event.frameIndex, nextFrameCount),
+        }));
+        const updatedLayer = {
+          ...activeLayer,
+          sequentialData: {
+            ...layerSequential,
+            frameCount: nextFrameCount,
+            durationMs: deriveDurationMs(nextFrameCount, normalizedLayerFps),
+            events: remappedEvents,
+          },
+        };
+        nextLayers = [...state.layers];
+        nextLayers[activeSequentialLayerIndex] = updatedLayer;
+      }
       return {
+        layers: nextLayers,
         sequentialRecord: {
           ...state.sequentialRecord,
           frameCount: nextFrameCount,
-          currentFrame: normalizeFrameIndex(state.sequentialRecord.currentFrame, nextFrameCount),
-          durationMs: deriveDurationMs(nextFrameCount, state.sequentialRecord.fps),
+          currentFrame: nextCurrentFrame,
+          durationMs: nextDurationMs,
         },
       };
     }),

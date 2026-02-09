@@ -187,4 +187,305 @@ describe('ExportModal', () => {
     session.finish?.();
     expect(store.setSequentialFrame).toHaveBeenLastCalledWith(2);
   });
+
+  it('shows a sequential export payload warning for high-frame Goblet exports', () => {
+    (store as any).project = {
+      ...store.project,
+      width: 1024,
+      height: 1024,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-heavy',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 320,
+        fps: 18,
+        durationMs: Math.round((320 * 1000) / 18),
+        events: [],
+      },
+    }] as any;
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.getByText(/Current sequential estimate:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Estimated sequential texture payload \(zip\):/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tip: `zip` \+ minify is estimated to save about/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Optimize now/i })).toBeInTheDocument();
+  });
+
+  it('does not show sequential payload warning for low-frame Goblet exports', () => {
+    (store as any).project = {
+      ...store.project,
+      width: 64,
+      height: 64,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-light',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 12,
+        fps: 12,
+        durationMs: 1000,
+        events: [],
+      },
+    }] as any;
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.getByText(/Current sequential estimate:/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Estimated sequential texture payload/i)).not.toBeInTheDocument();
+  });
+
+  it('updates sequential payload warning label when bundle format changes', () => {
+    (store as any).project = {
+      ...store.project,
+      width: 1024,
+      height: 1024,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-heavy-format',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 220,
+        fps: 18,
+        durationMs: Math.round((220 * 1000) / 18),
+        events: [],
+      },
+    }] as any;
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'single-html',
+      minifyOutput: true,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.getByText(/Current sequential estimate: .*single-html, minified/i)).toBeInTheDocument();
+    expect(screen.getByText(/Estimated sequential texture payload \(single-html\):/i)).toBeInTheDocument();
+  });
+
+  it('omits optimization tip when export is already zip + minify', () => {
+    (store as any).project = {
+      ...store.project,
+      width: 1024,
+      height: 1024,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-heavy-optimized',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 320,
+        fps: 18,
+        durationMs: Math.round((320 * 1000) / 18),
+        events: [],
+      },
+    }] as any;
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'zip',
+      minifyOutput: true,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.getByText(/Estimated sequential texture payload \(zip\):/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Tip: `zip` \+ minify is estimated to save about/i)).not.toBeInTheDocument();
+  });
+
+  it('applies zip + minify when optimize now is clicked', () => {
+    (store as any).project = {
+      ...store.project,
+      width: 1024,
+      height: 1024,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-heavy-opt-click',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 320,
+        fps: 18,
+        durationMs: Math.round((320 * 1000) / 18),
+        events: [],
+      },
+    }] as any;
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'single-html',
+      minifyOutput: false,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Optimize now/i }));
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      bundleFormat: 'zip',
+      minifyOutput: true,
+    });
+  });
+
+  it('reverts optimized settings back to previous packaging options', () => {
+    (store as any).project = {
+      ...store.project,
+      width: 1024,
+      height: 1024,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-heavy-revert',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 320,
+        fps: 18,
+        durationMs: Math.round((320 * 1000) / 18),
+        events: [],
+      },
+    }] as any;
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'single-html',
+      minifyOutput: false,
+    };
+
+    const view = render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Optimize now/i }));
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      bundleFormat: 'zip',
+      minifyOutput: true,
+    });
+
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'zip',
+      minifyOutput: true,
+    };
+    view.rerender(<ExportModal isOpen onClose={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Revert optimization/i }));
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      bundleFormat: 'single-html',
+      minifyOutput: false,
+    });
+  });
+
+  it('keeps revert action available after modal remount', () => {
+    (store as any).project = {
+      ...store.project,
+      id: 'project-remount',
+      width: 1024,
+      height: 1024,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-heavy-remount',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 320,
+        fps: 18,
+        durationMs: Math.round((320 * 1000) / 18),
+        events: [],
+      },
+    }] as any;
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'single-html',
+      minifyOutput: false,
+    };
+
+    const first = render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Optimize now/i }));
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      bundleFormat: 'zip',
+      minifyOutput: true,
+    });
+    first.unmount();
+
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'zip',
+      minifyOutput: true,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.getByRole('button', { name: /Revert optimization/i })).toBeInTheDocument();
+  });
+
+  it('hides revert action after optimization backup TTL expires', () => {
+    const baseNow = new Date('2026-02-09T10:00:00.000Z');
+    jest.setSystemTime(baseNow);
+
+    (store as any).project = {
+      ...store.project,
+      id: 'project-ttl',
+      width: 1024,
+      height: 1024,
+    };
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'seq-heavy-ttl',
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 320,
+        fps: 18,
+        durationMs: Math.round((320 * 1000) / 18),
+        events: [],
+      },
+    }] as any;
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'single-html',
+      minifyOutput: false,
+    };
+
+    const first = render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Optimize now/i }));
+    first.unmount();
+
+    jest.setSystemTime(new Date(baseNow.getTime() + 11 * 60 * 1000));
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'zip',
+      minifyOutput: true,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.queryByRole('button', { name: /Revert optimization/i })).not.toBeInTheDocument();
+  });
 });

@@ -5,6 +5,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
+import { getBufferedSequentialLayerFrameEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 
 interface UseDrawingCanvasLayerRenderingOptions {
   project: { width: number; height: number; backgroundColor?: string | null } | null;
@@ -31,7 +32,8 @@ export const useDrawingCanvasLayerRendering = ({
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
     const activeId = activeLayerId;
     const storeState = useAppStore.getState() as {
-      sequentialRecord?: { currentFrame?: number };
+      activeLayerId?: string | null;
+      sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
     };
     const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
     const isPixelatedDisplay = displayMode === 'pixelated';
@@ -78,11 +80,20 @@ export const useDrawingCanvasLayerRendering = ({
           // ignore transient color cycle draw errors
         }
       } else if (layer.layerType === 'sequential' && layer.sequentialData) {
+        const includePreviewEvents =
+          Boolean(storeState.sequentialRecord?.isPointerDown) && storeState.activeLayerId === layer.id;
+        const previewEvents = includePreviewEvents
+          ? getBufferedSequentialLayerFrameEvents({
+              layerId: layer.id,
+              frameIndex: sequentialFrameIndex,
+            })
+          : undefined;
         const source = getSequentialLayerRenderCanvas({
           layer,
           width: project.width,
           height: project.height,
           frameIndex: sequentialFrameIndex,
+          previewEvents,
         });
         if (source) {
           try {

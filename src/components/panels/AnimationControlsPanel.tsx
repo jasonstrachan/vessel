@@ -133,7 +133,7 @@ const AnimationControlsPanel: React.FC = () => {
                 <input
                   type="range"
                   min={0.1}
-                  max={4}
+                  max={20}
                   step={0.1}
                   value={sequentialRecord.timeSmear}
                   onChange={handleTimeSmearChange}
@@ -146,11 +146,6 @@ const AnimationControlsPanel: React.FC = () => {
               </div>
             </label>
 
-            {controlsDisabled && (
-              <p className="text-[10px] text-[#C9B27A]">
-                Capture active. Changes apply next take.
-              </p>
-            )}
           </div>
         )}
       </div>

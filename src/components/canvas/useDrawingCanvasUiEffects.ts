@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useEffect } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 
 interface UseDrawingCanvasUiEffectsOptions {
   selectionStart: unknown;
@@ -84,6 +85,7 @@ export const useDrawingCanvasUiEffects = ({
       if (typeof store.setSequentialPointerDown === 'function') {
         store.setSequentialPointerDown(false);
       }
+      flushBufferedSequentialEvents({ state: store });
       if (stateMachineIsSpacePressed) {
         setCursorStyle(defaultCursorStyle);
         setShowBrushCursor(isPointerInsideCanvas());
