@@ -374,4 +374,21 @@ describe('project slice lifecycle flows', () => {
       expect.objectContaining({ type: 'success', title: 'Export Complete' })
     );
   });
+
+  it('creates a default sequential layer when starting a new project', () => {
+    useAppStore.getState().newProject(256, 128, 'New With Seq');
+
+    const nextState = useAppStore.getState();
+    const sequentialLayers = nextState.layers.filter((layer) => layer.layerType === 'sequential');
+
+    expect(nextState.project?.name).toBe('New With Seq');
+    expect(sequentialLayers).toHaveLength(1);
+    expect(sequentialLayers[0].name).toBe('Animation 1');
+    expect(sequentialLayers[0].sequentialData).toEqual({
+      frameCount: 12,
+      fps: 12,
+      durationMs: 1000,
+      events: [],
+    });
+  });
 });

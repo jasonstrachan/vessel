@@ -436,10 +436,12 @@ const shouldKeepTexturedPixel = ({
     return true;
   }
   if (mode === 'dither') {
-    const algorithm = pluginConfig?.ditherAlgorithm ?? null;
+    const algorithmRaw = typeof pluginConfig?.ditherAlgorithm === 'string'
+      ? pluginConfig.ditherAlgorithm.trim().toLowerCase()
+      : '';
     const intensity = clamp01((pluginConfig?.ditherIntensity ?? 80) / 100);
-    const coverage = Math.max(0.05, Math.min(0.95, alpha * (0.35 + (1 - intensity) * 0.4)));
-    if (algorithm === 'bayer') {
+    const coverage = Math.max(0.18, Math.min(0.98, alpha * (0.62 + (1 - intensity) * 0.26)));
+    if (algorithmRaw === 'bayer' || algorithmRaw === '' || algorithmRaw === 'sierra-lite') {
       const matrixSize = pluginConfig?.ditherBayerMatrixSize ?? 8;
       const threshold = resolveDitherMatrixThreshold({
         x,
@@ -448,15 +450,14 @@ const shouldKeepTexturedPixel = ({
       });
       return coverage >= threshold;
     }
-    if (algorithm === 'pattern') {
+    if (algorithmRaw === 'pattern') {
       const pattern = (x + y + Math.floor(intensity * 8)) % 3;
       return pattern !== 0 && coverage > 0.2;
     }
-    const noise = hash2D01(
-      x + Math.floor((algorithm ? hashString32(algorithm) : 0) & 15),
-      y + Math.floor((algorithm ? hashString32(algorithm) : 0) >>> 4 & 15)
-    );
-    return noise <= coverage;
+    // Unknown algorithms fall back to deterministic ordered dither instead of
+    // hash-noise so replay texture stays coherent across frames.
+    const threshold = resolveDitherMatrixThreshold({ x, y, matrixSize: 8 });
+    return coverage >= threshold;
   }
   const noise = hash2D01(x, y);
   if (mode === 'risograph-soft') {
@@ -520,6 +521,7 @@ const paintStamp = ({
 
       const srcA = baseSrcA;
       let toneFactor = 1;
+      let alphaScale = 1;
       if (textureMode === 'mosaic') {
         const tilePx = mosaicConfig?.tilePx ?? Math.max(1, Math.round(stampSize * 0.35));
         const paletteCount = mosaicConfig?.paletteCount ?? 6;
@@ -540,13 +542,22 @@ const paintStamp = ({
         ) {
           continue;
         }
+      } else if (textureMode === 'dither') {
+        const keepPrimary = shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA, pluginConfig });
+        if (!keepPrimary) {
+          // Preserve dither texture without punching transparent holes.
+          // Secondary dither pixels are softer/darker instead of fully transparent.
+          toneFactor = 0.78;
+          alphaScale = 0.24;
+        }
       } else if (!shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA, pluginConfig })) {
         continue;
       }
 
-      const srcR = (color.r / 255) * srcA * toneFactor;
-      const srcG = (color.g / 255) * srcA * toneFactor;
-      const srcB = (color.b / 255) * srcA * toneFactor;
+      const shadedSrcA = srcA * alphaScale;
+      const srcR = (color.r / 255) * shadedSrcA * toneFactor;
+      const srcG = (color.g / 255) * shadedSrcA * toneFactor;
+      const srcB = (color.b / 255) * shadedSrcA * toneFactor;
 
       const index = (y * width + x) * 4;
       compositePremultipliedPixel({
@@ -555,7 +566,7 @@ const paintStamp = ({
         srcR,
         srcG,
         srcB,
-        srcA,
+        srcA: shadedSrcA,
         blendMode,
       });
     }

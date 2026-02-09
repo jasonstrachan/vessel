@@ -130,6 +130,12 @@ interface SequentialExportRiskSummary {
   bundleFormat: WebGLExportBundleFormat;
 }
 
+interface WebglPreflightIssue {
+  id: string;
+  severity: 'warning' | 'error';
+  message: string;
+}
+
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -225,6 +231,111 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       bundleFormat: webglBundleFormat,
     };
   }, [hasSequentialLayers, layers, project?.height, project?.width, webglBundleFormat, webglMinify]);
+
+  const applyGoblet2SingleHtmlProductionPreset = useCallback(() => {
+    updateWebglExportSettings({
+      gobletVersion: 'goblet2',
+      bundleFormat: 'single-html',
+      minifyOutput: true,
+      enableGobletDiagnostics: false,
+      embedCanvasFallback: false,
+      includeHiddenLayers: false,
+      htmlTitle: (webglHtmlTitle || 'Goblet').trim() || 'Goblet',
+    });
+  }, [updateWebglExportSettings, webglHtmlTitle]);
+
+  const webglPreflightIssues = useMemo<WebglPreflightIssue[]>(() => {
+    const issues: WebglPreflightIssue[] = [];
+    const visibleLayers = layers.filter((layer) => layer.visible !== false);
+
+    if (layers.length === 0) {
+      issues.push({
+        id: 'no-layers',
+        severity: 'error',
+        message: 'No layers available to export.',
+      });
+    }
+
+    if (!webglIncludeHidden && visibleLayers.length === 0) {
+      issues.push({
+        id: 'no-visible-layers',
+        severity: 'error',
+        message: 'No visible layers. Enable hidden layers or unhide at least one layer.',
+      });
+    }
+
+    if (webglGobletVersion !== 'goblet2') {
+      issues.push({
+        id: 'runtime-version',
+        severity: 'warning',
+        message: 'Goblet 2 is recommended for best color-cycle fidelity and performance.',
+      });
+    }
+
+    if (webglBundleFormat !== 'single-html') {
+      issues.push({
+        id: 'bundle-format',
+        severity: 'warning',
+        message: 'Single HTML is recommended for your sharing/export workflow.',
+      });
+    }
+
+    if (!webglMinify) {
+      issues.push({
+        id: 'minify-off',
+        severity: 'warning',
+        message: 'Minify is off; output size will be larger.',
+      });
+    }
+
+    if (webglEnableDiagnostics) {
+      issues.push({
+        id: 'diagnostics-on',
+        severity: 'warning',
+        message: 'Diagnostics helpers are enabled; disable for production hand-offs.',
+      });
+    }
+
+    if (webglEmbedFallback) {
+      issues.push({
+        id: 'fallback-on',
+        severity: 'warning',
+        message: 'Canvas2D fallback is enabled; this increases bundle size.',
+      });
+    }
+
+    if (webglIncludeHidden) {
+      issues.push({
+        id: 'hidden-on',
+        severity: 'warning',
+        message: 'Including hidden layers can significantly increase bundle size.',
+      });
+    }
+
+    if (sequentialExportRisk && sequentialExportRisk.estimatedBytes > 64 * 1024 * 1024) {
+      issues.push({
+        id: 'sequential-heavy',
+        severity: 'warning',
+        message: `High sequential payload estimate (${(sequentialExportRisk.estimatedBytes / (1024 * 1024)).toFixed(1)} MB).`,
+      });
+    }
+
+    return issues;
+  }, [
+    layers,
+    sequentialExportRisk,
+    webglBundleFormat,
+    webglEmbedFallback,
+    webglEnableDiagnostics,
+    webglGobletVersion,
+    webglIncludeHidden,
+    webglMinify,
+  ]);
+
+  const webglPreflightErrors = useMemo(
+    () => webglPreflightIssues.filter((issue) => issue.severity === 'error'),
+    [webglPreflightIssues]
+  );
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -786,6 +897,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const handleExport = async () => {
     if (!project) return;
+    if (exportKind === 'webgl' && webglPreflightErrors.length > 0) {
+      addNotification({
+        type: 'error',
+        title: 'Export blocked by preflight',
+        message: webglPreflightErrors[0].message,
+        timestamp: new Date(),
+        duration: 5000
+      });
+      return;
+    }
     setIsExporting(true);
     setProgress(0);
     setGifPaletteCount(null);
@@ -1243,6 +1364,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               </div>
 
               <div className={`${MODAL_SURFACE_CLASS} p-4 space-y-4`}>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <h3 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>Export preset</h3>
+                  <button
+                    type="button"
+                    onClick={applyGoblet2SingleHtmlProductionPreset}
+                    className={`${TOGGLE_BASE_CLASS} ${TOGGLE_INACTIVE_CLASS}`}
+                    disabled={isExporting}
+                  >
+                    Apply Goblet2 Single-HTML (Production)
+                  </button>
+                </div>
+                <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                  Keeps player output unchanged; only export settings are adjusted.
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
                     <span>Include hidden layers</span>
@@ -1342,6 +1477,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       Used as the document title for Goblet HTML exports{webglBundleFormat === 'json' ? ' (JSON-only downloads ignore this value).' : '.'}
                     </p>
                   </div>
+                </div>
+                <div className="flex flex-col gap-2 pt-1">
+                  <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Preflight</label>
+                  {webglPreflightIssues.length === 0 ? (
+                    <p className="text-xs text-[#8BD9A2]">No issues detected.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {webglPreflightIssues.map((issue) => (
+                        <p
+                          key={issue.id}
+                          className={`text-xs ${issue.severity === 'error' ? 'text-[#F28B82]' : 'text-[#DDB892]'}`}
+                        >
+                          {issue.severity === 'error' ? 'Error: ' : 'Warning: '}
+                          {issue.message}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

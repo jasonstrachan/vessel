@@ -121,13 +121,26 @@ const getCustomTintedCanvas = (
 /**
  * Get or create a pre-rotated pixel stamp
  */
+export const buildRotatedStampCacheKey = (
+  cacheKey: string,
+  rotation: number,
+  fillStyle?: string
+): string => {
+  const rotationBucket = Math.round((rotation * 180) / Math.PI);
+  if (!fillStyle) {
+    return `${cacheKey}_rot${rotationBucket}`;
+  }
+  return `${cacheKey}_${fillStyle}_rot${rotationBucket}`;
+};
+
 function getRotatedPixelStamp(
   baseStamp: HTMLCanvasElement,
   rotation: number,
-  cacheKey: string
+  cacheKey: string,
+  fillStyle?: string
 ): HTMLCanvasElement {
   // Check cache first
-  const fullKey = `${cacheKey}_rot${Math.round(rotation * 180 / Math.PI)}`;
+  const fullKey = buildRotatedStampCacheKey(cacheKey, rotation, fillStyle);
   const cached = rotatedStampCache.get(fullKey);
   if (cached) return cached;
   
@@ -540,7 +553,13 @@ export const drawShape = (
               sqCtx.fillRect(0, 0, pixelSize, pixelSize);
               
               // Get pre-rotated version
-              const rotatedSquare = getRotatedPixelStamp(squareStamp, quantizedRotation, `pixel_square_${pixelSize}`);
+              const colorKey = drawingCtx.fillStyle ? drawingCtx.fillStyle.toString() : '';
+              const rotatedSquare = getRotatedPixelStamp(
+                squareStamp,
+                quantizedRotation,
+                `pixel_square_${pixelSize}`,
+                colorKey
+              );
               
               // Draw rotated square
               const offsetX = Math.round(drawX - rotatedSquare.width / 2);
@@ -736,7 +755,13 @@ export const drawShape = (
               // Get pre-rotated stamp if rotation is needed
               let finalStamp = tempCanvas;
               if (quantizedRotation !== 0) {
-                finalStamp = getRotatedPixelStamp(tempCanvas, quantizedRotation, `pixel_circle_${stampSize}`);
+                const colorKey = drawingCtx.fillStyle ? drawingCtx.fillStyle.toString() : '';
+                finalStamp = getRotatedPixelStamp(
+                  tempCanvas,
+                  quantizedRotation,
+                  `pixel_circle_${stampSize}`,
+                  colorKey
+                );
               }
               
               // Calculate offset for stamp (account for larger size if rotated)

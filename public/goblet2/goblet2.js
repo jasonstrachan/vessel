@@ -2278,7 +2278,7 @@ const DEFAULT_ANIMATION_SPEED = 0.1;
 const SPEED_BYTE_RANGE = 255;
 const DEFAULT_SPEED_MIN = 0.01;
 const DEFAULT_SPEED_MAX = 2.64;
-const FLOW_SLOT_BITS = 6;
+const FLOW_SLOT_BITS = 8;
 const FLOW_SLOT_MASK = (1 << FLOW_SLOT_BITS) - 1;
 const FLOW_MODE_FORWARD = 1;
 const FLOW_MODE_REVERSE = 2;
@@ -2788,6 +2788,80 @@ const collectDistinctSlots = (gradientIdBuffer) => {
   return set;
 };
 
+const normalizeSlotId = (value) => Math.max(0, Math.min(FLOW_SLOT_MASK, value | 0));
+
+const collectPaletteSlots = (slotPalettes) => {
+  if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {
+    return null;
+  }
+  const set = new Set();
+  for (let i = 0; i < slotPalettes.length; i += 1) {
+    const entry = slotPalettes[i];
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const slot = Number(entry.slot);
+    if (Number.isFinite(slot)) {
+      set.add(normalizeSlotId(Math.round(slot)));
+    }
+  }
+  return set.size > 0 ? set : null;
+};
+
+const reconcileGradientIdSlotIndexing = (indexBuffer, gradientIdBuffer, slotPalettes) => {
+  if (!indexBuffer || !gradientIdBuffer || gradientIdBuffer.length === 0) {
+    return gradientIdBuffer;
+  }
+  const paletteSlots = collectPaletteSlots(slotPalettes);
+  if (!paletteSlots || paletteSlots.size === 0) {
+    return gradientIdBuffer;
+  }
+
+  const usedSlots = new Set();
+  const length = Math.min(indexBuffer.length, gradientIdBuffer.length);
+  for (let i = 0; i < length; i += 1) {
+    if ((indexBuffer[i] | 0) === 0) {
+      continue;
+    }
+    const gid = gradientIdBuffer[i] | 0;
+    if (gid > 0) {
+      usedSlots.add(gid);
+    }
+  }
+  if (usedSlots.size === 0) {
+    return gradientIdBuffer;
+  }
+
+  let directMatches = 0;
+  let shiftedMatches = 0;
+  usedSlots.forEach((slot) => {
+    if (paletteSlots.has(slot)) {
+      directMatches += 1;
+    }
+    if (slot > 0 && paletteSlots.has(slot - 1)) {
+      shiftedMatches += 1;
+    }
+  });
+
+  if (shiftedMatches > directMatches && shiftedMatches > 0) {
+    for (let i = 0; i < length; i += 1) {
+      if ((indexBuffer[i] | 0) === 0) {
+        continue;
+      }
+      const gid = gradientIdBuffer[i] | 0;
+      if (gid > 0) {
+        gradientIdBuffer[i] = normalizeSlotId(gid - 1);
+      }
+    }
+    diagnostics.log('[goblet2] Applied +1 gradient-slot compatibility remap', {
+      directMatches,
+      shiftedMatches
+    });
+  }
+
+  return gradientIdBuffer;
+};
+
 const analyzeSpeedBuffer = (speedBuffer) => {
   if (!speedBuffer || !speedBuffer.length) {
     return { distinctNonZero: 0, lone: 0 };
@@ -3273,10 +3347,6 @@ class ColorCycleLayerPlayer {
     if (!this.isGoblet2) {
       return false;
     }
-    if (Array.isArray(brushState?.palette) && brushState.palette.length > 1) {
-      // Palette-driven brush data preserves dither/detail better in CPU mode.
-      return false;
-    }
     if (!brushState || !hasNumericPayload(brushState.indexBuffer)) {
       return false;
     }
@@ -3311,8 +3381,9 @@ class ColorCycleLayerPlayer {
     const gradientIdBuffer = clampBuffer(rawGradientIds);
     const speedBuffer = clampBuffer(rawSpeedBuffer);
     if (gradientIdBuffer) {
+      reconcileGradientIdSlotIndexing(indexBuffer, gradientIdBuffer, colorCycle?.slotPalettes);
       for (let i = 0; i < gradientIdBuffer.length; i += 1) {
-        gradientIdBuffer[i] = gradientIdBuffer[i] & FLOW_SLOT_MASK;
+        gradientIdBuffer[i] = normalizeSlotId(gradientIdBuffer[i]);
       }
     }
 
@@ -3441,8 +3512,9 @@ class ColorCycleLayerPlayer {
       : speedBuffer;
     this.speedBuffer = resizedSpeedBuffer && resizedSpeedBuffer.length ? resizedSpeedBuffer : null;
     if (this.gradientIdBuffer) {
+      reconcileGradientIdSlotIndexing(this.indexBuffer, this.gradientIdBuffer, colorCycle?.slotPalettes);
       for (let i = 0; i < this.gradientIdBuffer.length; i += 1) {
-        this.gradientIdBuffer[i] = this.gradientIdBuffer[i] & FLOW_SLOT_MASK;
+        this.gradientIdBuffer[i] = normalizeSlotId(this.gradientIdBuffer[i]);
       }
     }
     const alphaMode = typeof brushState.alphaMode === 'string' ? brushState.alphaMode : 'source';

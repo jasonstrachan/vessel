@@ -619,11 +619,23 @@ export const createProjectLifecycle = ({
   const newProject = (width: number, height: number, name = 'Untitled'): void => {
     const currentState = get();
     const layerIdFactory = () => `layer-${Date.now()}-${Math.random()}`;
+    const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
+      if (typeof OffscreenCanvas !== 'undefined') {
+        return new OffscreenCanvas(width, height);
+      }
+      if (typeof document !== 'undefined') {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        return canvas;
+      }
+      throw new Error('No canvas implementation available for project initialization');
+    };
     const existingCustomBrushes = currentState.project?.customBrushes ?? [];
     const existingDefaultCustomBrushId = currentState.project?.defaultCustomBrushId ?? null;
 
     const defaultLayerId = layerIdFactory();
-    const defaultFramebuffer = new OffscreenCanvas(width, height);
+    const defaultFramebuffer = makeFramebuffer();
     const defaultLayer: Layer = {
       id: defaultLayerId,
       name: 'Layer 1',
@@ -640,7 +652,7 @@ export const createProjectLifecycle = ({
     };
 
     const colorCycleLayerId = layerIdFactory();
-    const colorCycleFramebuffer = new OffscreenCanvas(width, height);
+    const colorCycleFramebuffer = makeFramebuffer();
     const colorCycleCanvas =
       typeof document !== 'undefined'
         ? (() => {
@@ -688,6 +700,32 @@ export const createProjectLifecycle = ({
       },
     };
 
+    const sequentialLayerId = layerIdFactory();
+    const sequentialFramebuffer = makeFramebuffer();
+    const sequentialFrameCount = 12;
+    const sequentialFps = 12;
+    const sequentialDurationMs = Math.round((sequentialFrameCount * 1000) / sequentialFps);
+    const sequentialLayer: Layer = {
+      id: sequentialLayerId,
+      name: 'Animation 1',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      order: 2,
+      locked: false,
+      transparencyLocked: false,
+      imageData: null,
+      framebuffer: sequentialFramebuffer,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: sequentialFrameCount,
+        fps: sequentialFps,
+        durationMs: sequentialDurationMs,
+        events: [],
+      },
+    };
+
     const newPalette = createDefaultPalette();
     const newProject: Project = {
       id: `project-${Date.now()}-${Math.random()}`,
@@ -711,7 +749,7 @@ export const createProjectLifecycle = ({
       ...normalizedProject,
       palette: normalizedPalette,
     };
-    const normalizedLayers = normalizeLayers([defaultLayer, colorCycleLayer]);
+    const normalizedLayers = normalizeLayers([defaultLayer, colorCycleLayer, sequentialLayer]);
     const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
 
     setActiveHistoryDocument(normalizedProject.id);
