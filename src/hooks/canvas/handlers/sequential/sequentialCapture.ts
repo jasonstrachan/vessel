@@ -23,7 +23,6 @@ import {
   type AppState,
 } from '@/stores/useAppStore';
 import { brushRegistry } from '@/brushes/BrushRegistry';
-import { traceStrokeLock } from '@/hooks/canvas/handlers/strokeLockDebug';
 import {
   BrushShape,
   type Layer,
@@ -185,20 +184,11 @@ export const flushBufferedSequentialEvents = ({
       : Date.now();
   const targetRuntime = runtime ?? defaultEventBufferRuntime;
   if (targetRuntime.isFlushing || targetRuntime.layers.size === 0) {
-    traceStrokeLock('sequential.flush.skip', {
-      isFlushing: targetRuntime.isFlushing,
-      bufferedLayerCount: targetRuntime.layers.size,
-      pendingPayloadBytes: targetRuntime.pendingPayloadBytes,
-    });
     return 0;
   }
 
   targetRuntime.isFlushing = true;
   const queuedLayerEntries = Array.from(targetRuntime.layers.entries());
-  traceStrokeLock('sequential.flush.start', {
-    bufferedLayerCount: queuedLayerEntries.length,
-    pendingPayloadBytes: targetRuntime.pendingPayloadBytes,
-  });
   targetRuntime.layers.clear();
   targetRuntime.pendingPayloadBytes = 0;
 
@@ -226,10 +216,6 @@ export const flushBufferedSequentialEvents = ({
   recordSequentialFlushPerf({
     events: flushedEventCount,
     durationMs: flushDurationMs,
-  });
-  traceStrokeLock('sequential.flush.done', {
-    flushedEventCount,
-    flushDurationMs,
   });
   return flushedEventCount;
 };
@@ -1096,27 +1082,18 @@ export const captureSequentialStampsForActiveLayer = ({
   const capRuntime = runtime ?? defaultStampCapRuntime;
 
   if (!isFeatureFlagEnabled('enableSequentialRecordMode')) {
-    traceStrokeLock('sequential.capture.skip.flag-disabled');
     capRuntime.captureWasActive = false;
     return 0;
   }
 
   const activeLayer = resolveCaptureLayer(state, capRuntime);
   if (!activeLayer) {
-    traceStrokeLock('sequential.capture.skip.no-active-layer', {
-      activeLayerId: state.activeLayerId,
-      isPointerDown: state.sequentialRecord.isPointerDown,
-      isCaptureActiveSelector: selectSequentialCaptureActive(state),
-    });
     capRuntime.captureWasActive = false;
     return 0;
   }
 
   const normalizedStamps = normalizeSequentialStamps(stamps);
   if (normalizedStamps.length === 0) {
-    traceStrokeLock('sequential.capture.skip.no-stamps', {
-      inputStampCount: stamps.length,
-    });
     capRuntime.captureWasActive = true;
     return 0;
   }
@@ -1170,12 +1147,6 @@ export const captureSequentialStampsForActiveLayer = ({
     nowMs: captureNowMs,
   });
   if (cappedStamps.length === 0) {
-    traceStrokeLock('sequential.capture.skip.stamp-cap', {
-      inputStampCount: stamps.length,
-      normalizedStampCount: normalizedStamps.length,
-      smearedStampCount: smearedStamps.length,
-      runtimeTokens: capRuntime.tokens,
-    });
     return 0;
   }
 
@@ -1186,20 +1157,6 @@ export const captureSequentialStampsForActiveLayer = ({
   const fps = Math.max(1, Math.round(activeLayer.sequentialData?.fps ?? state.sequentialRecord.fps));
   const durationMs = Math.round((frameCount * 1000) / fps);
   const frameIndex = normalizeFrameIndex(state.sequentialRecord.currentFrame, frameCount);
-  traceStrokeLock('sequential.capture.accepted', {
-    layerId: activeLayer.id,
-    frameIndex,
-    frameCount,
-    fps,
-    currentFrame: state.sequentialRecord.currentFrame,
-    sessionStartMs: state.sequentialRecord.sessionStartMs,
-    inputStampCount: stamps.length,
-    normalizedStampCount: normalizedStamps.length,
-    smearedStampCount: smearedStamps.length,
-    cappedStampCount: cappedStamps.length,
-    pluginBrushId: pluginBrushId ?? null,
-    hasCustomBrushData: Boolean(customBrushData),
-  });
   const timestampMs = Math.max(0, Math.round(captureNowMs - sessionStartMs));
   const { brush, key: brushSnapshotKey } = resolveBrushSnapshotForCapture({
     state,
@@ -1319,12 +1276,6 @@ export const captureSequentialStampsForActiveLayer = ({
   }
 
   if (projectedPayloadBytes > hardLimitBytes) {
-    traceStrokeLock('sequential.capture.skip.payload-hard-cap', {
-      currentTotalPayloadBytes,
-      projectedPayloadBytes,
-      hardLimitBytes,
-      softLimitBytes,
-    });
     if (payloadNotificationRuntime.hardCapBlockedAtBytes !== currentTotalPayloadBytes) {
       state.addNotification({
         type: 'error',
@@ -1364,11 +1315,6 @@ export const captureSequentialStampsForActiveLayer = ({
     });
   }
   payloadNotificationRuntime.hardCapBlockedAtBytes = null;
-  traceStrokeLock('sequential.capture.buffered-events', {
-    distributedEventCount: distributedEvents.length,
-    pendingPayloadBytes: captureEventBufferRuntime.pendingPayloadBytes,
-    projectedPayloadBytes,
-  });
   capRuntime.eventCounter += distributedEvents.length;
   const lastAcceptedStamp = cappedStamps[cappedStamps.length - 1];
   if (lastAcceptedStamp) {

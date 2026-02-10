@@ -1092,6 +1092,21 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
     }
 
+    const settingsKeys = Object.keys(settings);
+    if (!hasPressureUpdate) {
+      if (settingsKeys.length === 0) {
+        return state;
+      }
+
+      const isColorOnlyNoop =
+        settingsKeys.length === 1 &&
+        settingsKeys[0] === 'color' &&
+        settings.color === currentEraserSettings.color;
+      if (isColorOnlyNoop) {
+        return state;
+      }
+    }
+
     const next = {
       ...state.tools.eraserSettings,
       ...settings,

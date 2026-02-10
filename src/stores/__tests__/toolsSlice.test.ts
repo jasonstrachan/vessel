@@ -149,6 +149,23 @@ describe('tools slice', () => {
     expect(eraserSize).toBe(18);
   });
 
+  it('returns early when setEraserSettings receives an empty patch', () => {
+    const before = useAppStore.getState();
+    before.setEraserSettings({});
+    const after = useAppStore.getState();
+
+    expect(after).toBe(before);
+  });
+
+  it('returns early when setEraserSettings receives the same color', () => {
+    const before = useAppStore.getState();
+    const currentColor = before.tools.eraserSettings.color;
+    before.setEraserSettings({ color: currentColor });
+    const after = useAppStore.getState();
+
+    expect(after).toBe(before);
+  });
+
   it('toggles custom brush capture source', () => {
     const store = useAppStore.getState();
     expect(store.tools.customBrushCapture.sampleAllLayers).toBe(false);

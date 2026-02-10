@@ -1,0 +1,46 @@
+import { commitRasterOverlay } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import type { Layer } from '@/types';
+
+const createLayer = (): Layer =>
+  ({
+    id: 'layer-1',
+    name: 'Layer 1',
+    visible: true,
+    opacity: 1,
+    order: 0,
+    imageData: null,
+    colorCycleData: null,
+    layerType: 'normal',
+    framebuffer: document.createElement('canvas'),
+  }) as unknown as Layer;
+
+describe('commitRasterOverlay', () => {
+  it('reuses the same temp canvas across calls', async () => {
+    const captureCanvasToActiveLayer = jest.fn().mockResolvedValue(undefined);
+    const deps = {
+      project: { width: 16, height: 16 },
+      captureCanvasToActiveLayer,
+      scheduleHistoryCommit: jest.fn().mockResolvedValue(undefined),
+      withTiming: async <T,>(_label: string, task: () => Promise<T> | T): Promise<T> => task(),
+    };
+
+    const options = {
+      layer: createLayer(),
+      overlayCanvas: null,
+      beforeImage: null,
+      beforeColorState: null,
+      historyAction: 'brush' as const,
+      historyDescription: 'test',
+      tool: 'brush',
+      skipHistory: true,
+    };
+
+    await commitRasterOverlay(options, deps);
+    await commitRasterOverlay(options, deps);
+
+    expect(captureCanvasToActiveLayer).toHaveBeenCalledTimes(2);
+    const firstCanvas = captureCanvasToActiveLayer.mock.calls[0]?.[0];
+    const secondCanvas = captureCanvasToActiveLayer.mock.calls[1]?.[0];
+    expect(firstCanvas).toBe(secondCanvas);
+  });
+});

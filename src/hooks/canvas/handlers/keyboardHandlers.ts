@@ -1,7 +1,6 @@
 import type React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import type { EventHandlerDependencies, KeyboardHandlers } from '../utils/types';
-import { traceStrokeLock } from '@/hooks/canvas/handlers/strokeLockDebug';
 
 const isTextEntryTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
@@ -25,11 +24,6 @@ export const createKeyboardHandlers = (
   deps: EventHandlerDependencies
 ): Pick<KeyboardHandlers, 'handleKeyDown' | 'handleKeyUp' | 'handleBlur'> => {
   const releaseSpaceInteraction = () => {
-    traceStrokeLock('keyboard.space.release.begin', {
-      isSpaceRef: deps.isSpacePressedRef.current,
-      stateMachineSpace: deps.stateMachine.state.isSpacePressed,
-      isPanning: deps.pan.panState.isPanning,
-    });
     deps.isSpacePressedRef.current = false;
     deps.setIsSpacePressed?.(false);
 
@@ -44,11 +38,6 @@ export const createKeyboardHandlers = (
     deps.setCursorStyle(deps.defaultCursorStyle ?? 'crosshair');
     deps.setShowBrushCursor(deps.isPointerInsideCanvas?.() ?? true);
     void deps.resumeAnimationAfterPan?.();
-    traceStrokeLock('keyboard.space.release.end', {
-      isSpaceRef: deps.isSpacePressedRef.current,
-      stateMachineSpace: deps.stateMachine.state.isSpacePressed,
-      isPanning: deps.pan.panState.isPanning,
-    });
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -65,10 +54,6 @@ export const createKeyboardHandlers = (
       deps.isSpacePressedRef.current = true;
       deps.setIsSpacePressed?.(true);
       deps.stateMachine.dispatch({ type: 'SPACE_DOWN' });
-      traceStrokeLock('keyboard.space.down', {
-        scope: useAppStore.getState().ui.keyboardScope.active,
-        targetType: target?.tagName ?? 'unknown',
-      });
       deps.setShowBrushCursor(false);
       deps.setCursorStyle('grab');
 
@@ -109,10 +94,6 @@ export const createKeyboardHandlers = (
     }
 
     releaseSpaceInteraction();
-    traceStrokeLock('keyboard.space.up', {
-      scope: useAppStore.getState().ui.keyboardScope.active,
-      targetType: target?.tagName ?? 'unknown',
-    });
   };
 
   const handleBlur = (event: React.FocusEvent) => {
@@ -126,9 +107,6 @@ export const createKeyboardHandlers = (
       deps.pan.panState.isPanning ||
       deps.stateMachine.state.isSpacePressed
     ) {
-      traceStrokeLock('keyboard.blur.release', {
-        hasRelatedTarget: Boolean(newFocusTarget),
-      });
       releaseSpaceInteraction();
     }
   };

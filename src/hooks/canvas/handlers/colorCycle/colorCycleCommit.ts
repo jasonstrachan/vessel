@@ -152,6 +152,21 @@ export type CommitColorCycleLayerStrokeResult = {
   brushForCleanup?: ManagedColorCycleBrush;
 };
 
+let sharedRasterCommitCanvas: HTMLCanvasElement | null = null;
+
+const getRasterCommitCanvas = (width: number, height: number): HTMLCanvasElement => {
+  if (!sharedRasterCommitCanvas) {
+    sharedRasterCommitCanvas = document.createElement('canvas');
+  }
+  if (sharedRasterCommitCanvas.width !== width) {
+    sharedRasterCommitCanvas.width = width;
+  }
+  if (sharedRasterCommitCanvas.height !== height) {
+    sharedRasterCommitCanvas.height = height;
+  }
+  return sharedRasterCommitCanvas;
+};
+
 export const commitRasterOverlay = async (
   options: CommitRasterOverlayOptions,
   deps: CommitRasterOverlayDeps
@@ -160,9 +175,7 @@ export const commitRasterOverlay = async (
     return;
   }
 
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = deps.project.width;
-  tempCanvas.height = deps.project.height;
+  const tempCanvas = getRasterCommitCanvas(deps.project.width, deps.project.height);
   const tempCtx = tempCanvas.getContext('2d', {
     willReadFrequently: true,
     alpha: true,
@@ -185,11 +198,7 @@ export const commitRasterOverlay = async (
   await deps.withTiming('cc:capture', () =>
     deps.captureCanvasToActiveLayer(tempCanvas, options.bitmapRoi)
   );
-
-  tempCanvas.width = 1;
-  tempCanvas.height = 1;
-  const clearCtx = tempCanvas.getContext('2d');
-  clearCtx?.clearRect(0, 0, 1, 1);
+  tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
 
   if (options.skipHistory) {
     return;
