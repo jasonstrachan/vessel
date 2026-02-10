@@ -1,5 +1,19 @@
 import { BrushShape, type SequentialStrokeEvent } from '@/types';
 import { recordSequentialMaterializePerf } from '@/lib/sequential/SequentialPerfCounters';
+import {
+  normalizeSequentialDitherPluginConfig,
+  normalizeSequentialParticlePluginConfig,
+  normalizeSequentialSpamPluginConfig,
+} from '@/lib/sequential/pluginConfig';
+import {
+  BLUE_NOISE_16x16,
+  VOID_CLUSTER_8x8,
+} from '@/utils/ditherAlgorithms';
+import {
+  sampleStampDitherReplayMask,
+  type StampDitherAlgorithm,
+} from '@/hooks/brushEngine/strokeStampDither';
+import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import type { FrameTile, FrameTileSet, SequentialMaterializeFrameInput } from '@/lib/sequential/types';
@@ -38,9 +52,62 @@ type SequentialMosaicRuntime = {
   segmentRemainingPx: number;
   rng: () => number;
 };
+type ResolvedDitherTextureConfig = {
+  algorithm:
+    | 'bayer'
+    | 'blue-noise'
+    | 'void-and-cluster'
+    | 'pattern'
+    | 'floyd-steinberg'
+    | 'jarvis-judice-ninke'
+    | 'stucki'
+    | 'burkes'
+    | 'sierra-3'
+    | 'sierra-2'
+    | 'sierra-lite'
+    | 'atkinson';
+  patternStyle:
+    | 'dots'
+    | 'lines'
+    | 'vertical-lines'
+    | 'horizontal-lines'
+    | 'crosshatch'
+    | 'diagonal'
+    | 'tone-adaptive';
+  intensity: number;
+  matrixSize: 2 | 4 | 8;
+  coverageBase: number;
+  bgFill: boolean;
+  tileScale: number;
+  seed: number;
+};
+type ResolvedDitherPalette = {
+  primary: [number, number, number];
+  secondary: [number, number, number];
+};
+type ResolvedParticleConfig = {
+  density: number;
+  scatterRadiusFactor: number;
+};
+type ResolvedSpamConfig = {
+  fontBias: number;
+  contentBias: number;
+  customTextBias: number;
+};
 const parsedCustomStampCache = new Map<string, ParsedCustomStamp>();
 
-const resolveStampShape = (brushShape: BrushShape): SequentialStampShape => {
+const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape => {
+  const tipShape = event.brush.ditherStrokeTipShape;
+  if (tipShape === 'square') {
+    return 'square';
+  }
+  if (tipShape === 'triangle' || tipShape === 'diamond') {
+    return 'triangle';
+  }
+  if (tipShape === 'round') {
+    return 'round';
+  }
+  const brushShape = event.brush.brushShape;
   switch (brushShape) {
     case BrushShape.SQUARE:
     case BrushShape.MOSAIC:
@@ -375,6 +442,26 @@ const hashSeed01 = (seed: number, index: number): number => {
   return hash2D01(mixed, seed ^ 0x9e3779b9);
 };
 
+const resolveReplayDitherPalette = ({
+  color,
+  ditherIntensity,
+  ditherBackgroundFill,
+}: {
+  color: { r: number; g: number; b: number };
+  ditherIntensity: number;
+  ditherBackgroundFill: boolean;
+}): ResolvedDitherPalette => {
+  const { foregroundInk, backgroundInk } = resolveStrokeDitherPalette({
+    color: `rgb(${color.r}, ${color.g}, ${color.b})`,
+    spreadPercent: Math.max(0, Math.min(100, ditherIntensity)),
+    ditherBackgroundFill,
+  });
+  return {
+    primary: foregroundInk,
+    secondary: backgroundInk,
+  };
+};
+
 const compositePremultipliedPixel = ({
   pixels,
   index,
@@ -424,39 +511,104 @@ const shouldKeepTexturedPixel = ({
   x,
   y,
   alpha,
-  pluginConfig,
+  ditherConfig,
 }: {
   mode: SequentialTextureMode;
   x: number;
   y: number;
   alpha: number;
-  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
+  ditherConfig?: ResolvedDitherTextureConfig | null;
 }): boolean => {
   if (mode === 'solid') {
     return true;
   }
   if (mode === 'dither') {
-    const algorithmRaw = typeof pluginConfig?.ditherAlgorithm === 'string'
-      ? pluginConfig.ditherAlgorithm.trim().toLowerCase()
-      : '';
-    const intensity = clamp01((pluginConfig?.ditherIntensity ?? 80) / 100);
-    const coverage = Math.max(0.18, Math.min(0.98, alpha * (0.62 + (1 - intensity) * 0.26)));
-    if (algorithmRaw === 'bayer' || algorithmRaw === '' || algorithmRaw === 'sierra-lite') {
-      const matrixSize = pluginConfig?.ditherBayerMatrixSize ?? 8;
-      const threshold = resolveDitherMatrixThreshold({
-        x,
-        y,
-        matrixSize: matrixSize === 2 || matrixSize === 8 ? matrixSize : 4,
-      });
+    const config = ditherConfig ?? {
+      algorithm: 'bayer',
+      patternStyle: 'dots' as const,
+      intensity: 0.8,
+      matrixSize: 8 as const,
+      coverageBase: 0.62 + (1 - 0.8) * 0.26,
+      bgFill: true,
+      tileScale: 1,
+      seed: 0,
+    };
+    const coverage = Math.max(0.18, Math.min(0.98, alpha * config.coverageBase));
+    if (config.algorithm === 'pattern') {
+      const spacing = Math.max(2, Math.round(6 + (1 - config.intensity) * 10));
+      const px = ((x % spacing) + spacing) % spacing;
+      const py = ((y % spacing) + spacing) % spacing;
+      const center = (spacing - 1) * 0.5;
+      let patternValue = 0;
+      switch (config.patternStyle) {
+        case 'lines': {
+          const diagonal = (px + py) % spacing;
+          patternValue = diagonal / spacing;
+          break;
+        }
+        case 'vertical-lines':
+          patternValue = px / spacing;
+          break;
+        case 'horizontal-lines':
+          patternValue = py / spacing;
+          break;
+        case 'crosshatch': {
+          const vertical = px / spacing;
+          const horizontal = py / spacing;
+          patternValue = Math.min(vertical, horizontal);
+          break;
+        }
+        case 'diagonal': {
+          const dx = Math.abs(px - center);
+          const dy = Math.abs(py - center);
+          patternValue = (dx + dy) / spacing;
+          break;
+        }
+        case 'tone-adaptive':
+          patternValue = coverage < 0.33 ? px / spacing : coverage < 0.66 ? ((px + py) % spacing) / spacing : py / spacing;
+          break;
+        case 'dots':
+        default: {
+          const dx = px - center;
+          const dy = py - center;
+          const distance = Math.sqrt(dx * dx + dy * dy) / (spacing * 0.5);
+          patternValue = Math.min(1, distance);
+        }
+      }
+      return patternValue <= coverage;
+    }
+    if (config.algorithm === 'blue-noise') {
+      const threshold = BLUE_NOISE_16x16[y & 15][x & 15];
       return coverage >= threshold;
     }
-    if (algorithmRaw === 'pattern') {
-      const pattern = (x + y + Math.floor(intensity * 8)) % 3;
-      return pattern !== 0 && coverage > 0.2;
+    if (config.algorithm === 'void-and-cluster') {
+      const threshold = VOID_CLUSTER_8x8[y & 7][x & 7];
+      return coverage >= threshold;
     }
-    // Unknown algorithms fall back to deterministic ordered dither instead of
-    // hash-noise so replay texture stays coherent across frames.
-    const threshold = resolveDitherMatrixThreshold({ x, y, matrixSize: 8 });
+    if (
+      config.algorithm === 'floyd-steinberg' ||
+      config.algorithm === 'jarvis-judice-ninke' ||
+      config.algorithm === 'stucki' ||
+      config.algorithm === 'burkes' ||
+      config.algorithm === 'sierra-3' ||
+      config.algorithm === 'sierra-2' ||
+      config.algorithm === 'sierra-lite' ||
+      config.algorithm === 'atkinson'
+    ) {
+      const sample = sampleStampDitherReplayMask({
+        x,
+        y,
+        coverage,
+        seed: config.seed,
+        tileScale: config.tileScale,
+        originX: 0,
+        originY: 0,
+        algorithm: config.algorithm as StampDitherAlgorithm,
+        patternStyle: config.patternStyle,
+      });
+      return sample >= 0.5;
+    }
+    const threshold = resolveDitherMatrixThreshold({ x, y, matrixSize: config.matrixSize });
     return coverage >= threshold;
   }
   const noise = hash2D01(x, y);
@@ -479,7 +631,8 @@ const paintStamp = ({
   color,
   blendMode,
   mosaicConfig,
-  pluginConfig,
+  ditherConfig,
+  ditherPalette,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
@@ -493,7 +646,8 @@ const paintStamp = ({
   color: { r: number; g: number; b: number; a: number };
   blendMode: SupportedBlendMode;
   mosaicConfig?: SequentialMosaicConfig | null;
-  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
+  ditherConfig?: ResolvedDitherTextureConfig | null;
+  ditherPalette?: ResolvedDitherPalette | null;
 }) => {
   if (stampSize <= 0 || stampAlpha <= 0) {
     return;
@@ -521,7 +675,8 @@ const paintStamp = ({
 
       const srcA = baseSrcA;
       let toneFactor = 1;
-      let alphaScale = 1;
+      const alphaScale = 1;
+      let localColor = color;
       if (textureMode === 'mosaic') {
         const tilePx = mosaicConfig?.tilePx ?? Math.max(1, Math.round(stampSize * 0.35));
         const paletteCount = mosaicConfig?.paletteCount ?? 6;
@@ -543,21 +698,41 @@ const paintStamp = ({
           continue;
         }
       } else if (textureMode === 'dither') {
-        const keepPrimary = shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA, pluginConfig });
+        const keepPrimary = shouldKeepTexturedPixel({
+          mode: textureMode,
+          x,
+          y,
+          alpha: srcA,
+          ditherConfig,
+        });
         if (!keepPrimary) {
-          // Preserve dither texture without punching transparent holes.
-          // Secondary dither pixels are softer/darker instead of fully transparent.
-          toneFactor = 0.78;
-          alphaScale = 0.24;
+          if (ditherConfig?.bgFill === false) {
+            continue;
+          }
+          if (ditherPalette) {
+            localColor = {
+              r: ditherPalette.secondary[0],
+              g: ditherPalette.secondary[1],
+              b: ditherPalette.secondary[2],
+              a: color.a,
+            };
+          }
+        } else if (ditherPalette) {
+          localColor = {
+            r: ditherPalette.primary[0],
+            g: ditherPalette.primary[1],
+            b: ditherPalette.primary[2],
+            a: color.a,
+          };
         }
-      } else if (!shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA, pluginConfig })) {
+      } else if (!shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA })) {
         continue;
       }
 
       const shadedSrcA = srcA * alphaScale;
-      const srcR = (color.r / 255) * shadedSrcA * toneFactor;
-      const srcG = (color.g / 255) * shadedSrcA * toneFactor;
-      const srcB = (color.b / 255) * shadedSrcA * toneFactor;
+      const srcR = (localColor.r / 255) * shadedSrcA * toneFactor;
+      const srcG = (localColor.g / 255) * shadedSrcA * toneFactor;
+      const srcB = (localColor.b / 255) * shadedSrcA * toneFactor;
 
       const index = (y * width + x) * 4;
       compositePremultipliedPixel({
@@ -571,6 +746,103 @@ const paintStamp = ({
       });
     }
   }
+};
+
+const resolveDitherTextureConfig = ({
+  event,
+}: {
+  event: SequentialStrokeEvent;
+}): ResolvedDitherTextureConfig => {
+  const config = normalizeSequentialDitherPluginConfig({
+    config: event.brush.pluginConfig,
+    brushDitherAlgorithm: event.brush.ditherAlgorithm,
+    brushPatternStyle: event.brush.pluginConfig?.patternStyle ?? undefined,
+    brushDitherBackgroundFill: event.brush.ditherBackgroundFill,
+    fillResolution: event.brush.fillResolution,
+  });
+  const normalizedAlgorithm = typeof config.ditherAlgorithm === 'string'
+    ? config.ditherAlgorithm
+    : 'bayer';
+  const intensity = clamp01((config.ditherIntensity ?? 80) / 100);
+  const matrixSize = config.ditherBayerMatrixSize === 2 || config.ditherBayerMatrixSize === 4
+    ? config.ditherBayerMatrixSize
+    : 8;
+  const patternStyle = config.patternStyle === 'lines' ||
+    config.patternStyle === 'vertical-lines' ||
+    config.patternStyle === 'horizontal-lines' ||
+    config.patternStyle === 'crosshatch' ||
+    config.patternStyle === 'diagonal' ||
+    config.patternStyle === 'tone-adaptive'
+    ? config.patternStyle
+    : 'dots';
+  const algorithm =
+    normalizedAlgorithm === 'pattern' ||
+    normalizedAlgorithm === 'blue-noise' ||
+    normalizedAlgorithm === 'void-and-cluster' ||
+    normalizedAlgorithm === 'floyd-steinberg' ||
+    normalizedAlgorithm === 'jarvis-judice-ninke' ||
+    normalizedAlgorithm === 'stucki' ||
+    normalizedAlgorithm === 'burkes' ||
+    normalizedAlgorithm === 'sierra-3' ||
+    normalizedAlgorithm === 'sierra-2' ||
+    normalizedAlgorithm === 'sierra-lite' ||
+    normalizedAlgorithm === 'atkinson'
+      ? normalizedAlgorithm
+      : 'bayer';
+  const tileScale = Number.isFinite(event.brush.fillResolution)
+    ? Math.max(1, Math.min(64, Math.round(event.brush.fillResolution ?? 1)))
+    : 1;
+  const seed = hashString32(`${event.strokeId}:${event.id}:${algorithm}:${patternStyle}`);
+  return {
+    algorithm,
+    patternStyle,
+    intensity,
+    matrixSize,
+    coverageBase: 0.62 + (1 - intensity) * 0.26,
+    bgFill: config.ditherBackgroundFill !== false && event.brush.ditherBackgroundFill !== false,
+    tileScale,
+    seed,
+  };
+};
+
+const resolveParticleConfig = ({
+  event,
+}: {
+  event: SequentialStrokeEvent;
+}): ResolvedParticleConfig => {
+  const config = normalizeSequentialParticlePluginConfig({
+    config: event.brush.pluginConfig,
+  });
+  return {
+    density: Number.isFinite(config.particleDensity) ? config.particleDensity ?? 20 : 20,
+    scatterRadiusFactor: Number.isFinite(config.particleScatterRadius)
+      ? config.particleScatterRadius ?? 1.5
+      : 1.5,
+  };
+};
+
+const resolveSpamConfig = ({
+  event,
+}: {
+  event: SequentialStrokeEvent;
+}): ResolvedSpamConfig => {
+  const config = normalizeSequentialSpamPluginConfig({
+    config: event.brush.pluginConfig,
+  });
+  return {
+    fontBias:
+      typeof config.spamFont === 'string'
+        ? clamp01((config.spamFont.length % 10) / 10)
+        : 0.5,
+    contentBias:
+      typeof config.spamContentType === 'string'
+        ? clamp01((config.spamContentType.length % 12) / 12)
+        : 0.5,
+    customTextBias:
+      typeof config.spamCustomText === 'string'
+        ? clamp01(Math.min(1, config.spamCustomText.length / 32))
+        : 0,
+  };
 };
 
 const paintMosaicStamp = ({
@@ -750,7 +1022,7 @@ const paintParticleStamp = ({
   color,
   blendMode,
   seed,
-  pluginConfig,
+  particleConfig,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
@@ -762,14 +1034,9 @@ const paintParticleStamp = ({
   color: { r: number; g: number; b: number; a: number };
   blendMode: SupportedBlendMode;
   seed: number;
-  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
+  particleConfig: ResolvedParticleConfig;
 }): void => {
-  const density = Number.isFinite(pluginConfig?.particleDensity)
-    ? Math.max(1, Math.min(200, pluginConfig?.particleDensity ?? 20))
-    : 20;
-  const scatterRadiusFactor = Number.isFinite(pluginConfig?.particleScatterRadius)
-    ? Math.max(0.1, Math.min(5, pluginConfig?.particleScatterRadius ?? 1.5))
-    : 1.5;
+  const { density, scatterRadiusFactor } = particleConfig;
   const particleCount = Math.max(4, Math.min(200, Math.round(density * clamp01(stampAlpha) * 1.2)));
   const scatterRadius = stampSize * scatterRadiusFactor;
   const alphaScale = clamp01(Math.min(0.7, 1.8 / Math.sqrt(particleCount)));
@@ -792,7 +1059,7 @@ const paintParticleStamp = ({
       color,
       blendMode,
       mosaicConfig: null,
-      pluginConfig: null,
+      ditherConfig: null,
     });
   }
 };
@@ -808,7 +1075,7 @@ const paintSpamStamp = ({
   color,
   blendMode,
   seed,
-  pluginConfig,
+  spamConfig,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
@@ -820,23 +1087,12 @@ const paintSpamStamp = ({
   color: { r: number; g: number; b: number; a: number };
   blendMode: SupportedBlendMode;
   seed: number;
-  pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'] | null;
+  spamConfig: ResolvedSpamConfig;
 }): void => {
   if (stampSize <= 0 || stampAlpha <= 0) {
     return;
   }
-  const fontBias =
-    typeof pluginConfig?.spamFont === 'string'
-      ? clamp01((pluginConfig.spamFont.length % 10) / 10)
-      : 0.5;
-  const contentBias =
-    typeof pluginConfig?.spamContentType === 'string'
-      ? clamp01((pluginConfig.spamContentType.length % 12) / 12)
-      : 0.5;
-  const customTextBias =
-    typeof pluginConfig?.spamCustomText === 'string'
-      ? clamp01(Math.min(1, pluginConfig.spamCustomText.length / 32))
-      : 0;
+  const { fontBias, contentBias, customTextBias } = spamConfig;
   const glyphWidthScale = 1.7 + fontBias * 0.8;
   const glyphHeightScale = 0.75 + contentBias * 0.4;
   const glyphWidth = Math.max(4, Math.round(stampSize * glyphWidthScale));
@@ -1014,10 +1270,20 @@ const paintEventsToPixels = ({
       parsedColor = parseCssColor(colorKey);
       parsedColorCache.set(colorKey, parsedColor);
     }
-    const stampShape = resolveStampShape(event.brush.brushShape);
+    const stampShape = resolveStampShape(event);
     const customStamp = parseCustomStamp(event);
     const textureMode = resolveTextureMode(event);
+    const ditherConfig = textureMode === 'dither' ? resolveDitherTextureConfig({ event }) : null;
+    const ditherPalette = textureMode === 'dither'
+      ? resolveReplayDitherPalette({
+          color: parsedColor,
+          ditherIntensity: (ditherConfig?.intensity ?? 0.8) * 100,
+          ditherBackgroundFill: ditherConfig?.bgFill !== false,
+        })
+      : null;
     const pluginMode = resolvePluginRenderMode(event.brush.pluginBrushId);
+    const particleConfig = pluginMode === 'particle-brush' ? resolveParticleConfig({ event }) : null;
+    const spamConfig = pluginMode === 'spam-brush' ? resolveSpamConfig({ event }) : null;
     const blendMode = resolveBlendMode(event);
     const mosaicConfig = textureMode === 'mosaic' ? resolveMosaicConfig(event) : null;
     const mosaicRuntime =
@@ -1055,7 +1321,7 @@ const paintEventsToPixels = ({
           color: parsedColor,
           blendMode,
           seed: hashString32(`${event.id}:${stampIndex}`),
-          pluginConfig: event.brush.pluginConfig,
+          particleConfig: particleConfig ?? { density: 20, scatterRadiusFactor: 1.5 },
         });
         continue;
       }
@@ -1071,7 +1337,7 @@ const paintEventsToPixels = ({
           color: parsedColor,
           blendMode,
           seed: hashString32(`${event.id}:${stampIndex}:spam`),
-          pluginConfig: event.brush.pluginConfig,
+          spamConfig: spamConfig ?? { fontBias: 0.5, contentBias: 0.5, customTextBias: 0 },
         });
         continue;
       }
@@ -1110,7 +1376,8 @@ const paintEventsToPixels = ({
         color: parsedColor,
         blendMode,
         mosaicConfig,
-        pluginConfig: event.brush.pluginConfig,
+        ditherConfig,
+        ditherPalette,
       });
     }
   }

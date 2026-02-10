@@ -1,5 +1,10 @@
-import type { SequentialBrushSnapshot, SequentialStampPoint, SequentialStrokeEvent } from '@/types';
-import { clonePluginConfig, serializePluginConfigForKey } from '@/lib/sequential/pluginConfig';
+import { BrushShape, type SequentialBrushSnapshot, type SequentialStampPoint, type SequentialStrokeEvent } from '@/types';
+import {
+  clonePluginConfig,
+  normalizeSequentialDitherPluginConfig,
+  normalizeSequentialPluginConfigForReplay,
+  serializePluginConfigForKey,
+} from '@/lib/sequential/pluginConfig';
 
 const Q8_8_SCALE = 256;
 const ROTATION_SCALE = 1024;
@@ -160,28 +165,51 @@ const hashString = (value: string): string => {
   return `brush-${hash.toString(16).padStart(8, '0')}`;
 };
 
-const cloneBrushSnapshot = (brush: SequentialBrushSnapshot): SequentialBrushSnapshot => ({
-  ...brush,
-  pluginConfig: clonePluginConfig(brush.pluginConfig),
-  customStampId: brush.customStampId ?? null,
-  customStampHash: brush.customStampHash ?? null,
-  customStamp: brush.customStamp
-    ? {
-        width: brush.customStamp.width,
-        height: brush.customStamp.height,
-        rgbaBase64: brush.customStamp.rgbaBase64,
-        isColorizable: brush.customStamp.isColorizable,
-      }
-    : null,
-  mosaicTilePx: brush.mosaicTilePx,
-  mosaicSegmentPx: brush.mosaicSegmentPx,
-  mosaicBlocksCount: brush.mosaicBlocksCount,
-  mosaicPaletteCount: brush.mosaicPaletteCount,
-  mosaicDitherEnabled: brush.mosaicDitherEnabled,
-  mosaicSegmentJitter: brush.mosaicSegmentJitter,
-  mosaicSeed: brush.mosaicSeed,
-  colorCycleGradient: brush.colorCycleGradient?.map((stop) => ({ ...stop })),
-});
+const cloneBrushSnapshot = (brush: SequentialBrushSnapshot): SequentialBrushSnapshot => {
+  const normalizedPluginConfig = brush.pluginBrushId
+    ? normalizeSequentialPluginConfigForReplay({
+        pluginBrushId: brush.pluginBrushId,
+        config: brush.pluginConfig,
+        brushDitherAlgorithm: brush.ditherAlgorithm,
+        brushPatternStyle: brush.pluginConfig?.patternStyle as string | undefined,
+      })
+    : (brush.ditherEnabled ||
+        brush.brushShape === BrushShape.PIXEL_DITHER ||
+        brush.brushShape === BrushShape.DITHER_GRADIENT)
+      ? normalizeSequentialDitherPluginConfig({
+          config: brush.pluginConfig,
+          brushDitherAlgorithm: brush.ditherAlgorithm,
+          brushPatternStyle: brush.pluginConfig?.patternStyle as string | undefined,
+        })
+      : clonePluginConfig(brush.pluginConfig);
+  const normalizedDitherAlgorithm =
+    typeof normalizedPluginConfig?.ditherAlgorithm === 'string'
+      ? normalizedPluginConfig.ditherAlgorithm
+      : brush.ditherAlgorithm;
+  return {
+    ...brush,
+    pluginConfig: normalizedPluginConfig,
+    customStampId: brush.customStampId ?? null,
+    customStampHash: brush.customStampHash ?? null,
+    customStamp: brush.customStamp
+      ? {
+          width: brush.customStamp.width,
+          height: brush.customStamp.height,
+          rgbaBase64: brush.customStamp.rgbaBase64,
+          isColorizable: brush.customStamp.isColorizable,
+        }
+      : null,
+    mosaicTilePx: brush.mosaicTilePx,
+    mosaicSegmentPx: brush.mosaicSegmentPx,
+    mosaicBlocksCount: brush.mosaicBlocksCount,
+    mosaicPaletteCount: brush.mosaicPaletteCount,
+    mosaicDitherEnabled: brush.mosaicDitherEnabled,
+    mosaicSegmentJitter: brush.mosaicSegmentJitter,
+    mosaicSeed: brush.mosaicSeed,
+    ditherAlgorithm: normalizedDitherAlgorithm,
+    colorCycleGradient: brush.colorCycleGradient?.map((stop) => ({ ...stop })),
+  };
+};
 
 type StrokeBucket = {
   strokeId: string;

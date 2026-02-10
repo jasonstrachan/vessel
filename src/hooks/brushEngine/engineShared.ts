@@ -294,12 +294,31 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
 };
 
 export const computeStrokeDitherPaletteForSettings = (settings: BrushSettings): string[] => {
-  const basePalette = buildDitherPalette(
-    settings.color || '#000',
-    settings.ditherPaletteSpread ?? 0
-  );
+  const { palette } = resolveStrokeDitherPalette({
+    color: settings.color || '#000',
+    spreadPercent: settings.ditherPaletteSpread ?? 0,
+    ditherBackgroundFill: settings.ditherBackgroundFill,
+  });
+  return palette;
+};
 
-  if (settings.ditherBackgroundFill === false && basePalette.length >= 2) {
+export const resolveStrokeDitherPalette = ({
+  color,
+  spreadPercent,
+  ditherBackgroundFill,
+}: {
+  color: string;
+  spreadPercent?: number;
+  ditherBackgroundFill?: boolean;
+}): {
+  palette: string[];
+  foregroundInk: [number, number, number];
+  backgroundInk: [number, number, number];
+} => {
+  const basePalette = buildDitherPalette(color || '#000', spreadPercent ?? 0);
+  const reduceForBgOff = ditherBackgroundFill === false && basePalette.length >= 2;
+  let palette = basePalette;
+  if (reduceForBgOff) {
     const luminance = (rgb: string): number => {
       const [r, g, b] = parseColor(rgb || '#000');
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -319,10 +338,11 @@ export const computeStrokeDitherPaletteForSettings = (settings: BrushSettings): 
         lightest = basePalette[i];
       }
     }
-    return [darkest, lightest];
+    palette = [darkest, lightest];
   }
-
-  return basePalette;
+  const foregroundInk = parseColor(palette[0] ?? color ?? '#000') as [number, number, number];
+  const backgroundInk = parseColor(palette[1] ?? palette[0] ?? color ?? '#000') as [number, number, number];
+  return { palette, foregroundInk, backgroundInk };
 };
 
 export const pickTransparentInk = (palette: string[]): [number, number, number] => {

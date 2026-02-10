@@ -714,6 +714,52 @@ const getStampDitherTile = (
   return tile;
 };
 
+const replayStampDitherRuntime: StampDitherRuntime = createStampDitherRuntime();
+
+export const sampleStampDitherReplayMask = ({
+  x,
+  y,
+  coverage,
+  seed,
+  tileScale,
+  originX,
+  originY,
+  algorithm,
+  patternStyle,
+}: {
+  x: number;
+  y: number;
+  coverage: number;
+  seed: number;
+  tileScale: number;
+  originX: number;
+  originY: number;
+  algorithm: StampDitherAlgorithm;
+  patternStyle: PatternStyle;
+}): number => {
+  const scale = Math.max(1, Math.floor(tileScale));
+  const clampedCoverage = Math.max(0, Math.min(1, coverage));
+  const bucket = resolveStampDitherBucket(clampedCoverage);
+  const baseSize = resolveStampDitherBaseSize(scale);
+  const tile = getStampDitherTile(
+    replayStampDitherRuntime,
+    bucket,
+    scale,
+    baseSize,
+    algorithm,
+    patternStyle
+  );
+  return resolveStampDitherTileSample(
+    tile,
+    baseSize * scale,
+    x,
+    y,
+    originX,
+    originY,
+    seed >>> 0
+  );
+};
+
 const applyStampDitherToRegion = (
   strokeData: StampDitherStrokeData,
   animator: ColorCycleAnimator,

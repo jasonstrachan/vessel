@@ -308,6 +308,14 @@ describe('projectIO serialize/deserialize layering', () => {
               rotation: 0.15,
               spacing: 2,
               color: '#ff0000',
+              pluginBrushId: 'dither-brush',
+              pluginConfig: {
+                ditherAlgorithm: 'pattern',
+                ditherIntensity: 67,
+                ditherBayerMatrixSize: 8,
+              },
+              ditherEnabled: true,
+              ditherAlgorithm: 'pattern',
               customStampId: null,
             },
             stamps: [
@@ -344,6 +352,15 @@ describe('projectIO serialize/deserialize layering', () => {
 
     expect(restoredLayer.layerType).toBe('sequential');
     expect(restoredLayer.sequentialData).toEqual(sequentialLayer.sequentialData);
+    const restoredEvent = restoredLayer.sequentialData?.events[0];
+    expect(restoredEvent?.brush.pluginBrushId).toBe('dither-brush');
+    expect(restoredEvent?.brush.pluginConfig).toEqual({
+      ditherAlgorithm: 'pattern',
+      ditherIntensity: 67,
+      ditherBayerMatrixSize: 8,
+    });
+    expect(restoredEvent?.brush.ditherEnabled).toBe(true);
+    expect(restoredEvent?.brush.ditherAlgorithm).toBe('pattern');
   });
 
   it('sanitizes invalid sequential payloads on load', async () => {

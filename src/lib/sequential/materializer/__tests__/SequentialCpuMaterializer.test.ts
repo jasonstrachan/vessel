@@ -11,6 +11,7 @@ const createEvent = ({
   brushShape = BrushShape.ROUND,
   alpha = 1,
   ditherEnabled = false,
+  ditherAlgorithm,
   blendMode = 'source-over',
   pluginBrushId,
   pluginConfig,
@@ -33,6 +34,7 @@ const createEvent = ({
   brushShape?: BrushShape;
   alpha?: number;
   ditherEnabled?: boolean;
+  ditherAlgorithm?: SequentialStrokeEvent['brush']['ditherAlgorithm'];
   blendMode?: SequentialStrokeEvent['brush']['blendMode'];
   pluginBrushId?: string;
   pluginConfig?: SequentialStrokeEvent['brush']['pluginConfig'];
@@ -79,6 +81,7 @@ const createEvent = ({
         }
       : null,
     ditherEnabled,
+    ditherAlgorithm,
     mosaicTilePx,
     mosaicBlocksCount,
     mosaicPaletteCount,
@@ -298,7 +301,8 @@ describe('SequentialCpuMaterializer', () => {
       ],
     });
 
-    expect(sumAlpha(dithered)).toBeLessThan(sumAlpha(plain));
+    expect(sumAlpha(dithered)).toBeGreaterThan(0);
+    expect(Array.from(dithered)).not.toEqual(Array.from(plain));
   });
 
   it('applies pixel-dither texture mode for non-custom brushes', () => {
@@ -335,7 +339,8 @@ describe('SequentialCpuMaterializer', () => {
       ],
     });
 
-    expect(sumAlpha(textured)).toBeLessThan(sumAlpha(solid));
+    expect(sumAlpha(textured)).toBeGreaterThan(0);
+    expect(Array.from(textured)).not.toEqual(Array.from(solid));
   });
 
   it('applies dither texture for dither-brush plugin replays', () => {
@@ -371,7 +376,8 @@ describe('SequentialCpuMaterializer', () => {
       ],
     });
 
-    expect(sumAlpha(pluginDither)).toBeLessThan(sumAlpha(standard));
+    expect(sumAlpha(pluginDither)).toBeGreaterThan(0);
+    expect(Array.from(pluginDither)).not.toEqual(Array.from(standard));
   });
 
   it('uses dither plugin config to vary deterministic replay output', () => {
@@ -421,6 +427,134 @@ describe('SequentialCpuMaterializer', () => {
     expect(sumAlpha(pluginBayer)).toBeGreaterThan(0);
     expect(sumAlpha(pluginPattern)).toBeGreaterThan(0);
     expect(Array.from(pluginBayer)).not.toEqual(Array.from(pluginPattern));
+  });
+
+  it('normalizes invalid dither plugin config to deterministic canonical output', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 24,
+      height: 24,
+      frameIndex: 0,
+    };
+    const canonical = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'canonical',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          pluginBrushId: 'dither-brush',
+          pluginConfig: {
+            ditherAlgorithm: 'bayer',
+            ditherIntensity: 100,
+            ditherBayerMatrixSize: 8,
+          },
+        }),
+      ],
+    });
+    const invalid = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'invalid',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          pluginBrushId: 'dither-brush',
+          pluginConfig: {
+            ditherAlgorithm: 'totally-invalid' as SequentialStrokeEvent['brush']['ditherAlgorithm'],
+            ditherIntensity: 1000,
+            ditherBayerMatrixSize: 999 as 2,
+          },
+        }),
+      ],
+    });
+
+    expect(Array.from(invalid)).toEqual(Array.from(canonical));
+  });
+
+  it('uses top-level dither algorithm when plugin config is absent', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 24,
+      height: 24,
+      frameIndex: 0,
+    };
+    const bayer = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'bayer-no-config',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          ditherEnabled: true,
+          ditherAlgorithm: 'bayer',
+        }),
+      ],
+    });
+    const pattern = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'pattern-no-config',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          ditherEnabled: true,
+          ditherAlgorithm: 'pattern',
+        }),
+      ],
+    });
+
+    expect(sumAlpha(bayer)).toBeGreaterThan(0);
+    expect(sumAlpha(pattern)).toBeGreaterThan(0);
+    expect(Array.from(bayer)).not.toEqual(Array.from(pattern));
+  });
+
+  it('does not collapse sierra-lite replay to bayer fallback', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 24,
+      height: 24,
+      frameIndex: 0,
+    };
+    const bayer = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'bayer-ref',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          ditherEnabled: true,
+          ditherAlgorithm: 'bayer',
+        }),
+      ],
+    });
+    const sierraLite = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'sierra-lite-ref',
+          frameIndex: 0,
+          x: 12,
+          y: 12,
+          color: '#ffffff',
+          ditherEnabled: true,
+          ditherAlgorithm: 'sierra-lite',
+        }),
+      ],
+    });
+
+    expect(sumAlpha(sierraLite)).toBeGreaterThan(0);
+    expect(Array.from(sierraLite)).not.toEqual(Array.from(bayer));
   });
 
   it('replays particle-brush with wider deterministic scatter than a plain stamp', () => {

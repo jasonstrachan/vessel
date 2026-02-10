@@ -116,4 +116,130 @@ describe('SequentialStrokeChunk', () => {
       })
     ).toThrow('Unsupported sequential chunk version');
   });
+
+  it('normalizes dither replay config when decoding chunked events', () => {
+    const encoded = encodeSequentialEventsToChunks({
+      layerId: 'layer-seq',
+      fps: 12,
+      frameCount: 24,
+      events: [
+        {
+          ...createEvent('event-dither', 'stroke-dither', 4, 160),
+          brush: {
+            ...createEvent('event-dither', 'stroke-dither', 4, 160).brush,
+            pluginBrushId: 'dither-brush',
+            pluginConfig: {
+              ditherAlgorithm: 'bayer',
+              ditherIntensity: 50,
+              ditherBayerMatrixSize: 8,
+            },
+            ditherAlgorithm: 'bayer',
+          },
+        },
+      ],
+    });
+    const snapshotId = encoded.chunks[0].header.brushSnapshotId;
+    const malformedSnapshot = encoded.brushSnapshots[snapshotId] as unknown as {
+      pluginConfig?: Record<string, unknown>;
+      ditherAlgorithm?: string;
+    };
+    malformedSnapshot.pluginConfig = {
+      ...(malformedSnapshot.pluginConfig ?? {}),
+      ditherAlgorithm: 'invalid-algo',
+      ditherIntensity: 999,
+      ditherBayerMatrixSize: 999,
+    };
+    malformedSnapshot.ditherAlgorithm = 'invalid-algo';
+    const decoded = decodeSequentialChunksToEvents({
+      chunks: encoded.chunks,
+      brushSnapshots: encoded.brushSnapshots,
+    });
+
+    expect(decoded).toHaveLength(1);
+    expect(decoded[0].brush.pluginConfig?.ditherAlgorithm).toBe('bayer');
+    expect(decoded[0].brush.pluginConfig?.ditherIntensity).toBe(100);
+    expect(decoded[0].brush.pluginConfig?.ditherBayerMatrixSize).toBe(8);
+    expect(decoded[0].brush.ditherAlgorithm).toBe('bayer');
+  });
+
+  it('normalizes particle replay config when decoding chunked events', () => {
+    const encoded = encodeSequentialEventsToChunks({
+      layerId: 'layer-seq',
+      fps: 12,
+      frameCount: 24,
+      events: [
+        {
+          ...createEvent('event-particle', 'stroke-particle', 2, 120),
+          brush: {
+            ...createEvent('event-particle', 'stroke-particle', 2, 120).brush,
+            pluginBrushId: 'particle-brush',
+            pluginConfig: {
+              particleDensity: 20,
+              particleScatterRadius: 1.5,
+            },
+          },
+        },
+      ],
+    });
+    const snapshotId = encoded.chunks[0].header.brushSnapshotId;
+    const malformedSnapshot = encoded.brushSnapshots[snapshotId] as unknown as {
+      pluginConfig?: Record<string, unknown>;
+    };
+    malformedSnapshot.pluginConfig = {
+      ...(malformedSnapshot.pluginConfig ?? {}),
+      particleDensity: 1000,
+      particleScatterRadius: -4,
+    };
+
+    const decoded = decodeSequentialChunksToEvents({
+      chunks: encoded.chunks,
+      brushSnapshots: encoded.brushSnapshots,
+    });
+
+    expect(decoded).toHaveLength(1);
+    expect(decoded[0].brush.pluginConfig?.particleDensity).toBe(200);
+    expect(decoded[0].brush.pluginConfig?.particleScatterRadius).toBe(0.1);
+  });
+
+  it('normalizes spam replay config when decoding chunked events', () => {
+    const encoded = encodeSequentialEventsToChunks({
+      layerId: 'layer-seq',
+      fps: 12,
+      frameCount: 24,
+      events: [
+        {
+          ...createEvent('event-spam', 'stroke-spam', 6, 240),
+          brush: {
+            ...createEvent('event-spam', 'stroke-spam', 6, 240).brush,
+            pluginBrushId: 'spam-brush',
+            pluginConfig: {
+              spamFont: 'menlo',
+              spamContentType: 'crypto',
+              spamCustomText: 'TO THE MOON',
+            },
+          },
+        },
+      ],
+    });
+    const snapshotId = encoded.chunks[0].header.brushSnapshotId;
+    const malformedSnapshot = encoded.brushSnapshots[snapshotId] as unknown as {
+      pluginConfig?: Record<string, unknown>;
+    };
+    malformedSnapshot.pluginConfig = {
+      ...(malformedSnapshot.pluginConfig ?? {}),
+      spamFont: '',
+      spamContentType: '',
+      spamCustomText: '',
+    };
+
+    const decoded = decodeSequentialChunksToEvents({
+      chunks: encoded.chunks,
+      brushSnapshots: encoded.brushSnapshots,
+    });
+
+    expect(decoded).toHaveLength(1);
+    expect(decoded[0].brush.pluginConfig?.spamFont).toBeNull();
+    expect(decoded[0].brush.pluginConfig?.spamContentType).toBeNull();
+    expect(decoded[0].brush.pluginConfig?.spamCustomText).toBeNull();
+  });
 });

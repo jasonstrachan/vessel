@@ -9,7 +9,11 @@ import {
   SEQUENTIAL_PAYLOAD_HARD_LIMIT_BYTES,
   SEQUENTIAL_PAYLOAD_SOFT_LIMIT_BYTES,
 } from '@/lib/sequential/SequentialPayloadBudget';
-import { serializePluginConfigForKey } from '@/lib/sequential/pluginConfig';
+import {
+  normalizeSequentialDitherPluginConfig,
+  normalizeSequentialPluginConfigForReplay,
+  serializePluginConfigForKey,
+} from '@/lib/sequential/pluginConfig';
 import {
   recordSequentialFlushPerf,
   recordSequentialTemporalDistributionPerf,
@@ -479,9 +483,41 @@ const buildBrushSnapshot = ({
     ? brushRegistry.get(pluginBrushId)?.serializeSequentialConfig?.(settings) ??
       serializeBuiltinPluginSequentialConfig(pluginBrushId, settings)
     : null;
+  const brushShape = settings.brushShape ?? BrushShape.ROUND;
+  const shouldCaptureDitherConfig =
+    pluginBrushId === 'dither-brush' ||
+    (!pluginBrushId &&
+      (settings.ditherEnabled ||
+        settings.colorCycleStampDitherEnabled ||
+        brushShape === BrushShape.PIXEL_DITHER ||
+        brushShape === BrushShape.DITHER_GRADIENT));
+  const normalizedPluginConfig = pluginBrushId
+    ? normalizeSequentialPluginConfigForReplay({
+        pluginBrushId,
+        config: pluginConfig,
+        brushDitherAlgorithm: settings.ditherAlgorithm,
+        brushDitherIntensity: settings.ditherPaletteSpread,
+        brushPatternStyle: settings.patternStyle,
+        brushDitherBackgroundFill: settings.ditherBackgroundFill,
+        fillResolution: settings.fillResolution,
+      })
+    : shouldCaptureDitherConfig
+      ? normalizeSequentialDitherPluginConfig({
+          config: pluginConfig,
+          brushDitherAlgorithm: settings.ditherAlgorithm,
+          brushDitherIntensity: settings.ditherPaletteSpread,
+          brushPatternStyle: settings.patternStyle,
+          brushDitherBackgroundFill: settings.ditherBackgroundFill,
+          fillResolution: settings.fillResolution,
+        })
+      : pluginConfig;
+  const normalizedDitherAlgorithm =
+    typeof normalizedPluginConfig?.ditherAlgorithm === 'string'
+      ? normalizedPluginConfig.ditherAlgorithm
+      : settings.ditherAlgorithm;
   return {
     tool: state.tools.currentTool,
-    brushShape: settings.brushShape ?? BrushShape.ROUND,
+    brushShape,
     size: Math.max(1, Number.isFinite(settings.size) ? settings.size : 1),
     opacity: Math.max(0, Math.min(1, Number.isFinite(settings.opacity) ? settings.opacity : 1)),
     blendMode: settings.blendMode,
@@ -489,7 +525,7 @@ const buildBrushSnapshot = ({
     spacing: Math.max(0.25, Number.isFinite(settings.spacing) ? settings.spacing : 1),
     color: settings.color || '#000000',
     ...(pluginBrushId ? { pluginBrushId } : {}),
-    ...(pluginConfig ? { pluginConfig } : {}),
+    ...(normalizedPluginConfig ? { pluginConfig: normalizedPluginConfig } : {}),
     customStampId: customBrushData?.cacheKey ?? null,
     customStampHash: customStamp?.hash ?? null,
     customStamp: customStamp
@@ -501,10 +537,15 @@ const buildBrushSnapshot = ({
         }
       : null,
     ditherEnabled: Boolean(settings.ditherEnabled || settings.colorCycleStampDitherEnabled),
-    ditherAlgorithm: settings.ditherAlgorithm,
+    ditherAlgorithm: normalizedDitherAlgorithm,
     ditherStrokeTipShape:
       settings.ditherStrokeTipShape ??
       settings.colorCycleStampShape,
+    ditherBackgroundFill: settings.ditherBackgroundFill !== false,
+    fillResolution: Number.isFinite(settings.fillResolution)
+      ? Math.max(1, Math.min(64, Math.round(settings.fillResolution ?? 1)))
+      : 1,
+    pressureLinkedFillResolution: settings.pressureLinkedFillResolution === true,
     mosaicTilePx: settings.mosaicTilePx,
     mosaicSegmentPx: settings.mosaicSegmentPx,
     mosaicBlocksCount: settings.mosaicBlocksCount,

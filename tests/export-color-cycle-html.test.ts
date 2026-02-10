@@ -344,7 +344,10 @@ const createProject = (layer: Layer): Project => ({
   viewState: { zoom: 1 }
 });
 
-const createSequentialLayer = (canvas: HTMLCanvasElement): Layer => ({
+const createSequentialLayer = (
+  canvas: HTMLCanvasElement,
+  options?: { includeSecondFrameEvent?: boolean }
+): Layer => ({
   id: 'seq-layer',
   name: 'Sequential Layer',
   visible: true,
@@ -388,7 +391,36 @@ const createSequentialLayer = (canvas: HTMLCanvasElement): Layer => ({
             alpha: 1
           }
         ]
-      }
+      },
+      ...(options?.includeSecondFrameEvent
+        ? [{
+            id: 'seq-event-1',
+            layerId: 'seq-layer',
+            strokeId: 'seq-stroke-1',
+            timestampMs: 83,
+            frameIndex: 1,
+            brush: {
+              tool: 'brush',
+              brushShape: BrushShape.SQUARE,
+              size: 8,
+              opacity: 1,
+              blendMode: 'source-over' as const,
+              rotation: 0,
+              spacing: 1,
+              color: '#00ff00'
+            },
+            stamps: [
+              {
+                x: 44,
+                y: 44,
+                pressure: 1,
+                rotation: 0,
+                size: 8,
+                alpha: 1
+              }
+            ]
+          }]
+        : [])
     ]
   },
   version: 1
@@ -521,6 +553,43 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.assets?.texture).toBe(exportedLayer.assets?.textureFrames?.[0]);
     expect(exportedLayer.sequential?.fps).toBe(12);
     expect(exportedLayer.sequential?.totalFrames).toBe(2);
+  });
+
+  it('maps all populated sequential frames for Goblet playback', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const sequentialLayer = createSequentialLayer(canvas, { includeSecondFrameEvent: true });
+    const project = createProject(sequentialLayer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [sequentialLayer],
+      layout: createDefaultExportLayout(),
+      viewport: {
+        mode: 'fit',
+        designWidth: project.width,
+        designHeight: project.height
+      },
+      fps: 12,
+      totalFrames: 2,
+      durationSeconds: 2 / 12,
+      perfectLoop: true,
+      includeHiddenLayers: false,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'sequential-goblet-animated',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.type).toBe('sequential');
+    const frameMap = exportedLayer.assets?.textureFrameMap ?? [];
+    expect(frameMap).toHaveLength(2);
+    expect(frameMap[0]).toBeGreaterThanOrEqual(0);
+    expect(frameMap[1]).toBeGreaterThanOrEqual(0);
+    expect(exportedLayer.assets?.textureFrames?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('emits minified sequential frame metadata keys in JSON bundles', async () => {

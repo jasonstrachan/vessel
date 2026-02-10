@@ -474,7 +474,49 @@ describe('sequentialCapture', () => {
       ditherAlgorithm: 'atkinson',
       ditherIntensity: 33,
       ditherBayerMatrixSize: 8,
+      ditherBackgroundFill: true,
+      patternStyle: 'dots',
     });
+  });
+
+  it('normalizes dither replay config for non-plugin textured captures', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          ditherEnabled: true,
+          ditherAlgorithm: undefined,
+          ditherPaletteSpread: 140,
+          fillResolution: 4,
+        },
+      },
+    }));
+
+    const appended = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1270,
+      stamps: [{ x: 9, y: 8, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    expect(appended).toBe(1);
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].brush.pluginConfig).toEqual({
+      ditherAlgorithm: 'bayer',
+      ditherIntensity: 100,
+      ditherBayerMatrixSize: 4,
+      ditherBackgroundFill: true,
+      patternStyle: 'dots',
+    });
+    expect(events[0].brush.ditherAlgorithm).toBe('bayer');
   });
 
   it('captures particle plugin config from brush settings', () => {
@@ -509,6 +551,41 @@ describe('sequentialCapture', () => {
     expect(events[0].brush.pluginConfig).toEqual({
       particleDensity: 48,
       particleScatterRadius: 2.25,
+    });
+  });
+
+  it('normalizes particle plugin config bounds for replay', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          particleDensity: 999,
+          particleScatterRadius: -5,
+        },
+      },
+    }));
+
+    const appended = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1265,
+      pluginBrushId: 'particle-brush',
+      stamps: [{ x: 7, y: 6, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    expect(appended).toBe(1);
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].brush.pluginBrushId).toBe('particle-brush');
+    expect(events[0].brush.pluginConfig).toEqual({
+      particleDensity: 200,
+      particleScatterRadius: 0.1,
     });
   });
 

@@ -188,6 +188,16 @@ export interface SequentialBrushSnapshot {
       | null;
     ditherIntensity?: number | null;
     ditherBayerMatrixSize?: 2 | 4 | 8 | null;
+    ditherBackgroundFill?: boolean | null;
+    patternStyle?:
+      | 'dots'
+      | 'lines'
+      | 'vertical-lines'
+      | 'horizontal-lines'
+      | 'crosshatch'
+      | 'diagonal'
+      | 'tone-adaptive'
+      | null;
     particleDensity?: number | null;
     particleScatterRadius?: number | null;
   } | null;
@@ -214,6 +224,9 @@ export interface SequentialBrushSnapshot {
     | 'void-and-cluster'
     | 'pattern';
   ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond';
+  ditherBackgroundFill?: boolean;
+  fillResolution?: number;
+  pressureLinkedFillResolution?: boolean;
   mosaicTilePx?: number;
   mosaicSegmentPx?: number;
   mosaicBlocksCount?: number;
