@@ -47,6 +47,14 @@ export const startNonColorCycleBrushStroke = ({
   resamplerBrushDataRef: React.MutableRefObject<CustomBrushStrokeData | undefined>;
 }): void => {
   let customBrushData: CustomBrushStrokeData | undefined = resolveCustomBrushData(currentState);
+  const isCustomBrushShape = currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM;
+  if (!customBrushData && isCustomBrushShape) {
+    customBrushData = resamplerBrushDataRef.current;
+  }
+  if (customBrushData && isCustomBrushShape) {
+    // Preserve the active custom tip for this stroke if live lookup briefly returns undefined.
+    resamplerBrushDataRef.current = customBrushData;
+  }
 
   if (
     currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER &&

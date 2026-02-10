@@ -2129,7 +2129,6 @@ export const createShapeToolHandler = (
         contourDebug('finalize-shape-drawing-complete', {
           vertexCount: polygonState.vertices?.length ?? 0,
         });
-        stateMachine.finalizationComplete();
 
         if (compositeCanvasRef.current && project) {
           compositeLayersToCanvas(compositeCanvasRef.current);
@@ -2152,6 +2151,8 @@ export const createShapeToolHandler = (
           error: error instanceof Error ? error.message : String(error),
         });
         throw error;
+      }).finally(() => {
+        stateMachine.finalizationComplete();
       });
       return true;
     }
@@ -2233,7 +2234,6 @@ export const createShapeToolHandler = (
         logShapeFillEvent('shape-fill-finalize-success', {
           source: 'crosshatch-adjust-rotation',
         });
-        stateMachine.finalizationComplete();
 
         if (compositeCanvasRef.current && project) {
           compositeLayersToCanvas(compositeCanvasRef.current);
@@ -2252,6 +2252,8 @@ export const createShapeToolHandler = (
           error: error instanceof Error ? error.message : String(error),
         });
         throw error;
+      }).finally(() => {
+        stateMachine.finalizationComplete();
       });
 
       resetPolygonAdjustmentState();
@@ -2383,7 +2385,6 @@ export const createShapeToolHandler = (
       logShapeFillEvent('shape-fill-finalize-success', {
         source: 'flow-adjust-spacing',
       });
-      stateMachine.finalizationComplete();
 
       if (compositeCanvasRef.current && project) {
         compositeLayersToCanvas(compositeCanvasRef.current);
@@ -2402,6 +2403,8 @@ export const createShapeToolHandler = (
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    }).finally(() => {
+      stateMachine.finalizationComplete();
     });
 
     resetPolygonAdjustmentState();
@@ -3607,7 +3610,6 @@ export const createShapeToolHandler = (
       logShapeFillEvent('shape-fill-finalize-success', {
         source: 'polygon-complete',
       });
-      stateMachine.finalizationComplete();
 
       if (compositeCanvasRef.current && project) {
         compositeLayersToCanvas(compositeCanvasRef.current);
@@ -3629,13 +3631,14 @@ export const createShapeToolHandler = (
           }
         });
       }
-    }).catch(error => {
+      }).catch(error => {
       logShapeFillEvent('shape-fill-finalize-error', {
         source: 'polygon-complete',
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }).finally(() => {
+      stateMachine.finalizationComplete();
       if (!isCCPreview) {
         clearCurrentPreview();
         clearOverlayCanvas();
@@ -3695,7 +3698,6 @@ export const createShapeToolHandler = (
         source: 'triangle-size',
         finalSize,
       });
-      stateMachine.finalizationComplete();
 
       if (compositeCanvasRef.current && project) {
         compositeLayersToCanvas(compositeCanvasRef.current);
@@ -3724,6 +3726,7 @@ export const createShapeToolHandler = (
       });
       throw error;
     }).finally(() => {
+      stateMachine.finalizationComplete();
       if (!isCCPreview) {
         clearCurrentPreview();
         clearOverlayCanvas();

@@ -119,3 +119,53 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     keyboard.unmount();
   });
 });
+
+describe('useComprehensiveKeyboard – space safety release', () => {
+  beforeEach(() => {
+    act(() => {
+      resetStore();
+    });
+  });
+
+  it('releases space interaction when pointer leaves the window', async () => {
+    const onSpacePressed = jest.fn();
+    const onSpaceReleased = jest.fn();
+    const keyboard = render(
+      React.createElement(KeyboardHarness, { onSpacePressed, onSpaceReleased })
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    });
+    expect(onSpacePressed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.pointerLeave(window);
+    });
+
+    expect(onSpaceReleased).toHaveBeenCalledTimes(1);
+    keyboard.unmount();
+  });
+
+  it('releases space interaction when document becomes hidden', async () => {
+    const onSpacePressed = jest.fn();
+    const onSpaceReleased = jest.fn();
+    const keyboard = render(
+      React.createElement(KeyboardHarness, { onSpacePressed, onSpaceReleased })
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    });
+    expect(onSpacePressed).toHaveBeenCalledTimes(1);
+
+    const hiddenSpy = jest.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    hiddenSpy.mockRestore();
+
+    expect(onSpaceReleased).toHaveBeenCalledTimes(1);
+    keyboard.unmount();
+  });
+});

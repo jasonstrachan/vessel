@@ -241,7 +241,6 @@ export const useDrawingCanvasKeyboard = ({
           compositeCanvasDirtyRef.current = true;
 
           void drawingHandlers.finalizeDrawing().then(() => {
-            stateMachine.finalizationComplete();
             void Promise.resolve(rebuildStaticComposite()).then((rebuilt) => {
               if (rebuilt) {
                 compositeCanvasDirtyRef.current = false;
@@ -256,6 +255,8 @@ export const useDrawingCanvasKeyboard = ({
                 }
               });
             });
+          }).finally(() => {
+            stateMachine.finalizationComplete();
           });
         }
         toolStateMachine.resetPolygonGradient();

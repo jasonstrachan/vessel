@@ -380,4 +380,116 @@ describe('sequential color-cycle routing', () => {
     expect(events.length).toBeGreaterThan(0);
     expect(events[0].brush.brushShape).toBe(BrushShape.COLOR_CYCLE);
   });
+
+  it('keeps custom sequential stamps painting when live custom brush lookup temporarily drops', () => {
+    createSequentialState();
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          size: 12,
+          opacity: 1,
+          spacing: 1,
+          color: '#ff00aa',
+        },
+      },
+    }));
+
+    const drawCtx = document.createElement('canvas').getContext('2d');
+    if (!drawCtx) {
+      throw new Error('2d context unavailable');
+    }
+
+    const customBrushData = {
+      imageData: new ImageData(
+        new Uint8ClampedArray([
+          255, 255, 255, 255,
+          255, 255, 255, 255,
+          255, 255, 255, 255,
+          255, 255, 255, 255,
+        ]),
+        2,
+        2
+      ),
+      width: 2,
+      height: 2,
+      isColorizable: true,
+      cacheKey: 'test-custom-tip',
+    };
+
+    const drawBrush = jest.fn();
+    const args: ProcessBatchedStrokesArgs = {
+      strokeBatchRef: {
+        current: [
+          { pos: { x: 2, y: 2 }, pressure: 1 },
+          { pos: { x: 9, y: 2 }, pressure: 1 },
+        ],
+      },
+      strokeBatchTimerRef: { current: 1 },
+      drawingCtxRef: { current: drawCtx },
+      lastDrawPosRef: { current: { x: 2, y: 2 } },
+      brushSamplingPreviewActiveRef: { current: false },
+      autoSamplePointsRef: { current: [] },
+      ccSampledPointsRef: { current: [] },
+      resamplerBrushDataRef: { current: customBrushData },
+      stampCounterRef: { current: 0 },
+      colorCyclePixelQueueRef: { current: null },
+      colorCycleDistanceRef: { current: 0 },
+      colorCycleLastPosRef: { current: { x: 2, y: 2 } },
+      colorCycleLastRotationRef: { current: 0 },
+      eraserToolRef: { current: null },
+      eraserRoiRef: { current: null },
+    };
+
+    const deps: ProcessBatchedStrokesDeps = {
+      storeRef: { current: useAppStore.getState() },
+      project: { width: 32, height: 32 },
+      brushEngine: {
+        drawBrush,
+        consumeRecentStamps: jest.fn(() => []),
+        drawColorCycle: jest.fn(),
+      },
+      userBrushEngine: {
+        isUserBrush: () => false,
+        continueStroke: jest.fn(),
+      },
+      drawEraserSegment: jest.fn(),
+      updateAutoSampledGradient: jest.fn(),
+      updateCcSampledGradient: jest.fn(),
+      renderBrushSamplingPreview: jest.fn(),
+      getCCStampTargetCtx: () => null,
+      scheduleRecompose: jest.fn(),
+      extendMaskHealingStroke: jest.fn(),
+      createPixelQueue,
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      resolveActiveCustomBrushData: () => undefined,
+      getColorCycleBrushFlags: () => ({ isAny: false, isCustom: false }),
+      selectEffectiveColorCyclePlaying: () => true,
+      shouldPixelAlignBrush: () => false,
+      alignPointToPixel: (point) => point,
+      clipLineSegment: (start, end) => [start, end],
+      shouldDrawStamp: () => true,
+      shouldApplyGridSnapPure: () => false,
+      calculateGridSpacing: () => 1,
+      snapToGridPure: (x, y) => ({ x, y }),
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      captureBrushFromCanvas: jest.fn(() => null),
+      isEraserV2: false,
+    };
+
+    processBatchedStrokes(args, deps);
+
+    expect(drawBrush).toHaveBeenCalled();
+    expect(drawBrush.mock.calls[0]?.[3]?.customBrushData).toEqual(customBrushData);
+
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+    const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
+    const events = layer?.sequentialData?.events ?? [];
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0].brush.brushShape).toBe(BrushShape.CUSTOM);
+    expect(events[0].brush.customStamp).toBeTruthy();
+  });
 });

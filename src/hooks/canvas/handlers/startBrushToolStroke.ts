@@ -101,6 +101,7 @@ export const startBrushToolStroke = ({
   isEraserV2: boolean;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
 }): void => {
+  const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
   drawCtx.globalAlpha = 1.0;
   drawCtx.globalCompositeOperation = 'source-over';
 
@@ -130,7 +131,6 @@ export const startBrushToolStroke = ({
   const customBrushData = resolveCustomBrushData(currentState);
   const ccStrokeFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
   if (ccStrokeFlags.isAny) {
-    const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
     if (activeLayer?.layerType === 'sequential') {
       const usingCustomStamp = ccStrokeFlags.isCustom;
       const stampData = usingCustomStamp
@@ -138,6 +138,10 @@ export const startBrushToolStroke = ({
         : undefined;
       if (usingCustomStamp && !stampData) {
         return;
+      }
+      if (usingCustomStamp && stampData) {
+        // Keep the resolved custom stamp stable for this stroke in case store hydration lags.
+        resamplerBrushDataRef.current = stampData;
       }
 
       drawCtx.globalCompositeOperation = 'source-over';

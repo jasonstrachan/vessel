@@ -63,35 +63,39 @@ export const runFinalizeExecution = async ({
 }): Promise<void> => {
   const { release: releaseBusyLock } = createFinalizeBusyLock(isBusyRef);
 
-  const { shouldAwaitQueueIdle } = await runFinalizePrelude({
-    strokeBatchRef,
-    processBatchedStrokes,
-    colorCyclePixelQueue,
-    isCCLayerSnapshot,
-    isCCBrushSnapshot,
-    pendingEraserTool,
-    eraserToolRef,
-    eraserRoiRef,
-  });
+  try {
+    const { shouldAwaitQueueIdle } = await runFinalizePrelude({
+      strokeBatchRef,
+      processBatchedStrokes,
+      colorCyclePixelQueue,
+      isCCLayerSnapshot,
+      isCCBrushSnapshot,
+      pendingEraserTool,
+      eraserToolRef,
+      eraserRoiRef,
+    });
+    const finalizeAfterQueue = async () => {
+      await finalizeAfterQueueDispatcher({
+        snapshot,
+        finalizeTool,
+        project,
+        overlayHasContent,
+        captureRegionOverride,
+        skipSave,
+        historyActionOverride,
+        historyDescriptionOverride,
+        releaseBusyLock,
+      }, finalizeAfterQueueDeps);
+    };
 
-  const finalizeAfterQueue = async () => {
-    await finalizeAfterQueueDispatcher({
-      snapshot,
-      finalizeTool,
-      project,
-      overlayHasContent,
-      captureRegionOverride,
-      skipSave,
-      historyActionOverride,
-      historyDescriptionOverride,
-      releaseBusyLock,
-    }, finalizeAfterQueueDeps);
-  };
-
-  if (shouldAwaitQueueIdle) {
-    await runIdleAsync(finalizeAfterQueue);
-  } else {
-    await finalizeAfterQueue();
+    if (shouldAwaitQueueIdle) {
+      await runIdleAsync(finalizeAfterQueue);
+    } else {
+      await finalizeAfterQueue();
+    }
+  } finally {
+    // Always release busy lock even when finalize prelude/dispatch throws.
+    releaseBusyLock();
   }
 };
 

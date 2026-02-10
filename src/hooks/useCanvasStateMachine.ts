@@ -1,5 +1,6 @@
-import { useReducer, useRef, useCallback } from 'react';
+import { useReducer, useRef, useCallback, useEffect } from 'react';
 import { debugLog } from '../utils/debug';
+import { traceStrokeLock } from '@/hooks/canvas/handlers/strokeLockDebug';
 
 // State machine modes
 export type CanvasMode = 
@@ -524,6 +525,26 @@ export function useCanvasStateMachine() {
   // Refs for immediate access in event handlers
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  const prevStateRef = useRef(state);
+  useEffect(() => {
+    const prev = prevStateRef.current;
+    if (
+      prev.mode !== state.mode ||
+      prev.isBusy !== state.isBusy ||
+      prev.isSpacePressed !== state.isSpacePressed
+    ) {
+      traceStrokeLock('state-machine.transition', {
+        fromMode: prev.mode,
+        toMode: state.mode,
+        fromBusy: prev.isBusy,
+        toBusy: state.isBusy,
+        fromSpace: prev.isSpacePressed,
+        toSpace: state.isSpacePressed,
+      });
+    }
+    prevStateRef.current = state;
+  }, [state]);
   
   // Helper functions for common operations
   const setBusy = useCallback((busy: boolean) => {

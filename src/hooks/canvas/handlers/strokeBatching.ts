@@ -10,6 +10,7 @@ import {
   captureSequentialStampsForActiveLayer,
   createFallbackSequentialStamp,
 } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import { traceStrokeLock } from '@/hooks/canvas/handlers/strokeLockDebug';
 
 type BrushEngine = {
   drawBrush: (
@@ -294,6 +295,13 @@ export const processBatchedStrokes = (
 
           let customBrushData: CustomBrushStrokeData | undefined =
             deps.resolveActiveCustomBrushData(currentState);
+          const isCustomBrushShape = currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM;
+          if (!customBrushData && isCustomBrushShape) {
+            customBrushData = args.resamplerBrushDataRef.current;
+          }
+          if (customBrushData && isCustomBrushShape) {
+            args.resamplerBrushDataRef.current = customBrushData;
+          }
 
           if (ccProcessFlags.isAny) {
             const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -310,6 +318,15 @@ export const processBatchedStrokes = (
               !targetCtx ||
               (isColorCycleLayer && targetCtx.canvas !== layerCanvas)
             ) {
+              traceStrokeLock('stroke.batch.skip.invalid-target-ctx', {
+                isColorCycleLayer,
+                isSequentialLayer,
+                hasTargetCtx: Boolean(targetCtx),
+                targetMatchesLayerCanvas: Boolean(
+                  targetCtx &&
+                    (!isColorCycleLayer || targetCtx.canvas === layerCanvas)
+                ),
+              });
               args.colorCycleLastPosRef.current = clippedEnd;
               continue;
             }
@@ -331,7 +348,15 @@ export const processBatchedStrokes = (
               : undefined;
 
             if (usingCustomStamp && !stampData) {
+              traceStrokeLock('stroke.batch.skip.missing-custom-stamp', {
+                isColorCycleLayer,
+                isSequentialLayer,
+                brushShape: currentState.tools.brushSettings.brushShape,
+              });
               continue;
+            }
+            if (usingCustomStamp && stampData) {
+              args.resamplerBrushDataRef.current = stampData;
             }
             const effectiveSpacing = getCcEffectiveSpacing(currentState);
             const spacingScreenPx = paused
@@ -417,6 +442,12 @@ export const processBatchedStrokes = (
               if (stampCmds.length) {
                 const ctx = targetCtx;
                 const cmds = stampCmds.splice(0, stampCmds.length);
+                traceStrokeLock('stroke.batch.enqueue.cc-stamps', {
+                  count: cmds.length,
+                  isSequentialLayer,
+                  isColorCycleLayer,
+                  hasStampData: Boolean(stampData),
+                });
                 pixelQueue.enqueue(() => {
                   for (let i = 0; i < cmds.length; i++) {
                     const c = cmds[i];

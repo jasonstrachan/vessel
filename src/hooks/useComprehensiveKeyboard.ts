@@ -651,6 +651,10 @@ export function useComprehensiveKeyboard({
   // Safety net: clear stuck keys if the page becomes hidden or pointer leaves the window
   useEffect(() => {
     const clearAllKeys = () => {
+      const hadSpaceDown = keyboardStateRef.current.isSpacePressed || pressedKeysRef.current.has('Space');
+      if (hadSpaceDown) {
+        void onSpaceReleasedRef.current?.();
+      }
       pressedKeysRef.current.clear();
       keyboardStateRef.current.isSpacePressed = false;
     };

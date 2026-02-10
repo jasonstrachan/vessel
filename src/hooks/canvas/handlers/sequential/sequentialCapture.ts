@@ -23,6 +23,7 @@ import {
   type AppState,
 } from '@/stores/useAppStore';
 import { brushRegistry } from '@/brushes/BrushRegistry';
+import { traceStrokeLock } from '@/hooks/canvas/handlers/strokeLockDebug';
 import {
   BrushShape,
   type Layer,
@@ -62,6 +63,7 @@ export interface SequentialStampCapRuntime {
   eventCounter: number;
   lastAcceptedStamp: SequentialStampPoint | null;
   lastAcceptedStampAtMs: number | null;
+  emittedCustomStampHashes: Set<string>;
 }
 
 export interface SequentialPayloadNotificationRuntime {
@@ -111,6 +113,7 @@ const defaultStampCapRuntime: SequentialStampCapRuntime = {
   eventCounter: 0,
   lastAcceptedStamp: null,
   lastAcceptedStampAtMs: null,
+  emittedCustomStampHashes: new Set<string>(),
 };
 
 const defaultPayloadBudgetRuntime = createSequentialPayloadBudgetRuntime();
@@ -152,6 +155,7 @@ export const createSequentialStampCapRuntime = (): SequentialStampCapRuntime => 
   eventCounter: 0,
   lastAcceptedStamp: null,
   lastAcceptedStampAtMs: null,
+  emittedCustomStampHashes: new Set<string>(),
 });
 
 export const createSequentialPayloadNotificationRuntime = (): SequentialPayloadNotificationRuntime => ({
@@ -181,11 +185,20 @@ export const flushBufferedSequentialEvents = ({
       : Date.now();
   const targetRuntime = runtime ?? defaultEventBufferRuntime;
   if (targetRuntime.isFlushing || targetRuntime.layers.size === 0) {
+    traceStrokeLock('sequential.flush.skip', {
+      isFlushing: targetRuntime.isFlushing,
+      bufferedLayerCount: targetRuntime.layers.size,
+      pendingPayloadBytes: targetRuntime.pendingPayloadBytes,
+    });
     return 0;
   }
 
   targetRuntime.isFlushing = true;
   const queuedLayerEntries = Array.from(targetRuntime.layers.entries());
+  traceStrokeLock('sequential.flush.start', {
+    bufferedLayerCount: queuedLayerEntries.length,
+    pendingPayloadBytes: targetRuntime.pendingPayloadBytes,
+  });
   targetRuntime.layers.clear();
   targetRuntime.pendingPayloadBytes = 0;
 
@@ -213,6 +226,10 @@ export const flushBufferedSequentialEvents = ({
   recordSequentialFlushPerf({
     events: flushedEventCount,
     durationMs: flushDurationMs,
+  });
+  traceStrokeLock('sequential.flush.done', {
+    flushedEventCount,
+    flushDurationMs,
   });
   return flushedEventCount;
 };
@@ -323,6 +340,7 @@ export const noteSequentialCaptureActivity = ({
   targetRuntime.lastBrushSnapshotKey = null;
   targetRuntime.lastAcceptedStamp = null;
   targetRuntime.lastAcceptedStampAtMs = null;
+  targetRuntime.emittedCustomStampHashes.clear();
 };
 
 const normalizeFrameIndex = (frame: number, frameCount: number): number => {
@@ -350,13 +368,18 @@ const buildTemporalFrameBuckets = ({
   baseFrameIndex,
   timeSmear,
   forceSplit,
+  disableDistribution,
 }: {
   stamps: SequentialStampPoint[];
   frameCount: number;
   baseFrameIndex: number;
   timeSmear: number;
   forceSplit?: boolean;
+  disableDistribution?: boolean;
 }): Array<{ frameIndex: number; stamps: SequentialStampPoint[] }> => {
+  if (disableDistribution) {
+    return [{ frameIndex: baseFrameIndex, stamps }];
+  }
   if (
     !isFeatureFlagEnabled('enableSequentialTemporalDistribution') ||
     frameCount <= 1 ||
@@ -925,6 +948,16 @@ const resolveBrushSnapshotForCapture = ({
     pluginBrushId,
     gradientSnapshot,
   });
+  const customStampHash = brush.customStampHash ?? null;
+  if (customStampHash && brush.customStamp) {
+    if (runtime.emittedCustomStampHashes.has(customStampHash)) {
+      // Avoid repeating the full RGBA payload for every event.
+      // Replay can hydrate the stamp from prior events by hash.
+      brush.customStamp = null;
+    } else {
+      runtime.emittedCustomStampHashes.add(customStampHash);
+    }
+  }
   const key = buildBrushSnapshotKey(brush, gradientKey);
   runtime.lastBrushSettingsRef = settings;
   runtime.lastToolRef = tool;
@@ -1063,18 +1096,27 @@ export const captureSequentialStampsForActiveLayer = ({
   const capRuntime = runtime ?? defaultStampCapRuntime;
 
   if (!isFeatureFlagEnabled('enableSequentialRecordMode')) {
+    traceStrokeLock('sequential.capture.skip.flag-disabled');
     capRuntime.captureWasActive = false;
     return 0;
   }
 
   const activeLayer = resolveCaptureLayer(state, capRuntime);
   if (!activeLayer) {
+    traceStrokeLock('sequential.capture.skip.no-active-layer', {
+      activeLayerId: state.activeLayerId,
+      isPointerDown: state.sequentialRecord.isPointerDown,
+      isCaptureActiveSelector: selectSequentialCaptureActive(state),
+    });
     capRuntime.captureWasActive = false;
     return 0;
   }
 
   const normalizedStamps = normalizeSequentialStamps(stamps);
   if (normalizedStamps.length === 0) {
+    traceStrokeLock('sequential.capture.skip.no-stamps', {
+      inputStampCount: stamps.length,
+    });
     capRuntime.captureWasActive = true;
     return 0;
   }
@@ -1114,6 +1156,7 @@ export const captureSequentialStampsForActiveLayer = ({
     capRuntime.eventCounter = 0;
     capRuntime.lastAcceptedStamp = null;
     capRuntime.lastAcceptedStampAtMs = null;
+    capRuntime.emittedCustomStampHashes.clear();
   } else if (!capRuntime.captureWasActive) {
     capRuntime.strokeSegment += 1;
     capRuntime.lastBrushSnapshotKey = null;
@@ -1127,6 +1170,12 @@ export const captureSequentialStampsForActiveLayer = ({
     nowMs: captureNowMs,
   });
   if (cappedStamps.length === 0) {
+    traceStrokeLock('sequential.capture.skip.stamp-cap', {
+      inputStampCount: stamps.length,
+      normalizedStampCount: normalizedStamps.length,
+      smearedStampCount: smearedStamps.length,
+      runtimeTokens: capRuntime.tokens,
+    });
     return 0;
   }
 
@@ -1137,6 +1186,20 @@ export const captureSequentialStampsForActiveLayer = ({
   const fps = Math.max(1, Math.round(activeLayer.sequentialData?.fps ?? state.sequentialRecord.fps));
   const durationMs = Math.round((frameCount * 1000) / fps);
   const frameIndex = normalizeFrameIndex(state.sequentialRecord.currentFrame, frameCount);
+  traceStrokeLock('sequential.capture.accepted', {
+    layerId: activeLayer.id,
+    frameIndex,
+    frameCount,
+    fps,
+    currentFrame: state.sequentialRecord.currentFrame,
+    sessionStartMs: state.sequentialRecord.sessionStartMs,
+    inputStampCount: stamps.length,
+    normalizedStampCount: normalizedStamps.length,
+    smearedStampCount: smearedStamps.length,
+    cappedStampCount: cappedStamps.length,
+    pluginBrushId: pluginBrushId ?? null,
+    hasCustomBrushData: Boolean(customBrushData),
+  });
   const timestampMs = Math.max(0, Math.round(captureNowMs - sessionStartMs));
   const { brush, key: brushSnapshotKey } = resolveBrushSnapshotForCapture({
     state,
@@ -1217,6 +1280,7 @@ export const captureSequentialStampsForActiveLayer = ({
     baseFrameIndex: frameIndex,
     timeSmear: state.sequentialRecord.timeSmear,
     forceSplit: forceTemporalSplit,
+    disableDistribution: Boolean(brush.customStampHash || brush.customStamp),
   });
   const distributedEvents: SequentialStrokeEvent[] = [];
   const distributedEventPayloadBytes: number[] = [];
@@ -1255,6 +1319,12 @@ export const captureSequentialStampsForActiveLayer = ({
   }
 
   if (projectedPayloadBytes > hardLimitBytes) {
+    traceStrokeLock('sequential.capture.skip.payload-hard-cap', {
+      currentTotalPayloadBytes,
+      projectedPayloadBytes,
+      hardLimitBytes,
+      softLimitBytes,
+    });
     if (payloadNotificationRuntime.hardCapBlockedAtBytes !== currentTotalPayloadBytes) {
       state.addNotification({
         type: 'error',
@@ -1294,6 +1364,11 @@ export const captureSequentialStampsForActiveLayer = ({
     });
   }
   payloadNotificationRuntime.hardCapBlockedAtBytes = null;
+  traceStrokeLock('sequential.capture.buffered-events', {
+    distributedEventCount: distributedEvents.length,
+    pendingPayloadBytes: captureEventBufferRuntime.pendingPayloadBytes,
+    projectedPayloadBytes,
+  });
   capRuntime.eventCounter += distributedEvents.length;
   const lastAcceptedStamp = cappedStamps[cappedStamps.length - 1];
   if (lastAcceptedStamp) {
@@ -1333,6 +1408,7 @@ export const __TESTING__ = {
     defaultStampCapRuntime.eventCounter = 0;
     defaultStampCapRuntime.lastAcceptedStamp = null;
     defaultStampCapRuntime.lastAcceptedStampAtMs = null;
+    defaultStampCapRuntime.emittedCustomStampHashes.clear();
     defaultEventBufferRuntime.sessionKey = null;
     defaultEventBufferRuntime.pendingPayloadBytes = 0;
     defaultEventBufferRuntime.lastKnownLayersRef = null;

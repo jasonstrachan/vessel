@@ -174,6 +174,7 @@ import {
   handleRecolorSamplingPointerUp,
 } from './recolorSamplingHandler';
 import { cssColorToHex } from './utils/colorSampling';
+import { traceStrokeLock } from '@/hooks/canvas/handlers/strokeLockDebug';
 import type {
   ContourLinesBasis,
   ContourLinesStage,
@@ -647,6 +648,28 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   }
 
   const getDynamicDeps = () => dynamicDepsRef.current;
+  const tracePointerState = (
+    event: string,
+    extra?: Record<string, unknown>
+  ) => {
+    const dynamic = getDynamicDeps();
+    const activeLayer = dynamic.layers.find((layer) => layer.id === dynamic.activeLayerId);
+    traceStrokeLock(event, {
+      mode: stateMachine.state.mode,
+      machineBusy: stateMachine.state.isBusy,
+      machineSpace: stateMachine.state.isSpacePressed,
+      isBusyRef: isBusyRef.current,
+      isSpaceRef: isSpacePressedRef.current,
+      isMouseDownRef: isMouseDownRef.current,
+      panIsPanning: pan.panState.isPanning,
+      tool: dynamic.tools.currentTool,
+      brushShape: dynamic.tools.brushSettings.brushShape,
+      activeLayerType: activeLayer?.layerType ?? null,
+      activeLayerId: dynamic.activeLayerId,
+      brushPresetId: dynamic.currentBrushPresetId,
+      ...extra,
+    });
+  };
 
   const customBrushPreviewCache: {
     key: string | null;
@@ -1705,8 +1728,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       : false;
 
       // IMPORTANT: perform all resets AFTER finalize resolves
+      tracePointerState('pointer.up.contour.finalize.start');
       return drawingHandlers.finalizeDrawing(finalizeArgument).then(() => {
-        stateMachine.finalizationComplete();
         logDynamicSnapshot('contour-finalize-complete', {
           spacing: clampedSpacing,
         });
@@ -1726,6 +1749,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
         restartColorCycleAnimation?.();
       }).finally(() => {
+        tracePointerState('pointer.up.contour.finalize.done');
+        stateMachine.finalizationComplete();
         // Now it's safe to clear/tear down
         toolStateMachine.resetPolygonGradient();
         resetContourLinesState();
@@ -1893,6 +1918,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // If the app is busy, ignore pointer events unless we're adjusting contour spacing
     if (isBusyRef.current && !allowAdjustmentWhileBusy) {
       isMouseDownRef.current = false; // Clear ref in case pointerup is missed
+      tracePointerState('pointer.down.blocked.busy', {
+        allowAdjustmentWhileBusy,
+      });
       return;
     }
     
@@ -1949,6 +1977,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     // SIMPLIFIED PANNING: Just check if space is pressed
     if (isSpacePressedRef.current && canPan) {
+      tracePointerState('pointer.down.start-pan', {
+        pointerX: pointerPos.x,
+        pointerY: pointerPos.y,
+      });
       pan.startPan(pointerPos.x, pointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
@@ -2568,9 +2600,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
               
               // Finalize the drawing (rectangles are not CC shapes, so don't skip save)
               drawingHandlers.finalizeDrawing(false).then(() => {
-                // Signal that finalization is complete
-                stateMachine.finalizationComplete();
-                
                 // Force immediate composite regeneration after layer update
                 if (compositeCanvasRef.current && project) {
                   compositeLayersToCanvas(compositeCanvasRef.current);
@@ -2580,6 +2609,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                 
                 // Trigger redraw after finalization
                 setNeedsRedraw(prev => prev + 1);
+              }).finally(() => {
+                stateMachine.finalizationComplete();
               });
             }
           }
@@ -3713,6 +3744,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     // SIMPLIFIED PANNING: End pan if we were panning
     if (pan.panState.isPanning) {
+      tracePointerState('pointer.up.end-pan');
       pan.endPan();
       // Restore cursor based on space state
       if (isSpacePressedRef.current) {
@@ -3873,11 +3905,9 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             }
           }
 
+          tracePointerState('pointer.up.shape.finalize.start');
           const finalizePromise = drawingHandlers.finalizeShapeDrawing();
           finalizePromise.then(() => {
-            // Signal that finalization is complete
-            stateMachine.finalizationComplete();
-            
             // Force immediate composite regeneration after layer update
             if (compositeCanvasRef.current && project) {
               compositeLayersToCanvas(compositeCanvasRef.current);
@@ -3892,6 +3922,8 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
               deps.restartColorCycleAnimation();
             }
           }).finally(() => {
+            tracePointerState('pointer.up.shape.finalize.done');
+            stateMachine.finalizationComplete();
             if (drawingHandlers.ccShapePreviewCacheRef) {
               drawingHandlers.ccShapePreviewCacheRef.current = null;
             }
@@ -3901,10 +3933,8 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         }
       } else {
         // For regular drawing (non-shape mode), never skip save
+        tracePointerState('pointer.up.stroke.finalize.start');
         drawingHandlers.finalizeDrawing(false).then(() => {
-          // Signal that finalization is complete
-          stateMachine.finalizationComplete();
-          
           // Use requestAnimationFrame to ensure the layer update has propagated
           requestAnimationFrame(() => {
             // Force immediate composite regeneration after layer update
@@ -3926,6 +3956,9 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           if (deps.restartColorCycleAnimation) {
             deps.restartColorCycleAnimation();
           }
+        }).finally(() => {
+          tracePointerState('pointer.up.stroke.finalize.done');
+          stateMachine.finalizationComplete();
         });
       }
     }

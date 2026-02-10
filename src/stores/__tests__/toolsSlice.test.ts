@@ -68,6 +68,23 @@ describe('tools slice', () => {
     expect(nextState.palette.foregroundColor).toBe('#112233');
   });
 
+  it('returns early when setBrushSettings receives an empty patch', () => {
+    const before = useAppStore.getState();
+    before.setBrushSettings({});
+    const after = useAppStore.getState();
+
+    expect(after).toBe(before);
+  });
+
+  it('returns early when setBrushSettings receives the same color', () => {
+    const before = useAppStore.getState();
+    const currentColor = before.tools.brushSettings.color;
+    before.setBrushSettings({ color: currentColor });
+    const after = useAppStore.getState();
+
+    expect(after).toBe(before);
+  });
+
   it('toggles auto-sample color on brush settings', () => {
     const store = useAppStore.getState();
     expect(store.tools.brushSettings.autoSampleColor).toBeFalsy();

@@ -29,11 +29,15 @@ export const syncStrokeStartPalette = ({
   }
 
   if (currentTool === 'brush') {
-    currentState.setBrushSettings({ color: paletteColor });
+    if (currentState.tools.brushSettings.color !== paletteColor) {
+      currentState.setBrushSettings({ color: paletteColor });
+    }
     return;
   }
 
   if (currentTool === 'eraser') {
-    currentState.setEraserSettings({ color: paletteColor });
+    if (currentState.tools.eraserSettings.color !== paletteColor) {
+      currentState.setEraserSettings({ color: paletteColor });
+    }
   }
 };

@@ -132,8 +132,11 @@ export const useDrawingCanvasFinalizeActiveShape = ({
           }
 
           drawingHandlers.drawingCanvasHasContent.current = true;
-          await drawingHandlers.finalizeDrawing(false);
-          stateMachine.finalizationComplete();
+          try {
+            await drawingHandlers.finalizeDrawing(false);
+          } finally {
+            stateMachine.finalizationComplete();
+          }
 
           const overlayCanvas = overlayCanvasRef.current;
           overlayCanvas?.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -153,8 +156,11 @@ export const useDrawingCanvasFinalizeActiveShape = ({
     }
 
     if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
-      await drawingHandlers.finalizeShapeDrawing();
-      stateMachine.finalizationComplete();
+      try {
+        await drawingHandlers.finalizeShapeDrawing();
+      } finally {
+        stateMachine.finalizationComplete();
+      }
 
       if (rebuildStaticComposite()) {
         compositeCanvasDirtyRef.current = false;

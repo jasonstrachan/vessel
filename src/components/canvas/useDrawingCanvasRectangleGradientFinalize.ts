@@ -140,8 +140,11 @@ export const useDrawingCanvasRectangleGradientFinalize = ({
     drawingHandlers.drawingCanvasHasContent.current = true;
     compositeCanvasDirtyRef.current = true;
 
-    await drawingHandlers.finalizeDrawing(false);
-    stateMachine.finalizationComplete();
+    try {
+      await drawingHandlers.finalizeDrawing(false);
+    } finally {
+      stateMachine.finalizationComplete();
+    }
 
     if (rebuildStaticComposite()) {
       compositeCanvasDirtyRef.current = false;

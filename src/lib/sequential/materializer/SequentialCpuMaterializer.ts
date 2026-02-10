@@ -346,10 +346,14 @@ const base64ToBytes = (base64: string): Uint8Array => {
 
 const parseCustomStamp = (event: SequentialStrokeEvent): ParsedCustomStamp | null => {
   const stamp = event.brush.customStamp;
+  const hashKey = event.brush.customStampHash || null;
   if (!stamp || stamp.width <= 0 || stamp.height <= 0 || !stamp.rgbaBase64) {
+    if (hashKey) {
+      return parsedCustomStampCache.get(hashKey) ?? null;
+    }
     return null;
   }
-  const key = event.brush.customStampHash || `${stamp.width}x${stamp.height}:${stamp.rgbaBase64.length}`;
+  const key = hashKey || `${stamp.width}x${stamp.height}:${stamp.rgbaBase64.length}`;
   const cached = parsedCustomStampCache.get(key);
   if (cached) {
     return cached;

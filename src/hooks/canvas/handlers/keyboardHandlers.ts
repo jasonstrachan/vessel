@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import type { EventHandlerDependencies, KeyboardHandlers } from '../utils/types';
+import { traceStrokeLock } from '@/hooks/canvas/handlers/strokeLockDebug';
 
 const isTextEntryTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
@@ -23,6 +24,33 @@ const scopeAllowsSpace = (): boolean => {
 export const createKeyboardHandlers = (
   deps: EventHandlerDependencies
 ): Pick<KeyboardHandlers, 'handleKeyDown' | 'handleKeyUp' | 'handleBlur'> => {
+  const releaseSpaceInteraction = () => {
+    traceStrokeLock('keyboard.space.release.begin', {
+      isSpaceRef: deps.isSpacePressedRef.current,
+      stateMachineSpace: deps.stateMachine.state.isSpacePressed,
+      isPanning: deps.pan.panState.isPanning,
+    });
+    deps.isSpacePressedRef.current = false;
+    deps.setIsSpacePressed?.(false);
+
+    if (deps.pan.panState.isPanning) {
+      deps.pan.endPan();
+    }
+
+    if (deps.stateMachine.state.isSpacePressed) {
+      deps.stateMachine.dispatch({ type: 'SPACE_UP' });
+    }
+
+    deps.setCursorStyle(deps.defaultCursorStyle ?? 'crosshair');
+    deps.setShowBrushCursor(deps.isPointerInsideCanvas?.() ?? true);
+    void deps.resumeAnimationAfterPan?.();
+    traceStrokeLock('keyboard.space.release.end', {
+      isSpaceRef: deps.isSpacePressedRef.current,
+      stateMachineSpace: deps.stateMachine.state.isSpacePressed,
+      isPanning: deps.pan.panState.isPanning,
+    });
+  };
+
   const handleKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
 
@@ -36,6 +64,11 @@ export const createKeyboardHandlers = (
 
       deps.isSpacePressedRef.current = true;
       deps.setIsSpacePressed?.(true);
+      deps.stateMachine.dispatch({ type: 'SPACE_DOWN' });
+      traceStrokeLock('keyboard.space.down', {
+        scope: useAppStore.getState().ui.keyboardScope.active,
+        targetType: target?.tagName ?? 'unknown',
+      });
       deps.setShowBrushCursor(false);
       deps.setCursorStyle('grab');
 
@@ -60,21 +93,26 @@ export const createKeyboardHandlers = (
     if (event.code !== 'Space') {
       return;
     }
-    if (!scopeAllowsSpace() || isTextEntryTarget(target)) {
+
+    const shouldReleaseSpace =
+      deps.isSpacePressedRef.current ||
+      deps.pan.panState.isPanning ||
+      deps.stateMachine.state.isSpacePressed;
+    if (!shouldReleaseSpace) {
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
-    deps.isSpacePressedRef.current = false;
-    deps.setIsSpacePressed?.(false);
-
-    if (deps.pan.panState.isPanning) {
-      deps.pan.endPan();
+    // Always release space interaction even if scope changed or target became text input.
+    if (scopeAllowsSpace() && !isTextEntryTarget(target)) {
+      event.preventDefault();
+      event.stopPropagation();
     }
-    deps.setCursorStyle(deps.defaultCursorStyle ?? 'crosshair');
-    deps.setShowBrushCursor(true);
-    void deps.resumeAnimationAfterPan?.();
+
+    releaseSpaceInteraction();
+    traceStrokeLock('keyboard.space.up', {
+      scope: useAppStore.getState().ui.keyboardScope.active,
+      targetType: target?.tagName ?? 'unknown',
+    });
   };
 
   const handleBlur = (event: React.FocusEvent) => {
@@ -83,10 +121,15 @@ export const createKeyboardHandlers = (
       return;
     }
 
-    if (deps.stateMachine.state.isSpacePressed) {
-      deps.stateMachine.dispatch({ type: 'SPACE_UP' });
-      deps.setCursorStyle(deps.defaultCursorStyle ?? 'crosshair');
-      deps.setShowBrushCursor(deps.isPointerInsideCanvas?.() ?? false);
+    if (
+      deps.isSpacePressedRef.current ||
+      deps.pan.panState.isPanning ||
+      deps.stateMachine.state.isSpacePressed
+    ) {
+      traceStrokeLock('keyboard.blur.release', {
+        hasRelatedTarget: Boolean(newFocusTarget),
+      });
+      releaseSpaceInteraction();
     }
   };
 
