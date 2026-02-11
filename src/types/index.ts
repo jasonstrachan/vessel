@@ -160,6 +160,7 @@ export type SequentialPluginConfigValue = string | number | boolean | null | und
 export interface SequentialBrushSnapshot {
   tool: string;
   brushShape: BrushShape;
+  tipShape?: 'round' | 'square' | 'triangle';
   size: number;
   opacity: number;
   blendMode: BlendMode;

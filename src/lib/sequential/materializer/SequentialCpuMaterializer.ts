@@ -97,15 +97,32 @@ type ResolvedSpamConfig = {
 const parsedCustomStampCache = new Map<string, ParsedCustomStamp>();
 
 const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape => {
-  const tipShape = event.brush.ditherStrokeTipShape;
-  if (tipShape === 'square') {
-    return 'square';
+  const explicitTipShape = event.brush.tipShape;
+  if (
+    explicitTipShape === 'round' ||
+    explicitTipShape === 'square' ||
+    explicitTipShape === 'triangle'
+  ) {
+    return explicitTipShape;
   }
-  if (tipShape === 'triangle' || tipShape === 'diamond') {
-    return 'triangle';
-  }
-  if (tipShape === 'round') {
-    return 'round';
+
+  const pluginMode = resolvePluginRenderMode(event.brush.pluginBrushId);
+  const shouldUseDitherTipShape =
+    event.brush.ditherEnabled ||
+    pluginMode === 'dither-brush' ||
+    event.brush.brushShape === BrushShape.PIXEL_DITHER ||
+    event.brush.brushShape === BrushShape.DITHER_GRADIENT;
+  if (shouldUseDitherTipShape) {
+    const tipShape = event.brush.ditherStrokeTipShape;
+    if (tipShape === 'square') {
+      return 'square';
+    }
+    if (tipShape === 'triangle' || tipShape === 'diamond') {
+      return 'triangle';
+    }
+    if (tipShape === 'round') {
+      return 'round';
+    }
   }
   const brushShape = event.brush.brushShape;
   switch (brushShape) {

@@ -79,7 +79,7 @@ describe('sequentialRecordSlice', () => {
     expect(useAppStore.getState().sequentialRecord.frameCount).toBe(512);
 
     store.setTimeSmear(100);
-    expect(useAppStore.getState().sequentialRecord.timeSmear).toBe(20);
+    expect(useAppStore.getState().sequentialRecord.timeSmear).toBe(40);
 
     const next = useAppStore.getState().sequentialRecord;
     expect(next.durationMs).toBe(Math.round((next.frameCount * 1000) / next.fps));

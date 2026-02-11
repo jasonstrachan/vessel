@@ -9,8 +9,10 @@ const createEvent = ({
   color,
   size = 4,
   brushShape = BrushShape.ROUND,
+  tipShape,
   alpha = 1,
   ditherEnabled = false,
+  ditherStrokeTipShape,
   ditherAlgorithm,
   blendMode = 'source-over',
   pluginBrushId,
@@ -32,8 +34,10 @@ const createEvent = ({
   color: string;
   size?: number;
   brushShape?: BrushShape;
+  tipShape?: SequentialStrokeEvent['brush']['tipShape'];
   alpha?: number;
   ditherEnabled?: boolean;
+  ditherStrokeTipShape?: SequentialStrokeEvent['brush']['ditherStrokeTipShape'];
   ditherAlgorithm?: SequentialStrokeEvent['brush']['ditherAlgorithm'];
   blendMode?: SequentialStrokeEvent['brush']['blendMode'];
   pluginBrushId?: string;
@@ -62,6 +66,7 @@ const createEvent = ({
   brush: {
     tool: 'brush',
     brushShape,
+    tipShape,
     size,
     opacity: 1,
     blendMode,
@@ -81,6 +86,7 @@ const createEvent = ({
         }
       : null,
     ditherEnabled,
+    ditherStrokeTipShape,
     ditherAlgorithm,
     mosaicTilePx,
     mosaicBlocksCount,
@@ -265,6 +271,62 @@ describe('SequentialCpuMaterializer', () => {
     const edgePixelAlphaIndex = (11 * inputBase.width + 11) * 4 + 3;
     expect(roundPixels[edgePixelAlphaIndex]).toBe(0);
     expect(squarePixels[edgePixelAlphaIndex]).toBeGreaterThan(0);
+  });
+
+  it('does not let dither tip shape override non-dither square brushes', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 20,
+      height: 20,
+      frameIndex: 0,
+    };
+
+    const pixels = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'pixel-square',
+          frameIndex: 0,
+          x: 10,
+          y: 10,
+          color: '#ffffff',
+          brushShape: BrushShape.SQUARE,
+          ditherEnabled: false,
+          ditherStrokeTipShape: 'round',
+        }),
+      ],
+    });
+
+    // Pixel is inside a square stamp but outside a round stamp of the same size.
+    const edgePixelAlphaIndex = (11 * inputBase.width + 11) * 4 + 3;
+    expect(pixels[edgePixelAlphaIndex]).toBeGreaterThan(0);
+  });
+
+  it('uses captured tipShape when present for replay consistency', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const inputBase = {
+      width: 20,
+      height: 20,
+      frameIndex: 0,
+    };
+
+    const pixels = materializeToPixels(materializer, {
+      ...inputBase,
+      events: [
+        createEvent({
+          id: 'captured-tip-shape',
+          frameIndex: 0,
+          x: 10,
+          y: 10,
+          color: '#ffffff',
+          brushShape: BrushShape.ROUND,
+          tipShape: 'square',
+        }),
+      ],
+    });
+
+    const edgePixelAlphaIndex = (11 * inputBase.width + 11) * 4 + 3;
+    expect(pixels[edgePixelAlphaIndex]).toBeGreaterThan(0);
   });
 
   it('applies dither texture when enabled', () => {

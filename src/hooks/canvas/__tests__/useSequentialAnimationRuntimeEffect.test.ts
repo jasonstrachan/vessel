@@ -99,7 +99,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
 
     const nextState = useAppStore.getState();
-    expect(nextState.sequentialRecord.currentFrame).toBe(2);
+    expect(nextState.sequentialRecord.currentFrame).toBe(1);
     expect(nextState.sequentialRecord.isCaptureActive).toBe(true);
     expect(nextState.sequentialRecord.metrics.tickCount).toBeGreaterThan(initialTickCount);
     expect(frameUpdateListener).toHaveBeenCalledTimes(1);
@@ -143,7 +143,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     const nextState = useAppStore.getState();
     expect(nextState.sequentialRecord.isCaptureActive).toBe(true);
     expect(nextState.sequentialRecord.metrics.tickCount).toBeGreaterThan(initialTickCount);
-    expect(nextState.sequentialRecord.currentFrame).toBe(2);
+    expect(nextState.sequentialRecord.currentFrame).toBe(1);
 
     act(() => {
       useAppStore.getState().setSequentialPointerDown(false);
@@ -151,13 +151,13 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
 
     const afterPointerUp = useAppStore.getState();
-    expect(afterPointerUp.sequentialRecord.currentFrame).toBe(2);
+    expect(afterPointerUp.sequentialRecord.currentFrame).toBe(1);
     expect(afterPointerUp.sequentialRecord.isCaptureActive).toBe(false);
 
     unmount();
   });
 
-  it('caps large delta frame advances per tick to avoid runaway runtime loops', () => {
+  it('limits visible frame advance to one step per tick during large delta catch-up', () => {
     const storeRef = { current: useAppStore.getState() as AppState };
 
     const { unmount } = renderHook(() => {
@@ -172,13 +172,13 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
     act(() => {
       // fps=10 => frameDuration=100ms.
-      // delta=5000ms would be 50 frame advances without a cap.
-      // Guardrail caps to frameCount*2 (8) per tick.
+      // delta=5000ms would be 50 frame advances without smoothing.
+      // Runtime now advances at most 1 frame per RAF tick for smoother playback.
       rafCallback?.(6000);
     });
 
     const nextState = useAppStore.getState();
-    expect(nextState.sequentialRecord.currentFrame).toBe(0);
+    expect(nextState.sequentialRecord.currentFrame).toBe(1);
 
     unmount();
   });
@@ -206,7 +206,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
 
     const nextState = useAppStore.getState();
-    expect(nextState.sequentialRecord.currentFrame).toBe(2);
+    expect(nextState.sequentialRecord.currentFrame).toBe(1);
 
     unmount();
   });

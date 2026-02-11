@@ -319,15 +319,14 @@ export const useSequentialAnimationRuntimeEffect = ({
             : Date.now();
         const fps = Math.max(1, state.sequentialRecord.fps);
         const frameDurationMs = 1000 / fps;
-        const maxFrameAdvances = Math.max(1, state.sequentialRecord.frameCount * 2);
 
         let advancedFrames = 0;
         if (shouldAdvanceFrames) {
           accumMsRef.current += Math.max(0, deltaMs);
-          while (accumMsRef.current >= frameDurationMs && advancedFrames < maxFrameAdvances) {
+          if (accumMsRef.current >= frameDurationMs) {
             state.stepSequentialFrame(1);
             accumMsRef.current -= frameDurationMs;
-            advancedFrames += 1;
+            advancedFrames = 1;
           }
         }
 

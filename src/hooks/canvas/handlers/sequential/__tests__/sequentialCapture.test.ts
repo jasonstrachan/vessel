@@ -161,6 +161,38 @@ describe('sequentialCapture', () => {
     expect(events[0].timestampMs).toBe(250);
     expect(events[0].stamps).toHaveLength(2);
     expect(events[0].brush.brushShape).toBe(BrushShape.ROUND);
+    expect(events[0].brush.tipShape).toBe('round');
+  });
+
+  it('captures effective square tip shape for pixel-square style brushes', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.SQUARE,
+          antialiasing: false,
+          ditherEnabled: false,
+          ditherStrokeTipShape: 'round',
+        },
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1250,
+      stamps: [{ x: 10, y: 12, pressure: 1, rotation: 0, size: 5, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].brush.brushShape).toBe(BrushShape.SQUARE);
+    expect(events[0].brush.tipShape).toBe('square');
   });
 
   it('exposes buffered frame events before flush and clears them after flush', () => {
@@ -701,6 +733,45 @@ describe('sequentialCapture', () => {
     expect(events.map((event) => event.frameIndex)).toEqual([6, 7, 8]);
   });
 
+  it('reduces smear densification for large brush tips to keep capture responsive', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        timeSmear: 3,
+      },
+    }));
+
+    const smallRuntime = createSequentialStampCapRuntime();
+    const smallBufferRuntime = createSequentialEventBufferRuntime();
+    const largeRuntime = createSequentialStampCapRuntime();
+    const largeBufferRuntime = createSequentialEventBufferRuntime();
+
+    const smallCaptureCount = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      runtime: smallRuntime,
+      eventBufferRuntime: smallBufferRuntime,
+      nowMs: 1300,
+      stamps: [
+        { x: 0, y: 0, pressure: 1, rotation: 0, size: 8, alpha: 1 },
+        { x: 64, y: 0, pressure: 1, rotation: 0, size: 8, alpha: 1 },
+      ],
+    });
+
+    const largeCaptureCount = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      runtime: largeRuntime,
+      eventBufferRuntime: largeBufferRuntime,
+      nowMs: 1300,
+      stamps: [
+        { x: 0, y: 0, pressure: 1, rotation: 0, size: 64, alpha: 1 },
+        { x: 64, y: 0, pressure: 1, rotation: 0, size: 64, alpha: 1 },
+      ],
+    });
+
+    expect(smallCaptureCount).toBeGreaterThan(largeCaptureCount);
+  });
+
   it('bridges consecutive single-point captures so temporal distribution can split frames', () => {
     setFeatureFlag('enableSequentialRecordMode', true);
     useAppStore.setState((state) => ({
@@ -761,7 +832,7 @@ describe('sequentialCapture', () => {
     expect(events.some((event) => event.frameIndex === 7)).toBe(true);
   });
 
-  it('uses density-based temporal splitting for multi-stamp captures at smear 1', () => {
+  it('keeps multi-stamp capture on a single frame at smear 1', () => {
     setFeatureFlag('enableSequentialRecordMode', true);
     useAppStore.setState((state) => ({
       sequentialRecord: {
@@ -788,8 +859,8 @@ describe('sequentialCapture', () => {
       useAppStore
         .getState()
         .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
-    expect(events.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(events.map((event) => event.frameIndex)).size).toBeGreaterThan(1);
+    expect(events).toHaveLength(1);
+    expect(events[0].frameIndex).toBe(6);
   });
 
   it('keeps capture on a single frame when temporal distribution is disabled', () => {

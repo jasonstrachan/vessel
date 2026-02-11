@@ -399,6 +399,9 @@ const buildTemporalFrameBuckets = ({
   }
 
   const smearFactor = Number.isFinite(timeSmear) ? Math.max(0.1, timeSmear) : 1;
+  if (smearFactor <= 1.01 && !forceSplit) {
+    return [{ frameIndex: baseFrameIndex, stamps }];
+  }
   const requestedBucketCount = Math.round(smearFactor);
   const baseDensityBucketCount = Math.min(
     MAX_TEMPORAL_DISTRIBUTION_FRAMES,
@@ -548,9 +551,41 @@ const buildBrushSnapshot = ({
     typeof normalizedPluginConfig?.ditherAlgorithm === 'string'
       ? normalizedPluginConfig.ditherAlgorithm
       : settings.ditherAlgorithm;
+  const resolveTipShape = (): NonNullable<SequentialBrushSnapshot['tipShape']> => {
+    const pluginMode = pluginBrushId?.trim().toLowerCase();
+    const isDitherContext =
+      Boolean(settings.ditherEnabled || settings.colorCycleStampDitherEnabled) ||
+      pluginMode === 'dither-brush' ||
+      brushShape === BrushShape.PIXEL_DITHER ||
+      brushShape === BrushShape.DITHER_GRADIENT;
+    if (isDitherContext) {
+      const ditherTipShape = settings.ditherStrokeTipShape ?? settings.colorCycleStampShape;
+      if (ditherTipShape === 'square') {
+        return 'square';
+      }
+      if (ditherTipShape === 'triangle' || ditherTipShape === 'diamond') {
+        return 'triangle';
+      }
+      if (ditherTipShape === 'round') {
+        return 'round';
+      }
+    }
+    switch (brushShape) {
+      case BrushShape.SQUARE:
+      case BrushShape.MOSAIC:
+      case BrushShape.PIXEL_DITHER:
+        return 'square';
+      case BrushShape.TRIANGLE:
+      case BrushShape.COLOR_CYCLE_TRIANGLE:
+        return 'triangle';
+      default:
+        return 'round';
+    }
+  };
   return {
     tool: state.tools.currentTool,
     brushShape,
+    tipShape: resolveTipShape(),
     size: Math.max(1, Number.isFinite(settings.size) ? settings.size : 1),
     opacity: Math.max(0, Math.min(1, Number.isFinite(settings.opacity) ? settings.opacity : 1)),
     blendMode: settings.blendMode,
@@ -597,6 +632,7 @@ const buildBrushSnapshotKey = (
   [
     snapshot.tool,
     snapshot.brushShape,
+    snapshot.tipShape ?? '',
     snapshot.size,
     snapshot.opacity,
     snapshot.blendMode,
@@ -741,6 +777,23 @@ const densifySequentialStampsForSmear = ({
     return stamps;
   }
 
+  const resolveDensifyBudget = (
+    from: SequentialStampPoint,
+    to: SequentialStampPoint
+  ): { segmentPx: number; maxExtraPoints: number } => {
+    const avgSize = Math.max(1, (Math.max(0, from.size) + Math.max(0, to.size)) * 0.5);
+    if (avgSize >= 64) {
+      return { segmentPx: 32, maxExtraPoints: 1 };
+    }
+    if (avgSize >= 32) {
+      return { segmentPx: 20, maxExtraPoints: 2 };
+    }
+    if (avgSize >= 16) {
+      return { segmentPx: 12, maxExtraPoints: 3 };
+    }
+    return { segmentPx: 8, maxExtraPoints: 4 };
+  };
+
   let totalPointCount = stamps.length;
   for (let i = 1; i < stamps.length; i += 1) {
     const from = stamps[i - 1];
@@ -748,9 +801,10 @@ const densifySequentialStampsForSmear = ({
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
+    const { segmentPx, maxExtraPoints } = resolveDensifyBudget(from, to);
     totalPointCount += Math.min(
-      4,
-      Math.max(0, Math.floor((distance / 8) * (smearFactor - 1)))
+      maxExtraPoints,
+      Math.max(0, Math.floor((distance / segmentPx) * (smearFactor - 1)))
     );
   }
   if (totalPointCount <= stamps.length) {
@@ -767,9 +821,10 @@ const densifySequentialStampsForSmear = ({
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
+    const { segmentPx, maxExtraPoints } = resolveDensifyBudget(from, to);
     const extraPoints = Math.min(
-      4,
-      Math.max(0, Math.floor((distance / 8) * (smearFactor - 1)))
+      maxExtraPoints,
+      Math.max(0, Math.floor((distance / segmentPx) * (smearFactor - 1)))
     );
 
     for (let j = 1; j <= extraPoints; j += 1) {
