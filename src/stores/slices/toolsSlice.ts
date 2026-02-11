@@ -190,6 +190,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   antialiasing: settings.antialiasing,
   colors: settings.colors,
   colorCycleSpeed: settings.colorCycleSpeed,
+  colorCycleLayerSpeedScale: settings.colorCycleLayerSpeedScale,
   colorCycleGradient: settings.colorCycleGradient,
   colorCycleFPS: settings.colorCycleFPS,
   colorCycleFlowMode: settings.colorCycleFlowMode,
@@ -835,6 +836,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.colorCycleSpeed !== undefined) {
         settingsToSave.colorCycleSpeed = newSettings.colorCycleSpeed;
+      }
+      if (settings.colorCycleLayerSpeedScale !== undefined) {
+        settingsToSave.colorCycleLayerSpeedScale = newSettings.colorCycleLayerSpeedScale;
       }
       if (settings.ccGradientSource !== undefined) {
         settingsToSave.ccGradientSource = newSettings.ccGradientSource;
@@ -1506,6 +1510,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     }
     const hasUserColorCycleSpeed = userOverrides?.colorCycleSpeed !== undefined;
+    const hasUserColorCycleLayerSpeedScale = userOverrides?.colorCycleLayerSpeedScale !== undefined;
     const hasUserColorCycleFlowMode = userOverrides?.colorCycleFlowMode !== undefined;
     const hasUserColorCycleFPS = userOverrides?.colorCycleFPS !== undefined;
     const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
@@ -1543,6 +1548,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     // This keeps animation feel consistent between Color Cycle variants
     if (currentSettings.colorCycleSpeed !== undefined && !hasUserColorCycleSpeed) {
       newBrushSettings.colorCycleSpeed = currentSettings.colorCycleSpeed;
+    }
+    if (
+      currentSettings.colorCycleLayerSpeedScale !== undefined &&
+      !hasUserColorCycleLayerSpeedScale
+    ) {
+      newBrushSettings.colorCycleLayerSpeedScale = currentSettings.colorCycleLayerSpeedScale;
     }
     if (currentSettings.colorCycleFlowMode !== undefined && !hasUserColorCycleFlowMode) {
       newBrushSettings.colorCycleFlowMode = 'forward';

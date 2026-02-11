@@ -893,6 +893,7 @@ export interface BrushSettings {
 
   // Color cycle brush settings
   colorCycleSpeed?: number; // 0-2.64 (brush animation speed)
+  colorCycleLayerSpeedScale?: number; // Global playback multiplier for CC brush-mode layers
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)

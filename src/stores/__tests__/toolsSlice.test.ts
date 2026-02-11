@@ -92,6 +92,20 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.brushSettings.autoSampleColor).toBe(true);
   });
 
+  it('persists CC layer speed scale in brush settings overrides', () => {
+    const store = useAppStore.getState();
+    store.setBrushSettings({ colorCycleLayerSpeedScale: 0.6 });
+
+    const state = useAppStore.getState();
+    expect(state.tools.brushSettings.colorCycleLayerSpeedScale).toBe(0.6);
+    const presetId = state.currentBrushPreset?.id;
+    expect(presetId).toBeTruthy();
+    if (!presetId) {
+      return;
+    }
+    expect(state.brushSpecificSettings[presetId]?.colorCycleLayerSpeedScale).toBe(0.6);
+  });
+
   it('enables dither background fill by default', () => {
     const store = useAppStore.getState();
     expect(store.tools.brushSettings.ditherBackgroundFill).not.toBe(false);

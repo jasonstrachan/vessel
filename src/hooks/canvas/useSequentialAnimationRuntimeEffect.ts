@@ -16,6 +16,7 @@ import {
 import { setSequentialFrameCacheSnapshot } from '@/lib/sequential/SequentialPerfCounters';
 import { getSequentialLayerRendererStats } from '@/lib/sequential/SequentialLayerRenderer';
 import { logError } from '@/utils/debug';
+import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import {
   selectSequentialCaptureActive,
   selectSequentialPlaybackActive,
@@ -318,7 +319,15 @@ export const useSequentialAnimationRuntimeEffect = ({
             ? performance.now()
             : Date.now();
         const fps = Math.max(1, state.sequentialRecord.fps);
-        const frameDurationMs = 1000 / fps;
+        const sliderScaleRaw = state.tools?.brushSettings?.colorCycleLayerSpeedScale;
+        const sliderScale = Number.isFinite(sliderScaleRaw)
+          ? Math.max(
+              MIN_CC_LAYER_SPEED_SCALE,
+              Math.min(MAX_CC_LAYER_SPEED_SCALE, sliderScaleRaw as number)
+            )
+          : 1;
+        const playbackScale = playbackActive ? sliderScale : 1;
+        const frameDurationMs = 1000 / (fps * playbackScale);
 
         let advancedFrames = 0;
         if (shouldAdvanceFrames) {

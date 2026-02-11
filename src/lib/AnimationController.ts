@@ -325,6 +325,13 @@ export class AnimationController {
   }
 
   /**
+   * Get elapsed time in seconds with speed scaling applied.
+   */
+  getScaledElapsedTime(): number {
+    return this.totalElapsedTime;
+  }
+
+  /**
    * Advance time manually for external render loops.
    * deltaSeconds is real time; speed applies only to offset/totalTime.
    */

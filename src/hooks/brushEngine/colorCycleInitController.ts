@@ -1,4 +1,5 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 
 type LayerSummary = {
   id: string;
@@ -16,6 +17,7 @@ type BrushLike = {
   setBrushSize: (size: number) => void;
   setFPS: (fps: number) => void;
   setSpeed: (speed: number) => void;
+  setPlaybackSpeedScale?: (scale: number) => void;
   setGradientBands: (bands: number) => void;
   setBandSpacing: (spacing: number) => void;
   setDitherEnabled: (enabled: boolean) => void;
@@ -109,9 +111,18 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
     try {
       const speedLayer = getLayers().find((layer) => layer.id === activeLayerId);
       const perLayerSpeed = speedLayer?.colorCycleData?.controllerSpeedCps ?? speedLayer?.colorCycleData?.brushSpeed;
-      const speed = perLayerSpeed ?? brushSettings.colorCycleSpeed;
-      if (typeof speed === 'number' && Number.isFinite(speed)) {
-        colorCycleBrush.setSpeed(speed);
+      const baseSpeed = perLayerSpeed ?? brushSettings.colorCycleSpeed;
+      const layerSpeedScale = Number.isFinite(brushSettings.colorCycleLayerSpeedScale)
+        ? Math.max(
+            MIN_CC_LAYER_SPEED_SCALE,
+            Math.min(MAX_CC_LAYER_SPEED_SCALE, brushSettings.colorCycleLayerSpeedScale as number)
+          )
+        : 1;
+      if (typeof baseSpeed === 'number' && Number.isFinite(baseSpeed)) {
+        colorCycleBrush.setSpeed(baseSpeed);
+      }
+      if (typeof colorCycleBrush.setPlaybackSpeedScale === 'function') {
+        colorCycleBrush.setPlaybackSpeedScale(layerSpeedScale);
       }
     } catch {}
 

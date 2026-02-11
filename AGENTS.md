@@ -264,6 +264,7 @@ Agent Directives
 - For ambiguous tasks, propose a short plan and confirm assumptions.
 - When reading/searching code, prefer rg; read files in <=250-line chunks.
 - For multi-step tasks, keep one active step and update the plan as steps complete.
+- Keep Vessel runtime behavior and Goblet export behavior in sync for animation/playback changes; update both paths and tests in the same change.
 
 Specialist Assignment Guide
 

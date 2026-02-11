@@ -65,11 +65,13 @@ jest.mock('@/components/ui/ProgressSlider', () => ({
   default: ({
     value,
     onChange,
+    onCommit,
     disabled,
     'aria-label': ariaLabel,
   }: {
     value: number;
     onChange: (v: number) => void;
+    onCommit?: () => void;
     disabled?: boolean;
     'aria-label'?: string;
   }) => (
@@ -78,7 +80,12 @@ jest.mock('@/components/ui/ProgressSlider', () => ({
       aria-label={ariaLabel}
       value={value}
       disabled={disabled}
-      onChange={(e) => onChange(Number(e.target.value))}
+      onChange={(e) => {
+        onChange(Number(e.target.value));
+      }}
+      onBlur={() => {
+        onCommit?.();
+      }}
     />
   ),
 }));
@@ -235,6 +242,7 @@ jest.mock('@/stores/useAppStore', () => {
     colorCycleFlowMode: 'forward',
     customBrushColorCycle: false,
     colorCycleSpeed: 0.1,
+    colorCycleLayerSpeedScale: 1,
     colorCycleStampShape: 'square',
     colorCycleStampDitherPressureLinked: false,
     colorCycleUseForegroundGradient: false,

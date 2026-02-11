@@ -22,6 +22,12 @@ jest.mock('@/stores/useAppStore', () => {
     setRecordFPS: jest.Mock;
     setRecordFrameCount: jest.Mock;
     setTimeSmear: jest.Mock;
+    setBrushSettings: jest.Mock;
+    tools: {
+      brushSettings: {
+        colorCycleLayerSpeedScale?: number;
+      };
+    };
   };
   type Selector<T> = (state: MockState) => T;
   type StoreHook = {
@@ -49,6 +55,17 @@ jest.mock('@/stores/useAppStore', () => {
     setRecordFPS: jest.fn(),
     setRecordFrameCount: jest.fn(),
     setTimeSmear: jest.fn(),
+    setBrushSettings: jest.fn((updates: { colorCycleLayerSpeedScale?: number }) => {
+      state.tools.brushSettings = {
+        ...state.tools.brushSettings,
+        ...updates,
+      };
+    }),
+    tools: {
+      brushSettings: {
+        colorCycleLayerSpeedScale: 1,
+      },
+    },
   };
 
   const useAppStore = ((selector?: Selector<unknown>) =>
@@ -106,6 +123,12 @@ type PanelMockState = {
   setRecordFPS: jest.Mock;
   setRecordFrameCount: jest.Mock;
   setTimeSmear: jest.Mock;
+  setBrushSettings: jest.Mock;
+  tools: {
+    brushSettings: {
+      colorCycleLayerSpeedScale?: number;
+    };
+  };
 };
 
 const appStore = useAppStore as unknown as {
@@ -122,6 +145,7 @@ describe('AnimationControlsPanel', () => {
     store.setRecordFPS.mockClear();
     store.setRecordFrameCount.mockClear();
     store.setTimeSmear.mockClear();
+    store.setBrushSettings.mockClear();
     appStore.setState({
       colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
       layers: [{ id: 'layer-regular', layerType: 'normal' }],
@@ -132,6 +156,11 @@ describe('AnimationControlsPanel', () => {
         timeSmear: 1,
         currentFrame: 0,
         isPointerDown: false,
+      },
+      tools: {
+        brushSettings: {
+          colorCycleLayerSpeedScale: 1,
+        },
       },
     });
   });
@@ -258,10 +287,14 @@ describe('AnimationControlsPanel', () => {
     fireEvent.change(screen.getByRole('slider', { name: /time-smear/i }), {
       target: { value: '2.5' },
     });
+    fireEvent.change(screen.getByRole('slider', { name: /layer speed/i }), {
+      target: { value: '0.6' },
+    });
 
     const store = appStore.getState();
     expect(store.setRecordFPS).toHaveBeenCalledWith(24);
     expect(store.setRecordFrameCount).toHaveBeenCalledWith(32);
     expect(store.setTimeSmear).toHaveBeenCalledWith(2.5);
+    expect(store.setBrushSettings).toHaveBeenCalledWith({ colorCycleLayerSpeedScale: 0.6 });
   });
 });

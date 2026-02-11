@@ -155,6 +155,13 @@ import {
   type Rect,
 } from './brushEngine/engineShared';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import {
+  MAX_CC_LAYER_SPEED_SCALE,
+  MAX_RECOLOR_COLOR_CYCLE_SPEED,
+  MIN_CC_LAYER_SPEED_SCALE,
+  MIN_RECOLOR_COLOR_CYCLE_SPEED
+} from '@/constants/colorCycle';
 import { isFgPending } from '@/utils/colorCycleGradients';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
@@ -257,6 +264,7 @@ export const useBrushEngineSimplified = () => {
   const lastSegmentBoundsRef = useRef<Rect | null>(null);
   const strokePhaseOriginRef = useRef<{ x: number; y: number } | null>(null);
   const liveRenderScheduledRef = useRef(false);
+  const recolorLayerScaleByIdRef = useRef<Map<string, number>>(new Map());
   const ditherCoverageMapRef = useRef<Map<string, {
     canvas: HTMLCanvasElement | OffscreenCanvas;
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -1485,7 +1493,7 @@ export const useBrushEngineSimplified = () => {
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
-  const resolvedColorCycleSpeed = useMemo(() => {
+  const resolvedColorCycleBaseSpeed = useMemo(() => {
     const perLayerSpeed = activeLayerBrushSpeed;
     const fallbackSpeed = tools.brushSettings.colorCycleSpeed;
     if (Number.isFinite(perLayerSpeed)) {
@@ -1495,19 +1503,81 @@ export const useBrushEngineSimplified = () => {
       return fallbackSpeed as number;
     }
     return null;
-  }, [activeLayerBrushSpeed, tools.brushSettings.colorCycleSpeed]);
+  }, [
+    activeLayerBrushSpeed,
+    tools.brushSettings.colorCycleSpeed,
+  ]);
+
+  const resolvedColorCycleLayerSpeedScale = useMemo(() => {
+    const layerScaleRaw = tools.brushSettings.colorCycleLayerSpeedScale;
+    return Number.isFinite(layerScaleRaw)
+      ? Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, layerScaleRaw as number))
+      : 1;
+  }, [tools.brushSettings.colorCycleLayerSpeedScale]);
 
   // Update color cycle speed when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && resolvedColorCycleSpeed !== null) {
-      colorCycleBrush.setSpeed(resolvedColorCycleSpeed);
+    if (colorCycleBrush && resolvedColorCycleBaseSpeed !== null) {
+      colorCycleBrush.setSpeed(resolvedColorCycleBaseSpeed);
     }
   }, [
     activeLayerId,
     getActiveLayerColorCycleBrush,
-    resolvedColorCycleSpeed,
+    resolvedColorCycleBaseSpeed,
   ]);
+
+  useEffect(() => {
+    const manager = getColorCycleBrushManager();
+    manager.brushes?.forEach((brush) => {
+      if (typeof brush.setPlaybackSpeedScale === 'function') {
+        brush.setPlaybackSpeedScale(resolvedColorCycleLayerSpeedScale);
+      }
+    });
+  }, [
+    activeLayerId,
+    getActiveLayerColorCycleBrush,
+    resolvedColorCycleLayerSpeedScale,
+  ]);
+
+  useEffect(() => {
+    const recolorManager = RecolorManager.getInstance();
+    const nextSeenRecolorLayerIds = new Set<string>();
+
+    layers.forEach((layer) => {
+      if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode !== 'recolor') {
+        return;
+      }
+      const animation = layer.colorCycleData?.recolorSettings?.animation;
+      if (!animation || !Number.isFinite(animation.speed)) {
+        return;
+      }
+
+      const previousScale = recolorLayerScaleByIdRef.current.get(layer.id) ?? 1;
+      const ratio = resolvedColorCycleLayerSpeedScale / Math.max(MIN_CC_LAYER_SPEED_SCALE, previousScale);
+      const nextSpeed = Math.max(
+        MIN_RECOLOR_COLOR_CYCLE_SPEED,
+        Math.min(MAX_RECOLOR_COLOR_CYCLE_SPEED, animation.speed * ratio)
+      );
+
+      if (Math.abs(nextSpeed - animation.speed) > 1e-6) {
+        animation.speed = nextSpeed;
+      }
+
+      try {
+        recolorManager.setLayerSpeed(layer.id, nextSpeed);
+      } catch {}
+
+      recolorLayerScaleByIdRef.current.set(layer.id, resolvedColorCycleLayerSpeedScale);
+      nextSeenRecolorLayerIds.add(layer.id);
+    });
+
+    recolorLayerScaleByIdRef.current.forEach((_value, layerId) => {
+      if (!nextSeenRecolorLayerIds.has(layerId)) {
+        recolorLayerScaleByIdRef.current.delete(layerId);
+      }
+    });
+  }, [layers, resolvedColorCycleLayerSpeedScale]);
   
   // Update color cycle FPS when it changes
   useEffect(() => {

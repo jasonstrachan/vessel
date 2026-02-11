@@ -187,6 +187,7 @@ type LayerSnapshots = Map<string, ArrayBuffer> | LayerSnapshotEntry[];
 
 interface ColorCycleBrushCanvasState {
   cycleSpeed?: number;
+  playbackSpeedScale?: number;
   fps?: number;
   brushSize?: number;
   layerSnapshots?: LayerSnapshots;
@@ -213,6 +214,7 @@ type DefPaletteCache = {
 interface ColorCycleBrushCanvasSerialized {
   layers: SerializedLayerState[];
   cycleSpeed: number;
+  playbackSpeedScale?: number;
   fps: number;
   brushSize: number;
   stampShape?: StampShape;
@@ -298,6 +300,7 @@ export class ColorCycleBrushCanvas2D {
   // Core settings (match original API)
   private brushSize: number;
   private cycleSpeed: number;
+  private playbackSpeedScale: number;
   private fps: number;
   private gradientBands: number = 12; // Number of color bands in gradients
   private bandSpacing: number = 5; // Pixel spacing between bands
@@ -454,6 +457,7 @@ export class ColorCycleBrushCanvas2D {
     // Core settings
     this.brushSize = options.brushSize || 20;
     this.cycleSpeed = 0.1;
+    this.playbackSpeedScale = 1;
     this.fps = options.fps || 30;
     this.pressureEnabled = false;
     this.minPressure = 1;
@@ -612,6 +616,7 @@ export class ColorCycleBrushCanvas2D {
       lazyInit: true,
       forceCanvas2D: this.forceCanvas2D
     });
+    animator.setSpeed(this.playbackSpeedScale);
     animator.setFlowMode(this.legacyFlowMode);
     this.animators.set(layerId, animator);
 
@@ -4536,9 +4541,18 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     // Write-speed only: this value is stamped into newly painted pixels.
-    // Playback remains neutral and should not globally scale existing content.
+    // Playback scaling is controlled separately via setPlaybackSpeedScale.
     this.cycleSpeed = speed;
-    this.animators.forEach(animator => animator.setSpeed(1));
+    this.animators.forEach(animator => animator.setSpeed(this.playbackSpeedScale));
+  }
+
+  setPlaybackSpeedScale(scale: number) {
+    if (!Number.isFinite(scale) || scale < 0) {
+      console.warn(`Invalid playback speed scale: ${scale}`);
+      return;
+    }
+    this.playbackSpeedScale = scale;
+    this.animators.forEach((animator) => animator.setSpeed(scale));
   }
   
   /**
@@ -5012,6 +5026,9 @@ export class ColorCycleBrushCanvas2D {
     let highestStrokeCounter = asHistory ? 0 : this.strokeCounter;
     try {
       if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
+      if (state.playbackSpeedScale !== undefined) {
+        this.setPlaybackSpeedScale(state.playbackSpeedScale);
+      }
       if (state.fps !== undefined) this.fps = state.fps;
       if (state.brushSize !== undefined) this.brushSize = state.brushSize;
       if (state.stampShape === 'triangle' || state.stampShape === 'square' || state.stampShape === 'diamond') {
@@ -5291,6 +5308,7 @@ export class ColorCycleBrushCanvas2D {
     return {
       layers,
       cycleSpeed: this.cycleSpeed,
+      playbackSpeedScale: this.playbackSpeedScale,
       fps: this.fps,
       brushSize: this.brushSize,
       stampShape: this.stampShape,
@@ -5315,6 +5333,9 @@ export class ColorCycleBrushCanvas2D {
 
     if (typeof data.cycleSpeed === 'number') {
       instance.setSpeed(data.cycleSpeed);
+    }
+    if (typeof data.playbackSpeedScale === 'number') {
+      instance.setPlaybackSpeedScale(data.playbackSpeedScale);
     }
 
     if (data.stampShape) {

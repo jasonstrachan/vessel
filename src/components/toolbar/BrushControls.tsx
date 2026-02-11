@@ -608,7 +608,6 @@ const BrushControls = () => {
     activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED,
     setColorCycleSpeed
   );
-
   const bandsSlider = useCommittedSliderValue(activeSettings.gradientBands ?? 12, (nextRaw) => {
     const next = Math.max(2, Math.min(128, Math.round(nextRaw)));
     setActiveSettings({ gradientBands: next });

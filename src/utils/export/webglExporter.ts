@@ -10,8 +10,13 @@ import { normalizeAlign, type RawAlignInput } from '@/utils/alignment/normalizeA
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { posInt, round3, toNum } from '@/utils/num';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
-import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
-import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import {
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MAX_CC_LAYER_SPEED_SCALE,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_CC_LAYER_SPEED_SCALE
+} from '@/constants/colorCycle';
+import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import type {
   ContentBounds,
   ExportContainerLayout,
@@ -1180,7 +1185,51 @@ const toFiniteNumberOrNull = (value: unknown): number | null => {
   return Number.isFinite(numeric) ? numeric : null;
 };
 
-const resolveExportBrushSpeed = (layer: Layer): number | null => {
+const clampExportLayerSpeedScale = (value: unknown): number => {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.max(
+    MIN_CC_LAYER_SPEED_SCALE,
+    Math.min(MAX_CC_LAYER_SPEED_SCALE, value as number)
+  );
+};
+
+const resolveExportLayerSpeedScale = (): number => {
+  try {
+    return clampExportLayerSpeedScale(
+      useAppStore.getState().tools?.brushSettings?.colorCycleLayerSpeedScale
+    );
+  } catch {
+    return 1;
+  }
+};
+
+const applyExportPlaybackScale = (speed: number | null, layerSpeedScale: number): number | null => {
+  if (!Number.isFinite(speed)) {
+    return null;
+  }
+  return (speed as number) * layerSpeedScale;
+};
+
+const scaleEncodedSpeedBuffer = (
+  speedBuffer: number[] | Uint8Array,
+  layerSpeedScale: number
+): number[] => {
+  const out = new Array<number>(speedBuffer.length);
+  for (let i = 0; i < speedBuffer.length; i += 1) {
+    const encoded = Number(speedBuffer[i] ?? 0);
+    if (!Number.isFinite(encoded) || encoded <= 0) {
+      out[i] = 0;
+      continue;
+    }
+    const decoded = decodeColorCycleSpeedByte(encoded);
+    out[i] = encodeColorCycleSpeedByte(decoded * layerSpeedScale);
+  }
+  return out;
+};
+
+const resolveExportBrushSpeed = (layer: Layer, layerSpeedScale: number): number | null => {
   const data = layer.colorCycleData;
   if (!data) {
     return null;
@@ -1188,18 +1237,18 @@ const resolveExportBrushSpeed = (layer: Layer): number | null => {
 
   const brushSpeed = toFiniteNumberOrNull(data.brushSpeed);
   if (brushSpeed !== null) {
-    return brushSpeed;
+    return applyExportPlaybackScale(brushSpeed, layerSpeedScale);
   }
 
   const recolorSpeed = toFiniteNumberOrNull(data.recolorSettings?.animation?.speed);
   if (recolorSpeed !== null) {
-    return recolorSpeed;
+    return applyExportPlaybackScale(recolorSpeed, layerSpeedScale);
   }
 
   return null;
 };
 
-const resolveExportControllerSpeed = (layer: Layer): number | null => {
+const resolveExportControllerSpeed = (layer: Layer, layerSpeedScale: number): number | null => {
   const data = layer.colorCycleData;
   if (!data) {
     return null;
@@ -1207,20 +1256,20 @@ const resolveExportControllerSpeed = (layer: Layer): number | null => {
 
   const controllerSpeed = toFiniteNumberOrNull(data.controllerSpeedCps);
   if (controllerSpeed !== null) {
-    return controllerSpeed;
+    return applyExportPlaybackScale(controllerSpeed, layerSpeedScale);
   }
 
   const brushSpeed = toFiniteNumberOrNull(data.brushSpeed);
   if (brushSpeed !== null) {
-    return brushSpeed;
+    return applyExportPlaybackScale(brushSpeed, layerSpeedScale);
   }
 
   const recolorSpeed = toFiniteNumberOrNull(data.recolorSettings?.animation?.speed);
   if (recolorSpeed !== null) {
-    return recolorSpeed;
+    return applyExportPlaybackScale(recolorSpeed, layerSpeedScale);
   }
 
-  const toolSpeed = resolveExportToolSpeed(layer);
+  const toolSpeed = resolveExportToolSpeed(layer, layerSpeedScale);
   if (toolSpeed !== null) {
     return toolSpeed;
   }
@@ -1230,16 +1279,18 @@ const resolveExportControllerSpeed = (layer: Layer): number | null => {
 
 const SPEED_SLOT_LIMIT = 64;
 
-const resolveExportToolSpeed = (layer: Layer): number | null => {
+const resolveExportToolSpeed = (layer: Layer, layerSpeedScale: number): number | null => {
   try {
     const toolSpeed = toFiniteNumberOrNull(useAppStore.getState().tools?.brushSettings?.colorCycleSpeed);
     if (toolSpeed !== null) {
-      return toolSpeed;
+      return applyExportPlaybackScale(toolSpeed, layerSpeedScale);
     }
   } catch {}
 
   const layerSpeed = toFiniteNumberOrNull(layer.colorCycleData?.brushSpeed);
-  return layerSpeed !== null ? layerSpeed : null;
+  return layerSpeed !== null
+    ? applyExportPlaybackScale(layerSpeed, layerSpeedScale)
+    : null;
 };
 
 const collectUsedSlots = (
@@ -1342,6 +1393,7 @@ const prepareBrushSpeedExport = (params: {
   brushState: WebGLSerializedBrushState;
   warnOnce: () => void;
   forceBuffer?: boolean;
+  layerSpeedScale: number;
 }): {
   speedMode?: 'slot' | 'buffer';
   slotSpeeds?: Array<{ slot: number; speed: number }>;
@@ -1360,8 +1412,12 @@ const prepareBrushSpeedExport = (params: {
     return null;
   }
 
-  const speedBySlot = resolveSlotSpeedMap(params.layer.colorCycleData);
-  const fallbackSpeed = resolveExportToolSpeed(params.layer);
+  const rawSpeedBySlot = resolveSlotSpeedMap(params.layer.colorCycleData);
+  const speedBySlot = new Map<number, number>();
+  rawSpeedBySlot.forEach((speed, slot) => {
+    speedBySlot.set(slot, (speed ?? 0) * params.layerSpeedScale);
+  });
+  const fallbackSpeed = resolveExportToolSpeed(params.layer, params.layerSpeedScale);
   const speedBufferValues = Array.isArray(params.brushState.speedBuffer)
     ? params.brushState.speedBuffer
     : null;
@@ -1373,7 +1429,7 @@ const prepareBrushSpeedExport = (params: {
 
   if (shouldUseBuffer) {
     const speedBufferOverride = speedBufferValues && speedBufferValues.length > 0
-      ? speedBufferValues
+      ? scaleEncodedSpeedBuffer(speedBufferValues, params.layerSpeedScale)
       : buildSpeedBufferFromSlots({
           gradientIds,
           indices,
@@ -2431,7 +2487,8 @@ const hasNonZeroSpeedBuffer = (buffer: unknown): boolean => {
 
 const shouldExportLayerAsAnimating = (
   layer: Layer,
-  brushState?: WebGLSerializedBrushState
+  brushState?: WebGLSerializedBrushState,
+  layerSpeedScale: number = resolveExportLayerSpeedScale()
 ): boolean => {
   const data = layer.colorCycleData;
   if (!data) {
@@ -2450,7 +2507,7 @@ const shouldExportLayerAsAnimating = (
     return true;
   }
 
-  const resolvedSpeed = resolveExportBrushSpeed(layer);
+  const resolvedSpeed = resolveExportBrushSpeed(layer, layerSpeedScale);
   if (hasNonZeroMagnitude(resolvedSpeed)) {
     return true;
   }
@@ -2475,7 +2532,10 @@ const serializeColorCycleData = async (
   layer: Layer,
   project: Project,
   speedWarning?: { warned: boolean },
-  options?: { forceSpeedBuffer?: boolean }
+  options?: {
+    forceSpeedBuffer?: boolean;
+    layerSpeedScale?: number;
+  }
 ): Promise<ColorCycleSerializationResult | undefined> => {
   const data = layer.colorCycleData;
   if (!data) {
@@ -2491,6 +2551,7 @@ const serializeColorCycleData = async (
     }
   }
 
+  const layerSpeedScale = clampExportLayerSpeedScale(options?.layerSpeedScale);
   let brushState: WebGLSerializedBrushState | undefined;
   if (!data.recolorSettings) {
     brushState = serializeBrushState(layer);
@@ -2499,13 +2560,13 @@ const serializeColorCycleData = async (
     }
   }
 
-  const resolvedBrushSpeed = resolveExportBrushSpeed(layer);
-  const resolvedControllerSpeed = resolveExportControllerSpeed(layer);
+  const resolvedBrushSpeed = resolveExportBrushSpeed(layer, layerSpeedScale);
+  const resolvedControllerSpeed = resolveExportControllerSpeed(layer, layerSpeedScale);
   const controllerSpeedForExport = data.mode === 'recolor'
     ? resolvedControllerSpeed
     : (resolvedControllerSpeed ?? resolvedBrushSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED);
   const shouldAnimate = data.mode === 'recolor'
-    ? shouldExportLayerAsAnimating(layer, brushState)
+    ? shouldExportLayerAsAnimating(layer, brushState, layerSpeedScale)
     : true;
   const serialized: WebGLSerializedColorCycle = {
     mode: data.mode ?? 'brush',
@@ -2541,6 +2602,10 @@ const serializeColorCycleData = async (
       }
       // Flow direction has been removed in-app; normalize export to forward.
       animation.flowDirection = 'forward';
+      const animationSpeed = toFiniteNumberOrNull(animation.speed);
+      if (animationSpeed !== null) {
+        animation.speed = animationSpeed * layerSpeedScale;
+      }
     }
 
     const serializedIndexBuffer = await packNumericArrayForExport(recolorSettings.indexBuffer ?? undefined);
@@ -2650,6 +2715,7 @@ const serializeColorCycleData = async (
       brushState,
       warnOnce: warnOnceMissingSpeed,
       forceBuffer: options?.forceSpeedBuffer === true,
+      layerSpeedScale,
     });
     if (speedPlan?.speedMode) {
       serialized.speedMode = speedPlan.speedMode;
@@ -3977,6 +4043,7 @@ export const exportProjectAsWebGL = async (
     height: options.project.height
   };
   const speedWarning = { warned: false };
+  const exportLayerSpeedScale = resolveExportLayerSpeedScale();
 
   for (let index = 0; index < options.layers.length; index += 1) {
     const layer = options.layers[index];
@@ -4015,6 +4082,7 @@ export const exportProjectAsWebGL = async (
     }
     const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning, {
       forceSpeedBuffer: gobletVersion === 'goblet2',
+      layerSpeedScale: exportLayerSpeedScale,
     });
     const colorCycle = colorCycleResult?.colorCycle;
     const colorCycleRuntime = colorCycleResult?.runtime;
@@ -4187,25 +4255,25 @@ export const exportProjectAsWebGL = async (
         : undefined,
       colorCycle,
       sequential: layer.layerType === 'sequential'
-        ? {
-            fps: Math.max(1, Math.round(layer.sequentialData?.fps ?? options.fps)),
-            totalFrames: sequentialFrameCount,
-            durationSeconds: Math.max(
+        ? (() => {
+            const baseSequentialFps = Math.max(1, Math.round(layer.sequentialData?.fps ?? options.fps));
+            const scaledSequentialFps = Math.max(
+              MIN_CC_LAYER_SPEED_SCALE,
+              Number((baseSequentialFps * exportLayerSpeedScale).toFixed(6))
+            );
+            const baseDurationMs = layer.sequentialData?.durationMs
+              ?? Math.round((sequentialFrameCount * 1000) / baseSequentialFps);
+            const scaledDurationSeconds = Math.max(
               0.001,
-              Number(
-                (
-                  (
-                    layer.sequentialData?.durationMs
-                    ?? Math.round(
-                      (sequentialFrameCount * 1000)
-                      / Math.max(1, Math.round(layer.sequentialData?.fps ?? options.fps))
-                    )
-                  ) / 1000
-                ).toFixed(6)
-              )
-            ),
-            perfectLoop: true
-          }
+              Number(((baseDurationMs / Math.max(MIN_CC_LAYER_SPEED_SCALE, exportLayerSpeedScale)) / 1000).toFixed(6))
+            );
+            return {
+              fps: scaledSequentialFps,
+              totalFrames: sequentialFrameCount,
+              durationSeconds: scaledDurationSeconds,
+              perfectLoop: true
+            };
+          })()
         : undefined,
       stackIndex: Number.isFinite(layer.order) ? layer.order : index,
       version: layer.version
@@ -4482,4 +4550,7 @@ export const __TESTING__ = {
   resolveDimensionFromCandidates,
   resolveRecolorSurfaceSize,
   clampBoundsToSurface,
+  clampExportLayerSpeedScale,
+  applyExportPlaybackScale,
+  scaleEncodedSpeedBuffer,
 };

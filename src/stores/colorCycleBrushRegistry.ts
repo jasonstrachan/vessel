@@ -1,6 +1,7 @@
 
 import type { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import { defaultBrushSettings } from '@/presets/brushPresets';
 import type { BrushSettings, Layer } from '@/types';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -21,6 +22,7 @@ type BrushWithOptionalControls = ColorCycleBrushImplementation & {
   setIsolated?: (isolated: boolean) => void;
   setLayerId?: (layerId: string) => void;
   setSpeed?: (speed: number) => void;
+  setPlaybackSpeedScale?: (scale: number) => void;
   setUseCanvas2D?: (useCanvas2D: boolean) => void;
   isUsingWebGL?: () => boolean;
   setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
@@ -178,6 +180,15 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
 
       if (typeof currentSettings.colorCycleSpeed === 'number') {
         brushWithOptionalControls.setSpeed?.(currentSettings.colorCycleSpeed);
+      }
+      if (typeof brushWithOptionalControls.setPlaybackSpeedScale === 'function') {
+        const layerScale = Number.isFinite(currentSettings.colorCycleLayerSpeedScale)
+          ? Math.max(
+              MIN_CC_LAYER_SPEED_SCALE,
+              Math.min(MAX_CC_LAYER_SPEED_SCALE, currentSettings.colorCycleLayerSpeedScale as number)
+            )
+          : 1;
+        brushWithOptionalControls.setPlaybackSpeedScale(layerScale);
       }
       const perLayerFlowMode = 'forward' as const;
       const legacyFlowMode = 'forward' as const;

@@ -203,6 +203,7 @@ export const defaultBrushSettings: BrushSettings = {
   contourLines2Density: 4, // Default line bundle density
   contourLines2Alternate: false, // Default to uniform direction
   colorCycleFlowMode: 'forward',
+  colorCycleLayerSpeedScale: 1,
   colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
   colorCycleBandSpacingPx: 12,
   colorCycleUseForegroundGradient: false,

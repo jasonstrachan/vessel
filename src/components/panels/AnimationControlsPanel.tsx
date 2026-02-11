@@ -9,6 +9,11 @@ import {
   selectSequentialPlaybackActive,
   selectSequentialRecordState,
 } from '@/stores/useAppStore';
+import {
+  CC_LAYER_SPEED_SCALE_STEP,
+  MAX_CC_LAYER_SPEED_SCALE,
+  MIN_CC_LAYER_SPEED_SCALE,
+} from '@/constants/colorCycle';
 
 const AnimationControlsPanel: React.FC = () => {
   const playColorCycle = useAppStore(state => state.playColorCycle);
@@ -17,6 +22,10 @@ const AnimationControlsPanel: React.FC = () => {
   const setRecordFPS = useAppStore((state) => state.setRecordFPS);
   const setRecordFrameCount = useAppStore((state) => state.setRecordFrameCount);
   const setTimeSmear = useAppStore((state) => state.setTimeSmear);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
+  const ccLayerSpeedScale = useAppStore(
+    (state) => state.tools.brushSettings.colorCycleLayerSpeedScale ?? 1
+  );
   const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const suspendDepth = useAppStore(selectColorCycleSuspendDepth);
   const sequentialPlaybackActive = useAppStore(selectSequentialPlaybackActive);
@@ -70,6 +79,21 @@ const AnimationControlsPanel: React.FC = () => {
     },
     [setTimeSmear]
   );
+
+  const handleCcLayerSpeedScaleChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = Number(event.target.value);
+      if (!Number.isFinite(value)) {
+        return;
+      }
+      const next = Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, value));
+      setBrushSettings({ colorCycleLayerSpeedScale: next });
+    },
+    [setBrushSettings]
+  );
+  const layerSpeedLabel = ccLayerSpeedScale < 0.1
+    ? `${ccLayerSpeedScale.toFixed(3)}x`
+    : `${ccLayerSpeedScale.toFixed(2)}x`;
 
   const controlsDisabled = sequentialCaptureActive;
   const currentFrameDisplay = Math.min(
@@ -126,6 +150,26 @@ const AnimationControlsPanel: React.FC = () => {
                 />
               </label>
             </div>
+
+            <label className="block text-[10px] text-[#BDBDBD]">
+              Layer speed
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="range"
+                  min={MIN_CC_LAYER_SPEED_SCALE}
+                  max={MAX_CC_LAYER_SPEED_SCALE}
+                  step={CC_LAYER_SPEED_SCALE_STEP}
+                  value={ccLayerSpeedScale}
+                  onChange={handleCcLayerSpeedScaleChange}
+                  disabled={controlsDisabled}
+                  className="w-full accent-[#D9D9D9] disabled:opacity-50"
+                  aria-label="Layer speed"
+                />
+                <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
+                  {layerSpeedLabel}
+                </span>
+              </div>
+            </label>
 
             <label className="block text-[10px] text-[#BDBDBD]">
               Time-smear

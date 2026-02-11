@@ -588,7 +588,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const baseTime =
         Number.isFinite(baseTimeOverride)
           ? (baseTimeOverride as number)
-          : this.animationController.getElapsedTime();
+          : this.animationController.getScaledElapsedTime();
       const indexData = this.indexBuffer.getDirectData();
       const gradientIdData = this.indexBuffer.getDirectGradientIdData();
       const speedData = this.indexBuffer.getDirectSpeedData();
