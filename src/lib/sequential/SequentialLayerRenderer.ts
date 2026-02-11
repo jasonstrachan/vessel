@@ -26,6 +26,7 @@ interface LayerRuntime {
 const layerRuntimes = new Map<string, LayerRuntime>();
 let sequentialGpuUnavailable = false;
 let sequentialGpuFallbackLogged = false;
+const MAX_EMPTY_FRAME_HOLD_LOOKBACK = 2;
 
 const createCanvas = (
   width: number,
@@ -154,6 +155,22 @@ const normalizeFrameIndex = (frameIndex: number, frameCount: number): number => 
   const safeCount = Math.max(1, Math.round(frameCount));
   const normalized = Math.round(frameIndex) % safeCount;
   return normalized < 0 ? normalized + safeCount : normalized;
+};
+
+const resolveHoldLookbackFrames = ({
+  fps,
+  frameCount,
+}: {
+  fps: number;
+  frameCount: number;
+}): number => {
+  const safeFrameCount = Math.max(1, Math.round(frameCount));
+  if (safeFrameCount <= 1) {
+    return 0;
+  }
+  const safeFps = Math.max(1, Math.round(fps));
+  const desiredLookback = safeFps <= 12 ? 2 : safeFps <= 24 ? 1 : 0;
+  return Math.min(MAX_EMPTY_FRAME_HOLD_LOOKBACK, safeFrameCount - 1, desiredLookback);
 };
 
 const copyTileSetToCanvas = ({
@@ -304,20 +321,46 @@ export const getSequentialLayerRenderCanvas = ({
     layer.sequentialData.frameCount
   );
 
-  const committedFrameEvents = runtime.eventLog.getLayerFrameEventsReadonly(
+  let sourceFrameIndex = normalizedFrameIndex;
+  let committedFrameEvents = runtime.eventLog.getLayerFrameEventsReadonly(
     layer.id,
-    normalizedFrameIndex
+    sourceFrameIndex
   );
-  let tileSet = runtime.frameCache.get(layer.id, normalizedFrameIndex);
+  if (committedFrameEvents.length === 0) {
+    const maxLookbackFrames = resolveHoldLookbackFrames({
+      fps: layer.sequentialData.fps,
+      frameCount: layer.sequentialData.frameCount,
+    });
+    for (let offset = 1; offset <= maxLookbackFrames; offset += 1) {
+      const candidateFrameIndex = normalizeFrameIndex(
+        normalizedFrameIndex - offset,
+        layer.sequentialData.frameCount
+      );
+      const candidateEvents = runtime.eventLog.getLayerFrameEventsReadonly(
+        layer.id,
+        candidateFrameIndex
+      );
+      if (candidateEvents.length > 0) {
+        sourceFrameIndex = candidateFrameIndex;
+        committedFrameEvents = candidateEvents;
+        break;
+      }
+    }
+  }
+
+  const shouldUseFallbackFrame = sourceFrameIndex !== normalizedFrameIndex;
+  let tileSet = shouldUseFallbackFrame
+    ? runtime.frameCache.get(layer.id, sourceFrameIndex)
+    : runtime.frameCache.get(layer.id, normalizedFrameIndex);
   if (!tileSet) {
     tileSet = runtime.materializer.materializeFrame({
       width,
       height,
-      frameIndex: normalizedFrameIndex,
+      frameIndex: sourceFrameIndex,
       events: committedFrameEvents,
       eventsAreFrameScoped: true,
     });
-    runtime.frameCache.set(layer.id, normalizedFrameIndex, tileSet);
+    runtime.frameCache.set(layer.id, sourceFrameIndex, tileSet);
   }
   let renderTileSet = tileSet;
   const framePreviewEvents = previewEvents ?? [];

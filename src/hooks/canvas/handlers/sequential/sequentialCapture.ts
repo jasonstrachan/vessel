@@ -39,6 +39,7 @@ const MAX_TEMPORAL_DISTRIBUTION_FRAMES = 3;
 
 export interface SequentialStampCapRuntime {
   sessionKey: string | null;
+  sessionStartFrameIndex: number | null;
   tokens: number;
   lastTimestampMs: number | null;
   strokeSegment: number;
@@ -89,6 +90,7 @@ export interface SequentialEventBufferRuntime {
 
 const defaultStampCapRuntime: SequentialStampCapRuntime = {
   sessionKey: null,
+  sessionStartFrameIndex: null,
   tokens: STAMP_BURST_CAPACITY,
   lastTimestampMs: null,
   strokeSegment: 0,
@@ -131,6 +133,7 @@ const defaultEventBufferRuntime: SequentialEventBufferRuntime = {
 
 export const createSequentialStampCapRuntime = (): SequentialStampCapRuntime => ({
   sessionKey: null,
+  sessionStartFrameIndex: null,
   tokens: STAMP_BURST_CAPACITY,
   lastTimestampMs: null,
   strokeSegment: 0,
@@ -323,6 +326,7 @@ export const noteSequentialCaptureActivity = ({
     return;
   }
   targetRuntime.captureWasActive = false;
+  targetRuntime.sessionStartFrameIndex = null;
   targetRuntime.lastBrushSnapshotKey = null;
   targetRuntime.lastAcceptedStamp = null;
   targetRuntime.lastAcceptedStampAtMs = null;
@@ -333,6 +337,26 @@ const normalizeFrameIndex = (frame: number, frameCount: number): number => {
   const safeFrameCount = Math.max(1, Math.round(frameCount));
   const normalized = Math.round(frame) % safeFrameCount;
   return normalized < 0 ? normalized + safeFrameCount : normalized;
+};
+
+const resolveCaptureFrameIndex = ({
+  sessionStartMs,
+  captureNowMs,
+  frameCount,
+  fps,
+  sessionStartFrameIndex,
+}: {
+  sessionStartMs: number;
+  captureNowMs: number;
+  frameCount: number;
+  fps: number;
+  sessionStartFrameIndex: number;
+}): number => {
+  const safeFrameCount = Math.max(1, Math.round(frameCount));
+  const safeFps = Math.max(1, Math.round(fps));
+  const elapsedMs = Math.max(0, captureNowMs - sessionStartMs);
+  const elapsedFrames = Math.floor((elapsedMs * safeFps) / 1000);
+  return normalizeFrameIndex(sessionStartFrameIndex + elapsedFrames, safeFrameCount);
 };
 
 const clamp01 = (value: number): number => {
@@ -1113,6 +1137,7 @@ export const captureSequentialStampsForActiveLayer = ({
   const sessionStartMs = state.sequentialRecord.sessionStartMs ?? captureNowMs;
   const sessionKey = `${activeLayer.id}:${sessionStartMs}`;
   if (capRuntime.sessionKey !== sessionKey) {
+    capRuntime.sessionStartFrameIndex = null;
     capRuntime.strokeSegment = 0;
     capRuntime.lastBrushSnapshotKey = null;
     capRuntime.lastResolvedBrushSnapshotKey = null;
@@ -1156,7 +1181,18 @@ export const captureSequentialStampsForActiveLayer = ({
   );
   const fps = Math.max(1, Math.round(activeLayer.sequentialData?.fps ?? state.sequentialRecord.fps));
   const durationMs = Math.round((frameCount * 1000) / fps);
-  const frameIndex = normalizeFrameIndex(state.sequentialRecord.currentFrame, frameCount);
+  const sessionStartFrameIndex =
+    capRuntime.sessionStartFrameIndex ?? normalizeFrameIndex(state.sequentialRecord.currentFrame, frameCount);
+  if (capRuntime.sessionStartFrameIndex == null) {
+    capRuntime.sessionStartFrameIndex = sessionStartFrameIndex;
+  }
+  const frameIndex = resolveCaptureFrameIndex({
+    sessionStartMs,
+    captureNowMs,
+    frameCount,
+    fps,
+    sessionStartFrameIndex,
+  });
   const timestampMs = Math.max(0, Math.round(captureNowMs - sessionStartMs));
   const { brush, key: brushSnapshotKey } = resolveBrushSnapshotForCapture({
     state,
@@ -1331,6 +1367,7 @@ export const __TESTING__ = {
   defaultEventBufferRuntime,
   resetDefaultRuntime: () => {
     defaultStampCapRuntime.sessionKey = null;
+    defaultStampCapRuntime.sessionStartFrameIndex = null;
     defaultStampCapRuntime.tokens = STAMP_BURST_CAPACITY;
     defaultStampCapRuntime.lastTimestampMs = null;
     defaultStampCapRuntime.strokeSegment = 0;

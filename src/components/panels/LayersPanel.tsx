@@ -122,8 +122,8 @@ const LayersPanel: React.FC = () => {
     canvas.width = 1;
     canvas.height = 1;
 
-    const frameCount = Math.max(1, Math.round(sequentialRecord.frameCount || 12));
-    const fps = Math.max(1, Math.round(sequentialRecord.fps || 12));
+    const frameCount = Math.max(1, Math.round(sequentialRecord.frameCount || 24));
+    const fps = Math.max(1, Math.round(sequentialRecord.fps || 24));
     const durationMs = Math.round((frameCount * 1000) / fps);
 
     const newLayer: Omit<Layer, 'id' | 'order'> = {

@@ -479,8 +479,8 @@ const MinimalLayerList = () => {
     };
 
     const sequentialLayerCount = layersSnapshot.filter((layer) => layer.layerType === 'sequential').length;
-    const frameCount = 12;
-    const fps = 12;
+    const frameCount = 24;
+    const fps = 24;
     const durationMs = Math.round((frameCount * 1000) / fps);
 
     const newLayer: Omit<Layer, 'id' | 'order'> = {

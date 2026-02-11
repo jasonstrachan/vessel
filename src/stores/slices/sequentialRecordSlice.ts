@@ -9,9 +9,9 @@ const MAX_RECORD_FRAME_COUNT = 512;
 const MIN_TIME_SMEAR = 0.1;
 const MAX_TIME_SMEAR = 20;
 
-const DEFAULT_RECORD_FPS = 18;
+const DEFAULT_RECORD_FPS = 24;
 const DEFAULT_RECORD_FRAME_COUNT = 24;
-const DEFAULT_TIME_SMEAR = MAX_TIME_SMEAR;
+const DEFAULT_TIME_SMEAR = 1;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));

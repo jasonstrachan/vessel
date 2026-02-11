@@ -1553,11 +1553,11 @@ export const createLayersSlice = (
         layerType: resolvedLayerType,
         sequentialData: resolvedLayerType === 'sequential'
           ? {
-              frameCount: layer.sequentialData?.frameCount ?? 12,
-              fps: layer.sequentialData?.fps ?? 12,
+              frameCount: layer.sequentialData?.frameCount ?? 24,
+              fps: layer.sequentialData?.fps ?? 24,
               durationMs:
                 layer.sequentialData?.durationMs ??
-                Math.round(((layer.sequentialData?.frameCount ?? 12) * 1000) / (layer.sequentialData?.fps ?? 12)),
+                Math.round(((layer.sequentialData?.frameCount ?? 24) * 1000) / (layer.sequentialData?.fps ?? 24)),
               events: layer.sequentialData?.events ?? [],
             }
           : layer.sequentialData

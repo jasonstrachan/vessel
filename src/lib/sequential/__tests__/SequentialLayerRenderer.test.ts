@@ -255,4 +255,29 @@ describe('SequentialLayerRenderer', () => {
     const committedAgainPixel = readCenterPixel(committedAgain!);
     expect(committedAgainPixel[0]).toBeGreaterThan(committedAgainPixel[1]);
   });
+
+  it('holds the most recent stamped frame briefly when the current frame is empty', () => {
+    const layer = createLayerWithFrameCount([createEvent('f0', 0, '#ff0000')], 4);
+
+    const immediateNext = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 1,
+    });
+    expect(immediateNext).not.toBeNull();
+    const immediatePixel = readCenterPixel(immediateNext!);
+    expect(immediatePixel[3]).toBeGreaterThan(0);
+    expect(immediatePixel[0]).toBeGreaterThan(immediatePixel[1]);
+
+    const fartherFrame = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 3,
+    });
+    expect(fartherFrame).not.toBeNull();
+    const fartherPixel = readCenterPixel(fartherFrame!);
+    expect(fartherPixel[3]).toBe(0);
+  });
 });

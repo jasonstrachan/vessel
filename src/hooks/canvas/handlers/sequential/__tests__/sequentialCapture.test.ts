@@ -157,7 +157,7 @@ describe('sequentialCapture', () => {
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     const events = layer?.sequentialData?.events ?? [];
     expect(events).toHaveLength(1);
-    expect(events[0].frameIndex).toBe(3);
+    expect(events[0].frameIndex).toBe(6);
     expect(events[0].timestampMs).toBe(250);
     expect(events[0].stamps).toHaveLength(2);
     expect(events[0].brush.brushShape).toBe(BrushShape.ROUND);
@@ -177,7 +177,7 @@ describe('sequentialCapture', () => {
 
     const bufferedBeforeFlush = getBufferedSequentialLayerFrameEvents({
       layerId: 'layer-seq',
-      frameIndex: 3,
+      frameIndex: 6,
       runtime,
     });
     expect(bufferedBeforeFlush).toHaveLength(1);
@@ -186,7 +186,7 @@ describe('sequentialCapture', () => {
 
     const bufferedAfterFlush = getBufferedSequentialLayerFrameEvents({
       layerId: 'layer-seq',
-      frameIndex: 3,
+      frameIndex: 6,
       runtime,
     });
     expect(bufferedAfterFlush).toHaveLength(0);
@@ -698,7 +698,7 @@ describe('sequentialCapture', () => {
     expect(events.length).toBeGreaterThan(1);
     expect(events[0].stamps.length).toBeGreaterThan(0);
     expect(events[1].stamps.length).toBeGreaterThan(0);
-    expect(events.map((event) => event.frameIndex)).toEqual([3, 4, 5]);
+    expect(events.map((event) => event.frameIndex)).toEqual([6, 7, 8]);
   });
 
   it('bridges consecutive single-point captures so temporal distribution can split frames', () => {
@@ -728,7 +728,7 @@ describe('sequentialCapture', () => {
         .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
     expect(events.length).toBeGreaterThanOrEqual(2);
     expect(new Set(events.map((event) => event.frameIndex)).size).toBeGreaterThan(1);
-    expect(events.some((event) => event.frameIndex === 4)).toBe(true);
+    expect(events.some((event) => event.frameIndex === 7)).toBe(true);
   });
 
   it('forces bounded frame splitting on bridged single-point captures even at low smear', () => {
@@ -758,7 +758,7 @@ describe('sequentialCapture', () => {
         .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
     expect(events.length).toBeGreaterThanOrEqual(2);
     expect(new Set(events.map((event) => event.frameIndex)).size).toBeGreaterThan(1);
-    expect(events.some((event) => event.frameIndex === 4)).toBe(true);
+    expect(events.some((event) => event.frameIndex === 7)).toBe(true);
   });
 
   it('uses density-based temporal splitting for multi-stamp captures at smear 1', () => {
@@ -817,6 +817,6 @@ describe('sequentialCapture', () => {
         .getState()
         .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
     expect(events).toHaveLength(1);
-    expect(events[0].frameIndex).toBe(3);
+    expect(events[0].frameIndex).toBe(6);
   });
 });
