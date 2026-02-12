@@ -362,6 +362,42 @@ describe('SequentialLayerRenderer', () => {
     expect(committedAgainPixel[0]).toBeGreaterThan(committedAgainPixel[1]);
   });
 
+  it('prefers patchFrame over materializeRect for preview rendering deltas', () => {
+    const patchFrameSpy = jest.spyOn(
+      SequentialCpuMaterializer.prototype,
+      'patchFrame'
+    );
+    const materializeRectSpy = jest.spyOn(
+      SequentialCpuMaterializer.prototype,
+      'materializeRect'
+    );
+    try {
+      const layer = createLayer([createEvent('f0-base', 0, '#ff0000')]);
+      const committed = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+      });
+      expect(committed).not.toBeNull();
+
+      const previewCanvas = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+        previewEvents: [createEvent('f0-preview', 0, '#00ff00')],
+      });
+      expect(previewCanvas).not.toBeNull();
+
+      expect(patchFrameSpy).toHaveBeenCalled();
+      expect(materializeRectSpy).not.toHaveBeenCalled();
+    } finally {
+      patchFrameSpy.mockRestore();
+      materializeRectSpy.mockRestore();
+    }
+  });
+
   it('holds the most recent stamped frame briefly when the current frame is empty', () => {
     const layer = createLayerWithFrameCount([createEvent('f0', 0, '#ff0000')], 4);
 

@@ -498,7 +498,58 @@ export const getSequentialLayerRenderCanvas = ({
   let renderTileSet = tileSet;
   const framePreviewEvents = previewEvents ?? [];
   if (framePreviewEvents.length > 0) {
-    if (runtime.materializer.materializeRect) {
+    if (runtime.materializer.patchFrame) {
+      try {
+        renderTileSet = runtime.materializer.patchFrame({
+          width,
+          height,
+          frameIndex: normalizedFrameIndex,
+          events: framePreviewEvents,
+          eventsAreFrameScoped: true,
+          baseTileSet: tileSet,
+        });
+        if (runtime.backendKind !== 'cpu') {
+          recordSequentialPatchReason('applied_run_patch');
+        }
+      } catch {
+        recordSequentialPatchReason('fallback_exception');
+        if (runtime.materializer.materializeRect) {
+          const previewRect = deriveEventsRect({
+            events: framePreviewEvents,
+            width,
+            height,
+          });
+          if (previewRect) {
+            const previewPatch = runtime.materializer.materializeRect({
+              width,
+              height,
+              frameIndex: normalizedFrameIndex,
+              events: [...committedFrameEvents, ...framePreviewEvents],
+              eventsAreFrameScoped: true,
+              rect: previewRect,
+            });
+            renderTileSet = mergeFrameTilePatch({
+              baseTileSet: tileSet,
+              patch: previewPatch,
+              width,
+            });
+            recordSequentialPatchReason(
+              (previewPatch.clearTileKeys?.length ?? 0) > 0
+                ? 'collapsed_to_full_patch'
+                : 'applied_run_patch'
+            );
+          }
+        } else {
+          renderTileSet = runtime.materializer.materializeFrame({
+            width,
+            height,
+            frameIndex: normalizedFrameIndex,
+            events: [...committedFrameEvents, ...framePreviewEvents],
+            eventsAreFrameScoped: true,
+          });
+        }
+      }
+    } else if (runtime.materializer.materializeRect) {
       try {
         const previewRect = deriveEventsRect({
           events: framePreviewEvents,
@@ -524,29 +575,6 @@ export const getSequentialLayerRenderCanvas = ({
               ? 'collapsed_to_full_patch'
               : 'applied_run_patch'
           );
-        }
-      } catch {
-        recordSequentialPatchReason('fallback_exception');
-        renderTileSet = runtime.materializer.materializeFrame({
-          width,
-          height,
-          frameIndex: normalizedFrameIndex,
-          events: [...committedFrameEvents, ...framePreviewEvents],
-          eventsAreFrameScoped: true,
-        });
-      }
-    } else if (runtime.materializer.patchFrame) {
-      try {
-        renderTileSet = runtime.materializer.patchFrame({
-          width,
-          height,
-          frameIndex: normalizedFrameIndex,
-          events: framePreviewEvents,
-          eventsAreFrameScoped: true,
-          baseTileSet: tileSet,
-        });
-        if (runtime.backendKind !== 'cpu') {
-          recordSequentialPatchReason('applied_run_patch');
         }
       } catch {
         recordSequentialPatchReason('fallback_exception');
