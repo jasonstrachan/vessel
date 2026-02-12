@@ -1,6 +1,11 @@
 import { SequentialCpuMaterializer } from '@/lib/sequential/materializer/SequentialCpuMaterializer';
 import type { SequentialMaterializerBackend } from '@/lib/sequential/materializer/SequentialMaterializerBackend';
-import type { SequentialMaterializeFrameInput, FrameTileSet } from '@/lib/sequential/types';
+import type {
+  FrameTilePatch,
+  FrameTileSet,
+  SequentialMaterializeFrameInput,
+  SequentialMaterializeRectInput,
+} from '@/lib/sequential/types';
 
 const hasWebGpuSupport = (): boolean => {
   if (typeof navigator === 'undefined') {
@@ -24,6 +29,10 @@ export class SequentialGpuMaterializer implements SequentialMaterializerBackend 
   materializeFrame(input: SequentialMaterializeFrameInput): FrameTileSet {
     // GPU backend shape is in place; v1 keeps CPU parity as the canonical path.
     return this.cpuFallback.materializeFrame(input);
+  }
+
+  materializeRect(input: SequentialMaterializeRectInput): FrameTilePatch {
+    return this.cpuFallback.materializeRect(input);
   }
 
   patchFrame(

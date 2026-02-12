@@ -6,7 +6,9 @@ export type FeatureFlagKey =
   | 'useColorCycleWorker'
   | 'enableSequentialRecordMode'
   | 'enableSequentialGpuAcceleration'
-  | 'enableSequentialTemporalDistribution';
+  | 'enableSequentialTemporalDistribution'
+  | 'enableSequentialTypedQueueDebtControl'
+  | 'enableSequentialDirtyRunPatch';
 
 type FeatureFlagState = Record<FeatureFlagKey, boolean>;
 
@@ -17,6 +19,8 @@ const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
   enableSequentialRecordMode: 'vessel:flag:enableSequentialRecordMode',
   enableSequentialGpuAcceleration: 'vessel:flag:enableSequentialGpuAcceleration',
   enableSequentialTemporalDistribution: 'vessel:flag:enableSequentialTemporalDistribution',
+  enableSequentialTypedQueueDebtControl: 'vessel:flag:enableSequentialTypedQueueDebtControl',
+  enableSequentialDirtyRunPatch: 'vessel:flag:enableSequentialDirtyRunPatch',
 };
 
 const defaultState: FeatureFlagState = {
@@ -26,6 +30,8 @@ const defaultState: FeatureFlagState = {
   enableSequentialRecordMode: false,
   enableSequentialGpuAcceleration: false,
   enableSequentialTemporalDistribution: true,
+  enableSequentialTypedQueueDebtControl: false,
+  enableSequentialDirtyRunPatch: false,
 };
 
 const state: FeatureFlagState = { ...defaultState };

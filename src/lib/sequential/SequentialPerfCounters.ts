@@ -14,6 +14,10 @@ type SequentialPerfCountersSnapshot = {
   patchAttempts: number;
   patchApplied: number;
   patchFallbacks: number;
+  patchAppliedRunPatch: number;
+  patchCollapsedToBandPatch: number;
+  patchCollapsedToFullPatch: number;
+  patchFallbackException: number;
   temporalDistributionEvents: number;
   temporalDistributionBuckets: number;
   temporalDistributionCaptures: number;
@@ -24,12 +28,23 @@ type SequentialPerfCountersSnapshot = {
   temporalDistributionLastBucketCount: number;
 };
 
+export type SequentialPatchOutcomeReason =
+  | 'applied_run_patch'
+  | 'collapsed_to_band_patch'
+  | 'collapsed_to_full_patch'
+  | 'fallback_exception';
+
 type SequentialPerfPublicSnapshot = {
   flush: { count: number; events: number; ms: number };
   append: { count: number; events: number; ms: number };
   materialize: { count: number; events: number; ms: number };
   frameCache: { hits: number; misses: number; entries: number };
-  patching: { attempts: number; applied: number; fallbacks: number };
+  patching: {
+    attempts: number;
+    applied: number;
+    fallbacks: number;
+    reasons: Record<SequentialPatchOutcomeReason, number>;
+  };
   temporalDistribution: {
     events: number;
     buckets: number;
@@ -85,6 +100,10 @@ const counters: SequentialPerfCountersSnapshot = {
   patchAttempts: 0,
   patchApplied: 0,
   patchFallbacks: 0,
+  patchAppliedRunPatch: 0,
+  patchCollapsedToBandPatch: 0,
+  patchCollapsedToFullPatch: 0,
+  patchFallbackException: 0,
   temporalDistributionEvents: 0,
   temporalDistributionBuckets: 0,
   temporalDistributionCaptures: 0,
@@ -122,6 +141,12 @@ const buildPublicSnapshot = (): SequentialPerfPublicSnapshot => ({
     attempts: counters.patchAttempts,
     applied: counters.patchApplied,
     fallbacks: counters.patchFallbacks,
+    reasons: {
+      applied_run_patch: counters.patchAppliedRunPatch,
+      collapsed_to_band_patch: counters.patchCollapsedToBandPatch,
+      collapsed_to_full_patch: counters.patchCollapsedToFullPatch,
+      fallback_exception: counters.patchFallbackException,
+    },
   },
   temporalDistribution: {
     events: counters.temporalDistributionEvents,
@@ -235,6 +260,26 @@ export const recordSequentialPatchOutcome = ({
   counters.patchAttempts += Math.max(0, Math.round(attempts));
   counters.patchApplied += Math.max(0, Math.round(applied));
   counters.patchFallbacks += Math.max(0, Math.round(fallbacks));
+  logCountersIfNeeded();
+};
+
+export const recordSequentialPatchReason = (reason: SequentialPatchOutcomeReason): void => {
+  switch (reason) {
+    case 'applied_run_patch':
+      counters.patchAppliedRunPatch += 1;
+      break;
+    case 'collapsed_to_band_patch':
+      counters.patchCollapsedToBandPatch += 1;
+      break;
+    case 'collapsed_to_full_patch':
+      counters.patchCollapsedToFullPatch += 1;
+      break;
+    case 'fallback_exception':
+      counters.patchFallbackException += 1;
+      break;
+    default:
+      break;
+  }
   logCountersIfNeeded();
 };
 

@@ -19,6 +19,13 @@ export interface FrameTileSet {
   tiles: FrameTile[];
 }
 
+export interface FrameTilePatch {
+  frameIndex: number;
+  tileSize: number;
+  tiles: FrameTile[];
+  clearTileKeys?: number[];
+}
+
 export interface SequentialFrameCacheStats {
   entries: number;
   hits: number;
@@ -32,4 +39,8 @@ export interface SequentialMaterializeFrameInput {
   frameIndex: number;
   events: ReadonlyArray<SequentialStrokeEvent>;
   eventsAreFrameScoped?: boolean;
+}
+
+export interface SequentialMaterializeRectInput extends SequentialMaterializeFrameInput {
+  rect: { x: number; y: number; width: number; height: number };
 }

@@ -1,5 +1,9 @@
 import { BrushShape, type SequentialStrokeEvent } from '@/types';
-import { recordSequentialMaterializePerf } from '@/lib/sequential/SequentialPerfCounters';
+import { isFeatureFlagEnabled } from '@/config/featureFlags';
+import {
+  recordSequentialMaterializePerf,
+  recordSequentialPatchReason,
+} from '@/lib/sequential/SequentialPerfCounters';
 import {
   normalizeSequentialDitherPluginConfig,
   normalizeSequentialParticlePluginConfig,
@@ -16,7 +20,13 @@ import {
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
-import type { FrameTile, FrameTileSet, SequentialMaterializeFrameInput } from '@/lib/sequential/types';
+import type {
+  FrameTile,
+  FrameTilePatch,
+  FrameTileSet,
+  SequentialMaterializeFrameInput,
+  SequentialMaterializeRectInput,
+} from '@/lib/sequential/types';
 import type { SequentialMaterializerBackend } from '@/lib/sequential/materializer/SequentialMaterializerBackend';
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -95,6 +105,12 @@ type ResolvedSpamConfig = {
   customTextBias: number;
 };
 const parsedCustomStampCache = new Map<string, ParsedCustomStamp>();
+
+const MAX_DIRTY_TILE_KEYS_PER_PATCH = 4096;
+const MAX_DIRTY_RUNS_PER_PATCH = 512;
+const DIRTY_RUN_COLLAPSE_TO_BANDS_THRESHOLD = 256;
+const DIRTY_COLLAPSE_TO_FULL_FRAME_TILE_THRESHOLD = 1024;
+const DIRTY_COLLAPSE_TO_FULL_FRAME_COVERAGE = 0.35;
 
 const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape => {
   const explicitTipShape = event.brush.tipShape;
@@ -1242,6 +1258,394 @@ const buildTiles = ({
   return tiles;
 };
 
+type NormalizedRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type DirtyTileRun = {
+  tileY: number;
+  x0: number;
+  x1: number;
+};
+
+const normalizeRect = ({
+  rect,
+  width,
+  height,
+}: {
+  rect: { x: number; y: number; width: number; height: number };
+  width: number;
+  height: number;
+}): NormalizedRect | null => {
+  const x0 = Math.max(0, Math.floor(rect.x));
+  const y0 = Math.max(0, Math.floor(rect.y));
+  const x1 = Math.min(width, Math.ceil(rect.x + rect.width));
+  const y1 = Math.min(height, Math.ceil(rect.y + rect.height));
+  const clippedWidth = x1 - x0;
+  const clippedHeight = y1 - y0;
+  if (clippedWidth <= 0 || clippedHeight <= 0) {
+    return null;
+  }
+  return { x: x0, y: y0, width: clippedWidth, height: clippedHeight };
+};
+
+const tileKeyFromCoord = ({
+  tileX,
+  tileY,
+  tileCols,
+}: {
+  tileX: number;
+  tileY: number;
+  tileCols: number;
+}): number => tileY * tileCols + tileX;
+
+const getTileGridSize = ({
+  width,
+  height,
+  tileSize,
+}: {
+  width: number;
+  height: number;
+  tileSize: number;
+}): { tileCols: number; tileRows: number } => ({
+  tileCols: Math.max(1, Math.ceil(width / tileSize)),
+  tileRows: Math.max(1, Math.ceil(height / tileSize)),
+});
+
+const getTileBoundsFromKey = ({
+  tileKey,
+  tileCols,
+  tileSize,
+  width,
+  height,
+}: {
+  tileKey: number;
+  tileCols: number;
+  tileSize: number;
+  width: number;
+  height: number;
+}): { tileX: number; tileY: number; tileWidth: number; tileHeight: number } | null => {
+  if (tileKey < 0) {
+    return null;
+  }
+  const tileXIndex = tileKey % tileCols;
+  const tileYIndex = Math.floor(tileKey / tileCols);
+  const tileX = tileXIndex * tileSize;
+  const tileY = tileYIndex * tileSize;
+  if (tileX >= width || tileY >= height) {
+    return null;
+  }
+  return {
+    tileX,
+    tileY,
+    tileWidth: Math.min(tileSize, width - tileX),
+    tileHeight: Math.min(tileSize, height - tileY),
+  };
+};
+
+const collectTileKeysForRect = ({
+  rect,
+  tileSize,
+  width,
+  height,
+}: {
+  rect: NormalizedRect;
+  tileSize: number;
+  width: number;
+  height: number;
+}): Set<number> => {
+  const { tileCols, tileRows } = getTileGridSize({ width, height, tileSize });
+  const minTileX = Math.max(0, Math.floor(rect.x / tileSize));
+  const maxTileX = Math.min(tileCols - 1, Math.floor((rect.x + rect.width - 1) / tileSize));
+  const minTileY = Math.max(0, Math.floor(rect.y / tileSize));
+  const maxTileY = Math.min(tileRows - 1, Math.floor((rect.y + rect.height - 1) / tileSize));
+  const keys = new Set<number>();
+  for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+    for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+      keys.add(tileKeyFromCoord({ tileX, tileY, tileCols }));
+    }
+  }
+  return keys;
+};
+
+const buildPatchFromTileKeys = ({
+  pixels,
+  width,
+  height,
+  tileSize,
+  frameIndex,
+  tileKeys,
+}: {
+  pixels: Uint8ClampedArray;
+  width: number;
+  height: number;
+  tileSize: number;
+  frameIndex: number;
+  tileKeys: Iterable<number>;
+}): FrameTilePatch => {
+  const { tileCols } = getTileGridSize({ width, height, tileSize });
+  const tiles: FrameTile[] = [];
+  const clearTileKeys: number[] = [];
+
+  for (const tileKey of tileKeys) {
+    const bounds = getTileBoundsFromKey({
+      tileKey,
+      tileCols,
+      tileSize,
+      width,
+      height,
+    });
+    if (!bounds) {
+      continue;
+    }
+    const { tileX, tileY, tileWidth, tileHeight } = bounds;
+    let hasAlpha = false;
+    for (let y = 0; y < tileHeight && !hasAlpha; y += 1) {
+      const rowOffset = ((tileY + y) * width + tileX) * 4;
+      for (let x = 0; x < tileWidth; x += 1) {
+        if (pixels[rowOffset + x * 4 + 3] > 0) {
+          hasAlpha = true;
+          break;
+        }
+      }
+    }
+    if (!hasAlpha) {
+      clearTileKeys.push(tileKey);
+      continue;
+    }
+    tiles.push({
+      x: tileX,
+      y: tileY,
+      width: tileWidth,
+      height: tileHeight,
+      data: copyTileData({
+        pixels,
+        width,
+        tileX,
+        tileY,
+        tileWidth,
+        tileHeight,
+      }),
+    });
+  }
+
+  return {
+    frameIndex,
+    tileSize,
+    tiles,
+    clearTileKeys: clearTileKeys.length > 0 ? clearTileKeys : undefined,
+  };
+};
+
+const mergeFrameTilePatch = ({
+  baseTileSet,
+  patch,
+  width,
+  height,
+}: {
+  baseTileSet: FrameTileSet;
+  patch: FrameTilePatch;
+  width: number;
+  height: number;
+}): FrameTileSet => {
+  const tileSize = patch.tileSize;
+  const { tileCols } = getTileGridSize({ width, height, tileSize });
+  const map = new Map<number, FrameTile>();
+  for (let i = 0; i < baseTileSet.tiles.length; i += 1) {
+    const tile = baseTileSet.tiles[i];
+    const tileX = Math.floor(tile.x / tileSize);
+    const tileY = Math.floor(tile.y / tileSize);
+    map.set(tileKeyFromCoord({ tileX, tileY, tileCols }), tile);
+  }
+  if (patch.clearTileKeys?.length) {
+    for (let i = 0; i < patch.clearTileKeys.length; i += 1) {
+      map.delete(patch.clearTileKeys[i]);
+    }
+  }
+  for (let i = 0; i < patch.tiles.length; i += 1) {
+    const tile = patch.tiles[i];
+    const tileX = Math.floor(tile.x / tileSize);
+    const tileY = Math.floor(tile.y / tileSize);
+    map.set(tileKeyFromCoord({ tileX, tileY, tileCols }), tile);
+  }
+
+  const tiles = Array.from(map.values()).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  return {
+    frameIndex: patch.frameIndex,
+    tileSize,
+    pixelFormat: baseTileSet.pixelFormat,
+    premultipliedAlpha: baseTileSet.premultipliedAlpha,
+    colorSpace: baseTileSet.colorSpace,
+    tiles,
+  };
+};
+
+const addTileKeysForBounds = ({
+  keys,
+  minX,
+  minY,
+  maxX,
+  maxY,
+  tileSize,
+  tileCols,
+  tileRows,
+}: {
+  keys: Set<number>;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  tileSize: number;
+  tileCols: number;
+  tileRows: number;
+}): void => {
+  if (maxX < minX || maxY < minY) {
+    return;
+  }
+  const minTileX = Math.max(0, Math.floor(minX / tileSize));
+  const maxTileX = Math.min(tileCols - 1, Math.floor(maxX / tileSize));
+  const minTileY = Math.max(0, Math.floor(minY / tileSize));
+  const maxTileY = Math.min(tileRows - 1, Math.floor(maxY / tileSize));
+  for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+    for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+      keys.add(tileKeyFromCoord({ tileX, tileY, tileCols }));
+    }
+  }
+};
+
+const deriveDirtyTileKeysFromEvents = ({
+  events,
+  width,
+  height,
+  tileSize,
+}: {
+  events: ReadonlyArray<SequentialStrokeEvent>;
+  width: number;
+  height: number;
+  tileSize: number;
+}): Set<number> => {
+  const { tileCols, tileRows } = getTileGridSize({ width, height, tileSize });
+  const keys = new Set<number>();
+  for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+    const event = events[eventIndex];
+    const pluginMode = resolvePluginRenderMode(event.brush.pluginBrushId);
+    const particleConfig = pluginMode === 'particle-brush' ? resolveParticleConfig({ event }) : null;
+    const spamConfig = pluginMode === 'spam-brush' ? resolveSpamConfig({ event }) : null;
+    const customStamp = parseCustomStamp(event);
+
+    for (let stampIndex = 0; stampIndex < event.stamps.length; stampIndex += 1) {
+      const stamp = event.stamps[stampIndex];
+      const stampSize = Math.max(1, stamp.size || event.brush.size || 1);
+      let halfW = stampSize * 0.8;
+      let halfH = stampSize * 0.8;
+      if (customStamp) {
+        halfW = Math.max(halfW, stampSize * (customStamp.width / Math.max(1, customStamp.width, customStamp.height)) * 0.6);
+        halfH = Math.max(halfH, stampSize * (customStamp.height / Math.max(1, customStamp.width, customStamp.height)) * 0.6);
+      }
+      if (pluginMode === 'particle-brush') {
+        const scatterRadius = stampSize * Math.max(1, particleConfig?.scatterRadiusFactor ?? 1.5);
+        halfW = Math.max(halfW, scatterRadius + stampSize * 0.5);
+        halfH = Math.max(halfH, scatterRadius + stampSize * 0.5);
+      } else if (pluginMode === 'spam-brush') {
+        const fontBias = spamConfig?.fontBias ?? 0.5;
+        const contentBias = spamConfig?.contentBias ?? 0.5;
+        halfW = Math.max(halfW, stampSize * (1.25 + fontBias * 0.45));
+        halfH = Math.max(halfH, stampSize * (0.8 + contentBias * 0.25));
+      } else if (event.brush.brushShape === BrushShape.MOSAIC) {
+        halfW = Math.max(halfW, stampSize);
+        halfH = Math.max(halfH, stampSize);
+      }
+      const inflation = Math.max(2, Math.ceil(stampSize * 0.2));
+      const minX = Math.max(0, Math.floor(stamp.x - halfW - inflation));
+      const minY = Math.max(0, Math.floor(stamp.y - halfH - inflation));
+      const maxX = Math.min(width - 1, Math.ceil(stamp.x + halfW + inflation));
+      const maxY = Math.min(height - 1, Math.ceil(stamp.y + halfH + inflation));
+      addTileKeysForBounds({
+        keys,
+        minX,
+        minY,
+        maxX,
+        maxY,
+        tileSize,
+        tileCols,
+        tileRows,
+      });
+    }
+  }
+  return keys;
+};
+
+const coalesceDirtyTileRuns = ({
+  dirtyKeys,
+  tileCols,
+}: {
+  dirtyKeys: Set<number>;
+  tileCols: number;
+}): DirtyTileRun[] => {
+  const keysByRow = new Map<number, number[]>();
+  dirtyKeys.forEach((key) => {
+    const tileY = Math.floor(key / tileCols);
+    const tileX = key % tileCols;
+    const row = keysByRow.get(tileY);
+    if (row) {
+      row.push(tileX);
+    } else {
+      keysByRow.set(tileY, [tileX]);
+    }
+  });
+
+  const runs: DirtyTileRun[] = [];
+  keysByRow.forEach((columns, tileY) => {
+    columns.sort((a, b) => a - b);
+    let start = columns[0];
+    let end = columns[0];
+    for (let i = 1; i < columns.length; i += 1) {
+      const x = columns[i];
+      if (x === end + 1) {
+        end = x;
+        continue;
+      }
+      runs.push({ tileY, x0: start, x1: end });
+      start = x;
+      end = x;
+    }
+    runs.push({ tileY, x0: start, x1: end });
+  });
+  runs.sort((a, b) => (a.tileY - b.tileY) || (a.x0 - b.x0));
+  return runs;
+};
+
+const buildBandTileKeysFromRuns = ({
+  runs,
+  tileCols,
+}: {
+  runs: DirtyTileRun[];
+  tileCols: number;
+}): Set<number> => {
+  const rowBands = new Map<number, { minX: number; maxX: number }>();
+  for (let i = 0; i < runs.length; i += 1) {
+    const run = runs[i];
+    const row = rowBands.get(run.tileY);
+    if (!row) {
+      rowBands.set(run.tileY, { minX: run.x0, maxX: run.x1 });
+    } else {
+      row.minX = Math.min(row.minX, run.x0);
+      row.maxX = Math.max(row.maxX, run.x1);
+    }
+  }
+
+  const keys = new Set<number>();
+  rowBands.forEach((band, tileY) => {
+    for (let tileX = band.minX; tileX <= band.maxX; tileX += 1) {
+      keys.add(tileKeyFromCoord({ tileX, tileY, tileCols }));
+    }
+  });
+  return keys;
+};
+
 const inflatePixelsFromTileSet = ({
   tileSet,
   width,
@@ -1455,22 +1859,17 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
     return this.scratchPixels;
   }
 
-  materializeFrame({
+  private materializeFullTileSet({
     width,
     height,
     frameIndex,
     events,
     eventsAreFrameScoped = false,
   }: SequentialMaterializeFrameInput): FrameTileSet {
-    const materializeStartMs =
-      typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now();
     const safeWidth = Math.max(1, Math.round(width));
     const safeHeight = Math.max(1, Math.round(height));
     const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
     const frameEvents = getFrameEvents(events, frameIndex, eventsAreFrameScoped);
-
     paintEventsToPixels({
       pixels,
       width: safeWidth,
@@ -1478,7 +1877,7 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
       events: frameEvents,
     });
 
-    const tileSet: FrameTileSet = {
+    return {
       frameIndex,
       tileSize: this.tileSize,
       pixelFormat: 'rgba8',
@@ -1491,6 +1890,27 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
         tileSize: this.tileSize,
       }),
     };
+  }
+
+  materializeFrame({
+    width,
+    height,
+    frameIndex,
+    events,
+    eventsAreFrameScoped = false,
+  }: SequentialMaterializeFrameInput): FrameTileSet {
+    const materializeStartMs =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    const frameEvents = getFrameEvents(events, frameIndex, eventsAreFrameScoped);
+    const tileSet = this.materializeFullTileSet({
+      width,
+      height,
+      frameIndex,
+      events: frameEvents,
+      eventsAreFrameScoped: true,
+    });
     const materializeDurationMs =
       (typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
@@ -1500,6 +1920,61 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
       durationMs: materializeDurationMs,
     });
     return tileSet;
+  }
+
+  materializeRect({
+    width,
+    height,
+    frameIndex,
+    events,
+    rect,
+    eventsAreFrameScoped = false,
+  }: SequentialMaterializeRectInput): FrameTilePatch {
+    const safeWidth = Math.max(1, Math.round(width));
+    const safeHeight = Math.max(1, Math.round(height));
+    const normalizedRect = normalizeRect({
+      rect,
+      width: safeWidth,
+      height: safeHeight,
+    });
+    if (!normalizedRect) {
+      return {
+        frameIndex,
+        tileSize: this.tileSize,
+        tiles: [],
+      };
+    }
+
+    const frameEvents = getFrameEvents(events, frameIndex, eventsAreFrameScoped);
+    if (frameEvents.length === 0) {
+      return {
+        frameIndex,
+        tileSize: this.tileSize,
+        tiles: [],
+      };
+    }
+
+    const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
+    paintEventsToPixels({
+      pixels,
+      width: safeWidth,
+      height: safeHeight,
+      events: frameEvents,
+    });
+    const tileKeys = collectTileKeysForRect({
+      rect: normalizedRect,
+      tileSize: this.tileSize,
+      width: safeWidth,
+      height: safeHeight,
+    });
+    return buildPatchFromTileKeys({
+      pixels,
+      width: safeWidth,
+      height: safeHeight,
+      tileSize: this.tileSize,
+      frameIndex,
+      tileKeys,
+    });
   }
 
   patchFrame({
@@ -1516,6 +1991,36 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
     if (frameEvents.length === 0) {
       return baseTileSet;
     }
+
+    if (!isFeatureFlagEnabled('enableSequentialDirtyRunPatch')) {
+      const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
+      inflatePixelsFromTileSet({
+        tileSet: baseTileSet,
+        width: safeWidth,
+        height: safeHeight,
+        target: pixels,
+      });
+      paintEventsToPixels({
+        pixels,
+        width: safeWidth,
+        height: safeHeight,
+        events: frameEvents,
+      });
+      return {
+        frameIndex,
+        tileSize: this.tileSize,
+        pixelFormat: 'rgba8',
+        premultipliedAlpha: true,
+        colorSpace: 'srgb',
+        tiles: buildTiles({
+          pixels,
+          width: safeWidth,
+          height: safeHeight,
+          tileSize: this.tileSize,
+        }),
+      };
+    }
+
     const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
     inflatePixelsFromTileSet({
       tileSet: baseTileSet,
@@ -1529,18 +2034,74 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
       height: safeHeight,
       events: frameEvents,
     });
-    return {
-      frameIndex,
+
+    const { tileCols, tileRows } = getTileGridSize({
+      width: safeWidth,
+      height: safeHeight,
       tileSize: this.tileSize,
-      pixelFormat: 'rgba8',
-      premultipliedAlpha: true,
-      colorSpace: 'srgb',
-      tiles: buildTiles({
-        pixels,
-        width: safeWidth,
-        height: safeHeight,
-        tileSize: this.tileSize,
-      }),
-    };
+    });
+    const totalTileCount = tileCols * tileRows;
+    const dirtyTileKeys = deriveDirtyTileKeysFromEvents({
+      events: frameEvents,
+      width: safeWidth,
+      height: safeHeight,
+      tileSize: this.tileSize,
+    });
+    if (dirtyTileKeys.size === 0) {
+      return baseTileSet;
+    }
+
+    let selectedTileKeys: Set<number>;
+    const shouldCollapseFullFrame =
+      dirtyTileKeys.size > MAX_DIRTY_TILE_KEYS_PER_PATCH ||
+      dirtyTileKeys.size >= DIRTY_COLLAPSE_TO_FULL_FRAME_TILE_THRESHOLD ||
+      dirtyTileKeys.size / Math.max(1, totalTileCount) > DIRTY_COLLAPSE_TO_FULL_FRAME_COVERAGE;
+    if (shouldCollapseFullFrame) {
+      selectedTileKeys = new Set<number>();
+      for (let tileY = 0; tileY < tileRows; tileY += 1) {
+        for (let tileX = 0; tileX < tileCols; tileX += 1) {
+          selectedTileKeys.add(tileKeyFromCoord({ tileX, tileY, tileCols }));
+        }
+      }
+      recordSequentialPatchReason('collapsed_to_full_patch');
+    } else {
+      const dirtyRuns = coalesceDirtyTileRuns({
+        dirtyKeys: dirtyTileKeys,
+        tileCols,
+      });
+      if (dirtyRuns.length > MAX_DIRTY_RUNS_PER_PATCH) {
+        selectedTileKeys = new Set<number>();
+        for (let tileY = 0; tileY < tileRows; tileY += 1) {
+          for (let tileX = 0; tileX < tileCols; tileX += 1) {
+            selectedTileKeys.add(tileKeyFromCoord({ tileX, tileY, tileCols }));
+          }
+        }
+        recordSequentialPatchReason('collapsed_to_full_patch');
+      } else if (dirtyRuns.length > DIRTY_RUN_COLLAPSE_TO_BANDS_THRESHOLD) {
+        selectedTileKeys = buildBandTileKeysFromRuns({
+          runs: dirtyRuns,
+          tileCols,
+        });
+        recordSequentialPatchReason('collapsed_to_band_patch');
+      } else {
+        selectedTileKeys = dirtyTileKeys;
+        recordSequentialPatchReason('applied_run_patch');
+      }
+    }
+
+    const patch = buildPatchFromTileKeys({
+      pixels,
+      width: safeWidth,
+      height: safeHeight,
+      tileSize: this.tileSize,
+      frameIndex,
+      tileKeys: selectedTileKeys,
+    });
+    return mergeFrameTilePatch({
+      baseTileSet,
+      patch,
+      width: safeWidth,
+      height: safeHeight,
+    });
   }
 }

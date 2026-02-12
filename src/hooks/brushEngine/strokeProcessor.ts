@@ -5,6 +5,7 @@
  */
 
 import { BrushShape } from '@/types';
+import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import type { BrushSettings } from '@/types';
 import type { PixelQueue, RenderSettings } from './types';
 import { shouldSkipPigmentLiftWithTransparencyLock } from './utilities';
@@ -191,9 +192,17 @@ export const shouldDrawStamp = (
  * Create initial pixel queue state
  */
 export function createPixelQueue(): PixelQueue {
-  const tasks: Array<() => void> = [];
+  type PixelQueueTask = {
+    kind: 'paint';
+    mergeable: false;
+    run: () => void;
+  };
+
+  const tasks: PixelQueueTask[] = [];
+  let taskHead = 0;
   let rafId: number | null = null;
   const idleListeners: Array<() => void> = [];
+  let idleHead = 0;
   const hasWindow = typeof window !== 'undefined';
   const requestFrame = hasWindow && typeof window.requestAnimationFrame === 'function'
     ? window.requestAnimationFrame.bind(window)
@@ -215,23 +224,51 @@ export function createPixelQueue(): PixelQueue {
 
   const BUDGET_MS = 6;
   const MAX_TASKS = 512;
+  const MAX_PENDING_PIXEL_TASKS = 2048;
+  const QUEUE_COMPACT_INTERVAL = 1024;
+  const debtControlEnabled = isFeatureFlagEnabled('enableSequentialTypedQueueDebtControl');
 
-  const runTask = (task: () => void) => {
+  const taskCount = () => tasks.length - taskHead;
+
+  const compactTasksIfNeeded = () => {
+    if (taskHead <= QUEUE_COMPACT_INTERVAL || taskHead <= tasks.length / 2) {
+      return;
+    }
+    tasks.splice(0, taskHead);
+    taskHead = 0;
+  };
+
+  const shiftTask = (): PixelQueueTask | null => {
+    if (taskHead >= tasks.length) {
+      return null;
+    }
+    const task = tasks[taskHead];
+    taskHead += 1;
+    compactTasksIfNeeded();
+    return task;
+  };
+
+  const runTask = (task: PixelQueueTask) => {
     try {
-      task();
+      task.run();
     } catch (error) {
       console.error('[PixelQueue] Task execution failed:', error);
     }
   };
 
   const notifyIdle = () => {
-    if (tasks.length || rafId != null) {
+    if (taskCount() > 0 || rafId != null) {
       return;
     }
-    if (!idleListeners.length) {
+    if (idleHead >= idleListeners.length) {
       return;
     }
-    const callbacks = idleListeners.splice(0, idleListeners.length);
+    const callbacks = idleListeners.slice(idleHead);
+    idleHead = idleListeners.length;
+    if (idleHead > QUEUE_COMPACT_INTERVAL && idleHead > idleListeners.length / 2) {
+      idleListeners.splice(0, idleHead);
+      idleHead = 0;
+    }
     for (const cb of callbacks) {
       try {
         cb();
@@ -283,7 +320,7 @@ export function createPixelQueue(): PixelQueue {
 
   const tick = () => {
     rafId = null;
-    if (!tasks.length) {
+    if (taskCount() === 0) {
       if (dirtyRect) {
         scheduleDirtyDispatch();
       }
@@ -293,8 +330,12 @@ export function createPixelQueue(): PixelQueue {
 
     const start = now();
     let processed = 0;
-    while (tasks.length && processed < MAX_TASKS) {
-      runTask(tasks.shift()!);
+    while (taskCount() > 0 && processed < MAX_TASKS) {
+      const nextTask = shiftTask();
+      if (!nextTask) {
+        break;
+      }
+      runTask(nextTask);
       processed++;
       if (now() - start >= BUDGET_MS) {
         break;
@@ -305,7 +346,7 @@ export function createPixelQueue(): PixelQueue {
       scheduleDirtyDispatch();
     }
 
-    if (tasks.length) {
+    if (taskCount() > 0) {
       if (requestFrame) {
         rafId = requestFrame(tick);
       } else {
@@ -318,7 +359,20 @@ export function createPixelQueue(): PixelQueue {
   };
 
   const enqueue = (fn: () => void) => {
-    tasks.push(fn);
+    tasks.push({ kind: 'paint', mergeable: false, run: fn });
+    if (debtControlEnabled && taskCount() > MAX_PENDING_PIXEL_TASKS) {
+      const catchUpStart = now();
+      while (taskCount() > MAX_PENDING_PIXEL_TASKS / 2) {
+        const task = shiftTask();
+        if (!task) {
+          break;
+        }
+        runTask(task);
+        if (now() - catchUpStart >= BUDGET_MS * 3) {
+          break;
+        }
+      }
+    }
     if (rafId != null) {
       return;
     }
@@ -344,8 +398,12 @@ export function createPixelQueue(): PixelQueue {
       pendingDirtyTimeout = null;
     }
     rafId = null;
-    while (tasks.length) {
-      runTask(tasks.shift()!);
+    while (taskCount() > 0) {
+      const task = shiftTask();
+      if (!task) {
+        break;
+      }
+      runTask(task);
     }
     if (dirtyRect) {
       dispatchDirtyRect();
@@ -357,7 +415,7 @@ export function createPixelQueue(): PixelQueue {
     if (typeof cb !== 'function') {
       return;
     }
-    if (!tasks.length && rafId == null) {
+    if (taskCount() === 0 && rafId == null) {
       Promise.resolve().then(() => {
         try {
           cb();

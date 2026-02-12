@@ -1,4 +1,5 @@
 import { BrushShape, type SequentialStrokeEvent } from '@/types';
+import { isFeatureFlagEnabled, setFeatureFlag } from '@/config/featureFlags';
 import { SequentialCpuMaterializer } from '@/lib/sequential/materializer/SequentialCpuMaterializer';
 
 const createEvent = ({
@@ -174,15 +175,15 @@ const getVisibleBounds = (
 };
 
 const materializeToPixels = (
-  materializer: SequentialCpuMaterializer,
-  input: Parameters<SequentialCpuMaterializer['materializeFrame']>[0]
+  tileSet: ReturnType<SequentialCpuMaterializer['materializeFrame']>,
+  width: number,
+  height: number
 ): Uint8ClampedArray => {
-  const tileSet = materializer.materializeFrame(input);
-  const pixels = new Uint8ClampedArray(input.width * input.height * 4);
+  const pixels = new Uint8ClampedArray(width * height * 4);
   tileSet.tiles.forEach((tile) => {
     for (let row = 0; row < tile.height; row += 1) {
       const sourceOffset = row * tile.width * 4;
-      const targetOffset = ((tile.y + row) * input.width + tile.x) * 4;
+      const targetOffset = ((tile.y + row) * width + tile.x) * 4;
       pixels.set(
         tile.data.subarray(sourceOffset, sourceOffset + tile.width * 4),
         targetOffset
@@ -192,7 +193,46 @@ const materializeToPixels = (
   return pixels;
 };
 
+const materializeFrameToPixels = (
+  materializer: SequentialCpuMaterializer,
+  input: Parameters<SequentialCpuMaterializer['materializeFrame']>[0]
+): Uint8ClampedArray =>
+  materializeToPixels(
+    materializer.materializeFrame(input),
+    input.width,
+    input.height
+  );
+
+const extractRectPixels = ({
+  pixels,
+  width,
+  rect,
+}: {
+  pixels: Uint8ClampedArray;
+  width: number;
+  rect: { x: number; y: number; width: number; height: number };
+}): number[] => {
+  const values: number[] = [];
+  for (let y = rect.y; y < rect.y + rect.height; y += 1) {
+    for (let x = rect.x; x < rect.x + rect.width; x += 1) {
+      const base = (y * width + x) * 4;
+      values.push(pixels[base], pixels[base + 1], pixels[base + 2], pixels[base + 3]);
+    }
+  }
+  return values;
+};
+
 describe('SequentialCpuMaterializer', () => {
+  let previousDirtyRunPatchFlag = false;
+
+  beforeEach(() => {
+    previousDirtyRunPatchFlag = isFeatureFlagEnabled('enableSequentialDirtyRunPatch');
+  });
+
+  afterEach(() => {
+    setFeatureFlag('enableSequentialDirtyRunPatch', previousDirtyRunPatchFlag);
+  });
+
   it('materializes only the requested frame', () => {
     const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
     const tileSet = materializer.materializeFrame({
@@ -240,7 +280,7 @@ describe('SequentialCpuMaterializer', () => {
       frameIndex: 0,
     };
 
-    const roundPixels = materializeToPixels(materializer, {
+    const roundPixels = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -253,7 +293,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const squarePixels = materializeToPixels(materializer, {
+    const squarePixels = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -281,7 +321,7 @@ describe('SequentialCpuMaterializer', () => {
       frameIndex: 0,
     };
 
-    const pixels = materializeToPixels(materializer, {
+    const pixels = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -310,7 +350,7 @@ describe('SequentialCpuMaterializer', () => {
       frameIndex: 0,
     };
 
-    const pixels = materializeToPixels(materializer, {
+    const pixels = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -336,7 +376,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 24,
       frameIndex: 0,
     };
-    const plain = materializeToPixels(materializer, {
+    const plain = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -349,7 +389,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const dithered = materializeToPixels(materializer, {
+    const dithered = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -374,7 +414,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 24,
       frameIndex: 0,
     };
-    const solid = materializeToPixels(materializer, {
+    const solid = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -387,7 +427,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const textured = materializeToPixels(materializer, {
+    const textured = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -412,7 +452,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 24,
       frameIndex: 0,
     };
-    const standard = materializeToPixels(materializer, {
+    const standard = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -424,7 +464,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const pluginDither = materializeToPixels(materializer, {
+    const pluginDither = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -449,7 +489,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 24,
       frameIndex: 0,
     };
-    const pluginBayer = materializeToPixels(materializer, {
+    const pluginBayer = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -467,7 +507,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const pluginPattern = materializeToPixels(materializer, {
+    const pluginPattern = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -498,7 +538,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 24,
       frameIndex: 0,
     };
-    const canonical = materializeToPixels(materializer, {
+    const canonical = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -516,7 +556,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const invalid = materializeToPixels(materializer, {
+    const invalid = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -545,7 +585,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 24,
       frameIndex: 0,
     };
-    const bayer = materializeToPixels(materializer, {
+    const bayer = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -559,7 +599,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const pattern = materializeToPixels(materializer, {
+    const pattern = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -586,7 +626,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 24,
       frameIndex: 0,
     };
-    const bayer = materializeToPixels(materializer, {
+    const bayer = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -600,7 +640,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const sierraLite = materializeToPixels(materializer, {
+    const sierraLite = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -626,7 +666,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 40,
       frameIndex: 0,
     };
-    const standard = materializeToPixels(materializer, {
+    const standard = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -639,7 +679,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const particle = materializeToPixels(materializer, {
+    const particle = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -670,7 +710,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 48,
       frameIndex: 0,
     };
-    const tightParticle = materializeToPixels(materializer, {
+    const tightParticle = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -688,7 +728,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const wideParticle = materializeToPixels(materializer, {
+    const wideParticle = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -724,7 +764,7 @@ describe('SequentialCpuMaterializer', () => {
       height: 40,
       frameIndex: 0,
     };
-    const spamA = materializeToPixels(materializer, {
+    const spamA = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -743,7 +783,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const spamB = materializeToPixels(materializer, {
+    const spamB = materializeFrameToPixels(materializer, {
       ...inputBase,
       events: [
         createEvent({
@@ -783,7 +823,7 @@ describe('SequentialCpuMaterializer', () => {
       isColorizable: false,
       hash: 'stamp-hash-1',
     };
-    const pixels = materializeToPixels(materializer, {
+    const pixels = materializeFrameToPixels(materializer, {
       width: 20,
       height: 20,
       frameIndex: 0,
@@ -808,7 +848,7 @@ describe('SequentialCpuMaterializer', () => {
 
   it('renders mosaic brush with multiple shade levels instead of flat fill', () => {
     const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
-    const pixels = materializeToPixels(materializer, {
+    const pixels = materializeFrameToPixels(materializer, {
       width: 36,
       height: 36,
       frameIndex: 0,
@@ -876,14 +916,176 @@ describe('SequentialCpuMaterializer', () => {
       events: [baseEvent, appendedEvent],
     });
 
-    const patchedBytes = patched.tiles.flatMap((tile) => Array.from(tile.data));
-    const fullBytes = fullyMaterialized.tiles.flatMap((tile) => Array.from(tile.data));
-    expect(patchedBytes).toEqual(fullBytes);
+    const patchedPixels = materializeToPixels(patched, 16, 16);
+    const fullPixels = materializeToPixels(fullyMaterialized, 16, 16);
+    expect(Array.from(patchedPixels)).toEqual(Array.from(fullPixels));
+  });
+
+  it('materializeRect returns clipped tile patches with byte parity inside the rect', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
+    const events = [
+      createEvent({ id: 'a', frameIndex: 0, x: 4, y: 4, color: '#ff0000', size: 8 }),
+      createEvent({ id: 'b', frameIndex: 0, x: 12, y: 12, color: '#00ff00', size: 8 }),
+    ];
+    const rect = { x: 8, y: 8, width: 8, height: 8 };
+
+    const full = materializer.materializeFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events,
+    });
+    const patch = materializer.materializeRect({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events,
+      rect,
+    });
+
+    expect(patch.tiles.length).toBeGreaterThan(0);
+    expect(
+      patch.tiles.every((tile) => tile.x + tile.width > rect.x && tile.y + tile.height > rect.y)
+    ).toBe(true);
+
+    const fullPixels = materializeToPixels(full, 16, 16);
+    const patchPixels = materializeToPixels(
+      {
+        frameIndex: 0,
+        tileSize: 8,
+        pixelFormat: 'rgba8',
+        premultipliedAlpha: true,
+        colorSpace: 'srgb',
+        tiles: patch.tiles,
+      },
+      16,
+      16
+    );
+    expect(
+      extractRectPixels({ pixels: patchPixels, width: 16, rect })
+    ).toEqual(extractRectPixels({ pixels: fullPixels, width: 16, rect }));
+  });
+
+  it('patchFrame clears tiles when destination-out erases the previous tile content', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
+    const baseEvent = createEvent({
+      id: 'base',
+      frameIndex: 0,
+      x: 8,
+      y: 8,
+      color: '#ffffff',
+      size: 10,
+    });
+    const eraseEvent = createEvent({
+      id: 'erase',
+      frameIndex: 0,
+      x: 8,
+      y: 8,
+      color: '#000000',
+      size: 20,
+      blendMode: 'destination-out',
+    });
+
+    const baseTileSet = materializer.materializeFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [baseEvent],
+    });
+    const patched = materializer.patchFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [eraseEvent],
+      baseTileSet,
+    });
+    const full = materializer.materializeFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 0,
+      events: [baseEvent, eraseEvent],
+    });
+
+    const patchedPixels = materializeToPixels(patched, 16, 16);
+    const fullPixels = materializeToPixels(full, 16, 16);
+    expect(Array.from(patchedPixels)).toEqual(Array.from(fullPixels));
+    expect(patched.tiles.length).toBe(0);
+  });
+
+  it('records applied_run_patch reason for non-collapsed dirty patches', () => {
+    setFeatureFlag('enableSequentialDirtyRunPatch', true);
+    const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
+    const beforeReasons = window.__lastSequentialPerf?.patching.reasons.applied_run_patch ?? 0;
+    const baseEvent = createEvent({
+      id: 'base-run',
+      frameIndex: 0,
+      x: 4,
+      y: 4,
+      color: '#ffffff',
+      size: 6,
+    });
+    const appendEvent = createEvent({
+      id: 'append-run',
+      frameIndex: 0,
+      x: 6,
+      y: 6,
+      color: '#00ff00',
+      size: 6,
+    });
+
+    const baseTileSet = materializer.materializeFrame({
+      width: 32,
+      height: 32,
+      frameIndex: 0,
+      events: [baseEvent],
+    });
+    materializer.patchFrame({
+      width: 32,
+      height: 32,
+      frameIndex: 0,
+      events: [appendEvent],
+      baseTileSet,
+    });
+
+    const afterReasons = window.__lastSequentialPerf?.patching.reasons.applied_run_patch ?? 0;
+    expect(afterReasons).toBeGreaterThan(beforeReasons);
+  });
+
+  it('records collapsed_to_full_patch reason when dirty coverage is high', () => {
+    setFeatureFlag('enableSequentialDirtyRunPatch', true);
+    const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
+    const beforeReasons = window.__lastSequentialPerf?.patching.reasons.collapsed_to_full_patch ?? 0;
+
+    const baseTileSet = materializer.materializeFrame({
+      width: 256,
+      height: 256,
+      frameIndex: 0,
+      events: [],
+    });
+    const largeEvent = createEvent({
+      id: 'append-full-collapse',
+      frameIndex: 0,
+      x: 128,
+      y: 128,
+      color: '#ff00ff',
+      size: 280,
+    });
+
+    materializer.patchFrame({
+      width: 256,
+      height: 256,
+      frameIndex: 0,
+      events: [largeEvent],
+      baseTileSet,
+    });
+
+    const afterReasons = window.__lastSequentialPerf?.patching.reasons.collapsed_to_full_patch ?? 0;
+    expect(afterReasons).toBeGreaterThan(beforeReasons);
   });
 
   it('respects destination-out blend mode during sequential replay', () => {
     const materializer = new SequentialCpuMaterializer({ tileSize: 8 });
-    const withErase = materializeToPixels(materializer, {
+    const withErase = materializeFrameToPixels(materializer, {
       width: 16,
       height: 16,
       frameIndex: 0,
@@ -907,7 +1109,7 @@ describe('SequentialCpuMaterializer', () => {
         }),
       ],
     });
-    const withoutErase = materializeToPixels(materializer, {
+    const withoutErase = materializeFrameToPixels(materializer, {
       width: 16,
       height: 16,
       frameIndex: 0,

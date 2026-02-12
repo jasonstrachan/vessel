@@ -61,9 +61,13 @@ export interface PipelineStats {
  * Batch processing coordinator for multiple layers
  */
 class BatchProcessor {
-  private pendingRequests: RenderRequest[] = [];
+  private pendingHighPriority: RenderRequest[] = [];
+  private pendingNormalLow: RenderRequest[] = [];
+  private pendingHighHead = 0;
+  private pendingNormalLowHead = 0;
   private isProcessing = false;
   private config: PipelineConfig;
+  private readonly COMPACT_INTERVAL = 1024;
   
   constructor(config: PipelineConfig) {
     this.config = config;
@@ -73,11 +77,10 @@ class BatchProcessor {
    * Add render request to batch
    */
   addRequest(request: RenderRequest): void {
-    // Insert based on priority
     if (request.priority === 'high') {
-      this.pendingRequests.unshift(request);
+      this.pendingHighPriority.push(request);
     } else {
-      this.pendingRequests.push(request);
+      this.pendingNormalLow.push(request);
     }
     
     // Start processing if not already running
@@ -106,25 +109,76 @@ class BatchProcessor {
    * Process all pending requests
    */
   private async processPendingRequests(): Promise<void> {
-    if (this.isProcessing || this.pendingRequests.length === 0) {
+    if (this.isProcessing || this.pendingCount() === 0) {
       return;
     }
     
     this.isProcessing = true;
     
     try {
-      // Take up to maxBatchSize requests
-      const batch = this.pendingRequests.splice(0, this.config.maxBatchSize);
+      const batch = this.takeBatch(this.config.maxBatchSize);
       await this.processBatch(batch);
       
       // Continue processing if more requests are pending
-      if (this.pendingRequests.length > 0) {
+      if (this.pendingCount() > 0) {
         this.scheduleProcessing();
       }
       
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  private pendingCount(): number {
+    return (
+      (this.pendingHighPriority.length - this.pendingHighHead) +
+      (this.pendingNormalLow.length - this.pendingNormalLowHead)
+    );
+  }
+
+  private compactQueueIfNeeded(queue: RenderRequest[], head: number): number {
+    if (head <= this.COMPACT_INTERVAL || head <= queue.length / 2) {
+      return head;
+    }
+    queue.splice(0, head);
+    return 0;
+  }
+
+  private shiftHighPriority(): RenderRequest | null {
+    if (this.pendingHighHead >= this.pendingHighPriority.length) {
+      return null;
+    }
+    const request = this.pendingHighPriority[this.pendingHighHead];
+    this.pendingHighHead += 1;
+    this.pendingHighHead = this.compactQueueIfNeeded(this.pendingHighPriority, this.pendingHighHead);
+    return request;
+  }
+
+  private shiftNormalLow(): RenderRequest | null {
+    if (this.pendingNormalLowHead >= this.pendingNormalLow.length) {
+      return null;
+    }
+    const request = this.pendingNormalLow[this.pendingNormalLowHead];
+    this.pendingNormalLowHead += 1;
+    this.pendingNormalLowHead = this.compactQueueIfNeeded(this.pendingNormalLow, this.pendingNormalLowHead);
+    return request;
+  }
+
+  private shiftNext(): RenderRequest | null {
+    return this.shiftHighPriority() ?? this.shiftNormalLow();
+  }
+
+  private takeBatch(maxSize: number): RenderRequest[] {
+    const safeMaxSize = Math.max(1, Math.round(maxSize));
+    const batch: RenderRequest[] = [];
+    while (batch.length < safeMaxSize) {
+      const next = this.shiftNext();
+      if (!next) {
+        break;
+      }
+      batch.push(next);
+    }
+    return batch;
   }
   
   /**
@@ -205,7 +259,9 @@ class BatchProcessor {
 class QualityManager {
   private config: PipelineConfig;
   private currentQuality: 'full' | 'half' | 'quarter' = 'full';
-  private recentFrameTimes: number[] = [];
+  private recentFrameTimes: number[] = new Array(10);
+  private recentFrameTimesCount = 0;
+  private recentFrameTimesHead = 0;
   private readonly FRAME_TIME_HISTORY = 10;
   
   constructor(config: PipelineConfig) {
@@ -216,13 +272,20 @@ class QualityManager {
    * Update quality based on performance
    */
   updateQuality(frameTime: number): 'full' | 'half' | 'quarter' {
-    this.recentFrameTimes.push(frameTime);
-    
-    if (this.recentFrameTimes.length > this.FRAME_TIME_HISTORY) {
-      this.recentFrameTimes.shift();
+    const insertIndex = (this.recentFrameTimesHead + this.recentFrameTimesCount) % this.FRAME_TIME_HISTORY;
+    this.recentFrameTimes[insertIndex] = frameTime;
+    if (this.recentFrameTimesCount < this.FRAME_TIME_HISTORY) {
+      this.recentFrameTimesCount += 1;
+    } else {
+      this.recentFrameTimesHead = (this.recentFrameTimesHead + 1) % this.FRAME_TIME_HISTORY;
     }
-    
-    const avgFrameTime = this.recentFrameTimes.reduce((sum, time) => sum + time, 0) / this.recentFrameTimes.length;
+
+    let total = 0;
+    for (let i = 0; i < this.recentFrameTimesCount; i += 1) {
+      const index = (this.recentFrameTimesHead + i) % this.FRAME_TIME_HISTORY;
+      total += this.recentFrameTimes[index];
+    }
+    const avgFrameTime = total / Math.max(1, this.recentFrameTimesCount);
     
     // Degrade quality if performance is poor
     if (avgFrameTime > this.config.qualityThresholds.degradeThreshold) {
