@@ -31,8 +31,16 @@ export interface BrushStampSourceDeps {
   resolveCustomBrush: ResolveCustomBrush;
 }
 
+export interface BrushStampSourceOptions {
+  forceOpaque?: boolean;
+}
+
 export interface BrushStampDrawOptions {
   pressure?: number;
+}
+
+export interface BrushStampBeginOptions {
+  skipInitialStamp?: boolean;
 }
 
 export class BrushStampSource {
@@ -46,19 +54,28 @@ export class BrushStampSource {
   private customBrushData: CustomBrushStrokeData | undefined;
   private activeBrushId: string | null = null;
   private usingUserBrush = false;
+  private readonly forceOpaque: boolean;
+  private originalOpacity: number | null = null;
+  private opacityOverrideApplied = false;
   private originalBrushSize: number | null = null;
   private sizeOverrideApplied = false;
   private originalBrushShape: BrushShape | null = null;
   private shapeOverrideApplied = false;
 
-  constructor(deps: BrushStampSourceDeps) {
+  constructor(deps: BrushStampSourceDeps, options: BrushStampSourceOptions = {}) {
     this.getState = deps.getState;
     this.brushEngine = deps.brushEngine;
     this.userBrushEngine = deps.userBrushEngine;
     this.resolveCustomBrush = deps.resolveCustomBrush;
+    this.forceOpaque = options.forceOpaque === true;
   }
 
-  begin(ctx: CanvasRenderingContext2D, point: CanvasPoint, pressure = 1): void {
+  begin(
+    ctx: CanvasRenderingContext2D,
+    point: CanvasPoint,
+    pressure = 1,
+    options: BrushStampBeginOptions = {}
+  ): void {
     this.activeCtx = ctx;
     this.lastPoint = point;
 
@@ -76,10 +93,12 @@ export class BrushStampSource {
       return;
     }
 
-    this.brushEngine.drawBrush(ctx, point, point, {
-      pressure,
-      customBrushData: this.customBrushData
-    });
+    if (!options.skipInitialStamp) {
+      this.brushEngine.drawBrush(ctx, point, point, {
+        pressure,
+        customBrushData: this.customBrushData
+      });
+    }
   }
 
   draw(
@@ -107,9 +126,12 @@ export class BrushStampSource {
     if (this.usingUserBrush) {
       this.userBrushEngine.endStroke();
     }
-    if (this.sizeOverrideApplied || this.shapeOverrideApplied) {
+    if (this.opacityOverrideApplied || this.sizeOverrideApplied || this.shapeOverrideApplied) {
       const state = this.getState();
       const brushSettings = state.tools.brushSettings;
+      const restoreOpacity = this.opacityOverrideApplied
+        ? this.originalOpacity ?? brushSettings.opacity
+        : brushSettings.opacity;
       const restoreSize = this.sizeOverrideApplied
         ? this.originalBrushSize ?? brushSettings.size
         : brushSettings.size;
@@ -119,6 +141,7 @@ export class BrushStampSource {
       this.brushEngine.updateConfig?.({
         brushSettings: {
           ...brushSettings,
+          opacity: restoreOpacity,
           size: restoreSize,
           brushShape: restoreShape,
         }
@@ -129,6 +152,8 @@ export class BrushStampSource {
     this.customBrushData = undefined;
     this.activeBrushId = null;
     this.usingUserBrush = false;
+    this.originalOpacity = null;
+    this.opacityOverrideApplied = false;
     this.originalBrushSize = null;
     this.sizeOverrideApplied = false;
     this.originalBrushShape = null;
@@ -140,17 +165,12 @@ export class BrushStampSource {
   }
 
   private applyOverridesIfNeeded(state: AppState): void {
-    if (state.tools.currentTool !== 'eraser') {
-      this.sizeOverrideApplied = false;
-      this.originalBrushSize = null;
-      this.shapeOverrideApplied = false;
-      this.originalBrushShape = null;
-      return;
-    }
     const eraserSettings = state.tools.eraserSettings;
     const brushSettings = state.tools.brushSettings;
     const updateConfig = this.brushEngine.updateConfig;
     if (!updateConfig) {
+      this.opacityOverrideApplied = false;
+      this.originalOpacity = null;
       this.sizeOverrideApplied = false;
       this.originalBrushSize = null;
       this.shapeOverrideApplied = false;
@@ -160,6 +180,32 @@ export class BrushStampSource {
 
     const nextSettings = { ...brushSettings };
     let changed = false;
+    if (this.forceOpaque && brushSettings.opacity !== 1) {
+      this.originalOpacity = brushSettings.opacity ?? null;
+      nextSettings.opacity = 1;
+      this.opacityOverrideApplied = true;
+      changed = true;
+    } else {
+      this.opacityOverrideApplied = false;
+      this.originalOpacity = null;
+    }
+
+    if (state.tools.currentTool !== 'eraser') {
+      this.sizeOverrideApplied = false;
+      this.originalBrushSize = null;
+      this.shapeOverrideApplied = false;
+      this.originalBrushShape = null;
+      if (!changed) {
+        return;
+      }
+      updateConfig({
+        brushSettings: {
+          ...brushSettings,
+          ...nextSettings,
+        }
+      });
+      return;
+    }
 
     // Size override (when eraser is unlinked from brush size)
     const shouldLink = eraserSettings.linkSizeToBrush !== false;

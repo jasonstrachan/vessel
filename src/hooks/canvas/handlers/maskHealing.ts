@@ -1,5 +1,9 @@
 import type { MaskManager } from '@/layers/MaskManager';
 import type { BrushStampSource } from '@/tools/stamps/BrushStampSource';
+import { applyPressureCurve } from '@/utils/pressureCurve';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
+import { BrushShape } from '@/types';
+import type { AppState } from '@/stores/useAppStore';
 
 export type MaskHealState = {
   ctx: CanvasRenderingContext2D;
@@ -21,10 +25,11 @@ export type BeginMaskHealingArgs = {
 };
 
 export type BeginMaskHealingDeps = {
-  createBrushStampSource: () => BrushStampSource;
+  createBrushStampSource: (options?: { forceOpaque?: boolean }) => BrushStampSource;
   maskManager: MaskManager;
   debugWarn: (message: string, error?: unknown) => void;
   isEnabled: boolean;
+  getState: () => AppState;
 };
 
 export type ExtendMaskHealingArgs = {
@@ -41,10 +46,72 @@ export type ExtendMaskHealingDeps = {
 
 export type CreateMaskHealingDispatchersArgs = {
   maskHealStateRef: React.MutableRefObject<MaskHealState | null>;
-  createBrushStampSource: () => BrushStampSource;
+  createBrushStampSource: (options?: { forceOpaque?: boolean }) => BrushStampSource;
   maskManager: MaskManager;
   debugWarn: (message: string, error?: unknown) => void;
   isEnabled: boolean;
+  getState: () => AppState;
+};
+
+type MaskTipShape = 'square' | 'round' | 'triangle' | 'diamond';
+
+const resolveMaskTipShape = (state: AppState): MaskTipShape => {
+  const settings = state.tools.brushSettings;
+  if (settings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) {
+    return 'triangle';
+  }
+  return settings.colorCycleStampShape ?? 'square';
+};
+
+const resolveMaskTipSize = (state: AppState, pressure: number): number => {
+  const settings = state.tools.brushSettings;
+  let size = Math.max(1, settings.size ?? state.globalBrushSize ?? 1);
+  const pressureRange = resolveBrushPressureRange(settings);
+  if (pressureRange.enabled) {
+    size *= applyPressureCurve(pressure, pressureRange.minPercent, pressureRange.maxPercent, 's-curve');
+  }
+  return Math.max(1, Math.round(size));
+};
+
+const drawInitialMaskTipStamp = (
+  ctx: CanvasRenderingContext2D,
+  point: { x: number; y: number },
+  size: number,
+  shape: MaskTipShape
+): void => {
+  const half = size / 2;
+  const cx = Math.round(point.x);
+  const cy = Math.round(point.y);
+
+  if (shape === 'round') {
+    ctx.beginPath();
+    ctx.arc(cx, cy, half, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  if (shape === 'triangle') {
+    ctx.beginPath();
+    ctx.moveTo(cx, Math.round(cy - half));
+    ctx.lineTo(Math.round(cx + half), Math.round(cy + half));
+    ctx.lineTo(Math.round(cx - half), Math.round(cy + half));
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+
+  if (shape === 'diamond') {
+    ctx.beginPath();
+    ctx.moveTo(cx, Math.round(cy - half));
+    ctx.lineTo(Math.round(cx + half), cy);
+    ctx.lineTo(cx, Math.round(cy + half));
+    ctx.lineTo(Math.round(cx - half), cy);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+
+  ctx.fillRect(Math.round(cx - half), Math.round(cy - half), size, size);
 };
 
 export const endMaskHealingStroke = (
@@ -83,14 +150,21 @@ export const beginMaskHealingStroke = (
     if (!maskCtx) {
       return;
     }
-    const stampSource = deps.createBrushStampSource();
+    const stampSource = deps.createBrushStampSource({ forceOpaque: true });
     maskCtx.save();
     try {
       maskCtx.globalCompositeOperation = 'destination-out';
       maskCtx.globalAlpha = 1;
       maskCtx.imageSmoothingEnabled = false;
     } catch {}
-    stampSource.begin(maskCtx, args.startPoint, args.pressure);
+    stampSource.begin(maskCtx, args.startPoint, args.pressure, { skipInitialStamp: true });
+    const state = deps.getState();
+    drawInitialMaskTipStamp(
+      maskCtx,
+      args.startPoint,
+      resolveMaskTipSize(state, args.pressure),
+      resolveMaskTipShape(state)
+    );
     args.maskHealStateRef.current = {
       ctx: maskCtx,
       layerId: args.layerId,
@@ -137,6 +211,7 @@ export const createMaskHealingDispatchers = (
         maskManager: args.maskManager,
         debugWarn: args.debugWarn,
         isEnabled: args.isEnabled,
+        getState: args.getState,
       }
     );
   },

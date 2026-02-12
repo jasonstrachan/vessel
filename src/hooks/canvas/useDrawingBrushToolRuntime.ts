@@ -33,6 +33,7 @@ export const useDrawingBrushToolRuntime = ({
       maskManager: getMaskManager(),
       debugWarn,
       isEnabled: FF.ERASER_V2,
+      getState: () => storeRef.current,
     },
     brushHalfSizeStoreRef: storeRef,
     ccEraserSettingsGetterArgs: {

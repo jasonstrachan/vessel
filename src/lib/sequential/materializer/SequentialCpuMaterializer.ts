@@ -105,12 +105,207 @@ type ResolvedSpamConfig = {
   customTextBias: number;
 };
 const parsedCustomStampCache = new Map<string, ParsedCustomStamp>();
+type ScaledCustomStampCacheEntry = {
+  width: number;
+  height: number;
+  rgba?: Uint8ClampedArray;
+  alpha?: Uint8Array;
+  rowOpaqueSpans: number[][];
+};
+const scaledCustomStampCache = new Map<string, ScaledCustomStampCacheEntry>();
+const MAX_SCALED_CUSTOM_STAMP_CACHE_ENTRIES = 256;
+const STROKE_REPLAY_PIXEL_BUDGET_MIN = 200_000;
+const STROKE_REPLAY_PIXEL_BUDGET_MAX = 2_000_000;
+const STROKE_REPLAY_PIXEL_BUDGET_VIEWPORT_FACTOR = 0.25;
 
 const MAX_DIRTY_TILE_KEYS_PER_PATCH = 4096;
 const MAX_DIRTY_RUNS_PER_PATCH = 512;
 const DIRTY_RUN_COLLAPSE_TO_BANDS_THRESHOLD = 256;
 const DIRTY_COLLAPSE_TO_FULL_FRAME_TILE_THRESHOLD = 1024;
 const DIRTY_COLLAPSE_TO_FULL_FRAME_COVERAGE = 0.35;
+
+const buildScaledCustomStampCacheKey = ({
+  stamp,
+  targetWidth,
+  targetHeight,
+}: {
+  stamp: ParsedCustomStamp;
+  targetWidth: number;
+  targetHeight: number;
+}): string =>
+  `${stamp.width}x${stamp.height}:${stamp.isColorizable ? 'tint' : 'raw'}:${targetWidth}x${targetHeight}`;
+
+const getScaledCustomStamp = ({
+  stamp,
+  targetWidth,
+  targetHeight,
+}: {
+  stamp: ParsedCustomStamp;
+  targetWidth: number;
+  targetHeight: number;
+}): ScaledCustomStampCacheEntry => {
+  const key = buildScaledCustomStampCacheKey({ stamp, targetWidth, targetHeight });
+  const cached = scaledCustomStampCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const pixelCount = targetWidth * targetHeight;
+  const srcXByTarget = new Uint16Array(targetWidth);
+  const srcYByTarget = new Uint16Array(targetHeight);
+  const rowOpaqueSpans: number[][] = Array.from({ length: targetHeight }, () => []);
+  for (let tx = 0; tx < targetWidth; tx += 1) {
+    srcXByTarget[tx] = Math.min(
+      stamp.width - 1,
+      Math.max(0, Math.floor((tx / targetWidth) * stamp.width))
+    );
+  }
+  for (let ty = 0; ty < targetHeight; ty += 1) {
+    srcYByTarget[ty] = Math.min(
+      stamp.height - 1,
+      Math.max(0, Math.floor((ty / targetHeight) * stamp.height))
+    );
+  }
+
+  let entry: ScaledCustomStampCacheEntry;
+  if (stamp.isColorizable) {
+    const alpha = new Uint8Array(pixelCount);
+    let cursor = 0;
+    for (let ty = 0; ty < targetHeight; ty += 1) {
+      const srcY = srcYByTarget[ty];
+      const rowSpans = rowOpaqueSpans[ty];
+      let spanStart = -1;
+      for (let tx = 0; tx < targetWidth; tx += 1) {
+        const srcX = srcXByTarget[tx];
+        const srcIndex = (srcY * stamp.width + srcX) * 4;
+        const alphaByte = stamp.rgba[srcIndex + 3];
+        alpha[cursor] = alphaByte;
+        if (alphaByte > 0) {
+          if (spanStart === -1) {
+            spanStart = tx;
+          }
+        } else if (spanStart !== -1) {
+          rowSpans.push(spanStart, tx - 1);
+          spanStart = -1;
+        }
+        cursor += 1;
+      }
+      if (spanStart !== -1) {
+        rowSpans.push(spanStart, targetWidth - 1);
+      }
+    }
+    entry = { width: targetWidth, height: targetHeight, alpha, rowOpaqueSpans };
+  } else {
+    const rgba = new Uint8ClampedArray(pixelCount * 4);
+    let cursor = 0;
+    for (let ty = 0; ty < targetHeight; ty += 1) {
+      const srcY = srcYByTarget[ty];
+      const rowSpans = rowOpaqueSpans[ty];
+      let spanStart = -1;
+      for (let tx = 0; tx < targetWidth; tx += 1) {
+        const srcX = srcXByTarget[tx];
+        const srcIndex = (srcY * stamp.width + srcX) * 4;
+        const alphaByte = stamp.rgba[srcIndex + 3];
+        rgba[cursor] = stamp.rgba[srcIndex];
+        rgba[cursor + 1] = stamp.rgba[srcIndex + 1];
+        rgba[cursor + 2] = stamp.rgba[srcIndex + 2];
+        rgba[cursor + 3] = alphaByte;
+        if (alphaByte > 0) {
+          if (spanStart === -1) {
+            spanStart = tx;
+          }
+        } else if (spanStart !== -1) {
+          rowSpans.push(spanStart, tx - 1);
+          spanStart = -1;
+        }
+        cursor += 4;
+      }
+      if (spanStart !== -1) {
+        rowSpans.push(spanStart, targetWidth - 1);
+      }
+    }
+    entry = { width: targetWidth, height: targetHeight, rgba, rowOpaqueSpans };
+  }
+
+  if (scaledCustomStampCache.size >= MAX_SCALED_CUSTOM_STAMP_CACHE_ENTRIES) {
+    const oldestKey = scaledCustomStampCache.keys().next().value;
+    if (typeof oldestKey === 'string') {
+      scaledCustomStampCache.delete(oldestKey);
+    }
+  }
+  scaledCustomStampCache.set(key, entry);
+  return entry;
+};
+
+const estimateStampPixelCost = ({
+  stampSize,
+  customStamp,
+  pluginMode,
+  particleConfig,
+  spamConfig,
+}: {
+  stampSize: number;
+  customStamp: ParsedCustomStamp | null;
+  pluginMode: SequentialPluginRenderMode;
+  particleConfig: ResolvedParticleConfig | null;
+  spamConfig: ResolvedSpamConfig | null;
+}): number => {
+  const safeSize = Math.max(1, stampSize);
+  const baseArea = safeSize * safeSize;
+  if (customStamp) {
+    const maxDimension = Math.max(1, Math.max(customStamp.width, customStamp.height));
+    const aspectAreaFactor = (customStamp.width * customStamp.height) / (maxDimension * maxDimension);
+    return baseArea * Math.max(0.25, Math.min(1, aspectAreaFactor));
+  }
+  if (pluginMode === 'particle-brush') {
+    const density = particleConfig?.density ?? 20;
+    const particleCount = Math.max(4, Math.min(200, Math.round(density * 1.2)));
+    const averageParticleAreaFactor = 0.055;
+    return baseArea * particleCount * averageParticleAreaFactor;
+  }
+  if (pluginMode === 'spam-brush') {
+    const fontBias = spamConfig?.fontBias ?? 0.5;
+    const contentBias = spamConfig?.contentBias ?? 0.5;
+    const glyphAreaFactor = 0.65 + fontBias * 0.3 + contentBias * 0.15;
+    return baseArea * glyphAreaFactor;
+  }
+  return baseArea * 0.78;
+};
+
+const shouldSkipStampForReplayBudget = ({
+  stampIndex,
+  totalStamps,
+  previousRenderedStamp,
+  currentStamp,
+  stampSize,
+  estimatedCostSoFar,
+  pixelBudget,
+}: {
+  stampIndex: number;
+  totalStamps: number;
+  previousRenderedStamp: { x: number; y: number } | null;
+  currentStamp: { x: number; y: number };
+  stampSize: number;
+  estimatedCostSoFar: number;
+  pixelBudget: number;
+}): boolean => {
+  if (stampIndex <= 0 || stampIndex >= totalStamps - 1) {
+    return false;
+  }
+  if (!previousRenderedStamp) {
+    return false;
+  }
+  if (pixelBudget <= 0 || estimatedCostSoFar <= pixelBudget) {
+    return false;
+  }
+
+  const overloadRatio = Math.max(1, estimatedCostSoFar / pixelBudget);
+  const spacingFactor = Math.min(0.5, 0.08 + (overloadRatio - 1) * 0.12);
+  const minSpacing = Math.max(1.25, stampSize * spacingFactor);
+  const dx = currentStamp.x - previousRenderedStamp.x;
+  const dy = currentStamp.y - previousRenderedStamp.y;
+  return dx * dx + dy * dy < minSpacing * minSpacing;
+};
 
 const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape => {
   const explicitTipShape = event.brush.tipShape;
@@ -1005,45 +1200,99 @@ const paintCustomStamp = ({
   if (tintA <= 0) {
     return;
   }
+  const scaled = getScaledCustomStamp({
+    stamp,
+    targetWidth,
+    targetHeight,
+  });
+  const isColorizable = stamp.isColorizable;
+  const tintR = color.r;
+  const tintG = color.g;
+  const tintB = color.b;
+  const tintAlpha = tintA;
+  const isDestinationOut = blendMode === 'destination-out';
+  const scaledAlpha = scaled.alpha;
+  const scaledRgba = scaled.rgba;
 
   for (let ty = 0; ty < targetHeight; ty += 1) {
     const y = top + ty;
     if (y < 0 || y >= height) {
       continue;
     }
-    const srcY = Math.min(stamp.height - 1, Math.max(0, Math.floor((ty / targetHeight) * stamp.height)));
-    for (let tx = 0; tx < targetWidth; tx += 1) {
+    const rowBase = ty * targetWidth;
+    const rowSpans = scaled.rowOpaqueSpans[ty] ?? [];
+    if (rowSpans.length === 0) {
+      continue;
+    }
+    for (let spanIndex = 0; spanIndex < rowSpans.length; spanIndex += 2) {
+      const spanStart = rowSpans[spanIndex] ?? 0;
+      const spanEnd = rowSpans[spanIndex + 1] ?? spanStart;
+      let txMin = spanStart;
+      let txMax = spanEnd;
+      const xMinBound = -left;
+      const xMaxBound = width - 1 - left;
+      if (txMin < xMinBound) {
+        txMin = xMinBound;
+      }
+      if (txMax > xMaxBound) {
+        txMax = xMaxBound;
+      }
+      if (txMin > txMax) {
+        continue;
+      }
+
+      for (let tx = txMin; tx <= txMax; tx += 1) {
       const x = left + tx;
-      if (x < 0 || x >= width) {
+      const stampPixelIndex = rowBase + tx;
+      const srcAlphaByte = isColorizable
+        ? (scaledAlpha?.[stampPixelIndex] ?? 0)
+        : (scaledRgba?.[stampPixelIndex * 4 + 3] ?? 0);
+      if (srcAlphaByte <= 0) {
         continue;
       }
-      const srcX = Math.min(stamp.width - 1, Math.max(0, Math.floor((tx / targetWidth) * stamp.width)));
-      const srcIndex = (srcY * stamp.width + srcX) * 4;
-      const srcAlpha = (stamp.rgba[srcIndex + 3] / 255) * tintA;
-      if (srcAlpha <= 0) {
+      const srcAlpha = (srcAlphaByte / 255) * tintAlpha;
+      const srcAByte = Math.max(0, Math.min(255, Math.round(srcAlpha * 255)));
+      if (srcAByte <= 0) {
         continue;
       }
-
-      const srcR = stamp.isColorizable
-        ? (color.r / 255) * srcAlpha
-        : (stamp.rgba[srcIndex] / 255) * srcAlpha;
-      const srcG = stamp.isColorizable
-        ? (color.g / 255) * srcAlpha
-        : (stamp.rgba[srcIndex + 1] / 255) * srcAlpha;
-      const srcB = stamp.isColorizable
-        ? (color.b / 255) * srcAlpha
-        : (stamp.rgba[srcIndex + 2] / 255) * srcAlpha;
-
       const dstIndex = (y * width + x) * 4;
-      compositePremultipliedPixel({
-        pixels,
-        index: dstIndex,
-        srcR,
-        srcG,
-        srcB,
-        srcA: srcAlpha,
-        blendMode,
-      });
+      const invA = 255 - srcAByte;
+      if (isDestinationOut) {
+        pixels[dstIndex] = Math.round((pixels[dstIndex] * invA) / 255);
+        pixels[dstIndex + 1] = Math.round((pixels[dstIndex + 1] * invA) / 255);
+        pixels[dstIndex + 2] = Math.round((pixels[dstIndex + 2] * invA) / 255);
+        pixels[dstIndex + 3] = Math.round((pixels[dstIndex + 3] * invA) / 255);
+        continue;
+      }
+
+      let srcRByte: number;
+      let srcGByte: number;
+      let srcBByte: number;
+      if (isColorizable) {
+        srcRByte = Math.round((tintR * srcAByte) / 255);
+        srcGByte = Math.round((tintG * srcAByte) / 255);
+        srcBByte = Math.round((tintB * srcAByte) / 255);
+      } else {
+        const rgbaIndex = stampPixelIndex * 4;
+        srcRByte = Math.round(((scaledRgba?.[rgbaIndex] ?? 0) * srcAByte) / 255);
+        srcGByte = Math.round(((scaledRgba?.[rgbaIndex + 1] ?? 0) * srcAByte) / 255);
+        srcBByte = Math.round(((scaledRgba?.[rgbaIndex + 2] ?? 0) * srcAByte) / 255);
+      }
+
+      pixels[dstIndex] = Math.min(255, srcRByte + Math.round((pixels[dstIndex] * invA) / 255));
+      pixels[dstIndex + 1] = Math.min(
+        255,
+        srcGByte + Math.round((pixels[dstIndex + 1] * invA) / 255)
+      );
+      pixels[dstIndex + 2] = Math.min(
+        255,
+        srcBByte + Math.round((pixels[dstIndex + 2] * invA) / 255)
+      );
+      pixels[dstIndex + 3] = Math.min(
+        255,
+        srcAByte + Math.round((pixels[dstIndex + 3] * invA) / 255)
+      );
+    }
     }
   }
 };
@@ -1675,6 +1924,45 @@ const inflatePixelsFromTileSet = ({
   }
 };
 
+const inflatePixelsFromTileSetKeys = ({
+  tileSet,
+  width,
+  target,
+  tileKeys,
+}: {
+  tileSet: FrameTileSet;
+  width: number;
+  target: Uint8ClampedArray;
+  tileKeys: Set<number>;
+}): void => {
+  if (tileKeys.size === 0) {
+    return;
+  }
+  const tileSize = Math.max(1, Math.round(tileSet.tileSize));
+  const tileCols = Math.max(1, Math.ceil(width / tileSize));
+  const tiles = tileSet.tiles;
+  for (let tileIndex = 0; tileIndex < tiles.length; tileIndex += 1) {
+    const tile = tiles[tileIndex];
+    if (tile.width <= 0 || tile.height <= 0) {
+      continue;
+    }
+    const tileX = Math.max(0, Math.floor(tile.x / tileSize));
+    const tileY = Math.max(0, Math.floor(tile.y / tileSize));
+    const tileKey = tileKeyFromCoord({ tileX, tileY, tileCols });
+    if (!tileKeys.has(tileKey)) {
+      continue;
+    }
+    for (let row = 0; row < tile.height; row += 1) {
+      const sourceOffset = row * tile.width * 4;
+      const targetOffset = ((tile.y + row) * width + tile.x) * 4;
+      target.set(
+        tile.data.subarray(sourceOffset, sourceOffset + tile.width * 4),
+        targetOffset
+      );
+    }
+  }
+};
+
 const paintEventsToPixels = ({
   pixels,
   width,
@@ -1715,10 +2003,41 @@ const paintEventsToPixels = ({
       textureMode === 'mosaic' && mosaicConfig
         ? createMosaicRuntime(mosaicConfig, event.brush.spacing)
         : null;
+    const strokePixelBudget = Math.max(
+      STROKE_REPLAY_PIXEL_BUDGET_MIN,
+      Math.min(
+        STROKE_REPLAY_PIXEL_BUDGET_MAX,
+        Math.round(width * height * STROKE_REPLAY_PIXEL_BUDGET_VIEWPORT_FACTOR)
+      )
+    );
+    let estimatedCostSoFar = 0;
     let previousMosaicStamp: { x: number; y: number } | null = null;
+    let previousRenderedStampForBudget: { x: number; y: number } | null = null;
 
     for (let stampIndex = 0; stampIndex < event.stamps.length; stampIndex += 1) {
       const stamp = event.stamps[stampIndex];
+      const stampSize = stamp.size || event.brush.size;
+      const estimatedStampCost = estimateStampPixelCost({
+        stampSize,
+        customStamp,
+        pluginMode,
+        particleConfig,
+        spamConfig,
+      });
+      if (textureMode !== 'mosaic') {
+        const shouldSkipForBudget = shouldSkipStampForReplayBudget({
+          stampIndex,
+          totalStamps: event.stamps.length,
+          previousRenderedStamp: previousRenderedStampForBudget,
+          currentStamp: { x: stamp.x, y: stamp.y },
+          stampSize,
+          estimatedCostSoFar,
+          pixelBudget: strokePixelBudget,
+        });
+        if (shouldSkipForBudget) {
+          continue;
+        }
+      }
       if (customStamp) {
         paintCustomStamp({
           pixels,
@@ -1726,12 +2045,14 @@ const paintEventsToPixels = ({
           height,
           stampX: stamp.x,
           stampY: stamp.y,
-          stampSize: stamp.size || event.brush.size,
+          stampSize,
           stampAlpha: clamp01(stamp.alpha),
           color: parsedColor,
           stamp: customStamp,
           blendMode,
         });
+        previousRenderedStampForBudget = { x: stamp.x, y: stamp.y };
+        estimatedCostSoFar += estimatedStampCost;
         continue;
       }
       if (pluginMode === 'particle-brush') {
@@ -1741,13 +2062,15 @@ const paintEventsToPixels = ({
           height,
           stampX: stamp.x,
           stampY: stamp.y,
-          stampSize: stamp.size || event.brush.size,
+          stampSize,
           stampAlpha: clamp01(stamp.alpha),
           color: parsedColor,
           blendMode,
           seed: hashString32(`${event.id}:${stampIndex}`),
           particleConfig: particleConfig ?? { density: 20, scatterRadiusFactor: 1.5 },
         });
+        previousRenderedStampForBudget = { x: stamp.x, y: stamp.y };
+        estimatedCostSoFar += estimatedStampCost;
         continue;
       }
       if (pluginMode === 'spam-brush') {
@@ -1757,13 +2080,15 @@ const paintEventsToPixels = ({
           height,
           stampX: stamp.x,
           stampY: stamp.y,
-          stampSize: stamp.size || event.brush.size,
+          stampSize,
           stampAlpha: clamp01(stamp.alpha),
           color: parsedColor,
           blendMode,
           seed: hashString32(`${event.id}:${stampIndex}:spam`),
           spamConfig: spamConfig ?? { fontBias: 0.5, contentBias: 0.5, customTextBias: 0 },
         });
+        previousRenderedStampForBudget = { x: stamp.x, y: stamp.y };
+        estimatedCostSoFar += estimatedStampCost;
         continue;
       }
       if (textureMode === 'mosaic' && mosaicConfig && mosaicRuntime) {
@@ -1778,7 +2103,7 @@ const paintEventsToPixels = ({
           height,
           stampX: stamp.x,
           stampY: stamp.y,
-          stampSize: stamp.size || event.brush.size,
+          stampSize,
           stampAlpha: clamp01(stamp.alpha),
           rotation: stamp.rotation || event.brush.rotation || 0,
           runtime: mosaicRuntime,
@@ -1786,6 +2111,8 @@ const paintEventsToPixels = ({
           blendMode,
         });
         previousMosaicStamp = { x: stamp.x, y: stamp.y };
+        previousRenderedStampForBudget = { x: stamp.x, y: stamp.y };
+        estimatedCostSoFar += estimatedStampCost;
         continue;
       }
       paintStamp({
@@ -1794,7 +2121,7 @@ const paintEventsToPixels = ({
         height,
         stampX: stamp.x,
         stampY: stamp.y,
-        stampSize: stamp.size || event.brush.size,
+        stampSize,
         stampAlpha: clamp01(stamp.alpha),
         shape: stampShape,
         textureMode,
@@ -1804,6 +2131,8 @@ const paintEventsToPixels = ({
         ditherConfig,
         ditherPalette,
       });
+      previousRenderedStampForBudget = { x: stamp.x, y: stamp.y };
+      estimatedCostSoFar += estimatedStampCost;
     }
   }
 };
@@ -2021,20 +2350,6 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
       };
     }
 
-    const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
-    inflatePixelsFromTileSet({
-      tileSet: baseTileSet,
-      width: safeWidth,
-      height: safeHeight,
-      target: pixels,
-    });
-    paintEventsToPixels({
-      pixels,
-      width: safeWidth,
-      height: safeHeight,
-      events: frameEvents,
-    });
-
     const { tileCols, tileRows } = getTileGridSize({
       width: safeWidth,
       height: safeHeight,
@@ -2088,6 +2403,20 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
         recordSequentialPatchReason('applied_run_patch');
       }
     }
+
+    const pixels = this.acquireScratchPixels(safeWidth, safeHeight);
+    inflatePixelsFromTileSetKeys({
+      tileSet: baseTileSet,
+      width: safeWidth,
+      target: pixels,
+      tileKeys: selectedTileKeys,
+    });
+    paintEventsToPixels({
+      pixels,
+      width: safeWidth,
+      height: safeHeight,
+      events: frameEvents,
+    });
 
     const patch = buildPatchFromTileKeys({
       pixels,

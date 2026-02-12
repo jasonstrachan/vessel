@@ -30,8 +30,8 @@ const defaultState: FeatureFlagState = {
   enableSequentialRecordMode: false,
   enableSequentialGpuAcceleration: false,
   enableSequentialTemporalDistribution: true,
-  enableSequentialTypedQueueDebtControl: false,
-  enableSequentialDirtyRunPatch: false,
+  enableSequentialTypedQueueDebtControl: true,
+  enableSequentialDirtyRunPatch: true,
 };
 
 const state: FeatureFlagState = { ...defaultState };
