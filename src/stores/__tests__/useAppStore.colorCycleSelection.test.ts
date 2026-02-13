@@ -206,4 +206,33 @@ describe('useAppStore color cycle layer selection', () => {
 
     expect(syncCCRuntimesMock).toHaveBeenCalled();
   });
+
+  it('preserves slot palettes when colorCycleData update includes undefined fields', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(
+      makeColorCycleLayer('layer-preserve-slots', {
+        gradientDefs: [{ id: 'g0', currentSlot: 7 }],
+        slotPalettes: [{ slot: 7, stops: cloneStops(layerGradient) }],
+        activeGradientId: 'g0',
+        paintSlot: 7,
+      })
+    );
+
+    store.updateLayer(layerId, {
+      colorCycleData: {
+        eraseMask: document.createElement('canvas'),
+        gradientDefs: undefined,
+        slotPalettes: undefined,
+        gradient: undefined,
+      } as unknown as NonNullable<Layer['colorCycleData']>,
+    });
+
+    const updatedLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(updatedLayer?.colorCycleData?.gradientDefs).toEqual([{ id: 'g0', currentSlot: 7 }]);
+    expect(updatedLayer?.colorCycleData?.slotPalettes).toEqual([
+      { slot: 7, stops: cloneStops(layerGradient) },
+    ]);
+    expect(updatedLayer?.colorCycleData?.paintSlot).toBe(7);
+    expect(updatedLayer?.colorCycleData?.gradient).toEqual(cloneStops(layerGradient));
+  });
 });

@@ -25,6 +25,7 @@ export type ColorCycleStrokeCommitDeps = {
   getBrushForLayer: (layerId: string) => ManagedColorCycleBrush | undefined;
   bindBrushToCanvas: (brush: ColorCycleBrushImplementation, canvas: HTMLCanvasElement) => void;
   markLayerHasContent: (layerId: string) => void;
+  clearEraseMaskInRegion: (layerId: string, roi: CaptureRegion) => void;
   perfMark: (label: string) => void;
   perfMeasure: (label: string, startLabel: string, endLabel: string) => void;
   startFinalizeVisibleTimer: () => void;
@@ -64,6 +65,7 @@ export const createColorCycleStrokeCommitDeps = ({
   getBrushForLayer,
   bindBrushToCanvas,
   markLayerHasContent: (layerId) => markColorCycleLayerHasContent(storeRef, layerId),
+  clearEraseMaskInRegion: (layerId, roi) => clearColorCycleEraseMaskInRegion(storeRef, layerId, roi),
   perfMark,
   perfMeasure,
   startFinalizeVisibleTimer,
@@ -89,6 +91,61 @@ export const markColorCycleLayerHasContent = (
         }
       });
     }
+  } catch {}
+};
+
+const clampCaptureRegionToBounds = (
+  roi: CaptureRegion,
+  bounds: { width: number; height: number }
+): CaptureRegion | null => {
+  const maxWidth = Math.max(1, Math.floor(bounds.width));
+  const maxHeight = Math.max(1, Math.floor(bounds.height));
+  const x = Math.max(0, Math.floor(roi.x));
+  const y = Math.max(0, Math.floor(roi.y));
+  const right = Math.min(maxWidth, Math.ceil(roi.x + roi.width));
+  const bottom = Math.min(maxHeight, Math.ceil(roi.y + roi.height));
+  if (right <= x || bottom <= y) {
+    return null;
+  }
+  return {
+    x,
+    y,
+    width: right - x,
+    height: bottom - y,
+  };
+};
+
+export const clearColorCycleEraseMaskInRegion = (
+  storeRef: React.MutableRefObject<AppState>,
+  layerId: string,
+  roi: CaptureRegion
+): void => {
+  try {
+    const st = storeRef.current;
+    const freshLayer = st.layers.find((layer) => layer.id === layerId);
+    const eraseMask = freshLayer?.colorCycleData?.eraseMask;
+    const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
+    if (!eraseMask || !eraseMaskCtx) {
+      return;
+    }
+    const clamped = clampCaptureRegionToBounds(roi, {
+      width: eraseMask.width,
+      height: eraseMask.height,
+    });
+    if (!clamped) {
+      return;
+    }
+    eraseMaskCtx.clearRect(clamped.x, clamped.y, clamped.width, clamped.height);
+    const nextVersion = (freshLayer?.colorCycleData?.eraseMaskVersion ?? 0) + 1;
+    st.updateLayer(
+      layerId,
+      {
+        colorCycleData: {
+          eraseMaskVersion: nextVersion,
+        },
+      },
+      { skipColorCycleSync: true }
+    );
   } catch {}
 };
 
@@ -124,6 +181,10 @@ export const commitColorCycleStrokeIfNeeded = async (
     endFinalizeVisibleTimer: deps.endFinalizeVisibleTimer,
     dispatchFrameUpdate: deps.dispatchFrameUpdate,
   });
+
+  if (commitResult.strokeCaptureRoi) {
+    deps.clearEraseMaskInRegion(args.activeLayer.id, commitResult.strokeCaptureRoi);
+  }
 
   return {
     handled: true,

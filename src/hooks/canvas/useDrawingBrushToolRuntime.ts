@@ -1,7 +1,6 @@
 import { useBrushToolRuntime } from '@/hooks/canvas/useBrushToolRuntime';
 import type { useDrawingHandlerRefs } from '@/hooks/canvas/useDrawingHandlerRefs';
 import { resolveActiveCustomBrushData } from '@/hooks/canvas/utils/customBrushData';
-import { FF } from '@/config/ccFeatureFlags';
 import { debugWarn } from '@/utils/debug';
 import { getMaskManager } from '@/layers/MaskManager';
 
@@ -32,7 +31,7 @@ export const useDrawingBrushToolRuntime = ({
       maskHealStateRef: refs.maskHealStateRef,
       maskManager: getMaskManager(),
       debugWarn,
-      isEnabled: FF.ERASER_V2,
+      isEnabled: true,
       getState: () => storeRef.current,
     },
     brushHalfSizeStoreRef: storeRef,

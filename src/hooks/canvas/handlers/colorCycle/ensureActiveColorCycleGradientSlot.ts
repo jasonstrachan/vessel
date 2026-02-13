@@ -22,6 +22,61 @@ import {
 } from '@/hooks/canvas/utils/colorCycleHelpers';
 import type { Layer } from '@/types';
 
+const shouldLogCcGradientDebug = (): boolean => {
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
+  try {
+    return Boolean(
+      (
+        globalThis as {
+          __TB_DEBUG?: { logCC?: boolean; logCCGradient?: boolean };
+        }
+      ).__TB_DEBUG?.logCC ||
+      (
+        globalThis as {
+          __TB_DEBUG?: { logCC?: boolean; logCCGradient?: boolean };
+        }
+      ).__TB_DEBUG?.logCCGradient
+    );
+  } catch {
+    return false;
+  }
+};
+
+const gradientTraceByLayer = new Map<string, { sig: string; source: 'manual' | 'fg' | 'sampled' }>();
+
+const gradientSig = (stops: Array<{ position: number; color: string }>): string =>
+  stops.map((stop) => `${stop.position}:${stop.color}`).join('|');
+
+const isGrayHex = (value: string): boolean => {
+  const raw = value.trim().toLowerCase();
+  if (!raw.startsWith('#')) {
+    return false;
+  }
+  const hex = raw.slice(1);
+  if (hex.length === 3 || hex.length === 4) {
+    const r = hex[0];
+    const g = hex[1];
+    const b = hex[2];
+    return r === g && g === b;
+  }
+  if (hex.length === 6 || hex.length === 8) {
+    const r = hex.slice(0, 2);
+    const g = hex.slice(2, 4);
+    const b = hex.slice(4, 6);
+    return r === g && g === b;
+  }
+  return false;
+};
+
+const isLikelyGrayGradient = (stops: Array<{ position: number; color: string }>): boolean => {
+  if (stops.length < 2) {
+    return false;
+  }
+  return stops.every((stop) => isGrayHex(stop.color));
+};
+
 export const runProjectSlotRebuild = (layerId: string) => {
   const state = useAppStore.getState();
   const result = rebuildGradientSlotUsageAndGC({
@@ -83,6 +138,34 @@ export const ensureActiveColorCycleGradientSlot = ({
   } = resolveActiveColorCycleGradient(layer, brushSettings, getFgParamsFromState(state));
 
   const preserveGradientPhase = true;
+  if (shouldLogCcGradientDebug()) {
+    const useForegroundGradient = Boolean(brushSettings.colorCycleUseForegroundGradient);
+    const source: 'manual' | 'fg' | 'sampled' =
+      state.tools.ccGradientSource === 'sampled'
+        ? 'sampled'
+        : useForegroundGradient
+          ? 'fg'
+          : 'manual';
+    const sig = gradientSig(activeStops);
+    const previous = gradientTraceByLayer.get(layer.id);
+    const gray = isLikelyGrayGradient(activeStops);
+    if (!previous || previous.sig !== sig || previous.source !== source) {
+      console.info('[cc gradient debug] ensure slot', {
+        layerId: layer.id,
+        source,
+        changed: !previous ? 'initial' : 'changed',
+        fromSource: previous?.source ?? null,
+        isGray: gray,
+        stopsCount: activeStops.length,
+        activeGradientId,
+        activeSlot,
+        paintSlot: layer.colorCycleData?.paintSlot ?? null,
+        fgActiveSlot: layer.colorCycleData?.fgActiveSlot ?? null,
+      });
+      gradientTraceByLayer.set(layer.id, { sig, source });
+    }
+  }
+
   if (!useForegroundGradient) {
     if (brush && typeof (brush as { setPreserveGradientPhase?: (enabled: boolean) => void }).setPreserveGradientPhase === 'function') {
       (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(preserveGradientPhase);

@@ -53,7 +53,6 @@ export const startBrushToolStroke = ({
   getColorCycleBrushManager,
   ensureActiveColorCycleGradientSlot,
   debugLog,
-  isEraserV2,
   beginMaskHealingStroke,
 }: {
   currentState: AppState;
@@ -98,7 +97,6 @@ export const startBrushToolStroke = ({
     brush?: ColorCycleBrushImplementation | null
   ) => void;
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
-  isEraserV2: boolean;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
 }): void => {
   const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
@@ -180,7 +178,6 @@ export const startBrushToolStroke = ({
       getColorCycleBrushManager,
       ensureActiveColorCycleGradientSlot,
       debugLog,
-      isEraserV2,
       beginMaskHealingStroke,
     });
     return;

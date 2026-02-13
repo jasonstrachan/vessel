@@ -325,6 +325,11 @@ const cloneGradientStops = (
   return stops.map((stop) => ({ ...stop }));
 };
 
+const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Partial<T> => {
+  const entries = Object.entries(value).filter(([, entryValue]) => entryValue !== undefined);
+  return Object.fromEntries(entries) as Partial<T>;
+};
+
 type GradientStop = { position: number; color: string };
 type ColorCycleGradient = { id: string; slot: number; stops: GradientStop[] };
 type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
@@ -1951,10 +1956,13 @@ export const createLayersSlice = (
               });
               // Skip this update - don't add colorCycleData to normal layers
             } else {
+              const sanitizedColorCyclePatch = omitUndefinedEntries(
+                updates.colorCycleData as Record<string, unknown>
+              ) as Layer['colorCycleData'];
               // Merging colorCycleData for color-cycle layer
               const mergedColorCycleData = {
                 ...layer.colorCycleData,
-                ...updates.colorCycleData
+                ...sanitizedColorCyclePatch
               };
               if (mergedColorCycleData.flowMode && mergedColorCycleData.flowMode !== 'forward') {
                 mergedColorCycleData.flowMode = 'forward';
@@ -1970,8 +1978,8 @@ export const createLayersSlice = (
               const activeDef = gradientDefs.find((entry) => entry.id === activeGradientId)
                 ?? gradientDefs[0];
               const shouldApplyLegacyStops = Boolean(legacyStops)
-                && !updates.colorCycleData?.slotPalettes
-                && !updates.colorCycleData?.gradientDefs;
+                && !sanitizedColorCyclePatch?.slotPalettes
+                && !sanitizedColorCyclePatch?.gradientDefs;
               const updatedSlotPalettes = shouldApplyLegacyStops
                 ? slotPalettes.map((entry) =>
                     entry.slot === activeDef.currentSlot

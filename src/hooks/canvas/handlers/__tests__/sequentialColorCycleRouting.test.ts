@@ -136,6 +136,59 @@ const createPausedSequentialState = (): AppState => {
   return useAppStore.getState();
 };
 
+const createColorCycleState = (): AppState => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+
+  const layer: Layer = {
+    id: 'layer-cc',
+    name: 'Color Cycle',
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    order: 0,
+    imageData: null,
+    framebuffer: canvas,
+    alignment: createDefaultLayerAlignment(),
+    layerType: 'color-cycle',
+    colorCycleData: {
+      canvas,
+      hasContent: true,
+      gradient: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    },
+  };
+
+  useAppStore.setState((state) => ({
+    colorCyclePlayback: {
+      ...state.colorCyclePlayback,
+      desiredPlaying: true,
+      suspendDepth: 0,
+    },
+    layers: [layer],
+    activeLayerId: layer.id,
+    tools: {
+      ...state.tools,
+      currentTool: 'brush',
+      brushSettings: {
+        ...state.tools.brushSettings,
+        brushShape: BrushShape.COLOR_CYCLE,
+        size: 8,
+        opacity: 1,
+        spacing: 1,
+        color: '#00ff00',
+        blendMode: 'source-over',
+      },
+    },
+  }));
+
+  return useAppStore.getState();
+};
+
 describe('sequential color-cycle routing', () => {
   beforeEach(() => {
     sequentialCaptureTesting.resetDefaultRuntime();
@@ -187,7 +240,6 @@ describe('sequential color-cycle routing', () => {
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       debugLog: jest.fn(),
-      isEraserV2: false,
       beginMaskHealingStroke: jest.fn(),
     });
 
@@ -239,7 +291,6 @@ describe('sequential color-cycle routing', () => {
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       debugLog: jest.fn(),
-      isEraserV2: false,
       beginMaskHealingStroke: jest.fn(),
     });
 
@@ -294,7 +345,6 @@ describe('sequential color-cycle routing', () => {
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       debugLog: jest.fn(),
-      isEraserV2: false,
       beginMaskHealingStroke: jest.fn(),
     });
 
@@ -491,5 +541,155 @@ describe('sequential color-cycle routing', () => {
     expect(events.length).toBeGreaterThan(0);
     expect(events[0].brush.brushShape).toBe(BrushShape.CUSTOM);
     expect(events[0].brush.customStamp).toBeTruthy();
+  });
+
+  it('extends CC mask healing even when stamp target context is temporarily unavailable', () => {
+    createColorCycleState();
+    const drawCtx = document.createElement('canvas').getContext('2d');
+    if (!drawCtx) {
+      throw new Error('2d context unavailable');
+    }
+
+    const extendMaskHealingStroke = jest.fn();
+    const drawColorCycle = jest.fn();
+    const args: ProcessBatchedStrokesArgs = {
+      strokeBatchRef: {
+        current: [
+          { pos: { x: 1, y: 1 }, pressure: 1 },
+          { pos: { x: 10, y: 1 }, pressure: 1 },
+        ],
+      },
+      strokeBatchTimerRef: { current: 1 },
+      drawingCtxRef: { current: drawCtx },
+      lastDrawPosRef: { current: { x: 1, y: 1 } },
+      brushSamplingPreviewActiveRef: { current: false },
+      autoSamplePointsRef: { current: [] },
+      ccSampledPointsRef: { current: [] },
+      resamplerBrushDataRef: { current: undefined },
+      stampCounterRef: { current: 0 },
+      colorCyclePixelQueueRef: { current: null },
+      colorCycleDistanceRef: { current: 0 },
+      colorCycleLastPosRef: { current: { x: 1, y: 1 } },
+      colorCycleLastRotationRef: { current: 0 },
+      eraserToolRef: { current: null },
+      eraserRoiRef: { current: null },
+    };
+
+    const deps: ProcessBatchedStrokesDeps = {
+      storeRef: { current: useAppStore.getState() },
+      project: { width: 32, height: 32 },
+      brushEngine: {
+        drawBrush: jest.fn(),
+        consumeRecentStamps: jest.fn(() => []),
+        drawColorCycle,
+      },
+      userBrushEngine: {
+        isUserBrush: () => false,
+        continueStroke: jest.fn(),
+      },
+      drawEraserSegment: jest.fn(),
+      updateAutoSampledGradient: jest.fn(),
+      updateCcSampledGradient: jest.fn(),
+      renderBrushSamplingPreview: jest.fn(),
+      getCCStampTargetCtx: () => null,
+      scheduleRecompose: jest.fn(),
+      extendMaskHealingStroke,
+      createPixelQueue,
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      resolveActiveCustomBrushData: () => undefined,
+      getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
+      selectEffectiveColorCyclePlaying: () => true,
+      shouldPixelAlignBrush: () => false,
+      alignPointToPixel: (point) => point,
+      clipLineSegment: (start, end) => [start, end],
+      shouldDrawStamp: () => true,
+      shouldApplyGridSnapPure: () => false,
+      calculateGridSpacing: () => 1,
+      snapToGridPure: (x, y) => ({ x, y }),
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      captureBrushFromCanvas: jest.fn(() => null),
+      isEraserV2: false,
+    };
+
+    processBatchedStrokes(args, deps);
+
+    expect(extendMaskHealingStroke).toHaveBeenCalled();
+    expect(extendMaskHealingStroke.mock.calls).toContainEqual([{ x: 1, y: 1 }, { x: 10, y: 1 }, 1]);
+    expect(drawColorCycle).not.toHaveBeenCalled();
+  });
+
+  it('extends CC mask healing even when clipping rejects the movement segment', () => {
+    createColorCycleState();
+    const drawCtx = document.createElement('canvas').getContext('2d');
+    if (!drawCtx) {
+      throw new Error('2d context unavailable');
+    }
+
+    const extendMaskHealingStroke = jest.fn();
+    const args: ProcessBatchedStrokesArgs = {
+      strokeBatchRef: {
+        current: [
+          { pos: { x: 3, y: 3 }, pressure: 0.5 },
+          { pos: { x: 9, y: 3 }, pressure: 0.75 },
+        ],
+      },
+      strokeBatchTimerRef: { current: 1 },
+      drawingCtxRef: { current: drawCtx },
+      lastDrawPosRef: { current: { x: 3, y: 3 } },
+      brushSamplingPreviewActiveRef: { current: false },
+      autoSamplePointsRef: { current: [] },
+      ccSampledPointsRef: { current: [] },
+      resamplerBrushDataRef: { current: undefined },
+      stampCounterRef: { current: 0 },
+      colorCyclePixelQueueRef: { current: null },
+      colorCycleDistanceRef: { current: 0 },
+      colorCycleLastPosRef: { current: { x: 3, y: 3 } },
+      colorCycleLastRotationRef: { current: 0 },
+      eraserToolRef: { current: null },
+      eraserRoiRef: { current: null },
+    };
+
+    const deps: ProcessBatchedStrokesDeps = {
+      storeRef: { current: useAppStore.getState() },
+      project: { width: 32, height: 32 },
+      brushEngine: {
+        drawBrush: jest.fn(),
+        consumeRecentStamps: jest.fn(() => []),
+        drawColorCycle: jest.fn(),
+      },
+      userBrushEngine: {
+        isUserBrush: () => false,
+        continueStroke: jest.fn(),
+      },
+      drawEraserSegment: jest.fn(),
+      updateAutoSampledGradient: jest.fn(),
+      updateCcSampledGradient: jest.fn(),
+      renderBrushSamplingPreview: jest.fn(),
+      getCCStampTargetCtx: () => null,
+      scheduleRecompose: jest.fn(),
+      extendMaskHealingStroke,
+      createPixelQueue,
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      resolveActiveCustomBrushData: () => undefined,
+      getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
+      selectEffectiveColorCyclePlaying: () => true,
+      shouldPixelAlignBrush: () => false,
+      alignPointToPixel: (point) => point,
+      clipLineSegment: () => null,
+      shouldDrawStamp: () => true,
+      shouldApplyGridSnapPure: () => false,
+      calculateGridSpacing: () => 1,
+      snapToGridPure: (x, y) => ({ x, y }),
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      captureBrushFromCanvas: jest.fn(() => null),
+      isEraserV2: false,
+    };
+
+    processBatchedStrokes(args, deps);
+
+    expect(extendMaskHealingStroke.mock.calls).toContainEqual([{ x: 3, y: 3 }, { x: 9, y: 3 }, 0.75]);
+    expect(deps.scheduleRecompose).toHaveBeenCalled();
   });
 });

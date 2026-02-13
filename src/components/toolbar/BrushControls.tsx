@@ -963,6 +963,7 @@ const BrushControls = () => {
   const gradientDebounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const gradientFrameRef = React.useRef<number | null>(null);
   const gradientForkRef = React.useRef(false);
+  const gradientDirtyRef = React.useRef(false);
   const pendingGradientRef = React.useRef<Array<{ position: number; color: string }>>(
     brushSettings.colorCycleGradient
       ? brushSettings.colorCycleGradient.map(stop => ({ ...stop }))
@@ -978,6 +979,7 @@ const BrushControls = () => {
 
     colorCycleRuntimeHandlers?.updateGradient?.(clonedStops);
     pendingGradientRef.current = clonedStops;
+    gradientDirtyRef.current = false;
   }, [setActiveSettings, colorCycleRuntimeHandlers]);
 
   const scheduleFlushFrame = React.useCallback(() => {
@@ -995,6 +997,7 @@ const BrushControls = () => {
   const scheduleGradientFlush = React.useCallback(
     (stops: Array<{ position: number; color: string }>, immediate = false) => {
       pendingGradientRef.current = stops.map(stop => ({ ...stop }));
+      gradientDirtyRef.current = true;
       if (gradientDebounceTimerRef.current) {
         clearTimeout(gradientDebounceTimerRef.current);
         gradientDebounceTimerRef.current = null;
@@ -1023,13 +1026,16 @@ const BrushControls = () => {
         cancelAnimationFrame(gradientFrameRef.current);
         gradientFrameRef.current = null;
       }
-      flushPendingGradient();
+      if (gradientDirtyRef.current) {
+        flushPendingGradient();
+      }
     };
   }, [flushPendingGradient]);
 
   React.useEffect(() => {
     const currentStops = activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
     pendingGradientRef.current = currentStops.map(stop => ({ ...stop }));
+    gradientDirtyRef.current = false;
   }, [activeSettings.colorCycleGradient]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {

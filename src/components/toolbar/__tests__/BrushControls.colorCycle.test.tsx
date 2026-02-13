@@ -457,6 +457,13 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(lastCall).toBeTruthy();
     expect(lastCall?.[1]).toEqual({ fork: true });
   });
+
+  it('does not flush gradient on unmount when there are no pending edits', () => {
+    const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
+    const { unmount } = render(<BrushControls />);
+    unmount();
+    expect(setSharedSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {

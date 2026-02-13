@@ -57,8 +57,11 @@ async function killPortProcess(port) {
       // Fallback to lsof
     }
     
-    // Fallback to lsof
-    const pid = execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+    // Fallback to lsof - LISTENERS ONLY (never kill client/browser sockets)
+    const pid = execSync(
+      `lsof -tiTCP:${port} -sTCP:LISTEN 2>/dev/null || true`,
+      { encoding: 'utf8' }
+    ).trim();
     if (pid) {
       const pids = pid.split('\n').filter(p => p);
       console.log(`⚠️  Found process(es) ${pids.join(', ')} on port ${port}, terminating...`);

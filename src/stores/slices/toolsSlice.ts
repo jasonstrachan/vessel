@@ -55,6 +55,33 @@ const initialBrushPreset = mosaicBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
 const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
 
+const resolveActiveColorCycleLayerGradient = (state: AppState): BrushSettings['colorCycleGradient'] => {
+  const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+  if (!activeLayer || activeLayer.layerType !== 'color-cycle' || !activeLayer.colorCycleData) {
+    return undefined;
+  }
+
+  const defs = activeLayer.colorCycleData.gradientDefs ?? [];
+  const activeDef =
+    defs.find((entry) => entry.id === activeLayer.colorCycleData?.activeGradientId) ?? defs[0];
+  const targetSlot = activeLayer.colorCycleData.paintSlot ?? activeDef?.currentSlot;
+  if (typeof targetSlot === 'number') {
+    const slotStops = activeLayer.colorCycleData.slotPalettes?.find(
+      (entry) => entry.slot === targetSlot
+    )?.stops;
+    if (slotStops && slotStops.length > 0) {
+      return cloneGradientStops(slotStops);
+    }
+  }
+
+  const legacyStops = activeLayer.colorCycleData.gradient;
+  if (legacyStops && legacyStops.length > 0) {
+    return cloneGradientStops(legacyStops);
+  }
+
+  return undefined;
+};
+
 export const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
   ...defaultPresetSettings,
@@ -1571,9 +1598,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const shouldApplyColorCycleGradient = isColorCycleBrushShape(newBrushSettings.brushShape);
 
     if (shouldApplyColorCycleGradient) {
-      const gradientSource = previousGradient && previousGradient.length > 0
-        ? previousGradient
-        : storedGradientEntry?.gradient;
+      const activeLayerGradient = resolveActiveColorCycleLayerGradient(state);
+      const gradientSource = activeLayerGradient && activeLayerGradient.length > 0
+        ? activeLayerGradient
+        : previousGradient && previousGradient.length > 0
+          ? previousGradient
+          : storedGradientEntry?.gradient;
       const gradientVersionSource = previousGradient && previousGradient.length > 0
         ? previousGradientVersion
         : storedGradientEntry?.version;

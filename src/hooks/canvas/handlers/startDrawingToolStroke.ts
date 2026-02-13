@@ -120,7 +120,6 @@ export const startDrawingToolStroke = ({
     getColorCycleBrushManager,
     ensureActiveColorCycleGradientSlot,
     debugLog,
-    isEraserV2,
     beginMaskHealingStroke,
   });
   return true;

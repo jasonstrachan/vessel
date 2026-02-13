@@ -9,7 +9,7 @@ import {
   defaultShapeState,
 } from '@/stores/slices/toolsSlice';
 import { brushPresets, mosaicBrushPreset } from '@/presets/brushPresets';
-import { createDefaultPalette } from '@/utils/layoutDefaults';
+import { createDefaultLayerAlignment, createDefaultPalette } from '@/utils/layoutDefaults';
 import { BrushShape, Project, type CustomBrush } from '@/types';
 import { defaultCropState } from '@/stores/slices/cropSlice';
 import { DEFAULT_RECTANGLE_BRUSH_STATE } from '@/stores/helpers/toolsState';
@@ -220,6 +220,63 @@ describe('tools slice', () => {
 
     const nextGradient = useAppStore.getState().tools.brushSettings.colorCycleGradient;
     expect(nextGradient).toEqual(gradientStops);
+  });
+
+  it('prefers active color-cycle layer gradient when switching to a color-cycle preset', () => {
+    const store = useAppStore.getState();
+    const layerStops = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#aabbcc' },
+    ];
+    const storedStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+    store.saveBrushSettings('color-cycle-stroke', {
+      colorCycleGradient: storedStops,
+      colorCycleGradientVersion: 5,
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    useAppStore.setState((state) => ({
+      ...state,
+      activeLayerId: 'layer-cc-active',
+      layers: [
+        {
+          id: 'layer-cc-active',
+          name: 'CC',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageData: null,
+          framebuffer: canvas,
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'color-cycle',
+          colorCycleData: {
+            gradient: layerStops.map((stop) => ({ ...stop })),
+            gradientDefs: [{ id: 'g0', currentSlot: 3 }],
+            slotPalettes: [{ slot: 3, stops: layerStops.map((stop) => ({ ...stop })) }],
+            activeGradientId: 'g0',
+            paintSlot: 3,
+            isAnimating: false,
+          },
+        },
+      ],
+    }));
+
+    const preset = brushPresets.find((p) => p.id === 'color-cycle-stroke');
+    expect(preset).toBeTruthy();
+    if (preset) {
+      store.setBrushPreset(preset);
+    }
+
+    const nextGradient = useAppStore.getState().tools.brushSettings.colorCycleGradient;
+    expect(nextGradient).toEqual(layerStops);
+    expect(nextGradient).not.toEqual(storedStops);
   });
 
   it('stores color cycle fill mode only for the gradient preset', () => {
