@@ -212,6 +212,26 @@ describe('AnimationControlsPanel', () => {
     expect(screen.queryByText(/capture active\. changes apply next take\./i)).not.toBeInTheDocument();
   });
 
+  it('shows sequential controls even when active layer is not sequential', () => {
+    appStore.setState({
+      layers: [{ id: 'layer-regular', layerType: 'normal' }],
+      activeLayerId: 'layer-regular',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 24,
+        timeSmear: 1,
+        currentFrame: 0,
+        isPointerDown: false,
+      },
+    });
+
+    render(<AnimationControlsPanel />);
+
+    expect(screen.getByText('Sequential')).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeInTheDocument();
+  });
+
   it('shows pause while sequential capture is active and returns to play on pointer up', () => {
     appStore.setState({
       colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
@@ -296,5 +316,50 @@ describe('AnimationControlsPanel', () => {
     expect(store.setRecordFrameCount).toHaveBeenCalledWith(32);
     expect(store.setTimeSmear).toHaveBeenCalledWith(2.5);
     expect(store.setBrushSettings).toHaveBeenCalledWith({ colorCycleLayerSpeedScale: 0.6 });
+  });
+
+  it('renders play pause button below sequential controls', () => {
+    appStore.setState({
+      layers: [{ id: 'layer-seq', layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 24,
+        timeSmear: 1,
+        currentFrame: 0,
+        isPointerDown: false,
+      },
+    });
+
+    const { container } = render(<AnimationControlsPanel />);
+    const sequentialHeader = screen.getByText('Sequential');
+    const playbackButton = screen.getByRole('button', { name: /play/i });
+    const relation = sequentialHeader.compareDocumentPosition(playbackButton);
+
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.textContent).toContain('Sequential');
+  });
+
+  it('allows minimizing sequential controls', () => {
+    appStore.setState({
+      layers: [{ id: 'layer-seq', layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 24,
+        timeSmear: 1,
+        currentFrame: 0,
+        isPointerDown: false,
+      },
+    });
+
+    render(<AnimationControlsPanel />);
+
+    const toggleButton = screen.getByRole('button', { name: /Sequential/i });
+    expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
+    fireEvent.click(toggleButton);
+    expect(screen.queryByRole('spinbutton', { name: /fps/i })).not.toBeInTheDocument();
+    fireEvent.click(toggleButton);
+    expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
   });
 });
