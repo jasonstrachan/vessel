@@ -97,7 +97,7 @@ export const useDrawingStrokeRuntime = ({
       clipLineSegment,
       shouldDrawStamp,
       shouldApplyGridSnapPure,
-      calculateGridSpacing,
+      calculateGridSpacing: () => calculateGridSpacing(storeRef.current.tools.brushSettings),
       snapToGridPure,
       resolveBrushRotation,
       captureBrushFromCanvas,

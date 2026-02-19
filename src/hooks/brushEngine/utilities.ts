@@ -10,9 +10,13 @@ import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 /**
  * Calculate grid spacing from brush settings
  */
-export const calculateGridSpacing = (): number => {
+export const calculateGridSpacing = (brushSettings?: BrushSettings): number => {
   const defaultSpacing = 16;
-  return Math.max(2, defaultSpacing);
+  const configuredSpacing = brushSettings?.gridSnapSize ?? defaultSpacing;
+  const normalized = Number.isFinite(configuredSpacing)
+    ? Math.round(configuredSpacing)
+    : defaultSpacing;
+  return Math.max(1, normalized);
 };
 
 /**
@@ -149,10 +153,10 @@ export const shouldSkipPigmentLiftWithTransparencyLock = (
  */
 export const createBrushUtilities = (getSettings: () => BrushSettings) => {
   return {
-    calculateGridSpacing,
+    calculateGridSpacing: () => calculateGridSpacing(getSettings()),
     shouldApplyGridSnap: () => shouldApplyGridSnapPure(getSettings()),
     snapToGrid: (x: number, y: number) => {
-      const spacing = calculateGridSpacing();
+      const spacing = calculateGridSpacing(getSettings());
       return snapToGridPure(x, y, spacing);
     },
     calculateBrushSpacing: (baseSize: number) => 

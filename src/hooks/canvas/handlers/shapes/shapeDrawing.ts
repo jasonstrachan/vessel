@@ -15,6 +15,7 @@ import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycle
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { calculateGridSpacing, snapToGridPure } from '@/hooks/brushEngine/utilities';
 import {
   isTempSampleSlotAvailable,
   resolveActiveGradientSlot,
@@ -80,6 +81,21 @@ const resolveColorCycleFillMode = (
   mode?: 'linear' | 'concentric' | 'circular'
 ): 'linear' | 'concentric' => {
   return mode === 'concentric' || mode === 'circular' ? 'concentric' : 'linear';
+};
+
+const resolveDitherGridSnapPoint = (
+  worldPos: { x: number; y: number },
+  state: AppState
+): { x: number; y: number } => {
+  const presetId = state.currentBrushPreset?.id ?? null;
+  const isDitherPreset = presetId === 'dither-stroke' || presetId === 'dither-shape';
+  const { brushSettings } = state.tools;
+  if (!isDitherPreset || brushSettings.gridSnapEnabled !== true) {
+    return worldPos;
+  }
+
+  const gridSpacing = calculateGridSpacing(brushSettings);
+  return snapToGridPure(worldPos.x, worldPos.y, gridSpacing);
 };
 
 type ShapeDrawingDeps = {
@@ -336,6 +352,7 @@ export const startShapeDrawing = (
   deps: ShapeDrawingDeps
 ): void => {
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
+  const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current);
   const renderPreview = args.renderPreview !== false;
   const isNewShape = !refs.isDrawingShapeRef.current || refs.shapePointsRef.current.length === 0;
 
@@ -349,7 +366,7 @@ export const startShapeDrawing = (
   refs.shapeMaxPressureRef.current = rawVal || refs.latestShapePressureRef.current || 0.5;
   deps.updateShapePressure(effectivePressure, timestamp, rawVal);
   if (refs.isSelectingDirectionRef.current) {
-    refs.directionPreviewRef.current = worldPos;
+    refs.directionPreviewRef.current = drawPos;
     return;
   }
 
@@ -366,7 +383,7 @@ export const startShapeDrawing = (
 
     if (shouldAutoSample) {
       const sampler = typeof deps.sampleColorAt === 'function' ? deps.sampleColorAt : deps.sampleHexAt;
-      const sampledColor = sampler(worldPos.x, worldPos.y) ?? brushSettings.color;
+      const sampledColor = sampler(drawPos.x, drawPos.y) ?? brushSettings.color;
       if (sampledColor && sampledColor !== brushSettings.color) {
         store.setBrushSettings({ color: sampledColor, useSwatchColor: true });
         if (store.palette.activeSlot === 'foreground') {
@@ -385,10 +402,10 @@ export const startShapeDrawing = (
     const shouldResetBounding =
       !refs.isDrawingShapeRef.current || refs.shapePointsRef.current.length === 0;
     if (shouldResetBounding) {
-      refs.strokeBoundingBoxRef.current = deps.createBoundingBox(worldPos);
+      refs.strokeBoundingBoxRef.current = deps.createBoundingBox(drawPos);
       refs.strokeCapturePaddingRef.current = deps.ROI_PADDING_PX;
     } else {
-      refs.strokeBoundingBoxRef.current = deps.mergeBoundingBox(refs.strokeBoundingBoxRef.current, worldPos);
+      refs.strokeBoundingBoxRef.current = deps.mergeBoundingBox(refs.strokeBoundingBoxRef.current, drawPos);
       refs.strokeCapturePaddingRef.current = Math.max(
         refs.strokeCapturePaddingRef.current,
         deps.ROI_PADDING_PX
@@ -418,7 +435,7 @@ export const startShapeDrawing = (
       activeShape === BrushShape.SHAPE_FILL;
 
     if (isAdvancedShape && refs.isDrawingShapeRef.current && refs.shapePointsRef.current.length > 0) {
-      refs.shapePointsRef.current.push(worldPos);
+      refs.shapePointsRef.current.push(drawPos);
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       if (renderPreview) {
         deps.triggerSimpleShapePreview();
@@ -433,11 +450,11 @@ export const startShapeDrawing = (
         }
       } catch {}
     } else {
-      refs.shapePointsRef.current = [worldPos];
+      refs.shapePointsRef.current = [drawPos];
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       refs.isDrawingShapeRef.current = true;
-      refs.shapeDragStartRef.current = worldPos;
-      refs.shapeDragLastRef.current = worldPos;
+      refs.shapeDragStartRef.current = drawPos;
+      refs.shapeDragLastRef.current = drawPos;
       refs.shapeDragMovedRef.current = false;
       if (renderPreview) {
         deps.triggerSimpleShapePreview();
@@ -541,7 +558,7 @@ export const startShapeDrawing = (
       } catch {}
     }
   } else {
-    deps.startDrawing(worldPos, pressure);
+    deps.startDrawing(drawPos, pressure);
   }
 };
 
@@ -558,6 +575,7 @@ export const continueShapeDrawing = (
   deps: ShapeDrawingDeps
 ): void => {
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
+  const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current);
   const renderPreview = args.renderPreview !== false;
   const rawVal = typeof rawPressure === 'number' ? rawPressure : pressure;
   deps.updateShapePressure(pressure, timestamp, rawVal);
@@ -613,7 +631,7 @@ export const continueShapeDrawing = (
       drawCtx.lineWidth = 1;
       drawCtx.beginPath();
       drawCtx.moveTo(centerX, centerY);
-      drawCtx.lineTo(worldPos.x, worldPos.y);
+      drawCtx.lineTo(drawPos.x, drawPos.y);
       drawCtx.stroke();
       drawCtx.restore();
     }
@@ -625,11 +643,11 @@ export const continueShapeDrawing = (
     const zoom = store.canvas?.zoom || 1;
     const brushSize = store.tools.brushSettings.size || 20;
     refs.latestShapePressureRef.current = pressure;
-    refs.shapeDragLastRef.current = worldPos;
+    refs.shapeDragLastRef.current = drawPos;
     if (refs.shapeDragStartRef.current) {
       const distFromStart = Math.hypot(
-        worldPos.x - refs.shapeDragStartRef.current.x,
-        worldPos.y - refs.shapeDragStartRef.current.y
+        drawPos.x - refs.shapeDragStartRef.current.x,
+        drawPos.y - refs.shapeDragStartRef.current.y
       );
       if (distFromStart > 1) {
         refs.shapeDragMovedRef.current = true;
@@ -637,7 +655,7 @@ export const continueShapeDrawing = (
     }
     const added = deps.appendSegmentWithDynamicResampling(
       refs.shapePointsRef.current,
-      worldPos,
+      drawPos,
       zoom,
       brushSize,
       0.25,
@@ -685,7 +703,7 @@ export const continueShapeDrawing = (
       }
     }
   } else if (!shapeMode) {
-    deps.continueDrawing(worldPos);
+    deps.continueDrawing(drawPos);
   }
 };
 
@@ -1251,4 +1269,5 @@ export const finalizeShapeDrawing = async (
 export const __TESTING__ = {
   resolveColorCycleDitherPixelSize,
   resolveColorCycleFillMode,
+  resolveDitherGridSnapPoint,
 };

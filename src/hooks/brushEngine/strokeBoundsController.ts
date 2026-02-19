@@ -51,7 +51,8 @@ export const estimateStrokeBounds = ({
 
   if (
     brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
-    brushSettings.ditherStrokeTipShape === 'diamond'
+    (brushSettings.ditherStrokeTipShape === 'diamond' ||
+      brushSettings.ditherStrokeTipShape === 'diamond5')
   ) {
     effectiveSize *= Math.SQRT2;
   }
@@ -76,4 +77,3 @@ export const estimateStrokeBounds = ({
     padding
   );
 };
-

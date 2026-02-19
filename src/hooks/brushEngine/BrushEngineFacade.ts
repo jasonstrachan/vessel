@@ -14,7 +14,6 @@ import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 import { applyDithering } from './dithering';
-import { getGridPositionsBetween } from '@/utils/gridSnap';
 import { isStrokeBrush } from '@/utils/brushCategories';
 import {
   createMosaicState,
@@ -219,14 +218,10 @@ export class BrushEngineFacade {
     // Spacing slider is in pixels: 1 = 1px
     const spacing = Math.max(0.25, this.config.brushSettings.spacing ?? 1);
 
-    // Apply grid snapping if enabled
-    const snappedFrom = this.utilities.shouldApplyGridSnap() 
-      ? this.utilities.snapToGrid(from.x, from.y)
-      : from;
-    
-    const snappedTo = this.utilities.shouldApplyGridSnap()
-      ? this.utilities.snapToGrid(to.x, to.y)
-      : to;
+    // Keep pointer path in raw space; only quantize stamp placement for grid mode.
+    const isGridSnapping = this.utilities.shouldApplyGridSnap();
+    const drawFrom = from;
+    const drawTo = to;
 
     // Calculate smoothed velocity
     const smoothedVelocity = this.strokeProcessor.calculateSmoothedVelocity(velocity);
@@ -268,8 +263,8 @@ export class BrushEngineFacade {
       
       if (rotationConfig.enabled) {
         const rotationInput: RotationInput = {
-          from: snappedFrom,
-          to: snappedTo,
+          from: drawFrom,
+          to: drawTo,
           pressure,
           velocity: smoothedVelocity
         };
@@ -306,50 +301,43 @@ export class BrushEngineFacade {
     this.beginStampTracking(pressure, settings.opacity);
     try {
       if (settings.shape === BrushShape.MOSAIC) {
-        this.renderMosaicStroke(ctx, snappedFrom, snappedTo, pressure, rotation);
+        this.renderMosaicStroke(ctx, drawFrom, drawTo, pressure, rotation);
         return;
       }
 
-      // Check if grid snapping is enabled
-      const isGridSnapping = this.utilities.shouldApplyGridSnap();
-      
       // When grid snapping is enabled, draw stamps at grid positions
       if (isGridSnapping) {
-        // Use pressure-modified size for grid (matches monolithic implementation)
-        const gridSize = settings.size;
-        
-        // Get all grid positions between last and current position
-        // This matches the monolithic implementation
-        const lastX = this.pixelQueue.lastDrawnX || snappedFrom.x;
-        const lastY = this.pixelQueue.lastDrawnY || snappedFrom.y;
-        
-        const gridPositions = getGridPositionsBetween(
-          lastX,
-          lastY, 
-          snappedTo.x,
-          snappedTo.y,
-          gridSize
-        );
-        
+        const dx = drawTo.x - drawFrom.x;
+        const dy = drawTo.y - drawFrom.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const spacingThreshold = Math.max(1, settings.spacing || 1);
+        const sampleStep = 1;
+        const steps = Math.max(1, Math.ceil(distance / sampleStep));
+
         // Set image smoothing based on brush type
         if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
           ctx.imageSmoothingEnabled = false;
         } else {
           ctx.imageSmoothingEnabled = true;
         }
-        
-        // Draw at each grid position that hasn't been stamped
+
+        if (!this.pixelQueue.initialized) {
+          this.pixelQueue.initialized = true;
+          this.pixelQueue.lastStrokePosition = { x: drawFrom.x, y: drawFrom.y };
+          this.pixelQueue.accumulatedDistance = 0;
+        }
+
         const stampedPositions = this.pixelQueue.stampedGridPositions || new Set<string>();
-        
-        for (const pos of gridPositions) {
-          const posKey = `${pos.x},${pos.y}`;
+
+        const drawSnappedStamp = (x: number, y: number) => {
+          const snapped = this.utilities.snapToGrid(x, y);
+          const posKey = `${snapped.x},${snapped.y}`;
           if (!stampedPositions.has(posKey)) {
-            // Check if we can draw at this position
-            if (this.canDrawAt(ctx, pos.x, pos.y)) {
+            if (this.canDrawAt(ctx, snapped.x, snapped.y)) {
               this.shapeDrawer(
                 ctx,
-                pos.x,
-                pos.y,
+                snapped.x,
+                snapped.y,
                 settings.size,
                 settings.shape,
                 settings.antiAliasing,
@@ -361,24 +349,57 @@ export class BrushEngineFacade {
             }
             stampedPositions.add(posKey);
           }
+        };
+
+        // Sample trajectory by brush spacing, then snap each stamp to nearest grid cell.
+        for (let i = 0; i < steps; i++) {
+          const t = i / steps;
+          const x = drawFrom.x + (drawTo.x - drawFrom.x) * t;
+          const y = drawFrom.y + (drawTo.y - drawFrom.y) * t;
+
+          const lastPos = this.pixelQueue.lastStrokePosition;
+          const dxSeg = x - lastPos.x;
+          const dySeg = y - lastPos.y;
+          const segDistance = Math.sqrt(dxSeg * dxSeg + dySeg * dySeg);
+          this.pixelQueue.accumulatedDistance += segDistance;
+          this.pixelQueue.lastStrokePosition = { x, y };
+
+          if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
+            this.pixelQueue.accumulatedDistance -= spacingThreshold;
+            drawSnappedStamp(x, y);
+          }
         }
-        
+
+        if (distance > 0) {
+          const lastPos = this.pixelQueue.lastStrokePosition;
+          const dxSeg = drawTo.x - lastPos.x;
+          const dySeg = drawTo.y - lastPos.y;
+          const segDistance = Math.sqrt(dxSeg * dxSeg + dySeg * dySeg);
+          this.pixelQueue.accumulatedDistance += segDistance;
+          this.pixelQueue.lastStrokePosition = { x: drawTo.x, y: drawTo.y };
+
+          if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
+            this.pixelQueue.accumulatedDistance -= spacingThreshold;
+            drawSnappedStamp(drawTo.x, drawTo.y);
+          }
+        }
+
         // Update tracking
         this.pixelQueue.stampedGridPositions = stampedPositions;
-        this.pixelQueue.lastDrawnX = snappedTo.x;
-        this.pixelQueue.lastDrawnY = snappedTo.y;
+        this.pixelQueue.lastDrawnX = drawTo.x;
+        this.pixelQueue.lastDrawnY = drawTo.y;
       } else {
         // Normal rendering with interpolation
         if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
           // Ensure pixel-perfect rendering
           ctx.imageSmoothingEnabled = false;
           // Pixel-perfect brush
-          this.renderPixelPerfectStroke(ctx, snappedFrom, snappedTo, settings);
+          this.renderPixelPerfectStroke(ctx, drawFrom, drawTo, settings);
         } else {
           // Ensure smooth rendering
           ctx.imageSmoothingEnabled = true;
           // Smooth brush - use stroke interpolation
-          this.renderSmoothStroke(ctx, snappedFrom, snappedTo, settings);
+          this.renderSmoothStroke(ctx, drawFrom, drawTo, settings);
         }
       }
     } finally {

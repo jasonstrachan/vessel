@@ -202,7 +202,7 @@ interface ColorCycleBrushCanvasState {
   [key: string]: unknown;
 }
 
-type StampShape = 'square' | 'round' | 'triangle' | 'diamond';
+type StampShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5';
 
 type DefPaletteCache = {
   signature: string;
@@ -1221,6 +1221,15 @@ export class ColorCycleBrushCanvas2D {
         const perf = this.perfStroke;
         const stampStart = perf ? nowMs() : 0;
         animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+        if (perf) {
+          perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);
+          perf.stampCounter += 1;
+        }
+      } else if (this.stampShape === 'diamond5') {
+        const perf = this.perfStroke;
+        const stampStart = perf ? nowMs() : 0;
+        const diamond5Scale = Math.max(1, Math.round(pressureSize / 5));
+        animator.paintDiamond5Pixelated(x, y, diamond5Scale, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
         if (perf) {
           perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);
           perf.stampCounter += 1;
@@ -4634,6 +4643,8 @@ export class ColorCycleBrushCanvas2D {
       this.stampShape = 'triangle';
     } else if (shape === 'diamond') {
       this.stampShape = 'diamond';
+    } else if (shape === 'diamond5') {
+      this.stampShape = 'diamond5';
     } else if (shape === 'round') {
       this.stampShape = 'round';
     } else {
@@ -5031,7 +5042,13 @@ export class ColorCycleBrushCanvas2D {
       }
       if (state.fps !== undefined) this.fps = state.fps;
       if (state.brushSize !== undefined) this.brushSize = state.brushSize;
-      if (state.stampShape === 'triangle' || state.stampShape === 'square' || state.stampShape === 'diamond') {
+      if (
+        state.stampShape === 'triangle' ||
+        state.stampShape === 'square' ||
+        state.stampShape === 'diamond' ||
+        state.stampShape === 'diamond5' ||
+        state.stampShape === 'round'
+      ) {
         this.setStampShape(state.stampShape);
       }
       if (typeof state.stampDitherEnabled === 'boolean') {

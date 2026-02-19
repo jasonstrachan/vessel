@@ -697,7 +697,30 @@ export const drawShape = (
         if (shape === BrushShape.PIXEL_DITHER && ditherTipShape !== 'round') {
           const stampSize = Math.max(1, Math.round(size));
           drawingCtx.imageSmoothingEnabled = false;
-          if (ditherTipShape === 'square' || ditherTipShape === 'diamond') {
+          if (ditherTipShape === 'diamond5') {
+            const pixelScale = Math.max(1, Math.round(stampSize / 5));
+            const rasterSize = pixelScale * 5;
+            const originX = Math.round(drawX - rasterSize / 2);
+            const originY = Math.round(drawY - rasterSize / 2);
+            const mask = [
+              0, 0, 1, 0, 0,
+              0, 1, 1, 1, 0,
+              1, 1, 1, 1, 1,
+              0, 1, 1, 1, 0,
+              0, 0, 1, 0, 0,
+            ];
+            for (let row = 0; row < 5; row += 1) {
+              for (let col = 0; col < 5; col += 1) {
+                if (mask[row * 5 + col] === 0) continue;
+                drawingCtx.fillRect(
+                  originX + col * pixelScale,
+                  originY + row * pixelScale,
+                  pixelScale,
+                  pixelScale
+                );
+              }
+            }
+          } else if (ditherTipShape === 'square' || ditherTipShape === 'diamond') {
             const squareStamp = document.createElement('canvas');
             squareStamp.width = stampSize;
             squareStamp.height = stampSize;

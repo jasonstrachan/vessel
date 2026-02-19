@@ -1,5 +1,6 @@
 import type React from 'react';
 import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
+import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Layer, type Tool } from '@/types';
 
 interface UseDrawingCanvasKeyboardOptions {
@@ -299,7 +300,8 @@ export const useDrawingCanvasKeyboard = ({
         return;
       }
 
-      if (floatingPaste) {
+      const hasFloatingPaste = Boolean(useAppStore.getState().floatingPaste ?? floatingPaste);
+      if (hasFloatingPaste) {
         await commitFloatingPaste();
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d', { willReadFrequently: true });

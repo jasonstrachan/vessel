@@ -1,8 +1,14 @@
+import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
+import { BrushShape } from '@/types';
 import { __TESTING__ } from '@/hooks/canvas/handlers/shapes/shapeDrawing';
 
 describe('shapeDrawing pressure-linked dither resolution', () => {
-  const { resolveColorCycleDitherPixelSize, resolveColorCycleFillMode } = __TESTING__;
+  const {
+    resolveColorCycleDitherPixelSize,
+    resolveColorCycleFillMode,
+    resolveDitherGridSnapPoint,
+  } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
     const computeShapePixelSize = jest.fn(() => 9);
@@ -85,5 +91,33 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     expect(resolveColorCycleFillMode(undefined)).toBe('linear');
     expect(resolveColorCycleFillMode('linear')).toBe('linear');
     expect(resolveColorCycleFillMode('concentric')).toBe('concentric');
+  });
+
+  it('snaps points to grid for dither shape and dither stroke presets when enabled', () => {
+    const ditherShapeState = {
+      currentBrushPreset: { id: 'dither-shape' },
+      tools: { brushSettings: { gridSnapEnabled: true, brushShape: BrushShape.PIXEL_DITHER } },
+    } as unknown as AppState;
+    const ditherStrokeState = {
+      currentBrushPreset: { id: 'dither-stroke' },
+      tools: { brushSettings: { gridSnapEnabled: true, brushShape: BrushShape.PIXEL_DITHER } },
+    } as unknown as AppState;
+
+    expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, ditherShapeState)).toEqual({ x: 16, y: 16 });
+    expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, ditherStrokeState)).toEqual({ x: 16, y: 16 });
+  });
+
+  it('leaves points unchanged when grid snap is disabled or preset is not dither', () => {
+    const gridOffState = {
+      currentBrushPreset: { id: 'dither-shape' },
+      tools: { brushSettings: { gridSnapEnabled: false, brushShape: BrushShape.PIXEL_DITHER } },
+    } as unknown as AppState;
+    const nonDitherState = {
+      currentBrushPreset: { id: 'round-square' },
+      tools: { brushSettings: { gridSnapEnabled: true, brushShape: BrushShape.SQUARE } },
+    } as unknown as AppState;
+
+    expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, gridOffState)).toEqual({ x: 9, y: 23 });
+    expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, nonDitherState)).toEqual({ x: 9, y: 23 });
   });
 });

@@ -118,6 +118,44 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     document.body.removeChild(numericInput);
     keyboard.unmount();
   });
+
+  it('allows Enter to trigger floating paste commit while a numeric input is focused', async () => {
+    const onEnterPressed = jest.fn();
+    const keyboard = render(React.createElement(KeyboardHarness, { onEnterPressed }));
+
+    act(() => {
+      useAppStore.getState().setFloatingPaste({
+        imageData: new ImageData(2, 2),
+        position: { x: 1, y: 1 },
+        originalPosition: { x: 1, y: 1 },
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        rotation: 0,
+        sourceLayerId: null,
+        colorCycleIndices: null,
+      });
+    });
+
+    const numericInput = document.createElement('input');
+    numericInput.type = 'number';
+    document.body.appendChild(numericInput);
+    numericInput.focus();
+
+    await act(async () => {
+      fireEvent.keyDown(numericInput, { key: 'Enter', code: 'Enter' });
+    });
+
+    expect(onEnterPressed).toHaveBeenCalledTimes(1);
+
+    numericInput.blur();
+    document.body.removeChild(numericInput);
+    act(() => {
+      useAppStore.getState().setFloatingPaste(null);
+    });
+    keyboard.unmount();
+  });
 });
 
 describe('useComprehensiveKeyboard – space safety release', () => {

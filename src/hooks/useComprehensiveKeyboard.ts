@@ -269,8 +269,17 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    // Ignore if typing in text-focused inputs or editable elements
-    if (targetIsTextEntry && !allowBracketInNumericInput) {
+    const isFloatingPasteKey =
+      !!floatingPaste &&
+      (event.key === 'Enter' ||
+        event.code === 'NumpadEnter' ||
+        event.key === 'Escape' ||
+        event.key === 'Delete');
+
+    // Ignore if typing in text-focused inputs or editable elements.
+    // Exception: allow floating-paste commit/cancel keys so paste can be finalized
+    // even when focus remains in a numeric/text input control.
+    if (targetIsTextEntry && !allowBracketInNumericInput && !isFloatingPasteKey) {
       return;
     }
 

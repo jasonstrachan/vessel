@@ -193,4 +193,115 @@ describe('colorCycleSelection helpers', () => {
     expect(incoming[4]).toBe(0);
     expect(incoming[5]).toBe(0);
   });
+
+  it('preserves destination pixels where source alpha is transparent', () => {
+    const buffer = new Uint8Array(16).fill(9);
+    const src = new Uint8Array([1, 2, 3, 4]);
+    const alphaData = new Uint8ClampedArray([
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 255,
+    ]);
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: buffer.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas },
+    } as Layer;
+
+    const state = {
+      updateLayer: jest.fn(),
+      setCurrentCompositeBitmap: jest.fn(),
+      setLayersNeedRecomposition: jest.fn(),
+      markCompositeSegmentsDirtyByLayerIds: jest.fn(),
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const applied = writeColorCycleRegion(
+      state,
+      layer,
+      project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      src,
+      2,
+      2,
+      { alphaData, alphaStride: 4, alphaChannelOffset: 3, alphaThreshold: 0 }
+    );
+
+    expect(applied).toBe(true);
+    const snapshotArg = mockApplyLayerSnapshot.mock.calls[mockApplyLayerSnapshot.mock.calls.length - 1][1];
+    const incoming = new Uint8Array(snapshotArg.paintBuffer);
+    expect(incoming[0]).toBe(1); // opaque
+    expect(incoming[1]).toBe(9); // transparent source pixel -> unchanged
+    expect(incoming[4]).toBe(9); // transparent source pixel -> unchanged
+    expect(incoming[5]).toBe(4); // opaque
+  });
+
+  it('does not mutate when all source pixels are transparent', () => {
+    const buffer = new Uint8Array(16).fill(7);
+    const src = new Uint8Array([1, 2, 3, 4]);
+    const alphaData = new Uint8ClampedArray(2 * 2 * 4).fill(0); // fully transparent
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: buffer.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas },
+    } as Layer;
+
+    const state = {
+      updateLayer: jest.fn(),
+      setCurrentCompositeBitmap: jest.fn(),
+      setLayersNeedRecomposition: jest.fn(),
+      markCompositeSegmentsDirtyByLayerIds: jest.fn(),
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const applied = writeColorCycleRegion(
+      state,
+      layer,
+      project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      src,
+      2,
+      2,
+      { alphaData, alphaStride: 4, alphaChannelOffset: 3, alphaThreshold: 0 }
+    );
+
+    expect(applied).toBe(false);
+  });
 });

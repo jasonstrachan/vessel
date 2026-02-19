@@ -31,7 +31,14 @@ import type { SequentialMaterializerBackend } from '@/lib/sequential/materialize
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-type SequentialStampShape = 'round' | 'square' | 'triangle';
+type SequentialStampShape = 'round' | 'square' | 'triangle' | 'diamond5';
+const DIAMOND_5_MASK: ReadonlyArray<number> = [
+  0, 0, 1, 0, 0,
+  0, 1, 1, 1, 0,
+  1, 1, 1, 1, 1,
+  0, 1, 1, 1, 0,
+  0, 0, 1, 0, 0,
+];
 type SequentialTextureMode = 'solid' | 'dither' | 'mosaic' | 'risograph-soft' | 'risograph-ultra';
 type SequentialPluginRenderMode = 'none' | 'dither-brush' | 'particle-brush' | 'spam-brush';
 type SupportedBlendMode = 'source-over' | 'destination-out';
@@ -312,7 +319,8 @@ const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape =
   if (
     explicitTipShape === 'round' ||
     explicitTipShape === 'square' ||
-    explicitTipShape === 'triangle'
+    explicitTipShape === 'triangle' ||
+    explicitTipShape === 'diamond5'
   ) {
     return explicitTipShape;
   }
@@ -327,6 +335,9 @@ const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape =
     const tipShape = event.brush.ditherStrokeTipShape;
     if (tipShape === 'square') {
       return 'square';
+    }
+    if (tipShape === 'diamond5') {
+      return 'diamond5';
     }
     if (tipShape === 'triangle' || tipShape === 'diamond') {
       return 'triangle';
@@ -540,6 +551,16 @@ const isStampPixelCovered = ({
   switch (shape) {
     case 'square':
       return Math.abs(dx) <= halfSize && Math.abs(dy) <= halfSize;
+    case 'diamond5': {
+      if (Math.abs(dx) > halfSize || Math.abs(dy) > halfSize) {
+        return false;
+      }
+      const normalizedX = ((dx / Math.max(1e-6, halfSize)) + 1) * 0.5;
+      const normalizedY = ((dy / Math.max(1e-6, halfSize)) + 1) * 0.5;
+      const cellX = Math.max(0, Math.min(4, Math.floor(normalizedX * 5)));
+      const cellY = Math.max(0, Math.min(4, Math.floor(normalizedY * 5)));
+      return DIAMOND_5_MASK[cellY * 5 + cellX] === 1;
+    }
     case 'triangle': {
       if (Math.abs(dx) > halfSize || Math.abs(dy) > halfSize) {
         return false;
@@ -885,7 +906,11 @@ const paintStamp = ({
     return;
   }
 
-  const halfSize = Math.max(0.5, stampSize * 0.5);
+  const renderStampSize =
+    shape === 'diamond5'
+      ? Math.max(5, Math.round(stampSize / 5) * 5)
+      : stampSize;
+  const halfSize = Math.max(0.5, renderStampSize * 0.5);
   const minX = Math.max(0, Math.floor(stampX - halfSize));
   const maxX = Math.min(width - 1, Math.ceil(stampX + halfSize));
   const minY = Math.max(0, Math.floor(stampY - halfSize));

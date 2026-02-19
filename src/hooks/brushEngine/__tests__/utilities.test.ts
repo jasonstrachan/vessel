@@ -43,16 +43,16 @@ describe('Brush Utilities', () => {
   };
 
   describe('calculateGridSpacing', () => {
-    test('returns default spacing when gridSize not set', () => {
+    test('returns default spacing when grid size is not set', () => {
       expect(calculateGridSpacing()).toBe(16);
     });
 
-    test('returns minimum spacing of 2', () => {
-      expect(calculateGridSpacing()).toBeGreaterThanOrEqual(2);
+    test('uses configured grid size from brush settings', () => {
+      expect(calculateGridSpacing({ ...mockBrushSettings, gridSnapSize: 24 })).toBe(24);
     });
 
-    test('returns default spacing', () => {
-      expect(calculateGridSpacing()).toBe(16);
+    test('enforces minimum spacing of 1', () => {
+      expect(calculateGridSpacing({ ...mockBrushSettings, gridSnapSize: 0 })).toBe(1);
     });
   });
 
@@ -237,6 +237,17 @@ describe('Brush Utilities', () => {
       
       // Should reflect new settings
       expect(utils.shouldApplyGridSnap()).toBe(true);
+    });
+
+    test('calculateGridSpacing reads current brush settings', () => {
+      let settings = { ...mockBrushSettings, gridSnapSize: 20 };
+      const getSettings = () => settings;
+      const utils = createBrushUtilities(getSettings);
+
+      expect(utils.calculateGridSpacing()).toBe(20);
+
+      settings = { ...settings, gridSnapSize: 5 };
+      expect(utils.calculateGridSpacing()).toBe(5);
     });
 
     test('snap to grid uses calculated spacing', () => {

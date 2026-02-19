@@ -62,7 +62,7 @@ export type StampDitherRuntime = {
   tiles: Map<string, Uint8Array>;
 };
 
-export type StampDitherShape = 'square' | 'round' | 'triangle' | 'diamond';
+export type StampDitherShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5';
 
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
 
@@ -88,6 +88,13 @@ const STAMP_DITHER_PRESSURE_MAX_DECAY_PER_MS = 0.003;
 const STAMP_DITHER_PRESSURE_MIN_DROP = 0.01;
 const STAMP_DITHER_PRESSURE_SAMPLE_WINDOW = 5;
 const STAMP_DITHER_PEN_LIFT_THRESHOLD = 0.02;
+const DIAMOND_5_MASK: ReadonlyArray<number> = [
+  0, 0, 1, 0, 0,
+  0, 1, 1, 1, 0,
+  1, 1, 1, 1, 1,
+  0, 1, 1, 1, 0,
+  0, 0, 1, 0, 0,
+];
 
 export const STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<StampDitherAlgorithm> = new Set([
   'floyd-steinberg',
@@ -516,6 +523,32 @@ const applyStampDitherMask = (
         const dx = Math.abs(px + 0.5 - x);
         const dy = Math.abs(py + 0.5 - y);
         if (dx + dy > radius) continue;
+        const idx = py * width + px;
+        captureIfNeeded(idx);
+        primary[idx] = primaryIndex;
+        tag[idx] = tagValue;
+      }
+    }
+    updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
+    return { minX, minY, maxX, maxY };
+  }
+
+  if (shape === 'diamond5') {
+    const pixelScale = Math.max(1, Math.round(brushSize / 5));
+    const stampSize = 5 * pixelScale;
+    const originX = Math.floor(x - stampSize / 2);
+    const originY = Math.floor(y - stampSize / 2);
+    const minX = Math.max(0, originX);
+    const maxX = Math.min(width - 1, originX + stampSize - 1);
+    const minY = Math.max(0, originY);
+    const maxY = Math.min(height - 1, originY + stampSize - 1);
+    for (let py = minY; py <= maxY; py++) {
+      const localY = py - originY;
+      const cellY = Math.max(0, Math.min(4, Math.floor(localY / pixelScale)));
+      for (let px = minX; px <= maxX; px++) {
+        const localX = px - originX;
+        const cellX = Math.max(0, Math.min(4, Math.floor(localX / pixelScale)));
+        if (DIAMOND_5_MASK[cellY * 5 + cellX] === 0) continue;
         const idx = py * width + px;
         captureIfNeeded(idx);
         primary[idx] = primaryIndex;

@@ -53,7 +53,7 @@ export type CreateMaskHealingDispatchersArgs = {
   getState: () => AppState;
 };
 
-type MaskTipShape = 'square' | 'round' | 'triangle' | 'diamond';
+type MaskTipShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5';
 
 const resolveMaskTipShape = (state: AppState): MaskTipShape => {
   const settings = state.tools.brushSettings;
@@ -100,12 +100,39 @@ const drawInitialMaskTipStamp = (
     return;
   }
 
-  if (shape === 'diamond') {
+  if (shape === 'diamond' || shape === 'diamond5') {
+    if (shape === 'diamond5') {
+      const pixelScale = Math.max(1, Math.round(size / 5));
+      const stampSize = 5 * pixelScale;
+      const originX = Math.round(cx - stampSize / 2);
+      const originY = Math.round(cy - stampSize / 2);
+      const mask = [
+        0, 0, 1, 0, 0,
+        0, 1, 1, 1, 0,
+        1, 1, 1, 1, 1,
+        0, 1, 1, 1, 0,
+        0, 0, 1, 0, 0,
+      ];
+      for (let row = 0; row < 5; row += 1) {
+        for (let col = 0; col < 5; col += 1) {
+          if (mask[row * 5 + col] === 0) continue;
+          ctx.fillRect(
+            originX + col * pixelScale,
+            originY + row * pixelScale,
+            pixelScale,
+            pixelScale
+          );
+        }
+      }
+      return;
+    }
+
+    const diamondHalf = half;
     ctx.beginPath();
-    ctx.moveTo(cx, Math.round(cy - half));
-    ctx.lineTo(Math.round(cx + half), cy);
-    ctx.lineTo(cx, Math.round(cy + half));
-    ctx.lineTo(Math.round(cx - half), cy);
+    ctx.moveTo(cx, Math.round(cy - diamondHalf));
+    ctx.lineTo(Math.round(cx + diamondHalf), cy);
+    ctx.lineTo(cx, Math.round(cy + diamondHalf));
+    ctx.lineTo(Math.round(cx - diamondHalf), cy);
     ctx.closePath();
     ctx.fill();
     return;

@@ -264,7 +264,13 @@ describe('selection paste commit', () => {
       colorCycleIndices,
       2,
       2,
-      { offsetX: 0, offsetY: 0 }
+      expect.objectContaining({
+        offsetX: 0,
+        offsetY: 0,
+        alphaStride: 4,
+        alphaChannelOffset: 3,
+        alphaThreshold: 0,
+      })
     );
 
     expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
@@ -301,7 +307,13 @@ describe('selection paste commit', () => {
       colorCycleIndices,
       2,
       2,
-      { offsetX: 0, offsetY: 0 }
+      expect.objectContaining({
+        offsetX: 0,
+        offsetY: 0,
+        alphaStride: 4,
+        alphaChannelOffset: 3,
+        alphaThreshold: 0,
+      })
     );
   });
 });

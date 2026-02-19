@@ -188,7 +188,14 @@ export const createSelectionPasteHelpers = ({
           floatingPaste.colorCycleIndices!,
           floatingPaste.width,
           floatingPaste.height,
-          { offsetX: 0, offsetY: 0 }
+          {
+            offsetX: 0,
+            offsetY: 0,
+            alphaData: floatingPaste.imageData?.data ?? null,
+            alphaStride: 4,
+            alphaChannelOffset: 3,
+            alphaThreshold: 0,
+          }
         );
         const afterRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
 

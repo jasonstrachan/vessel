@@ -37,19 +37,6 @@ const mutateColorCycleLayer = (
     return false;
   }
 
-  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
-  if (!brush?.getLayerSnapshot || !brush.applyLayerSnapshot) {
-    return false;
-  }
-
-  const snapshot = brush.getLayerSnapshot(layer.id);
-  if (!snapshot) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] no snapshot in mutateColorCycleLayer', { layerId: layer.id });
-    }
-    return false;
-  }
-
   const fallbackWidth = layer.imageData?.width ?? project.width ?? 0;
   const fallbackHeight = layer.imageData?.height ?? project.height ?? 0;
   const canvas = getCanvasForLayer(layer, fallbackWidth, fallbackHeight);
@@ -60,6 +47,40 @@ const mutateColorCycleLayer = (
         canvasWidth: canvas?.width,
         canvasHeight: canvas?.height,
       });
+    }
+    return false;
+  }
+
+  let brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  if ((!brush?.getLayerSnapshot || !(brush as { applyLayerSnapshot?: unknown }).applyLayerSnapshot) &&
+      typeof colorCycleBrushManager.initColorCycleForLayer === 'function') {
+    colorCycleBrushManager.initColorCycleForLayer(layer.id, canvas.width, canvas.height);
+    brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  }
+  if (!brush?.getLayerSnapshot || !brush.applyLayerSnapshot) {
+    return false;
+  }
+
+  let snapshot = brush.getLayerSnapshot(layer.id);
+  if (!snapshot || !snapshot.paintBuffer || snapshot.paintBuffer.byteLength === 0) {
+    const persisted = layer.colorCycleData?.gradientIdBuffer;
+    if (persisted) {
+      const persistedView = new Uint8Array(persisted);
+      const expectedLength = canvas.width * canvas.height;
+      if (persistedView.length === expectedLength) {
+        const seeded = persistedView.slice();
+        brush.applyLayerSnapshot(layer.id, {
+          paintBuffer: seeded.buffer,
+          hasContent: seeded.some((value) => value !== 0),
+          strokeCounter: snapshot?.strokeCounter ?? 0,
+        });
+        snapshot = brush.getLayerSnapshot(layer.id);
+      }
+    }
+  }
+  if (!snapshot) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[cc] no snapshot in mutateColorCycleLayer', { layerId: layer.id });
     }
     return false;
   }
@@ -134,6 +155,7 @@ const mutateColorCycleLayer = (
     if (syncedImage) {
       update.canvasImageData = syncedImage;
     }
+    update.gradientIdBuffer = working.buffer.slice(0) as ArrayBuffer;
 
     const hasUpdates = Object.keys(update).length > 0;
     return hasUpdates ? { ...base, ...update } : base;
@@ -198,7 +220,14 @@ export const writeColorCycleRegion = (
   source: Uint8Array,
   sourceWidth: number,
   sourceHeight: number,
-  options?: { offsetX?: number; offsetY?: number }
+  options?: {
+    offsetX?: number;
+    offsetY?: number;
+    alphaData?: Uint8ClampedArray | Uint8Array | null;
+    alphaStride?: number;
+    alphaChannelOffset?: number;
+    alphaThreshold?: number;
+  }
 ): boolean =>
   mutateColorCycleLayer(state, layer, project, (buffer, bufferWidth, bufferHeight) => {
     const { startX, startY, endX, endY } = clampRect(rect, bufferWidth, bufferHeight);
@@ -208,6 +237,10 @@ export const writeColorCycleRegion = (
 
     const offsetX = Math.max(0, options?.offsetX ?? 0);
     const offsetY = Math.max(0, options?.offsetY ?? 0);
+    const alphaData = options?.alphaData ?? null;
+    const alphaStride = Math.max(1, options?.alphaStride ?? 4);
+    const alphaChannelOffset = Math.max(0, options?.alphaChannelOffset ?? 3);
+    const alphaThreshold = Math.max(0, options?.alphaThreshold ?? 0);
     let changed = false;
     for (let y = startY; y < endY; y += 1) {
       const destRowOffset = y * bufferWidth;
@@ -219,6 +252,13 @@ export const writeColorCycleRegion = (
         const srcX = x - startX + offsetX;
         if (srcX < 0 || srcX >= sourceWidth) {
           continue;
+        }
+        if (alphaData) {
+          const alphaIndex = (srcY * sourceWidth + srcX) * alphaStride + alphaChannelOffset;
+          const alpha = alphaData[alphaIndex] ?? 0;
+          if (alpha <= alphaThreshold) {
+            continue;
+          }
         }
         const srcIndex = srcY * sourceWidth + srcX;
         const destIndex = destRowOffset + x;

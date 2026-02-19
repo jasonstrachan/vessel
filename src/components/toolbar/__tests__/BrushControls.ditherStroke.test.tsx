@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { create } from 'zustand';
 
@@ -288,6 +288,29 @@ describe('BrushControls dither stroke tip shapes', () => {
 
     expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith({
       ditherStrokeTipShape: 'diamond',
+    });
+  });
+
+  it('updates the dither stroke tip shape to diamond5 when selected', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const diamondButton = screen.getByRole('button', { name: 'Diamond 5px' });
+    await user.click(diamondButton);
+
+    expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith({
+      ditherStrokeTipShape: 'diamond5',
+    });
+  });
+
+  it('updates grid snap size from the px input', async () => {
+    render(<BrushControls />);
+
+    const gridSizeInput = screen.getAllByTitle('Grid size in pixels')[0] as HTMLInputElement;
+    fireEvent.change(gridSizeInput, { target: { value: '5' } });
+
+    expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith({
+      gridSnapSize: 5,
     });
   });
 });

@@ -70,27 +70,11 @@ const captureColorCycleIndices = (
   }
 
   const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
-  if (!brush?.getLayerSnapshot) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] no brush snapshot API in captureColorCycleIndices', {
-        layerId: layer.id,
-      });
-    }
-    return undefined;
-  }
-  const snapshot = brush.getLayerSnapshot(layer.id);
-  if (!snapshot?.paintBuffer) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] no paintBuffer for layer snapshot in captureColorCycleIndices', {
-        layerId: layer.id,
-      });
-    }
-    return undefined;
-  }
+  const snapshot = brush?.getLayerSnapshot?.(layer.id);
 
   const canvas =
     layer.colorCycleData?.canvas ??
-    (typeof brush.getCanvas === 'function' ? brush.getCanvas() : null);
+    (typeof brush?.getCanvas === 'function' ? brush.getCanvas() : null);
   const canvasWidth = canvas?.width ?? layer.imageData?.width ?? 0;
   const canvasHeight = canvas?.height ?? layer.imageData?.height ?? 0;
   if (!canvasWidth || !canvasHeight) {
@@ -104,7 +88,25 @@ const captureColorCycleIndices = (
     return undefined;
   }
 
-  const incoming = new Uint8Array(snapshot.paintBuffer);
+  const persistedBuffer = layer.colorCycleData?.gradientIdBuffer ?? null;
+  const incoming =
+    snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
+      ? new Uint8Array(snapshot.paintBuffer)
+      : persistedBuffer
+        ? new Uint8Array(persistedBuffer)
+        : null;
+
+  if (!incoming) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[cc] no paint source for captureColorCycleIndices', {
+        layerId: layer.id,
+        hasSnapshot: Boolean(snapshot?.paintBuffer),
+        hasPersistedBuffer: Boolean(persistedBuffer),
+      });
+    }
+    return undefined;
+  }
+
   if (incoming.length !== canvasWidth * canvasHeight) {
     if (process.env.NODE_ENV !== 'production') {
       console.warn('[cc] paintBuffer/canvas mismatch in captureColorCycleIndices', {

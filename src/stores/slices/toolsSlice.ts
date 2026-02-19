@@ -213,6 +213,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   dashLength: settings.dashLength,
   dashGap: settings.dashGap,
   gridSnapEnabled: settings.gridSnapEnabled,
+  gridSnapSize: settings.gridSnapSize,
   shapeEnabled: settings.shapeEnabled,
   antialiasing: settings.antialiasing,
   colors: settings.colors,
@@ -824,6 +825,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.dashLength !== undefined) settingsToSave.dashLength = newSettings.dashLength;
       if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
       if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
+      if (settings.gridSnapSize !== undefined) settingsToSave.gridSnapSize = newSettings.gridSnapSize;
       if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
       if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
       if (settings.hueShift !== undefined) settingsToSave.hueShift = newSettings.hueShift;

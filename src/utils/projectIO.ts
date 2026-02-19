@@ -618,7 +618,7 @@ interface ColorCycleBrushState {
   cycleSpeed?: number;
   fps?: number;
   brushSize?: number;
-  stampShape?: 'square' | 'round' | 'triangle' | 'diamond';
+  stampShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5';
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
   stampDitherBgFill?: boolean;

@@ -563,6 +563,9 @@ const buildBrushSnapshot = ({
       if (ditherTipShape === 'square') {
         return 'square';
       }
+      if (ditherTipShape === 'diamond5') {
+        return 'diamond5';
+      }
       if (ditherTipShape === 'triangle' || ditherTipShape === 'diamond') {
         return 'triangle';
       }

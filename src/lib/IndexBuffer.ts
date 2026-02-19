@@ -22,6 +22,13 @@ export class IndexBuffer {
   private hasDirtyBounds: boolean = false;
   private hasNonZeroGradientIds: boolean = false;
   private hasNonZeroSpeed: boolean = false;
+  private static readonly DIAMOND_5_MASK: ReadonlyArray<number> = [
+    0, 0, 1, 0, 0,
+    0, 1, 1, 1, 0,
+    1, 1, 1, 1, 1,
+    0, 1, 1, 1, 0,
+    0, 0, 1, 0, 0,
+  ];
   
   // Cache for converted RGBA values
   private rgbaCache: Map<number, [number, number, number, number]> = new Map();
@@ -332,6 +339,39 @@ export class IndexBuffer {
     );
     this.isDirty = true;
   }
+
+  paintDiamond5PixelatedWithIndex(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
+    this.paintDiamond5PixelatedInternal(
+      x,
+      y,
+      pixelScale,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot,
+      maskOriginX,
+      maskOriginY,
+      speedByte,
+      flowBits
+    );
+    this.isDirty = true;
+  }
   
   /**
    * Paint pixels with a square brush
@@ -609,6 +649,97 @@ export class IndexBuffer {
           const localX = px - maskBaseX;
           const sampleY = ((localY % maskTileSize) + maskTileSize) % maskTileSize;
           const sampleX = ((localX % maskTileSize) + maskTileSize) % maskTileSize;
+          const maskIdx = sampleY * maskTileSize + sampleX;
+          if (maskTile![maskIdx] === 0) {
+            if (shouldClearMaskedPixels) {
+              this.data[dataIndex] = 0;
+              this.gradientId[dataIndex] = 0;
+              this.speedData[dataIndex] = 0;
+              this.flowData[dataIndex] = 0;
+            }
+            if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
+              this.data[dataIndex] = normalizedSecondaryIndex;
+              this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
+              this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : secondarySpeed;
+              this.flowData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedFlowBits;
+            }
+            continue;
+          }
+        }
+        this.data[dataIndex] = normalizedIndex;
+        this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
+        this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
+        this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
+      }
+    }
+    if (normalizedSlot !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroGradientIds = true;
+    }
+    if (normalizedSpeed !== 0 && normalizedIndex !== 0) {
+      this.hasNonZeroSpeed = true;
+    }
+  }
+
+  private paintDiamond5PixelatedInternal(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize: number = 0,
+    maskClears: boolean = false,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
+    const normalizedIndex = this.normalizeColorIndex(colorIndex);
+    const normalizedSecondaryIndex =
+      typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
+    const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
+    const normalizedFlowBits = this.normalizeFlowBits(flowBits);
+    const normalizedSpeed =
+      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+    const secondarySpeed =
+      normalizedSecondaryIndex && normalizedSecondaryIndex !== 0
+        ? Math.max(1, this.normalizeSpeedByte(speedByte))
+        : 0;
+    const scale = Math.max(1, Math.round(pixelScale));
+    const stampSize = 5 * scale;
+    const originX = Math.floor(x - stampSize / 2);
+    const originY = Math.floor(y - stampSize / 2);
+    const minX = Math.max(0, originX);
+    const maxX = Math.min(this.width - 1, originX + stampSize - 1);
+    const minY = Math.max(0, originY);
+    const maxY = Math.min(this.height - 1, originY + stampSize - 1);
+    if (minX > maxX || minY > maxY) {
+      return;
+    }
+
+    const useMask = !!maskTile && maskTileSize > 0;
+    const shouldClearMaskedPixels = useMask && !!maskClears;
+    const maskBaseX = useMask ? (Number.isFinite(maskOriginX) ? Math.floor(maskOriginX as number) : minX) : 0;
+    const maskBaseY = useMask ? (Number.isFinite(maskOriginY) ? Math.floor(maskOriginY as number) : minY) : 0;
+
+    this.markDirtyRect(minX, minY, maxX, maxY);
+
+    for (let py = minY; py <= maxY; py++) {
+      const localY = py - originY;
+      const cellY = Math.max(0, Math.min(4, Math.floor(localY / scale)));
+      for (let px = minX; px <= maxX; px++) {
+        const localX = px - originX;
+        const cellX = Math.max(0, Math.min(4, Math.floor(localX / scale)));
+        if (IndexBuffer.DIAMOND_5_MASK[cellY * 5 + cellX] === 0) {
+          continue;
+        }
+        const dataIndex = py * this.width + px;
+        if (useMask) {
+          const maskLocalY = py - maskBaseY;
+          const maskLocalX = px - maskBaseX;
+          const sampleY = ((maskLocalY % maskTileSize) + maskTileSize) % maskTileSize;
+          const sampleX = ((maskLocalX % maskTileSize) + maskTileSize) % maskTileSize;
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {

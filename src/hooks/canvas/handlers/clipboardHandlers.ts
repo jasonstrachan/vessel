@@ -6,6 +6,50 @@ const cloneClipboardImageData = (imageData: ImageData): ImageData =>
 export const createClipboardHandlers = (
   deps: EventHandlerDependencies
 ): Pick<ClipboardHandlers, 'handlePaste'> => {
+  const applyInternalClipboardPaste = async () => {
+    const getViewportPastePosition = deps.getViewportPastePosition;
+    const selectionClipboardRef = deps.selectionClipboardRef;
+    if (!getViewportPastePosition || !selectionClipboardRef) {
+      return false;
+    }
+
+    const clipboardPayload = selectionClipboardRef.current;
+    if (!clipboardPayload) {
+      return false;
+    }
+
+    const viewportPosition =
+      clipboardPayload.mode === 'cut'
+        ? clipboardPayload.position
+        : getViewportPastePosition(clipboardPayload.width, clipboardPayload.height);
+    const position = viewportPosition ?? { ...clipboardPayload.position };
+
+    deps.clearSelection();
+    deps.setFloatingPaste({
+      active: true,
+      imageData: cloneClipboardImageData(clipboardPayload.imageData),
+      position,
+      originalPosition: position,
+      width: clipboardPayload.width,
+      height: clipboardPayload.height,
+      displayWidth: clipboardPayload.width,
+      displayHeight: clipboardPayload.height,
+      rotation: 0,
+      sourceLayerId: clipboardPayload.colorCycleSourceLayerId ?? null,
+      colorCycleIndices: clipboardPayload.colorCycleIndices ?? null,
+    });
+
+    requestAnimationFrame(() => {
+      const canvas = deps.canvasRef.current;
+      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        deps.draw(ctx, deps.viewTransformRef.current);
+      }
+    });
+
+    return true;
+  };
+
   const handlePaste = async (event: ClipboardEvent) => {
     const getViewportPastePosition = deps.getViewportPastePosition;
     const selectionClipboardRef = deps.selectionClipboardRef;
@@ -28,6 +72,15 @@ export const createClipboardHandlers = (
     };
 
     const project = deps.dynamicDepsRef.current.project;
+    const clipboardPayload = selectionClipboardRef.current;
+    if (clipboardPayload?.colorCycleIndices?.length) {
+      await commitExistingFloatingIfPresent();
+      const applied = await applyInternalClipboardPaste();
+      if (applied) {
+        return;
+      }
+    }
+
     const items = event.clipboardData?.items;
     let handled = false;
 
@@ -115,42 +168,8 @@ export const createClipboardHandlers = (
     if (handled) {
       return;
     }
-
-    const clipboardPayload = selectionClipboardRef.current;
-    if (!clipboardPayload) {
-      return;
-    }
-
-    const viewportPosition =
-      clipboardPayload.mode === 'cut'
-        ? clipboardPayload.position
-        : getViewportPastePosition(clipboardPayload.width, clipboardPayload.height);
-
-    const position = viewportPosition ?? { ...clipboardPayload.position };
-
     await commitExistingFloatingIfPresent();
-    deps.clearSelection();
-    deps.setFloatingPaste({
-      active: true,
-      imageData: cloneClipboardImageData(clipboardPayload.imageData),
-      position,
-      originalPosition: position,
-      width: clipboardPayload.width,
-      height: clipboardPayload.height,
-      displayWidth: clipboardPayload.width,
-      displayHeight: clipboardPayload.height,
-      rotation: 0,
-      sourceLayerId: clipboardPayload.colorCycleSourceLayerId ?? null,
-      colorCycleIndices: clipboardPayload.colorCycleIndices ?? null,
-    });
-
-    requestAnimationFrame(() => {
-      const canvas = deps.canvasRef.current;
-      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        deps.draw(ctx, deps.viewTransformRef.current);
-      }
-    });
+    await applyInternalClipboardPaste();
   };
 
   return {

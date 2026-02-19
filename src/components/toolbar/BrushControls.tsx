@@ -1145,6 +1145,7 @@ const BrushControls = () => {
                 { label: 'Square', value: 'square' },
                 { label: 'Round', value: 'round' },
                 { label: 'Diamond', value: 'diamond' },
+                { label: 'Diamond 5px', value: 'diamond5' },
                 { label: 'Triangle', value: 'triangle' },
                 { label: 'Shape', value: 'shape' },
                 { label: 'Gradient', value: 'gradient' }
@@ -1158,6 +1159,8 @@ const BrushControls = () => {
                     ? 'triangle'
                     : activeSettings.colorCycleStampShape === 'round'
                       ? 'round'
+                      : activeSettings.colorCycleStampShape === 'diamond5'
+                        ? 'diamond5'
                       : activeSettings.colorCycleStampShape === 'diamond'
                         ? 'diamond'
                         : 'square'
@@ -1178,11 +1181,17 @@ const BrushControls = () => {
                 } else if (value === 'triangle' && trianglePreset) {
                   setBrushPreset(trianglePreset, true);
                   setActiveSettings({ colorCycleStampShape: 'triangle' });
-                } else if ((value === 'square' || value === 'round' || value === 'diamond') && strokePreset) {
+                } else if ((value === 'square' || value === 'round' || value === 'diamond' || value === 'diamond5') && strokePreset) {
                   setBrushPreset(strokePreset, true);
                   setActiveSettings({
                     colorCycleStampShape:
-                      value === 'round' ? 'round' : value === 'diamond' ? 'diamond' : 'square'
+                      value === 'round'
+                        ? 'round'
+                        : value === 'diamond'
+                          ? 'diamond'
+                          : value === 'diamond5'
+                            ? 'diamond5'
+                            : 'square'
                   });
                 }
               }}
@@ -2059,6 +2068,23 @@ const BrushControls = () => {
                 setActiveSettings({ gridSnapEnabled: checked })
               }
             />
+            <Input
+              type="number"
+              variant="compact"
+              value={Math.max(1, Math.round(activeSettings.gridSnapSize ?? 16))}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (!Number.isFinite(next)) return;
+                setActiveSettings({ gridSnapSize: Math.max(1, Math.min(256, Math.round(next))) });
+              }}
+              min="1"
+              max="256"
+              className="w-14 bg-transparent text-right"
+              title="Grid size in pixels"
+            />
+            <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+              px
+            </span>
           </div>
         </div>
       </div>
@@ -2691,6 +2717,23 @@ const BrushControls = () => {
                 setActiveSettings({ gridSnapEnabled: checked })
               }
             />
+            <Input
+              type="number"
+              variant="compact"
+              value={Math.max(1, Math.round(activeSettings.gridSnapSize ?? 16))}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (!Number.isFinite(next)) return;
+                setActiveSettings({ gridSnapSize: Math.max(1, Math.min(256, Math.round(next))) });
+              }}
+              min="1"
+              max="256"
+              className="w-14 bg-transparent text-right"
+              title="Grid size in pixels"
+            />
+            <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+              px
+            </span>
           </div>
         </div>
       </div>
@@ -3222,6 +3265,7 @@ const BrushControls = () => {
               { label: 'Square', value: 'square' },
               { label: 'Round', value: 'round' },
               { label: 'Diamond', value: 'diamond' },
+              { label: 'Diamond 5px', value: 'diamond5' },
               { label: 'Triangle', value: 'triangle' },
             ]}
             value={activeSettings.ditherStrokeTipShape ?? 'round'}
@@ -3600,6 +3644,23 @@ const BrushControls = () => {
               setActiveSettings({ gridSnapEnabled: checked })
             }
           />
+          <Input
+            type="number"
+            variant="compact"
+            value={Math.max(1, Math.round(activeSettings.gridSnapSize ?? 16))}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (!Number.isFinite(next)) return;
+              setActiveSettings({ gridSnapSize: Math.max(1, Math.min(256, Math.round(next))) });
+            }}
+            min="1"
+            max="256"
+            className="w-14 bg-transparent text-right"
+            title="Grid size in pixels"
+          />
+          <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+            px
+          </span>
         </div>
       </div>
     </div>
