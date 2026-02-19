@@ -981,6 +981,88 @@ export class ColorCycleAnimator implements CCIndexSurface {
       console.error('[ColorCycleAnimator] Error in paintDiamond5Pixelated:', error);
     }
   }
+
+  /**
+   * Paint pixelated 7x7 diamond brush (nearest-neighbor upscaled)
+   */
+  paintDiamond7Pixelated(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex?: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
+  ) {
+    try {
+      const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
+      const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+      const flowBits = this.getFlowBits();
+      this.indexBuffer.paintDiamond7PixelatedWithIndex(
+        x,
+        y,
+        pixelScale,
+        index,
+        maskTile,
+        maskTileSize,
+        maskClears,
+        secondaryIndex,
+        slot,
+        maskOriginX,
+        maskOriginY,
+        this.currentSpeedByte,
+        flowBits
+      );
+      this._glIndexDirty = true;
+    } catch (error) {
+      console.error('[ColorCycleAnimator] Error in paintDiamond7Pixelated:', error);
+    }
+  }
+
+  /**
+   * Paint pixelated 9x9 diamond brush (nearest-neighbor upscaled)
+   */
+  paintDiamond9Pixelated(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex?: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number
+  ) {
+    try {
+      const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
+      const slot = gradientSlot ?? this.paletteController.getActiveSlot();
+      const flowBits = this.getFlowBits();
+      this.indexBuffer.paintDiamond9PixelatedWithIndex(
+        x,
+        y,
+        pixelScale,
+        index,
+        maskTile,
+        maskTileSize,
+        maskClears,
+        secondaryIndex,
+        slot,
+        maskOriginX,
+        maskOriginY,
+        this.currentSpeedByte,
+        flowBits
+      );
+      this._glIndexDirty = true;
+    } catch (error) {
+      console.error('[ColorCycleAnimator] Error in paintDiamond9Pixelated:', error);
+    }
+  }
   
   /**
    * Paint line

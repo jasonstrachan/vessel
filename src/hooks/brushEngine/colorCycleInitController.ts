@@ -26,7 +26,9 @@ type BrushLike = {
   setPressureEnabled: (enabled: boolean) => void;
   setMinPressure: (value: number) => void;
   setMaxPressure: (value: number) => void;
-  setStampShape: (shape: 'square' | 'triangle' | 'round' | 'diamond' | 'diamond5') => void;
+  setStampShape: (
+    shape: 'square' | 'triangle' | 'round' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9'
+  ) => void;
   setFlowMode?: (mode: 'forward') => void;
   setFlowDirection: (direction: 'forward') => void;
   setLegacyFlowMode?: (mode: 'forward') => void;

@@ -1145,7 +1145,9 @@ const BrushControls = () => {
                 { label: 'Square', value: 'square' },
                 { label: 'Round', value: 'round' },
                 { label: 'Diamond', value: 'diamond' },
-                { label: 'Diamond 5px', value: 'diamond5' },
+                { label: 'Diamond5', value: 'diamond5' },
+                { label: 'Diamond7', value: 'diamond7' },
+                { label: 'Diamond9', value: 'diamond9' },
                 { label: 'Triangle', value: 'triangle' },
                 { label: 'Shape', value: 'shape' },
                 { label: 'Gradient', value: 'gradient' }
@@ -1159,6 +1161,10 @@ const BrushControls = () => {
                     ? 'triangle'
                     : activeSettings.colorCycleStampShape === 'round'
                       ? 'round'
+                      : activeSettings.colorCycleStampShape === 'diamond9'
+                        ? 'diamond9'
+                        : activeSettings.colorCycleStampShape === 'diamond7'
+                          ? 'diamond7'
                       : activeSettings.colorCycleStampShape === 'diamond5'
                         ? 'diamond5'
                       : activeSettings.colorCycleStampShape === 'diamond'
@@ -1181,12 +1187,26 @@ const BrushControls = () => {
                 } else if (value === 'triangle' && trianglePreset) {
                   setBrushPreset(trianglePreset, true);
                   setActiveSettings({ colorCycleStampShape: 'triangle' });
-                } else if ((value === 'square' || value === 'round' || value === 'diamond' || value === 'diamond5') && strokePreset) {
+                } else if (
+                  (
+                    value === 'square' ||
+                    value === 'round' ||
+                    value === 'diamond' ||
+                    value === 'diamond5' ||
+                    value === 'diamond7' ||
+                    value === 'diamond9'
+                  ) &&
+                  strokePreset
+                ) {
                   setBrushPreset(strokePreset, true);
                   setActiveSettings({
                     colorCycleStampShape:
                       value === 'round'
                         ? 'round'
+                        : value === 'diamond9'
+                          ? 'diamond9'
+                          : value === 'diamond7'
+                            ? 'diamond7'
                         : value === 'diamond'
                           ? 'diamond'
                           : value === 'diamond5'
@@ -3265,7 +3285,9 @@ const BrushControls = () => {
               { label: 'Square', value: 'square' },
               { label: 'Round', value: 'round' },
               { label: 'Diamond', value: 'diamond' },
-              { label: 'Diamond 5px', value: 'diamond5' },
+              { label: 'Diamond5', value: 'diamond5' },
+              { label: 'Diamond7', value: 'diamond7' },
+              { label: 'Diamond9', value: 'diamond9' },
               { label: 'Triangle', value: 'triangle' },
             ]}
             value={activeSettings.ditherStrokeTipShape ?? 'round'}

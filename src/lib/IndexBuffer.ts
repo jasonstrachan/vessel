@@ -29,6 +29,26 @@ export class IndexBuffer {
     0, 1, 1, 1, 0,
     0, 0, 1, 0, 0,
   ];
+  private static readonly DIAMOND_7_MASK: ReadonlyArray<number> = [
+    0, 0, 0, 1, 0, 0, 0,
+    0, 0, 1, 1, 1, 0, 0,
+    0, 1, 1, 1, 1, 1, 0,
+    1, 1, 1, 1, 1, 1, 1,
+    0, 1, 1, 1, 1, 1, 0,
+    0, 0, 1, 1, 1, 0, 0,
+    0, 0, 0, 1, 0, 0, 0,
+  ];
+  private static readonly DIAMOND_9_MASK: ReadonlyArray<number> = [
+    0, 0, 0, 0, 1, 0, 0, 0, 0,
+    0, 0, 0, 1, 1, 1, 0, 0, 0,
+    0, 0, 1, 1, 1, 1, 1, 0, 0,
+    0, 1, 1, 1, 1, 1, 1, 1, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1,
+    0, 1, 1, 1, 1, 1, 1, 1, 0,
+    0, 0, 1, 1, 1, 1, 1, 0, 0,
+    0, 0, 0, 1, 1, 1, 0, 0, 0,
+    0, 0, 0, 0, 1, 0, 0, 0, 0,
+  ];
   
   // Cache for converted RGBA values
   private rgbaCache: Map<number, [number, number, number, number]> = new Map();
@@ -372,6 +392,72 @@ export class IndexBuffer {
     );
     this.isDirty = true;
   }
+
+  paintDiamond7PixelatedWithIndex(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
+    this.paintDiamond7PixelatedInternal(
+      x,
+      y,
+      pixelScale,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot,
+      maskOriginX,
+      maskOriginY,
+      speedByte,
+      flowBits
+    );
+    this.isDirty = true;
+  }
+
+  paintDiamond9PixelatedWithIndex(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
+    this.paintDiamond9PixelatedInternal(
+      x,
+      y,
+      pixelScale,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot,
+      maskOriginX,
+      maskOriginY,
+      speedByte,
+      flowBits
+    );
+    this.isDirty = true;
+  }
   
   /**
    * Paint pixels with a square brush
@@ -695,6 +781,110 @@ export class IndexBuffer {
     speedByte?: number,
     flowBits?: number
   ) {
+    this.paintDiamondPixelatedInternal(
+      x,
+      y,
+      pixelScale,
+      5,
+      IndexBuffer.DIAMOND_5_MASK,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot,
+      maskOriginX,
+      maskOriginY,
+      speedByte,
+      flowBits
+    );
+  }
+
+  private paintDiamond7PixelatedInternal(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize: number = 0,
+    maskClears: boolean = false,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
+    this.paintDiamondPixelatedInternal(
+      x,
+      y,
+      pixelScale,
+      7,
+      IndexBuffer.DIAMOND_7_MASK,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot,
+      maskOriginX,
+      maskOriginY,
+      speedByte,
+      flowBits
+    );
+  }
+
+  private paintDiamond9PixelatedInternal(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize: number = 0,
+    maskClears: boolean = false,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
+    this.paintDiamondPixelatedInternal(
+      x,
+      y,
+      pixelScale,
+      9,
+      IndexBuffer.DIAMOND_9_MASK,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot,
+      maskOriginX,
+      maskOriginY,
+      speedByte,
+      flowBits
+    );
+  }
+
+  private paintDiamondPixelatedInternal(
+    x: number,
+    y: number,
+    pixelScale: number,
+    gridSize: 5 | 7 | 9,
+    mask: ReadonlyArray<number>,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize: number = 0,
+    maskClears: boolean = false,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
     const normalizedIndex = this.normalizeColorIndex(colorIndex);
     const normalizedSecondaryIndex =
       typeof secondaryIndex === 'number' ? this.normalizeColorIndex(secondaryIndex) : null;
@@ -707,7 +897,7 @@ export class IndexBuffer {
         ? Math.max(1, this.normalizeSpeedByte(speedByte))
         : 0;
     const scale = Math.max(1, Math.round(pixelScale));
-    const stampSize = 5 * scale;
+    const stampSize = gridSize * scale;
     const originX = Math.floor(x - stampSize / 2);
     const originY = Math.floor(y - stampSize / 2);
     const minX = Math.max(0, originX);
@@ -727,11 +917,11 @@ export class IndexBuffer {
 
     for (let py = minY; py <= maxY; py++) {
       const localY = py - originY;
-      const cellY = Math.max(0, Math.min(4, Math.floor(localY / scale)));
+      const cellY = Math.max(0, Math.min(gridSize - 1, Math.floor(localY / scale)));
       for (let px = minX; px <= maxX; px++) {
         const localX = px - originX;
-        const cellX = Math.max(0, Math.min(4, Math.floor(localX / scale)));
-        if (IndexBuffer.DIAMOND_5_MASK[cellY * 5 + cellX] === 0) {
+        const cellX = Math.max(0, Math.min(gridSize - 1, Math.floor(localX / scale)));
+        if (mask[cellY * gridSize + cellX] === 0) {
           continue;
         }
         const dataIndex = py * this.width + px;

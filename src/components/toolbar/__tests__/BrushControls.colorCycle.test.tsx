@@ -411,10 +411,30 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     const user = userEvent.setup();
     render(<BrushControls />);
 
-    const diamondButton = screen.getByRole('button', { name: 'Diamond 5px' });
+    const diamondButton = screen.getByRole('button', { name: 'Diamond5' });
     await user.click(diamondButton);
 
     expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond5');
+  });
+
+  it('allows selecting the 7px diamond stamp for color cycle stroke', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const diamondButton = screen.getByRole('button', { name: 'Diamond7' });
+    await user.click(diamondButton);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond7');
+  });
+
+  it('allows selecting the 9px diamond stamp for color cycle stroke', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const diamondButton = screen.getByRole('button', { name: 'Diamond9' });
+    await user.click(diamondButton);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond9');
   });
 
   it('disables stamp dither resolution when pressure-linked', () => {

@@ -202,7 +202,7 @@ interface ColorCycleBrushCanvasState {
   [key: string]: unknown;
 }
 
-type StampShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5';
+type StampShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
 
 type DefPaletteCache = {
   signature: string;
@@ -1230,6 +1230,24 @@ export class ColorCycleBrushCanvas2D {
         const stampStart = perf ? nowMs() : 0;
         const diamond5Scale = Math.max(1, Math.round(pressureSize / 5));
         animator.paintDiamond5Pixelated(x, y, diamond5Scale, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+        if (perf) {
+          perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);
+          perf.stampCounter += 1;
+        }
+      } else if (this.stampShape === 'diamond7') {
+        const perf = this.perfStroke;
+        const stampStart = perf ? nowMs() : 0;
+        const diamond7Scale = Math.max(1, Math.round(pressureSize / 7));
+        animator.paintDiamond7Pixelated(x, y, diamond7Scale, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+        if (perf) {
+          perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);
+          perf.stampCounter += 1;
+        }
+      } else if (this.stampShape === 'diamond9') {
+        const perf = this.perfStroke;
+        const stampStart = perf ? nowMs() : 0;
+        const diamond9Scale = Math.max(1, Math.round(pressureSize / 9));
+        animator.paintDiamond9Pixelated(x, y, diamond9Scale, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
         if (perf) {
           perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);
           perf.stampCounter += 1;
@@ -4645,6 +4663,10 @@ export class ColorCycleBrushCanvas2D {
       this.stampShape = 'diamond';
     } else if (shape === 'diamond5') {
       this.stampShape = 'diamond5';
+    } else if (shape === 'diamond7') {
+      this.stampShape = 'diamond7';
+    } else if (shape === 'diamond9') {
+      this.stampShape = 'diamond9';
     } else if (shape === 'round') {
       this.stampShape = 'round';
     } else {
@@ -5047,6 +5069,8 @@ export class ColorCycleBrushCanvas2D {
         state.stampShape === 'square' ||
         state.stampShape === 'diamond' ||
         state.stampShape === 'diamond5' ||
+        state.stampShape === 'diamond7' ||
+        state.stampShape === 'diamond9' ||
         state.stampShape === 'round'
       ) {
         this.setStampShape(state.stampShape);

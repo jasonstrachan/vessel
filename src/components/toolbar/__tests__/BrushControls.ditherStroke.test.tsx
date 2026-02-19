@@ -295,11 +295,35 @@ describe('BrushControls dither stroke tip shapes', () => {
     const user = userEvent.setup();
     render(<BrushControls />);
 
-    const diamondButton = screen.getByRole('button', { name: 'Diamond 5px' });
+    const diamondButton = screen.getByRole('button', { name: 'Diamond5' });
     await user.click(diamondButton);
 
     expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith({
       ditherStrokeTipShape: 'diamond5',
+    });
+  });
+
+  it('updates the dither stroke tip shape to diamond7 when selected', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const diamondButton = screen.getByRole('button', { name: 'Diamond7' });
+    await user.click(diamondButton);
+
+    expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith({
+      ditherStrokeTipShape: 'diamond7',
+    });
+  });
+
+  it('updates the dither stroke tip shape to diamond9 when selected', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const diamondButton = screen.getByRole('button', { name: 'Diamond9' });
+    await user.click(diamondButton);
+
+    expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith({
+      ditherStrokeTipShape: 'diamond9',
     });
   });
 

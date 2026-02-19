@@ -62,7 +62,14 @@ export type StampDitherRuntime = {
   tiles: Map<string, Uint8Array>;
 };
 
-export type StampDitherShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5';
+export type StampDitherShape =
+  | 'square'
+  | 'round'
+  | 'triangle'
+  | 'diamond'
+  | 'diamond5'
+  | 'diamond7'
+  | 'diamond9';
 
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
 
@@ -94,6 +101,26 @@ const DIAMOND_5_MASK: ReadonlyArray<number> = [
   1, 1, 1, 1, 1,
   0, 1, 1, 1, 0,
   0, 0, 1, 0, 0,
+];
+const DIAMOND_7_MASK: ReadonlyArray<number> = [
+  0, 0, 0, 1, 0, 0, 0,
+  0, 0, 1, 1, 1, 0, 0,
+  0, 1, 1, 1, 1, 1, 0,
+  1, 1, 1, 1, 1, 1, 1,
+  0, 1, 1, 1, 1, 1, 0,
+  0, 0, 1, 1, 1, 0, 0,
+  0, 0, 0, 1, 0, 0, 0,
+];
+const DIAMOND_9_MASK: ReadonlyArray<number> = [
+  0, 0, 0, 0, 1, 0, 0, 0, 0,
+  0, 0, 0, 1, 1, 1, 0, 0, 0,
+  0, 0, 1, 1, 1, 1, 1, 0, 0,
+  0, 1, 1, 1, 1, 1, 1, 1, 0,
+  1, 1, 1, 1, 1, 1, 1, 1, 1,
+  0, 1, 1, 1, 1, 1, 1, 1, 0,
+  0, 0, 1, 1, 1, 1, 1, 0, 0,
+  0, 0, 0, 1, 1, 1, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0,
 ];
 
 export const STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<StampDitherAlgorithm> = new Set([
@@ -549,6 +576,34 @@ const applyStampDitherMask = (
         const localX = px - originX;
         const cellX = Math.max(0, Math.min(4, Math.floor(localX / pixelScale)));
         if (DIAMOND_5_MASK[cellY * 5 + cellX] === 0) continue;
+        const idx = py * width + px;
+        captureIfNeeded(idx);
+        primary[idx] = primaryIndex;
+        tag[idx] = tagValue;
+      }
+    }
+    updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
+    return { minX, minY, maxX, maxY };
+  }
+
+  if (shape === 'diamond7' || shape === 'diamond9') {
+    const gridSize = shape === 'diamond7' ? 7 : 9;
+    const mask = shape === 'diamond7' ? DIAMOND_7_MASK : DIAMOND_9_MASK;
+    const pixelScale = Math.max(1, Math.round(brushSize / gridSize));
+    const stampSize = gridSize * pixelScale;
+    const originX = Math.floor(x - stampSize / 2);
+    const originY = Math.floor(y - stampSize / 2);
+    const minX = Math.max(0, originX);
+    const maxX = Math.min(width - 1, originX + stampSize - 1);
+    const minY = Math.max(0, originY);
+    const maxY = Math.min(height - 1, originY + stampSize - 1);
+    for (let py = minY; py <= maxY; py++) {
+      const localY = py - originY;
+      const cellY = Math.max(0, Math.min(gridSize - 1, Math.floor(localY / pixelScale)));
+      for (let px = minX; px <= maxX; px++) {
+        const localX = px - originX;
+        const cellX = Math.max(0, Math.min(gridSize - 1, Math.floor(localX / pixelScale)));
+        if (mask[cellY * gridSize + cellX] === 0) continue;
         const idx = py * width + px;
         captureIfNeeded(idx);
         primary[idx] = primaryIndex;

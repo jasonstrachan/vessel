@@ -106,6 +106,8 @@ jest.mock('@/stores/useAppStore', () => {
 import AnimationControlsPanel from '@/components/panels/AnimationControlsPanel';
 import { useAppStore } from '@/stores/useAppStore';
 
+const SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY = 'vessel-sequential-panel-expanded';
+
 type PanelMockState = {
   colorCyclePlayback: { desiredPlaying: boolean; suspendDepth: number };
   layers: Array<{ id: string; layerType: 'normal' | 'color-cycle' | 'sequential' }>;
@@ -138,6 +140,7 @@ const appStore = useAppStore as unknown as {
 
 describe('AnimationControlsPanel', () => {
   beforeEach(() => {
+    window.localStorage.removeItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY);
     const store = appStore.getState();
     store.playColorCycle.mockClear();
     store.pauseColorCycle.mockClear();
@@ -361,5 +364,26 @@ describe('AnimationControlsPanel', () => {
     expect(screen.queryByRole('spinbutton', { name: /fps/i })).not.toBeInTheDocument();
     fireEvent.click(toggleButton);
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
+  });
+
+  it('restores sequential panel collapsed state from storage', () => {
+    window.localStorage.setItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY, '0');
+
+    appStore.setState({
+      layers: [{ id: 'layer-seq', layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        fps: 12,
+        frameCount: 24,
+        timeSmear: 1,
+        currentFrame: 0,
+        isPointerDown: false,
+      },
+    });
+
+    render(<AnimationControlsPanel />);
+
+    expect(screen.queryByRole('spinbutton', { name: /fps/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sequential/i })).toHaveAttribute('aria-expanded', 'false');
   });
 });

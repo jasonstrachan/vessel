@@ -24,6 +24,35 @@ interface SequentialControlsModuleProps {
   onTimeSmearChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
+const SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY = 'vessel-sequential-panel-expanded';
+
+const loadInitialExpandedState = (): boolean => {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+
+  try {
+    return window.localStorage.getItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
+
+const persistExpandedState = (isExpanded: boolean): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY,
+      isExpanded ? '1' : '0',
+    );
+  } catch {
+    // Ignore storage errors and keep runtime state functional.
+  }
+};
+
 const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
   ccLayerSpeedScale,
   controlsDisabled,
@@ -38,15 +67,23 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
   onFramesChange,
   onTimeSmearChange,
 }) => {
-  const [isExpanded, setIsExpanded] = React.useState(true);
+  const [isExpanded, setIsExpanded] = React.useState<boolean>(loadInitialExpandedState);
   const effectiveFrameCount = Math.max(1, Math.round(frameCount));
+
+  const handleToggleExpanded = React.useCallback(() => {
+    setIsExpanded((prev) => {
+      const next = !prev;
+      persistExpandedState(next);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="rounded border border-[#3F3F3F] bg-[#232323]">
       <button
         type="button"
         className="w-full px-2.5 py-2 flex items-center justify-between gap-2 text-left"
-        onClick={() => setIsExpanded((prev) => !prev)}
+        onClick={handleToggleExpanded}
         aria-expanded={isExpanded}
       >
         <div className="flex items-center gap-2">

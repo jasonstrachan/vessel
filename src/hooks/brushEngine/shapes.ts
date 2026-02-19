@@ -697,21 +697,49 @@ export const drawShape = (
         if (shape === BrushShape.PIXEL_DITHER && ditherTipShape !== 'round') {
           const stampSize = Math.max(1, Math.round(size));
           drawingCtx.imageSmoothingEnabled = false;
-          if (ditherTipShape === 'diamond5') {
-            const pixelScale = Math.max(1, Math.round(stampSize / 5));
-            const rasterSize = pixelScale * 5;
+          if (ditherTipShape === 'diamond5' || ditherTipShape === 'diamond7' || ditherTipShape === 'diamond9') {
+            const gridSize =
+              ditherTipShape === 'diamond9'
+                ? 9
+                : ditherTipShape === 'diamond7'
+                  ? 7
+                  : 5;
+            const pixelScale = Math.max(1, Math.round(stampSize / gridSize));
+            const rasterSize = pixelScale * gridSize;
             const originX = Math.round(drawX - rasterSize / 2);
             const originY = Math.round(drawY - rasterSize / 2);
-            const mask = [
-              0, 0, 1, 0, 0,
-              0, 1, 1, 1, 0,
-              1, 1, 1, 1, 1,
-              0, 1, 1, 1, 0,
-              0, 0, 1, 0, 0,
-            ];
-            for (let row = 0; row < 5; row += 1) {
-              for (let col = 0; col < 5; col += 1) {
-                if (mask[row * 5 + col] === 0) continue;
+            const mask = gridSize === 9
+              ? [
+                0, 0, 0, 0, 1, 0, 0, 0, 0,
+                0, 0, 0, 1, 1, 1, 0, 0, 0,
+                0, 0, 1, 1, 1, 1, 1, 0, 0,
+                0, 1, 1, 1, 1, 1, 1, 1, 0,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                0, 1, 1, 1, 1, 1, 1, 1, 0,
+                0, 0, 1, 1, 1, 1, 1, 0, 0,
+                0, 0, 0, 1, 1, 1, 0, 0, 0,
+                0, 0, 0, 0, 1, 0, 0, 0, 0,
+              ]
+              : gridSize === 7
+                ? [
+                  0, 0, 0, 1, 0, 0, 0,
+                  0, 0, 1, 1, 1, 0, 0,
+                  0, 1, 1, 1, 1, 1, 0,
+                  1, 1, 1, 1, 1, 1, 1,
+                  0, 1, 1, 1, 1, 1, 0,
+                  0, 0, 1, 1, 1, 0, 0,
+                  0, 0, 0, 1, 0, 0, 0,
+                ]
+                : [
+                  0, 0, 1, 0, 0,
+                  0, 1, 1, 1, 0,
+                  1, 1, 1, 1, 1,
+                  0, 1, 1, 1, 0,
+                  0, 0, 1, 0, 0,
+                ];
+            for (let row = 0; row < gridSize; row += 1) {
+              for (let col = 0; col < gridSize; col += 1) {
+                if (mask[row * gridSize + col] === 0) continue;
                 drawingCtx.fillRect(
                   originX + col * pixelScale,
                   originY + row * pixelScale,

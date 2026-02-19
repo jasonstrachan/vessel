@@ -53,7 +53,7 @@ export type CreateMaskHealingDispatchersArgs = {
   getState: () => AppState;
 };
 
-type MaskTipShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5';
+type MaskTipShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
 
 const resolveMaskTipShape = (state: AppState): MaskTipShape => {
   const settings = state.tools.brushSettings;
@@ -100,22 +100,50 @@ const drawInitialMaskTipStamp = (
     return;
   }
 
-  if (shape === 'diamond' || shape === 'diamond5') {
-    if (shape === 'diamond5') {
-      const pixelScale = Math.max(1, Math.round(size / 5));
-      const stampSize = 5 * pixelScale;
+  if (shape === 'diamond' || shape === 'diamond5' || shape === 'diamond7' || shape === 'diamond9') {
+    if (shape === 'diamond5' || shape === 'diamond7' || shape === 'diamond9') {
+      const gridSize =
+        shape === 'diamond9'
+          ? 9
+          : shape === 'diamond7'
+            ? 7
+            : 5;
+      const pixelScale = Math.max(1, Math.round(size / gridSize));
+      const stampSize = gridSize * pixelScale;
       const originX = Math.round(cx - stampSize / 2);
       const originY = Math.round(cy - stampSize / 2);
-      const mask = [
-        0, 0, 1, 0, 0,
-        0, 1, 1, 1, 0,
-        1, 1, 1, 1, 1,
-        0, 1, 1, 1, 0,
-        0, 0, 1, 0, 0,
-      ];
-      for (let row = 0; row < 5; row += 1) {
-        for (let col = 0; col < 5; col += 1) {
-          if (mask[row * 5 + col] === 0) continue;
+      const mask = gridSize === 9
+        ? [
+          0, 0, 0, 0, 1, 0, 0, 0, 0,
+          0, 0, 0, 1, 1, 1, 0, 0, 0,
+          0, 0, 1, 1, 1, 1, 1, 0, 0,
+          0, 1, 1, 1, 1, 1, 1, 1, 0,
+          1, 1, 1, 1, 1, 1, 1, 1, 1,
+          0, 1, 1, 1, 1, 1, 1, 1, 0,
+          0, 0, 1, 1, 1, 1, 1, 0, 0,
+          0, 0, 0, 1, 1, 1, 0, 0, 0,
+          0, 0, 0, 0, 1, 0, 0, 0, 0,
+        ]
+        : gridSize === 7
+          ? [
+            0, 0, 0, 1, 0, 0, 0,
+            0, 0, 1, 1, 1, 0, 0,
+            0, 1, 1, 1, 1, 1, 0,
+            1, 1, 1, 1, 1, 1, 1,
+            0, 1, 1, 1, 1, 1, 0,
+            0, 0, 1, 1, 1, 0, 0,
+            0, 0, 0, 1, 0, 0, 0,
+          ]
+          : [
+            0, 0, 1, 0, 0,
+            0, 1, 1, 1, 0,
+            1, 1, 1, 1, 1,
+            0, 1, 1, 1, 0,
+            0, 0, 1, 0, 0,
+          ];
+      for (let row = 0; row < gridSize; row += 1) {
+        for (let col = 0; col < gridSize; col += 1) {
+          if (mask[row * gridSize + col] === 0) continue;
           ctx.fillRect(
             originX + col * pixelScale,
             originY + row * pixelScale,
