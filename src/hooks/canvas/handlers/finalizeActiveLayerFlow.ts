@@ -83,6 +83,11 @@ export const runFinalizeActiveLayerFlow = async ({
   finalizeRasterFallbackDeps: FinalizeRasterFallbackDeps;
   finalizePostCommitDeps: RunFinalizePostCommitDeps;
 }): Promise<void> => {
+  const effectiveCaptureRegionOverride =
+    currentTool === 'eraser' && isEraserV2 && eraserRoiRef.current
+      ? eraserRoiRef.current
+      : captureRegionOverride;
+
   const {
     activeLayerIdString,
     layerBeforeImage,
@@ -105,7 +110,7 @@ export const runFinalizeActiveLayerFlow = async ({
     roiPadding,
     engineStrokeBounds,
     lastStrokePoint,
-    captureRegionOverride,
+    captureRegionOverride: effectiveCaptureRegionOverride,
     skipSave,
   }, deps.finalizeLayerCaptureContextDeps);
 

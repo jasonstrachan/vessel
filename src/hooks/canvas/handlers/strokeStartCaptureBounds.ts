@@ -5,6 +5,25 @@ import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacad
 import { createBoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import { computeStrokeCapturePadding } from '@/hooks/canvas/utils/strokeCapturePadding';
 
+const resolveCaptureSettings = (
+  state: AppState,
+  tool: AppState['tools']['currentTool']
+): AppState['tools']['brushSettings'] => {
+  if (tool !== 'eraser') {
+    return state.tools.brushSettings;
+  }
+  const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize;
+  const eraserSettings = state.tools.eraserSettings;
+  const effectiveSize =
+    eraserSettings.linkSizeToBrush === false
+      ? eraserSettings.size ?? brushSize
+      : brushSize;
+  return {
+    ...eraserSettings,
+    size: effectiveSize,
+  };
+};
+
 export const initializeStrokeStartCaptureBounds = ({
   currentState,
   currentTool,
@@ -22,11 +41,12 @@ export const initializeStrokeStartCaptureBounds = ({
   resolveCustomBrushData: (state: AppState) => CustomBrushStrokeData | undefined;
   resamplerBrushDataRef: React.MutableRefObject<CustomBrushStrokeData | undefined>;
 }): void => {
-  if (currentTool === 'brush') {
+  if (currentTool === 'brush' || currentTool === 'eraser') {
     strokeBoundingBoxRef.current = createBoundingBox(worldPos);
     const activeCustomBrush = resolveCustomBrushData(currentState) ?? resamplerBrushDataRef.current;
+    const captureSettings = resolveCaptureSettings(currentState, currentTool);
     strokeCapturePaddingRef.current = computeStrokeCapturePadding(
-      currentState.tools.brushSettings,
+      captureSettings,
       activeCustomBrush ?? null
     );
     return;

@@ -10,6 +10,22 @@ import {
 import { computeStrokeCapturePadding } from '@/hooks/canvas/utils/strokeCapturePadding';
 import { resolveActiveCustomBrushData } from '@/hooks/canvas/utils/customBrushData';
 
+const resolveCaptureSettings = (state: AppState): AppState['tools']['brushSettings'] => {
+  if (state.tools.currentTool !== 'eraser') {
+    return state.tools.brushSettings;
+  }
+  const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize;
+  const eraserSettings = state.tools.eraserSettings;
+  const effectiveSize =
+    eraserSettings.linkSizeToBrush === false
+      ? eraserSettings.size ?? brushSize
+      : brushSize;
+  return {
+    ...eraserSettings,
+    size: effectiveSize,
+  };
+};
+
 export type ContinueDrawingHandler = (
   rawWorldPos: { x: number; y: number },
   pressure?: number
@@ -56,10 +72,13 @@ export const createContinueDrawingHandler = ({
   const worldPos = alignPointToPixel(rawWorldPos, shouldPixelAlignBrush(brushSettings));
   lastStrokePointRef.current = worldPos;
 
-  if (currentState.tools.currentTool === 'brush' && !brushSamplingPreviewActiveRef.current) {
+  const isStrokeTool =
+    currentState.tools.currentTool === 'brush' || currentState.tools.currentTool === 'eraser';
+  if (isStrokeTool && !brushSamplingPreviewActiveRef.current) {
     strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
+    const captureSettings = resolveCaptureSettings(currentState);
     const activeCustomBrush = resolveActiveCustomBrushData(currentState) ?? resamplerBrushDataRef.current;
-    const dynamicPadding = computeStrokeCapturePadding(brushSettings, activeCustomBrush ?? null);
+    const dynamicPadding = computeStrokeCapturePadding(captureSettings, activeCustomBrush ?? null);
     if (dynamicPadding > strokeCapturePaddingRef.current) {
       strokeCapturePaddingRef.current = dynamicPadding;
     }
