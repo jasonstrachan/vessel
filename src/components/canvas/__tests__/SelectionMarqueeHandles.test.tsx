@@ -109,4 +109,142 @@ describe('SelectionMarqueeHandles', () => {
     expect(state.selectionEnd?.x).toBe(40);
     expect(state.selectionEnd?.y).toBe(30);
   });
+
+  it('allows resizing the selection beyond project bounds', () => {
+    render(
+      <SelectionMarqueeHandles
+        zoom={1}
+        offsetX={0}
+        offsetY={0}
+        projectWidth={100}
+        projectHeight={100}
+      />,
+    );
+
+    const overlay = screen.getByTestId('selection-marquee-overlay');
+
+    Object.defineProperty(overlay, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+        toJSON: () => ({}),
+      }),
+    });
+
+    const topLeftHandle = overlay.querySelector('[data-handle="top-left"]');
+    expect(topLeftHandle).toBeTruthy();
+    if (!topLeftHandle) {
+      throw new Error('Top-left handle not found');
+    }
+
+    act(() => {
+      fireEvent.pointerDown(topLeftHandle, {
+        pointerId: 2,
+        clientX: 10,
+        clientY: 10,
+        button: 0,
+      });
+    });
+
+    act(() => {
+      fireEvent.pointerMove(overlay, {
+        pointerId: 2,
+        clientX: -20,
+        clientY: -15,
+      });
+    });
+
+    act(() => {
+      fireEvent.pointerUp(overlay, {
+        pointerId: 2,
+        clientX: -20,
+        clientY: -15,
+      });
+    });
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart?.x).toBe(-20);
+    expect(state.selectionStart?.y).toBe(-15);
+    expect(state.selectionEnd?.x).toBe(30);
+    expect(state.selectionEnd?.y).toBe(30);
+  });
+
+  it('allows handle resize even when current tool is not selection', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        tools: {
+          ...state.tools,
+          currentTool: 'brush',
+        },
+      }));
+    });
+
+    render(
+      <SelectionMarqueeHandles
+        zoom={1}
+        offsetX={0}
+        offsetY={0}
+        projectWidth={100}
+        projectHeight={100}
+      />,
+    );
+
+    const overlay = screen.getByTestId('selection-marquee-overlay');
+
+    Object.defineProperty(overlay, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+        toJSON: () => ({}),
+      }),
+    });
+
+    const rightHandle = overlay.querySelector('[data-handle="right"]');
+    expect(rightHandle).toBeTruthy();
+    if (!rightHandle) {
+      throw new Error('Right handle not found');
+    }
+
+    act(() => {
+      fireEvent.pointerDown(rightHandle, {
+        pointerId: 3,
+        clientX: 30,
+        clientY: 20,
+        button: 0,
+      });
+    });
+
+    act(() => {
+      fireEvent.pointerMove(overlay, {
+        pointerId: 3,
+        clientX: 45,
+        clientY: 20,
+      });
+    });
+
+    act(() => {
+      fireEvent.pointerUp(overlay, {
+        pointerId: 3,
+        clientX: 45,
+        clientY: 20,
+      });
+    });
+
+    const state = useAppStore.getState();
+    expect(state.selectionEnd?.x).toBe(45);
+  });
 });

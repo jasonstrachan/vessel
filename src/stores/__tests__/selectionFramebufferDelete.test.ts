@@ -84,4 +84,111 @@ describe('selection delete updates framebuffer', () => {
     expect(state.selectionEnd).toBeNull();
     expect(state.currentCompositeBitmap).toBeNull();
   });
+
+  it('extractSelectionToFloatingPaste clears source framebuffer before floating transform', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    expect(ctx).not.toBeNull();
+    ctx!.fillStyle = 'rgba(0,0,0,1)';
+    ctx!.fillRect(0, 0, 4, 4);
+
+    const imageData = ctx!.getImageData(0, 0, 4, 4);
+    const layerId = 'layer-extract-1';
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [
+        {
+          id: layerId,
+          name: 'Layer 1',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageData,
+          framebuffer: canvas,
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'normal',
+        },
+      ],
+      activeLayerId: layerId,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      floatingPaste: null,
+    }));
+
+    const extracted = useAppStore.getState().extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers.find((l) => l.id === layerId);
+    expect(updatedLayer).toBeDefined();
+    expect(state.floatingPaste).not.toBeNull();
+
+    const fbSample = ctx!.getImageData(1, 1, 1, 1).data;
+    expect(fbSample[3]).toBe(0);
+
+    const imgSample = updatedLayer!.imageData!.data;
+    const idx = (1 * 4 + 1) * 4;
+    expect(imgSample[idx + 3]).toBe(0);
+  });
+
+  it('restores source pixels when cancelFloatingPaste is called after extraction', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    expect(ctx).not.toBeNull();
+    ctx!.fillStyle = 'rgba(0,0,0,1)';
+    ctx!.fillRect(0, 0, 4, 4);
+
+    const imageData = ctx!.getImageData(0, 0, 4, 4);
+    const layerId = 'layer-cancel-1';
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [
+        {
+          id: layerId,
+          name: 'Layer 1',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageData,
+          framebuffer: canvas,
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'normal',
+        },
+      ],
+      activeLayerId: layerId,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      floatingPaste: null,
+    }));
+
+    const extracted = useAppStore.getState().extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+    expect(useAppStore.getState().floatingPaste).not.toBeNull();
+
+    useAppStore.getState().cancelFloatingPaste();
+
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers.find((l) => l.id === layerId);
+    expect(updatedLayer).toBeDefined();
+    expect(state.floatingPaste).toBeNull();
+
+    const fbSample = ctx!.getImageData(1, 1, 1, 1).data;
+    expect(fbSample[3]).toBe(255);
+
+    const imgSample = updatedLayer!.imageData!.data;
+    const idx = (1 * 4 + 1) * 4;
+    expect(imgSample[idx + 3]).toBe(255);
+  });
 });

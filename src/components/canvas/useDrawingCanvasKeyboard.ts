@@ -303,6 +303,8 @@ export const useDrawingCanvasKeyboard = ({
       const hasFloatingPaste = Boolean(useAppStore.getState().floatingPaste ?? floatingPaste);
       if (hasFloatingPaste) {
         await commitFloatingPaste();
+        compositeCanvasDirtyRef.current = true;
+        await Promise.resolve(rebuildStaticComposite());
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d', { willReadFrequently: true });
         if (ctx) {

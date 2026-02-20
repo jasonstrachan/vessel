@@ -285,6 +285,46 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setCursorStyle).not.toHaveBeenCalled();
   });
 
+  it('does not bootstrap stroke from pointermove while busy', () => {
+    const { deps } = createDeps();
+    deps.isBusyRef.current = true;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({ buttons: 1 }));
+
+    expect(deps.drawingHandlers.beginStrokeSession).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+  });
+
+  it('bootstraps stroke from pointermove when not busy', () => {
+    const { deps } = createDeps();
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 21, clientY: 22 }));
+
+    expect(deps.drawingHandlers.beginStrokeSession).toHaveBeenCalledTimes(1);
+    expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledTimes(1);
+    expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledWith({ x: 21, y: 22 }, expect.any(Number));
+  });
+
+  it('does not bootstrap eraser stroke from pointermove while busy', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'eraser',
+      },
+    });
+    deps.isBusyRef.current = true;
+    dynamicDepsRef.current.tools.currentTool = 'eraser';
+    deps.tools = dynamicDepsRef.current.tools;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({ buttons: 1 }));
+
+    expect(deps.drawingHandlers.beginStrokeSession).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+  });
+
   it('starts panning when space is held', () => {
     const { deps } = createDeps();
     deps.isSpacePressedRef.current = true;

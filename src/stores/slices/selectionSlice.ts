@@ -29,6 +29,7 @@ export interface SelectionSlice {
   selectAllActiveLayerPixels: () => void;
   selectLayerAlpha: (layerId?: string | null) => void;
   deleteSelectedPixels: () => void;
+  extractSelectionToFloatingPaste: () => boolean;
   floatingPaste: {
     active: boolean;
     imageData: ImageData | null;
@@ -383,6 +384,115 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         }
       });
       trackPendingHistoryCommit(deleteHistoryCommit);
+    },
+    extractSelectionToFloatingPaste: () => {
+      const state = get();
+      const {
+        selectionStart,
+        selectionEnd,
+        selectionMask,
+        selectionMaskBounds,
+        project,
+        layers,
+        activeLayerId,
+      } = state;
+
+      if (!selectionStart || !selectionEnd || !project || !activeLayerId) {
+        return false;
+      }
+
+      const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
+      if (!activeLayer) {
+        return false;
+      }
+
+      const capture = selectionMask && selectionMaskBounds
+        ? captureSelectionBitmapFromMask({
+            mask: selectionMask,
+            maskBounds: selectionMaskBounds,
+            project,
+            layer: activeLayer,
+            clearSource: true,
+          })
+        : captureSelectionBitmap({
+            selectionStart,
+            selectionEnd,
+            project,
+            layer: activeLayer,
+            clearSource: true,
+          });
+
+      if (!capture || !capture.updatedLayerImageData) {
+        return false;
+      }
+
+      if (activeLayer.layerType === 'color-cycle') {
+        const cleared = clearColorCycleRegion(state, activeLayer, project, {
+          x: capture.bounds.x,
+          y: capture.bounds.y,
+          width: capture.bounds.width,
+          height: capture.bounds.height,
+        });
+        if (cleared) {
+          const eraseMask = activeLayer.colorCycleData?.eraseMask;
+          const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
+          eraseMaskCtx?.clearRect(
+            capture.bounds.x,
+            capture.bounds.y,
+            capture.bounds.width,
+            capture.bounds.height,
+          );
+          state.scheduleColorCycleSlotRebuild?.('extract-selection-transform');
+        }
+      } else {
+        const updatedImageData = capture.updatedLayerImageData;
+        const framebuffer = activeLayer.framebuffer;
+        if (framebuffer) {
+          try {
+            if (framebuffer.width !== updatedImageData.width || framebuffer.height !== updatedImageData.height) {
+              framebuffer.width = updatedImageData.width;
+              framebuffer.height = updatedImageData.height;
+            }
+            const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true }) as
+              | CanvasRenderingContext2D
+              | OffscreenCanvasRenderingContext2D
+              | null;
+            if (fbCtx && 'putImageData' in fbCtx) {
+              fbCtx.putImageData(updatedImageData, 0, 0);
+            }
+          } catch {
+            // If framebuffer sync fails, imageData update still preserves correctness.
+          }
+          state.updateLayer(activeLayerId, { imageData: updatedImageData, framebuffer });
+        } else {
+          state.updateLayer(activeLayerId, { imageData: updatedImageData });
+        }
+      }
+
+      state.setCurrentCompositeBitmap(null);
+      state.setLayersNeedRecomposition(true);
+      set({
+        selectionStart: null,
+        selectionEnd: null,
+        selectionMask: null,
+        selectionMaskBounds: null,
+        selectionMaskLayerId: null,
+        floatingPaste: {
+          active: true,
+          imageData: capture.selectionImageData,
+          position: { x: capture.bounds.x, y: capture.bounds.y },
+          originalPosition: { x: capture.bounds.x, y: capture.bounds.y },
+          width: capture.bounds.width,
+          height: capture.bounds.height,
+          displayWidth: capture.bounds.width,
+          displayHeight: capture.bounds.height,
+          rotation: 0,
+          sourceLayerId: activeLayerId,
+          colorCycleIndices: capture.colorCycleIndices ?? null,
+        },
+      });
+
+      return true;
     },
 
     floatingPaste: null,

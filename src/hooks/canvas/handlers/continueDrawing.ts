@@ -71,7 +71,7 @@ export const createContinueDrawingHandler = ({
   const brushSettings = currentState.tools.brushSettings;
   const worldPos = alignPointToPixel(rawWorldPos, shouldPixelAlignBrush(brushSettings));
   lastStrokePointRef.current = worldPos;
-
+  
   const isStrokeTool =
     currentState.tools.currentTool === 'brush' || currentState.tools.currentTool === 'eraser';
   if (isStrokeTool && !brushSamplingPreviewActiveRef.current) {

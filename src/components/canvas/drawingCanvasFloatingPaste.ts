@@ -15,6 +15,9 @@ interface DrawFloatingPasteOptions {
   ctx: CanvasRenderingContext2D;
   floatingPaste: FloatingPasteStateLike;
   project: { width: number; height: number };
+  layerOpacity: number;
+  layerBlendMode: GlobalCompositeOperation;
+  contextIsWorldTransformed?: boolean;
   scale: number;
   offsetX: number;
   offsetY: number;
@@ -33,6 +36,9 @@ export const drawFloatingPasteLayer = ({
   ctx,
   floatingPaste,
   project,
+  layerOpacity,
+  layerBlendMode,
+  contextIsWorldTransformed = false,
   scale,
   offsetX,
   offsetY,
@@ -47,8 +53,10 @@ export const drawFloatingPasteLayer = ({
   }
 
   ctx.save();
-  ctx.translate(offsetX, offsetY);
-  ctx.scale(scale, scale);
+  if (!contextIsWorldTransformed) {
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+  }
 
   const pasteX = floatingPaste.position.x;
   const pasteY = floatingPaste.position.y;
@@ -108,11 +116,18 @@ export const drawFloatingPasteLayer = ({
 
     if (rotation !== 0) {
       ctx.save();
+      ctx.globalAlpha = layerOpacity;
+      ctx.globalCompositeOperation = layerBlendMode;
       ctx.translate(centerX, centerY);
       ctx.rotate(rotationRad);
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(pasteCanvas, -renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
       ctx.restore();
     } else {
+      ctx.save();
+      ctx.globalAlpha = layerOpacity;
+      ctx.globalCompositeOperation = layerBlendMode;
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(
         pasteCanvas,
         floatingPaste.position.x,
@@ -120,6 +135,7 @@ export const drawFloatingPasteLayer = ({
         renderWidth,
         renderHeight
       );
+      ctx.restore();
     }
 
     const borderLineWidth = 2 / scale;

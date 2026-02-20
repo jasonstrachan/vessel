@@ -3,14 +3,12 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectFloatingPaste, selectSelectionRects } from '@/stores/selectors/pasteSelectors';
-import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import type { Rectangle } from '@/types';
 import {
   HANDLE_SIZE,
   handleDefinitions,
   handleCursor,
-  clampValue,
   resizeRect,
   type RectHandle,
   type Point,
@@ -40,7 +38,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
   const selectionMask = useAppStore((state) => state.selectionMask);
   const floatingPaste = useAppStore(selectFloatingPaste);
   const setSelectionBounds = useAppStore((state) => state.setSelectionBounds);
-  const currentTool = useAppStore(selectCurrentTool);
+  const extractSelectionToFloatingPaste = useAppStore((state) => state.extractSelectionToFloatingPaste);
 
   const selectionRect = useMemo(() => {
     if (selectionMask) {
@@ -87,11 +85,9 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
     selectionRectRef.current = selectionRect;
   }, [selectionRect]);
 
-  const isSelectionToolActive = currentTool === 'selection' || currentTool === 'custom';
   const canInteract =
     !floatingPaste &&
     Boolean(selectionRect) &&
-    isSelectionToolActive &&
     projectWidth > 0 &&
     projectHeight > 0;
 
@@ -107,8 +103,8 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
       const localY = event.clientY - rect.top;
       const safeZoom = zoom || 1;
 
-      const worldX = clampValue(Math.round((localX - offsetX) / safeZoom), 0, projectWidth);
-      const worldY = clampValue(Math.round((localY - offsetY) / safeZoom), 0, projectHeight);
+      const worldX = Math.round((localX - offsetX) / safeZoom);
+      const worldY = Math.round((localY - offsetY) / safeZoom);
 
       return { x: worldX, y: worldY };
     },
@@ -186,6 +182,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
         worldPoint,
         projectWidth,
         projectHeight,
+        { clampToBounds: false },
       );
 
       const currentRect = selectionRectRef.current;
@@ -215,6 +212,38 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
         return;
       }
 
+      const extracted = extractSelectionToFloatingPaste();
+      if (extracted) {
+        requestAnimationFrame(() => {
+          const rootEl = overlayRef.current?.parentElement ?? overlayRef.current;
+          const handleEl = rootEl?.querySelector<HTMLElement>(`[data-floating-handle="${handle}"]`) ?? null;
+          if (!handleEl) {
+            return;
+          }
+
+          const pointerCtor = window.PointerEvent ?? window.MouseEvent;
+          handleEl.dispatchEvent(
+            new pointerCtor('pointerdown', {
+              bubbles: true,
+              cancelable: true,
+              pointerId: event.pointerId,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              button: event.button,
+              buttons: event.buttons,
+              altKey: event.altKey,
+              ctrlKey: event.ctrlKey,
+              metaKey: event.metaKey,
+              shiftKey: event.shiftKey,
+            }),
+          );
+        });
+
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       beforeSelectionRef.current = beforeSelectionRef.current ?? captureSelectionSnapshot();
       interactionRef.current = {
         type: 'resizing',
@@ -226,7 +255,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
       event.preventDefault();
       event.stopPropagation();
     },
-    [canInteract, getWorldPoint, selectionRect],
+    [canInteract, extractSelectionToFloatingPaste, getWorldPoint, selectionRect],
   );
 
   if (floatingPaste || !selectionRect || !marqueeScreenRect) {

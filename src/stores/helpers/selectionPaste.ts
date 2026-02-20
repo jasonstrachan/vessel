@@ -320,6 +320,9 @@ export const createSelectionPasteHelpers = ({
           pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
         } catch {}
 
+        // Selection scale/transform should preserve exact pixel alpha values.
+        tempCtx.imageSmoothingEnabled = false;
+
         if (rotation) {
           const centerX = destinationRect.x + destinationRect.width / 2;
           const centerY = destinationRect.y + destinationRect.height / 2;
@@ -459,7 +462,34 @@ export const createSelectionPasteHelpers = ({
         }
 
         const restoredImage = new ImageData(restoredLayerData, layerImageData.width, layerImageData.height);
-        state.updateLayer(floatingPaste.sourceLayerId, { imageData: restoredImage });
+        const targetFramebuffer = targetLayer?.framebuffer ?? null;
+        if (targetFramebuffer) {
+          try {
+            if (
+              targetFramebuffer.width !== restoredImage.width ||
+              targetFramebuffer.height !== restoredImage.height
+            ) {
+              targetFramebuffer.width = restoredImage.width;
+              targetFramebuffer.height = restoredImage.height;
+            }
+            const fbCtx = targetFramebuffer.getContext('2d', { willReadFrequently: true }) as
+              | CanvasRenderingContext2D
+              | OffscreenCanvasRenderingContext2D
+              | null;
+            if (fbCtx && 'putImageData' in fbCtx) {
+              fbCtx.putImageData(restoredImage, 0, 0);
+            }
+          } catch {
+            // Fall back to imageData-only restore if framebuffer sync fails.
+          }
+        }
+
+        state.updateLayer(
+          floatingPaste.sourceLayerId,
+          targetFramebuffer
+            ? { imageData: restoredImage, framebuffer: targetFramebuffer }
+            : { imageData: restoredImage }
+        );
         state.setLayersNeedRecomposition(true);
         set({ floatingPaste: null });
         return;

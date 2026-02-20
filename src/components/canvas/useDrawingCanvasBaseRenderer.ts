@@ -221,6 +221,7 @@ export const useDrawingCanvasBaseRenderer = ({
       const runtimeState = useAppStore.getState() as {
         activeLayerId?: string | null;
         sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
+        layersNeedRecomposition?: boolean;
       };
       const isSequentialCaptureDrawing =
         activeLayer?.layerType === 'sequential' &&
@@ -243,8 +244,10 @@ export const useDrawingCanvasBaseRenderer = ({
         !isSequentialCaptureDrawing &&
         (isDrawing || drawingCanvasHasContent);
       const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
+      const floatingPasteActive = Boolean(floatingPaste && floatingPaste.imageData);
+      const splitCompositeRequested = overlayEligibleForSplit || floatingPasteActive;
 
-      if (overlayEligibleForSplit) {
+      if (splitCompositeRequested) {
         const sequentialFrame = runtimeState.sequentialRecord?.currentFrame ?? 0;
         const sequentialFrameChanged =
           activeLayer?.layerType === 'sequential' &&
@@ -259,6 +262,7 @@ export const useDrawingCanvasBaseRenderer = ({
           !underCompositeCanvasRef.current ||
           !underCompositeHasContentRef.current ||
           compositeCanvasDirtyRef.current ||
+          Boolean(runtimeState.layersNeedRecomposition) ||
           activeLayer?.layerType === 'color-cycle' ||
           sequentialFrameChanged ||
           anyAnimatingColorCycle;
@@ -272,7 +276,7 @@ export const useDrawingCanvasBaseRenderer = ({
         lastSplitCompositeSequentialFrameRef.current = null;
       }
 
-      const useSplitOverlay = Boolean(overlayEligibleForSplit && underCompositeCanvasRef.current);
+      const useSplitOverlay = Boolean(splitCompositeRequested && underCompositeCanvasRef.current);
       const { invalidCompositeBitmap } = drawVisibleCompositeStack({
         ctx,
         visibleRect,
@@ -302,6 +306,25 @@ export const useDrawingCanvasBaseRenderer = ({
         colorCycleManager: colorCycleManagerRef.current,
       });
 
+      if (floatingPaste && floatingPaste.imageData) {
+        drawFloatingPasteLayer({
+          ctx,
+          floatingPaste,
+          project,
+          layerOpacity: activeLayer?.opacity ?? 1,
+          layerBlendMode: (activeLayer?.blendMode ?? 'source-over') as GlobalCompositeOperation,
+          contextIsWorldTransformed: true,
+          scale,
+          offsetX,
+          offsetY,
+          marchingAntsOffset,
+          pasteCanvasRef,
+          lastPasteInfoRef,
+          activeCanvasShape,
+          applyCanvasShapeClip,
+        });
+      }
+
       drawOverCompositeLayer({
         ctx,
         useSplitOverlay,
@@ -327,22 +350,6 @@ export const useDrawingCanvasBaseRenderer = ({
         editorActive: canvasShapeEditor.active,
         strokeCanvasShapeOutline,
       });
-
-      if (floatingPaste && floatingPaste.imageData) {
-        drawFloatingPasteLayer({
-          ctx,
-          floatingPaste,
-          project,
-          scale,
-          offsetX,
-          offsetY,
-          marchingAntsOffset,
-          pasteCanvasRef,
-          lastPasteInfoRef,
-          activeCanvasShape,
-          applyCanvasShapeClip,
-        });
-      }
 
       drawSelectionLayer({
         ctx,

@@ -307,12 +307,9 @@ export class BrushEngineFacade {
 
       // When grid snapping is enabled, draw stamps at grid positions
       if (isGridSnapping) {
-        const dx = drawTo.x - drawFrom.x;
-        const dy = drawTo.y - drawFrom.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const spacingThreshold = Math.max(1, settings.spacing || 1);
-        const sampleStep = 1;
-        const steps = Math.max(1, Math.ceil(distance / sampleStep));
+        const gridSpacing = this.utilities.calculateGridSpacing();
+        const snappedFrom = this.utilities.snapToGrid(drawFrom.x, drawFrom.y);
+        const snappedTo = this.utilities.snapToGrid(drawTo.x, drawTo.y);
 
         // Set image smoothing based on brush type
         if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
@@ -323,21 +320,25 @@ export class BrushEngineFacade {
 
         if (!this.pixelQueue.initialized) {
           this.pixelQueue.initialized = true;
-          this.pixelQueue.lastStrokePosition = { x: drawFrom.x, y: drawFrom.y };
+          this.pixelQueue.lastStrokePosition = { x: snappedFrom.x, y: snappedFrom.y };
           this.pixelQueue.accumulatedDistance = 0;
         }
 
         const stampedPositions = this.pixelQueue.stampedGridPositions || new Set<string>();
 
         const drawSnappedStamp = (x: number, y: number) => {
-          const snapped = this.utilities.snapToGrid(x, y);
-          const posKey = `${snapped.x},${snapped.y}`;
+          const posKey = `${x},${y}`;
           if (!stampedPositions.has(posKey)) {
-            if (this.canDrawAt(ctx, snapped.x, snapped.y)) {
+            if (this.canDrawAt(ctx, x, y)) {
+              if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+                ctx.fillStyle = this.getNextCustomCycleColor();
+              } else {
+                ctx.fillStyle = settings.color;
+              }
               this.shapeDrawer(
                 ctx,
-                snapped.x,
-                snapped.y,
+                x,
+                y,
                 settings.size,
                 settings.shape,
                 settings.antiAliasing,
@@ -351,43 +352,38 @@ export class BrushEngineFacade {
           }
         };
 
-        // Sample trajectory by brush spacing, then snap each stamp to nearest grid cell.
-        for (let i = 0; i < steps; i++) {
-          const t = i / steps;
-          const x = drawFrom.x + (drawTo.x - drawFrom.x) * t;
-          const y = drawFrom.y + (drawTo.y - drawFrom.y) * t;
+        // Traverse every touched grid cell with Bresenham to avoid skipped cells on steep/diagonal moves.
+        let cellX = Math.round(snappedFrom.x / gridSpacing);
+        let cellY = Math.round(snappedFrom.y / gridSpacing);
+        const targetCellX = Math.round(snappedTo.x / gridSpacing);
+        const targetCellY = Math.round(snappedTo.y / gridSpacing);
+        const deltaX = Math.abs(targetCellX - cellX);
+        const deltaY = Math.abs(targetCellY - cellY);
+        const stepX = cellX < targetCellX ? 1 : -1;
+        const stepY = cellY < targetCellY ? 1 : -1;
+        let error = deltaX - deltaY;
 
-          const lastPos = this.pixelQueue.lastStrokePosition;
-          const dxSeg = x - lastPos.x;
-          const dySeg = y - lastPos.y;
-          const segDistance = Math.sqrt(dxSeg * dxSeg + dySeg * dySeg);
-          this.pixelQueue.accumulatedDistance += segDistance;
-          this.pixelQueue.lastStrokePosition = { x, y };
-
-          if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
-            this.pixelQueue.accumulatedDistance -= spacingThreshold;
-            drawSnappedStamp(x, y);
+        while (true) {
+          drawSnappedStamp(cellX * gridSpacing, cellY * gridSpacing);
+          if (cellX === targetCellX && cellY === targetCellY) {
+            break;
           }
-        }
-
-        if (distance > 0) {
-          const lastPos = this.pixelQueue.lastStrokePosition;
-          const dxSeg = drawTo.x - lastPos.x;
-          const dySeg = drawTo.y - lastPos.y;
-          const segDistance = Math.sqrt(dxSeg * dxSeg + dySeg * dySeg);
-          this.pixelQueue.accumulatedDistance += segDistance;
-          this.pixelQueue.lastStrokePosition = { x: drawTo.x, y: drawTo.y };
-
-          if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
-            this.pixelQueue.accumulatedDistance -= spacingThreshold;
-            drawSnappedStamp(drawTo.x, drawTo.y);
+          const doubleError = error * 2;
+          if (doubleError > -deltaY) {
+            error -= deltaY;
+            cellX += stepX;
+          }
+          if (doubleError < deltaX) {
+            error += deltaX;
+            cellY += stepY;
           }
         }
 
         // Update tracking
         this.pixelQueue.stampedGridPositions = stampedPositions;
-        this.pixelQueue.lastDrawnX = drawTo.x;
-        this.pixelQueue.lastDrawnY = drawTo.y;
+        this.pixelQueue.lastStrokePosition = { x: snappedTo.x, y: snappedTo.y };
+        this.pixelQueue.lastDrawnX = snappedTo.x;
+        this.pixelQueue.lastDrawnY = snappedTo.y;
       } else {
         // Normal rendering with interpolation
         if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {

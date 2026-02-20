@@ -2740,6 +2740,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // button is still held, bootstrap a stroke so drawing begins immediately.
     if (
       !interaction.state.isDrawing &&
+      !isBusyRef.current &&
       (event.buttons & 1) === 1 && // primary button held
       !isMouseDownRef.current &&
       !pan.panState.isPanning &&

@@ -15,6 +15,7 @@ import {
   MIN_RECT_SIZE,
   type Point,
 } from './RectHandles';
+import { computeHandleAnchoredRect } from './floatingPasteTransform';
 
 interface FloatingPasteOverlayProps {
   projectWidth: number;
@@ -233,14 +234,15 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
             boundsHeight: Number.POSITIVE_INFINITY,
           });
         }
-        // Keep the rotation origin (center) stable to avoid jumps.
-        const nextCenterWorld = center;
-        applyRectUpdate({
-          x: nextCenterWorld.x - nextLocal.width / 2,
-          y: nextCenterWorld.y - nextLocal.height / 2,
-          width: nextLocal.width,
-          height: nextLocal.height,
+
+        const nextRect = computeHandleAnchoredRect({
+          initialRect: interactionRef.current.initialRect,
+          handle: interactionRef.current.handle,
+          nextWidth: nextLocal.width,
+          nextHeight: nextLocal.height,
+          rotation,
         });
+        applyRectUpdate(nextRect);
       } else if (interactionRef.current.type === 'rotating') {
         const centerX = rect.x + rect.width / 2;
         const centerY = rect.y + rect.height / 2;
@@ -417,6 +419,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
             <div
               key={handle}
               role="presentation"
+              data-floating-handle={handle}
               style={{
                 position: 'absolute' as const,
                 width: HANDLE_SIZE,
