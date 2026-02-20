@@ -353,7 +353,6 @@ export class HistoryManager {
   }
 
   private async applyEntry(entry: HistoryEntry, direction: HistoryDirection): Promise<void> {
-    console.log('[HIST] apply begin', { direction, action: entry.action, id: entry.id });
     this._isReplaying = true;
     let rehydrationModule: RehydrationModule | null = null;
     let targets: HistoryRehydrationTargets | null = null;
@@ -378,14 +377,12 @@ export class HistoryManager {
     }
 
     if (thrown) {
-      console.log('[HIST] apply end (error)', { direction, action: entry.action, id: entry.id, error: thrown });
       throw thrown;
     }
 
     if (rehydrationModule && targets) {
       await rehydrationModule.rehydrateEntryResources(entry, direction, targets);
     }
-    console.log('[HIST] apply end', { direction, action: entry.action, id: entry.id });
   }
 
   private disposeEntry(entry: HistoryEntry): void {
