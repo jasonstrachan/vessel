@@ -1,5 +1,6 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
+import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 
 const makeCanvas = () => {
   const ctx = {
@@ -412,5 +413,147 @@ describe('layers slice integration', () => {
     useAppStore.getState().compositeLayersToCanvas(targetCanvas);
 
     expect(ctx.drawImage).toHaveBeenCalledWith(framebuffer, 0, 0);
+  });
+
+  it('applies color-cycle erase mask before compositing color-cycle layer canvas', () => {
+    useAppStore.setState((state) => ({
+      project: state.project ?? {
+        id: 'proj-cc-mask-composite',
+        name: 'CC Mask Composite',
+        width: 64,
+        height: 64,
+        layers: [],
+        backgroundColor: 'transparent',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const layerCanvasCtx = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      drawImage: jest.fn(),
+      globalCompositeOperation: 'source-over' as GlobalCompositeOperation,
+      globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const layerCanvas = {
+      width: 64,
+      height: 64,
+      getContext: jest.fn(() => layerCanvasCtx),
+    } as unknown as HTMLCanvasElement;
+    const eraseMaskCanvas = {
+      width: 64,
+      height: 64,
+      getContext: jest.fn(),
+    } as unknown as HTMLCanvasElement;
+
+    const store = useAppStore.getState();
+    store.addLayer({
+      ...createColorCycleLayerInput('CC Layer'),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradient: [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }],
+        isAnimating: false,
+        mode: 'recolor',
+        canvas: layerCanvas,
+        eraseMask: eraseMaskCanvas,
+      },
+    });
+
+    const targetCtx = {
+      clearRect: jest.fn(),
+      fillRect: jest.fn(),
+      drawImage: jest.fn(),
+      globalCompositeOperation: 'source-over' as GlobalCompositeOperation,
+      globalAlpha: 1,
+      imageSmoothingEnabled: true,
+    } as unknown as CanvasRenderingContext2D;
+    const targetCanvas = {
+      width: 64,
+      height: 64,
+      getContext: jest.fn(() => targetCtx),
+    } as unknown as HTMLCanvasElement;
+
+    useAppStore.getState().compositeLayersToCanvas(targetCanvas);
+
+    expect(layerCanvasCtx.save).toHaveBeenCalledTimes(1);
+    expect(layerCanvasCtx.drawImage).toHaveBeenCalledWith(eraseMaskCanvas, 0, 0);
+    expect(layerCanvasCtx.restore).toHaveBeenCalledTimes(1);
+    expect(targetCtx.drawImage).toHaveBeenCalledWith(layerCanvas, 0, 0);
+  });
+
+  it('ignores stale async composite bitmap results from older renders', async () => {
+    useAppStore.setState((state) => ({
+      project: state.project ?? {
+        id: 'proj-async-composite',
+        name: 'Async Composite',
+        width: 64,
+        height: 64,
+        layers: [],
+        backgroundColor: 'transparent',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    useAppStore.getState().addLayer(createNormalLayerInput('Layer 1'));
+
+    const targetCtx = {
+      clearRect: jest.fn(),
+      fillRect: jest.fn(),
+      drawImage: jest.fn(),
+      globalCompositeOperation: 'source-over' as GlobalCompositeOperation,
+      globalAlpha: 1,
+      imageSmoothingEnabled: true,
+      save: jest.fn(),
+      restore: jest.fn(),
+      setTransform: jest.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const targetCanvas = {
+      width: 64,
+      height: 64,
+      getContext: jest.fn(() => targetCtx),
+    } as unknown as HTMLCanvasElement;
+
+    const firstBitmap = { close: jest.fn() } as unknown as ImageBitmap;
+    const secondBitmap = { close: jest.fn() } as unknown as ImageBitmap;
+    let resolveFirst: ((bitmap: ImageBitmap) => void) | null = null;
+    let resolveSecond: ((bitmap: ImageBitmap) => void) | null = null;
+
+    const isSupportedSpy = jest
+      .spyOn(compositeBitmapManager, 'isSupported')
+      .mockReturnValue(true);
+    const renderSpy = jest
+      .spyOn(compositeBitmapManager, 'render')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve as (bitmap: ImageBitmap) => void;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve as (bitmap: ImageBitmap) => void;
+          })
+      );
+
+    useAppStore.getState().compositeLayersToCanvas(targetCanvas);
+    useAppStore.getState().compositeLayersToCanvas(targetCanvas);
+
+    resolveSecond?.(secondBitmap);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useAppStore.getState().currentCompositeBitmap).toBe(secondBitmap);
+
+    resolveFirst?.(firstBitmap);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useAppStore.getState().currentCompositeBitmap).toBe(secondBitmap);
+
+    renderSpy.mockRestore();
+    isSupportedSpy.mockRestore();
   });
 });

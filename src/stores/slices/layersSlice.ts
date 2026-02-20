@@ -325,6 +325,34 @@ const cloneGradientStops = (
   return stops.map((stop) => ({ ...stop }));
 };
 
+const applyColorCycleEraseMask = (
+  layer: Layer,
+  targetCanvas: HTMLCanvasElement | OffscreenCanvas
+): void => {
+  const eraseMask = layer.colorCycleData?.eraseMask;
+  if (!eraseMask) {
+    return;
+  }
+  const canvasCtx = targetCanvas.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!canvasCtx) {
+    return;
+  }
+
+  canvasCtx.save();
+  canvasCtx.globalCompositeOperation = 'destination-out';
+  canvasCtx.globalAlpha = 1;
+  try {
+    canvasCtx.drawImage(eraseMask as CanvasImageSource, 0, 0);
+  } catch {
+    // ignore transient erase-mask draw failures
+  } finally {
+    canvasCtx.restore();
+  }
+};
+
 const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Partial<T> => {
   const entries = Object.entries(value).filter(([, entryValue]) => entryValue !== undefined);
   return Object.fromEntries(entries) as Partial<T>;
@@ -1327,6 +1355,8 @@ export const createLayersSlice = (
           }
         }
 
+        applyColorCycleEraseMask(layer, canvas);
+
         try {
           ctx.globalCompositeOperation = layer.blendMode;
           ctx.globalAlpha = layer.opacity;
@@ -1344,6 +1374,7 @@ export const createLayersSlice = (
     };
 
     let staticBitmapCaptureToken = 0;
+    let compositeRenderToken = 0;
 
     const captureStaticBitmapFromCanvas = (canvas: HTMLCanvasElement) => {
       if (typeof window === 'undefined' || typeof window.createImageBitmap !== 'function') {
@@ -2979,8 +3010,9 @@ export const createLayersSlice = (
     get().markAllCompositeSegmentsDirty();
   },
 
-  compositeLayersToCanvas: (targetCanvas) => {
-    const state = get();
+	  compositeLayersToCanvas: (targetCanvas) => {
+	    const state = get();
+      const renderToken = ++compositeRenderToken;
 
     try {
       if (!state.project || !state.layers.length) {
@@ -3041,19 +3073,28 @@ export const createLayersSlice = (
         get().setCurrentCompositeBitmap(null);
       };
 
-      if (compositeBitmapManager.isSupported()) {
-        void compositeBitmapManager
-          .render(expectedWidth, expectedHeight, drawAllLayers, targetCanvas)
-          .then((bitmap) => {
-            const setBitmap = get().setCurrentCompositeBitmap;
-            setBitmap(bitmap ?? null);
-          })
-          .catch((error) => {
-            logError('[compose] compositeBitmapManager.render failed', error);
-            renderWithFallback();
-          });
-        return;
-      }
+	      if (compositeBitmapManager.isSupported()) {
+	        void compositeBitmapManager
+	          .render(expectedWidth, expectedHeight, drawAllLayers, targetCanvas)
+	          .then((bitmap) => {
+              if (renderToken !== compositeRenderToken) {
+                if (bitmap) {
+                  scheduleCompositeBitmapRelease(bitmap);
+                }
+                return;
+              }
+	            const setBitmap = get().setCurrentCompositeBitmap;
+	            setBitmap(bitmap ?? null);
+	          })
+	          .catch((error) => {
+              if (renderToken !== compositeRenderToken) {
+                return;
+              }
+	            logError('[compose] compositeBitmapManager.render failed', error);
+	            renderWithFallback();
+	          });
+	        return;
+	      }
 
       renderWithFallback();
     } catch (error) {

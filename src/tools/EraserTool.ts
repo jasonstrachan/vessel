@@ -110,11 +110,34 @@ export class EraserTool implements StrokeTool {
   }
 
   private recordROI(from: CanvasPoint | null, to: CanvasPoint): void {
-    const padding = Math.ceil(this.deps.brushHalfSize()) + ROI_PADDING;
+    const padding = this.computeRoiPadding();
     if (from) {
       this.roi.addSegment(from, to, padding);
     } else {
       this.roi.addPoint(to, padding);
     }
+  }
+
+  private computeRoiPadding(): number {
+    const basePadding = Math.ceil(this.deps.brushHalfSize()) + ROI_PADDING;
+    const snapshot = this.deps.getBrushSettings();
+    if (!snapshot) {
+      return basePadding;
+    }
+
+    let size = Math.max(1, snapshot.size || 1);
+    const customStamp = snapshot.customStamp;
+    if (customStamp && !customStamp.isResampler) {
+      const maxDim = Math.max(customStamp.width, customStamp.height) || 1;
+      size = (size / 100) * maxDim;
+    }
+
+    if (snapshot.pressureEnabled) {
+      const pressureScale = Math.max(1, (snapshot.maxPressure ?? 200) / 100);
+      size *= pressureScale;
+    }
+
+    const brushPadding = Math.ceil(size / 2) + ROI_PADDING;
+    return Math.max(basePadding, brushPadding);
   }
 }

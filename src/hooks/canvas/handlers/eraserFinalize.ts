@@ -87,13 +87,39 @@ export const finalizeEraserStroke = async (
   const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
   const layerCanvas = activeLayer.colorCycleData?.canvas ?? null;
   const captureMode = isEraserV2 ? { mode: 'replace' as const } : undefined;
+  const matchesRoi = (image: ImageData | null, roi: CaptureRegion | null | undefined): boolean =>
+    Boolean(image && roi && image.width === roi.width && image.height === roi.height);
+  const isFullSnapshot = (image: ImageData | null): boolean =>
+    Boolean(
+      image &&
+      drawingCanvas &&
+      image.width === drawingCanvas.width &&
+      image.height === drawingCanvas.height
+    );
+  const resolveHistoryBitmapRoi = (): CaptureRegion | undefined => {
+    const preferred = (eraserRoi ?? captureRoi) ?? undefined;
+    if (!preferred) {
+      return undefined;
+    }
+    if (!layerBeforeImage || isFullSnapshot(layerBeforeImage)) {
+      return preferred;
+    }
+    if (matchesRoi(layerBeforeImage, preferred)) {
+      return preferred;
+    }
+    if (matchesRoi(layerBeforeImage, captureRoi ?? null)) {
+      return captureRoi ?? undefined;
+    }
+    return undefined;
+  };
+  const historyBitmapRoi = resolveHistoryBitmapRoi();
 
   if (isEraserV2 && isColorCycleLayer && layerCanvas) {
     await deps.withTiming('cc:capture', () =>
       deps.captureCanvasToActiveLayer(layerCanvas, eraserRoi ?? undefined, captureMode)
     );
     if (!skipSave) {
-      void deps.scheduleHistoryCommit({
+      await deps.scheduleHistoryCommit({
         layerId: activeLayerId,
         beforeImage: layerBeforeImage,
         beforeColorState: layerBeforeColorState,
@@ -101,7 +127,7 @@ export const finalizeEraserStroke = async (
         description,
         tool: 'eraser',
         coalesce,
-        bitmapRoi: eraserRoi ?? undefined,
+        bitmapRoi: historyBitmapRoi,
         skipBitmapDelta: true,
       });
       return true;
@@ -132,7 +158,7 @@ export const finalizeEraserStroke = async (
       deps.logError('[finalize] eraser beforeImage missing; skipping history to avoid destructive undo.');
       return false;
     }
-    void deps.scheduleHistoryCommit({
+    await deps.scheduleHistoryCommit({
       layerId: activeLayerId,
       beforeImage: layerBeforeImage,
       beforeColorState: layerBeforeColorState,
@@ -140,7 +166,7 @@ export const finalizeEraserStroke = async (
       description,
       tool: 'eraser',
       coalesce,
-      bitmapRoi: (eraserRoi ?? captureRoi) ?? undefined,
+      bitmapRoi: historyBitmapRoi,
       skipBitmapDelta: false,
     });
     return true;

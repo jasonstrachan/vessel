@@ -2318,6 +2318,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         brushId: brushPresetId ?? undefined,
       });
       // Use the existing drawing system with brush engine
+      compositeCanvasDirtyRef.current = true;
       interaction.dispatch({ type: 'DRAWING_START', pressure });
       drawingHandlers.startDrawing(worldPos, pressure);
       return;
@@ -2623,6 +2624,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             tool: tools.currentTool,
             brushId: brushPresetId ?? undefined,
           });
+          compositeCanvasDirtyRef.current = true;
           drawingHandlers.startDrawing(worldPos, pressure);
         }
       }
@@ -2786,6 +2788,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             tool: tools.currentTool,
             brushId: brushPresetId ?? undefined,
           });
+          compositeCanvasDirtyRef.current = true;
           interaction.dispatch({ type: 'DRAWING_START', pressure });
           drawingHandlers.startDrawing(worldPos, pressure);
           return; // Stroke started; ignore the rest of this move handler
@@ -2811,6 +2814,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           tool: tools.currentTool,
           brushId: brushPresetId ?? undefined,
         });
+        compositeCanvasDirtyRef.current = true;
         interaction.dispatch({ type: 'DRAWING_START', pressure });
         drawingHandlers.startDrawing(worldPos, pressure);
         return;

@@ -476,4 +476,58 @@ describe('eraser history persistence', () => {
 
     expect(historyManager.entries()).toHaveLength(0);
   });
+
+  it('undoes only the latest regular-layer eraser stroke', async () => {
+    const filled = createImage([
+      255, 0, 0, 255,
+      255, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const afterFirstErase = cloneImage(filled);
+    setPixel(afterFirstErase, 0, 0, [0, 0, 0, 0]);
+
+    const afterSecondErase = cloneImage(afterFirstErase);
+    setPixel(afterSecondErase, 1, 0, [0, 0, 0, 0]);
+
+    const layer = createLayer('eraser-layer-multi', cloneImage(filled));
+    installLayer(layer);
+
+    updateLayerImage(layer.id, cloneImage(afterFirstErase));
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(filled),
+      beforeColorState: null,
+      actionType: 'eraser',
+      description: 'Eraser stroke 1',
+      tool: 'eraser',
+      bitmapRoi: { x: 0, y: 0, width: 1, height: 1 },
+      skipBitmapDelta: false,
+    });
+
+    updateLayerImage(layer.id, cloneImage(afterSecondErase));
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(afterFirstErase),
+      beforeColorState: null,
+      actionType: 'eraser',
+      description: 'Eraser stroke 2',
+      tool: 'eraser',
+      bitmapRoi: { x: 1, y: 0, width: 1, height: 1 },
+      skipBitmapDelta: false,
+    });
+
+    expect(historyManager.entries()).toHaveLength(2);
+
+    await historyManager.undo();
+
+    const restoredLayer = useAppStore.getState().layers.find((l) => l.id === layer.id);
+    expect(restoredLayer?.imageData).not.toBeNull();
+    const restored = restoredLayer?.imageData as ImageData;
+
+    // First erase remains applied.
+    expect(getPixel(restored, 0, 0)).toEqual([0, 0, 0, 0]);
+    // Second erase is undone.
+    expect(getPixel(restored, 1, 0)).toEqual([255, 0, 0, 255]);
+  });
 });

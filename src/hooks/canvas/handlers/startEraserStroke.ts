@@ -4,6 +4,36 @@ import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacad
 import { EraserTool } from '@/tools/EraserTool';
 import type { ColorCycleEraserSettings } from '@/hooks/canvas/handlers/colorCycle/colorCycleEraserSettings';
 import { startUserBrushStroke } from '@/hooks/canvas/handlers/startUserBrushStroke';
+import type { Layer } from '@/types';
+
+const seedOverlayFromActiveLayer = ({
+  activeLayer,
+  drawCtx,
+}: {
+  activeLayer: Layer;
+  drawCtx: CanvasRenderingContext2D;
+}): boolean => {
+  if (activeLayer.layerType === 'color-cycle') {
+    return false;
+  }
+
+  const framebuffer = activeLayer.framebuffer;
+  if (framebuffer && framebuffer.width > 0 && framebuffer.height > 0) {
+    try {
+      drawCtx.drawImage(framebuffer, 0, 0);
+      return true;
+    } catch {
+      // Fall back to imageData when framebuffer is temporarily unavailable.
+    }
+  }
+
+  if (activeLayer.imageData) {
+    drawCtx.putImageData(activeLayer.imageData, 0, 0);
+    return true;
+  }
+
+  return false;
+};
 
 export const startEraserStroke = ({
   currentState,
@@ -65,15 +95,10 @@ export const startEraserStroke = ({
       return false;
     }
 
-    const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
-    if (!isColorCycleLayer && activeLayer.imageData) {
-      drawCtx.putImageData(activeLayer.imageData, 0, 0);
-      drawingCanvasHasContent.current = true;
-    } else if (!isColorCycleLayer) {
-      drawingCanvasHasContent.current = true;
-    } else {
-      drawingCanvasHasContent.current = false;
-    }
+    drawingCanvasHasContent.current = seedOverlayFromActiveLayer({
+      activeLayer,
+      drawCtx,
+    });
 
     const eraserOpacity = currentState.tools.eraserSettings.opacity ?? 1;
     const tool = new EraserTool(
@@ -95,8 +120,11 @@ export const startEraserStroke = ({
   }
 
   const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
-  if (activeLayer?.imageData) {
-    drawCtx.putImageData(activeLayer.imageData, 0, 0);
+  if (activeLayer) {
+    seedOverlayFromActiveLayer({
+      activeLayer,
+      drawCtx,
+    });
   }
 
   drawCtx.globalCompositeOperation = 'destination-out';
