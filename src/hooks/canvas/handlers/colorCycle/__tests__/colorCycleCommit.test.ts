@@ -43,4 +43,61 @@ describe('commitRasterOverlay', () => {
     const secondCanvas = captureCanvasToActiveLayer.mock.calls[1]?.[0];
     expect(firstCanvas).toBe(secondCanvas);
   });
+
+  it('seeds temp canvas from framebuffer before overlay merge', async () => {
+    const layer = createLayer();
+    layer.imageData = new ImageData(new Uint8ClampedArray([
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+    ]), 2, 2);
+    layer.framebuffer.width = 2;
+    layer.framebuffer.height = 2;
+    const fbCtx = layer.framebuffer.getContext('2d');
+    fbCtx?.putImageData(new ImageData(new Uint8ClampedArray([
+      0, 0, 255, 255,
+      0, 0, 255, 255,
+      0, 0, 255, 255,
+      0, 0, 255, 255,
+    ]), 2, 2), 0, 0);
+
+    const overlay = document.createElement('canvas');
+    overlay.width = 2;
+    overlay.height = 2;
+    const overlayCtx = overlay.getContext('2d');
+    overlayCtx?.putImageData(new ImageData(new Uint8ClampedArray([
+      255, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]), 2, 2), 0, 0);
+
+    const drawImageSpy = jest.spyOn(CanvasRenderingContext2D.prototype, 'drawImage');
+    const captureCanvasToActiveLayer = jest.fn().mockResolvedValue(undefined);
+
+    await commitRasterOverlay(
+      {
+        layer,
+        overlayCanvas: overlay,
+        beforeImage: null,
+        beforeColorState: null,
+        historyAction: 'brush',
+        historyDescription: 'test',
+        tool: 'brush',
+        skipHistory: true,
+      },
+      {
+        project: { width: 2, height: 2 },
+        captureCanvasToActiveLayer,
+        scheduleHistoryCommit: jest.fn().mockResolvedValue(undefined),
+        withTiming: async <T,>(_label: string, task: () => Promise<T> | T): Promise<T> => task(),
+      }
+    );
+
+    expect(captureCanvasToActiveLayer).toHaveBeenCalledTimes(1);
+    expect(drawImageSpy).toHaveBeenCalled();
+    expect(drawImageSpy.mock.calls[0]?.[0]).toBe(layer.framebuffer);
+    drawImageSpy.mockRestore();
+  });
 });

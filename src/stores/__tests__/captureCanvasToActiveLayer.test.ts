@@ -125,4 +125,46 @@ describe('captureCanvasToActiveLayer with replace mode', () => {
     // Neighboring pixels should reflect overlay color replacement
     expect(getPixel(updated, 1, 0)).toEqual([255, 0, 0, 255]);
   });
+
+  it('prefers framebuffer pixels over stale imageData when compositing ROI', async () => {
+    const staleImageData = new ImageData(new Uint8ClampedArray([
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+    ]), 2, 2);
+    const layer = createLayer('layer-fb-priority', staleImageData);
+
+    const fbCtx = layer.framebuffer.getContext('2d');
+    const framebufferImage = new ImageData(new Uint8ClampedArray([
+      0, 0, 255, 255,
+      0, 0, 255, 255,
+      0, 0, 255, 255,
+      0, 0, 255, 255,
+    ]), 2, 2);
+    fbCtx?.putImageData(framebufferImage, 0, 0);
+
+    installProjectWithLayer(layer);
+
+    const overlay = document.createElement('canvas');
+    overlay.width = 2;
+    overlay.height = 2;
+    const overlayCtx = overlay.getContext('2d');
+    const overlayData = new ImageData(new Uint8ClampedArray([
+      255, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]), 2, 2);
+    overlayCtx?.putImageData(overlayData, 0, 0);
+
+    await useAppStore.getState().captureCanvasToActiveLayer(
+      overlay,
+      { x: 0, y: 0, width: 1, height: 1 }
+    );
+
+    const updated = useAppStore.getState().layers[0]?.imageData;
+    expect(getPixel(updated, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(getPixel(updated, 1, 1)).toEqual([0, 0, 255, 255]);
+  });
 });

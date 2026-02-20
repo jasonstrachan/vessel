@@ -60,6 +60,28 @@ export const waitForPendingColorCycleSaves = async (layerId: string): Promise<vo
   }
 };
 
+export const waitForAllPendingColorCycleSaves = async (): Promise<void> => {
+  while (pendingPromises.size > 0) {
+    const pendingArray = Array.from(pendingPromises.values()).flatMap((entries) =>
+      Array.from(entries)
+    );
+    if (pendingArray.length === 0) {
+      break;
+    }
+
+    const results = await Promise.allSettled(pendingArray);
+    results.forEach((result, index) => {
+      if (result.status === 'rejected' && process.env.NODE_ENV !== 'production') {
+        console.error('[cc-pending-saves] deferred save rejected', {
+          layerId: 'all',
+          index,
+          reason: result.reason,
+        });
+      }
+    });
+  }
+};
+
 export const registerFinalizeQueue = (queue: FinalizeQueue | null): void => {
   finalizeQueueInstance = queue;
 };

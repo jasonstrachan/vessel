@@ -91,8 +91,6 @@ export const runFinalizePostCommit = async ({
     drawingCanvasHasContent,
   });
 
-  releaseBusyLock();
-
   let nextHistoryHandled = historyHandled;
   if (!nextHistoryHandled) {
     nextHistoryHandled = await deps.commitStrokeHistoryIfNeeded({
@@ -113,6 +111,8 @@ export const runFinalizePostCommit = async ({
       brushForCleanup,
     });
   }
+
+  releaseBusyLock();
 
   if (!(isColorCycleLayer && isAnyColorCycleBrush)) {
     brushForCleanup?.clearPaintBuffer?.(activeLayerId);

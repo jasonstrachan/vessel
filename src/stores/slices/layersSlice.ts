@@ -3583,18 +3583,23 @@ export const createLayersSlice = (
             return layer;
           }
 
+          const framebufferInitial = hasValidFramebuffer(layer.framebuffer)
+            ? layer.framebuffer
+            : createLayerTransferCanvas(captureWidth, captureHeight) ?? null;
           const matchedImageData =
             layer.imageData &&
             layer.imageData.width === captureWidth &&
             layer.imageData.height === captureHeight
               ? layer.imageData
               : null;
-          const framebufferInitial = hasValidFramebuffer(layer.framebuffer)
-            ? layer.framebuffer
-            : createLayerTransferCanvas(captureWidth, captureHeight) ?? null;
+          const framebufferSnapshot = snapshotFramebufferRegion(
+            framebufferInitial,
+            captureWidth,
+            captureHeight
+          );
 
           const baseImageDataRaw =
-            matchedImageData ?? snapshotFramebufferRegion(framebufferInitial, captureWidth, captureHeight);
+            framebufferSnapshot ?? matchedImageData;
 
           const baseImageData =
             baseImageDataRaw &&

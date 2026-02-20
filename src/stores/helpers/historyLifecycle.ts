@@ -12,10 +12,14 @@ import {
 import type { CanvasSnapshot, Layer, Project } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
-import { waitForFinalizeQueueIdle, waitForPendingColorCycleSaves } from '../pendingColorCycleSaves';
+import {
+  waitForFinalizeQueueIdle,
+  waitForAllPendingColorCycleSaves,
+} from '../pendingColorCycleSaves';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
+import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 
 type AppState = import('../useAppStore').AppState;
 type CCReason = import('../useAppStore').CCReason;
@@ -625,6 +629,9 @@ export const createHistoryService = ({
   const undo = async (): Promise<CanvasSnapshot | null> => {
     return runWithColorCycleSuspended('history-apply', async () => {
       await flushPendingToolWork();
+      await waitForFinalizeQueueIdle();
+      await waitForAllPendingColorCycleSaves();
+      await waitForPendingHistoryCommits();
 
       const pendingEntry = historyManager.peekUndo();
       if (!pendingEntry) {
@@ -636,18 +643,6 @@ export const createHistoryService = ({
       const requiresComposite = entryRequiresComposite(pendingEntry);
       const currentSnapshot: CanvasSnapshot | null = legacySnapshots.forward;
       const previousSnapshot: CanvasSnapshot | null = legacySnapshots.backward;
-
-      const pendingLayerId =
-        typeof pendingEntry.meta?.['layerId'] === 'string'
-          ? (pendingEntry.meta['layerId'] as string)
-          : null;
-
-      if (pendingLayerId) {
-        await waitForFinalizeQueueIdle(pendingLayerId);
-        await waitForPendingColorCycleSaves(pendingLayerId);
-      } else {
-        await waitForFinalizeQueueIdle();
-      }
 
       await historyManager.undo();
 
@@ -680,6 +675,9 @@ export const createHistoryService = ({
   const redo = async (): Promise<CanvasSnapshot | null> => {
     return runWithColorCycleSuspended('history-apply', async () => {
       await flushPendingToolWork();
+      await waitForFinalizeQueueIdle();
+      await waitForAllPendingColorCycleSaves();
+      await waitForPendingHistoryCommits();
 
       const pendingEntry = historyManager.peekRedo();
       if (!pendingEntry) {
@@ -690,18 +688,6 @@ export const createHistoryService = ({
       const hasLegacySnapshot = Boolean(legacySnapshots.forward && legacySnapshots.backward);
       const requiresComposite = entryRequiresComposite(pendingEntry);
       const stateToRestore: CanvasSnapshot | null = legacySnapshots.forward;
-
-      const pendingLayerId =
-        typeof pendingEntry.meta?.['layerId'] === 'string'
-          ? (pendingEntry.meta['layerId'] as string)
-          : null;
-
-      if (pendingLayerId) {
-        await waitForFinalizeQueueIdle(pendingLayerId);
-        await waitForPendingColorCycleSaves(pendingLayerId);
-      } else {
-        await waitForFinalizeQueueIdle();
-      }
 
       await historyManager.redo();
 

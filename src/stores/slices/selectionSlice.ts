@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { Rectangle } from '@/types';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
+import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
@@ -368,7 +369,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       state.setLayersNeedRecomposition(true);
       state.clearSelection();
 
-      void commitLayerHistory({
+      const deleteHistoryCommit = commitLayerHistory({
         layerId: activeLayerId,
         beforeImage,
         beforeColorState,
@@ -381,6 +382,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           console.warn('[history] Failed to record selection delete', error);
         }
       });
+      trackPendingHistoryCommit(deleteHistoryCommit);
     },
 
     floatingPaste: null,
@@ -514,7 +516,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               state.setLayersNeedRecomposition(true);
               state.setCurrentCompositeBitmap(null);
 
-              void commitLayerHistory({
+              const cutHistoryCommit = commitLayerHistory({
                 layerId: activeLayerId,
                 beforeImage,
                 beforeColorState,
@@ -527,6 +529,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   console.warn('[history] Failed to record selection cut', error);
                 }
               });
+              trackPendingHistoryCommit(cutHistoryCommit);
             }
           }
         }

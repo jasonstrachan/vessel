@@ -201,6 +201,7 @@ import { createShapeToolHandler } from './shapes/ShapeToolHandler';
 import { logContourFillDebug } from './utils/logContourFillDebug';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
+import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
 import { createSelectionHandlers } from './selectionHandlers';
 
@@ -2440,7 +2441,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           }
         });
         
-        void commitLayerHistory({
+        const historyCommit = commitLayerHistory({
           layerId: activeLayer.id,
           beforeImage,
           beforeColorState,
@@ -2453,6 +2454,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             console.warn('[history] Failed to record flood fill history', error);
           }
         });
+        trackPendingHistoryCommit(historyCommit);
         
       return;
     }

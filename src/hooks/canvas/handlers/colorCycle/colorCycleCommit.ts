@@ -185,7 +185,16 @@ export const commitRasterOverlay = async (
     return;
   }
 
-  if (options.layer.imageData) {
+  const baseFramebuffer = options.layer.framebuffer;
+  if (baseFramebuffer && baseFramebuffer.width > 0 && baseFramebuffer.height > 0) {
+    try {
+      tempCtx.drawImage(baseFramebuffer as CanvasImageSource, 0, 0);
+    } catch {
+      if (options.layer.imageData) {
+        tempCtx.putImageData(options.layer.imageData, 0, 0);
+      }
+    }
+  } else if (options.layer.imageData) {
     tempCtx.putImageData(options.layer.imageData, 0, 0);
   }
 
@@ -217,7 +226,7 @@ export const commitRasterOverlay = async (
   };
 
   if (options.deferHistory) {
-    void deps.scheduleHistoryCommit(payload);
+    await deps.scheduleHistoryCommit(payload);
     return;
   }
 
