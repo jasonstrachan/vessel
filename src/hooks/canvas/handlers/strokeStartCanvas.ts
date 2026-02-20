@@ -1,4 +1,5 @@
 import type React from 'react';
+import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 
 export const initializeStrokeStartCanvasState = ({
   ccStrokeActiveAtStart,
@@ -32,6 +33,7 @@ export const initializeStrokeStartCanvasState = ({
     // Avoid clearing a large overlay if it's already empty.
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
   }
+  setOverlaySeededFromLayer(drawingCanvas, false);
   drawingCanvasHasContent.current = !(isColorCycleBrush && ccStrokeActiveAtStart);
   lastDrawPosRef.current = worldPos;
   lastStrokePointRef.current = worldPos;

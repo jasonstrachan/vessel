@@ -5,6 +5,7 @@ import { getColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFla
 import { startUserBrushStroke } from '@/hooks/canvas/handlers/startUserBrushStroke';
 import { startColorCycleStroke } from '@/hooks/canvas/handlers/startColorCycleStroke';
 import { startNonColorCycleBrushStroke } from '@/hooks/canvas/handlers/startBrushStroke';
+import { seedOverlayFromActiveLayer } from '@/hooks/canvas/handlers/seedOverlayFromActiveLayer';
 import {
   captureSequentialStampsForActiveLayer,
   createFallbackSequentialStamp,
@@ -100,6 +101,16 @@ export const startBrushToolStroke = ({
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
 }): void => {
   const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
+  const shouldSeedOverlayFromLayer =
+    Boolean(activeLayer) &&
+    (activeLayer?.opacity ?? 1) < 1 &&
+    activeLayer?.layerType !== 'color-cycle';
+  if (activeLayer && shouldSeedOverlayFromLayer) {
+    seedOverlayFromActiveLayer({
+      activeLayer,
+      drawCtx,
+    });
+  }
   drawCtx.globalAlpha = 1.0;
   drawCtx.globalCompositeOperation = 'source-over';
 

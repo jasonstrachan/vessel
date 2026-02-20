@@ -16,6 +16,7 @@ import { drawFloatingPasteLayer } from './drawingCanvasFloatingPaste';
 import { drawCanvasOverlayLayer } from './drawingCanvasOverlay';
 import { drawSelectionLayer } from './drawingCanvasSelection';
 import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasShape';
+import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 
 const CANVAS_CHECKER_LIGHT = '#2a2a2e';
 const CANVAS_CHECKER_DARK = '#1c1c1f';
@@ -236,8 +237,14 @@ export const useDrawingCanvasBaseRenderer = ({
 
       const overlayCanvasElement = drawingCanvasRef ?? null;
       const hasOverlayCanvas = overlayCanvasElement !== null;
+      const overlaySeededFromLayer = isOverlaySeededFromLayer(overlayCanvasElement);
+      const isActiveLayerOverlaySeeded =
+        hasOverlayCanvas &&
+        Boolean(drawingCanvasHasContent) &&
+        overlaySeededFromLayer;
       const isActivelyErasing =
-        currentTool === 'eraser' && isDrawing && hasOverlayCanvas && drawingCanvasHasContent;
+        (currentTool === 'eraser' && isDrawing && hasOverlayCanvas && drawingCanvasHasContent) ||
+        Boolean(isActiveLayerOverlaySeeded);
       const overlayActive =
         !skipDrawingCanvas &&
         hasOverlayCanvas &&

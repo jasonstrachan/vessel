@@ -1,4 +1,5 @@
 import { commitRasterOverlay } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import type { Layer } from '@/types';
 
 const createLayer = (): Layer =>
@@ -99,5 +100,44 @@ describe('commitRasterOverlay', () => {
     expect(drawImageSpy).toHaveBeenCalled();
     expect(drawImageSpy.mock.calls[0]?.[0]).toBe(layer.framebuffer);
     drawImageSpy.mockRestore();
+  });
+
+  it('uses replace capture mode when overlay is seeded from active layer', async () => {
+    const layer = createLayer();
+    layer.framebuffer.width = 2;
+    layer.framebuffer.height = 2;
+
+    const overlay = document.createElement('canvas');
+    overlay.width = 2;
+    overlay.height = 2;
+    const overlayCtx = overlay.getContext('2d');
+    overlayCtx?.fillRect(0, 0, 2, 2);
+    setOverlaySeededFromLayer(overlay, true);
+
+    const captureCanvasToActiveLayer = jest.fn().mockResolvedValue(undefined);
+    await commitRasterOverlay(
+      {
+        layer,
+        overlayCanvas: overlay,
+        beforeImage: null,
+        beforeColorState: null,
+        historyAction: 'brush',
+        historyDescription: 'test',
+        tool: 'brush',
+        skipHistory: true,
+      },
+      {
+        project: { width: 2, height: 2 },
+        captureCanvasToActiveLayer,
+        scheduleHistoryCommit: jest.fn().mockResolvedValue(undefined),
+        withTiming: async <T,>(_label: string, task: () => Promise<T> | T): Promise<T> => task(),
+      }
+    );
+
+    expect(captureCanvasToActiveLayer).toHaveBeenCalledWith(
+      expect.any(HTMLCanvasElement),
+      undefined,
+      { mode: 'replace' }
+    );
   });
 });

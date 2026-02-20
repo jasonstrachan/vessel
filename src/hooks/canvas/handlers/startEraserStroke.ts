@@ -4,36 +4,7 @@ import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacad
 import { EraserTool } from '@/tools/EraserTool';
 import type { ColorCycleEraserSettings } from '@/hooks/canvas/handlers/colorCycle/colorCycleEraserSettings';
 import { startUserBrushStroke } from '@/hooks/canvas/handlers/startUserBrushStroke';
-import type { Layer } from '@/types';
-
-const seedOverlayFromActiveLayer = ({
-  activeLayer,
-  drawCtx,
-}: {
-  activeLayer: Layer;
-  drawCtx: CanvasRenderingContext2D;
-}): boolean => {
-  if (activeLayer.layerType === 'color-cycle') {
-    return false;
-  }
-
-  const framebuffer = activeLayer.framebuffer;
-  if (framebuffer && framebuffer.width > 0 && framebuffer.height > 0) {
-    try {
-      drawCtx.drawImage(framebuffer, 0, 0);
-      return true;
-    } catch {
-      // Fall back to imageData when framebuffer is temporarily unavailable.
-    }
-  }
-
-  if (activeLayer.imageData) {
-    drawCtx.putImageData(activeLayer.imageData, 0, 0);
-    return true;
-  }
-
-  return false;
-};
+import { seedOverlayFromActiveLayer } from '@/hooks/canvas/handlers/seedOverlayFromActiveLayer';
 
 export const startEraserStroke = ({
   currentState,

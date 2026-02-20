@@ -14,6 +14,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
+import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -36,7 +37,11 @@ export type CommitRasterOverlayOptions = {
 
 export type CommitRasterOverlayDeps = {
   project: { width: number; height: number } | null;
-  captureCanvasToActiveLayer: (canvas: HTMLCanvasElement, roi?: CaptureRegion) => Promise<void>;
+  captureCanvasToActiveLayer: (
+    canvas: HTMLCanvasElement,
+    roi?: CaptureRegion,
+    options?: { mode?: 'alpha' | 'replace' }
+  ) => Promise<void>;
   scheduleHistoryCommit: (payload: LayerHistoryPayload) => Promise<void>;
   withTiming: <T>(label: string, task: () => Promise<T> | T) => Promise<T>;
 };
@@ -185,17 +190,21 @@ export const commitRasterOverlay = async (
     return;
   }
 
-  const baseFramebuffer = options.layer.framebuffer;
-  if (baseFramebuffer && baseFramebuffer.width > 0 && baseFramebuffer.height > 0) {
-    try {
-      tempCtx.drawImage(baseFramebuffer as CanvasImageSource, 0, 0);
-    } catch {
-      if (options.layer.imageData) {
-        tempCtx.putImageData(options.layer.imageData, 0, 0);
+  const overlaySeededFromLayer = isOverlaySeededFromLayer(options.overlayCanvas);
+
+  if (!overlaySeededFromLayer) {
+    const baseFramebuffer = options.layer.framebuffer;
+    if (baseFramebuffer && baseFramebuffer.width > 0 && baseFramebuffer.height > 0) {
+      try {
+        tempCtx.drawImage(baseFramebuffer as CanvasImageSource, 0, 0);
+      } catch {
+        if (options.layer.imageData) {
+          tempCtx.putImageData(options.layer.imageData, 0, 0);
+        }
       }
+    } else if (options.layer.imageData) {
+      tempCtx.putImageData(options.layer.imageData, 0, 0);
     }
-  } else if (options.layer.imageData) {
-    tempCtx.putImageData(options.layer.imageData, 0, 0);
   }
 
   if (options.overlayCanvas) {
@@ -205,7 +214,11 @@ export const commitRasterOverlay = async (
   }
 
   await deps.withTiming('cc:capture', () =>
-    deps.captureCanvasToActiveLayer(tempCanvas, options.bitmapRoi)
+    deps.captureCanvasToActiveLayer(
+      tempCanvas,
+      options.bitmapRoi,
+      overlaySeededFromLayer ? { mode: 'replace' } : undefined
+    )
   );
   tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
 

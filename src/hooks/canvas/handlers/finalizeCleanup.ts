@@ -1,4 +1,5 @@
 import type React from 'react';
+import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 
 export type FinalizeDrawingCleanupArgs = {
   endMaskHealingStroke: () => void;
@@ -40,6 +41,7 @@ export const finalizeDrawingCleanup = async ({
   strokeBeforeColorStateRef.current = null;
   if (drawingCtxRef.current && drawingCanvasRef.current) {
     drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+    setOverlaySeededFromLayer(drawingCanvasRef.current, false);
   }
   drawingCanvasHasContent.current = false;
   await resumeColorCycleAfterInteraction();

@@ -1,4 +1,5 @@
 import type React from 'react';
+import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 
 interface ClearDrawingCanvasOptions {
   drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
@@ -25,6 +26,7 @@ export const clearDrawingCanvas = ({
 }: ClearDrawingCanvasOptions): void => {
   if (drawingCtxRef.current && drawingCanvasRef.current) {
     drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+    setOverlaySeededFromLayer(drawingCanvasRef.current, false);
   }
   drawingCanvasHasContent.current = false;
   lastDrawPosRef.current = null;
