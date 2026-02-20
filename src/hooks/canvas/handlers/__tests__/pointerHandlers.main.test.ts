@@ -826,6 +826,7 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerUp(makePointerEvent({ clientX: 2, clientY: 3 }));
 
     await Promise.resolve();
+    await Promise.resolve();
 
     expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledWith(false);
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
@@ -852,6 +853,7 @@ describe('pointerHandlers main flows', () => {
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerUp(makePointerEvent({ clientX: 4, clientY: 4 }));
 
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();

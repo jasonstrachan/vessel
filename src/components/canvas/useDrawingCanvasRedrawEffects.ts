@@ -1,6 +1,5 @@
 import type React from 'react';
 import { useEffect } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 
 interface UseDrawingCanvasRedrawEffectsOptions {
   layersNeedRecomposition: boolean;
@@ -138,15 +137,4 @@ export const useDrawingCanvasRedrawEffects = ({
     };
   }, [refreshColorCycleSegments, setNeedsRedraw, canvasRef, drawRef, viewTransformRef]);
 
-  useEffect(() => {
-    let prevLength = useAppStore.getState().history.undoStack.length;
-    const unsubscribe = useAppStore.subscribe((state) => {
-      const length = state.history.undoStack.length;
-      if (length > prevLength) {
-        // quiet
-      }
-      prevLength = length;
-    });
-    return unsubscribe;
-  }, []);
 };

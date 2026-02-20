@@ -1,6 +1,5 @@
 import type { StateCreator } from 'zustand';
 import type {
-  CanvasSnapshot,
   Layer,
   LayerAlignmentSettings,
   Project,
@@ -35,6 +34,7 @@ import type {
   CommitLayerStructureHistoryOptions,
   LayerHistorySnapshotOptions,
 } from '@/stores/helpers/layerStructureHistory';
+import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import type { AppState, CaptureROI, VesselWindow } from '../useAppStore';
 
 type StaticCompositeSegment = {
@@ -1106,7 +1106,7 @@ export interface LayersSliceOptions {
   captureLayerStructureSnapshot: (
     state: AppState,
     options: LayerHistorySnapshotOptions
-  ) => CanvasSnapshot;
+  ) => LayerStructureSnapshot;
   commitLayerStructureHistory: (options: CommitLayerStructureHistoryOptions) => void;
   getVesselWindow: () => VesselWindow | undefined;
 }

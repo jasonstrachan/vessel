@@ -1,7 +1,10 @@
 import type { StoreApi } from 'zustand';
 import type { CanvasSnapshot } from '@/types';
 import historyManager from '@/history/historyService';
-import { createLegacySnapshotDelta } from '@/history/legacyCanvasSnapshot';
+import {
+  createLayerStructureDelta,
+  type LayerStructureSnapshot,
+} from '@/history/deltas/layerStructureDelta';
 import { logError } from '@/utils/debug';
 import { createHistorySnapshotFromState } from './historyLifecycle';
 
@@ -13,25 +16,31 @@ export interface LayerHistorySnapshotOptions {
   actionType: CanvasSnapshot['actionType'];
   description: string;
   activeLayerId?: string | null;
-  previousSnapshot?: CanvasSnapshot | null;
+  previousSnapshot?: LayerStructureSnapshot | null;
 }
 
 export const captureLayerStructureSnapshot = (
   state: AppState,
   { actionType, description, activeLayerId, previousSnapshot }: LayerHistorySnapshotOptions
-): CanvasSnapshot => {
-  return createHistorySnapshotFromState(state, {
+): LayerStructureSnapshot => {
+  const snapshot = createHistorySnapshotFromState(state, {
     actionType,
     description,
     activeLayerId: activeLayerId ?? undefined,
-    previousSnapshot: previousSnapshot ?? undefined,
+    previousSnapshot: previousSnapshot?.snapshot ?? undefined,
   });
+
+  return {
+    snapshot,
+    selectedLayerIds: [...state.selectedLayerIds],
+    referenceLayerId: state.referenceLayerId ?? null,
+  };
 };
 
 export interface CommitLayerStructureHistoryOptions {
   set: StoreSet;
-  beforeSnapshot: CanvasSnapshot;
-  afterSnapshot: CanvasSnapshot;
+  beforeSnapshot: LayerStructureSnapshot;
+  afterSnapshot: LayerStructureSnapshot;
   label: string;
   metadata?: Record<string, unknown>;
 }
@@ -46,10 +55,10 @@ export const commitLayerStructureHistory = ({
   try {
     const txn = historyManager.begin('layer-structure', metadata ?? {});
     txn.push(
-      createLegacySnapshotDelta({
-        forward: afterSnapshot,
-        backward: beforeSnapshot,
-      })
+      createLayerStructureDelta({
+        before: beforeSnapshot,
+        after: afterSnapshot,
+      }),
     );
     txn.commit(label);
 

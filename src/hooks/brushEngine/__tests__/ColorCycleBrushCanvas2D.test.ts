@@ -131,6 +131,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     }
 
     setFlowMode() {}
+    setSpeed() {}
 
     getCanvas() {
       const canvas = document.createElement('canvas');

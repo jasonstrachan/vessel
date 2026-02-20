@@ -1,9 +1,5 @@
 import type { StoreApi } from 'zustand';
 import historyManager from '@/history/historyService';
-import {
-  isLegacySnapshotDelta,
-  type LegacySnapshotDeltaHandle,
-} from '@/history/legacyCanvasSnapshot';
 import type { HistoryEntry } from '@/history/actionTypes';
 import {
   captureColorCycleBrushState,
@@ -492,21 +488,6 @@ export interface HistoryService {
   clearHistory: () => void;
 }
 
-const extractLegacySnapshots = (
-  entry: HistoryEntry,
-): { forward: CanvasSnapshot | null; backward: CanvasSnapshot | null } => {
-  const delta = entry.deltas.find((candidate): candidate is LegacySnapshotDeltaHandle =>
-    isLegacySnapshotDelta(candidate),
-  );
-  if (!delta) {
-    return { forward: null, backward: null };
-  }
-  return {
-    forward: delta.getSnapshot('forward'),
-    backward: delta.getSnapshot('backward'),
-  };
-};
-
 export const createHistoryService = ({
   set,
   get,
@@ -638,29 +619,16 @@ export const createHistoryService = ({
         return null;
       }
 
-      const legacySnapshots = extractLegacySnapshots(pendingEntry);
-      const hasLegacySnapshot = Boolean(legacySnapshots.forward && legacySnapshots.backward);
       const requiresComposite = entryRequiresComposite(pendingEntry);
-      const currentSnapshot: CanvasSnapshot | null = legacySnapshots.forward;
-      const previousSnapshot: CanvasSnapshot | null = legacySnapshots.backward;
 
       await historyManager.undo();
 
-      set((state) => {
-        const nextHistory = {
+      set((state) => ({
+        history: {
           ...state.history,
           isCapturing: false,
-        };
-
-        if (hasLegacySnapshot && currentSnapshot) {
-          nextHistory.undoStack = state.history.undoStack.slice(0, -1);
-          nextHistory.redoStack = [currentSnapshot, ...state.history.redoStack];
-        }
-
-        return {
-          history: nextHistory,
-        };
-      });
+        },
+      }));
 
       if (requiresComposite) {
         get().setLayersNeedRecomposition(true);
@@ -668,7 +636,7 @@ export const createHistoryService = ({
 
       rehydrateColorCycleLayersFromStore();
 
-      return previousSnapshot;
+      return null;
     });
   };
 
@@ -684,28 +652,16 @@ export const createHistoryService = ({
         return null;
       }
 
-      const legacySnapshots = extractLegacySnapshots(pendingEntry);
-      const hasLegacySnapshot = Boolean(legacySnapshots.forward && legacySnapshots.backward);
       const requiresComposite = entryRequiresComposite(pendingEntry);
-      const stateToRestore: CanvasSnapshot | null = legacySnapshots.forward;
 
       await historyManager.redo();
 
-      set((state) => {
-        const nextHistory = {
+      set((state) => ({
+        history: {
           ...state.history,
           isCapturing: false,
-        };
-
-        if (hasLegacySnapshot && stateToRestore) {
-          nextHistory.redoStack = state.history.redoStack.slice(1);
-          nextHistory.undoStack = [...state.history.undoStack, stateToRestore];
-        }
-
-        return {
-          history: nextHistory,
-        };
-      });
+        },
+      }));
 
       if (requiresComposite) {
         get().setLayersNeedRecomposition(true);
@@ -713,7 +669,7 @@ export const createHistoryService = ({
 
       rehydrateColorCycleLayersFromStore();
 
-      return stateToRestore;
+      return null;
     });
   };
 

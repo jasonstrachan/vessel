@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
-import type { CanvasSnapshot, Layer, PaletteState, Project } from '@/types';
+import type { Layer, PaletteState, Project } from '@/types';
 
 const resetAutosaveState = () => {
   useAppStore.setState((state) => ({
@@ -93,14 +93,9 @@ describe('autosave dirty tracking', () => {
     expect(autosave.lastDirtyReason).toBe('palette-change');
   });
 
-  it('marks dirty when history stack grows', () => {
+  it('marks dirty when history operations explicitly flag dirty state', () => {
     resetAutosaveState();
-    useAppStore.setState((state) => ({
-      history: {
-        ...state.history,
-        undoStack: [...state.history.undoStack, {} as CanvasSnapshot],
-      },
-    }));
+    useAppStore.getState().markAutosaveDirty('history-change');
 
     const autosave = useAppStore.getState().autosave;
     expect(autosave.hasUnsavedChanges).toBe(true);

@@ -543,7 +543,7 @@ describe('sequential color-cycle routing', () => {
     expect(events[0].brush.customStamp).toBeTruthy();
   });
 
-  it('extends CC mask healing even when stamp target context is temporarily unavailable', () => {
+  it('skips CC mask healing when stamp target context is unavailable', () => {
     createColorCycleState();
     const drawCtx = document.createElement('canvas').getContext('2d');
     if (!drawCtx) {
@@ -614,12 +614,11 @@ describe('sequential color-cycle routing', () => {
 
     processBatchedStrokes(args, deps);
 
-    expect(extendMaskHealingStroke).toHaveBeenCalled();
-    expect(extendMaskHealingStroke.mock.calls).toContainEqual([{ x: 1, y: 1 }, { x: 10, y: 1 }, 1]);
+    expect(extendMaskHealingStroke).not.toHaveBeenCalled();
     expect(drawColorCycle).not.toHaveBeenCalled();
   });
 
-  it('extends CC mask healing even when clipping rejects the movement segment', () => {
+  it('skips CC mask healing when clipping rejects the movement segment', () => {
     createColorCycleState();
     const drawCtx = document.createElement('canvas').getContext('2d');
     if (!drawCtx) {
@@ -689,7 +688,7 @@ describe('sequential color-cycle routing', () => {
 
     processBatchedStrokes(args, deps);
 
-    expect(extendMaskHealingStroke.mock.calls).toContainEqual([{ x: 3, y: 3 }, { x: 9, y: 3 }, 0.75]);
-    expect(deps.scheduleRecompose).toHaveBeenCalled();
+    expect(extendMaskHealingStroke).not.toHaveBeenCalled();
+    expect(deps.scheduleRecompose).not.toHaveBeenCalled();
   });
 });

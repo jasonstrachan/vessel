@@ -132,15 +132,8 @@ export const rehydrateEntryResources = async (
   direction: HistoryDirection,
   targets: HistoryRehydrationTargets,
 ): Promise<void> => {
-  // Use explicit layer hints when provided; fall back to a full sweep for legacy snapshots.
-  const shouldSweepColorCycle =
-    targets.colorCycleLayerIds.size === 0 &&
-    entry.deltas.some((delta) => delta._tag === 'legacy-canvas-snapshot');
-
-  if (targets.colorCycleLayerIds.size > 0 || shouldSweepColorCycle) {
-    await rehydrateColorCycleRuntime(
-      shouldSweepColorCycle ? null : targets.colorCycleLayerIds,
-    );
+  if (targets.colorCycleLayerIds.size > 0) {
+    await rehydrateColorCycleRuntime(targets.colorCycleLayerIds);
   }
 
   if (targets.workerScopes.size > 0) {
@@ -155,5 +148,6 @@ export const rehydrateEntryResources = async (
   }
 
   // Canvas/view transforms are handled directly by their deltas; no extra work required here.
+  void entry; // appease unused parameter lint in case of future additions
   void direction; // appease unused parameter lint in case of future additions
 };

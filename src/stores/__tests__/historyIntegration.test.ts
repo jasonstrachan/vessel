@@ -261,6 +261,7 @@ describe('history integration', () => {
       layers: [layerA, layerB],
       activeLayerId: layerB.id,
       selectedLayerIds: [layerB.id],
+      referenceLayerId: layerB.id,
       project: {
         id: 'proj-layer-remove',
         name: 'Layer Remove',
@@ -277,13 +278,16 @@ describe('history integration', () => {
     const store = useAppStore.getState();
     store.removeLayer(layerB.id);
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A']);
+    expect(useAppStore.getState().referenceLayerId).toBeNull();
 
     await store.undo();
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A', 'layer-B']);
     expect(useAppStore.getState().activeLayerId).toBe(layerB.id);
+    expect(useAppStore.getState().referenceLayerId).toBe(layerB.id);
 
     await store.redo();
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A']);
+    expect(useAppStore.getState().referenceLayerId).toBeNull();
   });
 
   it('preserves restored pixels when drawing after undoing layer removal', async () => {

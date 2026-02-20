@@ -848,20 +848,6 @@ const subscribeToAutosaveDirtyTracking = (): void => {
     }
   );
 
-  storeSubscribeWithSelector(
-    (state) => ({
-      undo: state.history.undoStack.length,
-      redo: state.history.redoStack.length,
-    }),
-    (next, prev) => {
-      if (next.undo !== prev.undo || next.redo !== prev.redo) {
-        ensureMarkDirty('history-change');
-      }
-    },
-    {
-      equalityFn: (a, b) => a.undo === b.undo && a.redo === b.redo,
-    }
-  );
 };
 
 subscribeToAutosaveDirtyTracking();

@@ -519,8 +519,12 @@ describe('layers slice integration', () => {
 
     const firstBitmap = { close: jest.fn() } as unknown as ImageBitmap;
     const secondBitmap = { close: jest.fn() } as unknown as ImageBitmap;
-    let resolveFirst: ((bitmap: ImageBitmap) => void) | null = null;
-    let resolveSecond: ((bitmap: ImageBitmap) => void) | null = null;
+    let resolveFirst: (bitmap: ImageBitmap) => void = () => {
+      throw new Error('expected first async composite resolver');
+    };
+    let resolveSecond: (bitmap: ImageBitmap) => void = () => {
+      throw new Error('expected second async composite resolver');
+    };
 
     const isSupportedSpy = jest
       .spyOn(compositeBitmapManager, 'isSupported')
@@ -543,12 +547,12 @@ describe('layers slice integration', () => {
     useAppStore.getState().compositeLayersToCanvas(targetCanvas);
     useAppStore.getState().compositeLayersToCanvas(targetCanvas);
 
-    resolveSecond?.(secondBitmap);
+    resolveSecond(secondBitmap);
     await Promise.resolve();
     await Promise.resolve();
     expect(useAppStore.getState().currentCompositeBitmap).toBe(secondBitmap);
 
-    resolveFirst?.(firstBitmap);
+    resolveFirst(firstBitmap);
     await Promise.resolve();
     await Promise.resolve();
     expect(useAppStore.getState().currentCompositeBitmap).toBe(secondBitmap);

@@ -1,5 +1,6 @@
 import type React from 'react';
 import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
+import type { AppState } from '@/stores/useAppStore';
 
 describe('colorCycleStrokeCommit finalize mask clear', () => {
   it('clears erase mask in ROI and bumps version without CC sync', () => {
@@ -26,20 +27,7 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
 
     const storeRef = {
       current: state,
-    } as unknown as React.MutableRefObject<{
-      layers: Array<{
-        id: string;
-        colorCycleData?: {
-          eraseMask?: HTMLCanvasElement;
-          eraseMaskVersion?: number;
-        };
-      }>;
-      updateLayer: (
-        layerId: string,
-        patch: { colorCycleData: { eraseMaskVersion: number } },
-        options: { skipColorCycleSync: boolean }
-      ) => void;
-    }>;
+    } as unknown as React.MutableRefObject<AppState>;
     clearColorCycleEraseMaskInRegion(storeRef, layerId, {
       x: -10,
       y: 5,
