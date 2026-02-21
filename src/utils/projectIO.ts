@@ -35,6 +35,12 @@ import {
 
 // Vessel project file format version
 const PROJECT_VERSION = '1.1.0';
+const MAX_PROJECT_ARCHIVE_BYTES = 64 * 1024 * 1024;
+const MAX_PROJECT_MANIFEST_BYTES = 32 * 1024 * 1024;
+const MAX_PROJECT_DIMENSION = 16384;
+const MAX_PROJECT_PIXELS = 64 * 1024 * 1024;
+const MAX_PROJECT_LAYERS = 512;
+const MAX_PROJECT_CUSTOM_BRUSHES = 512;
 
 const LEGACY_FLOW_SLOT_MASK = 63;
 const LEGACY_EDITOR_SLOT = 63;
@@ -227,6 +233,10 @@ async function decodeProjectData(input: ProjectFileData): Promise<string> {
     throw new Error('Unsupported project data input');
   }
 
+  if (bytes.byteLength > MAX_PROJECT_ARCHIVE_BYTES) {
+    throw new Error('Project file is too large to open safely');
+  }
+
   if (isZipBytes(bytes)) {
     const zip = await JSZip.loadAsync(bytes);
     const primaryEntry = zip.file(PROJECT_ARCHIVE_ENTRY);
@@ -245,17 +255,32 @@ async function decodeProjectData(input: ProjectFileData): Promise<string> {
       throw new Error('Project archive is missing project.json');
     }
 
-    return entry.async('string');
+    const maybeUncompressedSize = (
+      entry as unknown as { _data?: { uncompressedSize?: number } }
+    )._data?.uncompressedSize;
+    if (typeof maybeUncompressedSize === 'number' && maybeUncompressedSize > MAX_PROJECT_MANIFEST_BYTES) {
+      throw new Error('Project manifest is too large to open safely');
+    }
+
+    const manifestBytes = await entry.async('uint8array');
+    if (manifestBytes.byteLength > MAX_PROJECT_MANIFEST_BYTES) {
+      throw new Error('Project manifest is too large to open safely');
+    }
+    return new TextDecoder().decode(manifestBytes);
   }
 
   if (isGzipBytes(bytes)) {
-    const decoder = new TextDecoder();
     const decompressed = gunzipSync(bytes);
-    return decoder.decode(decompressed);
+    if (decompressed.byteLength > MAX_PROJECT_MANIFEST_BYTES) {
+      throw new Error('Project manifest is too large to open safely');
+    }
+    return new TextDecoder().decode(decompressed);
   }
 
-  const decoder = new TextDecoder();
-  return decoder.decode(bytes);
+  if (bytes.byteLength > MAX_PROJECT_MANIFEST_BYTES) {
+    throw new Error('Project manifest is too large to open safely');
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 function ensureProjectFilename(name: string): string {
@@ -1703,6 +1728,44 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
   });
 }
 
+const isSafeIntegerInRange = (value: unknown, min: number, max: number): value is number => {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && Number.isInteger(value)
+    && value >= min
+    && value <= max;
+};
+
+const validateProjectDimensions = (width: unknown, height: unknown, label: string): void => {
+  if (!isSafeIntegerInRange(width, 1, MAX_PROJECT_DIMENSION) || !isSafeIntegerInRange(height, 1, MAX_PROJECT_DIMENSION)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  const safeWidth = width;
+  const safeHeight = height;
+  if (safeWidth * safeHeight > MAX_PROJECT_PIXELS) {
+    throw new Error(`Invalid ${label}`);
+  }
+};
+
+const validateSerializedProjectEnvelope = (vesselProject: VesselProject): void => {
+  const serializedProject = vesselProject.project;
+  validateProjectDimensions(serializedProject.width, serializedProject.height, 'project dimensions');
+
+  if (!Array.isArray(serializedProject.layers)) {
+    throw new Error('Invalid Vessel project file');
+  }
+  if (serializedProject.layers.length > MAX_PROJECT_LAYERS) {
+    throw new Error('Project has too many layers');
+  }
+
+  if (!Array.isArray(serializedProject.customBrushes)) {
+    throw new Error('Invalid Vessel project file');
+  }
+  if (serializedProject.customBrushes.length > MAX_PROJECT_CUSTOM_BRUSHES) {
+    throw new Error('Project has too many custom brushes');
+  }
+};
+
 function parseVesselProjectJson(json: string): VesselProject {
   let sanitized = json;
   if (sanitized.length > 0 && sanitized.charCodeAt(0) === 0xfeff) {
@@ -1728,6 +1791,8 @@ function parseVesselProjectJson(json: string): VesselProject {
   if (!vesselProject.version || !vesselProject.project) {
     throw new Error('Invalid Vessel project file');
   }
+
+  validateSerializedProjectEnvelope(vesselProject);
 
   return vesselProject;
 }
@@ -1790,6 +1855,12 @@ function parseVesselProjectPreviewJson(json: string): VesselProjectPreview {
     throw new Error('Invalid Vessel project preview');
   }
 
+  validateProjectDimensions(
+    previewManifest.project.width,
+    previewManifest.project.height,
+    'project preview dimensions'
+  );
+
   if (previewManifest.preview) {
     const { preview } = previewManifest;
     if (
@@ -1800,6 +1871,7 @@ function parseVesselProjectPreviewJson(json: string): VesselProjectPreview {
     ) {
       throw new Error('Invalid Vessel project preview');
     }
+    validateProjectDimensions(preview.width, preview.height, 'preview thumbnail dimensions');
   }
 
   return normalizeVesselProjectPreview(previewManifest);

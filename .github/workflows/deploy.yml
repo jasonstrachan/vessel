@@ -30,6 +30,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run production dependency audit
+        run: npm run audit:prod
+
+      - name: Run full dependency audit (non-blocking)
+        run: npm run audit:full
+        continue-on-error: true
+
+      - name: Export full dependency audit report (JSON)
+        run: npm run audit:full:json
+        continue-on-error: true
+
+      - name: Build full dependency audit summary (markdown)
+        run: npm run audit:full:summary
+        continue-on-error: true
+
+      - name: Upload full audit report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-audit-report
+          path: |
+            audit-full.json
+            audit-full-summary.md
+          if-no-files-found: ignore
+
       - name: Run lint
         run: npm run lint
 

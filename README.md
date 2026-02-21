@@ -83,6 +83,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 ### Prerequisites
 - Node.js 18+ with npm
 - Modern browser with Canvas2D support (WebGL optional for color-cycle acceleration)
+- Optional: `nvm use` (repo includes `.nvmrc`)
 
 ### Getting Started
 
@@ -125,6 +126,13 @@ npm run preview:prod
 npm run preview
 ```
 
+### Security Checks
+- Production dependency audit (recommended gate): `npm run audit:prod`
+- Full dependency audit (includes dev tooling): `npm run audit:full`
+- Full dependency audit JSON export: `npm run audit:full:json` (writes `audit-full.json`)
+- Full dependency audit summary export: `npm run audit:full:summary` (writes `audit-full-summary.md`)
+- Dev-tooling remediation plan: `docs/security/dev-tooling-audit-remediation.md`
+
 ## Project Structure
 
 ```
@@ -157,3 +165,7 @@ src/
 ## License
 
 TBD
+
+## Security
+
+See `SECURITY.md` and `docs/security/dev-tooling-audit-remediation.md`.

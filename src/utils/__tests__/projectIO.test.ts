@@ -186,6 +186,31 @@ describe('projectIO readProjectManifest', () => {
     await expect(readProjectManifest('{}')).rejects.toThrow('Invalid Vessel project file');
   });
 
+  it('rejects project manifests with oversized dimensions', async () => {
+    const oversized = {
+      ...minimalVesselProject,
+      project: {
+        ...minimalVesselProject.project,
+        width: 20000,
+        height: 10,
+      },
+    };
+
+    await expect(readProjectManifest(JSON.stringify(oversized))).rejects.toThrow('Invalid project dimensions');
+  });
+
+  it('rejects project manifests with too many layers', async () => {
+    const tooManyLayers = {
+      ...minimalVesselProject,
+      project: {
+        ...minimalVesselProject.project,
+        layers: Array.from({ length: 513 }, () => ({})),
+      },
+    };
+
+    await expect(readProjectManifest(JSON.stringify(tooManyLayers))).rejects.toThrow('Project has too many layers');
+  });
+
   it('throws when zip payload lacks project.json', async () => {
     const zip = new JSZip();
     zip.file('other.txt', 'no project here');
@@ -222,6 +247,21 @@ describe('projectIO readProjectPreviewManifest', () => {
     const manifest = await readProjectPreviewManifest(payload);
     expect(manifest.project.id).toBe('p1');
     expect(manifest.project.width).toBe(10);
+  });
+
+  it('rejects preview manifests with oversized dimensions', async () => {
+    const payload = JSON.stringify({
+      version: '1.1.0',
+      metadata: minimalVesselProject.metadata,
+      project: {
+        id: 'preview-oversized',
+        name: 'Oversized',
+        width: 20000,
+        height: 10,
+      },
+    });
+
+    await expect(readProjectPreviewManifest(payload)).rejects.toThrow('Invalid project dimensions');
   });
 });
 
