@@ -366,13 +366,11 @@ export const createSelectionPasteHelpers = ({
 
       await captureCanvasToActiveLayer(tempCanvas, captureArea);
 
-      const historyBeforeImage = floatingPaste.historyBeforeImage ?? beforeImage;
-
       await commitLayerHistory({
         layerId: activeLayer.id,
-        beforeImage: historyBeforeImage,
+        beforeImage,
         beforeColorState,
-        bitmapRoi: floatingPaste.historyBeforeImage ? undefined : (bitmapRoi ?? undefined),
+        bitmapRoi: bitmapRoi ?? undefined,
         actionType: 'paste',
         description: 'Committed paste',
         tool: 'paste',

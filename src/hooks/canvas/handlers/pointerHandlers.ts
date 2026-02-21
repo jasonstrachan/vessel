@@ -204,7 +204,6 @@ import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layer
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
 import { captureSelectionBitmapFromMask } from '@/stores/helpers/selectionCapture';
-import { resolveLayerImageData } from '@/stores/helpers/selectionCapture';
 import { createSelectionHandlers } from './selectionHandlers';
 
 type VerticalSpacingMapperConfig = {
@@ -1346,11 +1345,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     displayHeight: number;
     layerId: string;
     colorCycleIndices?: Uint8Array | null;
-    historyBeforeImage?: ImageData | null;
-    vectorPath?: {
-      mode: 'freehand' | 'click-line';
-      points: Point[];
-    } | null;
   } | null => {
     const {
       project,
@@ -1360,7 +1354,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       selectionEnd,
       selectionMask,
       selectionMaskBounds,
-      selectionVectorPath,
     } = getDynamicDeps();
 
     if (!selectionStart || !selectionEnd || !project || !activeLayerId) {
@@ -1368,13 +1361,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
 
     const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
-    const historyBeforeImage =
-      activeLayer && activeLayer.layerType !== 'color-cycle'
-        ? (() => {
-            const source = resolveLayerImageData(activeLayer);
-            return source ? cloneLayerImageData(source) : null;
-          })()
-        : null;
     const captureResult =
       selectionMask && selectionMaskBounds
         ? captureSelectionBitmapFromMask({
@@ -1442,17 +1428,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       displayHeight: captureResult.bounds.height,
       layerId: activeLayerId,
       colorCycleIndices: captureResult.colorCycleIndices ?? null,
-      historyBeforeImage,
-      vectorPath:
-        selectionVectorPath && selectionVectorPath.points.length >= 2
-          ? {
-              mode: selectionVectorPath.mode,
-              points: selectionVectorPath.points.map((point) => ({
-                x: point.x - captureResult.bounds.x,
-                y: point.y - captureResult.bounds.y,
-              })),
-            }
-          : null,
     };
   };
 
@@ -2218,8 +2193,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             originalPosition: floatingData.position,
             sourceLayerId: floatingData.layerId,
             colorCycleIndices: floatingData.colorCycleIndices ?? null,
-            historyBeforeImage: floatingData.historyBeforeImage ?? null,
-            vectorPath: floatingData.vectorPath ?? null,
           });
 
           clearSelection();
