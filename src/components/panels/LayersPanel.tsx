@@ -81,8 +81,6 @@ const LayersPanel: React.FC = () => {
   const referenceLayerId = useAppStore((state) => state.referenceLayerId);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const mergeLayers = useAppStore((state) => state.mergeLayers);
-  const setLayersVisibility = useAppStore((state) => state.setLayersVisibility);
-  const toggleLayersVisibility = useAppStore((state) => state.toggleLayersVisibility);
   const createLayerGroupFromSelection = useAppStore((state) => state.createLayerGroupFromSelection);
   const removeLayerGroup = useAppStore((state) => state.removeLayerGroup);
   const setLayerGroupVisibility = useAppStore((state) => state.setLayerGroupVisibility);
@@ -169,6 +167,26 @@ const LayersPanel: React.FC = () => {
     });
   }, []);
 
+  const insertionGroupId = React.useMemo(() => {
+    if (!activeLayerId) {
+      return undefined;
+    }
+    const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+    if (!activeLayer?.groupId) {
+      return undefined;
+    }
+    if (!layerGroupsById.has(activeLayer.groupId)) {
+      return undefined;
+    }
+    const groupLayerIds = layerIdsByGroupId.get(activeLayer.groupId) ?? [];
+    const isEntireGroupSelected =
+      groupLayerIds.length > 0 && groupLayerIds.every((id) => selectedLayerIds.includes(id));
+    if (isEntireGroupSelected) {
+      return undefined;
+    }
+    return activeLayer.groupId;
+  }, [activeLayerId, layerGroupsById, layerIdsByGroupId, layers, selectedLayerIds]);
+
   const handleAddRegularLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 1;
@@ -184,7 +202,8 @@ const LayersPanel: React.FC = () => {
       imageData: null,
       framebuffer: canvas,
       alignment: createDefaultLayerAlignment(),
-      layerType: 'normal'
+      layerType: 'normal',
+      groupId: insertionGroupId,
     };
 
     const newLayerId = addLayer(newLayer);
@@ -193,7 +212,7 @@ const LayersPanel: React.FC = () => {
       setActiveLayer(newLayerId);
       setSelectedLayerIds([newLayerId]);
     }
-  }, [activeLayerId, addLayer, layers.length, setActiveLayer, setSelectedLayerIds]);
+  }, [activeLayerId, addLayer, insertionGroupId, layers.length, setActiveLayer, setSelectedLayerIds]);
 
   const handleAddColorCycleLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
@@ -222,6 +241,7 @@ const LayersPanel: React.FC = () => {
       framebuffer: canvas,
       alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle',
+      groupId: insertionGroupId,
       colorCycleData: {
         gradient: currentGradient,
         isAnimating: true,
@@ -243,7 +263,7 @@ const LayersPanel: React.FC = () => {
         setSelectedLayerIds([newLayerId]);
       }
     }
-  }, [activeLayerId, addLayer, initColorCycleForLayer, layers, setActiveLayer, setBrushSettings, setSelectedLayerIds]);
+  }, [activeLayerId, addLayer, initColorCycleForLayer, insertionGroupId, layers, setActiveLayer, setBrushSettings, setSelectedLayerIds]);
 
   const handleAddSequentialLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
@@ -265,6 +285,7 @@ const LayersPanel: React.FC = () => {
       framebuffer: canvas,
       alignment: createDefaultLayerAlignment(),
       layerType: 'sequential',
+      groupId: insertionGroupId,
       sequentialData: {
         frameCount,
         fps,
@@ -279,7 +300,7 @@ const LayersPanel: React.FC = () => {
       setActiveLayer(newLayerId);
       setSelectedLayerIds([newLayerId]);
     }
-  }, [activeLayerId, addLayer, layers, sequentialRecord, setActiveLayer, setSelectedLayerIds]);
+  }, [activeLayerId, addLayer, insertionGroupId, layers, sequentialRecord, setActiveLayer, setSelectedLayerIds]);
 
   const handleDeleteLayer = React.useCallback((layerId: string) => {
     if (layers.length > 1) {
@@ -383,6 +404,17 @@ const LayersPanel: React.FC = () => {
     const draggedId = event.dataTransfer.getData('text/plain');
 
     if (draggedId && draggedId !== targetLayerId) {
+      const targetLayer = layers.find((layer) => layer.id === targetLayerId) ?? null;
+      if (targetLayer) {
+        const nextGroupId = targetLayer.groupId && layerGroupsById.has(targetLayer.groupId)
+          ? targetLayer.groupId
+          : undefined;
+        const draggedLayer = layers.find((layer) => layer.id === draggedId) ?? null;
+        if (draggedLayer && draggedLayer.groupId !== nextGroupId) {
+          updateLayer(draggedId, { groupId: nextGroupId });
+        }
+      }
+
       const reversedLayers = layers.slice().reverse();
       const draggedIndex = reversedLayers.findIndex(layer => layer.id === draggedId);
       const targetIndex = reversedLayers.findIndex(layer => layer.id === targetLayerId);
@@ -396,7 +428,7 @@ const LayersPanel: React.FC = () => {
 
     setDraggedLayerId(null);
     setDragOverBottom(false);
-  }, [layers, reorderLayers]);
+  }, [layerGroupsById, layers, reorderLayers, updateLayer]);
 
   const handleDragOverBottom = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -519,16 +551,6 @@ const LayersPanel: React.FC = () => {
           const isMenuOpen = layerMenuState?.layerId === layer.id;
           const isReferenceLayer = referenceLayerId === layer.id;
           const sliderPercent = Math.round(layer.opacity * 100);
-          const rowVisualClass = isHighlighted
-            ? 'bg-[#E8F2FF] text-[#0F172A] border-l-4 border-[#0EA5E9] shadow-[0_0_0_1px_rgba(14,165,233,0.25),inset_4px_0_0_#0EA5E922]'
-            : 'hover:bg-[#383838]/20 text-[#D9D9D9] border-l-4 border-transparent';
-          const visibleIconClass = layer.visible
-            ? (isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
-            : (isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]');
-          const badgeBackgroundClass = isHighlighted ? 'bg-[#CFCFCF]' : 'bg-[#3A3A3A]';
-          const badgeTextClass = isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]';
-          const deleteButtonColor = isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]';
-          const hoverDeleteColor = isHighlighted ? 'hover:text-red-600' : 'hover:text-red-500';
           const groupId = layer.groupId && layerGroupsById.has(layer.groupId) ? layer.groupId : null;
           const shouldRenderGroupHeader = Boolean(groupId && !renderedGroupIds.has(groupId));
           if (groupId) {
@@ -539,13 +561,34 @@ const LayersPanel: React.FC = () => {
           const isGroupCollapsed = Boolean(groupId && collapsedGroupIds.has(groupId));
           const groupLayerIds = groupId ? (layerIdsByGroupId.get(groupId) ?? []) : [];
           const isGroupSelected = groupLayerIds.length > 0 && groupLayerIds.every((id) => selectedLayerIds.includes(id));
+          const groupVisibleIconClass = groupAllVisible
+            ? (isGroupSelected ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
+            : (isGroupSelected ? 'text-[#5A5A5A]' : 'text-[#666]');
+          const rowVisualClass = isHighlighted
+            ? 'bg-[#E8F2FF] text-[#0F172A] border-l-4 border-[#0EA5E9] shadow-[0_0_0_1px_rgba(14,165,233,0.25),inset_4px_0_0_#0EA5E922]'
+            : 'hover:bg-[#383838]/20 text-[#D9D9D9] border-l-4 border-transparent';
+          const visibleIconClass = layer.visible
+            ? (isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
+            : (isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]');
+          const badgeBackgroundClass = isHighlighted
+            ? 'bg-[#CFCFCF]'
+            : 'bg-[#3A3A3A]';
+          const badgeTextClass = isHighlighted
+            ? 'text-[#1A1A1A]'
+            : 'text-[#D9D9D9]';
+          const deleteButtonColor = isHighlighted
+            ? 'text-[#5A5A5A]'
+            : 'text-[#666]';
+          const hoverDeleteColor = isHighlighted
+            ? 'hover:text-red-600'
+            : 'hover:text-red-500';
 
           return (
             <React.Fragment key={layer.id}>
               {shouldRenderGroupHeader && groupId && (
                 <div
                   className={`flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
-                    isGroupSelected ? 'bg-[#2C3B47] text-[#D4EBFF]' : 'bg-[#25252A] text-[#B8C0CC]'
+                    isGroupSelected ? 'bg-[#E8F2FF] text-[#0F172A]' : 'bg-[#25252A] text-[#B8C0CC]'
                   }`}
                   onDragOver={(event) => {
                     event.preventDefault();
@@ -560,7 +603,10 @@ const LayersPanel: React.FC = () => {
                       return;
                     }
                     setSelectedLayerIds(groupLayerIds);
-                    setActiveLayer(groupLayerIds[0], { preserveSelection: true });
+                    const topLayerId = groupLayerIds[groupLayerIds.length - 1];
+                    if (topLayerId) {
+                      setActiveLayer(topLayerId, { preserveSelection: true });
+                    }
                     setLayerMenuState(null);
                   }}
                   onContextMenu={(event) => {
@@ -571,7 +617,10 @@ const LayersPanel: React.FC = () => {
                     }
                     handleExpandGroup(groupId);
                     setSelectedLayerIds(groupLayerIds);
-                    setActiveLayer(groupLayerIds[0], { preserveSelection: true });
+                    const topLayerId = groupLayerIds[groupLayerIds.length - 1];
+                    if (topLayerId) {
+                      setActiveLayer(topLayerId, { preserveSelection: true });
+                    }
                     const anchor = event.currentTarget as HTMLDivElement;
                     const placement = estimateLayerMenuPosition(anchor);
                     setLayerMenuState({
@@ -597,7 +646,9 @@ const LayersPanel: React.FC = () => {
                       event.stopPropagation();
                       setLayerGroupVisibility(groupId, !groupAllVisible);
                     }}
-                    className="flex h-4 w-4 items-center justify-center text-[#D9D9D9] hover:text-white"
+                    className={`flex h-4 w-4 items-center justify-center ${groupVisibleIconClass} ${
+                      isGroupSelected ? 'hover:text-[#000]' : 'hover:text-white'
+                    }`}
                     title={groupAllVisible ? `Hide group: ${groupName}` : `Show group: ${groupName}`}
                   >
                     {groupAllVisible ? <Eye size={12} /> : <EyeOff size={12} />}
@@ -846,75 +897,6 @@ const LayersPanel: React.FC = () => {
                         title="Remove this layer's group"
                       >
                         <span>Ungroup</span>
-                      </button>
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          const targetIds =
-                            selectedLayerIds.length > 1 && selectedLayerIds.includes(layer.id)
-                              ? selectedLayerIds
-                              : [];
-                          if (targetIds.length < 2) {
-                            return;
-                          }
-                          setLayersVisibility(targetIds, true);
-                          setLayerMenuState(null);
-                        }}
-                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
-                          selectedLayerIds.length > 1
-                            ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29] hover:bg-[#3A4A32]'
-                            : 'border-[#3A3A3A] text-[#777] cursor-not-allowed'
-                        }`}
-                        disabled={selectedLayerIds.length < 2}
-                        title="Show selected layers"
-                      >
-                        <span>Show selected</span>
-                      </button>
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          const targetIds =
-                            selectedLayerIds.length > 1 && selectedLayerIds.includes(layer.id)
-                              ? selectedLayerIds
-                              : [];
-                          if (targetIds.length < 2) {
-                            return;
-                          }
-                          setLayersVisibility(targetIds, false);
-                          setLayerMenuState(null);
-                        }}
-                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
-                          selectedLayerIds.length > 1
-                            ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29] hover:bg-[#3A4A32]'
-                            : 'border-[#3A3A3A] text-[#777] cursor-not-allowed'
-                        }`}
-                        disabled={selectedLayerIds.length < 2}
-                        title="Hide selected layers"
-                      >
-                        <span>Hide selected</span>
-                      </button>
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          const targetIds =
-                            selectedLayerIds.length > 1 && selectedLayerIds.includes(layer.id)
-                              ? selectedLayerIds
-                              : [];
-                          if (targetIds.length < 2) {
-                            return;
-                          }
-                          toggleLayersVisibility(targetIds);
-                          setLayerMenuState(null);
-                        }}
-                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
-                          selectedLayerIds.length > 1
-                            ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29] hover:bg-[#3A4A32]'
-                            : 'border-[#3A3A3A] text-[#777] cursor-not-allowed'
-                        }`}
-                        disabled={selectedLayerIds.length < 2}
-                        title="Toggle selected layers visibility"
-                      >
-                        <span>Toggle selected</span>
                       </button>
                       <button
                         onClick={event => {

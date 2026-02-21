@@ -42,6 +42,16 @@ type StoreState = {
     frameCount: number;
     fps: number;
   };
+  tools: {
+    brushSettings: {
+      colorCycleGradient?: Array<{ position: number; color: string }>;
+      colorCycleFlowMode?: 'forward' | 'reverse' | 'pingpong';
+    };
+  };
+  project: {
+    width: number;
+    height: number;
+  } | null;
   addLayer: jest.Mock;
   duplicateLayer: jest.Mock;
   removeLayer: jest.Mock;
@@ -72,6 +82,19 @@ const state: StoreState = {
   sequentialRecord: {
     frameCount: 24,
     fps: 24,
+  },
+  tools: {
+    brushSettings: {
+      colorCycleGradient: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      colorCycleFlowMode: 'forward',
+    },
+  },
+  project: {
+    width: 64,
+    height: 64,
   },
   addLayer: jest.fn(() => null),
   duplicateLayer: jest.fn(() => null),
@@ -185,6 +208,9 @@ const setupLayers = () => {
   state.referenceLayerId = null;
 
   state.updateLayer.mockClear();
+  state.addLayer.mockClear();
+  state.initColorCycleForLayer.mockClear();
+  state.setBrushSettings.mockClear();
   state.setLayersVisibility.mockClear();
   state.toggleLayersVisibility.mockClear();
   state.createLayerGroupFromSelection.mockClear();
@@ -212,46 +238,20 @@ const openMenuForLayerC = () => {
   fireEvent.contextMenu(row as Element);
 };
 
-describe('LayersPanel bulk visibility controls', () => {
+describe('LayersPanel interactions', () => {
   beforeEach(() => {
     window.localStorage.clear();
     setupLayers();
   });
 
-  it('disables bulk visibility actions when selection size is below two', () => {
-    render(<LayersPanel />);
-
-    openMenuForLayerC();
-
-    expect(screen.getByText('Show selected').closest('button')).toBeDisabled();
-    expect(screen.getByText('Hide selected').closest('button')).toBeDisabled();
-    expect(screen.getByText('Toggle selected').closest('button')).toBeDisabled();
-  });
-
-  it('routes show/hide/toggle actions to selected layer ids', () => {
+  it('does not render bulk selected visibility actions in layer menu', () => {
     state.selectedLayerIds = ['layer-a', 'layer-c'];
     render(<LayersPanel />);
 
     openMenuForLayerC();
-    fireEvent.click(screen.getByText('Show selected'));
-    expect(state.setLayersVisibility).toHaveBeenLastCalledWith(['layer-a', 'layer-c'], true);
-    expect(state.layers.find((layer) => layer.id === 'layer-a')?.visible).toBe(true);
-    expect(state.layers.find((layer) => layer.id === 'layer-b')?.visible).toBe(false);
-    expect(state.layers.find((layer) => layer.id === 'layer-c')?.visible).toBe(true);
-
-    openMenuForLayerC();
-    fireEvent.click(screen.getByText('Hide selected'));
-    expect(state.setLayersVisibility).toHaveBeenLastCalledWith(['layer-a', 'layer-c'], false);
-    expect(state.layers.find((layer) => layer.id === 'layer-a')?.visible).toBe(false);
-    expect(state.layers.find((layer) => layer.id === 'layer-b')?.visible).toBe(false);
-    expect(state.layers.find((layer) => layer.id === 'layer-c')?.visible).toBe(false);
-
-    openMenuForLayerC();
-    fireEvent.click(screen.getByText('Toggle selected'));
-    expect(state.toggleLayersVisibility).toHaveBeenCalledWith(['layer-a', 'layer-c']);
-    expect(state.layers.find((layer) => layer.id === 'layer-a')?.visible).toBe(true);
-    expect(state.layers.find((layer) => layer.id === 'layer-b')?.visible).toBe(false);
-    expect(state.layers.find((layer) => layer.id === 'layer-c')?.visible).toBe(true);
+    expect(screen.queryByText('Show selected')).toBeNull();
+    expect(screen.queryByText('Hide selected')).toBeNull();
+    expect(screen.queryByText('Toggle selected')).toBeNull();
   });
 
   it('keeps single-layer eye toggle behavior unchanged', () => {
@@ -302,10 +302,34 @@ describe('LayersPanel bulk visibility controls', () => {
     fireEvent.contextMenu(groupHeaderRow as Element);
 
     expect(state.setSelectedLayerIds).toHaveBeenLastCalledWith(['layer-a', 'layer-c']);
-    expect(state.setActiveLayer).toHaveBeenLastCalledWith('layer-a', { preserveSelection: true });
-    expect(screen.getByText('Show selected').closest('button')).not.toBeDisabled();
-    expect(screen.getByText('Hide selected').closest('button')).not.toBeDisabled();
-    expect(screen.getByText('Toggle selected').closest('button')).not.toBeDisabled();
+    expect(state.setActiveLayer).toHaveBeenLastCalledWith('layer-c', { preserveSelection: true });
+    expect(screen.queryByText('Show selected')).toBeNull();
+    expect(screen.queryByText('Hide selected')).toBeNull();
+    expect(screen.queryByText('Toggle selected')).toBeNull();
+  });
+
+  it('uses the standard selected row styling for non-active members when a full group is selected', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: false }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.activeLayerId = 'layer-c';
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+
+    render(<LayersPanel />);
+
+    const rows = getLayerRows();
+    const rowLayerC = rows[0] as HTMLElement | undefined;
+    const rowLayerA = rows[2] as HTMLElement | undefined;
+    expect(rowLayerA).toBeDefined();
+    expect(rowLayerC).toBeDefined();
+
+    expect(rowLayerA?.className).toContain('bg-[#E8F2FF]');
+    expect(rowLayerA?.className).not.toContain('bg-[#2C3B47]');
+    expect(rowLayerC?.className).toContain('bg-[#E8F2FF]');
+    expect(screen.getByTitle('Show group: Foreground').className).toContain('text-[#5A5A5A]');
   });
 
   it('supports dragging a layer into a group via the group header', () => {
@@ -334,6 +358,36 @@ describe('LayersPanel bulk visibility controls', () => {
     fireEvent.drop(groupHeader as Element, { dataTransfer });
 
     expect(state.updateLayer).toHaveBeenCalledWith('layer-b', { groupId: 'group-1' });
+    expect(state.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
+  });
+
+  it('drops layer into target group when dropped on a grouped layer row', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    render(<LayersPanel />);
+
+    const rows = getLayerRows();
+    const targetRow = rows[0];
+    const sourceRow = rows[1];
+    expect(targetRow).not.toBeUndefined();
+    expect(sourceRow).not.toBeUndefined();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-b'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    fireEvent.drop(targetRow as Element, { dataTransfer });
+
+    expect(state.updateLayer).toHaveBeenCalledWith('layer-b', { groupId: 'group-1' });
+    expect(state.reorderLayers).toHaveBeenCalledWith(1, 2);
     expect(state.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
   });
 
@@ -403,9 +457,9 @@ describe('LayersPanel bulk visibility controls', () => {
     openMenuForLayerB();
     expect(state.setSelectedLayerIds).toHaveBeenLastCalledWith(['layer-b']);
     expect(state.setActiveLayer).toHaveBeenLastCalledWith('layer-b');
-    expect(screen.getByText('Show selected').closest('button')).toBeDisabled();
-    expect(screen.getByText('Hide selected').closest('button')).toBeDisabled();
-    expect(screen.getByText('Toggle selected').closest('button')).toBeDisabled();
+    expect(screen.queryByText('Show selected')).toBeNull();
+    expect(screen.queryByText('Hide selected')).toBeNull();
+    expect(screen.queryByText('Toggle selected')).toBeNull();
   });
 
   it('creates groups from selection and can ungroup via layer menu', () => {
@@ -426,5 +480,85 @@ describe('LayersPanel bulk visibility controls', () => {
     openMenuForLayerC();
     fireEvent.click(screen.getByText('Ungroup'));
     expect(state.removeLayerGroup).toHaveBeenCalledWith('group-1');
+  });
+
+  it('inherits group membership when adding a regular layer above a grouped active layer', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.activeLayerId = 'layer-c';
+    state.selectedLayerIds = ['layer-c'];
+
+    render(<LayersPanel />);
+
+    fireEvent.click(screen.getByTitle('Add Regular Layer'));
+
+    expect(state.addLayer).toHaveBeenCalledTimes(1);
+    const payload = state.addLayer.mock.calls[0]?.[0];
+    expect(payload?.layerType).toBe('normal');
+    expect(payload?.groupId).toBe('group-1');
+  });
+
+  it('inherits group membership when adding a color-cycle layer above a grouped active layer', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.activeLayerId = 'layer-c';
+    state.selectedLayerIds = ['layer-c'];
+
+    render(<LayersPanel />);
+
+    fireEvent.click(screen.getByTitle('Add CC Layer'));
+
+    expect(state.addLayer).toHaveBeenCalledTimes(1);
+    const payload = state.addLayer.mock.calls[0]?.[0];
+    expect(payload?.layerType).toBe('color-cycle');
+    expect(payload?.groupId).toBe('group-1');
+  });
+
+  it('inherits group membership when adding an animation layer above a grouped active layer', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.activeLayerId = 'layer-c';
+    state.selectedLayerIds = ['layer-c'];
+
+    render(<LayersPanel />);
+
+    fireEvent.click(screen.getByTitle('Add Animation Layer'));
+
+    expect(state.addLayer).toHaveBeenCalledTimes(1);
+    const payload = state.addLayer.mock.calls[0]?.[0];
+    expect(payload?.layerType).toBe('sequential');
+    expect(payload?.groupId).toBe('group-1');
+  });
+
+  it('adds a new regular layer outside the group when the full group is selected', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.activeLayerId = 'layer-c';
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+
+    render(<LayersPanel />);
+
+    fireEvent.click(screen.getByTitle('Add Regular Layer'));
+
+    expect(state.addLayer).toHaveBeenCalledTimes(1);
+    const payload = state.addLayer.mock.calls[0]?.[0];
+    expect(payload?.layerType).toBe('normal');
+    expect(payload?.groupId).toBeUndefined();
   });
 });
