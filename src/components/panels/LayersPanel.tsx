@@ -15,6 +15,15 @@ import { LayerColorSwatches } from '@/components/MinimalLayerList';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 
 const LAYER_GROUPS_COLLAPSED_STORAGE_KEY = 'vessel-layer-groups-collapsed';
+const GROUP_DRAG_PAYLOAD_PREFIX = 'group:';
+
+const encodeGroupDragPayload = (groupId: string): string => `${GROUP_DRAG_PAYLOAD_PREFIX}${groupId}`;
+
+const decodeGroupDragPayload = (payload: string): string | null => (
+  payload.startsWith(GROUP_DRAG_PAYLOAD_PREFIX)
+    ? payload.slice(GROUP_DRAG_PAYLOAD_PREFIX.length)
+    : null
+);
 
 const loadCollapsedLayerGroups = (): Set<string> => {
   if (typeof window === 'undefined') {
@@ -58,6 +67,7 @@ const LayersPanel: React.FC = () => {
     horizontal: 'left' | 'right';
   } | null>(null);
   const [draggedLayerId, setDraggedLayerId] = React.useState<string | null>(null);
+  const [draggedGroupId, setDraggedGroupId] = React.useState<string | null>(null);
   const opacityPopoverRef = React.useRef<HTMLDivElement | null>(null);
   const [dragOverBottom, setDragOverBottom] = React.useState(false);
   const [collapsedGroupIds, setCollapsedGroupIds] = React.useState<Set<string>>(
@@ -74,6 +84,7 @@ const LayersPanel: React.FC = () => {
   const updateLayer = useAppStore((state) => state.updateLayer);
   const setActiveLayer = useAppStore((state) => state.setActiveLayer);
   const reorderLayers = useAppStore((state) => state.reorderLayers);
+  const reorderLayerBlock = useAppStore((state) => state.reorderLayerBlock);
   const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
   const selectLayerAlpha = useAppStore((state) => state.selectLayerAlpha);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
@@ -354,7 +365,15 @@ const LayersPanel: React.FC = () => {
 
   const handleDragStart = React.useCallback((event: React.DragEvent<HTMLDivElement>, layerId: string) => {
     setDraggedLayerId(layerId);
+    setDraggedGroupId(null);
     event.dataTransfer.setData('text/plain', layerId);
+    event.dataTransfer.effectAllowed = 'move';
+  }, []);
+
+  const handleGroupDragStart = React.useCallback((event: React.DragEvent<HTMLDivElement>, groupId: string) => {
+    setDraggedGroupId(groupId);
+    setDraggedLayerId(null);
+    event.dataTransfer.setData('text/plain', encodeGroupDragPayload(groupId));
     event.dataTransfer.effectAllowed = 'move';
   }, []);
 
@@ -369,10 +388,44 @@ const LayersPanel: React.FC = () => {
   const handleGroupDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, groupId: string) => {
     event.preventDefault();
     event.stopPropagation();
-    const draggedId = event.dataTransfer.getData('text/plain');
-    if (!draggedId) {
+    const transferData = event.dataTransfer.getData('text/plain');
+    if (!transferData) {
       return;
     }
+
+    const sourceGroupId = decodeGroupDragPayload(transferData);
+    if (sourceGroupId) {
+      if (!sourceGroupId || sourceGroupId === groupId) {
+        setDraggedGroupId(null);
+        return;
+      }
+
+      const sourceLayerIds = layers
+        .filter((layer) => layer.groupId === sourceGroupId)
+        .map((layer) => layer.id);
+      if (sourceLayerIds.length === 0) {
+        setDraggedGroupId(null);
+        return;
+      }
+
+      const targetIndices = layers
+        .map((layer, index) => ({ layer, index }))
+        .filter(({ layer }) => layer.groupId === groupId)
+        .map(({ index }) => index);
+      if (targetIndices.length === 0) {
+        setDraggedGroupId(null);
+        return;
+      }
+
+      // In the panel (top -> bottom), dropping on a group header inserts the dragged group above it.
+      const targetTopIndex = Math.max(...targetIndices);
+      reorderLayerBlock(sourceLayerIds, targetTopIndex + 1);
+      setDraggedGroupId(null);
+      setDragOverBottom(false);
+      return;
+    }
+
+    const draggedId = transferData;
 
     const draggedLayer = layers.find((layer) => layer.id === draggedId);
     if (!draggedLayer) {
@@ -396,8 +449,9 @@ const LayersPanel: React.FC = () => {
     }
 
     setDraggedLayerId(null);
+    setDraggedGroupId(null);
     setDragOverBottom(false);
-  }, [layers, reorderLayers, updateLayer]);
+  }, [layers, reorderLayerBlock, reorderLayers, updateLayer]);
 
   const handleDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, targetLayerId: string) => {
     event.preventDefault();
@@ -427,6 +481,7 @@ const LayersPanel: React.FC = () => {
     }
 
     setDraggedLayerId(null);
+    setDraggedGroupId(null);
     setDragOverBottom(false);
   }, [layerGroupsById, layers, reorderLayers, updateLayer]);
 
@@ -439,12 +494,20 @@ const LayersPanel: React.FC = () => {
     if (draggedLayerId) {
       setDraggedLayerId(null);
     }
-  }, [dragOverBottom, draggedLayerId]);
+    if (draggedGroupId) {
+      setDraggedGroupId(null);
+    }
+  }, [dragOverBottom, draggedGroupId, draggedLayerId]);
 
   const handleDropBottom = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     const draggedId = event.dataTransfer.getData('text/plain');
     if (draggedId) {
+      if (decodeGroupDragPayload(draggedId)) {
+        setDragOverBottom(false);
+        setDraggedGroupId(null);
+        return;
+      }
       const originalDraggedIndex = layers.findIndex(layer => layer.id === draggedId);
       if (originalDraggedIndex !== -1) {
         reorderLayers(originalDraggedIndex, 0);
@@ -452,10 +515,12 @@ const LayersPanel: React.FC = () => {
     }
     setDragOverBottom(false);
     setDraggedLayerId(null);
+    setDraggedGroupId(null);
   }, [layers, reorderLayers]);
 
   const handleDragEnd = React.useCallback(() => {
     setDraggedLayerId(null);
+    setDraggedGroupId(null);
     setDragOverBottom(false);
   }, []);
 
@@ -587,9 +652,14 @@ const LayersPanel: React.FC = () => {
             <React.Fragment key={layer.id}>
               {shouldRenderGroupHeader && groupId && (
                 <div
+                  draggable
                   className={`flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
                     isGroupSelected ? 'bg-[#E8F2FF] text-[#0F172A]' : 'bg-[#25252A] text-[#B8C0CC]'
-                  }`}
+                  } ${draggedGroupId === groupId ? 'opacity-60' : ''}`}
+                  onDragStart={(event) => {
+                    handleGroupDragStart(event, groupId);
+                  }}
+                  onDragEnd={handleDragEnd}
                   onDragOver={(event) => {
                     event.preventDefault();
                     event.dataTransfer.dropEffect = 'move';

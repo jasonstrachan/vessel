@@ -35,6 +35,7 @@ export const selectLayerActions = (state: AppState) => ({
   renameLayerGroup: state.renameLayerGroup,
   setLayerGroupVisibility: state.setLayerGroupVisibility,
   reorderLayers: state.reorderLayers,
+  reorderLayerBlock: state.reorderLayerBlock,
   setActiveLayer: state.setActiveLayer,
   setSelectedLayerIds: state.setSelectedLayerIds,
   setReferenceLayer: state.setReferenceLayer,

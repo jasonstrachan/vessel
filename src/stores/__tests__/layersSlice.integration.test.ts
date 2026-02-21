@@ -434,6 +434,59 @@ describe('layers slice integration', () => {
     ]);
   });
 
+  it('reorders a grouped layer block above another group', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+    const layerD = store.addLayer(createNormalLayerInput('Layer D'));
+
+    const groupOne = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+    const groupTwo = useAppStore.getState().createLayerGroupFromSelection([layerC, layerD]);
+    expect(groupOne).toBeTruthy();
+    expect(groupTwo).toBeTruthy();
+
+    const before = useAppStore.getState();
+    const targetTopIndex = Math.max(
+      ...before.layers
+        .map((layer, index) => ({ layer, index }))
+        .filter(({ layer }) => layer.groupId === groupTwo)
+        .map(({ index }) => index)
+    );
+
+    useAppStore.getState().reorderLayerBlock([layerA, layerB], targetTopIndex + 1);
+
+    const nextState = useAppStore.getState();
+    const visibleIds = nextState.layers.slice().reverse().map((layer) => layer.id);
+    expect(visibleIds.slice(0, 2)).toEqual([layerB, layerA]);
+    expect(visibleIds.slice(2, 4)).toEqual([layerD, layerC]);
+  });
+
+  it('treats reorderLayerBlock as a no-op for unknown layer ids', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const beforeIds = useAppStore.getState().layers.map((layer) => layer.id);
+
+    useAppStore.getState().reorderLayerBlock(['layer-missing'], 1);
+
+    const nextIds = useAppStore.getState().layers.map((layer) => layer.id);
+    expect(nextIds).toEqual(beforeIds);
+    expect(nextIds).toEqual([layerA, layerB]);
+  });
+
+  it('dedupes repeated ids when reordering a layer block', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.getState().reorderLayerBlock([layerA, layerA, layerB], 3);
+
+    const nextIds = useAppStore.getState().layers.map((layer) => layer.id);
+    expect(nextIds).toEqual([layerC, layerA, layerB]);
+  });
+
   it('prunes empty groups on remove and keeps shared-group merge membership', () => {
     const store = useAppStore.getState();
     const layerA = store.addLayer(createNormalLayerInput('Layer A'));

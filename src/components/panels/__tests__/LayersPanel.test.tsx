@@ -58,6 +58,7 @@ type StoreState = {
   updateLayer: jest.Mock;
   setActiveLayer: jest.Mock;
   reorderLayers: jest.Mock;
+  reorderLayerBlock: jest.Mock;
   setSelectedLayerIds: jest.Mock;
   selectLayerAlpha: jest.Mock;
   initColorCycleForLayer: jest.Mock;
@@ -106,6 +107,21 @@ const state: StoreState = {
     state.activeLayerId = layerId;
   }),
   reorderLayers: jest.fn(),
+  reorderLayerBlock: jest.fn((layerIds: string[], destinationIndex: number) => {
+    const blockIdSet = new Set(layerIds);
+    const blockLayers = state.layers.filter((layer) => blockIdSet.has(layer.id));
+    const remaining = state.layers.filter((layer) => !blockIdSet.has(layer.id));
+    const removedBefore = state.layers.reduce((count, layer, index) => (
+      blockIdSet.has(layer.id) && index < destinationIndex ? count + 1 : count
+    ), 0);
+    const adjustedDestination = Math.max(
+      0,
+      Math.min(remaining.length, destinationIndex - removedBefore),
+    );
+    const next = [...remaining];
+    next.splice(adjustedDestination, 0, ...blockLayers);
+    state.layers = next.map((layer, index) => ({ ...layer, order: index }));
+  }),
   setSelectedLayerIds: jest.fn((layerIds: string[]) => {
     state.selectedLayerIds = [...layerIds];
   }),
@@ -218,10 +234,11 @@ const setupLayers = () => {
   state.setLayerGroupVisibility.mockClear();
   state.setSelectedLayerIds.mockClear();
   state.setActiveLayer.mockClear();
+  state.reorderLayerBlock.mockClear();
 };
 
 const getLayerRows = () => {
-  const rows = document.querySelectorAll('[draggable=\"true\"]');
+  const rows = document.querySelectorAll('div.group.relative[draggable="true"]');
   return Array.from(rows);
 };
 
@@ -359,6 +376,40 @@ describe('LayersPanel interactions', () => {
 
     expect(state.updateLayer).toHaveBeenCalledWith('layer-b', { groupId: 'group-1' });
     expect(state.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
+  });
+
+  it('reorders dragged group above target group when dropped on another group header', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-b', order: 1, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-2' },
+      { ...createLayer({ id: 'layer-d', order: 3, visible: true }), groupId: 'group-2' },
+    ];
+    state.layerGroups = [
+      { id: 'group-1', name: 'One' },
+      { id: 'group-2', name: 'Two' },
+    ];
+    render(<LayersPanel />);
+
+    const groupOneHeader = screen.getByText('One').closest('div');
+    const groupTwoHeader = screen.getByText('Two').closest('div');
+    expect(groupOneHeader).not.toBeNull();
+    expect(groupTwoHeader).not.toBeNull();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'group:group-1'),
+    };
+
+    fireEvent.dragStart(groupOneHeader as Element, { dataTransfer });
+    fireEvent.drop(groupTwoHeader as Element, { dataTransfer });
+
+    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-a', 'layer-b'], 4);
+    const visibleGroupLabels = screen.getAllByText(/One|Two/).map((element) => element.textContent);
+    expect(visibleGroupLabels[0]).toBe('One');
+    expect(visibleGroupLabels[1]).toBe('Two');
   });
 
   it('drops layer into target group when dropped on a grouped layer row', () => {

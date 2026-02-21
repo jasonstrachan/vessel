@@ -585,6 +585,7 @@ export interface AppState {
   scheduleColorCycleSlotRebuild: (reason: string) => void;
   runColorCycleSlotRebuild: (reason: string) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
+  reorderLayerBlock: (layerIds: string[], destinationIndex: number) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   
   // Color Cycle Layer Management

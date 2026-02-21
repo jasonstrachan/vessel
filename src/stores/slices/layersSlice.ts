@@ -1123,6 +1123,7 @@ export interface LayersSlice {
   setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
   setReferenceLayer: (id: string | null) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
+  reorderLayerBlock: (layerIds: string[], destinationIndex: number) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
   scheduleColorCycleSlotRebuild: (reason: string) => void;
   runColorCycleSlotRebuild: (reason: string) => void;
@@ -3127,6 +3128,86 @@ export const createLayersSlice = (
       afterSnapshot,
       label: 'Reorder layers',
       metadata: { operation: 'reorder' },
+    });
+    get().markAllCompositeSegmentsDirty();
+  },
+  reorderLayerBlock: (layerIds, destinationIndex) => {
+    const uniqueLayerIds = Array.from(new Set(layerIds));
+    if (uniqueLayerIds.length === 0) {
+      return;
+    }
+
+    const stateBeforeReorder = get();
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeReorder, {
+      actionType: 'layer-reorder',
+      description: 'Reorder layer block',
+    });
+
+    let didReorder = false;
+
+    set((state) => {
+      const layerIdSet = new Set(uniqueLayerIds);
+      const indexedLayers = state.layers.map((layer, index) => ({ layer, index }));
+      const blockEntries = indexedLayers.filter(({ layer }) => layerIdSet.has(layer.id));
+      if (blockEntries.length === 0) {
+        return {};
+      }
+
+      const blockById = new Map(blockEntries.map(({ layer }) => [layer.id, layer]));
+      const orderedBlock = uniqueLayerIds
+        .map((id) => blockById.get(id))
+        .filter((layer): layer is Layer => Boolean(layer));
+      const remainingLayers = state.layers.filter((layer) => !layerIdSet.has(layer.id));
+      const removedBeforeDestination = blockEntries.filter(({ index }) => index < destinationIndex).length;
+      const adjustedDestination = Math.max(
+        0,
+        Math.min(remainingLayers.length, destinationIndex - removedBeforeDestination),
+      );
+      const currentBlockStartIndex = blockEntries[0]?.index ?? -1;
+      const isContiguousBlock = blockEntries.every(
+        ({ index }, entryIndex) => index === currentBlockStartIndex + entryIndex,
+      );
+      if (isContiguousBlock && adjustedDestination === currentBlockStartIndex) {
+        return {};
+      }
+      const nextLayers = [...remainingLayers];
+      nextLayers.splice(adjustedDestination, 0, ...orderedBlock);
+
+      const isSameOrder = nextLayers.length === state.layers.length
+        && nextLayers.every((layer, index) => state.layers[index]?.id === layer.id);
+      if (isSameOrder) {
+        return {};
+      }
+
+      didReorder = true;
+      const normalizedLayers = nextLayers.map((layer, index) => ({
+        ...layer,
+        order: index,
+      }));
+      const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
+
+      return {
+        layers: syncedLayers,
+        layersNeedRecomposition: true,
+      };
+    });
+
+    if (!didReorder) {
+      return;
+    }
+
+    const stateAfterReorder = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterReorder, {
+      actionType: 'layer-reorder',
+      description: 'Reorder layer block',
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Reorder layer block',
+      metadata: { operation: 'reorder-block' },
     });
     get().markAllCompositeSegmentsDirty();
   },
