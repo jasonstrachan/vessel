@@ -2218,6 +2218,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             originalPosition: floatingData.position,
             sourceLayerId: floatingData.layerId,
             colorCycleIndices: floatingData.colorCycleIndices ?? null,
+            fromSelectionMove: true,
             historyBeforeImage: floatingData.historyBeforeImage ?? null,
             vectorPath: floatingData.vectorPath ?? null,
           });
