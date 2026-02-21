@@ -553,6 +553,7 @@ export interface AppState {
   // Layer Management
   layers: Layer[];
   layerGroups: LayerGroup[];
+  hiddenLayerGroupIds: string[];
   activeLayerId: string | null;
   selectedLayerIds: string[];
   referenceLayerId: string | null;

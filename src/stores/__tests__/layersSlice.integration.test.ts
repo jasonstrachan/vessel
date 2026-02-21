@@ -115,6 +115,7 @@ beforeEach(() => {
   useAppStore.setState((state) => ({
     layers: [],
     layerGroups: [],
+    hiddenLayerGroupIds: [],
     activeLayerId: null,
     selectedLayerIds: [],
     referenceLayerId: null,
@@ -384,7 +385,7 @@ describe('layers slice integration', () => {
     expect(nextState.layers.find((layer) => layer.id === layerB)?.groupId).toBeUndefined();
   });
 
-  it('applies group visibility to all group members only', () => {
+  it('restores previous per-layer visibility when showing a hidden group', () => {
     const store = useAppStore.getState();
     const layerA = store.addLayer(createNormalLayerInput('Layer A'));
     const layerB = store.addLayer(createNormalLayerInput('Layer B'));
@@ -393,19 +394,23 @@ describe('layers slice integration', () => {
     const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
     expect(groupId).toBeTruthy();
 
+    useAppStore.getState().setLayersVisibility([layerB], false);
+
     useAppStore.getState().setLayerGroupVisibility(groupId as string, false);
     let nextState = useAppStore.getState();
 
     expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(false);
     expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(false);
     expect(nextState.layers.find((layer) => layer.id === layerC)?.visible).toBe(true);
+    expect(nextState.hiddenLayerGroupIds).toContain(groupId);
 
     useAppStore.getState().setLayerGroupVisibility(groupId as string, true);
     nextState = useAppStore.getState();
 
     expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(true);
-    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(true);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(false);
     expect(nextState.layers.find((layer) => layer.id === layerC)?.visible).toBe(true);
+    expect(nextState.hiddenLayerGroupIds).not.toContain(groupId);
   });
 
   it('keeps group membership stable across reorder and duplicate', () => {

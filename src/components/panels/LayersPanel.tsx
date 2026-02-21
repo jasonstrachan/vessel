@@ -78,6 +78,7 @@ const LayersPanel: React.FC = () => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const layerGroups = useAppStore(selectLayerGroups);
+  const hiddenLayerGroupIds = useAppStore((state) => state.hiddenLayerGroupIds);
   const addLayer = useAppStore((state) => state.addLayer);
   const duplicateLayer = useAppStore((state) => state.duplicateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
@@ -105,27 +106,17 @@ const LayersPanel: React.FC = () => {
     [layerGroups],
   );
   const visibleLayers = React.useMemo(() => layers.slice().reverse(), [layers]);
+  const hiddenLayerGroupIdSet = React.useMemo(
+    () => new Set(hiddenLayerGroupIds),
+    [hiddenLayerGroupIds],
+  );
   const layerGroupVisibilityById = React.useMemo(() => {
-    const membersByGroupId = new Map<string, { total: number; visible: number }>();
-    layers.forEach((layer) => {
-      const groupId = layer.groupId;
-      if (!groupId || !layerGroupsById.has(groupId)) {
-        return;
-      }
-      const counts = membersByGroupId.get(groupId) ?? { total: 0, visible: 0 };
-      counts.total += 1;
-      if (layer.visible) {
-        counts.visible += 1;
-      }
-      membersByGroupId.set(groupId, counts);
-    });
-
     const visibilityByGroupId = new Map<string, boolean>();
-    membersByGroupId.forEach((counts, groupId) => {
-      visibilityByGroupId.set(groupId, counts.total > 0 && counts.visible === counts.total);
+    layerGroups.forEach((group) => {
+      visibilityByGroupId.set(group.id, !hiddenLayerGroupIdSet.has(group.id));
     });
     return visibilityByGroupId;
-  }, [layerGroupsById, layers]);
+  }, [hiddenLayerGroupIdSet, layerGroups]);
   const layerIdsByGroupId = React.useMemo(() => {
     const idsByGroupId = new Map<string, string[]>();
     layers.forEach((layer) => {

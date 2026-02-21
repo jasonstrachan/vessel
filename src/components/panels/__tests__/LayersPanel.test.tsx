@@ -35,6 +35,7 @@ jest.mock('@/components/ui/ProgressSlider', () => {
 type StoreState = {
   layers: Layer[];
   layerGroups: Array<{ id: string; name: string }>;
+  hiddenLayerGroupIds: string[];
   activeLayerId: string | null;
   selectedLayerIds: string[];
   referenceLayerId: string | null;
@@ -73,10 +74,12 @@ type StoreState = {
 };
 
 const listeners = new Set<() => void>();
+const groupVisibilityMemory = new Map<string, Map<string, boolean>>();
 
 const state: StoreState = {
   layers: [],
   layerGroups: [],
+  hiddenLayerGroupIds: [],
   activeLayerId: null,
   selectedLayerIds: [],
   referenceLayerId: null,
@@ -147,8 +150,31 @@ const state: StoreState = {
   createLayerGroupFromSelection: jest.fn(() => null),
   removeLayerGroup: jest.fn(),
   setLayerGroupVisibility: jest.fn((groupId: string, visible: boolean) => {
+    if (visible) {
+      const snapshot = groupVisibilityMemory.get(groupId) ?? new Map<string, boolean>();
+      state.hiddenLayerGroupIds = state.hiddenLayerGroupIds.filter((id) => id !== groupId);
+      state.layers = state.layers.map((layer) => {
+        if (layer.groupId !== groupId) {
+          return layer;
+        }
+        const restored = snapshot.has(layer.id) ? Boolean(snapshot.get(layer.id)) : layer.visible;
+        return { ...layer, visible: restored };
+      });
+      return;
+    }
+
+    const snapshot = new Map<string, boolean>();
+    state.layers.forEach((layer) => {
+      if (layer.groupId === groupId) {
+        snapshot.set(layer.id, layer.visible);
+      }
+    });
+    groupVisibilityMemory.set(groupId, snapshot);
+    if (!state.hiddenLayerGroupIds.includes(groupId)) {
+      state.hiddenLayerGroupIds = [...state.hiddenLayerGroupIds, groupId];
+    }
     state.layers = state.layers.map((layer) =>
-      layer.groupId === groupId ? { ...layer, visible } : layer
+      layer.groupId === groupId ? { ...layer, visible: false } : layer
     );
   }),
 };
@@ -219,6 +245,7 @@ const setupLayers = () => {
     createLayer({ id: 'layer-c', order: 2, visible: true }),
   ];
   state.layerGroups = [];
+  state.hiddenLayerGroupIds = [];
   state.activeLayerId = 'layer-c';
   state.selectedLayerIds = ['layer-c'];
   state.referenceLayerId = null;
@@ -235,6 +262,7 @@ const setupLayers = () => {
   state.setSelectedLayerIds.mockClear();
   state.setActiveLayer.mockClear();
   state.reorderLayerBlock.mockClear();
+  groupVisibilityMemory.clear();
 };
 
 const getLayerRows = () => {
@@ -291,6 +319,14 @@ describe('LayersPanel interactions', () => {
       { ...createLayer({ id: 'layer-c', order: 2, visible: false }), groupId: 'group-1' },
     ];
     state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.hiddenLayerGroupIds = ['group-1'];
+    groupVisibilityMemory.set(
+      'group-1',
+      new Map<string, boolean>([
+        ['layer-a', true],
+        ['layer-c', false],
+      ]),
+    );
     render(<LayersPanel />);
 
     expect(screen.getAllByText('Foreground').length).toBeGreaterThan(0);
@@ -298,7 +334,7 @@ describe('LayersPanel interactions', () => {
 
     expect(state.setLayerGroupVisibility).toHaveBeenCalledWith('group-1', true);
     expect(state.layers.find((layer) => layer.id === 'layer-a')?.visible).toBe(true);
-    expect(state.layers.find((layer) => layer.id === 'layer-c')?.visible).toBe(true);
+    expect(state.layers.find((layer) => layer.id === 'layer-c')?.visible).toBe(false);
     expect(state.layers.find((layer) => layer.id === 'layer-b')?.visible).toBe(true);
   });
 
@@ -346,7 +382,7 @@ describe('LayersPanel interactions', () => {
     expect(rowLayerA?.className).toContain('bg-[#E8F2FF]');
     expect(rowLayerA?.className).not.toContain('bg-[#2C3B47]');
     expect(rowLayerC?.className).toContain('bg-[#E8F2FF]');
-    expect(screen.getByTitle('Show group: Foreground').className).toContain('text-[#5A5A5A]');
+    expect(screen.getByTitle('Hide group: Foreground').className).toContain('text-[#1A1A1A]');
   });
 
   it('supports dragging a layer into a group via the group header', () => {

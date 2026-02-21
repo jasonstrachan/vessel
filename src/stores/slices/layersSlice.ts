@@ -1064,6 +1064,14 @@ const sanitizeLayerGroups = (layers: Layer[], layerGroups: LayerGroup[]): LayerG
   return sanitized;
 };
 
+const sanitizeHiddenLayerGroupIds = (hiddenGroupIds: string[], layerGroups: LayerGroup[]): string[] => {
+  if (hiddenGroupIds.length === 0) {
+    return hiddenGroupIds;
+  }
+  const validGroupIds = new Set(layerGroups.map((group) => group.id));
+  return hiddenGroupIds.filter((groupId) => validGroupIds.has(groupId));
+};
+
 const generateLayerGroupName = (existingGroups: LayerGroup[]): string => {
   const usedNames = new Set(existingGroups.map((group) => group.name));
   let suffix = existingGroups.length + 1;
@@ -1084,6 +1092,7 @@ export type UpdateLayerOptions = {
 export interface LayersSlice {
   layers: Layer[];
   layerGroups: LayerGroup[];
+  hiddenLayerGroupIds: string[];
   layersNeedRecomposition: boolean;
   staticCompositeVersion: number;
   compositeSegmentsVersion: number;
@@ -1240,6 +1249,15 @@ export const createLayersSlice = (
         slotRebuildTimer = null;
         runSlotRebuild(reason);
       }, SLOT_REBUILD_DEBOUNCE_MS);
+    };
+
+    const groupVisibilitySnapshotByGroupId = new Map<string, Map<string, boolean>>();
+    const pruneGroupVisibilitySnapshots = (validGroupIds: Set<string>) => {
+      groupVisibilitySnapshotByGroupId.forEach((_, existingGroupId) => {
+        if (!validGroupIds.has(existingGroupId)) {
+          groupVisibilitySnapshotByGroupId.delete(existingGroupId);
+        }
+      });
     };
 
     const createLayerTransferCanvas = (width: number, height: number) => {
@@ -1484,6 +1502,7 @@ export const createLayersSlice = (
     return {
       layers: [],
       layerGroups: [],
+      hiddenLayerGroupIds: [],
       layersNeedRecomposition: false,
       staticCompositeVersion: 0,
       compositeSegmentsVersion: 0,
@@ -1596,9 +1615,11 @@ export const createLayersSlice = (
           return {
             layers: groupedLayers,
             layerGroups: sanitizedGroups,
+            hiddenLayerGroupIds: sanitizeHiddenLayerGroupIds(state.hiddenLayerGroupIds, sanitizedGroups),
             referenceLayerId: nextReferenceLayerId,
           };
         });
+        pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
         get().markAllCompositeSegmentsDirty();
       },
   // Layer Management - Start empty for SSR compatibility
@@ -1932,9 +1953,11 @@ export const createLayersSlice = (
       trackLayerChanges('removeLayer RETURN', updatedLayers);
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
       const nextLayerGroups = sanitizeLayerGroups(syncedLayers, state.layerGroups);
+      const nextHiddenLayerGroupIds = sanitizeHiddenLayerGroupIds(state.hiddenLayerGroupIds, nextLayerGroups);
     return {
       layers: syncedLayers,
       layerGroups: nextLayerGroups,
+      hiddenLayerGroupIds: nextHiddenLayerGroupIds,
       activeLayerId: newActiveLayerId,
       selectedLayerIds: nextSelection,
       referenceLayerId: state.referenceLayerId === id ? null : state.referenceLayerId
@@ -1955,6 +1978,7 @@ export const createLayersSlice = (
       label: 'Remove layer',
       metadata: { layerId: id, operation: 'remove' },
     });
+    pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
     get().markAllCompositeSegmentsDirty();
     scheduleSlotRebuild('remove-layer');
   },
@@ -2399,6 +2423,7 @@ export const createLayersSlice = (
       return {
         layers: nextLayers,
         layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
+        hiddenLayerGroupIds: state.hiddenLayerGroupIds,
       };
     });
 
@@ -2452,6 +2477,7 @@ export const createLayersSlice = (
       return {
         layers: nextLayers,
         layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
+        hiddenLayerGroupIds: state.hiddenLayerGroupIds.filter((id) => id !== groupId),
       };
     });
 
@@ -2475,6 +2501,7 @@ export const createLayersSlice = (
         groupId,
       },
     });
+    pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
   },
   renameLayerGroup: (groupId, name) => {
     const normalizedName = name.trim();
@@ -2537,26 +2564,60 @@ export const createLayersSlice = (
     });
 
     let didChange = false;
+    let didHiddenStateChange = false;
     set((state) => {
+      const hiddenGroupIds = new Set(state.hiddenLayerGroupIds);
+      const previousVisibilityByLayerId = groupVisibilitySnapshotByGroupId.get(groupId) ?? new Map<string, boolean>();
+      const nextVisibilityByLayerId = new Map<string, boolean>();
       const nextLayers = state.layers.map((layer) => {
-        if (layer.groupId !== groupId || layer.visible === visible) {
+        if (layer.groupId !== groupId) {
+          return layer;
+        }
+        if (visible) {
+          const restoredVisibility = previousVisibilityByLayerId.has(layer.id)
+            ? Boolean(previousVisibilityByLayerId.get(layer.id))
+            : layer.visible;
+          nextVisibilityByLayerId.set(layer.id, restoredVisibility);
+          if (layer.visible === restoredVisibility) {
+            return layer;
+          }
+          didChange = true;
+          return { ...layer, visible: restoredVisibility };
+        }
+
+        nextVisibilityByLayerId.set(layer.id, layer.visible);
+        if (!layer.visible) {
           return layer;
         }
         didChange = true;
-        return { ...layer, visible };
+        return { ...layer, visible: false };
       });
 
-      if (!didChange) {
-        return state;
+      if (visible) {
+        hiddenGroupIds.delete(groupId);
+      } else {
+        hiddenGroupIds.add(groupId);
       }
+      const nextHiddenLayerGroupIds = Array.from(hiddenGroupIds);
+      didHiddenStateChange = nextHiddenLayerGroupIds.length !== state.hiddenLayerGroupIds.length
+        || nextHiddenLayerGroupIds.some((id, index) => id !== state.hiddenLayerGroupIds[index]);
+      if (!didChange && nextHiddenLayerGroupIds.length === state.hiddenLayerGroupIds.length) {
+        const didHiddenIdsChange = nextHiddenLayerGroupIds.some((id, index) => id !== state.hiddenLayerGroupIds[index]);
+        if (!didHiddenIdsChange) {
+          return state;
+        }
+      }
+
+      groupVisibilitySnapshotByGroupId.set(groupId, nextVisibilityByLayerId);
 
       return {
         layers: nextLayers,
+        hiddenLayerGroupIds: nextHiddenLayerGroupIds,
         layersNeedRecomposition: true,
       };
     });
 
-    if (!didChange) {
+    if (!didChange && !didHiddenStateChange) {
       return;
     }
 
@@ -2576,7 +2637,9 @@ export const createLayersSlice = (
         groupId,
       },
     });
-    get().markCompositeSegmentsDirtyByLayerIds(memberIds);
+    if (didChange) {
+      get().markCompositeSegmentsDirtyByLayerIds(memberIds);
+    }
   },
   setSelectedLayerIds: (layerIds) => set((state) => {
     const validIds = layerIds.filter((layerId, index, list) => {
@@ -2773,6 +2836,7 @@ export const createLayersSlice = (
       const normalizedLayers = remainingLayers.map((layer, index) => ({ ...layer, order: index }));
       const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
       const nextLayerGroups = sanitizeLayerGroups(syncedLayers, state.layerGroups);
+      const nextHiddenLayerGroupIds = sanitizeHiddenLayerGroupIds(state.hiddenLayerGroupIds, nextLayerGroups);
 
       const nextReferenceLayerId =
         state.referenceLayerId && uniqueIds.includes(state.referenceLayerId) ? null : state.referenceLayerId;
@@ -2780,6 +2844,7 @@ export const createLayersSlice = (
       return {
         layers: syncedLayers,
         layerGroups: nextLayerGroups,
+        hiddenLayerGroupIds: nextHiddenLayerGroupIds,
         activeLayerId: mergedLayerId,
         selectedLayerIds: [mergedLayerId],
         referenceLayerId: nextReferenceLayerId,
@@ -2809,6 +2874,7 @@ export const createLayersSlice = (
       label: 'Merge layers',
       metadata: { sourceLayerIds: layerIds, mergedLayerId },
     });
+    pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
     get().markAllCompositeSegmentsDirty();
     scheduleSlotRebuild('merge-layers');
 
