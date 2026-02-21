@@ -55,7 +55,7 @@ describe('commitRasterOverlay', () => {
     ]), 2, 2);
     layer.framebuffer.width = 2;
     layer.framebuffer.height = 2;
-    const fbCtx = layer.framebuffer.getContext('2d');
+    const fbCtx = layer.framebuffer.getContext('2d') as CanvasRenderingContext2D | null;
     fbCtx?.putImageData(new ImageData(new Uint8ClampedArray([
       0, 0, 255, 255,
       0, 0, 255, 255,

@@ -135,7 +135,7 @@ describe('captureCanvasToActiveLayer with replace mode', () => {
     ]), 2, 2);
     const layer = createLayer('layer-fb-priority', staleImageData);
 
-    const fbCtx = layer.framebuffer.getContext('2d');
+    const fbCtx = layer.framebuffer.getContext('2d') as CanvasRenderingContext2D | null;
     const framebufferImage = new ImageData(new Uint8ClampedArray([
       0, 0, 255, 255,
       0, 0, 255, 255,
