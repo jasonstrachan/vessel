@@ -108,7 +108,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
 
       return { x: worldX, y: worldY };
     },
-    [canInteract, offsetX, offsetY, projectHeight, projectWidth, zoom],
+    [canInteract, offsetX, offsetY, zoom],
   );
 
   const applyRectUpdate = useCallback(

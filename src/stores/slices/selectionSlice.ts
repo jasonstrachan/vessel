@@ -1,9 +1,13 @@
 import type { StateCreator } from 'zustand';
 import type { Rectangle } from '@/types';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
+import type { SelectionSnapshot } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
-import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
+import {
+  captureColorCycleBrushState,
+  type ColorCycleSerializedState,
+} from '@/history/helpers/colorCycle';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import {
@@ -13,6 +17,14 @@ import {
 } from '@/stores/helpers/selectionCapture';
 
 type AppState = import('../useAppStore').AppState;
+
+export interface FloatingPasteHistoryContext {
+  sourceLayerId: string;
+  sourceBounds: Rectangle;
+  beforeImage: ImageData | null;
+  beforeColorState: ColorCycleSerializedState | null;
+  selectionBefore: SelectionSnapshot;
+}
 
 export interface SelectionSlice {
   selectionStart: { x: number; y: number } | null;
@@ -50,7 +62,8 @@ export interface SelectionSlice {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
     } | null;
-  } | null;
+    } | null;
+  floatingPasteHistoryContext: FloatingPasteHistoryContext | null;
   setFloatingPaste: (paste: {
     imageData: ImageData;
     position: { x: number; y: number };
@@ -126,6 +139,13 @@ const findOpaquePixelBounds = (imageData: ImageData): Rectangle | null => {
     width: maxX - minX + 1,
     height: maxY - minY + 1,
   };
+};
+
+const cloneOptionalImageData = (imageData: ImageData | null): ImageData | null => {
+  if (!imageData) {
+    return null;
+  }
+  return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 };
 
 export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice> = (set, get, store) => {
@@ -432,6 +452,15 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         return false;
       }
 
+      const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
+      const sourceImageData = resolveLayerImageData(activeLayer);
+      const beforeImage = activeLayer.layerType === 'color-cycle'
+        ? null
+        : cloneOptionalImageData(sourceImageData);
+      const beforeColorState = activeLayer.layerType === 'color-cycle'
+        ? captureColorCycleBrushState(activeLayer.id)
+        : null;
+
       const capture = selectionMask && selectionMaskBounds
         ? captureSelectionBitmapFromMask({
             mask: selectionMask,
@@ -528,12 +557,25 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           colorCycleIndices: capture.colorCycleIndices ?? null,
           vectorPath: floatingVectorPath,
         },
+        floatingPasteHistoryContext: {
+          sourceLayerId: activeLayerId,
+          sourceBounds: {
+            x: capture.bounds.x,
+            y: capture.bounds.y,
+            width: capture.bounds.width,
+            height: capture.bounds.height,
+          },
+          beforeImage,
+          beforeColorState,
+          selectionBefore,
+        },
       });
 
       return true;
     },
 
     floatingPaste: null,
+    floatingPasteHistoryContext: null,
     setFloatingPaste: (paste) =>
       set((state) => {
         if (
@@ -566,6 +608,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   vectorPath: paste.vectorPath ?? null,
                 }
               : null,
+          floatingPasteHistoryContext: null,
         };
       }),
     updateFloatingPastePosition: (position) =>
@@ -687,7 +730,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       if (!clipboardPayload && floatingPaste?.imageData) {
         clipboardPayload = createClipboardPayloadFromFloatingPaste(floatingPaste, mode);
         if (mode === 'cut') {
-          set({ floatingPaste: null });
+          set({ floatingPaste: null, floatingPasteHistoryContext: null });
         }
       }
 

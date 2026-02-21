@@ -1,70 +1,108 @@
-# 2026-02-04 — Plan: Visual Layer Groups (Toggleable)
+# 2026-02-04 — Plan: Layer Organization Roadmap (V1/V2)
 
 ## Goal
-Add a visual-only grouping feature for layers in the right-side Layers panel. Grouping does **not** change rendering/compositing order, but users can toggle visibility for the whole group. The UI should be simple and clean, using the existing right-click popover menu and minimal row chrome.
+Ship simple, reliable layer-organization controls first, then add visual groups as a separate phase.
 
-## Constraints
-- Visual organization only; no render/composite changes beyond visibility toggling.
-- Group visibility should affect all child layers at once.
-- Keep existing basePath/assetPrefix behavior intact.
-- Use Zustand store conventions and selectors; avoid in-place mutation.
-- Keep UI minimal; reuse existing popover in `LayersPanel`.
+## Scope Decision
+- **V1 ships without grouping.**
+- **V2 introduces visual grouping/folders.**
 
-## Proposed Data Model
-- Extend `Layer` with optional metadata for grouping:
-  - `groupId?: string` on each layer.
-- Add lightweight group registry in store state:
-  - `layerGroups: Array<{ id: string; name: string; collapsed: boolean; visible: boolean; }>`
-- Derived ordering in UI:
-  - Keep `state.layers` as the canonical ordered array (flat for rendering).
-  - Grouping is a UI view: contiguous and non-contiguous layers can share `groupId`.
+This keeps V1 focused on low-risk workflow improvements while avoiding premature data-model expansion.
 
-## Store Actions
+## V1 — Bulk Visibility Controls (No Grouping)
+
+### Product Behavior
+- Keep current flat layer stack model.
+- Keep per-layer visibility toggle exactly as-is.
+- Add simple bulk controls for selected layers:
+  - **Show selected**
+  - **Hide selected**
+- **Toggle selected visibility** (flip each selected layer)
+
+### Data Model
+- No new `Layer` fields.
+- No `layerGroups` registry.
+- `layer.visible` remains the single visibility source of truth.
+
+### UI Plan (`LayersPanel`)
+1. Add bulk visibility actions to existing layer popover/menu, enabled when `selectedLayerIds.length >= 2`.
+2. Preserve current right-click behavior:
+   - Right-click on selected layer keeps selection.
+   - Right-click on unselected layer selects only that layer.
+3. No group headers, no folder rows, no collapse affordances.
+
+### Store Plan
+- Reuse existing `updateLayer` path.
+- Add one focused helper action in `layersSlice` for ergonomics and testability:
+  - `setLayersVisibility(layerIds: string[], visible: boolean)`
+  - `toggleLayersVisibility(layerIds: string[])`
+- Keep history integration through existing layer-structure/history paths.
+
+### Tests
+- Store:
+  - Setting visibility for multiple layers updates only target layer IDs.
+  - Non-target layer visibility remains unchanged.
+- UI:
+  - Bulk actions enabled only for multi-selection.
+  - Bulk show/hide updates selected layers.
+  - Bulk toggle flips selected layers.
+  - Single-layer eye toggle remains unchanged.
+
+### V1 Definition of Done
+- No grouping state exists anywhere in types/store/project format.
+- Multi-select bulk visibility works from Layers panel.
+- Existing reorder/merge/delete/duplicate behavior remains unchanged.
+- `npm test`, `npm run type-check`, `npm run lint` pass.
+
+## V2 — Visual Layer Groups (Folder-Style Organization)
+
+### Product Behavior
+- Visual organization only (no compositing-order semantics beyond existing flat stack ordering).
+- Group header row supports:
+  - Group name
+  - Group visibility (apply to all member layers)
+- Per-layer visibility still available and independent.
+
+### Data Model (Proposed)
+- `Layer`:
+  - `groupId?: string`
+- Store registry:
+  - `layerGroups: Array<{ id: string; name: string }>`
+- Group visibility is **computed from member layers** (no separate stored `group.visible`), avoiding drift.
+
+### Store Actions (V2)
 - `createLayerGroupFromSelection(layerIds: string[]): string`
-  - Creates group, assigns `groupId` on selected layers, sets group visibility to true.
 - `removeLayerGroup(groupId: string)`
-  - Clears `groupId` from all layers in the group and deletes group entry.
-- `toggleLayerGroupVisibility(groupId: string)`
-  - Flips group visibility; applies to all child layers by updating their `visible` flags.
-- `renameLayerGroup(groupId: string, name: string)` (optional, for later)
-- `setLayerGroupCollapsed(groupId: string, collapsed: boolean)` (optional for later)
+- `renameLayerGroup(groupId: string, name: string)`
+- `setLayerGroupVisibility(groupId: string, visible: boolean)`:
+  - applies `visible` to all member layers via existing update paths.
 
-## UI Plan (LayersPanel)
-1. **Right-click popover menu**
-   - Add new button: **Group layers** (enabled only when 2+ layers selected).
-   - If the right-clicked layer is part of a group, show **Ungroup**.
-2. **Layer list display**
-   - Render group headers when groupIds are present in the visible list.
-   - Group header row includes:
-     - Group name (e.g., “Group 1”)
-     - Visibility toggle (eye icon) that applies to all layers in group
-     - Minimal styling to distinguish header (subtle background, small badge)
-3. **Selection behavior**
-   - Right-click on a layer should preserve multi-select if the layer is already selected.
-   - Right-click on unselected layer should select only that layer.
+### Architecture Requirements (V2)
+- Define behavior matrix for existing operations:
+  - reorder, duplicate, remove, merge, add layer.
+- Add persistence/migration:
+  - project serialization/deserialization for `groupId` and `layerGroups`.
+  - backward compatibility for projects without group metadata.
+- Add history coverage for group lifecycle:
+  - create/ungroup/rename/visibility.
 
-## Rendering & History
-- **Rendering**: unchanged. Grouping is not a rendering construct; only visibility toggles affect `layer.visible`.
-- **History**: use existing layer update paths to ensure visibility changes are captured.
+### Tests (V2)
+- Store unit/integration:
+  - create group, ungroup, rename, group visibility.
+  - interaction with reorder/remove/merge/duplicate.
+- Persistence:
+  - save/load keeps group membership and metadata.
+  - legacy project load works when group fields are absent.
+- UI:
+  - group headers render correctly.
+  - group visibility affects all members.
+  - per-layer visibility remains individually controllable.
 
-## Tests
-- Store tests:
-  - Creating a group assigns groupId to selected layers.
-  - Toggling group visibility updates all child layer `visible` flags.
-  - Ungroup clears groupId and leaves visibility as-is.
-- UI tests:
-  - Popover shows “Group selected layers” enabled when 2+ selected.
-  - Group header visibility toggle hides/shows all members.
+## Rollout Order
+1. Implement V1 (bulk visibility only).
+2. Stabilize and observe usage.
+3. Implement V2a grouping (no collapse) with persistence/history in one cohesive change.
+4. Implement V2b collapse/expand behavior if still needed.
 
-## Rollout Steps
-1. Add store state + actions in `src/stores/slices/layersSlice.ts` and selectors.
-2. Update `src/types/index.ts` with `groupId` and group type.
-3. Update `LayersPanel` to:
-   - Render group headers
-   - Add group/un-group menu actions
-4. Update tests in `src/stores/__tests__` and UI tests.
-5. Run `npm test`, `npm run type-check`, `npm run lint`.
-
-## Open Questions
-- Do we want group headers to be collapsible in this first pass, or only visibility toggles?
-- Should group visibility state be stored explicitly, or derived from child layers?
+## Open Items
+- None. V1 includes show/hide/toggle, and collapse is deferred to V2b.

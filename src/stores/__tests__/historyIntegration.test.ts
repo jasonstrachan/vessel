@@ -11,6 +11,7 @@ import historyManager from '@/history/historyService';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 
 const TRIANGLE_POINTS = [
   { x: 0, y: 0 },
@@ -86,6 +87,55 @@ const createLayer = (id: string, imageData: ImageData): Layer => {
     alignment: createDefaultLayerAlignment(),
     colorCycleData: undefined,
   };
+};
+
+const readPixelAlpha = (imageData: ImageData, x: number, y: number): number => {
+  const index = (y * imageData.width + x) * 4 + 3;
+  return imageData.data[index] ?? 0;
+};
+
+const createColorCycleLayer = (id: string, width: number, height: number): Layer => {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const framebuffer = document.createElement('canvas');
+  framebuffer.width = width;
+  framebuffer.height = height;
+
+  return {
+    id,
+    name: 'Color Cycle Layer',
+    order: 0,
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    layerType: 'color-cycle',
+    imageData: null,
+    framebuffer,
+    alignment: createDefaultLayerAlignment(),
+    colorCycleData: {
+      canvas,
+      hasContent: true,
+      gradient: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      speed: 1,
+      version: 0,
+      slotPalettes: [],
+      gradientDefs: [],
+      gradientDefStore: [],
+      activeGradientId: null,
+      paintSlot: 1,
+      eraseMask: document.createElement('canvas'),
+      scalarField: new Float32Array(width * height),
+      ditherMap: new Uint8Array(width * height),
+      gradientIdBuffer: new Uint8Array(width * height),
+      flowMode: 'forward',
+      styleVersion: 0,
+    },
+  } as unknown as Layer;
 };
 
 describe('history integration', () => {
@@ -472,5 +522,122 @@ describe('history integration', () => {
     const afterState = useAppStore.getState();
     expect(afterState.layers[0].imageData).toBeNull();
     expect(afterState.layersNeedRecomposition).toBe(true);
+  });
+
+  it('undo restores source pixels after selection move commit', async () => {
+    const imageData = new ImageData(6, 4);
+    const sourceIndex = (1 * imageData.width + 1) * 4;
+    imageData.data[sourceIndex] = 255;
+    imageData.data[sourceIndex + 1] = 0;
+    imageData.data[sourceIndex + 2] = 0;
+    imageData.data[sourceIndex + 3] = 255;
+
+    const layer = createLayer('layer-move-1', imageData);
+
+    useAppStore.setState(() => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 2, y: 2 },
+      project: {
+        id: 'proj-move-1',
+        name: 'Move Test',
+        width: 6,
+        height: 4,
+        layers: [layer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const store = useAppStore.getState();
+    const extracted = store.extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+
+    store.updateFloatingPastePosition({ x: 3, y: 1 });
+    await store.commitFloatingPaste();
+
+    let movedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(movedLayer?.imageData).not.toBeNull();
+    expect(readPixelAlpha(movedLayer!.imageData!, 1, 1)).toBe(0);
+
+    await store.undo();
+
+    movedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(movedLayer?.imageData).not.toBeNull();
+    expect(readPixelAlpha(movedLayer!.imageData!, 1, 1)).toBe(255);
+  });
+
+  it('records and replays color-cycle selection move commits', async () => {
+    const width = 8;
+    const height = 6;
+    const layer = createColorCycleLayer('layer-cc-move', width, height);
+
+    useAppStore.setState(() => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      project: {
+        id: 'proj-cc-move-1',
+        name: 'CC Move Test',
+        width,
+        height,
+        layers: [layer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const manager = getColorCycleBrushManager();
+    useAppStore.getState().initColorCycleForLayer(layer.id, width, height);
+    const brush = manager.getLayerColorCycleBrush(layer.id);
+    expect(brush).not.toBeNull();
+
+    const seed = new Uint8Array(width * height);
+    seed[1 + (1 * width)] = 9;
+    seed[2 + (1 * width)] = 10;
+    seed[1 + (2 * width)] = 11;
+    seed[2 + (2 * width)] = 12;
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: seed.slice().buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const store = useAppStore.getState();
+    const extracted = store.extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+
+    const extractedPaste = useAppStore.getState().floatingPaste;
+    expect(extractedPaste?.imageData).not.toBeNull();
+    if (extractedPaste?.imageData) {
+      const opaqueData = new Uint8ClampedArray(extractedPaste.imageData.data);
+      for (let i = 3; i < opaqueData.length; i += 4) {
+        opaqueData[i] = 255;
+      }
+      useAppStore.setState({
+        floatingPaste: {
+          ...extractedPaste,
+          imageData: new ImageData(opaqueData, extractedPaste.imageData.width, extractedPaste.imageData.height),
+        },
+      });
+    }
+
+    store.updateFloatingPastePosition({ x: 4, y: 2 });
+    await store.commitFloatingPaste();
+
+    const movedSnapshot = brush?.getLayerSnapshot?.(layer.id);
+    const movedBuffer = movedSnapshot?.paintBuffer ? new Uint8Array(movedSnapshot.paintBuffer) : null;
+    expect(movedBuffer).not.toBeNull();
+    expect(movedBuffer![1 + (1 * width)]).toBe(0);
+    expect(store.canUndo()).toBe(true);
+
+    await store.undo();
+    expect(store.canRedo()).toBe(true);
   });
 });

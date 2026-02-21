@@ -140,6 +140,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
     stopRecolorSampling: jest.fn(),
     setRectangleBrushState: jest.fn(),
     setCustomBrushFreehandPath: jest.fn(),
+    extractSelectionToFloatingPaste: jest.fn().mockReturnValue(false),
     setFloatingPaste: jest.fn(),
     updateFloatingPastePosition: jest.fn(),
     commitFloatingPaste: jest.fn().mockResolvedValue(undefined),
@@ -483,6 +484,47 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setCursorStyle).toHaveBeenCalledWith('move');
     expect(deps.floatingPasteDragStart.current).toMatchObject({ x: 12, y: 12 });
     expect(deps.floatingPasteOriginalPos.current).toMatchObject({ x: 10, y: 10 });
+  });
+
+  it('extracts current selection through store action before starting floating paste drag', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+      },
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 10, y: 10 },
+    });
+
+    dynamicDepsRef.current.tools.currentTool = 'selection';
+    deps.tools = dynamicDepsRef.current.tools;
+
+    (deps.extractSelectionToFloatingPaste as jest.Mock).mockImplementation(() => {
+      useAppStore.setState({
+        floatingPaste: {
+          active: true,
+          imageData: new ImageData(2, 2),
+          position: { x: 4, y: 4 },
+          originalPosition: { x: 4, y: 4 },
+          width: 2,
+          height: 2,
+          displayWidth: 2,
+          displayHeight: 2,
+          rotation: 0,
+          sourceLayerId: 'layer-1',
+        },
+      });
+      return true;
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 5, clientY: 5 }));
+
+    expect(deps.extractSelectionToFloatingPaste).toHaveBeenCalledTimes(1);
+    expect(deps.setIsDraggingFloatingPaste).toHaveBeenCalledWith(true);
+    expect(deps.floatingPasteOriginalPos.current).toMatchObject({ x: 4, y: 4 });
+
+    useAppStore.setState({ floatingPaste: null });
   });
 
   it('begins recolor sampling when active', () => {

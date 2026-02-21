@@ -168,6 +168,7 @@ export interface EventHandlerDependencies {
   stopRecolorSampling: () => void;
   setRectangleBrushState: (partial: Partial<RectangleBrushState>) => void;
   setCustomBrushFreehandPath: (payload: CustomBrushCaptureState['freehandPath'] | null) => void;
+  extractSelectionToFloatingPaste: () => boolean;
   
   // Floating paste actions
   setFloatingPaste: (paste: FloatingPaste | null) => void;

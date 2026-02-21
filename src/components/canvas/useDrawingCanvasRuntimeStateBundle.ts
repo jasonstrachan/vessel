@@ -77,6 +77,7 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
     setLayersNeedRecomposition: storeState.setLayersNeedRecomposition,
     setSelectionBounds: storeState.setSelectionBounds,
     clearSelection: storeState.clearSelection,
+    extractSelectionToFloatingPaste: storeState.extractSelectionToFloatingPaste,
     selectionMask: storeState.selectionMask,
     selectionMaskBounds: storeState.selectionMaskBounds,
     selectionVectorPath: storeState.selectionVectorPath,

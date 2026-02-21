@@ -69,6 +69,7 @@ export const buildDrawingCanvasRuntimeEffectsFromStateInputArgs = ({
   actions: {
     setSelectionBounds: state.setSelectionBounds,
     clearSelection: state.clearSelection,
+    extractSelectionToFloatingPaste: state.extractSelectionToFloatingPaste,
     setCurrentTool: state.setCurrentToolById,
     setCurrentOffscreenCanvas: state.setCurrentOffscreenCanvas,
     compositeLayersToCanvas: state.compositeLayersToCanvas,

@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
@@ -14,38 +13,6 @@ import {
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
-
-const invalidateCompositeAfterSelectionMutation = ({
-  compositeCanvasDirtyRef,
-  setLayersNeedRecomposition,
-  setNeedsRedraw,
-  canvasRef,
-  viewTransformRef,
-  draw,
-}: {
-  compositeCanvasDirtyRef: React.MutableRefObject<boolean>;
-  setLayersNeedRecomposition?: (value: boolean) => void;
-  setNeedsRedraw: React.Dispatch<React.SetStateAction<number>>;
-  canvasRef: React.RefObject<HTMLCanvasElement>;
-  viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
-  draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
-}) => {
-  const store = useAppStore.getState();
-  if (store.currentCompositeBitmap) {
-    store.setCurrentCompositeBitmap(null);
-  }
-
-  setLayersNeedRecomposition?.(true);
-  compositeCanvasDirtyRef.current = true;
-
-  setNeedsRedraw((prev) => prev + 1);
-
-  const canvas = canvasRef.current;
-  const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-  if (ctx) {
-    draw(ctx, viewTransformRef.current);
-  }
-};
 
 const shouldEnableContourDebug = (): boolean => {
   if (typeof globalThis === 'undefined') return false;
@@ -202,8 +169,6 @@ import { logContourFillDebug } from './utils/logContourFillDebug';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
-import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
-import { captureSelectionBitmapFromMask } from '@/stores/helpers/selectionCapture';
 import { createSelectionHandlers } from './selectionHandlers';
 
 type VerticalSpacingMapperConfig = {
@@ -314,7 +279,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     setShowBrushCursor,
     setCursorPosition,
     updateFloatingPastePosition,
-    setFloatingPaste,
     commitFloatingPaste,
     cancelFloatingPaste,
     interaction,
@@ -329,8 +293,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     compositeCanvasDirtyRef,
     setNeedsRedraw,
     viewTransformRef,
-    draw,
-    setLayersNeedRecomposition,
     pauseAnimationForPan,
     resumeAnimationAfterPan,
     restartColorCycleAnimation,
@@ -1336,101 +1298,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
   type ContourBasis = NonNullable<ReturnType<typeof prepareContourLinesBasis>>;
 
-  const extractSelectionAsFloatingPaste = (): {
-    imageData: ImageData;
-    position: Point;
-    width: number;
-    height: number;
-    displayWidth: number;
-    displayHeight: number;
-    layerId: string;
-    colorCycleIndices?: Uint8Array | null;
-  } | null => {
-    const {
-      project,
-      layers,
-      activeLayerId,
-      selectionStart,
-      selectionEnd,
-      selectionMask,
-      selectionMaskBounds,
-    } = getDynamicDeps();
-
-    if (!selectionStart || !selectionEnd || !project || !activeLayerId) {
-      return null;
-    }
-
-    const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
-    const captureResult =
-      selectionMask && selectionMaskBounds
-        ? captureSelectionBitmapFromMask({
-            mask: selectionMask,
-            maskBounds: selectionMaskBounds,
-            project,
-            layer: activeLayer,
-            clearSource: true,
-          })
-        : captureSelectionBitmap({
-            selectionStart,
-            selectionEnd,
-            project,
-            layer: activeLayer,
-            clearSource: true,
-          });
-
-    if (!captureResult || !captureResult.updatedLayerImageData) {
-      return null;
-    }
-
-    const store = useAppStore.getState();
-    if (activeLayer?.layerType === 'color-cycle') {
-      clearColorCycleRegion(store, activeLayer, project, {
-        x: captureResult.bounds.x,
-        y: captureResult.bounds.y,
-        width: captureResult.bounds.width,
-        height: captureResult.bounds.height,
-      });
-      const eraseMask = activeLayer.colorCycleData?.eraseMask;
-      const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
-      eraseMaskCtx?.clearRect(
-        captureResult.bounds.x,
-        captureResult.bounds.y,
-        captureResult.bounds.width,
-        captureResult.bounds.height
-      );
-      store.scheduleColorCycleSlotRebuild?.('extract-selection');
-  } else if (activeLayer?.framebuffer) {
-    const fbCtx = activeLayer.framebuffer.getContext('2d', { willReadFrequently: true });
-    const canvasCtx = fbCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-    if (canvasCtx && 'putImageData' in canvasCtx) {
-      canvasCtx.putImageData(captureResult.updatedLayerImageData, 0, 0);
-    }
-    updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
-  } else {
-    updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
-  }
-
-    invalidateCompositeAfterSelectionMutation({
-      compositeCanvasDirtyRef,
-      setLayersNeedRecomposition,
-      setNeedsRedraw,
-      canvasRef,
-      viewTransformRef,
-      draw,
-    });
-
-    return {
-      imageData: captureResult.selectionImageData,
-      position: { x: captureResult.bounds.x, y: captureResult.bounds.y },
-      width: captureResult.bounds.width,
-      height: captureResult.bounds.height,
-      displayWidth: captureResult.bounds.width,
-      displayHeight: captureResult.bounds.height,
-      layerId: activeLayerId,
-      colorCycleIndices: captureResult.colorCycleIndices ?? null,
-    };
-  };
-
   const clearOverlayCanvas = () => {
     const overlayCanvas = overlayCanvasRef.current;
     if (!overlayCanvas) return;
@@ -2178,27 +2045,16 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       })();
 
       if (isInsideSelection) {
-        const floatingData = extractSelectionAsFloatingPaste();
-
-        if (floatingData) {
-          setFloatingPaste({
-            active: true,
-            imageData: floatingData.imageData,
-            position: floatingData.position,
-            width: floatingData.width,
-            height: floatingData.height,
-            displayWidth: floatingData.displayWidth,
-            displayHeight: floatingData.displayHeight,
-            rotation: 0,
-            originalPosition: floatingData.position,
-            sourceLayerId: floatingData.layerId,
-            colorCycleIndices: floatingData.colorCycleIndices ?? null,
-          });
-
+        const extracted = deps.extractSelectionToFloatingPaste();
+        if (extracted) {
+          const nextFloatingPaste = useAppStore.getState().floatingPaste;
+          if (!nextFloatingPaste) {
+            return;
+          }
           clearSelection();
           setIsDraggingFloatingPaste(true);
           floatingPasteDragStart.current = worldPos;
-          floatingPasteOriginalPos.current = { ...floatingData.position };
+          floatingPasteOriginalPos.current = { ...nextFloatingPaste.position };
           setCursorStyle('move');
           setShowBrushCursor(false);
 

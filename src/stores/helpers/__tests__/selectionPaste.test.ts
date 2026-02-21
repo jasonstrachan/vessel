@@ -205,6 +205,40 @@ describe('selection paste commit', () => {
     expect(args?.beforeImage?.height).toBe(17);
   });
 
+  it('uses extraction history context ROI so undo can restore source and destination', async () => {
+    const { helpers, state } = setupHelpers({
+      position: { x: 10, y: 10 },
+      displayWidth: 2,
+      displayHeight: 2,
+      width: 2,
+      height: 2,
+      sourceLayerId: 'layer-1',
+    });
+
+    state.floatingPasteHistoryContext = {
+      sourceLayerId: 'layer-1',
+      sourceBounds: { x: 2, y: 2, width: 2, height: 2 },
+      beforeImage: new ImageData(64, 64),
+      beforeColorState: null,
+      selectionBefore: {
+        start: { x: 2, y: 2 },
+        end: { x: 4, y: 4 },
+      },
+    };
+
+    await helpers.commitFloatingPaste();
+
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+    const args = commitLayerHistory.mock.calls[0]?.[0];
+    expect(args?.bitmapRoi).toEqual({ x: 2, y: 2, width: 10, height: 10 });
+    expect(args?.beforeImage?.width).toBe(10);
+    expect(args?.beforeImage?.height).toBe(10);
+    expect(args?.selectionBefore).toEqual({
+      start: { x: 2, y: 2 },
+      end: { x: 4, y: 4 },
+    });
+  });
+
   it('clears the floating paste without capturing when it sits fully outside the canvas', async () => {
     const { helpers, state, captureCanvasToActiveLayer } = setupHelpers({
       position: { x: 80, y: 80 },

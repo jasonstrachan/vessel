@@ -262,6 +262,7 @@ import {
   commitLayerStructureHistory,
 } from '@/stores/helpers/layerStructureHistory';
 import { createSelectionSlice } from '@/stores/slices/selectionSlice';
+import type { FloatingPasteHistoryContext } from '@/stores/slices/selectionSlice';
 import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
@@ -433,6 +434,7 @@ export interface AppState {
       points: Array<{ x: number; y: number }>;
     } | null;
   } | null;
+  floatingPasteHistoryContext: FloatingPasteHistoryContext | null;
   setFloatingPaste: (paste: {
     imageData: ImageData;
     position: { x: number; y: number };

@@ -59,6 +59,7 @@ export interface BuildDrawingCanvasRuntimeEffectsInputHandlersOptionsArgs {
     InputHandlersOptions,
     | 'setSelectionBounds'
     | 'clearSelection'
+    | 'extractSelectionToFloatingPaste'
     | 'setCurrentTool'
     | 'setCurrentOffscreenCanvas'
     | 'compositeLayersToCanvas'

@@ -102,6 +102,7 @@ describe('pointerHandlers smoke', () => {
       stopRecolorSampling: jest.fn(),
       setRectangleBrushState: jest.fn(),
       setCustomBrushFreehandPath: jest.fn(),
+      extractSelectionToFloatingPaste: jest.fn().mockReturnValue(false),
       setFloatingPaste: jest.fn(),
       updateFloatingPastePosition: jest.fn(),
       commitFloatingPaste: jest.fn(),

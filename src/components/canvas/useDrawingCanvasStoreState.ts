@@ -65,6 +65,7 @@ export const useDrawingCanvasStoreState = () => {
   const setLayersNeedRecomposition = useAppStore(selectSetLayersNeedRecomposition);
   const setSelectionBounds = useAppStore((state) => state.setSelectionBounds);
   const clearSelection = useAppStore((state) => state.clearSelection);
+  const extractSelectionToFloatingPaste = useAppStore((state) => state.extractSelectionToFloatingPaste);
   const selectionMask = useAppStore((state) => state.selectionMask);
   const selectionMaskBounds = useAppStore((state) => state.selectionMaskBounds);
   const selectionVectorPath = useAppStore((state) => state.selectionVectorPath);
@@ -130,6 +131,7 @@ export const useDrawingCanvasStoreState = () => {
     setLayersNeedRecomposition,
     setSelectionBounds,
     clearSelection,
+    extractSelectionToFloatingPaste,
     selectionMask,
     selectionMaskBounds,
     selectionVectorPath,
