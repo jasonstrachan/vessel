@@ -557,6 +557,7 @@ export interface CanvasState {
 export interface ToolState {
   currentTool: Tool;
   previousTool: Tool;
+  selectionMode: SelectionMode;
   lastRegularTool?: Tool; // Track last regular brush/eraser tool
   lastRegularBrushShape?: BrushShape; // Track last regular brush shape
   // Separate shape mode memories to avoid leakage between CC and default brushes
@@ -583,6 +584,8 @@ export interface ToolState {
     } | null;
   };
 }
+
+export type SelectionMode = 'marquee' | 'freehand' | 'click-line';
 
 export type CropHandle =
   | 'top-left'

@@ -1,4 +1,5 @@
 import type { CanvasShape } from '@/types';
+import { strokeMarqueePath, strokeMarqueeRect } from '@/utils/marqueeStroke';
 
 type Point = { x: number; y: number };
 type SelectionMaskBounds = { x: number; y: number };
@@ -15,6 +16,10 @@ interface DrawSelectionLayerOptions {
   selectionStartRef?: Point | null;
   selectionMask: ImageData | null;
   selectionMaskBounds: SelectionMaskBounds | null;
+  selectionVectorPath: {
+    mode: 'freehand' | 'click-line';
+    points: Point[];
+  } | null;
   activeCanvasShape: CanvasShape | null;
   applyCanvasShapeClip: (ctx: CanvasRenderingContext2D, shape: CanvasShape) => void;
 }
@@ -61,11 +66,14 @@ export const drawSelectionLayer = ({
   selectionStartRef,
   selectionMask,
   selectionMaskBounds,
+  selectionVectorPath,
   activeCanvasShape,
   applyCanvasShapeClip,
 }: DrawSelectionLayerOptions): void => {
   const hasMask = Boolean(selectionMask && selectionMaskBounds);
-  if (!((selectionStart && selectionEnd) || (isSelecting && selectionStartRef))) {
+  const hasRect = Boolean(selectionStart && selectionEnd);
+  const hasDragPreview = Boolean(isSelecting && selectionStartRef && selectionEnd && !hasMask);
+  if (!(hasMask || hasRect || hasDragPreview)) {
     return;
   }
 
@@ -76,42 +84,57 @@ export const drawSelectionLayer = ({
     applyCanvasShapeClip(ctx, activeCanvasShape);
   }
 
-  const start = selectionStart || selectionStartRef;
-  const end = selectionEnd || { x: 0, y: 0 };
+  const start = selectionStart || (hasDragPreview ? selectionStartRef : null);
+  const end = selectionEnd || null;
 
-  if (start && !hasMask) {
+  if (start && end && !hasMask) {
     const x = Math.min(start.x, end.x);
     const y = Math.min(start.y, end.y);
     const width = Math.abs(end.x - start.x);
     const height = Math.abs(end.y - start.y);
-
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1 / scale;
-    ctx.setLineDash([]);
-    ctx.strokeRect(x, y, width, height);
-
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1 / scale;
-    const selectionDash = 5 / scale;
-    ctx.setLineDash([selectionDash, selectionDash]);
-    ctx.lineDashOffset = -marchingAntsOffset / scale;
-    ctx.strokeRect(x, y, width, height);
+    strokeMarqueeRect(ctx, x, y, width, height, {
+      scale,
+      marchingAntsOffset,
+      animated: true,
+    });
   }
 
   if (selectionMask && selectionMaskBounds) {
-    const outlinePath = buildMaskEdgePath(selectionMask, selectionMaskBounds);
-    const dash = 5 / scale;
+    const hasVectorPath = Boolean(selectionVectorPath && selectionVectorPath.points.length >= 2);
+    const outlinePath = (() => {
+      if (!hasVectorPath) {
+        return buildMaskEdgePath(selectionMask, selectionMaskBounds);
+      }
+      const path = new Path2D();
+      const vectorPoints = selectionVectorPath!.points;
+      path.moveTo(vectorPoints[0].x, vectorPoints[0].y);
+      for (let i = 1; i < vectorPoints.length; i += 1) {
+        path.lineTo(vectorPoints[i].x, vectorPoints[i].y);
+      }
+      if (vectorPoints.length > 2) {
+        path.closePath();
+      }
+      return path;
+    })();
+    strokeMarqueePath(ctx, outlinePath, {
+      scale,
+      marchingAntsOffset,
+      animated: true,
+    });
 
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1 / scale;
-    ctx.setLineDash([]);
-    ctx.stroke(outlinePath);
-
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1 / scale;
-    ctx.setLineDash([dash, dash]);
-    ctx.lineDashOffset = -marchingAntsOffset / scale;
-    ctx.stroke(outlinePath);
+    if (selectionVectorPath?.mode === 'click-line' && selectionVectorPath.points.length > 0) {
+      const pointRadius = Math.max(1.25, 3 / scale);
+      ctx.setLineDash([]);
+      for (const point of selectionVectorPath.points) {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, pointRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(0.5, 1 / scale);
+        ctx.stroke();
+      }
+    }
   }
 
   ctx.restore();

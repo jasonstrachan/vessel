@@ -383,6 +383,10 @@ export interface AppState {
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
   selectionClipboard: SelectionClipboardPayload | null;
+  selectionVectorPath: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
   selectionMask: ImageData | null;
   selectionMaskBounds: Rectangle | null;
   selectionMaskLayerId: string | null;
@@ -424,6 +428,10 @@ export interface AppState {
     rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    vectorPath?: {
+      mode: 'freehand' | 'click-line';
+      points: Array<{ x: number; y: number }>;
+    } | null;
   } | null;
   setFloatingPaste: (paste: {
     imageData: ImageData;
@@ -436,6 +444,10 @@ export interface AppState {
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    vectorPath?: {
+      mode: 'freehand' | 'click-line';
+      points: Array<{ x: number; y: number }>;
+    } | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
@@ -454,6 +466,7 @@ export interface AppState {
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
   setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
   setCustomBrushFreehandPath: (payload: { points: { x: number; y: number }[]; bounds: Rectangle | null } | null) => void;
+  setSelectionMode: (mode: ToolState['selectionMode']) => void;
   ccGradientSampleCount: number;
   ccGradientSampleResetToken: number;
   setCcGradientSampleCount: (count: number) => void;

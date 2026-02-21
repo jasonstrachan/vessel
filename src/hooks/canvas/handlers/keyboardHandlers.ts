@@ -1,5 +1,9 @@
 import type React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  cancelClickLineSelectionSession,
+  finalizeClickLineSelectionSession,
+} from '@/hooks/canvas/handlers/selectionHandlers';
 import type { EventHandlerDependencies, KeyboardHandlers } from '../utils/types';
 
 const isTextEntryTarget = (target: EventTarget | null): boolean => {
@@ -23,6 +27,23 @@ const scopeAllowsSpace = (): boolean => {
 export const createKeyboardHandlers = (
   deps: EventHandlerDependencies
 ): Pick<KeyboardHandlers, 'handleKeyDown' | 'handleKeyUp' | 'handleBlur'> => {
+  const clearSelectionOverlay = () => {
+    const overlayCanvas = deps.overlayCanvasRef.current;
+    if (!overlayCanvas) {
+      return;
+    }
+    overlayCanvas.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  };
+
+  const redrawCanvas = () => {
+    deps.setNeedsRedraw((prev) => prev + 1);
+    const canvas = deps.canvasRef.current;
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+    if (ctx) {
+      deps.draw(ctx, deps.viewTransformRef.current);
+    }
+  };
+
   const releaseSpaceInteraction = () => {
     deps.isSpacePressedRef.current = false;
     deps.setIsSpacePressed?.(false);
@@ -70,6 +91,42 @@ export const createKeyboardHandlers = (
     const currentScope = useAppStore.getState().ui.keyboardScope.active;
     if (currentScope !== 'canvas') {
       return;
+    }
+
+    const dynamic = deps.dynamicDepsRef.current;
+    const runtime = deps.selectionRuntimeRef.current;
+    const clickLineActive =
+      dynamic.tools.currentTool === 'selection' &&
+      dynamic.tools.selectionMode === 'click-line' &&
+      runtime.clickLineSession.active;
+
+    if (!clickLineActive) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (cancelClickLineSelectionSession({ runtime, clearOverlay: clearSelectionOverlay })) {
+        redrawCanvas();
+      }
+      return;
+    }
+
+    if (event.key === 'Enter' || event.code === 'NumpadEnter') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (
+        finalizeClickLineSelectionSession({
+          runtime,
+          dynamic,
+          clearOverlay: clearSelectionOverlay,
+          outcome: 'selection-click-line-keyboard',
+          historyMeta: { source: 'keyboard', key: event.key, code: event.code },
+        })
+      ) {
+        redrawCanvas();
+      }
     }
   };
 

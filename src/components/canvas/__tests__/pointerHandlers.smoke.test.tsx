@@ -40,6 +40,7 @@ describe('pointerHandlers smoke', () => {
         canvas: { width: 10, height: 10, scale: 1, zoom: 1 },
         tools: {
           currentTool: 'brush',
+          selectionMode: 'marquee',
           brushSettings: {
             brushShape: BrushShape.ROUND,
             antialiasing: true,
@@ -112,7 +113,7 @@ describe('pointerHandlers smoke', () => {
       setShowBrushCursor: jest.fn(),
       setCursorPosition: jest.fn(),
       interaction: {
-        state: {},
+        state: { isDrawing: false, isSelecting: false, mode: 'idle' },
         dispatch: jest.fn(),
         refs: {
           selectionStart: { current: null },
@@ -169,6 +170,13 @@ describe('pointerHandlers smoke', () => {
       contourLinesStateRef: { current: createDefaultContourLinesState() },
       contourLinesDefaultsCacheRef: { current: null },
       contourLinesFinalizingRef: { current: false },
+      selectionRuntimeRef: {
+        current: {
+          pendingSelectionHistory: null,
+          freehandSession: { active: false, points: [] },
+          clickLineSession: { active: false, points: [] },
+        },
+      },
     };
 
     deps.previewSessionIdRef = { current: 0 };

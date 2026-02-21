@@ -24,7 +24,11 @@ export const useDrawingCanvasCompositeRuntimeState = () => {
   const pendingColorCycleRefreshRef = useRef(false);
 
   const pasteCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastPasteInfoRef = useRef<{ imageData: ImageData | null; width: number; height: number }>({
+  const lastPasteInfoRef = useRef<{
+    imageData: ImageData | null;
+    width: number;
+    height: number;
+  }>({
     imageData: null,
     width: 0,
     height: 0,

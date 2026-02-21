@@ -18,6 +18,10 @@ export interface SelectionSlice {
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
   selectionClipboard: SelectionClipboardPayload | null;
+  selectionVectorPath: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
   selectionMask: ImageData | null;
   selectionMaskBounds: Rectangle | null;
   selectionMaskLayerId: string | null;
@@ -42,6 +46,10 @@ export interface SelectionSlice {
     rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    vectorPath?: {
+      mode: 'freehand' | 'click-line';
+      points: Array<{ x: number; y: number }>;
+    } | null;
   } | null;
   setFloatingPaste: (paste: {
     imageData: ImageData;
@@ -54,6 +62,10 @@ export interface SelectionSlice {
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    vectorPath?: {
+      mode: 'freehand' | 'click-line';
+      points: Array<{ x: number; y: number }>;
+    } | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
@@ -128,6 +140,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
     selectionStart: null,
     selectionEnd: null,
     selectionClipboard: null,
+    selectionVectorPath: null,
     selectionMask: null,
     selectionMaskBounds: null,
     selectionMaskLayerId: null,
@@ -135,6 +148,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       set({
         selectionStart: start,
         selectionEnd: end,
+        selectionVectorPath: null,
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
@@ -143,6 +157,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       set({
         selectionStart: null,
         selectionEnd: null,
+        selectionVectorPath: null,
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
@@ -167,6 +182,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       set({
         selectionStart: { x: 0, y: 0 },
         selectionEnd: { x: width, y: height },
+        selectionVectorPath: null,
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
@@ -194,6 +210,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         set({
           selectionStart: null,
           selectionEnd: null,
+          selectionVectorPath: null,
           selectionMask: null,
           selectionMaskBounds: null,
           selectionMaskLayerId: null,
@@ -210,7 +227,14 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       const clampedHeight = Math.max(0, Math.min(bounds.height, maxHeight - clampedY));
 
       if (clampedWidth <= 0 || clampedHeight <= 0) {
-        set({ selectionStart: null, selectionEnd: null, selectionMask: null, selectionMaskBounds: null, selectionMaskLayerId: null });
+        set({
+          selectionStart: null,
+          selectionEnd: null,
+          selectionVectorPath: null,
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+        });
         return;
       }
 
@@ -238,6 +262,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       set({
         selectionStart: { x: clampedX, y: clampedY },
         selectionEnd: { x: clampedX + clampedWidth, y: clampedY + clampedHeight },
+        selectionVectorPath: null,
         selectionMask: maskData,
         selectionMaskBounds: { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight },
         selectionMaskLayerId: targetLayerId,
@@ -392,6 +417,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionEnd,
         selectionMask,
         selectionMaskBounds,
+        selectionVectorPath,
         project,
         layers,
         activeLayerId,
@@ -471,9 +497,20 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
 
       state.setCurrentCompositeBitmap(null);
       state.setLayersNeedRecomposition(true);
+      const floatingVectorPath =
+        selectionVectorPath && selectionVectorPath.points.length >= 2
+          ? {
+              mode: selectionVectorPath.mode,
+              points: selectionVectorPath.points.map((point) => ({
+                x: point.x - capture.bounds.x,
+                y: point.y - capture.bounds.y,
+              })),
+            }
+          : null;
       set({
         selectionStart: null,
         selectionEnd: null,
+        selectionVectorPath: null,
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
@@ -489,6 +526,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           rotation: 0,
           sourceLayerId: activeLayerId,
           colorCycleIndices: capture.colorCycleIndices ?? null,
+          vectorPath: floatingVectorPath,
         },
       });
 
@@ -525,6 +563,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   rotation: paste.colorCycleIndices ? 0 : (paste.rotation ?? 0),
                   sourceLayerId: paste.sourceLayerId ?? null,
                   colorCycleIndices: paste.colorCycleIndices ?? null,
+                  vectorPath: paste.vectorPath ?? null,
                 }
               : null,
         };

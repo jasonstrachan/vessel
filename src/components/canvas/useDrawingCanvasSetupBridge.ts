@@ -23,6 +23,7 @@ export const useDrawingCanvasSetupBridge = ({
   project,
   projectFilename,
   currentTool,
+  selectionMode,
   brushSettings,
   fillSettings,
   eraserSettings,
@@ -35,6 +36,7 @@ export const useDrawingCanvasSetupBridge = ({
   const maskManager = useMemo(() => getMaskManager(), []);
   const tools = useDrawingCanvasToolsSnapshot({
     currentTool,
+    selectionMode,
     brushSettings,
     fillSettings,
     eraserSettings,

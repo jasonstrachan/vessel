@@ -5,6 +5,7 @@ export type EventHandlerDependenciesInput = Omit<
   | 'contourLinesStateRef'
   | 'contourLinesDefaultsCacheRef'
   | 'contourLinesFinalizingRef'
+  | 'selectionRuntimeRef'
   | 'previewSessionIdRef'
   | 'newPreviewSession'
   | 'isCurrentPreviewSession'

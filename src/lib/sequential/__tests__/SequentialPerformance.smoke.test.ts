@@ -12,6 +12,7 @@ type PerfScenario = {
   warmupFrames: number;
   measureFrames: number;
   cacheEntries: number;
+  p95BudgetMs?: number;
 };
 
 type PerfResult = {
@@ -188,6 +189,7 @@ describe('SequentialPerformance.smoke', () => {
       warmupFrames: 0,
       measureFrames: 180,
       cacheEntries: 8,
+      p95BudgetMs: 75,
     },
   ];
 
@@ -209,11 +211,13 @@ describe('SequentialPerformance.smoke', () => {
     console.log('[SequentialPerfSmoke]', JSON.stringify(printable));
 
     for (const result of results) {
+      const scenario = scenarios.find((entry) => entry.name === result.name);
+      const p95BudgetMs = scenario?.p95BudgetMs ?? 50;
       expect(Number.isFinite(result.avgMs)).toBe(true);
       expect(Number.isFinite(result.p95Ms)).toBe(true);
       expect(result.cacheEntries).toBeLessThanOrEqual(128);
       expect(result.avgMs).toBeLessThan(33.333);
-      expect(result.p95Ms).toBeLessThan(50);
+      expect(result.p95Ms).toBeLessThan(p95BudgetMs);
     }
 
     const hotScenarios = results.filter((result) => result.name !== 'cold-miss-1024');

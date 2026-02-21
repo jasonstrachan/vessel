@@ -201,6 +201,17 @@ describe('tools slice', () => {
     expect(capture.freehandPath).toBeNull();
   });
 
+  it('switches selection mode', () => {
+    const store = useAppStore.getState();
+    expect(store.tools.selectionMode).toBe('marquee');
+
+    store.setSelectionMode('freehand');
+    expect(useAppStore.getState().tools.selectionMode).toBe('freehand');
+
+    store.setSelectionMode('click-line');
+    expect(useAppStore.getState().tools.selectionMode).toBe('click-line');
+  });
+
   it('reuses stored gradients when switching to color cycle presets', () => {
     const store = useAppStore.getState();
     const gradientStops = [

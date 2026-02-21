@@ -9,6 +9,7 @@ import type {
   BrushEditorState,
   PaletteState,
   Tool,
+  SelectionMode,
   ShapeState,
   ShapePoint,
   Rectangle,
@@ -97,6 +98,7 @@ const createDefaultEraserSettings = (): BrushSettings => ({
 export const createDefaultToolState = (): ToolState => ({
   currentTool: 'brush',
   previousTool: 'brush',
+  selectionMode: 'marquee',
   lastRegularTool: 'brush',
   lastRegularBrushShape: BrushShape.SQUARE,
   lastRegularShapeMode: false,
@@ -294,6 +296,7 @@ export interface ToolsSlice {
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
   setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
   setCustomBrushFreehandPath: (payload: { points: { x: number; y: number }[]; bounds: Rectangle | null } | null) => void;
+  setSelectionMode: (mode: SelectionMode) => void;
   setCurrentTool: (tool: Tool) => void;
   setTemporaryCustomBrush: (brush: CustomBrush | null) => void;
   setPolygonGradientState: (partial: Partial<PolygonGradientState>) => void;
@@ -1283,6 +1286,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             ...currentCapture,
             freehandPath: payload,
           },
+        },
+      };
+    }),
+  setSelectionMode: (mode) =>
+    set((state) => {
+      if (state.tools.selectionMode === mode) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          selectionMode: mode,
         },
       };
     }),

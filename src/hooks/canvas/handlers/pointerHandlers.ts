@@ -203,6 +203,7 @@ import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
+import { captureSelectionBitmapFromMask } from '@/stores/helpers/selectionCapture';
 import { createSelectionHandlers } from './selectionHandlers';
 
 type VerticalSpacingMapperConfig = {
@@ -1345,20 +1346,37 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     layerId: string;
     colorCycleIndices?: Uint8Array | null;
   } | null => {
-    const { project, layers, activeLayerId, selectionStart, selectionEnd } = getDynamicDeps();
+    const {
+      project,
+      layers,
+      activeLayerId,
+      selectionStart,
+      selectionEnd,
+      selectionMask,
+      selectionMaskBounds,
+    } = getDynamicDeps();
 
     if (!selectionStart || !selectionEnd || !project || !activeLayerId) {
       return null;
     }
 
     const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
-    const captureResult = captureSelectionBitmap({
-      selectionStart,
-      selectionEnd,
-      project,
-      layer: activeLayer,
-      clearSource: true,
-    });
+    const captureResult =
+      selectionMask && selectionMaskBounds
+        ? captureSelectionBitmapFromMask({
+            mask: selectionMask,
+            maskBounds: selectionMaskBounds,
+            project,
+            layer: activeLayer,
+            clearSource: true,
+          })
+        : captureSelectionBitmap({
+            selectionStart,
+            selectionEnd,
+            project,
+            layer: activeLayer,
+            clearSource: true,
+          });
 
     if (!captureResult || !captureResult.updatedLayerImageData) {
       return null;
@@ -1384,22 +1402,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   } else if (activeLayer?.framebuffer) {
     const fbCtx = activeLayer.framebuffer.getContext('2d', { willReadFrequently: true });
     const canvasCtx = fbCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-    if (canvasCtx && 'clearRect' in canvasCtx && 'getImageData' in canvasCtx) {
-      const { x, y, width, height } = captureResult.bounds;
-      canvasCtx.clearRect(x, y, width, height);
-      const refreshed = canvasCtx.getImageData(
-        0,
-        0,
-        activeLayer.framebuffer.width,
-        activeLayer.framebuffer.height
-      );
-        updateLayer(activeLayerId, { imageData: refreshed });
-      } else {
-        updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
-      }
-    } else {
-      updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
+    if (canvasCtx && 'putImageData' in canvasCtx) {
+      canvasCtx.putImageData(captureResult.updatedLayerImageData, 0, 0);
     }
+    updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
+  } else {
+    updateLayer(activeLayerId, { imageData: captureResult.updatedLayerImageData });
+  }
 
     invalidateCompositeAfterSelectionMutation({
       compositeCanvasDirtyRef,
@@ -1823,10 +1832,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       clearSelection,
       setShowBrushCursor,
       canvasRef,
+      overlayCanvasRef,
       viewTransformRef,
       draw: deps.draw,
       updateBrushCursorVisibility,
       flushAndSetCurrentTool,
+      selectionRuntimeRef: deps.selectionRuntimeRef,
     },
     getDynamicDeps
   );
@@ -2138,14 +2149,33 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       selectionStart &&
       selectionEnd
     ) {
-      const minX = Math.min(selectionStart.x, selectionEnd.x);
-      const maxX = Math.max(selectionStart.x, selectionEnd.x);
-      const minY = Math.min(selectionStart.y, selectionEnd.y);
-      const maxY = Math.max(selectionStart.y, selectionEnd.y);
+      const isInsideSelection = (() => {
+        if (selectionMask && selectionMaskBounds) {
+          const localX = worldPos.x - selectionMaskBounds.x;
+          const localY = worldPos.y - selectionMaskBounds.y;
+          if (
+            localX < 0 ||
+            localY < 0 ||
+            localX >= selectionMask.width ||
+            localY >= selectionMask.height
+          ) {
+            return false;
+          }
+          const idx = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
+          return selectionMask.data[idx] > 0;
+        }
 
-      const isInsideSelection =
-        worldPos.x >= minX && worldPos.x <= maxX &&
-        worldPos.y >= minY && worldPos.y <= maxY;
+        const minX = Math.min(selectionStart.x, selectionEnd.x);
+        const maxX = Math.max(selectionStart.x, selectionEnd.x);
+        const minY = Math.min(selectionStart.y, selectionEnd.y);
+        const maxY = Math.max(selectionStart.y, selectionEnd.y);
+        return (
+          worldPos.x >= minX &&
+          worldPos.x <= maxX &&
+          worldPos.y >= minY &&
+          worldPos.y <= maxY
+        );
+      })();
 
       if (isInsideSelection) {
         const floatingData = extractSelectionAsFloatingPaste();
@@ -2470,7 +2500,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       if (selectionHandlers.handleSelectionToolPointerDown({
         worldPos,
         pointerId: event.pointerId,
+        clickCount: event.detail,
         tools,
+        dynamic: getDynamicDeps(),
       })) {
         return;
       }
@@ -3672,6 +3704,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     const linesStateOnPointerUp = contourStateOnUp;
     const overlayCanvas = overlayCanvasRef.current;
+    const preserveSelectionOverlay = tools.currentTool === 'selection';
     const isLines2Previewing =
       linesStateOnPointerUp.variant === 'lines2' &&
       (linesStateOnPointerUp.stage === 'awaitingAngle' ||
@@ -3680,6 +3713,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     if (
       overlayCanvas &&
+      !preserveSelectionOverlay &&
       !isLines2Previewing &&
       linesStateOnPointerUp.stage !== 'awaitingAnchorA'
     ) {

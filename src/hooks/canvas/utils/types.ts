@@ -40,6 +40,7 @@ type CustomBrushCaptureState = AppState['tools']['customBrushCapture'];
 
 export interface ToolsState {
   currentTool: string;
+  selectionMode: AppState['tools']['selectionMode'];
   brushSettings: BrushSettings;
   fillSettings: {
     threshold: number;
@@ -84,6 +85,21 @@ export interface ContourLinesState {
 export interface Lines2DefaultsCache {
   key: string;
   defaults: ReturnType<typeof computeLines2Defaults>;
+}
+
+export interface SelectionPathSession {
+  active: boolean;
+  points: Array<{ x: number; y: number }>;
+}
+
+export interface SelectionRuntimeState {
+  pendingSelectionHistory: {
+    before: import('@/history/selectionState').SelectionSnapshot;
+    description: string;
+    meta?: Record<string, unknown>;
+  } | null;
+  freehandSession: SelectionPathSession;
+  clickLineSession: SelectionPathSession;
 }
 
 export interface EventHandlerDynamicDeps {
@@ -235,6 +251,7 @@ export interface EventHandlerDependencies {
   contourLinesStateRef: React.MutableRefObject<ContourLinesState>;
   contourLinesDefaultsCacheRef: React.MutableRefObject<Lines2DefaultsCache | null>;
   contourLinesFinalizingRef: React.MutableRefObject<boolean>;
+  selectionRuntimeRef: React.MutableRefObject<SelectionRuntimeState>;
 }
 
 // Canonical dependency contract for handler modules (alias to avoid churn).

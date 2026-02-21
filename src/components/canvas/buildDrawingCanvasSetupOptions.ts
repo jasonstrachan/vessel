@@ -5,6 +5,7 @@ interface BuildDrawingCanvasSetupOptionsArgs {
   toolState: Pick<
     UseDrawingCanvasSetupBridgeOptions,
     | 'currentTool'
+    | 'selectionMode'
     | 'brushSettings'
     | 'fillSettings'
     | 'eraserSettings'

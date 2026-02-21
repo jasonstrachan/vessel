@@ -31,6 +31,7 @@ type InjectedDepKey =
   | 'contourLinesStateRef'
   | 'contourLinesDefaultsCacheRef'
   | 'contourLinesFinalizingRef'
+  | 'selectionRuntimeRef'
   | 'previewSessionIdRef'
   | 'newPreviewSession'
   | 'isCurrentPreviewSession';
@@ -46,6 +47,7 @@ type BuildAugmentedEventHandlerDepsArgs = {
   contourLinesStateRef: React.MutableRefObject<ContourLinesState>;
   contourLinesDefaultsCacheRef: React.MutableRefObject<Lines2DefaultsCache | null>;
   contourLinesFinalizingRef: React.MutableRefObject<boolean>;
+  selectionRuntimeRef: EventHandlerDependencies['selectionRuntimeRef'];
   previewSessionIdRef: React.MutableRefObject<number>;
   newPreviewSession: () => number;
   isCurrentPreviewSession: (sessionId: number) => boolean;
@@ -63,6 +65,7 @@ export const createAugmentedEventHandlerDeps = (
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,
+    selectionRuntimeRef,
     previewSessionIdRef,
     newPreviewSession,
     isCurrentPreviewSession,
@@ -77,6 +80,7 @@ export const createAugmentedEventHandlerDeps = (
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,
+    selectionRuntimeRef,
     previewSessionIdRef,
     newPreviewSession,
     isCurrentPreviewSession,

@@ -56,5 +56,6 @@ export const useDrawingCanvasRuntimeRenderStage = ({
       selectionEnd: state.selectionEnd,
       selectionMask: state.selectionMask,
       selectionMaskBounds: state.selectionMaskBounds,
+      selectionVectorPath: state.selectionVectorPath,
     },
   });

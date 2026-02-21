@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { CanvasShape } from '@/types';
+import { strokeMarqueePath, strokeMarqueeRect } from '@/utils/marqueeStroke';
 
 interface FloatingPasteStateLike {
   imageData: ImageData | null;
@@ -9,6 +10,10 @@ interface FloatingPasteStateLike {
   displayWidth?: number;
   displayHeight?: number;
   rotation?: number;
+  vectorPath?: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
 }
 
 interface DrawFloatingPasteOptions {
@@ -31,6 +36,24 @@ interface DrawFloatingPasteOptions {
   activeCanvasShape: CanvasShape | null;
   applyCanvasShapeClip: (ctx: CanvasRenderingContext2D, shape: CanvasShape) => void;
 }
+
+const buildLocalVectorPath = (
+  vectorPath: NonNullable<FloatingPasteStateLike['vectorPath']>
+): Path2D | null => {
+  if (vectorPath.points.length < 2) {
+    return null;
+  }
+
+  const path = new Path2D();
+  path.moveTo(vectorPath.points[0].x, vectorPath.points[0].y);
+  for (let i = 1; i < vectorPath.points.length; i += 1) {
+    path.lineTo(vectorPath.points[i].x, vectorPath.points[i].y);
+  }
+  if (vectorPath.points.length > 2) {
+    path.closePath();
+  }
+  return path;
+};
 
 export const drawFloatingPasteLayer = ({
   ctx,
@@ -138,40 +161,50 @@ export const drawFloatingPasteLayer = ({
       ctx.restore();
     }
 
-    const borderLineWidth = 2 / scale;
-    const dashLineWidth = 1 / scale;
-    const dashLength = 5 / scale;
-
+    const localVectorPath = floatingPaste.vectorPath ? buildLocalVectorPath(floatingPaste.vectorPath) : null;
+    const scaleX = renderWidth / Math.max(1, floatingPaste.width);
+    const scaleY = renderHeight / Math.max(1, floatingPaste.height);
     if (rotation !== 0) {
       ctx.save();
       ctx.translate(centerX, centerY);
       ctx.rotate(rotationRad);
+      ctx.translate(-renderWidth / 2, -renderHeight / 2);
+      ctx.scale(scaleX, scaleY);
 
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = borderLineWidth;
-      ctx.setLineDash([]);
-      ctx.strokeRect(-renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
-
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = dashLineWidth;
-      ctx.setLineDash([dashLength, dashLength]);
-      ctx.lineDashOffset = -marchingAntsOffset / scale;
-      ctx.strokeRect(-renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
+      if (localVectorPath) {
+        strokeMarqueePath(ctx, localVectorPath, {
+          scale,
+          marchingAntsOffset,
+          animated: false,
+        });
+      } else {
+        strokeMarqueeRect(ctx, 0, 0, floatingPaste.width, floatingPaste.height, {
+          scale,
+          marchingAntsOffset,
+          animated: false,
+        });
+      }
       ctx.restore();
     } else {
       const x = floatingPaste.position.x;
       const y = floatingPaste.position.y;
-
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = borderLineWidth;
-      ctx.setLineDash([]);
-      ctx.strokeRect(x, y, renderWidth, renderHeight);
-
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = dashLineWidth;
-      ctx.setLineDash([dashLength, dashLength]);
-      ctx.lineDashOffset = -marchingAntsOffset / scale;
-      ctx.strokeRect(x, y, renderWidth, renderHeight);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scaleX, scaleY);
+      if (localVectorPath) {
+        strokeMarqueePath(ctx, localVectorPath, {
+          scale,
+          marchingAntsOffset,
+          animated: false,
+        });
+      } else {
+        strokeMarqueeRect(ctx, 0, 0, floatingPaste.width, floatingPaste.height, {
+          scale,
+          marchingAntsOffset,
+          animated: false,
+        });
+      }
+      ctx.restore();
     }
 
     ctx.restore();

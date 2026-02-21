@@ -28,6 +28,7 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     canvas: { width: 800, height: 600, scale: 1, zoom: 1 },
     tools: {
       currentTool: 'brush',
+      selectionMode: 'marquee',
       brushSettings: {
         size: 10,
         color: '#000000',
@@ -86,7 +87,7 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     setCursorPosition: jest.fn(),
 
     // Hooks stubs
-    interaction: { state: {}, dispatch: jest.fn(), refs: { selectionStart: { current: null }, drawAnimationFrame: { current: null }, lastDrawPos: { current: null }, drawingCanvas: { current: null }, drawingCanvasHasContent: { current: false }, isCapturing: { current: false } } },
+    interaction: { state: { isDrawing: false, isSelecting: false, mode: 'idle' }, dispatch: jest.fn(), refs: { selectionStart: { current: null }, drawAnimationFrame: { current: null }, lastDrawPos: { current: null }, drawingCanvas: { current: null }, drawingCanvasHasContent: { current: false }, isCapturing: { current: false } } },
     stateMachine: { dispatch: jest.fn(), state: { mode: 'IDLE' }, isAwaitingPan: false, isPanning: false, finalizationComplete: jest.fn() },
     pan: {
       panState,
@@ -130,6 +131,13 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     contourLinesStateRef: { current: createDefaultContourLinesState() },
     contourLinesDefaultsCacheRef: { current: null },
     contourLinesFinalizingRef: { current: false },
+    selectionRuntimeRef: {
+      current: {
+        pendingSelectionHistory: null,
+        freehandSession: { active: false, points: [] },
+        clickLineSession: { active: false, points: [] },
+      },
+    },
   };
 
   deps.previewSessionIdRef = { current: 0 };

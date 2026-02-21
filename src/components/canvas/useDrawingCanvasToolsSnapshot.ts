@@ -4,6 +4,7 @@ import type { BrushSettings, Tool } from '@/types';
 
 interface UseDrawingCanvasToolsSnapshotOptions {
   currentTool: Tool;
+  selectionMode: AppState['tools']['selectionMode'];
   brushSettings: BrushSettings;
   fillSettings: {
     threshold: number;
@@ -17,6 +18,7 @@ interface UseDrawingCanvasToolsSnapshotOptions {
 
 export const useDrawingCanvasToolsSnapshot = ({
   currentTool,
+  selectionMode,
   brushSettings,
   fillSettings,
   eraserSettings,
@@ -26,12 +28,13 @@ export const useDrawingCanvasToolsSnapshot = ({
   return useMemo(
     () => ({
       currentTool,
+      selectionMode,
       brushSettings,
       fillSettings,
       eraserSettings,
       shapeMode,
       customBrushCapture,
     }),
-    [brushSettings, currentTool, customBrushCapture, eraserSettings, fillSettings, shapeMode]
+    [brushSettings, currentTool, customBrushCapture, eraserSettings, fillSettings, selectionMode, shapeMode]
   );
 };

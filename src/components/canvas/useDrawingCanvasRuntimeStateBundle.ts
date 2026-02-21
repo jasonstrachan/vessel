@@ -18,6 +18,7 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
     },
     toolState: {
       currentTool: storeState.currentTool,
+      selectionMode: storeState.selectionMode,
       brushSettings: storeState.brushSettings,
       fillSettings: storeState.fillSettings,
       eraserSettings: storeState.eraserSettings,
@@ -78,6 +79,7 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
     clearSelection: storeState.clearSelection,
     selectionMask: storeState.selectionMask,
     selectionMaskBounds: storeState.selectionMaskBounds,
+    selectionVectorPath: storeState.selectionVectorPath,
     updateFloatingPastePosition: storeState.updateFloatingPastePosition,
     commitFloatingPaste: storeState.commitFloatingPaste,
     cancelFloatingPaste: storeState.cancelFloatingPaste,

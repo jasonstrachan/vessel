@@ -44,6 +44,7 @@ export const useDrawingCanvasStoreState = () => {
   const compositeSegmentsVersion = useAppStore((state) => state.compositeSegmentsVersion);
   const getCompositeSegmentsSnapshot = useAppStore((state) => state.getCompositeSegmentsSnapshot);
   const currentTool = useAppStore(selectCurrentTool);
+  const selectionMode = useAppStore((state) => state.tools.selectionMode);
   const brushSettings = useAppStore(selectBrushSettings);
   const fillSettings = useAppStore(selectFillSettings);
   const eraserSettings = useAppStore(selectEraserSettings);
@@ -66,6 +67,7 @@ export const useDrawingCanvasStoreState = () => {
   const clearSelection = useAppStore((state) => state.clearSelection);
   const selectionMask = useAppStore((state) => state.selectionMask);
   const selectionMaskBounds = useAppStore((state) => state.selectionMaskBounds);
+  const selectionVectorPath = useAppStore((state) => state.selectionVectorPath);
   const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
   const updateFloatingPastePosition = useAppStore((state) => state.updateFloatingPastePosition);
   const commitFloatingPaste = useAppStore((state) => state.commitFloatingPaste);
@@ -107,6 +109,7 @@ export const useDrawingCanvasStoreState = () => {
     compositeSegmentsVersion,
     getCompositeSegmentsSnapshot,
     currentTool,
+    selectionMode,
     brushSettings,
     fillSettings,
     eraserSettings,
@@ -129,6 +132,7 @@ export const useDrawingCanvasStoreState = () => {
     clearSelection,
     selectionMask,
     selectionMaskBounds,
+    selectionVectorPath,
     setFloatingPaste,
     updateFloatingPastePosition,
     commitFloatingPaste,

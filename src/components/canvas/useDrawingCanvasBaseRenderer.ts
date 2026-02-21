@@ -72,6 +72,10 @@ interface FloatingPasteLike {
   displayWidth?: number;
   displayHeight?: number;
   rotation?: number;
+  vectorPath?: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
 }
 
 interface UseDrawingCanvasBaseRendererOptions {
@@ -113,6 +117,10 @@ interface UseDrawingCanvasBaseRendererOptions {
   selectionEnd: Point | null;
   selectionMask: ImageData | null;
   selectionMaskBounds: { x: number; y: number } | null;
+  selectionVectorPath: {
+    mode: 'freehand' | 'click-line';
+    points: Point[];
+  } | null;
 }
 
 export const useDrawingCanvasBaseRenderer = ({
@@ -147,6 +155,7 @@ export const useDrawingCanvasBaseRenderer = ({
   selectionEnd,
   selectionMask,
   selectionMaskBounds,
+  selectionVectorPath,
 }: UseDrawingCanvasBaseRendererOptions) => {
   const lastSplitCompositeSequentialFrameRef = useRef<number | null>(null);
 
@@ -370,6 +379,7 @@ export const useDrawingCanvasBaseRenderer = ({
         selectionStartRef,
         selectionMask,
         selectionMaskBounds,
+        selectionVectorPath,
         activeCanvasShape,
         applyCanvasShapeClip,
       });
@@ -409,6 +419,7 @@ export const useDrawingCanvasBaseRenderer = ({
       selectionEnd,
       selectionMask,
       selectionMaskBounds,
+      selectionVectorPath,
     ]
   );
 };

@@ -21,6 +21,7 @@ const createCanvas = () => {
     translate: jest.fn(),
     scale: jest.fn(),
     beginPath: jest.fn(),
+    arc: jest.fn(),
     moveTo: jest.fn(),
     lineTo: jest.fn(),
     closePath: jest.fn(),
@@ -59,6 +60,7 @@ const baseDynamic: EventHandlerDynamicDeps = {
   canvas: { width: 100, height: 100, scale: 1, zoom: 1 },
   tools: {
     currentTool: 'brush',
+    selectionMode: 'marquee',
     brushSettings: {
       brushShape: BrushShape.ROUND,
       pressureEnabled: false,
@@ -230,6 +232,13 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
     contourLinesStateRef: { current: { stage: 'idle', shapePoints: [], randomSeed: null } as any },
     contourLinesDefaultsCacheRef: { current: null },
     contourLinesFinalizingRef: { current: false },
+    selectionRuntimeRef: {
+      current: {
+        pendingSelectionHistory: null,
+        freehandSession: { active: false, points: [] },
+        clickLineSession: { active: false, points: [] },
+      },
+    },
     defaultCursorStyle: 'none',
     ...depOverrides,
   };
@@ -587,6 +596,93 @@ describe('pointerHandlers main flows', () => {
     expect(ctx.moveTo).toHaveBeenCalledWith(10, 10);
     expect(ctx.lineTo).toHaveBeenCalledWith(40, 50);
     expect(ctx.stroke).toHaveBeenCalled();
+  });
+
+  it('updates click-line preview overlay on first click', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        selectionMode: 'click-line',
+      },
+    });
+
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 24, clientY: 36, detail: 1 }));
+
+    const ctx = (deps.overlayCanvasRef.current!.getContext as jest.Mock).mock.results[0].value as any;
+    expect(ctx.clearRect).toHaveBeenCalled();
+    expect(ctx.arc).not.toHaveBeenCalled();
+  });
+
+  it('preserves click-line session across handler recreation', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        selectionMode: 'click-line',
+      },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const firstHandlers = createPointerHandlers(deps);
+    firstHandlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 12, detail: 1 }));
+
+    deps.interaction = {
+      ...deps.interaction,
+      refs: {
+        ...deps.interaction.refs,
+        selectionStart: { current: null },
+      },
+    } as any;
+
+    const secondHandlers = createPointerHandlers(deps);
+    secondHandlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 34, detail: 1 }));
+
+    const overlayGetContextMock = deps.overlayCanvasRef.current!.getContext as jest.Mock;
+    const contexts = overlayGetContextMock.mock.results
+      .map((result) => result.value)
+      .filter(Boolean) as Array<{ lineTo?: jest.Mock }>;
+
+    const linkedSecondPoint = contexts.some((ctx) =>
+      (ctx.lineTo as jest.Mock | undefined)?.mock.calls.some(
+        ([x, y]) => Number(x) === 30 && Number(y) === 34
+      )
+    );
+
+    expect(linkedSecondPoint).toBe(true);
+  });
+
+  it('cancels stale click-line session after switching to marquee mode', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        selectionMode: 'click-line',
+      },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 12, detail: 1 }));
+
+    deps.tools = {
+      ...deps.tools,
+      selectionMode: 'marquee',
+    } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 20, clientY: 24, detail: 1 }));
+    deps.interaction.state = { ...deps.interaction.state, isSelecting: true } as any;
+
+    handlers.handlePointerMove(makePointerEvent({ clientX: 30, clientY: 34 }));
+
+    expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
+      { x: 20, y: 24 },
+      { x: 30, y: 34 }
+    );
   });
 
   it('processes coalesced pointer moves and continues drawing', () => {

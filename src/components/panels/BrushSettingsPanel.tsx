@@ -9,6 +9,7 @@ import BrushEditorUI from '@/components/BrushEditorUI';
 import ColorSlidersPanel from '@/components/panels/ColorSlidersPanel';
 import CropOptionsPanel from '@/components/panels/CropOptionsPanel';
 import ColorPickerToolPanel from '@/components/panels/ColorPickerToolPanel';
+import SelectionOptionsPanel from '@/components/panels/SelectionOptionsPanel';
 import { useAppStore } from '@/stores/useAppStore';
 import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
 import { brushCache } from '@/utils/brushCache';
@@ -81,6 +82,7 @@ const BrushSettingsPanel: React.FC = () => {
         ) : (
           <>
             {currentTool === 'color-picker' && <ColorPickerToolPanel />}
+            {currentTool === 'selection' && <SelectionOptionsPanel />}
             {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
             {currentTool === 'fill' && <FillControls />}
             {currentTool === 'custom' && <CustomBrushPanel />}

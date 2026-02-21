@@ -27,6 +27,7 @@ export const useCanvasAugmentedEventHandlerDeps = ({
     contourLinesStateRef: refs.contourLinesStateRef,
     contourLinesDefaultsCacheRef: refs.contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef: refs.contourLinesFinalizingRef,
+    selectionRuntimeRef: refs.selectionRuntimeRef,
     previewSessionIdRef: refs.previewSessionIdRef,
     newPreviewSession: refs.newPreviewSession,
     isCurrentPreviewSession: refs.isCurrentPreviewSession,
