@@ -97,7 +97,6 @@ const setupHelpers = (
     displayHeight: 12,
     rotation: 0,
     sourceLayerId: layer.id,
-    fromSelectionMove: false,
   };
 
   Object.assign(floatingPaste, floatingOverrides);
@@ -214,7 +213,6 @@ describe('selection paste commit', () => {
       displayHeight: 10,
       width: 12,
       height: 10,
-      fromSelectionMove: true,
       historyBeforeImage,
     });
 
@@ -223,27 +221,6 @@ describe('selection paste commit', () => {
     expect(commitLayerHistory).toHaveBeenCalledTimes(1);
     const args = commitLayerHistory.mock.calls[0]?.[0];
     expect(args?.beforeImage).toBe(historyBeforeImage);
-    expect(args?.bitmapRoi).toBeUndefined();
-  });
-
-  it('rebuilds pre-move history image when extraction snapshot is missing', async () => {
-    const { helpers } = setupHelpers({
-      width: 1,
-      height: 1,
-      displayWidth: 1,
-      displayHeight: 1,
-      position: { x: 2, y: 2 },
-      originalPosition: { x: 1, y: 1 },
-      imageData: new ImageData(new Uint8ClampedArray([255, 0, 0, 255]), 1, 1),
-      fromSelectionMove: true,
-      historyBeforeImage: null,
-    });
-
-    await helpers.commitFloatingPaste();
-
-    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
-    const args = commitLayerHistory.mock.calls[0]?.[0];
-    expect(args?.beforeImage).not.toBeNull();
     expect(args?.bitmapRoi).toBeUndefined();
   });
 

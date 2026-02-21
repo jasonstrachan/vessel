@@ -428,7 +428,6 @@ export interface AppState {
     rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
-    fromSelectionMove?: boolean;
     historyBeforeImage?: ImageData | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
@@ -446,7 +445,6 @@ export interface AppState {
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
-    fromSelectionMove?: boolean;
     historyBeforeImage?: ImageData | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';

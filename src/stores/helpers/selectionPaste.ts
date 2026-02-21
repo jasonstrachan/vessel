@@ -117,41 +117,6 @@ export const createSelectionPasteHelpers = ({
   set: StoreSet;
   captureCanvasToActiveLayer: CaptureFn;
 }) => {
-  const rebuildPreMoveImage = (
-    layerImage: ImageData,
-    floatingPaste: NonNullable<AppState['floatingPaste']>
-  ): ImageData => {
-    const restoredLayerData = new Uint8ClampedArray(layerImage.data);
-    const pasteData = floatingPaste.imageData?.data;
-    const pasteWidth = floatingPaste.imageData?.width ?? 0;
-    const pasteHeight = floatingPaste.imageData?.height ?? 0;
-    const baseX = clamp(Math.round(floatingPaste.originalPosition.x), 0, layerImage.width);
-    const baseY = clamp(Math.round(floatingPaste.originalPosition.y), 0, layerImage.height);
-
-    if (!pasteData || pasteWidth <= 0 || pasteHeight <= 0) {
-      return new ImageData(restoredLayerData, layerImage.width, layerImage.height);
-    }
-
-    for (let y = 0; y < pasteHeight; y += 1) {
-      const targetY = baseY + y;
-      if (targetY < 0 || targetY >= layerImage.height) continue;
-
-      for (let x = 0; x < pasteWidth; x += 1) {
-        const targetX = baseX + x;
-        if (targetX < 0 || targetX >= layerImage.width) continue;
-
-        const destIndex = (targetY * layerImage.width + targetX) * 4;
-        const srcIndex = (y * pasteWidth + x) * 4;
-        restoredLayerData[destIndex] = pasteData[srcIndex];
-        restoredLayerData[destIndex + 1] = pasteData[srcIndex + 1];
-        restoredLayerData[destIndex + 2] = pasteData[srcIndex + 2];
-        restoredLayerData[destIndex + 3] = pasteData[srcIndex + 3];
-      }
-    }
-
-    return new ImageData(restoredLayerData, layerImage.width, layerImage.height);
-  };
-
   const commitFloatingPaste = async (): Promise<void> => {
     const state = get();
     const { floatingPaste, layers, activeLayerId, project } = state;
@@ -401,19 +366,13 @@ export const createSelectionPasteHelpers = ({
 
       await captureCanvasToActiveLayer(tempCanvas, captureArea);
 
-      const rebuiltPreMoveImage = floatingPaste.fromSelectionMove && beforeImage && floatingPaste.imageData
-        ? rebuildPreMoveImage(beforeImage, floatingPaste)
-        : null;
-      const usedPreMoveSnapshot = Boolean(
-        floatingPaste.fromSelectionMove && (floatingPaste.historyBeforeImage || rebuiltPreMoveImage)
-      );
-      const historyBeforeImage = floatingPaste.historyBeforeImage ?? rebuiltPreMoveImage ?? beforeImage;
+      const historyBeforeImage = floatingPaste.historyBeforeImage ?? beforeImage;
 
       await commitLayerHistory({
         layerId: activeLayer.id,
         beforeImage: historyBeforeImage,
         beforeColorState,
-        bitmapRoi: usedPreMoveSnapshot ? undefined : (bitmapRoi ?? undefined),
+        bitmapRoi: floatingPaste.historyBeforeImage ? undefined : (bitmapRoi ?? undefined),
         actionType: 'paste',
         description: 'Committed paste',
         tool: 'paste',

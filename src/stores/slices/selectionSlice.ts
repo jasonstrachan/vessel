@@ -46,7 +46,6 @@ export interface SelectionSlice {
     rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
-    fromSelectionMove?: boolean;
     historyBeforeImage?: ImageData | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
@@ -64,7 +63,6 @@ export interface SelectionSlice {
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
-    fromSelectionMove?: boolean;
     historyBeforeImage?: ImageData | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
@@ -537,7 +535,6 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           rotation: 0,
           sourceLayerId: activeLayerId,
           colorCycleIndices: capture.colorCycleIndices ?? null,
-          fromSelectionMove: true,
           historyBeforeImage,
           vectorPath: floatingVectorPath,
         },
@@ -576,7 +573,6 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   rotation: paste.colorCycleIndices ? 0 : (paste.rotation ?? 0),
                   sourceLayerId: paste.sourceLayerId ?? null,
                   colorCycleIndices: paste.colorCycleIndices ?? null,
-                  fromSelectionMove: paste.fromSelectionMove ?? false,
                   historyBeforeImage: paste.historyBeforeImage ?? null,
                   vectorPath: paste.vectorPath ?? null,
                 }
