@@ -4,6 +4,7 @@
 import type {
   Project,
   Layer,
+  LayerGroup,
   SequentialLayerData,
   SequentialStrokeEvent,
   CustomBrush,
@@ -287,6 +288,7 @@ export interface VesselProject {
     height: number;
     backgroundColor: string;
     layers: SerializedLayer[];
+    layerGroups?: LayerGroup[];
     customBrushes: SerializedCustomBrush[];
     defaultCustomBrushId?: string | null;
     thumbnail?: string;
@@ -311,6 +313,7 @@ interface SerializedLayer {
   imageDataUrl: string; // Base64 encoded ImageData
   layerType?: 'normal' | 'color-cycle' | 'colorCycle' | 'sequential';
   alignment?: LayerAlignmentSettings;
+  groupId?: string;
   colorCycleData?: SerializedColorCycleLayerData;
   sequentialData?: SerializedSequentialLayerData;
 }
@@ -926,7 +929,8 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
     order: layer.order,
     imageDataUrl,
     layerType: layer.layerType,
-    alignment: cloneLayerAlignment(layer.alignment)
+    alignment: cloneLayerAlignment(layer.alignment),
+    groupId: layer.groupId,
   };
   
   // Serialize color cycle data if present
@@ -1259,6 +1263,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     imageData,
     framebuffer,
     alignment: cloneLayerAlignment(serializedLayer.alignment),
+    groupId: serializedLayer.groupId,
     layerType: rawLayerType || (
       console.warn('🟡 Layer missing layerType during load, defaulting to normal:', serializedLayer.id?.substring(0, 20)),
       'normal' as const
@@ -1593,6 +1598,7 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       height: project.height,
       backgroundColor: project.backgroundColor,
       layers: serializedLayers,
+      layerGroups: project.layerGroups,
       customBrushes: serializedCustomBrushes,
       defaultCustomBrushId: project.defaultCustomBrushId ?? null,
       thumbnail: thumbnail || undefined,
@@ -1720,6 +1726,7 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
     height: serializedProject.height,
     backgroundColor: serializedProject.backgroundColor,
     layers,
+    layerGroups: serializedProject.layerGroups ?? [],
     customBrushes,
     defaultCustomBrushId,
     createdAt: new Date(vesselProject.metadata.created),

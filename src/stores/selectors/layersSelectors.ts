@@ -1,6 +1,7 @@
 import type { AppState } from '@/stores/useAppStore';
 
 export const selectLayers = (state: AppState) => state.layers;
+export const selectLayerGroups = (state: AppState) => state.layerGroups;
 
 export const selectActiveLayerId = (state: AppState) => state.activeLayerId;
 
@@ -27,6 +28,12 @@ export const selectLayerActions = (state: AppState) => ({
   addLayer: state.addLayer,
   removeLayer: state.removeLayer,
   updateLayer: state.updateLayer,
+  setLayersVisibility: state.setLayersVisibility,
+  toggleLayersVisibility: state.toggleLayersVisibility,
+  createLayerGroupFromSelection: state.createLayerGroupFromSelection,
+  removeLayerGroup: state.removeLayerGroup,
+  renameLayerGroup: state.renameLayerGroup,
+  setLayerGroupVisibility: state.setLayerGroupVisibility,
   reorderLayers: state.reorderLayers,
   setActiveLayer: state.setActiveLayer,
   setSelectedLayerIds: state.setSelectedLayerIds,

@@ -1,7 +1,7 @@
 import { createLayerStructureDelta } from '@/history/deltas/layerStructureDelta';
 import { createRehydrationTargets } from '@/history/runtimeRehydration';
 import { useAppStore } from '@/stores/useAppStore';
-import type { CanvasSnapshot, Layer } from '@/types';
+import type { CanvasSnapshot, Layer, LayerGroup } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const createLayer = (
@@ -56,10 +56,12 @@ const createLayerStructureSnapshot = (
   activeLayerId: string,
   selectedLayerIds: string[] = [],
   referenceLayerId: string | null = null,
+  layerGroups: LayerGroup[] = [],
 ) => ({
   snapshot: createSnapshot(id, layers, activeLayerId),
   selectedLayerIds,
   referenceLayerId,
+  layerGroups,
 });
 
 describe('LayerStructureDelta', () => {
@@ -68,6 +70,7 @@ describe('LayerStructureDelta', () => {
       layers: [],
       activeLayerId: null,
       selectedLayerIds: [],
+      layerGroups: [],
       referenceLayerId: null,
       project: state.project
         ? {
@@ -100,6 +103,32 @@ describe('LayerStructureDelta', () => {
     expect(useAppStore.getState().activeLayerId).toBe('layer-a');
     expect(useAppStore.getState().selectedLayerIds).toEqual(['layer-a']);
     expect(useAppStore.getState().referenceLayerId).toBe('layer-a');
+  });
+
+  it('replays layer group registry in both directions', () => {
+    const beforeLayers = [createLayer('layer-a', 0), createLayer('layer-b', 1)];
+    const afterLayers = [
+      { ...beforeLayers[0]!, groupId: 'group-1' },
+      { ...beforeLayers[1]!, groupId: 'group-1' },
+    ];
+
+    const delta = createLayerStructureDelta({
+      before: createLayerStructureSnapshot('before', beforeLayers, 'layer-a', [], null, []),
+      after: createLayerStructureSnapshot(
+        'after',
+        afterLayers,
+        'layer-a',
+        [],
+        null,
+        [{ id: 'group-1', name: 'Group 1' }],
+      ),
+    });
+
+    delta.apply('forward');
+    expect(useAppStore.getState().layerGroups).toEqual([{ id: 'group-1', name: 'Group 1' }]);
+
+    delta.apply('backward');
+    expect(useAppStore.getState().layerGroups).toEqual([]);
   });
 
   it('collects rehydration targets for touched normal and color-cycle layers', () => {

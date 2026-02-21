@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type {
   Layer,
+  LayerGroup,
   LayerAlignmentSettings,
   Project,
   SequentialStrokeEvent,
@@ -1035,12 +1036,54 @@ const generateDuplicateLayerName = (name: string, layers: Layer[]): string => {
   return `${base} ${Date.now()}`;
 };
 
+const normalizeLayerGroupName = (name: string | undefined, fallbackIndex: number): string => {
+  const trimmed = name?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : `Group ${fallbackIndex + 1}`;
+};
+
+const sanitizeLayerGroups = (layers: Layer[], layerGroups: LayerGroup[]): LayerGroup[] => {
+  const usedGroupIds = new Set(
+    layers
+      .map((layer) => layer.groupId)
+      .filter((groupId): groupId is string => typeof groupId === 'string' && groupId.length > 0)
+  );
+  const deduped = new Set<string>();
+  const sanitized: LayerGroup[] = [];
+
+  layerGroups.forEach((group, index) => {
+    if (!group?.id || !usedGroupIds.has(group.id) || deduped.has(group.id)) {
+      return;
+    }
+    deduped.add(group.id);
+    sanitized.push({
+      id: group.id,
+      name: normalizeLayerGroupName(group.name, index),
+    });
+  });
+
+  return sanitized;
+};
+
+const generateLayerGroupName = (existingGroups: LayerGroup[]): string => {
+  const usedNames = new Set(existingGroups.map((group) => group.name));
+  let suffix = existingGroups.length + 1;
+  while (suffix < 1000) {
+    const candidate = `Group ${suffix}`;
+    if (!usedNames.has(candidate)) {
+      return candidate;
+    }
+    suffix += 1;
+  }
+  return `Group ${Date.now()}`;
+};
+
 export type UpdateLayerOptions = {
   skipColorCycleSync?: boolean;
 };
 
 export interface LayersSlice {
   layers: Layer[];
+  layerGroups: LayerGroup[];
   layersNeedRecomposition: boolean;
   staticCompositeVersion: number;
   compositeSegmentsVersion: number;
@@ -1069,6 +1112,12 @@ export interface LayersSlice {
     events: SequentialStrokeEvent[],
     metadata: { frameCount: number; fps: number; durationMs: number }
   ) => void;
+  setLayersVisibility: (layerIds: string[], visible: boolean) => void;
+  toggleLayersVisibility: (layerIds: string[]) => void;
+  createLayerGroupFromSelection: (layerIds: string[]) => string | null;
+  removeLayerGroup: (groupId: string) => void;
+  renameLayerGroup: (groupId: string, name: string) => void;
+  setLayerGroupVisibility: (groupId: string, visible: boolean) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   mergeLayers: (layerIds: string[]) => string | null;
   setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
@@ -1433,6 +1482,7 @@ export const createLayersSlice = (
 
     return {
       layers: [],
+      layerGroups: [],
       layersNeedRecomposition: false,
       staticCompositeVersion: 0,
       compositeSegmentsVersion: 0,
@@ -1529,13 +1579,22 @@ export const createLayersSlice = (
               framebuffer: nextFramebuffer ?? layer.framebuffer ?? null,
             };
           });
-          const validLayerIds = new Set(syncedLayers.map((layer) => layer.id));
+          const sanitizedGroups = sanitizeLayerGroups(hydratedLayers, state.layerGroups);
+          const validGroupIds = new Set(sanitizedGroups.map((group) => group.id));
+          const groupedLayers = hydratedLayers.map((layer) => {
+            if (!layer.groupId || validGroupIds.has(layer.groupId)) {
+              return layer;
+            }
+            return { ...layer, groupId: undefined };
+          });
+          const validLayerIds = new Set(groupedLayers.map((layer) => layer.id));
           const nextReferenceLayerId = state.referenceLayerId && validLayerIds.has(state.referenceLayerId)
             ? state.referenceLayerId
             : null;
 
           return {
-            layers: hydratedLayers,
+            layers: groupedLayers,
+            layerGroups: sanitizedGroups,
             referenceLayerId: nextReferenceLayerId,
           };
         });
@@ -1871,8 +1930,10 @@ export const createLayersSlice = (
       
       trackLayerChanges('removeLayer RETURN', updatedLayers);
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
+      const nextLayerGroups = sanitizeLayerGroups(syncedLayers, state.layerGroups);
     return {
       layers: syncedLayers,
+      layerGroups: nextLayerGroups,
       activeLayerId: newActiveLayerId,
       selectedLayerIds: nextSelection,
       referenceLayerId: state.referenceLayerId === id ? null : state.referenceLayerId
@@ -2185,6 +2246,337 @@ export const createLayersSlice = (
       durationMs: appendDurationMs,
     });
   },
+  setLayersVisibility: (layerIds, visible) => {
+    const uniqueIds = Array.from(new Set(layerIds));
+    if (uniqueIds.length === 0) {
+      return;
+    }
+
+    const stateBeforeChange = get();
+    const targetIds = uniqueIds.filter((id) => stateBeforeChange.layers.some((layer) => layer.id === id));
+    if (targetIds.length === 0) {
+      return;
+    }
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+      actionType: 'layers',
+      description: visible ? 'Show selected layers' : 'Hide selected layers',
+    });
+
+    let didChange = false;
+    set((state) => {
+      const targetIdSet = new Set(targetIds);
+      const nextLayers = state.layers.map((layer) => {
+        if (!targetIdSet.has(layer.id) || layer.visible === visible) {
+          return layer;
+        }
+        didChange = true;
+        return { ...layer, visible };
+      });
+
+      if (!didChange) {
+        return state;
+      }
+
+      return {
+        layers: nextLayers,
+        layersNeedRecomposition: true,
+      };
+    });
+
+    if (!didChange) {
+      return;
+    }
+
+    const stateAfterChange = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
+      actionType: 'layers',
+      description: visible ? 'Show selected layers' : 'Hide selected layers',
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: visible ? 'Show selected layers' : 'Hide selected layers',
+      metadata: {
+        operation: visible ? 'show-selected-layers' : 'hide-selected-layers',
+        layerIds: targetIds,
+      },
+    });
+    get().markCompositeSegmentsDirtyByLayerIds(targetIds);
+  },
+  toggleLayersVisibility: (layerIds) => {
+    const uniqueIds = Array.from(new Set(layerIds));
+    if (uniqueIds.length === 0) {
+      return;
+    }
+
+    const stateBeforeChange = get();
+    const targetIds = uniqueIds.filter((id) => stateBeforeChange.layers.some((layer) => layer.id === id));
+    if (targetIds.length === 0) {
+      return;
+    }
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+      actionType: 'layers',
+      description: 'Toggle selected layers visibility',
+    });
+
+    let didChange = false;
+    set((state) => {
+      const targetIdSet = new Set(targetIds);
+      const nextLayers = state.layers.map((layer) => {
+        if (!targetIdSet.has(layer.id)) {
+          return layer;
+        }
+        didChange = true;
+        return { ...layer, visible: !layer.visible };
+      });
+
+      if (!didChange) {
+        return state;
+      }
+
+      return {
+        layers: nextLayers,
+        layersNeedRecomposition: true,
+      };
+    });
+
+    if (!didChange) {
+      return;
+    }
+
+    const stateAfterChange = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
+      actionType: 'layers',
+      description: 'Toggle selected layers visibility',
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Toggle selected layers visibility',
+      metadata: {
+        operation: 'toggle-selected-layers-visibility',
+        layerIds: targetIds,
+      },
+    });
+    get().markCompositeSegmentsDirtyByLayerIds(targetIds);
+  },
+  createLayerGroupFromSelection: (layerIds) => {
+    const stateBeforeChange = get();
+    const targetIds = Array.from(
+      new Set(layerIds.filter((id) => stateBeforeChange.layers.some((layer) => layer.id === id)))
+    );
+    if (targetIds.length === 0) {
+      return null;
+    }
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+      actionType: 'layers',
+      description: 'Create layer group',
+    });
+
+    const newGroupId = `group-${Date.now()}-${Math.random()}`;
+    const nextGroupName = generateLayerGroupName(stateBeforeChange.layerGroups);
+
+    set((state) => {
+      const targetIdSet = new Set(targetIds);
+      const nextLayers = state.layers.map((layer) => (
+        targetIdSet.has(layer.id)
+          ? { ...layer, groupId: newGroupId }
+          : layer
+      ));
+      const nextGroups = [
+        ...state.layerGroups,
+        { id: newGroupId, name: nextGroupName },
+      ];
+
+      return {
+        layers: nextLayers,
+        layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
+      };
+    });
+
+    const stateAfterChange = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
+      actionType: 'layers',
+      description: 'Create layer group',
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Create layer group',
+      metadata: {
+        operation: 'create-layer-group',
+        groupId: newGroupId,
+        layerIds: targetIds,
+      },
+    });
+
+    return newGroupId;
+  },
+  removeLayerGroup: (groupId) => {
+    const stateBeforeChange = get();
+    if (!stateBeforeChange.layerGroups.some((group) => group.id === groupId)) {
+      return;
+    }
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+      actionType: 'layers',
+      description: 'Remove layer group',
+    });
+
+    let didChange = false;
+    set((state) => {
+      const nextLayers = state.layers.map((layer) => {
+        if (layer.groupId !== groupId) {
+          return layer;
+        }
+        didChange = true;
+        return { ...layer, groupId: undefined };
+      });
+      const nextGroups = state.layerGroups.filter((group) => group.id !== groupId);
+      if (nextGroups.length !== state.layerGroups.length) {
+        didChange = true;
+      }
+      if (!didChange) {
+        return state;
+      }
+      return {
+        layers: nextLayers,
+        layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
+      };
+    });
+
+    if (!didChange) {
+      return;
+    }
+
+    const stateAfterChange = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
+      actionType: 'layers',
+      description: 'Remove layer group',
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Remove layer group',
+      metadata: {
+        operation: 'remove-layer-group',
+        groupId,
+      },
+    });
+  },
+  renameLayerGroup: (groupId, name) => {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      return;
+    }
+
+    const stateBeforeChange = get();
+    const targetGroup = stateBeforeChange.layerGroups.find((group) => group.id === groupId);
+    if (!targetGroup || targetGroup.name === normalizedName) {
+      return;
+    }
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+      actionType: 'layers',
+      description: 'Rename layer group',
+    });
+
+    set((state) => ({
+      layerGroups: state.layerGroups.map((group) => (
+        group.id === groupId
+          ? { ...group, name: normalizedName }
+          : group
+      )),
+    }));
+
+    const stateAfterChange = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
+      actionType: 'layers',
+      description: 'Rename layer group',
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Rename layer group',
+      metadata: {
+        operation: 'rename-layer-group',
+        groupId,
+      },
+    });
+  },
+  setLayerGroupVisibility: (groupId, visible) => {
+    const stateBeforeChange = get();
+    if (!stateBeforeChange.layerGroups.some((group) => group.id === groupId)) {
+      return;
+    }
+
+    const memberIds = stateBeforeChange.layers
+      .filter((layer) => layer.groupId === groupId)
+      .map((layer) => layer.id);
+    if (memberIds.length === 0) {
+      return;
+    }
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+      actionType: 'layers',
+      description: visible ? 'Show layer group' : 'Hide layer group',
+    });
+
+    let didChange = false;
+    set((state) => {
+      const nextLayers = state.layers.map((layer) => {
+        if (layer.groupId !== groupId || layer.visible === visible) {
+          return layer;
+        }
+        didChange = true;
+        return { ...layer, visible };
+      });
+
+      if (!didChange) {
+        return state;
+      }
+
+      return {
+        layers: nextLayers,
+        layersNeedRecomposition: true,
+      };
+    });
+
+    if (!didChange) {
+      return;
+    }
+
+    const stateAfterChange = get();
+    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
+      actionType: 'layers',
+      description: visible ? 'Show layer group' : 'Hide layer group',
+    });
+
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: visible ? 'Show layer group' : 'Hide layer group',
+      metadata: {
+        operation: visible ? 'show-layer-group' : 'hide-layer-group',
+        groupId,
+      },
+    });
+    get().markCompositeSegmentsDirtyByLayerIds(memberIds);
+  },
   setSelectedLayerIds: (layerIds) => set((state) => {
     const validIds = layerIds.filter((layerId, index, list) => {
       return list.indexOf(layerId) === index && state.layers.some(layer => layer.id === layerId);
@@ -2216,6 +2608,14 @@ export const createLayersSlice = (
       }
 
       const sortedByOrder = [...layersToMerge].sort((a, b) => a.order - b.order);
+      const sourceGroupIds = Array.from(
+        new Set(
+          layersToMerge
+            .map((layer) => layer.groupId)
+            .filter((groupId): groupId is string => typeof groupId === 'string' && groupId.length > 0)
+        )
+      );
+      const mergedGroupId = sourceGroupIds.length === 1 ? sourceGroupIds[0] : undefined;
       const sequentialFrameIndex = state.sequentialRecord.currentFrame;
       const anchorOrder = (() => {
         const anchorId = uniqueIds[0];
@@ -2354,6 +2754,7 @@ export const createLayersSlice = (
         imageData: mergedImageData,
         framebuffer: mergeCanvas,
         alignment: cloneLayerAlignment(topLayer.alignment),
+        groupId: mergedGroupId,
         layerType: 'normal',
         version: (topLayer.version ?? 0) + 1,
       };
@@ -2370,12 +2771,14 @@ export const createLayersSlice = (
 
       const normalizedLayers = remainingLayers.map((layer, index) => ({ ...layer, order: index }));
       const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
+      const nextLayerGroups = sanitizeLayerGroups(syncedLayers, state.layerGroups);
 
       const nextReferenceLayerId =
         state.referenceLayerId && uniqueIds.includes(state.referenceLayerId) ? null : state.referenceLayerId;
 
       return {
         layers: syncedLayers,
+        layerGroups: nextLayerGroups,
         activeLayerId: mergedLayerId,
         selectedLayerIds: [mergedLayerId],
         referenceLayerId: nextReferenceLayerId,

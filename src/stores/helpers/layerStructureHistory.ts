@@ -34,6 +34,7 @@ export const captureLayerStructureSnapshot = (
     snapshot,
     selectedLayerIds: [...state.selectedLayerIds],
     referenceLayerId: state.referenceLayerId ?? null,
+    layerGroups: state.layerGroups.map((group) => ({ ...group })),
   };
 };
 

@@ -113,6 +113,7 @@ export const createProjectLifecycle = ({
 
     set((state) => ({
       project: projectWithPalette,
+      layerGroups: projectWithPalette.layerGroups ?? [],
       palette: nextPalette,
       paletteDirty: false,
       projectFilename: null,
@@ -156,6 +157,7 @@ export const createProjectLifecycle = ({
 
     set((state) => ({
       project: projectWithPalette,
+      layerGroups: projectWithPalette.layerGroups ?? [],
       palette: nextPalette,
       paletteDirty: false,
       referenceLayerId: null,
@@ -206,6 +208,7 @@ export const createProjectLifecycle = ({
       palette: normalizedPalette,
       paletteDirty: false,
       layers: syncedLayers,
+      layerGroups: projectWithPalette.layerGroups ?? [],
       activeLayerId: loadedProject.layers[0]?.id ?? null,
       selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
       referenceLayerId: nextReferenceLayerId,
@@ -419,6 +422,7 @@ export const createProjectLifecycle = ({
 
       const projectWithViewState = {
         ...freshState.project!,
+        layerGroups: freshState.layerGroups,
         viewState: {
           zoom: freshState.canvas.zoom,
         },
@@ -733,6 +737,7 @@ export const createProjectLifecycle = ({
       width,
       height,
       layers: [],
+      layerGroups: [],
       backgroundColor: 'transparent',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -761,6 +766,7 @@ export const createProjectLifecycle = ({
       projectFilename: null,
       projectFileHandle: null,
       layers: syncedLayers,
+      layerGroups: projectWithPalette.layerGroups ?? [],
       activeLayerId: defaultLayerId,
       selectedLayerIds: defaultLayerId ? [defaultLayerId] : [],
       referenceLayerId: null,

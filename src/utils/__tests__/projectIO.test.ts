@@ -497,4 +497,89 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restoredEvents[0].stamps[0].pressure).toBeCloseTo(0.9, 2);
     expect(restoredEvents[0].stamps[0].rotation).toBeCloseTo(0.2, 3);
   });
+
+  it('round-trips layer groups and layer group memberships', async () => {
+    const layerA: Layer = {
+      id: 'layer-a',
+      name: 'Layer A',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(2, 2, [255, 0, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [255, 0, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      groupId: 'group-1',
+      version: 1,
+    };
+    const layerB: Layer = {
+      ...layerA,
+      id: 'layer-b',
+      name: 'Layer B',
+      groupId: 'group-1',
+      order: 1,
+      imageData: createSolidImageData(2, 2, [0, 255, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 255, 0, 255])),
+    };
+
+    const project: Project = {
+      id: 'project-groups',
+      name: 'Group Project',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layerA, layerB],
+      layerGroups: [{ id: 'group-1', name: 'Foreground' }],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await serializeProject(project);
+    const restored = await deserializeProject(payload);
+
+    expect(restored.layerGroups).toEqual([{ id: 'group-1', name: 'Foreground' }]);
+    expect(restored.layers.find((layer) => layer.id === 'layer-a')?.groupId).toBe('group-1');
+    expect(restored.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
+  });
+
+  it('defaults missing layer group metadata for legacy project payloads', async () => {
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy-groups',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-groups-project',
+        name: 'legacy-groups',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [
+          {
+            id: 'layer-a',
+            name: 'Layer A',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            order: 0,
+            imageDataUrl: '',
+            layerType: 'normal',
+          },
+        ],
+        customBrushes: [],
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(legacyProject));
+    expect(restored.layerGroups).toEqual([]);
+    expect(restored.layers[0]?.groupId).toBeUndefined();
+  });
 });

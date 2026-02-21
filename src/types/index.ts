@@ -107,12 +107,18 @@ export interface CanvasFreehandShape {
 
 export type CanvasShape = CanvasRectangleShape | CanvasCircleShape | CanvasFreehandShape;
 
+export interface LayerGroup {
+  id: string;
+  name: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   width: number;
   height: number;
   layers: Layer[];
+  layerGroups?: LayerGroup[];
   backgroundColor: string;
   createdAt: Date;
   updatedAt: Date;
@@ -272,6 +278,7 @@ export interface Layer {
   // Use a flexible framebuffer type for broader browser support
   framebuffer: OffscreenCanvas | HTMLCanvasElement;
   alignment: LayerAlignmentSettings;
+  groupId?: string;
   
   // Layer type system for supporting different rendering modes
   layerType: 'normal' | 'color-cycle' | 'sequential'; // REQUIRED - not optional

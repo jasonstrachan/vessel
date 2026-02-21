@@ -4,6 +4,7 @@ import type {
   ExportLayoutFlow,
   ExportLayoutJustify,
   Layer,
+  LayerGroup,
   LayerAlignmentSettings,
   LayerHorizontalAlignment,
   LayerVerticalAlignment,
@@ -154,6 +155,7 @@ export const cloneExportLayout = (layout?: ExportContainerLayout): ExportContain
 
 export const normalizeLayer = <T extends Layer>(layer: T): T => ({
   ...layer,
+  groupId: layer.groupId && layer.groupId.trim().length > 0 ? layer.groupId : undefined,
   alignment: cloneLayerAlignment(layer.alignment)
 });
 
@@ -194,12 +196,40 @@ export const normalizeProject = (project: Project): Project => {
       ? project.defaultCustomBrushId ?? null
       : null;
 
+  const normalizedLayers = normalizeLayers(project.layers);
+  const usedGroupIds = new Set(
+    normalizedLayers
+      .map((layer) => layer.groupId)
+      .filter((groupId): groupId is string => typeof groupId === 'string')
+  );
+  const rawGroups = Array.isArray(project.layerGroups) ? project.layerGroups : [];
+  const dedupedGroupIds = new Set<string>();
+  const normalizedLayerGroups: LayerGroup[] = [];
+  rawGroups.forEach((group, index) => {
+    if (!group?.id || dedupedGroupIds.has(group.id) || !usedGroupIds.has(group.id)) {
+      return;
+    }
+    dedupedGroupIds.add(group.id);
+    const name = group.name?.trim();
+    normalizedLayerGroups.push({
+      id: group.id,
+      name: name && name.length > 0 ? name : `Group ${index + 1}`,
+    });
+  });
+  const validGroupIds = new Set(normalizedLayerGroups.map((group) => group.id));
+  const layersWithValidGroups = normalizedLayers.map((layer) => (
+    layer.groupId && !validGroupIds.has(layer.groupId)
+      ? { ...layer, groupId: undefined }
+      : layer
+  ));
+
   return {
     ...project,
     customBrushes,
     defaultCustomBrushId,
     exportLayout: cloneExportLayout(project.exportLayout),
-    layers: normalizeLayers(project.layers),
+    layers: layersWithValidGroups,
+    layerGroups: normalizedLayerGroups,
     palette: normalizePalette(project.palette),
     canvasShape: normalizeCanvasShape(project.canvasShape, project.width, project.height),
   };

@@ -175,6 +175,7 @@ class AutosaveService {
       // Save to background storage (IndexedDB) - silent, non-blocking
       const projectForBackground = {
         ...freshState.project,
+        layerGroups: freshState.layerGroups,
         palette: freshState.palette,
         referenceLayerId: freshState.referenceLayerId ?? null
       };
@@ -237,6 +238,7 @@ class AutosaveService {
 
             const backupProject = {
               ...freshState.project,
+              layerGroups: freshState.layerGroups,
               palette: freshState.palette
             };
 

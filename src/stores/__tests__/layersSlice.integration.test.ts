@@ -114,6 +114,7 @@ beforeEach(() => {
 
   useAppStore.setState((state) => ({
     layers: [],
+    layerGroups: [],
     activeLayerId: null,
     selectedLayerIds: [],
     referenceLayerId: null,
@@ -198,6 +199,277 @@ describe('layers slice integration', () => {
     expect(nextState.layersNeedRecomposition).toBe(true);
     expect(layer?.alignment.offsetPercent).toEqual({ x: 25, y: 50 });
     expect(layer?.alignment.offsetPx).toEqual({ x: 64, y: 128 });
+  });
+
+  it('sets visibility for a selected layer subset', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.getState().setLayersVisibility([layerA, layerC], false);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(false);
+    expect(nextLayerB?.visible).toBe(true);
+    expect(nextLayerC?.visible).toBe(false);
+    expect(nextState.layersNeedRecomposition).toBe(true);
+  });
+
+  it('toggles visibility only for targeted layers', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.getState().setLayersVisibility([layerA], false);
+    useAppStore.getState().toggleLayersVisibility([layerA, layerB]);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(true);
+    expect(nextLayerB?.visible).toBe(false);
+    expect(nextLayerC?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(true);
+  });
+
+  it('ignores unknown and duplicate ids when setting visibility', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.getState().setLayersVisibility([layerA, layerA, 'missing-layer-id'], false);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(false);
+    expect(nextLayerB?.visible).toBe(true);
+    expect(nextLayerC?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(true);
+  });
+
+  it('ignores unknown and duplicate ids when toggling visibility', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.getState().toggleLayersVisibility([layerB, layerB, 'missing-layer-id']);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(true);
+    expect(nextLayerB?.visible).toBe(false);
+    expect(nextLayerC?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(true);
+  });
+
+  it('does not change state when setting visibility with only unknown ids', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.setState({ layersNeedRecomposition: false });
+    useAppStore.getState().setLayersVisibility(['missing-layer-id'], false);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(true);
+    expect(nextLayerB?.visible).toBe(true);
+    expect(nextLayerC?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(false);
+  });
+
+  it('does not change state when setting visibility to an already-matching value', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.setState({ layersNeedRecomposition: false });
+    useAppStore.getState().setLayersVisibility([layerA, layerC], true);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(true);
+    expect(nextLayerB?.visible).toBe(true);
+    expect(nextLayerC?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(false);
+  });
+
+  it('does not change state when toggling visibility with only unknown ids', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.setState({ layersNeedRecomposition: false });
+    useAppStore.getState().toggleLayersVisibility(['missing-layer-id']);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(true);
+    expect(nextLayerB?.visible).toBe(true);
+    expect(nextLayerC?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(false);
+  });
+
+  it('does not change state when visibility helpers receive empty target lists', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.setState({ layersNeedRecomposition: false });
+    useAppStore.getState().setLayersVisibility([], false);
+    useAppStore.getState().toggleLayersVisibility([]);
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB);
+    const nextLayerC = nextState.layers.find((layer) => layer.id === layerC);
+
+    expect(nextLayerA?.visible).toBe(true);
+    expect(nextLayerB?.visible).toBe(true);
+    expect(nextLayerC?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(false);
+  });
+
+  it('creates, renames, and removes a layer group', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+    expect(groupId).toBeTruthy();
+
+    useAppStore.getState().renameLayerGroup(groupId as string, 'Foreground');
+
+    let nextState = useAppStore.getState();
+    expect(nextState.layerGroups).toEqual([{ id: groupId, name: 'Foreground' }]);
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.groupId).toBe(groupId);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.groupId).toBe(groupId);
+    expect(nextState.layers.find((layer) => layer.id === layerC)?.groupId).toBeUndefined();
+
+    useAppStore.getState().removeLayerGroup(groupId as string);
+    nextState = useAppStore.getState();
+
+    expect(nextState.layerGroups).toEqual([]);
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.groupId).toBeUndefined();
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.groupId).toBeUndefined();
+  });
+
+  it('applies group visibility to all group members only', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+    expect(groupId).toBeTruthy();
+
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, false);
+    let nextState = useAppStore.getState();
+
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(false);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(false);
+    expect(nextState.layers.find((layer) => layer.id === layerC)?.visible).toBe(true);
+
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, true);
+    nextState = useAppStore.getState();
+
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(true);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(true);
+    expect(nextState.layers.find((layer) => layer.id === layerC)?.visible).toBe(true);
+  });
+
+  it('keeps group membership stable across reorder and duplicate', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    store.addLayer(createNormalLayerInput('Layer C'));
+
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+    expect(groupId).toBeTruthy();
+
+    const beforeReorder = useAppStore.getState();
+    const sourceIndex = beforeReorder.layers.findIndex((layer) => layer.id === layerA);
+    const destinationIndex = beforeReorder.layers.findIndex((layer) => layer.id === layerB);
+    useAppStore.getState().reorderLayers(sourceIndex, destinationIndex);
+
+    const duplicatedId = useAppStore.getState().duplicateLayer(layerA);
+    expect(duplicatedId).toBeTruthy();
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.groupId).toBe(groupId);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.groupId).toBe(groupId);
+    expect(nextState.layers.find((layer) => layer.id === duplicatedId)?.groupId).toBe(groupId);
+    expect(nextState.layerGroups).toEqual([
+      expect.objectContaining({ id: groupId })
+    ]);
+  });
+
+  it('prunes empty groups on remove and keeps shared-group merge membership', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+    expect(groupId).toBeTruthy();
+
+    useAppStore.getState().removeLayer(layerA);
+    expect(useAppStore.getState().layerGroups).toEqual([
+      expect.objectContaining({ id: groupId })
+    ]);
+
+    useAppStore.getState().removeLayer(layerB);
+    expect(useAppStore.getState().layerGroups).toEqual([]);
+
+    const left = useAppStore.getState().addLayer(createNormalLayerInput('Left'));
+    const right = useAppStore.getState().addLayer(createNormalLayerInput('Right'));
+    const mergeGroupId = useAppStore.getState().createLayerGroupFromSelection([left, right]);
+    expect(mergeGroupId).toBeTruthy();
+
+    const mergedId = useAppStore.getState().mergeLayers([left, right]);
+    expect(mergedId).toBeTruthy();
+    expect(useAppStore.getState().layers.find((layer) => layer.id === mergedId)?.groupId).toBe(mergeGroupId);
+
+    const alpha = useAppStore.getState().addLayer(createNormalLayerInput('Alpha'));
+    const beta = useAppStore.getState().addLayer(createNormalLayerInput('Beta'));
+    const gamma = useAppStore.getState().addLayer(createNormalLayerInput('Gamma'));
+    const groupOne = useAppStore.getState().createLayerGroupFromSelection([alpha]);
+    const groupTwo = useAppStore.getState().createLayerGroupFromSelection([beta]);
+    expect(groupOne).toBeTruthy();
+    expect(groupTwo).toBeTruthy();
+
+    const mixedMergedId = useAppStore.getState().mergeLayers([alpha, beta, gamma]);
+    expect(mixedMergedId).toBeTruthy();
+    expect(useAppStore.getState().layers.find((layer) => layer.id === mixedMergedId)?.groupId).toBeUndefined();
   });
 
   it('duplicates a regular layer and focuses the copy', () => {

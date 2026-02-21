@@ -200,6 +200,7 @@ if (typeof window !== 'undefined') {
 import type {
   Project,
   Layer,
+  LayerGroup,
   LayerAlignmentSettings,
   CanvasState,
   ToolState,
@@ -551,6 +552,7 @@ export interface AppState {
   
   // Layer Management
   layers: Layer[];
+  layerGroups: LayerGroup[];
   activeLayerId: string | null;
   selectedLayerIds: string[];
   referenceLayerId: string | null;
@@ -570,6 +572,12 @@ export interface AppState {
     metadata: { frameCount: number; fps: number; durationMs: number }
   ) => void;
   mergeLayers: (layerIds: string[]) => string | null;
+  setLayersVisibility: (layerIds: string[], visible: boolean) => void;
+  toggleLayersVisibility: (layerIds: string[]) => void;
+  createLayerGroupFromSelection: (layerIds: string[]) => string | null;
+  removeLayerGroup: (groupId: string) => void;
+  renameLayerGroup: (groupId: string, name: string) => void;
+  setLayerGroupVisibility: (groupId: string, visible: boolean) => void;
   setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
   setLayers: (layers: Layer[]) => void;
   setReferenceLayer: (id: string | null) => void;

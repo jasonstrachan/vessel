@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/useAppStore';
-import type { CanvasSnapshot, Layer } from '@/types';
+import type { CanvasSnapshot, Layer, LayerGroup } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 
 import type {
@@ -12,6 +12,7 @@ export interface LayerStructureSnapshot {
   snapshot: CanvasSnapshot;
   selectedLayerIds: string[];
   referenceLayerId: string | null;
+  layerGroups: LayerGroup[];
 }
 
 const cloneImageData = (imageData: ImageData | null | undefined): ImageData | null => {
@@ -27,6 +28,10 @@ const cloneArrayBuffer = (input: ArrayBuffer | undefined): ArrayBuffer | undefin
   }
   return input.slice(0);
 };
+
+const cloneLayerGroups = (groups: LayerGroup[]): LayerGroup[] => (
+  groups.map((group) => ({ ...group }))
+);
 
 const cloneLayerForReplay = (layer: Layer): Layer => ({
   ...layer,
@@ -125,6 +130,7 @@ class LayerStructureDelta implements HistoryDelta {
     const validLayerIds = new Set(restoredLayers.map((layer) => layer.id));
     const store = useAppStore.getState();
 
+    useAppStore.setState({ layerGroups: cloneLayerGroups(target.layerGroups) });
     store.setLayers(restoredLayers);
     if (targetSnapshot.activeLayerId && validLayerIds.has(targetSnapshot.activeLayerId)) {
       store.setActiveLayer(targetSnapshot.activeLayerId);
@@ -152,6 +158,7 @@ class LayerStructureDelta implements HistoryDelta {
         project: {
           ...state.project,
           layers: resolvedProjectLayers,
+          layerGroups: cloneLayerGroups(target.layerGroups),
           updatedAt: new Date(),
         },
       };
