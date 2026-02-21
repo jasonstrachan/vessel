@@ -104,5 +104,10 @@ This keeps V1 focused on low-risk workflow improvements while avoiding premature
 3. Implement V2a grouping (no collapse) with persistence/history in one cohesive change.
 4. Implement V2b collapse/expand behavior if still needed.
 
+## Status (2026-02-21)
+- V1 complete.
+- V2a complete.
+- V2b complete in `LayersPanel` with persisted group collapse state.
+
 ## Open Items
 - None. V1 includes show/hide/toggle, and collapse is deferred to V2b.
