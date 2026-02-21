@@ -13,7 +13,7 @@ import {
 import {
   deserializeProject,
   generateProjectThumbnail,
-  readProjectManifest
+  readProjectPreviewManifest
 } from '@/utils/projectIO';
 import type { Project } from '@/types';
 
@@ -177,6 +177,10 @@ const ACCEPTED_MIME_TYPES = new Set(
 );
 
 const FILE_INPUT_ACCEPT_ATTRIBUTE = [...PROJECT_FILE_ACCEPT, ...PROJECT_FILE_MIME_ACCEPT].join(',');
+const FILE_NAME_COLLATOR = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base'
+});
 
 const formatDimensions = (width: number, height: number) => `${width} × ${height}`;
 
@@ -193,50 +197,8 @@ const formatFileSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const isThumbnailEffectivelyBlank = async (thumbnail: string): Promise<boolean> => {
-  if (typeof document === 'undefined') {
-    return false;
-  }
-  try {
-    const image = new Image();
-    const loadPromise = new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error('Failed to load thumbnail'));
-    });
-    image.src = thumbnail;
-    await loadPromise;
-    const width = Math.max(1, image.naturalWidth || image.width);
-    const height = Math.max(1, image.naturalHeight || image.height);
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-    if (!ctx) {
-      return false;
-    }
-    ctx.drawImage(image, 0, 0);
-    const data = ctx.getImageData(0, 0, width, height).data;
-    const totalPixels = width * height;
-    const step = Math.max(4, Math.floor(totalPixels / 4096)) * 4;
-    for (let i = 3; i < data.length; i += step) {
-      if (data[i] !== 0) {
-        return false;
-      }
-    }
-    return true;
-  } catch (error) {
-    console.warn('[LoadProjectModal] Failed to inspect thumbnail', error);
-    return false;
-  }
-};
-
 const compareEntries = (a: DirectoryProjectEntry, b: DirectoryProjectEntry) => {
-  const aTime = a.lastModified ?? 0;
-  const bTime = b.lastModified ?? 0;
-  if (aTime === bTime) {
-    return a.name.localeCompare(b.name);
-  }
-  return bTime - aTime;
+  return FILE_NAME_COLLATOR.compare(a.name, b.name);
 };
 
 const hasSupportedExtension = (fileName: string) => {
@@ -561,7 +523,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         return;
       }
       const buffer = await file.arrayBuffer();
-      const vesselProject = await readProjectManifest(buffer);
+      const vesselProject = await readProjectPreviewManifest(buffer);
       const { project, metadata } = vesselProject;
 
       const previewDetails: ProjectPreview = {
@@ -590,9 +552,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         return hydratedProject;
       };
 
-      const thumbnailIsBlank = project.thumbnail ? await isThumbnailEffectivelyBlank(project.thumbnail) : false;
-
-      if (!project.thumbnail || thumbnailIsBlank) {
+      if (!project.thumbnail) {
         try {
           const hydrated = await ensureHydratedProject();
           const thumbnail = generateProjectThumbnail(

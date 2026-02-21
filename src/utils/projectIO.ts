@@ -183,7 +183,10 @@ const sanitizeSequentialLayerData = (
 export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
 
 const PROJECT_ARCHIVE_ENTRY = 'project.json';
+const PROJECT_PREVIEW_ARCHIVE_ENTRY = 'manifest.json';
 const DEFAULT_PROJECT_THUMBNAIL_SIZE = 1024;
+const DEFAULT_PROJECT_EMBEDDED_THUMBNAIL_SIZE = 512;
+const DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE = 256;
 
 function isZipBytes(bytes: Uint8Array): boolean {
   if (bytes.length < 4) {
@@ -298,6 +301,23 @@ export interface VesselProject {
     exportLayout?: ExportContainerLayout;
     palette?: PaletteState;
     canvasShape?: Project['canvasShape'];
+  };
+}
+
+export interface VesselProjectPreview {
+  version: string;
+  metadata: {
+    name: string;
+    created: string;
+    modified: string;
+    appVersion: string;
+  };
+  project: {
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+    thumbnail?: string;
   };
 }
 
@@ -1579,8 +1599,10 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
   const serializedCustomBrushes = await Promise.all(project.customBrushes.map((brush) => serializeCustomBrush(brush)));
   
   let thumbnail = '';
+  let previewThumbnail = '';
   if (layers) {
-    thumbnail = generateProjectThumbnail(project, layers);
+    thumbnail = generateProjectThumbnail(project, layers, DEFAULT_PROJECT_EMBEDDED_THUMBNAIL_SIZE);
+    previewThumbnail = generateProjectThumbnail(project, layers, DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE);
   }
   
   const vesselProject: VesselProject = {
@@ -1611,9 +1633,23 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
     }
   };
 
+  const previewManifest: VesselProjectPreview = {
+    version: PROJECT_VERSION,
+    metadata: vesselProject.metadata,
+    project: {
+      id: vesselProject.project.id,
+      name: vesselProject.project.name,
+      width: vesselProject.project.width,
+      height: vesselProject.project.height,
+      thumbnail: previewThumbnail || thumbnail || undefined,
+    },
+  };
+
   const projectJson = JSON.stringify(vesselProject);
+  const previewJson = JSON.stringify(previewManifest);
   const zip = new JSZip();
   zip.file(PROJECT_ARCHIVE_ENTRY, projectJson);
+  zip.file(PROJECT_PREVIEW_ARCHIVE_ENTRY, previewJson);
 
   return zip.generateAsync({
     type: 'uint8array',
@@ -1649,6 +1685,96 @@ function parseVesselProjectJson(json: string): VesselProject {
   }
 
   return vesselProject;
+}
+
+function toProjectPreview(vesselProject: VesselProject): VesselProjectPreview {
+  return {
+    version: vesselProject.version,
+    metadata: vesselProject.metadata,
+    project: {
+      id: vesselProject.project.id,
+      name: vesselProject.project.name,
+      width: vesselProject.project.width,
+      height: vesselProject.project.height,
+      thumbnail: vesselProject.project.thumbnail,
+    },
+  };
+}
+
+function parseVesselProjectPreviewJson(json: string): VesselProjectPreview {
+  let sanitized = json;
+  if (sanitized.length > 0 && sanitized.charCodeAt(0) === 0xfeff) {
+    sanitized = sanitized.slice(1);
+  }
+  sanitized = sanitized.trimStart();
+  const NULL_CHAR = '\0';
+  if (sanitized.includes(NULL_CHAR)) {
+    sanitized = sanitized.split(NULL_CHAR).join('');
+  }
+
+  let previewManifest: VesselProjectPreview;
+  try {
+    previewManifest = JSON.parse(sanitized) as VesselProjectPreview;
+  } catch (error) {
+    const preview = sanitized.slice(0, 80);
+    const charCodes = Array.from(preview).map((ch) => ch.charCodeAt(0));
+    console.error('[projectIO] Failed to parse project preview manifest', { error, preview, charCodes });
+    throw new Error('Invalid project preview format');
+  }
+
+  if (
+    !previewManifest.version ||
+    !previewManifest.metadata ||
+    !previewManifest.project ||
+    typeof previewManifest.project.id !== 'string' ||
+    typeof previewManifest.project.name !== 'string' ||
+    typeof previewManifest.project.width !== 'number' ||
+    typeof previewManifest.project.height !== 'number'
+  ) {
+    throw new Error('Invalid Vessel project preview');
+  }
+
+  return previewManifest;
+}
+
+export async function readProjectPreviewManifest(projectData: ProjectFileData): Promise<VesselProjectPreview> {
+  if (typeof projectData !== 'string') {
+    let bytes: Uint8Array;
+    if (typeof ArrayBuffer !== 'undefined' && projectData instanceof ArrayBuffer) {
+      bytes = new Uint8Array(projectData);
+    } else if (typeof Uint8Array !== 'undefined' && projectData instanceof Uint8Array) {
+      bytes = projectData;
+    } else if (typeof Blob !== 'undefined' && projectData instanceof Blob) {
+      const buffer = await projectData.arrayBuffer();
+      bytes = new Uint8Array(buffer);
+    } else {
+      throw new Error('Unsupported project data input');
+    }
+
+    if (isZipBytes(bytes)) {
+      const zip = await JSZip.loadAsync(bytes);
+      const previewEntry = zip.file(PROJECT_PREVIEW_ARCHIVE_ENTRY);
+      const normalizedPreviewEntry = Array.isArray(previewEntry) ? previewEntry[0] ?? null : previewEntry;
+      if (normalizedPreviewEntry) {
+        try {
+          const previewJson = await normalizedPreviewEntry.async('string');
+          return parseVesselProjectPreviewJson(previewJson);
+        } catch (error) {
+          console.warn('[projectIO] Failed to read project preview archive entry; falling back to project manifest', error);
+        }
+      }
+
+      const projectEntry = zip.file(PROJECT_ARCHIVE_ENTRY);
+      const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
+      if (!normalizedProjectEntry) {
+        throw new Error('Project archive is missing project.json');
+      }
+      const projectJson = await normalizedProjectEntry.async('string');
+      return toProjectPreview(parseVesselProjectJson(projectJson));
+    }
+  }
+
+  return toProjectPreview(await readProjectManifest(projectData));
 }
 
 export async function readProjectManifest(projectData: ProjectFileData): Promise<VesselProject> {

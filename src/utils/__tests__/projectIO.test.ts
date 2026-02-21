@@ -1,5 +1,10 @@
 import JSZip from 'jszip';
-import { deserializeProject, readProjectManifest, serializeProject } from '@/utils/projectIO';
+import {
+  deserializeProject,
+  readProjectManifest,
+  readProjectPreviewManifest,
+  serializeProject
+} from '@/utils/projectIO';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { BrushShape, type Layer, type Project } from '@/types';
 
@@ -70,6 +75,22 @@ const asJson = JSON.stringify(minimalVesselProject);
 async function zipWithProjectJson(): Promise<Uint8Array> {
   const zip = new JSZip();
   zip.file('project.json', asJson);
+  return zip.generateAsync({ type: 'uint8array' });
+}
+
+async function zipWithPreviewManifestOnly(): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file('manifest.json', JSON.stringify({
+    version: '1.1.0',
+    metadata: minimalVesselProject.metadata,
+    project: {
+      id: minimalVesselProject.project.id,
+      name: minimalVesselProject.project.name,
+      width: minimalVesselProject.project.width,
+      height: minimalVesselProject.project.height,
+      thumbnail: 'data:image/png;base64,preview'
+    }
+  }));
   return zip.generateAsync({ type: 'uint8array' });
 }
 
@@ -154,6 +175,22 @@ describe('projectIO readProjectManifest', () => {
   it('rejects corrupted binary payloads', async () => {
     const garbage = new Uint8Array([1, 2, 3, 4, 5]);
     await expect(readProjectManifest(garbage)).rejects.toThrow(/Invalid project file format/);
+  });
+});
+
+describe('projectIO readProjectPreviewManifest', () => {
+  it('prefers archive manifest.json when present', async () => {
+    const payload = await zipWithPreviewManifestOnly();
+    const manifest = await readProjectPreviewManifest(payload);
+    expect(manifest.project.name).toBe('demo');
+    expect(manifest.project.thumbnail).toBe('data:image/png;base64,preview');
+  });
+
+  it('falls back to project.json when manifest.json is missing', async () => {
+    const payload = await zipWithProjectJson();
+    const manifest = await readProjectPreviewManifest(payload);
+    expect(manifest.project.id).toBe('p1');
+    expect(manifest.project.width).toBe(10);
   });
 });
 
