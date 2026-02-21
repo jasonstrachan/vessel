@@ -117,6 +117,22 @@ const LayersPanel: React.FC = () => {
     });
     return visibilityByGroupId;
   }, [layerGroupsById, layers]);
+  const layerIdsByGroupId = React.useMemo(() => {
+    const idsByGroupId = new Map<string, string[]>();
+    layers.forEach((layer) => {
+      const groupId = layer.groupId;
+      if (!groupId || !layerGroupsById.has(groupId)) {
+        return;
+      }
+      const existing = idsByGroupId.get(groupId);
+      if (existing) {
+        existing.push(layer.id);
+        return;
+      }
+      idsByGroupId.set(groupId, [layer.id]);
+    });
+    return idsByGroupId;
+  }, [layerGroupsById, layers]);
 
   React.useEffect(() => {
     setCollapsedGroupIds((previous) => {
@@ -137,6 +153,17 @@ const LayersPanel: React.FC = () => {
       } else {
         next.add(groupId);
       }
+      persistCollapsedLayerGroups(next);
+      return next;
+    });
+  }, []);
+  const handleExpandGroup = React.useCallback((groupId: string) => {
+    setCollapsedGroupIds((previous) => {
+      if (!previous.has(groupId)) {
+        return previous;
+      }
+      const next = new Set(previous);
+      next.delete(groupId);
       persistCollapsedLayerGroups(next);
       return next;
     });
@@ -477,11 +504,42 @@ const LayersPanel: React.FC = () => {
           const groupName = groupId ? (layerGroupsById.get(groupId)?.name ?? 'Group') : null;
           const groupAllVisible = Boolean(groupId && layerGroupVisibilityById.get(groupId));
           const isGroupCollapsed = Boolean(groupId && collapsedGroupIds.has(groupId));
+          const groupLayerIds = groupId ? (layerIdsByGroupId.get(groupId) ?? []) : [];
+          const isGroupSelected = groupLayerIds.length > 0 && groupLayerIds.every((id) => selectedLayerIds.includes(id));
 
           return (
             <React.Fragment key={layer.id}>
               {shouldRenderGroupHeader && groupId && (
-                <div className="flex items-center gap-2 border-b border-[#3F3F3F] bg-[#25252A] px-2 py-1 text-[10px] uppercase tracking-wide text-[#B8C0CC]">
+                <div
+                  className={`flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
+                    isGroupSelected ? 'bg-[#2C3B47] text-[#D4EBFF]' : 'bg-[#25252A] text-[#B8C0CC]'
+                  }`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (groupLayerIds.length === 0) {
+                      return;
+                    }
+                    setSelectedLayerIds(groupLayerIds);
+                    setActiveLayer(groupLayerIds[0], { preserveSelection: true });
+                    setLayerMenuState(null);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (groupLayerIds.length === 0) {
+                      return;
+                    }
+                    handleExpandGroup(groupId);
+                    setSelectedLayerIds(groupLayerIds);
+                    setActiveLayer(groupLayerIds[0], { preserveSelection: true });
+                    const anchor = event.currentTarget as HTMLDivElement;
+                    const placement = estimateLayerMenuPosition(anchor);
+                    setLayerMenuState({
+                      layerId: groupLayerIds[0],
+                      ...placement,
+                    });
+                  }}
+                >
                   <button
                     onClick={(event) => {
                       event.stopPropagation();

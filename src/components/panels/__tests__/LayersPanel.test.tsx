@@ -285,6 +285,29 @@ describe('LayersPanel bulk visibility controls', () => {
     expect(state.layers.find((layer) => layer.id === 'layer-b')?.visible).toBe(true);
   });
 
+  it('selects the full group and opens the layer menu when right-clicking the group header', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: false }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.selectedLayerIds = ['layer-b'];
+
+    render(<LayersPanel />);
+
+    const groupHeaderLabel = screen.getByText('Foreground');
+    const groupHeaderRow = groupHeaderLabel.closest('div');
+    expect(groupHeaderRow).not.toBeNull();
+    fireEvent.contextMenu(groupHeaderRow as Element);
+
+    expect(state.setSelectedLayerIds).toHaveBeenLastCalledWith(['layer-a', 'layer-c']);
+    expect(state.setActiveLayer).toHaveBeenLastCalledWith('layer-a', { preserveSelection: true });
+    expect(screen.getByText('Show selected').closest('button')).not.toBeDisabled();
+    expect(screen.getByText('Hide selected').closest('button')).not.toBeDisabled();
+    expect(screen.getByText('Toggle selected').closest('button')).not.toBeDisabled();
+  });
+
   it('collapses and expands grouped layers from the group header', () => {
     state.layers = [
       { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
