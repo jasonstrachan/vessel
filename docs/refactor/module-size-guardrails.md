@@ -11,6 +11,7 @@ We reduced `useDrawingHandlers.ts` and `DrawingCanvas.tsx` from multi-thousand-l
 - `src/components/canvas/DrawingCanvas.tsx`
 - `src/hooks/canvas/useCanvasEventHandlers.ts`
 - Any future orchestration-first canvas entrypoints
+- `src/components/modals/LoadProjectModal.tsx` (applies for load-flow orchestration work)
 
 ## Policy
 1. Orchestration files compose; they do not implement deep workflow logic.
@@ -39,6 +40,12 @@ Example command (manual check):
 
 ```bash
 wc -l src/hooks/useDrawingHandlers.ts src/components/canvas/DrawingCanvas.tsx src/hooks/canvas/useCanvasEventHandlers.ts
+```
+
+Load modal check:
+
+```bash
+wc -l src/components/modals/LoadProjectModal.tsx
 ```
 
 ## Refactor Trigger Rules

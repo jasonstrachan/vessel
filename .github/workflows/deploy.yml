@@ -36,6 +36,12 @@ jobs:
       - name: Run type check
         run: npm run type-check
 
+      - name: Run load-project guardrail tests
+        run: npm run test:load-project-modal:guardrails
+
+      - name: Run load-project perf smoke tests
+        run: npm run test:load-project-modal:perf
+
       - name: Run tests
         run: npm test
 

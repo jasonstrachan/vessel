@@ -185,7 +185,6 @@ export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
 const PROJECT_ARCHIVE_ENTRY = 'project.json';
 const PROJECT_PREVIEW_ARCHIVE_ENTRY = 'manifest.json';
 const DEFAULT_PROJECT_THUMBNAIL_SIZE = 1024;
-const DEFAULT_PROJECT_EMBEDDED_THUMBNAIL_SIZE = 512;
 const DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE = 256;
 
 function isZipBytes(bytes: Uint8Array): boolean {
@@ -306,6 +305,7 @@ export interface VesselProject {
 
 export interface VesselProjectPreview {
   version: string;
+  manifestVersion?: number;
   metadata: {
     name: string;
     created: string;
@@ -318,6 +318,12 @@ export interface VesselProjectPreview {
     width: number;
     height: number;
     thumbnail?: string;
+  };
+  preview?: {
+    dataUrl: string;
+    width: number;
+    height: number;
+    encoding: string;
   };
 }
 
@@ -1504,7 +1510,8 @@ async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): P
 export function generateProjectThumbnail(
   project: Project,
   layers: Layer[],
-  maxSize: number = DEFAULT_PROJECT_THUMBNAIL_SIZE
+  maxSize: number = DEFAULT_PROJECT_THUMBNAIL_SIZE,
+  mimeType: 'image/png' | 'image/webp' = 'image/png',
 ): string {
   const fullCanvas = document.createElement('canvas');
   fullCanvas.width = project.width;
@@ -1588,8 +1595,35 @@ export function generateProjectThumbnail(
     thumbCanvas.height
   );
 
-  return thumbCanvas.toDataURL('image/png', 0.8);
+  try {
+    const encoded = thumbCanvas.toDataURL(mimeType, 0.8);
+    if (mimeType === 'image/webp' && !encoded.startsWith('data:image/webp')) {
+      try {
+        return thumbCanvas.toDataURL('image/png', 0.8);
+      } catch {
+        return '';
+      }
+    }
+    return encoded;
+  } catch {
+    try {
+      return thumbCanvas.toDataURL('image/png', 0.8);
+    } catch {
+      return '';
+    }
+  }
 }
+
+const getThumbnailDimensions = (width: number, height: number, maxSize: number) => {
+  const aspectRatio = width / height;
+  if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+    return { width: maxSize, height: maxSize };
+  }
+  if (aspectRatio > 1) {
+    return { width: maxSize, height: Math.round(maxSize / aspectRatio) };
+  }
+  return { width: Math.round(maxSize * aspectRatio), height: maxSize };
+};
 
 // Serialize a project for saving
 export async function serializeProject(project: Project, layers?: Layer[]): Promise<Uint8Array> {
@@ -1598,11 +1632,16 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
   const serializedLayers = await Promise.all(layersToSerialize.map((layer) => serializeLayer(layer)));
   const serializedCustomBrushes = await Promise.all(project.customBrushes.map((brush) => serializeCustomBrush(brush)));
   
-  let thumbnail = '';
   let previewThumbnail = '';
+  let previewEncoding: 'image/png' | 'image/webp' = 'image/png';
   if (layers) {
-    thumbnail = generateProjectThumbnail(project, layers, DEFAULT_PROJECT_EMBEDDED_THUMBNAIL_SIZE);
-    previewThumbnail = generateProjectThumbnail(project, layers, DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE);
+    previewThumbnail = generateProjectThumbnail(
+      project,
+      layers,
+      DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE,
+      'image/webp',
+    );
+    previewEncoding = previewThumbnail.startsWith('data:image/webp') ? 'image/webp' : 'image/png';
   }
   
   const vesselProject: VesselProject = {
@@ -1623,7 +1662,6 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       layerGroups: project.layerGroups,
       customBrushes: serializedCustomBrushes,
       defaultCustomBrushId: project.defaultCustomBrushId ?? null,
-      thumbnail: thumbnail || undefined,
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
       referenceLayerId: project.referenceLayerId ?? null,
@@ -1635,14 +1673,21 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
 
   const previewManifest: VesselProjectPreview = {
     version: PROJECT_VERSION,
+    manifestVersion: 2,
     metadata: vesselProject.metadata,
     project: {
       id: vesselProject.project.id,
       name: vesselProject.project.name,
       width: vesselProject.project.width,
       height: vesselProject.project.height,
-      thumbnail: previewThumbnail || thumbnail || undefined,
     },
+    preview: previewThumbnail
+      ? {
+        dataUrl: previewThumbnail,
+        ...getThumbnailDimensions(project.width, project.height, DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE),
+        encoding: previewEncoding,
+      }
+      : undefined,
   };
 
   const projectJson = JSON.stringify(vesselProject);
@@ -1701,6 +1746,17 @@ function toProjectPreview(vesselProject: VesselProject): VesselProjectPreview {
   };
 }
 
+function normalizeVesselProjectPreview(previewManifest: VesselProjectPreview): VesselProjectPreview {
+  const normalizedThumbnail = previewManifest.project.thumbnail ?? previewManifest.preview?.dataUrl;
+  return {
+    ...previewManifest,
+    project: {
+      ...previewManifest.project,
+      thumbnail: normalizedThumbnail,
+    },
+  };
+}
+
 function parseVesselProjectPreviewJson(json: string): VesselProjectPreview {
   let sanitized = json;
   if (sanitized.length > 0 && sanitized.charCodeAt(0) === 0xfeff) {
@@ -1734,7 +1790,19 @@ function parseVesselProjectPreviewJson(json: string): VesselProjectPreview {
     throw new Error('Invalid Vessel project preview');
   }
 
-  return previewManifest;
+  if (previewManifest.preview) {
+    const { preview } = previewManifest;
+    if (
+      typeof preview.dataUrl !== 'string'
+      || typeof preview.width !== 'number'
+      || typeof preview.height !== 'number'
+      || typeof preview.encoding !== 'string'
+    ) {
+      throw new Error('Invalid Vessel project preview');
+    }
+  }
+
+  return normalizeVesselProjectPreview(previewManifest);
 }
 
 export async function readProjectPreviewManifest(projectData: ProjectFileData): Promise<VesselProjectPreview> {

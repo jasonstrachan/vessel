@@ -94,6 +94,28 @@ async function zipWithPreviewManifestOnly(): Promise<Uint8Array> {
   return zip.generateAsync({ type: 'uint8array' });
 }
 
+async function zipWithPreviewManifestV2Only(): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file('manifest.json', JSON.stringify({
+    version: '1.1.0',
+    manifestVersion: 2,
+    metadata: minimalVesselProject.metadata,
+    project: {
+      id: minimalVesselProject.project.id,
+      name: minimalVesselProject.project.name,
+      width: minimalVesselProject.project.width,
+      height: minimalVesselProject.project.height,
+    },
+    preview: {
+      dataUrl: 'data:image/webp;base64,preview-v2',
+      width: 10,
+      height: 10,
+      encoding: 'image/webp',
+    },
+  }));
+  return zip.generateAsync({ type: 'uint8array' });
+}
+
 const createSolidImageData = (
   width: number,
   height: number,
@@ -186,6 +208,15 @@ describe('projectIO readProjectPreviewManifest', () => {
     expect(manifest.project.thumbnail).toBe('data:image/png;base64,preview');
   });
 
+  it('reads manifestVersion 2 preview payloads and normalizes thumbnail field', async () => {
+    const payload = await zipWithPreviewManifestV2Only();
+    const manifest = await readProjectPreviewManifest(payload);
+    expect(manifest.manifestVersion).toBe(2);
+    expect(manifest.project.name).toBe('demo');
+    expect(manifest.project.thumbnail).toBe('data:image/webp;base64,preview-v2');
+    expect(manifest.preview?.encoding).toBe('image/webp');
+  });
+
   it('falls back to project.json when manifest.json is missing', async () => {
     const payload = await zipWithProjectJson();
     const manifest = await readProjectPreviewManifest(payload);
@@ -195,6 +226,82 @@ describe('projectIO readProjectPreviewManifest', () => {
 });
 
 describe('projectIO serialize/deserialize layering', () => {
+  it('writes v2 preview manifest and omits project.json thumbnail duplication', async () => {
+    const toDataURLSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation((type?: string) => {
+      if (type === 'image/webp') {
+        return 'data:image/webp;base64,preview-webp';
+      }
+      return 'data:image/png;base64,preview-png';
+    });
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    try {
+      const layer: Layer = {
+        id: 'layer-preview',
+        name: 'Preview Layer',
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over',
+        locked: false,
+        transparencyLocked: false,
+        order: 0,
+        imageData: createSolidImageData(2, 2, [255, 0, 0, 255]),
+        framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [255, 0, 0, 255])),
+        alignment: createDefaultLayerAlignment(),
+        layerType: 'normal',
+        version: 1,
+      };
+      const project: Project = {
+        id: 'project-preview-v2',
+        name: 'Preview V2',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [layer],
+        customBrushes: [],
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+      };
+
+      const payload = await serializeProject(project, project.layers);
+      const zip = await JSZip.loadAsync(payload);
+      const projectJson = await zip.file('project.json')?.async('string');
+      const manifestJson = await zip.file('manifest.json')?.async('string');
+      if (!projectJson || !manifestJson) {
+        throw new Error('Missing archive entries');
+      }
+
+      const projectManifest = JSON.parse(projectJson) as {
+        project: { thumbnail?: string };
+      };
+      const previewManifest = JSON.parse(manifestJson) as {
+        manifestVersion?: number;
+        project: { thumbnail?: string };
+        preview?: { dataUrl?: string; encoding?: string };
+      };
+
+      expect(projectManifest.project.thumbnail).toBeUndefined();
+      expect(previewManifest.manifestVersion).toBe(2);
+      expect(previewManifest.project.thumbnail).toBeUndefined();
+      expect(previewManifest.preview?.dataUrl).toBe('data:image/webp;base64,preview-webp');
+      expect(previewManifest.preview?.encoding).toBe('image/webp');
+
+      const parsedPreview = await readProjectPreviewManifest(payload);
+      expect(parsedPreview.project.thumbnail).toBe('data:image/webp;base64,preview-webp');
+    } finally {
+      toDataURLSpy.mockRestore();
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
   it('prefers per-layer framebuffer pixels when saving', async () => {
     const red = createSolidImageData(2, 2, [255, 0, 0, 255]);
     const green = createSolidImageData(2, 2, [0, 255, 0, 255]);
