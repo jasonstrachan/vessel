@@ -205,6 +205,25 @@ describe('selection paste commit', () => {
     expect(args?.beforeImage?.height).toBe(17);
   });
 
+  it('uses extraction snapshot for history when available', async () => {
+    const historyBeforeImage = new ImageData(64, 64);
+    const { helpers } = setupHelpers({
+      position: { x: 8, y: 9 },
+      displayWidth: 12,
+      displayHeight: 10,
+      width: 12,
+      height: 10,
+      historyBeforeImage,
+    });
+
+    await helpers.commitFloatingPaste();
+
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+    const args = commitLayerHistory.mock.calls[0]?.[0];
+    expect(args?.beforeImage).toBe(historyBeforeImage);
+    expect(args?.bitmapRoi).toBeUndefined();
+  });
+
   it('clears the floating paste without capturing when it sits fully outside the canvas', async () => {
     const { helpers, state, captureCanvasToActiveLayer } = setupHelpers({
       position: { x: 80, y: 80 },

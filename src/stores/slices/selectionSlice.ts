@@ -46,6 +46,7 @@ export interface SelectionSlice {
     rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    historyBeforeImage?: ImageData | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -62,6 +63,7 @@ export interface SelectionSlice {
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    historyBeforeImage?: ImageData | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -431,6 +433,13 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       if (!activeLayer) {
         return false;
       }
+      const historyBeforeImage =
+        activeLayer.layerType === 'color-cycle'
+          ? null
+          : (() => {
+              const source = resolveLayerImageData(activeLayer);
+              return source ? cloneLayerImageData(source) : null;
+            })();
 
       const capture = selectionMask && selectionMaskBounds
         ? captureSelectionBitmapFromMask({
@@ -526,6 +535,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           rotation: 0,
           sourceLayerId: activeLayerId,
           colorCycleIndices: capture.colorCycleIndices ?? null,
+          historyBeforeImage,
           vectorPath: floatingVectorPath,
         },
       });
@@ -563,6 +573,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   rotation: paste.colorCycleIndices ? 0 : (paste.rotation ?? 0),
                   sourceLayerId: paste.sourceLayerId ?? null,
                   colorCycleIndices: paste.colorCycleIndices ?? null,
+                  historyBeforeImage: paste.historyBeforeImage ?? null,
                   vectorPath: paste.vectorPath ?? null,
                 }
               : null,

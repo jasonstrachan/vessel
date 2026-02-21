@@ -25,6 +25,11 @@ export interface FloatingPaste {
   rotation: number;
   sourceLayerId?: string | null;
   colorCycleIndices?: Uint8Array | null;
+  historyBeforeImage?: ImageData | null;
+  vectorPath?: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
 }
 
 export interface CanvasState {
@@ -112,6 +117,10 @@ export interface EventHandlerDynamicDeps {
   selectionEnd: { x: number; y: number } | null;
   selectionMask: ImageData | null;
   selectionMaskBounds: { x: number; y: number; width: number; height: number } | null;
+  selectionVectorPath?: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
   floatingPaste: FloatingPaste | null;
   isDraggingFloatingPaste: boolean;
   palette: PaletteState;
@@ -148,6 +157,10 @@ export interface EventHandlerDependencies {
   selectionEnd: { x: number; y: number } | null;
   selectionMask: ImageData | null;
   selectionMaskBounds: { x: number; y: number; width: number; height: number } | null;
+  selectionVectorPath?: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
   floatingPaste: FloatingPaste | null;
   isDraggingFloatingPaste: boolean;
   palette: PaletteState;
