@@ -308,6 +308,35 @@ describe('LayersPanel bulk visibility controls', () => {
     expect(screen.getByText('Toggle selected').closest('button')).not.toBeDisabled();
   });
 
+  it('supports dragging a layer into a group via the group header', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    render(<LayersPanel />);
+
+    const rows = getLayerRows();
+    const sourceRow = rows[1];
+    expect(sourceRow).not.toBeUndefined();
+    const groupHeader = screen.getByText('Foreground').closest('div');
+    expect(groupHeader).not.toBeNull();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-b'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    fireEvent.drop(groupHeader as Element, { dataTransfer });
+
+    expect(state.updateLayer).toHaveBeenCalledWith('layer-b', { groupId: 'group-1' });
+    expect(state.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
+  });
+
   it('collapses and expands grouped layers from the group header', () => {
     state.layers = [
       { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },

@@ -345,6 +345,39 @@ const LayersPanel: React.FC = () => {
     }
   }, [dragOverBottom]);
 
+  const handleGroupDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, groupId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const draggedId = event.dataTransfer.getData('text/plain');
+    if (!draggedId) {
+      return;
+    }
+
+    const draggedLayer = layers.find((layer) => layer.id === draggedId);
+    if (!draggedLayer) {
+      return;
+    }
+
+    const groupMembersInPanelOrder = layers
+      .slice()
+      .reverse()
+      .filter((layer) => layer.groupId === groupId && layer.id !== draggedId);
+    const targetLayerId = groupMembersInPanelOrder[0]?.id;
+
+    updateLayer(draggedId, { groupId });
+
+    if (targetLayerId && targetLayerId !== draggedId) {
+      const originalDraggedIndex = layers.findIndex((layer) => layer.id === draggedId);
+      const originalTargetIndex = layers.findIndex((layer) => layer.id === targetLayerId);
+      if (originalDraggedIndex !== -1 && originalTargetIndex !== -1 && originalDraggedIndex !== originalTargetIndex) {
+        reorderLayers(originalDraggedIndex, originalTargetIndex);
+      }
+    }
+
+    setDraggedLayerId(null);
+    setDragOverBottom(false);
+  }, [layers, reorderLayers, updateLayer]);
+
   const handleDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, targetLayerId: string) => {
     event.preventDefault();
     const draggedId = event.dataTransfer.getData('text/plain');
@@ -514,6 +547,13 @@ const LayersPanel: React.FC = () => {
                   className={`flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
                     isGroupSelected ? 'bg-[#2C3B47] text-[#D4EBFF]' : 'bg-[#25252A] text-[#B8C0CC]'
                   }`}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(event) => {
+                    handleGroupDrop(event, groupId);
+                  }}
                   onClick={(event) => {
                     event.stopPropagation();
                     if (groupLayerIds.length === 0) {
