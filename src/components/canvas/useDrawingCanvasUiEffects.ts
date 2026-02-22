@@ -15,7 +15,6 @@ interface UseDrawingCanvasUiEffectsOptions {
     skipDrawingCanvas?: boolean
   ) => void;
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
-  stateMachineIsSpacePressed: boolean;
   defaultCursorStyle: string;
   isPointerInsideCanvas: () => boolean;
   setCursorStyle: React.Dispatch<React.SetStateAction<string>>;
@@ -36,7 +35,6 @@ export const useDrawingCanvasUiEffects = ({
   canvasRef,
   draw,
   viewTransformRef,
-  stateMachineIsSpacePressed,
   defaultCursorStyle,
   isPointerInsideCanvas,
   setCursorStyle,
@@ -86,10 +84,10 @@ export const useDrawingCanvasUiEffects = ({
         store.setSequentialPointerDown(false);
       }
       flushBufferedSequentialEvents({ state: store });
-      if (stateMachineIsSpacePressed) {
-        setCursorStyle(defaultCursorStyle);
-        setShowBrushCursor(isPointerInsideCanvas());
-      }
+      // Always normalize cursor UI on blur/visibility loss to recover
+      // from keyup-loss or state-machine/ref desync during pan.
+      setCursorStyle(defaultCursorStyle);
+      setShowBrushCursor(isPointerInsideCanvas());
     };
 
     const handleVisibilityChange = () => {
@@ -110,7 +108,6 @@ export const useDrawingCanvasUiEffects = ({
     isPointerInsideCanvas,
     setCursorStyle,
     setShowBrushCursor,
-    stateMachineIsSpacePressed,
   ]);
 
   useEffect(() => {

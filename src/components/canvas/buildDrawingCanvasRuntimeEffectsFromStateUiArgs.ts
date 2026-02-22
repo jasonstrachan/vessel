@@ -24,7 +24,6 @@ export const buildDrawingCanvasRuntimeEffectsFromStateUiArgs = ({
     canvasRef: state.canvasRef,
     draw,
     viewTransformRef: interactionRuntime.viewTransformRef,
-    stateMachineIsSpacePressed: interactionRuntime.stateMachine.state.isSpacePressed,
     defaultCursorStyle: visualRuntime.defaultCursorStyle,
     isPointerInsideCanvas: visualRuntime.isPointerInsideCanvas,
     setCursorStyle,
