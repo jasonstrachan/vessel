@@ -11,6 +11,8 @@ describe('normalizeAlignment', () => {
 
   test('defaults unspecified axes to centered placement', () => {
     const normalized = normalizeAlignment({});
+    expect(normalized.fit).toBe('contain');
+    expect(normalized.positioning).toBe('auto');
     expect(normalized.horizontal).toBe('center');
     expect(normalized.vertical).toBe('center');
     expect(normalized.offsetPercent?.x).toBe(50);

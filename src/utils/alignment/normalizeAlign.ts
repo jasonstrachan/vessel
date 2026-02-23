@@ -19,7 +19,7 @@ const isFit = (value: unknown): value is AlignInput['fit'] => {
 };
 
 const isPositioning = (value: unknown): value is AlignInput['positioning'] => {
-  return value === 'anchor' || value === 'percent' || value === 'auto';
+  return value === 'anchor' || value === 'auto';
 };
 
 const toNumber = (value: unknown, fallback = 0): number => {
@@ -27,14 +27,31 @@ const toNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const normalizePositioning = (value: unknown): AlignInput['positioning'] => {
+  if (value === 'anchor') {
+    return 'anchor';
+  }
+  // Legacy payloads may still emit `percent`; treat it as modern `auto`.
+  if (value === 'percent' || value === 'auto') {
+    return 'auto';
+  }
+  return 'auto';
+};
+
 export const normalizeAlign = (
   raw: RawAlignInput | null | undefined,
   autoOffsetPercent?: { x: number; y: number }
 ): AlignInput => {
   const fit = isFit(raw?.fit) ? raw?.fit : 'none';
-  const positioning = isPositioning(raw?.positioning) ? raw?.positioning : 'percent';
-  const horizontal = raw?.horizontal === 'center' || raw?.horizontal === 'right' ? raw.horizontal : 'left';
-  const vertical = raw?.vertical === 'center' || raw?.vertical === 'bottom' ? raw.vertical : 'top';
+  const positioning = isPositioning(raw?.positioning)
+    ? raw.positioning
+    : normalizePositioning(raw?.positioning);
+  const horizontal = raw?.horizontal === 'left' || raw?.horizontal === 'right'
+    ? raw.horizontal
+    : 'center';
+  const vertical = raw?.vertical === 'top' || raw?.vertical === 'bottom'
+    ? raw.vertical
+    : 'center';
   const anchor = raw?.anchor as AlignInput['anchor'] | undefined;
 
   const align: AlignInput = {
@@ -45,16 +62,11 @@ export const normalizeAlign = (
     anchor
   };
 
-  if (positioning === 'percent') {
-    const source = raw?.offsetPercent ?? undefined;
+  if (positioning === 'auto') {
+    const source = raw?.offsetPercent ?? autoOffsetPercent ?? { x: 50, y: 50 };
     align.offsetPercent = {
       x: toNumber(source?.x, 0),
       y: toNumber(source?.y, 0)
-    };
-  } else if (positioning === 'auto' && autoOffsetPercent) {
-    align.offsetPercent = {
-      x: autoOffsetPercent.x,
-      y: autoOffsetPercent.y
     };
   }
 

@@ -84,6 +84,34 @@ const resolveAnchorSelection = (alignment: LayerAlignmentSettings | null): Ancho
   return match ? match[0] : 'mc';
 };
 
+export const buildNextAlignment = (
+  baseAlignment: LayerAlignmentSettings,
+  partial: Partial<LayerAlignmentSettings>
+): LayerAlignmentSettings => {
+  const baseOffset = baseAlignment.offsetPx ?? { x: 0, y: 0 };
+  const basePercent = baseAlignment.offsetPercent ?? { x: 0, y: 0 };
+  const nextFit = partial.fit ?? baseAlignment.fit;
+  const nextPositioning = partial.positioning ?? baseAlignment.positioning;
+  const shouldForceCenter = partial.fit === 'tile';
+  const resolvedHorizontal = partial.horizontal ?? baseAlignment.horizontal;
+  const resolvedVertical = partial.vertical ?? baseAlignment.vertical;
+  const nextHorizontal = shouldForceCenter ? 'center' : resolvedHorizontal;
+  const nextVertical = shouldForceCenter ? 'center' : resolvedVertical;
+
+  return {
+    ...baseAlignment,
+    ...partial,
+    fit: nextFit,
+    horizontal: nextHorizontal,
+    vertical: nextVertical,
+    positioning: nextPositioning,
+    offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset,
+    offsetPercent: nextPositioning === 'auto'
+      ? { ...(partial.offsetPercent ?? basePercent) }
+      : undefined
+  };
+};
+
 export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = true }) => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -97,26 +125,6 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
 
   const disabled = !alignment || !activeLayerId;
   const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
-
-  const derivedPercent = useMemo(() => {
-    if (!alignment) {
-      return { x: 0, y: 0 };
-    }
-
-    if (activeLayer && project) {
-      try {
-        return computeLayerPercentOffset(activeLayer, project);
-      } catch (error) {
-        console.warn('[LayerAlignmentControls] Failed to compute percent offset', error);
-      }
-    }
-
-    if (alignment.offsetPercent) {
-      return alignment.offsetPercent;
-    }
-
-    return { x: 0, y: 0 };
-  }, [alignment, activeLayer, project]);
 
   const selectedAnchor = resolveAnchorSelection(alignment);
   const isAuto = alignment?.positioning === 'auto';
@@ -149,38 +157,17 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
         return;
       }
 
-      const baseOffset = alignment.offsetPx ?? { x: 0, y: 0 };
-      const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
-      const nextFit = partial.fit ?? alignment.fit;
-      const nextPositioning = partial.positioning ?? alignment.positioning;
-      const shouldForceCenter = partial.fit === 'tile';
-      const resolvedHorizontal = partial.horizontal ?? alignment.horizontal;
-      const resolvedVertical = partial.vertical ?? alignment.vertical;
-      const nextHorizontal = shouldForceCenter ? 'center' : resolvedHorizontal;
-      const nextVertical = shouldForceCenter ? 'center' : resolvedVertical;
-
-      const nextAlignment: LayerAlignmentSettings = {
-        ...alignment,
-        ...partial,
-        fit: nextFit,
-        horizontal: nextHorizontal,
-        vertical: nextVertical,
-        positioning: nextPositioning,
-        offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset,
-        offsetPercent: nextPositioning === 'auto'
-          ? { ...(partial.offsetPercent ?? basePercent) }
-          : undefined
-      };
-
       const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
         ? selectedLayerIds
         : [activeLayerId];
 
       targetLayerIds.forEach(layerId => {
-        updateLayerAlignment(layerId, nextAlignment);
+        const targetLayer = layers.find(layer => layer.id === layerId);
+        const targetAlignment = targetLayer?.alignment ?? alignment;
+        updateLayerAlignment(layerId, buildNextAlignment(targetAlignment, partial));
       });
     },
-    [alignment, activeLayerId, selectedLayerIds, updateLayerAlignment]
+    [alignment, activeLayerId, layers, selectedLayerIds, updateLayerAlignment]
   );
 
   const handleAnchorSelect = useCallback((selection: AnchorSelection) => {
@@ -189,19 +176,29 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
     }
 
     if (selection === 'auto') {
-      let nextPercent = derivedPercent;
+      const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
+        ? selectedLayerIds
+        : [activeLayerId];
 
-      if (activeLayer && project) {
-        try {
-          nextPercent = computeLayerPercentOffset(activeLayer, project);
-        } catch (error) {
-          console.warn('[LayerAlignmentControls] Failed to compute percent offset for auto mode', error);
+      targetLayerIds.forEach(layerId => {
+        const targetLayer = layers.find(layer => layer.id === layerId);
+        if (!targetLayer) {
+          return;
         }
-      }
 
-      handleAlignmentChange({
-        positioning: 'auto',
-        offsetPercent: nextPercent
+        let nextPercent = targetLayer.alignment.offsetPercent ?? { x: 50, y: 50 };
+        if (project) {
+          try {
+            nextPercent = computeLayerPercentOffset(targetLayer, project);
+          } catch (error) {
+            console.warn('[LayerAlignmentControls] Failed to compute percent offset for auto mode', error);
+          }
+        }
+
+        updateLayerAlignment(layerId, buildNextAlignment(targetLayer.alignment, {
+          positioning: 'auto',
+          offsetPercent: nextPercent
+        }));
       });
       return;
     }
@@ -214,21 +211,9 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
       vertical: config.vertical,
       offsetPercent: undefined
     });
-  }, [activeLayer, activeLayerId, alignment, derivedPercent, handleAlignmentChange, project]);
+  }, [activeLayerId, alignment, handleAlignmentChange, layers, project, selectedLayerIds, updateLayerAlignment]);
 
   const handleFitSelect = useCallback((fit: LayerAlignmentSettings['fit']) => {
-    if (fit === 'fill') {
-      handleAlignmentChange({
-        fit,
-        positioning: 'anchor',
-        horizontal: 'left',
-        vertical: 'top',
-        offsetPercent: undefined,
-        offsetPx: { x: 0, y: 0 }
-      });
-      return;
-    }
-
     handleAlignmentChange({ fit });
   }, [handleAlignmentChange]);
 

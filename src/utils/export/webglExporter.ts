@@ -4126,7 +4126,7 @@ export const exportProjectAsWebGL = async (
     );
 
     const positioning: LayerAlignmentSettings['positioning'] =
-      layer.alignment?.positioning === 'auto' ? 'auto' : 'anchor';
+      normalizedAlignment.positioning === 'auto' ? 'auto' : 'anchor';
 
     const offsetPercent: LayerAlignmentSettings['offsetPercent'] | undefined =
       positioning === 'anchor'
@@ -4137,8 +4137,8 @@ export const exportProjectAsWebGL = async (
 
     const alignmentPayload: AlignmentExportPayload = {
       fit: normalizedAlignment.fit as AlignmentExportPayload['fit'],
-      horizontal: normalizedAlignment.horizontal ?? 'left',
-      vertical: normalizedAlignment.vertical ?? 'top',
+      horizontal: normalizedAlignment.horizontal ?? 'center',
+      vertical: normalizedAlignment.vertical ?? 'center',
       positioning,
       ...(offsetPercent ? { offsetPercent } : {})
     };

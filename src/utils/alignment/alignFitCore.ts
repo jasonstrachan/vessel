@@ -6,7 +6,7 @@ export type Fit =
   | 'fill'
   | 'tile';
 
-export type Positioning = 'anchor' | 'percent' | 'auto';
+export type Positioning = 'anchor' | 'auto';
 export type Anchor =
   | 'top-left' | 'top' | 'top-right'
   | 'left' | 'center' | 'right'

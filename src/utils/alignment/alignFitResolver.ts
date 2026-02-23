@@ -93,7 +93,7 @@ const normalizeFit = (fit?: string): LayerAlignmentSettings['fit'] => {
     case 'uniform':
       return 'contain';
     default:
-      return 'none';
+      return 'contain';
   }
 };
 
@@ -109,7 +109,7 @@ export const normalizeAlignment = (
     fit: normalizeFit(alignment?.fit),
     horizontal,
     vertical,
-    positioning: alignment?.positioning ?? 'anchor',
+    positioning: alignment?.positioning ?? 'auto',
     offsetPercent: normalizeOffsetPercent(alignment, horizontal, vertical)
   };
 
