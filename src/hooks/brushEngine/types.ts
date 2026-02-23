@@ -19,6 +19,8 @@ export interface PixelQueue {
   accumulatedDistance: number;
   lastLiftPosition?: { x: number; y: number } | null;
   stampedGridPositions: Set<string>;
+  dashPhasePx: number;
+  dashVelocityEma: number;
   dashStampCounter: number;
   drawnPixels: Set<string>; // Track drawn pixels for pixel-perfect brushes
   enqueue: (fn: () => void) => void;
@@ -63,6 +65,8 @@ export interface RenderSettings {
   antiAliasing: boolean;
   pixelAlignment: boolean;
   spacing: number;
+  /** Input-space movement sample used for velocity-linked dash behavior. */
+  speedSamplePx?: number;
   rotation: number;
   shape: BrushShape;
   risographIntensity: number;

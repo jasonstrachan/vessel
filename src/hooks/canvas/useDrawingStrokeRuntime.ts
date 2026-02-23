@@ -62,6 +62,7 @@ export const useDrawingStrokeRuntime = ({
       strokeBatchTimerRef: refs.strokeBatchTimerRef,
       drawingCtxRef: refs.drawingCtxRef,
       lastDrawPosRef: refs.lastDrawPosRef,
+      lastDrawTimestampRef: refs.lastDrawTimestampRef,
       brushSamplingPreviewActiveRef: refs.brushSamplingPreviewActiveRef,
       autoSamplePointsRef: refs.autoSamplePointsRef,
       ccSampledPointsRef: refs.ccSampledPointsRef,

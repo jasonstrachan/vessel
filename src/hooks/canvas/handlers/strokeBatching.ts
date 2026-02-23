@@ -16,7 +16,12 @@ type BrushEngine = {
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
     to: { x: number; y: number },
-    options: { pressure: number; customBrushData?: CustomBrushStrokeData }
+    options: {
+      pressure: number;
+      customBrushData?: CustomBrushStrokeData;
+      velocityPxPerMs?: number;
+      timestampMs?: number;
+    }
   ) => void;
   consumeRecentStamps?: () => Array<{
     x: number;
@@ -41,13 +46,18 @@ type UserBrushEngine = {
   continueStroke: (ctx: CanvasRenderingContext2D, x: number, y: number, pressure: number) => void;
 };
 
-export type StrokeBatchPoint = { pos: { x: number; y: number }; pressure: number };
+export type StrokeBatchPoint = {
+  pos: { x: number; y: number };
+  pressure: number;
+  timestampMs?: number;
+};
 
 export type ProcessBatchedStrokesArgs = {
   strokeBatchRef: React.MutableRefObject<StrokeBatchPoint[]>;
   strokeBatchTimerRef: React.MutableRefObject<number | null>;
   drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
   lastDrawPosRef: React.MutableRefObject<{ x: number; y: number } | null>;
+  lastDrawTimestampRef: React.MutableRefObject<number | null>;
   brushSamplingPreviewActiveRef: React.MutableRefObject<boolean>;
   autoSamplePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   ccSampledPointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
@@ -111,7 +121,9 @@ export type ProcessBatchedStrokesDeps = {
     settings: BrushSettings,
     queue: PixelQueue,
     size?: number,
-    isGridSnapping?: boolean
+    isGridSnapping?: boolean,
+    speedSamplePxPerMs?: number,
+    phaseAdvancePx?: number
   ) => boolean;
   shouldApplyGridSnapPure: (settings: BrushSettings) => boolean;
   calculateGridSpacing: () => number;
@@ -196,7 +208,8 @@ export const processBatchedStrokes = (
   };
 
   for (let i = 0; i < batch.length; i++) {
-    const { pos: worldPos, pressure } = batch[i];
+    const { pos: worldPos, pressure, timestampMs } = batch[i];
+    const pointTimestampMs = Number.isFinite(timestampMs) ? (timestampMs as number) : performance.now();
     const shouldAutoSample =
       ccProcessFlags.isAny &&
       (currentState.tools.brushSettings.autoSampleGradient ||
@@ -226,6 +239,7 @@ export const processBatchedStrokes = (
 
     if (!lastPoint) {
       args.lastDrawPosRef.current = worldPos;
+      args.lastDrawTimestampRef.current = pointTimestampMs;
       continue;
     }
 
@@ -240,6 +254,12 @@ export const processBatchedStrokes = (
       const [clippedStart, clippedEnd] = clippedSegment;
       const drawFrom = deps.alignPointToPixel(clippedStart, shouldAlignStroke);
       const drawTo = deps.alignPointToPixel(clippedEnd, shouldAlignStroke);
+      const segmentDistance = Math.hypot(drawTo.x - drawFrom.x, drawTo.y - drawFrom.y);
+      const prevTimestampMs = args.lastDrawTimestampRef.current;
+      const deltaMs = prevTimestampMs !== null ? Math.max(1.5, pointTimestampMs - prevTimestampMs) : null;
+      const velocityPxPerMs = deltaMs !== null
+        ? Math.max(0, Math.min(4, segmentDistance / deltaMs))
+        : undefined;
 
       if (currentTool === 'eraser') {
         if (deps.isEraserV2) {
@@ -268,7 +288,12 @@ export const processBatchedStrokes = (
               } else if (deps.brushEngine) {
                 const customBrushData: CustomBrushStrokeData | undefined =
                   deps.resolveActiveCustomBrushData(currentState);
-                deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, { pressure, customBrushData });
+                deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, {
+                  pressure,
+                  customBrushData,
+                  velocityPxPerMs,
+                  timestampMs: pointTimestampMs,
+                });
               } else {
                 drawCtx.globalAlpha = 1;
                 deps.drawEraserSegment(drawCtx, drawFrom, drawTo);
@@ -395,7 +420,14 @@ export const processBatchedStrokes = (
                   stampY = snapped.y;
                 }
 
-                const dashAllows = deps.shouldDrawStamp(brushSettings, pixelQueue, brushSize);
+                const dashAllows = deps.shouldDrawStamp(
+                  brushSettings,
+                  pixelQueue,
+                  brushSize,
+                  false,
+                  velocityPxPerMs,
+                  spacingScreenPx
+                );
                 const allowStamp = dashAllows;
 
                 if (allowStamp) {
@@ -506,7 +538,12 @@ export const processBatchedStrokes = (
           if (typeof deps.brushEngine.consumeRecentStamps === 'function') {
             deps.brushEngine.consumeRecentStamps();
           }
-          deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, { pressure, customBrushData });
+          deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, {
+            pressure,
+            customBrushData,
+            velocityPxPerMs,
+            timestampMs: pointTimestampMs,
+          });
           const emittedStamps =
             typeof deps.brushEngine.consumeRecentStamps === 'function'
               ? deps.brushEngine.consumeRecentStamps()
@@ -522,6 +559,7 @@ export const processBatchedStrokes = (
     }
 
     args.lastDrawPosRef.current = worldPos;
+    args.lastDrawTimestampRef.current = pointTimestampMs;
   }
 
   args.strokeBatchRef.current = [];

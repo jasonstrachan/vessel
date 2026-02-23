@@ -64,6 +64,47 @@ describe('shouldDrawStamp', () => {
     expect(blankDistance).toBeGreaterThanOrEqual(brushSize * 0.7);
     expect(blankDistance).toBeLessThanOrEqual(brushSize * 1.3);
   });
+
+  it('expands gap explicitly when velocity-linked gap is enabled', () => {
+    const brushSize = baseBrushSettings.size; // 80px
+    const spacingPx = brushSize * 0.2; // 16px
+
+    const runCycle = (settings: BrushSettings, speedSamplePx: number) => {
+      const queue = createPixelQueue();
+      const samples = Array.from(
+        { length: 64 },
+        () => shouldDrawStamp(settings, queue, brushSize, false, speedSamplePx, spacingPx)
+      );
+      const dashCount = samples.findIndex((draws, idx) => idx > 0 && !draws);
+      const gapStart = dashCount;
+      const gapCount = samples.slice(gapStart).findIndex(Boolean);
+      const falseCount = samples.filter((draws) => !draws).length;
+      return { dashCount, gapCount, falseCount };
+    };
+
+    const noVelocity = runCycle(
+      {
+        ...baseBrushSettings,
+        dashLength: 1,
+        dashGap: 1,
+        velocityDashGapStrength: 0,
+      },
+      spacingPx * 4
+    );
+
+    const withVelocity = runCycle(
+      {
+        ...baseBrushSettings,
+        dashLength: 1,
+        dashGap: 1,
+        velocityDashGapStrength: 10,
+      },
+      spacingPx * 4
+    );
+
+    expect(noVelocity.gapCount).toBeGreaterThan(0);
+    expect(withVelocity.falseCount).toBeGreaterThan(noVelocity.falseCount);
+  });
 });
 
 describe('pigment lift mask', () => {

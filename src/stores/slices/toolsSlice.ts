@@ -213,6 +213,8 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   rotationEnabled: settings.rotationEnabled,
   dashedEnabled: settings.dashedEnabled,
   dashLength: settings.dashLength,
+  velocityDashGapEnabled: settings.velocityDashGapEnabled,
+  velocityDashGapStrength: settings.velocityDashGapStrength,
   dashGap: settings.dashGap,
   gridSnapEnabled: settings.gridSnapEnabled,
   gridSnapSize: settings.gridSnapSize,
@@ -826,6 +828,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
       if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;
       if (settings.dashLength !== undefined) settingsToSave.dashLength = newSettings.dashLength;
+      if (settings.velocityDashGapEnabled !== undefined) {
+        settingsToSave.velocityDashGapEnabled = newSettings.velocityDashGapEnabled;
+      }
+      if (settings.velocityDashGapStrength !== undefined) {
+        settingsToSave.velocityDashGapStrength = newSettings.velocityDashGapStrength;
+      }
       if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
       if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
       if (settings.gridSnapSize !== undefined) settingsToSave.gridSnapSize = newSettings.gridSnapSize;

@@ -22,9 +22,12 @@ export const useDrawingHandlerRefs = () => {
     origin: { x: number; y: number };
   } | null>(null);
 
-  const strokeBatchRef = useRef<Array<{ pos: { x: number; y: number }, pressure: number }>>([]);
+  const strokeBatchRef = useRef<
+    Array<{ pos: { x: number; y: number }; pressure: number; timestampMs?: number }>
+  >([]);
   const strokeBatchTimerRef = useRef<number | null>(null);
   const lastProcessedTimeRef = useRef<number>(0);
+  const lastDrawTimestampRef = useRef<number | null>(null);
 
   const shapePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const isDrawingShapeRef = useRef(false);
@@ -108,6 +111,7 @@ export const useDrawingHandlerRefs = () => {
     strokeBatchRef,
     strokeBatchTimerRef,
     lastProcessedTimeRef,
+    lastDrawTimestampRef,
     shapePointsRef,
     isDrawingShapeRef,
     isSelectingDirectionRef,

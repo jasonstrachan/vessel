@@ -43,7 +43,12 @@ export const startEraserStroke = ({
       ctx: CanvasRenderingContext2D,
       from: { x: number; y: number },
       to: { x: number; y: number },
-      options: { pressure: number; customBrushData?: CustomBrushStrokeData }
+      options: {
+        pressure: number;
+        customBrushData?: CustomBrushStrokeData;
+        velocityPxPerMs?: number;
+        timestampMs?: number;
+      }
     ) => void;
   } | null;
   drawEraserSegment: (

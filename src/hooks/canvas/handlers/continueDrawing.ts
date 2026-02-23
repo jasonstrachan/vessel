@@ -28,7 +28,8 @@ const resolveCaptureSettings = (state: AppState): AppState['tools']['brushSettin
 
 export type ContinueDrawingHandler = (
   rawWorldPos: { x: number; y: number },
-  pressure?: number
+  pressure?: number,
+  timestampMs?: number
 ) => void;
 
 type ContinueDrawingHandlerDeps = {
@@ -36,7 +37,9 @@ type ContinueDrawingHandlerDeps = {
   endStrokeSession: () => void;
   processBatchedStrokes: () => void;
   throttleMs: number;
-  strokeBatchRef: React.MutableRefObject<Array<{ pos: { x: number; y: number }; pressure: number }>>;
+  strokeBatchRef: React.MutableRefObject<
+    Array<{ pos: { x: number; y: number }; pressure: number; timestampMs?: number }>
+  >;
   strokeBatchTimerRef: React.MutableRefObject<number | null>;
   lastProcessedTimeRef: React.MutableRefObject<number>;
   lastStrokePointRef: React.MutableRefObject<{ x: number; y: number } | null>;
@@ -59,7 +62,7 @@ export const createContinueDrawingHandler = ({
   strokeBoundingBoxRef,
   strokeCapturePaddingRef,
   resamplerBrushDataRef,
-}: ContinueDrawingHandlerDeps): ContinueDrawingHandler => (rawWorldPos, pressure = 0.5) => {
+}: ContinueDrawingHandlerDeps): ContinueDrawingHandler => (rawWorldPos, pressure = 0.5, timestampMs) => {
   const currentState = storeRef.current;
   const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
   if (activeLayer && !activeLayer.visible) {
@@ -84,7 +87,11 @@ export const createContinueDrawingHandler = ({
     }
   }
 
-  strokeBatchRef.current.push({ pos: worldPos, pressure });
+  strokeBatchRef.current.push({
+    pos: worldPos,
+    pressure,
+    timestampMs: Number.isFinite(timestampMs) ? timestampMs : now,
+  });
 
   if (now - lastProcessedTimeRef.current >= throttleMs) {
     processBatchedStrokes();

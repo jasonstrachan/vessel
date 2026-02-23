@@ -122,7 +122,9 @@ export const shouldDrawStamp = (
   brushSettings: BrushSettings,
   queue: PixelQueue,
   actualSize?: number,
-  isGridSnapping: boolean = false
+  isGridSnapping: boolean = false,
+  speedSamplePxPerMs?: number,
+  phaseAdvancePx?: number
 ): boolean => {
   // Defensive checks for brush settings
   if (!brushSettings || typeof brushSettings !== 'object') {
@@ -132,6 +134,10 @@ export const shouldDrawStamp = (
   const dashedEnabled = brushSettings.dashedEnabled;
   const dashLength = brushSettings.dashLength;
   const dashGap = brushSettings.dashGap;
+  const velocityDashGapStrengthRaw = Number(brushSettings.velocityDashGapStrength);
+  const velocityDashGapStrength = Number.isFinite(velocityDashGapStrengthRaw)
+    ? Math.max(0, Math.min(10, velocityDashGapStrengthRaw))
+    : 1;
   
   // When grid snapping is enabled, prioritize grid positioning over dash patterns
   if (isGridSnapping) {
@@ -172,17 +178,27 @@ export const shouldDrawStamp = (
   const dashGapLen = brushSize <= 2
     ? baseDashGapLen
     : Math.max(1, Math.round(Math.max(rawGapSlots, 0)));
-  
-  // Calculate total cycle length in stamps
-  const totalCycleLength = dashLen + dashGapLen;
-  
-  // Get current position in dash cycle
-  const cyclePosition = queue.dashStampCounter % totalCycleLength;
-  
-  // Determine if we're in dash or gap segment
-  const isInDashSegment = cyclePosition < dashLen;
-  
-  // Advance counter for next stamp (happens regardless of whether we draw)
+
+  const speedSample = Number(speedSamplePxPerMs);
+  const rawSpeedPxPerMs = Number.isFinite(speedSample) ? Math.max(0, Math.min(4, speedSample)) : 0;
+  const prevEma = Number.isFinite(queue.dashVelocityEma) ? queue.dashVelocityEma : 0;
+  // Smooth velocity strongly to avoid visible dash jitter from per-segment timestamp noise.
+  const speedEma = prevEma + (rawSpeedPxPerMs - prevEma) * 0.12;
+  queue.dashVelocityEma = speedEma;
+  const speedDeadzone = 0.04;
+  const speedRange = 0.9;
+  const speedNormLinear = Math.max(0, Math.min(1, (speedEma - speedDeadzone) / speedRange));
+  const speedNorm = Math.pow(speedNormLinear, 1.35);
+  // Make low V values intentionally gentle and reserve stronger behavior for higher settings.
+  const strengthNorm = Math.pow(Math.max(0, Math.min(1, velocityDashGapStrength / 10)), 1.7);
+  const velocityGapBoost = strengthNorm * speedNorm * 2.2;
+  const dashPaintPx = Math.max(spacingPx, dashLen * spacingPx);
+  const gapPx = Math.max(spacingPx, dashGapLen * spacingPx) * (1 + velocityGapBoost);
+  const cyclePx = dashPaintPx + gapPx;
+  const currentPhase = ((queue.dashPhasePx % cyclePx) + cyclePx) % cyclePx;
+  const isInDashSegment = currentPhase < dashPaintPx;
+  const safeAdvance = Number.isFinite(phaseAdvancePx) ? Math.max(0, phaseAdvancePx as number) : spacingPx;
+  queue.dashPhasePx = (currentPhase + safeAdvance) % cyclePx;
   queue.dashStampCounter++;
   
   return isInDashSegment;
@@ -455,6 +471,8 @@ export function createPixelQueue(): PixelQueue {
     accumulatedDistance: 0,
     lastLiftPosition: null,
     stampedGridPositions: new Set<string>(),
+    dashPhasePx: 0,
+    dashVelocityEma: 0,
     dashStampCounter: 0,
     drawnPixels: new Set<string>(),
     enqueue,
@@ -479,6 +497,8 @@ export const resetPixelQueue = (queue: PixelQueue): void => {
   queue.accumulatedDistance = 0;
   queue.lastLiftPosition = null;
   queue.stampedGridPositions.clear();
+  queue.dashPhasePx = 0;
+  queue.dashVelocityEma = 0;
   queue.dashStampCounter = 0;
   queue.drawnPixels.clear();
 };
@@ -659,7 +679,14 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
       queue.accumulatedDistance = 0;
       
       // Draw the first pixel
-      if (shouldDrawStamp(brushSettings, queue, settings.size, false)) {
+      if (shouldDrawStamp(
+        brushSettings,
+        queue,
+        settings.size,
+        false,
+        settings.speedSamplePx,
+        0
+      )) {
         applyPigmentLift(ctx, roundedX, roundedY, settings, brushSettings);
         const jitteredColor = deps.applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
         ctx.fillStyle = jitteredColor;
@@ -687,7 +714,14 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
       // Draw the waiting shape only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= spacingThreshold) {
         // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(brushSettings, queue, settings.size, false)) {
+        if (shouldDrawStamp(
+          brushSettings,
+          queue,
+          settings.size,
+          false,
+          settings.speedSamplePx,
+          distance
+        )) {
           applyPigmentLift(ctx, queue.waitingPixelX, queue.waitingPixelY, settings, brushSettings);
           const jitteredColor = deps.applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
@@ -805,7 +839,14 @@ export const perfectPixels = (
   settings: RenderSettings,
   queue: PixelQueue,
   context: {
-    shouldDrawStamp: (brushSettings: BrushSettings, queue: PixelQueue, size?: number, isGridSnapping?: boolean) => boolean;
+    shouldDrawStamp: (
+      brushSettings: BrushSettings,
+      queue: PixelQueue,
+      size?: number,
+      isGridSnapping?: boolean,
+      speedSamplePxPerMs?: number,
+      phaseAdvancePx?: number
+    ) => boolean;
     applyThrottledColorJitter: (color: string, jitterAmount: number) => string;
     drawShape: (
       ctx: CanvasRenderingContext2D,
@@ -839,7 +880,14 @@ export const drawPixelPerfectLine = (
   settings: RenderSettings,
   queue: PixelQueue,
   context: {
-    shouldDrawStamp: (brushSettings: BrushSettings, queue: PixelQueue, size?: number) => boolean;
+    shouldDrawStamp: (
+      brushSettings: BrushSettings,
+      queue: PixelQueue,
+      size?: number,
+      isGridSnapping?: boolean,
+      speedSamplePxPerMs?: number,
+      phaseAdvancePx?: number
+    ) => boolean;
     applyThrottledColorJitter: (color: string, jitterAmount: number) => string;
     drawShape: (
       ctx: CanvasRenderingContext2D,

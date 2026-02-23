@@ -2887,7 +2887,11 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
             drawingHandlers.continueShapeDrawing(coalescedWorldPos);
           } else {
-            drawingHandlers.continueDrawing(coalescedWorldPos, coalescedPressure);
+            drawingHandlers.continueDrawing(
+              coalescedWorldPos,
+              coalescedPressure,
+              coalescedEvent.timeStamp
+            );
             // Track last sampled point for mid-stroke Shift anchoring
             lastBrushSampleWorldPosRef.current = coalescedWorldPos;
           }
@@ -3427,7 +3431,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             brushWorld = snapPointToAngle(anchor, brushWorld, 45);
           }
         }
-        drawingHandlers.continueDrawing(brushWorld, pressure);
+        drawingHandlers.continueDrawing(brushWorld, pressure, event.timeStamp);
         // Update last sampled point after drawing
         lastBrushSampleWorldPosRef.current = brushWorld;
 

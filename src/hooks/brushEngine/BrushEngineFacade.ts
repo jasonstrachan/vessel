@@ -287,6 +287,7 @@ export class BrushEngineFacade {
       antiAliasing: brushSettings.antialiasing,
       pixelAlignment: !brushSettings.antialiasing,
       spacing,
+      speedSamplePx: Math.max(0, smoothedVelocity),
       rotation,
       shape,
       risographIntensity: brushSettings.risographIntensity || 0,
@@ -446,7 +447,9 @@ export class BrushEngineFacade {
         this.config.brushSettings,
         this.pixelQueue,
         settings.size,
-        false
+        false,
+        settings.speedSamplePx,
+        segDistance
       )) {
         if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
           this.pixelQueue.accumulatedDistance -= spacingThreshold;
@@ -479,7 +482,9 @@ export class BrushEngineFacade {
       this.config.brushSettings,
       this.pixelQueue,
       settings.size,
-      false
+      false,
+      settings.speedSamplePx,
+      distance
     )) {
       const lastPos = this.pixelQueue.lastStrokePosition;
       const dxSeg = to.x - lastPos.x;

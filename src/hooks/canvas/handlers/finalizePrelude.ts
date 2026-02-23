@@ -23,7 +23,9 @@ export const runFinalizePrelude = async ({
   eraserToolRef,
   eraserRoiRef,
 }: {
-  strokeBatchRef: React.MutableRefObject<Array<{ pos: { x: number; y: number }; pressure: number }>>;
+  strokeBatchRef: React.MutableRefObject<
+    Array<{ pos: { x: number; y: number }; pressure: number; timestampMs?: number }>
+  >;
   processBatchedStrokes: () => void;
   colorCyclePixelQueue: React.MutableRefObject<ColorCyclePixelQueueLike | null>;
   isCCLayerSnapshot: boolean;

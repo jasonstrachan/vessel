@@ -1309,7 +1309,7 @@ const BrushControls = () => {
 
         {isColorCycleGradientPreset && (
           <div className="mb-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <ButtonGroup
                 options={[
                   { label: 'Grad', value: 'linear' },
@@ -1329,7 +1329,7 @@ const BrushControls = () => {
 
         {isColorCycleGradientPreset && gradientModeValue === 'manual' && (
           <div className="mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <label
                 htmlFor="cc-gradient-sample-per-shape"
                 className={CONTROL_LABEL_CLASS}
@@ -1770,7 +1770,7 @@ const BrushControls = () => {
 
         {/* Lost Edge (edge fade) */}
         <div className="mb-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Lostedge
             </label>
@@ -1818,8 +1818,9 @@ const BrushControls = () => {
                     onCommit={(next) => setActiveSettings({ dashLength: next })}
                     min={1}
                     max={20}
-                    className="w-12 bg-transparent text-right"
-                    title="Length multiplier (×brush size)"
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Length units (×brush size)"
                   />
                   <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                     G
@@ -1829,8 +1830,21 @@ const BrushControls = () => {
                     onCommit={(next) => setActiveSettings({ dashGap: next })}
                     min={1}
                     max={20}
-                    className="w-12 bg-transparent text-right"
-                    title="Gap multiplier (×brush size)"
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Gap units (×brush size)"
+                  />
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                    V
+                  </span>
+                  <CommittedNumberInput
+                    value={activeSettings.velocityDashGapStrength ?? 1}
+                    onCommit={(next) => setActiveSettings({ velocityDashGapStrength: next })}
+                    min={0}
+                    max={10}
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Speed gap boost strength (0 disables velocity effect)"
                   />
                 </>
               )}
@@ -2700,8 +2714,9 @@ const BrushControls = () => {
                     onCommit={(next) => setActiveSettings({ dashLength: next })}
                     min={1}
                     max={20}
-                    className="w-12 bg-transparent text-right"
-                    title="Length multiplier (×brush size)"
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Length units (×brush size)"
                   />
                   <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                     G
@@ -2711,8 +2726,21 @@ const BrushControls = () => {
                     onCommit={(next) => setActiveSettings({ dashGap: next })}
                     min={1}
                     max={20}
-                    className="w-12 bg-transparent text-right"
-                    title="Gap multiplier (×brush size)"
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Gap units (×brush size)"
+                  />
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                    V
+                  </span>
+                  <CommittedNumberInput
+                    value={activeSettings.velocityDashGapStrength ?? 1}
+                    onCommit={(next) => setActiveSettings({ velocityDashGapStrength: next })}
+                    min={0}
+                    max={10}
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Speed gap boost strength (0 disables velocity effect)"
                   />
                 </>
               )}
@@ -3629,8 +3657,9 @@ const BrushControls = () => {
                     onCommit={(next) => setActiveSettings({ dashLength: next })}
                     min={1}
                     max={20}
-                    className="w-12 bg-transparent text-right"
-                    title="Length multiplier (×brush size)"
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Length units (×brush size)"
                   />
                   <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
                     G
@@ -3640,8 +3669,21 @@ const BrushControls = () => {
                     onCommit={(next) => setActiveSettings({ dashGap: next })}
                     min={1}
                     max={20}
-                    className="w-12 bg-transparent text-right"
-                    title="Gap multiplier (×brush size)"
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Gap units (×brush size)"
+                  />
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                    V
+                  </span>
+                  <CommittedNumberInput
+                    value={activeSettings.velocityDashGapStrength ?? 1}
+                    onCommit={(next) => setActiveSettings({ velocityDashGapStrength: next })}
+                    min={0}
+                    max={10}
+                    step={0.25}
+                    className="w-8 bg-transparent text-right"
+                    title="Speed gap boost strength (0 disables velocity effect)"
                   />
               </>
             )}

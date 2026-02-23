@@ -28,7 +28,12 @@ type BrushEngine = {
     ctx: CanvasRenderingContext2D,
     from: Point,
     to: Point,
-    options: { pressure: number; customBrushData?: CustomBrushStrokeData }
+    options: {
+      pressure: number;
+      customBrushData?: CustomBrushStrokeData;
+      velocityPxPerMs?: number;
+      timestampMs?: number;
+    }
   ) => void;
 };
 

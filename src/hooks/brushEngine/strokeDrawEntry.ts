@@ -18,6 +18,8 @@ export type RunStrokeDrawCore = (args: RunStrokeDrawCoreArgs) => void;
 type DrawBrushCursor = {
   pressure?: number;
   customBrushData?: CustomBrushStrokeData;
+  velocityPxPerMs?: number;
+  timestampMs?: number;
 };
 
 export const runDrawBrushEntry = ({
@@ -39,7 +41,11 @@ export const runDrawBrushEntry = ({
 
   const deltaX = to.x - from.x;
   const deltaY = to.y - from.y;
-  const velocity = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+  const fallbackVelocity = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+  const velocity = Number.isFinite(cursor.velocityPxPerMs)
+    ? Math.max(0, cursor.velocityPxPerMs as number)
+    : fallbackVelocity;
+  const timestamp = Number.isFinite(cursor.timestampMs) ? (cursor.timestampMs as number) : Date.now();
 
   runStrokeDrawCore({
     ctx,
@@ -54,7 +60,7 @@ export const runDrawBrushEntry = ({
       to,
       pressure: smoothedPressure,
       velocity,
-      timestamp: Date.now(),
+      timestamp,
       customBrushData: cursor.customBrushData,
     }),
   });

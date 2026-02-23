@@ -740,6 +740,10 @@ export interface BrushSettings {
   // Dashed brush settings
   dashedEnabled: boolean;
   dashLength: number;
+  /** Increase dash gap when input moves faster; keeps dash length unit-based. */
+  velocityDashGapEnabled?: boolean;
+  /** Strength multiplier for velocity-linked gap expansion (unitless, typically 0.25-4). */
+  velocityDashGapStrength?: number;
   // Custom brush color mode
   useSwatchColor: boolean; // true: use swatch color, false: use brush tip colors
   dashGap: number;

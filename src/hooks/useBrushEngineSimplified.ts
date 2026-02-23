@@ -921,6 +921,8 @@ export const useBrushEngineSimplified = () => {
     cursor: { 
       pressure?: number;
       customBrushData?: CustomBrushStrokeData;
+      velocityPxPerMs?: number;
+      timestampMs?: number;
     } = {}
   ) => {
     runDrawBrushEntry({
