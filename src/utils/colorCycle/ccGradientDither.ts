@@ -47,6 +47,11 @@ type ErrorDiffusionKernel = {
   serpentine?: boolean;
 };
 
+type ErrorDiffusionProfile = {
+  threshold: number;
+  jitterBase: number;
+};
+
 const ERROR_DIFFUSION_KERNELS: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionKernel>> = {
   'floyd-steinberg': {
     taps: [
@@ -159,6 +164,17 @@ const ERROR_DIFFUSION_KERNELS: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' 
   },
 };
 
+const ERROR_DIFFUSION_PROFILES: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionProfile>> = {
+  'floyd-steinberg': { threshold: 0.5, jitterBase: 0.04 },
+  'jarvis-judice-ninke': { threshold: 0.46, jitterBase: 0.02 },
+  stucki: { threshold: 0.48, jitterBase: 0.02 },
+  burkes: { threshold: 0.53, jitterBase: 0.03 },
+  'sierra-3': { threshold: 0.5, jitterBase: 0.025 },
+  'sierra-2': { threshold: 0.52, jitterBase: 0.03 },
+  'sierra-lite': { threshold: 0.5, jitterBase: 0 },
+  atkinson: { threshold: 0.45, jitterBase: 0.015 },
+};
+
 const resolveOrderedThreshold = (
   algorithm: DitherAlgorithm,
   patternStyle: PatternStyle | undefined,
@@ -222,38 +238,45 @@ export const fillCcGradientDither = async ({
   const cellCoverage = new Uint8Array(gridW * gridH);
   const activeMask = new Uint8Array(gridW * gridH);
   const activeCellsByRow: number[][] = Array.from({ length: gridH }, () => []);
+  const rowSpans: Array<Array<[number, number]>> = Array.from({ length: bboxHeight }, () => []);
 
   const activeCells: number[] = [];
   const cellSeen = new Uint8Array(gridW);
   const thresholdJitter = algorithm === 'sierra-lite' ? 0 : 0.2;
 
+  for (let row = 0; row < bboxHeight; row += 1) {
+    const y = minY + row;
+    const intersections: number[] = [];
+    for (let i = 0; i < vertices.length; i += 1) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % vertices.length];
+      if (Math.abs(v2.y - v1.y) < 1e-4) continue;
+      if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
+        const t = (y - v1.y) / (v2.y - v1.y);
+        const x = v1.x + t * (v2.x - v1.x);
+        intersections.push(x);
+      }
+    }
+
+    intersections.sort((a, b) => a - b);
+    for (let i = 0; i < intersections.length - 1; i += 2) {
+      const startFloat = intersections[i];
+      const endFloat = intersections[i + 1];
+      if (endFloat <= startFloat) continue;
+      rowSpans[row].push([Math.floor(startFloat), Math.ceil(endFloat)]);
+    }
+  }
+
   for (let cy = 0; cy < gridH; cy += 1) {
     cellSeen.fill(0);
     activeCells.length = 0;
 
-    const rowStart = cy * cellSize + minY;
-    const rowEnd = Math.min(maxY, rowStart + cellSize - 1);
-
-    for (let y = rowStart; y <= rowEnd; y += 1) {
-      const intersections: number[] = [];
-      for (let i = 0; i < vertices.length; i += 1) {
-        const v1 = vertices[i];
-        const v2 = vertices[(i + 1) % vertices.length];
-        if (Math.abs(v2.y - v1.y) < 1e-4) continue;
-        if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-          const t = (y - v1.y) / (v2.y - v1.y);
-          const x = v1.x + t * (v2.x - v1.x);
-          intersections.push(x);
-        }
-      }
-
-      intersections.sort((a, b) => a - b);
-      for (let i = 0; i < intersections.length - 1; i += 2) {
-        const startFloat = intersections[i];
-        const endFloat = intersections[i + 1];
-        if (endFloat <= startFloat) continue;
-        const startX = Math.floor(startFloat);
-        const endX = Math.ceil(endFloat);
+    const rowStart = cy * cellSize;
+    const rowEnd = Math.min(bboxHeight - 1, rowStart + cellSize - 1);
+    for (let row = rowStart; row <= rowEnd; row += 1) {
+      const spans = rowSpans[row];
+      for (let i = 0; i < spans.length; i += 1) {
+        const [startX, endX] = spans[i];
         const startCell = Math.floor((startX - minX) / cellSize);
         const endCell = Math.floor((endX - minX) / cellSize);
         for (let cx = startCell; cx <= endCell; cx += 1) {
@@ -343,8 +366,9 @@ export const fillCcGradientDither = async ({
     }
   } else if (algorithm in ERROR_DIFFUSION_KERNELS) {
     const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
+    const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
     const errBuf = new Float32Array(gridW * gridH);
-    const jitterScale = 0.06 / Math.max(1, clampedLevels - 1);
+    const jitterScale = profile.jitterBase / Math.max(1, clampedLevels - 1);
 
     for (let cy = 0; cy < gridH; cy += 1) {
       const activeRow = activeCellsByRow[cy];
@@ -369,7 +393,7 @@ export const fillCcGradientDither = async ({
         const lower = Math.floor(scaled);
         const upper = Math.min(clampedLevels - 1, lower + 1);
         const frac = scaled - lower;
-        const level = frac >= 0.5 ? upper : lower;
+        const level = frac >= profile.threshold ? upper : lower;
         const err = scaled - level;
 
         if (err !== 0) {
@@ -415,35 +439,19 @@ export const fillCcGradientDither = async ({
     }
   }
 
-  for (let y = minY, row = 0; y <= maxY; y += 1, row += 1) {
+  for (let row = 0; row < bboxHeight; row += 1) {
+    const y = minY + row;
     if (yieldIfNeeded) {
       await yieldIfNeeded(row);
     }
-    const intersections: number[] = [];
-    for (let i = 0; i < vertices.length; i += 1) {
-      const v1 = vertices[i];
-      const v2 = vertices[(i + 1) % vertices.length];
-      if (Math.abs(v2.y - v1.y) < 1e-4) continue;
-      if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-        const t = (y - v1.y) / (v2.y - v1.y);
-        const x = v1.x + t * (v2.x - v1.x);
-        intersections.push(x);
-      }
-    }
-
-    intersections.sort((a, b) => a - b);
-    if (intersections.length < 2) continue;
+    const spans = rowSpans[row];
+    if (!spans.length) continue;
 
     const cy = Math.max(0, Math.min(gridH - 1, Math.floor((y - minY) / cellSize)));
     const rowOffset = cy * gridW;
 
-    for (let i = 0; i < intersections.length - 1; i += 2) {
-      const startFloat = intersections[i];
-      const endFloat = intersections[i + 1];
-      if (endFloat <= startFloat) continue;
-
-      const startX = Math.floor(startFloat);
-      const endX = Math.ceil(endFloat);
+    for (let i = 0; i < spans.length; i += 1) {
+      const [startX, endX] = spans[i];
       const startCell = Math.floor((startX - minX) / cellSize);
       const endCell = Math.floor((endX - minX) / cellSize);
 

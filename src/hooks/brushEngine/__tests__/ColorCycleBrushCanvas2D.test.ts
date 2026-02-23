@@ -277,9 +277,17 @@ jest.mock('../ccGradientFillDither', () => ({
   fillConcentric: jest.fn((imageData: ImageData) => imageData),
 }));
 
+jest.mock('@/utils/colorCycle/ccGradientDither', () => ({
+  fillCcGradientDither: jest.fn(async () => {}),
+}));
+
 const fillDitherMocks = jest.requireMock('../ccGradientFillDither') as {
   fillLinear: jest.Mock;
   fillConcentric: jest.Mock;
+};
+
+const ccGradientDitherMocks = jest.requireMock('@/utils/colorCycle/ccGradientDither') as {
+  fillCcGradientDither: jest.Mock;
 };
 
 const makeCanvas = () => {
@@ -611,7 +619,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setPerceptualDither(false);
     brush.setStampDitherAlgorithm('floyd-steinberg');
     brush.setStampDitherPatternStyle('crosshatch');
-    (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = undefined;
+    ccGradientDitherMocks.fillCcGradientDither.mockClear();
 
     const vertices = [
       { x: 0, y: 0 },
@@ -626,10 +634,12 @@ describe('ColorCycleBrushCanvas2D', () => {
       ditherPixelSize: 3,
     });
 
-    const probe = (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast;
-    expect(probe?.algorithm).toBe('floyd-steinberg');
-    expect(probe?.patternStyle).toBe('crosshatch');
-    expect(probe?.mode).toBe('linear');
+    expect(ccGradientDitherMocks.fillCcGradientDither).toHaveBeenCalledWith(
+      expect.objectContaining({
+        algorithm: 'floyd-steinberg',
+        patternStyle: 'crosshatch',
+      })
+    );
   });
 
   it('uses selected dither algorithm/pattern for continuous concentric cc gradient fills', async () => {
@@ -640,7 +650,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setPerceptualDither(false);
     brush.setStampDitherAlgorithm('atkinson');
     brush.setStampDitherPatternStyle('lines');
-    (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = undefined;
+    ccGradientDitherMocks.fillCcGradientDither.mockClear();
 
     const vertices = [
       { x: 0, y: 0 },
@@ -660,10 +670,12 @@ describe('ColorCycleBrushCanvas2D', () => {
       },
     });
 
-    const probe = (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast;
-    expect(probe?.algorithm).toBe('atkinson');
-    expect(probe?.patternStyle).toBe('lines');
-    expect(probe?.mode).toBe('concentric');
+    expect(ccGradientDitherMocks.fillCcGradientDither).toHaveBeenCalledWith(
+      expect.objectContaining({
+        algorithm: 'atkinson',
+        patternStyle: 'lines',
+      })
+    );
   });
 
   it('clamps dither settings', () => {

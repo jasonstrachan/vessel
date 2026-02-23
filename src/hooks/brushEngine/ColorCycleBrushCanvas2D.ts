@@ -2875,16 +2875,6 @@ export class ColorCycleBrushCanvas2D {
 
       const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
-      if (typeof window !== 'undefined') {
-        (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = {
-          mode: 'linear',
-          algorithm: fillAlgorithm,
-          patternStyle: fillPatternStyle,
-          ccGradient,
-          perceptualDither: this.perceptualDither,
-          timestamp: Date.now(),
-        };
-      }
       if (ccGradient && this.ditherEnabled) {
         const quantLevels = ditherLevels ?? Math.max(2, numBands);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
@@ -3768,16 +3758,6 @@ export class ColorCycleBrushCanvas2D {
     try {
       const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
-      if (typeof window !== 'undefined') {
-        (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = {
-          mode: 'concentric',
-          algorithm: fillAlgorithm,
-          patternStyle: fillPatternStyle,
-          ccGradient,
-          perceptualDither: this.perceptualDither,
-          timestamp: Date.now(),
-        };
-      }
       if (ccGradient && this.ditherEnabled) {
         const quantLevels = ditherLevels ?? Math.max(2, numBands);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
