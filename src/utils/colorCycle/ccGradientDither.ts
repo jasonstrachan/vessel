@@ -225,7 +225,7 @@ export const fillCcGradientDither = async ({
 
   const activeCells: number[] = [];
   const cellSeen = new Uint8Array(gridW);
-  const thresholdJitter = 0.2;
+  const thresholdJitter = algorithm === 'sierra-lite' ? 0 : 0.2;
 
   for (let cy = 0; cy < gridH; cy += 1) {
     cellSeen.fill(0);
@@ -282,8 +282,8 @@ export const fillCcGradientDither = async ({
       const cx = activeCells[i];
       const sampleX = minX + cx * cellSize + cellSize * 0.5;
       let r = clamp01(sampleNormalized(sampleX, sampleY));
-      if (clampedLevels > 1) {
-        const j = (noiseAt(Math.floor(sampleX), Math.floor(sampleY)) - 0.5) * (0.35 / clampedLevels);
+      if (clampedLevels > 1 && algorithm !== 'sierra-lite') {
+        const j = (noiseAt(Math.floor(sampleX), Math.floor(sampleY)) - 0.5) * (0.2 / clampedLevels);
         r = clamp01(r + j);
       }
       const cellIdx = cy * gridW + cx;
