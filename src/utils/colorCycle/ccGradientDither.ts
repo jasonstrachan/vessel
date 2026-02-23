@@ -1,3 +1,11 @@
+import {
+  BAYER_8x8_MATRIX,
+  BLUE_NOISE_16x16,
+  VOID_CLUSTER_8x8,
+  type DitherAlgorithm,
+  type PatternStyle,
+} from '@/utils/ditherAlgorithms';
+
 type Point = { x: number; y: number };
 
 export type CcGradientDitherOptions = {
@@ -9,6 +17,8 @@ export type CcGradientDitherOptions = {
   pixelSize: number;
   levels: number;
   baseOffset: number;
+  algorithm?: DitherAlgorithm;
+  patternStyle?: PatternStyle;
   sampleNormalized: (x: number, y: number) => number;
   writeIndex: (x: number, y: number, index: number) => void;
   logSetIndexSample?: (x: number, y: number) => void;
@@ -30,6 +40,161 @@ const indexFromNormalized = (pos: number, baseOffset: number): number => {
   return Math.max(1, Math.min(255, shifted + 1));
 };
 
+type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
+type ErrorDiffusionKernel = {
+  taps: ReadonlyArray<ErrorDiffusionTap>;
+  divisor: number;
+  serpentine?: boolean;
+};
+
+const ERROR_DIFFUSION_KERNELS: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionKernel>> = {
+  'floyd-steinberg': {
+    taps: [
+      { dx: 1, dy: 0, weight: 7 },
+      { dx: -1, dy: 1, weight: 3 },
+      { dx: 0, dy: 1, weight: 5 },
+      { dx: 1, dy: 1, weight: 1 },
+    ],
+    divisor: 16,
+    serpentine: true,
+  },
+  'jarvis-judice-ninke': {
+    taps: [
+      { dx: 1, dy: 0, weight: 7 },
+      { dx: 2, dy: 0, weight: 5 },
+      { dx: -2, dy: 1, weight: 3 },
+      { dx: -1, dy: 1, weight: 5 },
+      { dx: 0, dy: 1, weight: 7 },
+      { dx: 1, dy: 1, weight: 5 },
+      { dx: 2, dy: 1, weight: 3 },
+      { dx: -2, dy: 2, weight: 1 },
+      { dx: -1, dy: 2, weight: 3 },
+      { dx: 0, dy: 2, weight: 5 },
+      { dx: 1, dy: 2, weight: 3 },
+      { dx: 2, dy: 2, weight: 1 },
+    ],
+    divisor: 48,
+    serpentine: true,
+  },
+  stucki: {
+    taps: [
+      { dx: 1, dy: 0, weight: 8 },
+      { dx: 2, dy: 0, weight: 4 },
+      { dx: -2, dy: 1, weight: 2 },
+      { dx: -1, dy: 1, weight: 4 },
+      { dx: 0, dy: 1, weight: 8 },
+      { dx: 1, dy: 1, weight: 4 },
+      { dx: 2, dy: 1, weight: 2 },
+      { dx: -2, dy: 2, weight: 1 },
+      { dx: -1, dy: 2, weight: 2 },
+      { dx: 0, dy: 2, weight: 4 },
+      { dx: 1, dy: 2, weight: 2 },
+      { dx: 2, dy: 2, weight: 1 },
+    ],
+    divisor: 42,
+    serpentine: true,
+  },
+  burkes: {
+    taps: [
+      { dx: 1, dy: 0, weight: 8 },
+      { dx: 2, dy: 0, weight: 4 },
+      { dx: -2, dy: 1, weight: 2 },
+      { dx: -1, dy: 1, weight: 4 },
+      { dx: 0, dy: 1, weight: 8 },
+      { dx: 1, dy: 1, weight: 4 },
+      { dx: 2, dy: 1, weight: 2 },
+    ],
+    divisor: 32,
+    serpentine: true,
+  },
+  'sierra-3': {
+    taps: [
+      { dx: 1, dy: 0, weight: 5 },
+      { dx: 2, dy: 0, weight: 3 },
+      { dx: -2, dy: 1, weight: 2 },
+      { dx: -1, dy: 1, weight: 4 },
+      { dx: 0, dy: 1, weight: 5 },
+      { dx: 1, dy: 1, weight: 4 },
+      { dx: 2, dy: 1, weight: 2 },
+      { dx: -1, dy: 2, weight: 2 },
+      { dx: 0, dy: 2, weight: 3 },
+      { dx: 1, dy: 2, weight: 2 },
+    ],
+    divisor: 32,
+    serpentine: true,
+  },
+  'sierra-2': {
+    taps: [
+      { dx: 1, dy: 0, weight: 4 },
+      { dx: 2, dy: 0, weight: 3 },
+      { dx: -2, dy: 1, weight: 1 },
+      { dx: -1, dy: 1, weight: 2 },
+      { dx: 0, dy: 1, weight: 3 },
+      { dx: 1, dy: 1, weight: 2 },
+      { dx: 2, dy: 1, weight: 1 },
+    ],
+    divisor: 16,
+    serpentine: true,
+  },
+  'sierra-lite': {
+    taps: [
+      { dx: 1, dy: 0, weight: 2 },
+      { dx: -1, dy: 1, weight: 1 },
+      { dx: 0, dy: 1, weight: 1 },
+    ],
+    divisor: 4,
+    serpentine: true,
+  },
+  atkinson: {
+    taps: [
+      { dx: 1, dy: 0, weight: 1 },
+      { dx: 2, dy: 0, weight: 1 },
+      { dx: -1, dy: 1, weight: 1 },
+      { dx: 0, dy: 1, weight: 1 },
+      { dx: 1, dy: 1, weight: 1 },
+      { dx: 0, dy: 2, weight: 1 },
+    ],
+    divisor: 8,
+    serpentine: true,
+  },
+};
+
+const resolveOrderedThreshold = (
+  algorithm: DitherAlgorithm,
+  patternStyle: PatternStyle | undefined,
+  x: number,
+  y: number
+): number => {
+  if (algorithm === 'bayer') {
+    return BAYER_8x8_MATRIX[y & 7][x & 7];
+  }
+  if (algorithm === 'blue-noise') {
+    return BLUE_NOISE_16x16[y & 15][x & 15];
+  }
+  if (algorithm === 'void-and-cluster') {
+    return VOID_CLUSTER_8x8[y & 7][x & 7];
+  }
+
+  const style = patternStyle ?? 'dots';
+  switch (style) {
+    case 'lines':
+      return ((x + y) & 1) === 0 ? 0.3 : 0.7;
+    case 'vertical-lines':
+      return (x & 1) === 0 ? 0.3 : 0.7;
+    case 'horizontal-lines':
+      return (y & 1) === 0 ? 0.3 : 0.7;
+    case 'crosshatch':
+      return (((x & 1) + (y & 1)) * 0.25) + 0.25;
+    case 'diagonal':
+      return (((x + y) & 3) + 0.5) / 4;
+    case 'tone-adaptive':
+      return 0.5 + (BAYER_8x8_MATRIX[y & 7][x & 7] - 0.5) * 0.55;
+    case 'dots':
+    default:
+      return BAYER_8x8_MATRIX[y & 7][x & 7];
+  }
+};
+
 export const fillCcGradientDither = async ({
   vertices,
   minX,
@@ -39,6 +204,8 @@ export const fillCcGradientDither = async ({
   pixelSize,
   levels,
   baseOffset,
+  algorithm = 'sierra-lite',
+  patternStyle = 'dots',
   sampleNormalized,
   writeIndex,
   logSetIndexSample,
@@ -52,19 +219,15 @@ export const fillCcGradientDither = async ({
   const gridH = Math.max(1, Math.ceil(bboxHeight / cellSize));
 
   const cellIndices = new Uint16Array(gridW * gridH);
-  let errCurr = new Float32Array(gridW);
-  let errNext = new Float32Array(gridW);
+  const cellCoverage = new Uint8Array(gridW * gridH);
+  const activeMask = new Uint8Array(gridW * gridH);
+  const activeCellsByRow: number[][] = Array.from({ length: gridH }, () => []);
 
   const activeCells: number[] = [];
   const cellSeen = new Uint8Array(gridW);
   const thresholdJitter = 0.2;
 
   for (let cy = 0; cy < gridH; cy += 1) {
-    const swapErr = errCurr;
-    errCurr = errNext;
-    errNext = swapErr;
-    errNext.fill(0);
-
     cellSeen.fill(0);
     activeCells.length = 0;
 
@@ -107,6 +270,7 @@ export const fillCcGradientDither = async ({
       continue;
     }
     activeCells.sort((a, b) => a - b);
+    activeCellsByRow[cy] = activeCells.slice();
 
     const serpentine = (cy & 1) === 1;
     const start = serpentine ? activeCells.length - 1 : 0;
@@ -122,27 +286,132 @@ export const fillCcGradientDither = async ({
         const j = (noiseAt(Math.floor(sampleX), Math.floor(sampleY)) - 0.5) * (0.35 / clampedLevels);
         r = clamp01(r + j);
       }
-      const scaled = r * (clampedLevels - 1);
-      const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
-      const frac = scaled - lower;
-      const adj = frac + (errCurr[cx] || 0);
-      const thr = 0.5 + (noiseAt(cx, cy) - 0.5) * thresholdJitter;
-      const chooseUpper = lower < clampedLevels - 1 && adj >= thr;
-      const q = chooseUpper ? 1 : 0;
-      const err = frac - q;
+      const cellIdx = cy * gridW + cx;
+      activeMask[cellIdx] = 255;
+      cellCoverage[cellIdx] = Math.max(0, Math.min(255, Math.round(r * 255)));
+    }
+  }
 
-      if (!serpentine) {
-        if (cx + 1 < gridW) errCurr[cx + 1] += err * 0.5;
-        if (cx - 1 >= 0) errNext[cx - 1] += err * 0.25;
-      } else {
-        if (cx - 1 >= 0) errCurr[cx - 1] += err * 0.5;
-        if (cx + 1 < gridW) errNext[cx + 1] += err * 0.25;
+  if (algorithm === 'sierra-lite') {
+    let errCurr = new Float32Array(gridW);
+    let errNext = new Float32Array(gridW);
+    for (let cy = 0; cy < gridH; cy += 1) {
+      const activeRow = activeCellsByRow[cy];
+      if (!activeRow.length) {
+        const swapErr = errCurr;
+        errCurr = errNext;
+        errNext = swapErr;
+        errNext.fill(0);
+        continue;
       }
-      errNext[cx] += err * 0.25;
 
-      const level = chooseUpper ? lower + 1 : lower;
-      const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
-      cellIndices[cy * gridW + cx] = indexFromNormalized(pos, baseOffset);
+      const swapErr = errCurr;
+      errCurr = errNext;
+      errNext = swapErr;
+      errNext.fill(0);
+
+      const serpentine = (cy & 1) === 1;
+      const start = serpentine ? activeRow.length - 1 : 0;
+      const end = serpentine ? -1 : activeRow.length;
+      const step = serpentine ? -1 : 1;
+
+      for (let i = start; i !== end; i += step) {
+        const cx = activeRow[i];
+        const cellIdx = cy * gridW + cx;
+        const scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
+        const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
+        const frac = scaled - lower;
+        const adj = frac + (errCurr[cx] || 0);
+        const thr = 0.5 + (noiseAt(cx, cy) - 0.5) * thresholdJitter;
+        const chooseUpper = lower < clampedLevels - 1 && adj >= thr;
+        const q = chooseUpper ? 1 : 0;
+        const err = frac - q;
+
+        if (!serpentine) {
+          if (cx + 1 < gridW) errCurr[cx + 1] += err * 0.5;
+          if (cx - 1 >= 0) errNext[cx - 1] += err * 0.25;
+        } else {
+          if (cx - 1 >= 0) errCurr[cx - 1] += err * 0.5;
+          if (cx + 1 < gridW) errNext[cx + 1] += err * 0.25;
+        }
+        errNext[cx] += err * 0.25;
+
+        const level = chooseUpper ? lower + 1 : lower;
+        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
+      }
+    }
+  } else if (algorithm in ERROR_DIFFUSION_KERNELS) {
+    const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
+    const errBuf = new Float32Array(gridW * gridH);
+    const jitterScale = 0.06 / Math.max(1, clampedLevels - 1);
+
+    for (let cy = 0; cy < gridH; cy += 1) {
+      const activeRow = activeCellsByRow[cy];
+      if (!activeRow.length) continue;
+
+      const useSerpentine = kernel.serpentine !== false;
+      const leftToRight = useSerpentine ? (cy & 1) === 0 : true;
+      const start = leftToRight ? 0 : activeRow.length - 1;
+      const end = leftToRight ? activeRow.length : -1;
+      const step = leftToRight ? 1 : -1;
+
+      for (let i = start; i !== end; i += step) {
+        const cx = activeRow[i];
+        const cellIdx = cy * gridW + cx;
+        let scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
+        scaled += errBuf[cellIdx] || 0;
+        if (jitterScale > 0) {
+          scaled += (noiseAt(cx, cy) - 0.5) * jitterScale;
+        }
+        scaled = Math.max(0, Math.min(clampedLevels - 1, scaled));
+
+        const lower = Math.floor(scaled);
+        const upper = Math.min(clampedLevels - 1, lower + 1);
+        const frac = scaled - lower;
+        const level = frac >= 0.5 ? upper : lower;
+        const err = scaled - level;
+
+        if (err !== 0) {
+          const norm = 1 / Math.max(1, kernel.divisor);
+          for (let k = 0; k < kernel.taps.length; k += 1) {
+            const tap = kernel.taps[k];
+            const nx = cx + (leftToRight ? tap.dx : -tap.dx);
+            const ny = cy + tap.dy;
+            if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+            const nIdx = ny * gridW + nx;
+            if (!activeMask[nIdx]) continue;
+            errBuf[nIdx] += err * tap.weight * norm;
+          }
+        }
+
+        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
+      }
+    }
+  } else {
+    const phaseX = Math.floor(minX / Math.max(1, cellSize));
+    const phaseY = Math.floor(minY / Math.max(1, cellSize));
+    for (let cy = 0; cy < gridH; cy += 1) {
+      const activeRow = activeCellsByRow[cy];
+      if (!activeRow.length) continue;
+      for (let i = 0; i < activeRow.length; i += 1) {
+        const cx = activeRow[i];
+        const cellIdx = cy * gridW + cx;
+        const scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
+        const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
+        const frac = scaled - lower;
+        const threshold = resolveOrderedThreshold(
+          algorithm,
+          patternStyle,
+          cx + phaseX,
+          cy + phaseY
+        );
+        const chooseUpper = lower < clampedLevels - 1 && frac >= threshold;
+        const level = chooseUpper ? lower + 1 : lower;
+        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
+      }
     }
   }
 

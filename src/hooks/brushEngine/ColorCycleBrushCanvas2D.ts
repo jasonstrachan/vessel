@@ -2873,6 +2873,18 @@ export class ColorCycleBrushCanvas2D {
         });
       };
 
+      const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
+      const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
+      if (typeof window !== 'undefined') {
+        (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = {
+          mode: 'linear',
+          algorithm: fillAlgorithm,
+          patternStyle: fillPatternStyle,
+          ccGradient,
+          perceptualDither: this.perceptualDither,
+          timestamp: Date.now(),
+        };
+      }
       if (ccGradient && this.ditherEnabled) {
         const quantLevels = ditherLevels ?? Math.max(2, numBands);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
@@ -2885,6 +2897,8 @@ export class ColorCycleBrushCanvas2D {
           pixelSize,
           levels: quantLevels,
           baseOffset,
+          algorithm: fillAlgorithm,
+          patternStyle: fillPatternStyle,
           sampleNormalized: (x, y) => {
             const proj = (x - centerX) * dirX + (y - centerY) * dirY;
             return clamp01((proj - paddedMinProjection) / safeProjectionRange);
@@ -2929,7 +2943,7 @@ export class ColorCycleBrushCanvas2D {
       }
 
     // If using perceptual dithering, optionally offload dithering/mapping to worker
-    if (this.ditherEnabled && this.perceptualDither) {
+    if (this.ditherEnabled && (this.perceptualDither || (ccGradient && fillAlgorithm !== 'sierra-lite'))) {
       try {
         const width = Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1);
         const height = Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1);
@@ -3078,7 +3092,8 @@ export class ColorCycleBrushCanvas2D {
         const dithered: ImageData = fillLinear(img, {
           levels: quantLevels,
           pixelSize: Math.max(1, this.ditherPixelSize),
-          algorithm: 'sierra-lite',
+          algorithm: fillAlgorithm,
+          patternStyle: fillPatternStyle,
           perceptual: true,
           customPalette: paletteCss,
         });
@@ -3751,29 +3766,65 @@ export class ColorCycleBrushCanvas2D {
     };
 
     try {
+      const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
+      const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
+      if (typeof window !== 'undefined') {
+        (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = {
+          mode: 'concentric',
+          algorithm: fillAlgorithm,
+          patternStyle: fillPatternStyle,
+          ccGradient,
+          perceptualDither: this.perceptualDither,
+          timestamp: Date.now(),
+        };
+      }
       if (ccGradient && this.ditherEnabled) {
         const quantLevels = ditherLevels ?? Math.max(2, numBands);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
-        await fillConcentricIndices(
-          {
-            vertices,
-            bbox,
-            bands: quantLevels,
-            baseOffset,
-            maxDist,
-            ditherEnabled: true,
-            ditherStrength: 1,
-            ditherPixelSize: pixelSize,
-            noiseSeed: 0,
+        const edges = new Array(vertices.length);
+        for (let i = 0; i < vertices.length; i += 1) {
+          const v1 = vertices[i];
+          const v2 = vertices[(i + 1) % vertices.length];
+          const dx = v2.x - v1.x;
+          const dy = v2.y - v1.y;
+          edges[i] = { v1x: v1.x, v1y: v1.y, dx, dy, len2: dx * dx + dy * dy };
+        }
+        const safeMaxDist = Math.max(1e-6, maxDist);
+        await fillCcGradientDither({
+          vertices,
+          minX: bbox.minX,
+          minY: bbox.minY,
+          maxX: bbox.minX + bbox.width - 1,
+          maxY: bbox.minY + bbox.height - 1,
+          pixelSize,
+          levels: quantLevels,
+          baseOffset,
+          algorithm: fillAlgorithm,
+          patternStyle: fillPatternStyle,
+          sampleNormalized: (x, y) => {
+            let minDistSq = Infinity;
+            for (let k = 0; k < edges.length; k += 1) {
+              const e = edges[k];
+              if (e.len2 <= 0) continue;
+              const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy;
+              const tVal = Math.max(0, Math.min(1, tNum / e.len2));
+              const px = e.v1x + tVal * e.dx;
+              const py = e.v1y + tVal * e.dy;
+              const ddx = x - px;
+              const ddy = y - py;
+              const d2 = ddx * ddx + ddy * ddy;
+              if (d2 < minDistSq) {
+                minDistSq = d2;
+              }
+            }
+            return Math.min(1, Math.sqrt(Math.max(0, minDistSq)) / safeMaxDist);
           },
-          {
-            writeSample: (x, y, colorIndex) => {
-              this.logSetIndexSample(id, x, y);
-              writeConcentricIndex(x, y, colorIndex);
-            },
-            yieldIfNeeded,
-          }
-        );
+          writeIndex: (x, y, index) => {
+            this.logSetIndexSample(id, x, y);
+            writeConcentricIndex(x, y, index);
+          },
+          yieldIfNeeded,
+        });
         finalizeFill('cpu', quantLevels);
         if (strokeData) {
           this.snapshotFromBuffers(strokeData);
@@ -3782,7 +3833,7 @@ export class ColorCycleBrushCanvas2D {
       }
 
       // Perceptual dithering path for concentric fill
-      if (this.ditherEnabled && this.perceptualDither) {
+      if (this.ditherEnabled && (this.perceptualDither || (ccGradient && fillAlgorithm !== 'sierra-lite'))) {
         try {
           const id2 = layerId || this.activeLayerId || 'default';
           const animator2 = this.getAnimator(id2);
@@ -3888,7 +3939,8 @@ export class ColorCycleBrushCanvas2D {
           const dithered2: ImageData = fillConcentric(img2, {
             levels: quantLevels2,
             pixelSize: Math.max(1, this.ditherPixelSize),
-            algorithm: 'sierra-lite',
+            algorithm: fillAlgorithm,
+            patternStyle: fillPatternStyle,
             perceptual: true,
             customPalette: paletteCss2,
           });

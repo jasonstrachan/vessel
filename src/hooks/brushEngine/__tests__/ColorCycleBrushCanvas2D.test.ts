@@ -243,6 +243,7 @@ jest.mock('@/utils/pressureCurve', () => ({
 
 jest.mock('@/utils/colorCycle/concentricFillCore', () => ({
   fillConcentricIndices: jest.fn(),
+  computeConcentricMaxDistance: jest.fn(() => 1),
 }));
 
 jest.mock('@/utils/colorCycle/fillMath', () => ({
@@ -600,6 +601,69 @@ describe('ColorCycleBrushCanvas2D', () => {
     await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 4, { continuous: true });
 
     expect(fillDitherMocks.fillLinear).toHaveBeenCalled();
+  });
+
+  it('uses selected dither algorithm/pattern for continuous linear cc gradient fills', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setDitherEnabled(true);
+    brush.setPerceptualDither(false);
+    brush.setStampDitherAlgorithm('floyd-steinberg');
+    brush.setStampDitherPatternStyle('crosshatch');
+    (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = undefined;
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 5 },
+      { x: 0, y: 5 },
+    ];
+
+    await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 4, {
+      continuous: true,
+      ccGradient: true,
+      ditherPixelSize: 3,
+    });
+
+    const probe = (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast;
+    expect(probe?.algorithm).toBe('floyd-steinberg');
+    expect(probe?.patternStyle).toBe('crosshatch');
+    expect(probe?.mode).toBe('linear');
+  });
+
+  it('uses selected dither algorithm/pattern for continuous concentric cc gradient fills', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setDitherEnabled(true);
+    brush.setPerceptualDither(false);
+    brush.setStampDitherAlgorithm('atkinson');
+    brush.setStampDitherPatternStyle('lines');
+    (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast = undefined;
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 5 },
+      { x: 0, y: 5 },
+    ];
+
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices,
+      layerId: 'layer-1',
+      options: {
+        ccGradient: true,
+        ditherPixelSize: 2,
+        ditherLevels: 4,
+      },
+    });
+
+    const probe = (window as Window & { __vesselCcShapeFillLast?: Record<string, unknown> }).__vesselCcShapeFillLast;
+    expect(probe?.algorithm).toBe('atkinson');
+    expect(probe?.patternStyle).toBe('lines');
+    expect(probe?.mode).toBe('concentric');
   });
 
   it('clamps dither settings', () => {
