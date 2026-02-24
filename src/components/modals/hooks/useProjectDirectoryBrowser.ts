@@ -184,6 +184,7 @@ export function useProjectDirectoryBrowser({
   const directoryEntriesRef = useRef(directoryEntries);
   const scanVersionRef = useRef(0);
   const timestampAbortRef = useRef<AbortController | null>(null);
+  const wasOpenRef = useRef(isOpen);
 
   useEffect(() => {
     directoryEntriesRef.current = directoryEntries;
@@ -488,6 +489,17 @@ export function useProjectDirectoryBrowser({
   }, [directoryEntries.length, directoryHandle, isOpen, scanDirectoryForProjects]);
 
   useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = isOpen;
+
+    if (!isOpen || wasOpen || !directoryHandle) {
+      return;
+    }
+
+    void scanDirectoryForProjects(directoryHandle);
+  }, [directoryHandle, isOpen, scanDirectoryForProjects]);
+
+  useEffect(() => {
     return () => {
       timestampAbortRef.current?.abort();
     };
@@ -517,4 +529,3 @@ export function useProjectDirectoryBrowser({
     setSelectedEntryIndexByName,
   };
 }
-

@@ -1,8 +1,10 @@
 import JSZip from 'jszip';
 import {
   deserializeProject,
+  getProjectSaveSizeReport,
   readProjectManifest,
   readProjectPreviewManifest,
+  saveProjectToFile,
   serializeProject
 } from '@/utils/projectIO';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -172,6 +174,21 @@ describe('projectIO readProjectManifest', () => {
     expect(manifest.project.id).toBe('p1');
   });
 
+  it('accepts zipped manifests above 32MB when still within archive safety limits', async () => {
+    const zip = new JSZip();
+    zip.file('project.json', JSON.stringify({
+      ...minimalVesselProject,
+      metadata: {
+        ...minimalVesselProject.metadata,
+        appVersion: 'x'.repeat((33 * 1024 * 1024) + 128),
+      },
+    }));
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+
+    const manifest = await readProjectManifest(payload);
+    expect(manifest.project.id).toBe('p1');
+  });
+
   it('parses binary-string zip payload via fallback', async () => {
     const zipped = await zipWithProjectJson();
     const binaryString = Array.from(zipped)
@@ -266,6 +283,74 @@ describe('projectIO readProjectPreviewManifest', () => {
 });
 
 describe('projectIO serialize/deserialize layering', () => {
+  it('builds a save size report with section and layer breakdown', async () => {
+    const layerA: Layer = {
+      id: 'layer-report-a',
+      name: 'Report A',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(16, 16, [255, 0, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(16, 16, [255, 0, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+    const layerB: Layer = {
+      id: 'layer-report-b',
+      name: 'Report B',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 1,
+      imageData: createSolidImageData(64, 64, [0, 255, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(64, 64, [0, 255, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+    const project: Project = {
+      id: 'project-report',
+      name: 'Report Demo',
+      width: 64,
+      height: 64,
+      backgroundColor: '#000000',
+      layers: [layerA, layerB],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    try {
+      const report = await getProjectSaveSizeReport(project, project.layers);
+      expect(report.projectManifestBytes).toBeGreaterThan(0);
+      expect(report.previewManifestBytes).toBeGreaterThan(0);
+      expect(report.combinedManifestBytes).toBe(report.projectManifestBytes + report.previewManifestBytes);
+      expect(report.archiveBytes).toBeGreaterThan(0);
+      expect(report.sectionBreakdown.find((section) => section.name === 'layers')?.bytes ?? 0).toBeGreaterThan(0);
+      expect(report.largestLayers.length).toBeGreaterThan(0);
+      expect(report.largestLayers[0]?.layerId).toBe('layer-report-b');
+      expect(report.recommendations.length).toBeGreaterThan(0);
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
   it('writes v2 preview manifest and omits project.json thumbnail duplication', async () => {
     const toDataURLSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation((type?: string) => {
       if (type === 'image/webp') {
@@ -336,6 +421,78 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(parsedPreview.project.thumbnail).toBe('data:image/webp;base64,preview-webp');
     } finally {
       toDataURLSpy.mockRestore();
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
+  it('omits redundant color-cycle layer imageDataUrl when CC snapshots are serialized', async () => {
+    const ccImageData = createSolidImageData(4, 4, [12, 34, 56, 255]);
+    const layer: Layer = {
+      id: 'layer-cc-dedupe',
+      name: 'CC Dedupe',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(4, 4, [200, 20, 20, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(4, 4, [200, 20, 20, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvasImageData: ccImageData,
+        canvasWidth: ccImageData.width,
+        canvasHeight: ccImageData.height,
+        isAnimating: false,
+      },
+    };
+    const project: Project = {
+      id: 'project-cc-dedupe',
+      name: 'CC Dedupe',
+      width: 4,
+      height: 4,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    try {
+      const payload = await serializeProject(project, project.layers);
+      const zip = await JSZip.loadAsync(payload);
+      const projectJson = await zip.file('project.json')?.async('string');
+      if (!projectJson) {
+        throw new Error('Missing project.json');
+      }
+      const manifest = JSON.parse(projectJson) as {
+        project: {
+          layers: Array<{ imageDataUrl?: string; colorCycleData?: { canvasImageData?: string } }>;
+        };
+      };
+      const serializedLayer = manifest.project.layers[0];
+      expect(serializedLayer?.imageDataUrl).toBe('');
+      expect(typeof serializedLayer?.colorCycleData?.canvasImageData).toBe('string');
+      expect(serializedLayer?.colorCycleData?.canvasImageData?.length ?? 0).toBeGreaterThan(0);
+
+      const restored = await deserializeProject(payload);
+      const restoredLayer = restored.layers[0];
+      expect(restoredLayer?.layerType).toBe('color-cycle');
+      expect(restoredLayer?.colorCycleData?.canvasImageData?.width).toBe(4);
+      expect(restoredLayer?.colorCycleData?.canvasImageData?.height).toBe(4);
+    } finally {
       if (contextProto) {
         contextProto.rect = originalRect;
       }
@@ -823,5 +980,67 @@ describe('projectIO serialize/deserialize layering', () => {
     const restored = await deserializeProject(JSON.stringify(legacyProject));
     expect(restored.layerGroups).toEqual([]);
     expect(restored.layers[0]?.groupId).toBeUndefined();
+  });
+});
+
+describe('projectIO saveProjectToFile', () => {
+  it('uses atomic writable creation for handle saves', async () => {
+    const layer: Layer = {
+      id: 'layer-save-atomic',
+      name: 'Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(2, 2, [255, 0, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [255, 0, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+    const project: Project = {
+      id: 'project-save-atomic',
+      name: 'Save Atomic',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const writable = {
+      write: jest.fn().mockResolvedValue(undefined),
+      truncate: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+      abort: jest.fn().mockResolvedValue(undefined),
+    };
+    const handle = {
+      name: 'atomic.vs',
+      createWritable: jest.fn().mockResolvedValue(writable),
+    } as unknown as FileSystemFileHandle;
+
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    try {
+      await saveProjectToFile(project, 'atomic.vs', project.layers, handle);
+      expect((handle as unknown as { createWritable: jest.Mock }).createWritable).toHaveBeenCalledWith();
+      expect(writable.write).toHaveBeenCalledTimes(1);
+      expect(writable.truncate).toHaveBeenCalledTimes(1);
+      expect(writable.close).toHaveBeenCalledTimes(1);
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
   });
 });

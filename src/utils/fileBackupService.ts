@@ -118,7 +118,7 @@ export class FileBackupService {
       }
 
       // Write the project data (already JSON string from serializeProject)
-      const writable = await fileHandle.createWritable({ keepExistingData: true });
+      const writable = await fileHandle.createWritable();
       try {
         await writable.write({ type: 'write', position: 0, data: projectData });
         await writable.truncate(projectData.byteLength);

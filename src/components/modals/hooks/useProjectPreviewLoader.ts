@@ -23,6 +23,33 @@ type UseProjectPreviewLoaderOptions = {
   closeModal: () => void;
 };
 
+const EMPTY_FILE_RETRY_ATTEMPTS = 3;
+const EMPTY_FILE_RETRY_DELAY_MS = 120;
+
+const waitFor = (ms: number) => new Promise<void>((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+const refreshPossiblyIncompleteFile = async (
+  file: File,
+  fileHandle?: FileSystemFileHandle | null,
+): Promise<File> => {
+  if (file.size > 0 || !fileHandle) {
+    return file;
+  }
+
+  let latest = file;
+  for (let attempt = 0; attempt < EMPTY_FILE_RETRY_ATTEMPTS; attempt += 1) {
+    await waitFor(EMPTY_FILE_RETRY_DELAY_MS);
+    latest = await fileHandle.getFile();
+    if (latest.size > 0) {
+      return latest;
+    }
+  }
+
+  return latest;
+};
+
 export function useProjectPreviewLoader({
   importProject,
   closeModal,
@@ -65,7 +92,12 @@ export function useProjectPreviewLoader({
     const isStale = () => requestVersion !== previewRequestVersionRef.current;
 
     try {
-      if (file.size === 0) {
+      const resolvedFile = await refreshPossiblyIncompleteFile(file, options?.fileHandle);
+      if (isStale()) {
+        return;
+      }
+
+      if (resolvedFile.size === 0) {
         setError('File is empty or incomplete. Autosave may have failed to write the file.');
         setProjectData(null);
         setPreview(null);
@@ -73,7 +105,7 @@ export function useProjectPreviewLoader({
         return;
       }
 
-      const buffer = await file.arrayBuffer();
+      const buffer = await resolvedFile.arrayBuffer();
       if (isStale()) {
         return;
       }
@@ -92,8 +124,8 @@ export function useProjectPreviewLoader({
         modifiedAt: metadata?.modified,
         thumbnail: project.thumbnail,
         hasEmbeddedThumbnail: Boolean(project.thumbnail),
-        fileName: file.name,
-        fileSize: file.size,
+        fileName: resolvedFile.name,
+        fileSize: resolvedFile.size,
       };
 
       setProjectData(buffer);
@@ -140,7 +172,7 @@ export function useProjectPreviewLoader({
           return;
         }
         setCachedProject(hydrated);
-        await importProject(hydrated, { fileName: file.name, fileHandle: options?.fileHandle ?? null });
+        await importProject(hydrated, { fileName: resolvedFile.name, fileHandle: options?.fileHandle ?? null });
         if (isStale()) {
           return;
         }

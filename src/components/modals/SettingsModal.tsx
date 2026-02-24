@@ -5,6 +5,7 @@ import { Switch } from '../retroui/Switch';
 import { FeatureFlagToggle } from '../ui/FeatureFlagToggle';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { devLog } from '../../utils/devLog';
+import { getProjectSaveSizeReport, type ProjectSaveSizeReport } from '@/utils/projectIO';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,6 +13,21 @@ interface SettingsModalProps {
 }
 
 const settingsLog = devLog.scope('SETTINGS');
+
+const formatBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let idx = 0;
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024;
+    idx += 1;
+  }
+  const fractionDigits = value >= 100 || idx === 0 ? 0 : 1;
+  return `${value.toFixed(fractionDigits)} ${units[idx]}`;
+};
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   // Suspend global/canvas shortcuts while modal is open
@@ -26,9 +42,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const setHistorySize = useAppStore(state => state.setHistorySize);
   const toggleRulers = useAppStore(state => state.toggleRulers);
   const setShowFPSMeter = useAppStore(state => state.setShowFPSMeter);
+  const project = useAppStore(state => state.project);
+  const layers = useAppStore(state => state.layers);
   
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
+  const [isAnalyzingSize, setIsAnalyzingSize] = useState(false);
+  const [sizeReport, setSizeReport] = useState<ProjectSaveSizeReport | null>(null);
+  const [sizeReportError, setSizeReportError] = useState<string | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragOffset = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -79,6 +100,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const handleHistorySizeChange = (size: number) => {
     setHistorySize(size);
   };
+
+  const handleAnalyzeSaveSize = React.useCallback(async () => {
+    if (!project) {
+      setSizeReport(null);
+      setSizeReportError('No active project to analyze.');
+      return;
+    }
+    setIsAnalyzingSize(true);
+    setSizeReportError(null);
+    try {
+      const report = await getProjectSaveSizeReport(project, layers);
+      setSizeReport(report);
+    } catch (error) {
+      setSizeReport(null);
+      setSizeReportError(error instanceof Error ? error.message : 'Failed to analyze save size');
+    } finally {
+      setIsAnalyzingSize(false);
+    }
+  }, [layers, project]);
 
 
   const handleRulersToggle = (enabled: boolean) => {
@@ -250,6 +290,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   <option value={50}>50 actions</option>
                   <option value={100}>100 actions</option>
                 </select>
+              </div>
+
+              <div className="border-t border-[#555] pt-3 mt-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-base text-[#888]">Save Size Inspector</label>
+                  <button
+                    type="button"
+                    onClick={handleAnalyzeSaveSize}
+                    disabled={isAnalyzingSize || !project}
+                    className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base disabled:opacity-50"
+                  >
+                    {isAnalyzingSize ? 'Analyzing…' : 'Analyze'}
+                  </button>
+                </div>
+                {!project && (
+                  <p className="text-sm text-[#777] mt-2">Open or create a project to analyze save size.</p>
+                )}
+                {sizeReportError && (
+                  <p className="text-sm text-[#D77] mt-2">{sizeReportError}</p>
+                )}
+                {sizeReport && (
+                  <div className="mt-2 text-sm text-[#B5B5B5] space-y-1">
+                    <div>Archive: {formatBytes(sizeReport.archiveBytes)}</div>
+                    <div>Manifest (unzipped): {formatBytes(sizeReport.combinedManifestBytes)}</div>
+                    <div>Compression Ratio: {(sizeReport.compressionRatio * 100).toFixed(1)}%</div>
+                    <div>
+                      Top Section: {sizeReport.sectionBreakdown[0]?.name ?? 'n/a'} ({formatBytes(sizeReport.sectionBreakdown[0]?.bytes ?? 0)})
+                    </div>
+                    <div>
+                      Largest Layer: {sizeReport.largestLayers[0]?.layerName ?? 'n/a'} ({formatBytes(sizeReport.largestLayers[0]?.bytes ?? 0)})
+                    </div>
+                    {sizeReport.recommendations[0] && (
+                      <div className="text-[#9FAF9F]">Tip: {sizeReport.recommendations[0]}</div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

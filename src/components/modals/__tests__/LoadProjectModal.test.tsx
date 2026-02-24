@@ -84,6 +84,18 @@ const createDirectoryHandle = (entries: Array<[string, ReturnType<typeof createF
   };
 };
 
+const createMutableDirectoryHandle = (getEntries: () => Array<[string, ReturnType<typeof createFileHandle>]>) => {
+  return {
+    kind: 'directory',
+    name: 'projects',
+    entries: async function* () {
+      for (const [name, handle] of getEntries()) {
+        yield [name, handle] as unknown as [string, FileSystemHandle];
+      }
+    },
+  };
+};
+
 describe('LoadProjectModal', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -199,6 +211,71 @@ describe('LoadProjectModal', () => {
     await waitFor(() => {
       expect(mockReadProjectPreviewManifest).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('refreshes cached directory entries when modal is reopened', async () => {
+    const entries: Array<[string, ReturnType<typeof createFileHandle>]> = [
+      ['first.vs', createFileHandle('first.vs')],
+    ];
+    const directoryHandle = createMutableDirectoryHandle(() => entries);
+    (window as any).showDirectoryPicker = jest.fn(async () => directoryHandle);
+
+    const onClose = jest.fn();
+    const { rerender } = render(<LoadProjectModal isOpen onClose={onClose} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('Browse Folder'));
+    expect(await screen.findByText('first.vs')).toBeInTheDocument();
+
+    entries.push(['second.vs', createFileHandle('second.vs')]);
+
+    rerender(<LoadProjectModal isOpen={false} onClose={onClose} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+    rerender(<LoadProjectModal isOpen onClose={onClose} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(await screen.findByText('second.vs')).toBeInTheDocument();
+  });
+
+  it('retries handle reads when picker initially returns an empty file', async () => {
+    const emptyFile = new File([new Uint8Array()], 'retry.vs', {
+      type: 'application/zip',
+      lastModified: Date.now(),
+    });
+    const validFile = createProjectFile('retry.vs', {
+      bytes: new TextEncoder().encode('valid-project'),
+    });
+
+    const handle = {
+      kind: 'file',
+      name: 'retry.vs',
+      getFile: jest.fn()
+        .mockResolvedValueOnce(emptyFile)
+        .mockResolvedValueOnce(validFile),
+    };
+
+    (window as any).showOpenFilePicker = jest.fn(async () => [handle]);
+    render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('Browse Files'));
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+
+    await waitFor(() => {
+      expect(mockReadProjectPreviewManifest).toHaveBeenCalledTimes(1);
+    });
+    expect(handle.getFile).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('File is empty or incomplete. Autosave may have failed to write the file.')).not.toBeInTheDocument();
   });
 
 });

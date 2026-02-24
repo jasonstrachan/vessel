@@ -35,8 +35,8 @@ import {
 
 // Vessel project file format version
 const PROJECT_VERSION = '1.1.0';
-const MAX_PROJECT_ARCHIVE_BYTES = 64 * 1024 * 1024;
-const MAX_PROJECT_MANIFEST_BYTES = 32 * 1024 * 1024;
+const MAX_PROJECT_ARCHIVE_BYTES = 512 * 1024 * 1024;
+const MAX_PROJECT_MANIFEST_BYTES = 256 * 1024 * 1024;
 const MAX_PROJECT_DIMENSION = 16384;
 const MAX_PROJECT_PIXELS = 64 * 1024 * 1024;
 const MAX_PROJECT_LAYERS = 512;
@@ -44,6 +44,7 @@ const MAX_PROJECT_CUSTOM_BRUSHES = 512;
 
 const LEGACY_FLOW_SLOT_MASK = 63;
 const LEGACY_EDITOR_SLOT = 63;
+const utf8Encoder = new TextEncoder();
 
 const parseVersionTuple = (version: string): [number, number, number] | null => {
   const parts = version.split('.').map((part) => Number(part));
@@ -350,6 +351,31 @@ export interface VesselProjectPreview {
     height: number;
     encoding: string;
   };
+}
+
+export interface ProjectSizeReportSection {
+  name: string;
+  bytes: number;
+}
+
+export interface ProjectSizeReportLayer {
+  layerId: string;
+  layerName: string;
+  layerType: 'normal' | 'color-cycle' | 'sequential' | 'unknown';
+  bytes: number;
+  dominantSection: string;
+  dominantSectionBytes: number;
+}
+
+export interface ProjectSaveSizeReport {
+  projectManifestBytes: number;
+  previewManifestBytes: number;
+  combinedManifestBytes: number;
+  archiveBytes: number;
+  compressionRatio: number;
+  sectionBreakdown: ProjectSizeReportSection[];
+  largestLayers: ProjectSizeReportLayer[];
+  recommendations: string[];
 }
 
 interface SerializedLayer {
@@ -1140,6 +1166,14 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       }
     }
 
+    // Avoid duplicating the same raster payload in both layer.imageDataUrl and
+    // colorCycleData snapshots when we already have restorable CC pixel state.
+    const hasColorCyclePixelSnapshot = Boolean(serializedColorCycle.canvasImageData);
+    const hasBrushSnapshotData = Boolean(serializedColorCycle.brushState?.layers?.length);
+    if (hasColorCyclePixelSnapshot || hasBrushSnapshotData) {
+      serialized.imageDataUrl = '';
+    }
+
     serialized.colorCycleData = serializedColorCycle;
   }
 
@@ -1650,13 +1684,153 @@ const getThumbnailDimensions = (width: number, height: number, maxSize: number) 
   return { width: Math.round(maxSize * aspectRatio), height: maxSize };
 };
 
-// Serialize a project for saving
-export async function serializeProject(project: Project, layers?: Layer[]): Promise<Uint8Array> {
+const byteCountForString = (value: string): number => utf8Encoder.encode(value).byteLength;
+
+const byteCountForJson = (value: unknown): number => byteCountForString(JSON.stringify(value));
+
+const normalizeLayerType = (value: SerializedLayer['layerType']): ProjectSizeReportLayer['layerType'] => {
+  if (value === 'color-cycle' || value === 'colorCycle') {
+    return 'color-cycle';
+  }
+  if (value === 'sequential') {
+    return 'sequential';
+  }
+  if (value === 'normal') {
+    return 'normal';
+  }
+  return 'unknown';
+};
+
+const MB = 1024 * 1024;
+
+const buildProjectSizeRecommendations = (report: ProjectSaveSizeReport): string[] => {
+  const recommendations: string[] = [];
+  const findSection = (name: string) => report.sectionBreakdown.find((section) => section.name === name)?.bytes ?? 0;
+
+  const layersBytes = findSection('layers');
+  const customBrushesBytes = findSection('customBrushes');
+  const previewImageBytes = findSection('previewImage');
+  const combinedBytes = Math.max(1, report.combinedManifestBytes);
+
+  if (layersBytes / combinedBytes >= 0.65) {
+    recommendations.push('Layers dominate file size. Merge/archive finished layers and remove hidden layers you no longer need.');
+  }
+
+  const largestLayer = report.largestLayers[0];
+  if (largestLayer && largestLayer.dominantSection === 'imageDataUrl' && largestLayer.dominantSectionBytes >= 8 * MB) {
+    recommendations.push('Largest layer is mostly bitmap pixels. Reduce canvas dimensions or split work into smaller files.');
+  }
+  if (largestLayer && largestLayer.dominantSection === 'colorCycleData' && largestLayer.dominantSectionBytes >= 8 * MB) {
+    recommendations.push('Color-cycle data is heavy. Clear stale masks/snapshots or bake effects before saving a snapshot copy.');
+  }
+  if (largestLayer && largestLayer.dominantSection === 'sequentialData' && largestLayer.dominantSectionBytes >= 8 * MB) {
+    recommendations.push('Sequential data is large. Trim event history/frame count before archiving.');
+  }
+
+  if (customBrushesBytes >= 16 * MB) {
+    recommendations.push('Custom brush payload is large. Remove unused custom brushes or move them to a reusable preset pack.');
+  }
+
+  if (previewImageBytes >= 2 * MB) {
+    recommendations.push('Embedded preview is large. Regenerating a smaller preview image can reduce save size.');
+  }
+
+  if (report.compressionRatio >= 0.85) {
+    recommendations.push('Archive compression is low; base64 image payloads are likely dominating. Prefer fewer/lower-resolution raster layers.');
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push('File size is within expected bounds for current content. Keep layer count and bitmap dimensions in check as projects grow.');
+  }
+
+  return recommendations;
+};
+
+const buildProjectSaveSizeReport = (
+  vesselProject: VesselProject,
+  previewManifest: VesselProjectPreview,
+  projectJson: string,
+  previewJson: string,
+  archiveBytes: number,
+): ProjectSaveSizeReport => {
+  const projectEnvelopeBytes = byteCountForJson({
+    ...vesselProject,
+    project: {
+      ...vesselProject.project,
+      layers: [],
+      customBrushes: [],
+    },
+  });
+
+  const layerRows = vesselProject.project.layers.map((layer) => {
+    const layerBytes = byteCountForJson(layer);
+    const sectionCandidates: ProjectSizeReportSection[] = [
+      { name: 'imageDataUrl', bytes: layer.imageDataUrl ? byteCountForString(layer.imageDataUrl) : 0 },
+      { name: 'colorCycleData', bytes: layer.colorCycleData ? byteCountForJson(layer.colorCycleData) : 0 },
+      { name: 'sequentialData', bytes: layer.sequentialData ? byteCountForJson(layer.sequentialData) : 0 },
+    ];
+    const dominant = sectionCandidates.reduce((best, candidate) => (
+      candidate.bytes > best.bytes ? candidate : best
+    ), { name: 'layerMetadata', bytes: 0 });
+
+    return {
+      layer: {
+        layerId: layer.id,
+        layerName: layer.name,
+        layerType: normalizeLayerType(layer.layerType),
+        bytes: layerBytes,
+        dominantSection: dominant.name,
+        dominantSectionBytes: dominant.bytes,
+      } satisfies ProjectSizeReportLayer,
+      bytes: layerBytes,
+    };
+  });
+
+  const layersBytes = layerRows.reduce((total, row) => total + row.bytes, 0);
+  const customBrushesBytes = vesselProject.project.customBrushes.reduce((total, brush) => total + byteCountForJson(brush), 0);
+  const previewImageBytes = previewManifest.preview?.dataUrl ? byteCountForString(previewManifest.preview.dataUrl) : 0;
+  const projectManifestBytes = byteCountForString(projectJson);
+  const previewManifestBytes = byteCountForString(previewJson);
+  const combinedManifestBytes = projectManifestBytes + previewManifestBytes;
+
+  const report: ProjectSaveSizeReport = {
+    projectManifestBytes,
+    previewManifestBytes,
+    combinedManifestBytes,
+    archiveBytes,
+    compressionRatio: archiveBytes / Math.max(1, combinedManifestBytes),
+    sectionBreakdown: [
+      { name: 'projectEnvelope', bytes: projectEnvelopeBytes },
+      { name: 'layers', bytes: layersBytes },
+      { name: 'customBrushes', bytes: customBrushesBytes },
+      { name: 'previewImage', bytes: previewImageBytes },
+    ].sort((a, b) => b.bytes - a.bytes),
+    largestLayers: layerRows
+      .map((row) => row.layer)
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, 5),
+    recommendations: [],
+  };
+  report.recommendations = buildProjectSizeRecommendations(report);
+  return report;
+};
+
+type SerializedProjectArtifacts = {
+  archiveData: Uint8Array;
+  projectJson: string;
+  previewJson: string;
+  report: ProjectSaveSizeReport;
+};
+
+const buildSerializedProjectArtifacts = async (
+  project: Project,
+  layers?: Layer[],
+): Promise<SerializedProjectArtifacts> => {
   // Use the passed layers parameter, falling back to project.layers if not provided
   const layersToSerialize = layers || project.layers || [];
   const serializedLayers = await Promise.all(layersToSerialize.map((layer) => serializeLayer(layer)));
   const serializedCustomBrushes = await Promise.all(project.customBrushes.map((brush) => serializeCustomBrush(brush)));
-  
+
   let previewThumbnail = '';
   let previewEncoding: 'image/png' | 'image/webp' = 'image/png';
   if (layers) {
@@ -1668,14 +1842,14 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
     );
     previewEncoding = previewThumbnail.startsWith('data:image/webp') ? 'image/webp' : 'image/png';
   }
-  
+
   const vesselProject: VesselProject = {
     version: PROJECT_VERSION,
     metadata: {
       name: project.name,
       created: project.createdAt.toISOString(),
       modified: new Date().toISOString(),
-      appVersion: '1.0.0' // Could be pulled from package.json
+      appVersion: '1.0.0', // Could be pulled from package.json
     },
     project: {
       id: project.id,
@@ -1693,7 +1867,7 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       exportLayout: cloneExportLayout(project.exportLayout),
       palette: normalizePalette(project.palette),
       canvasShape: project.canvasShape,
-    }
+    },
   };
 
   const previewManifest: VesselProjectPreview = {
@@ -1708,10 +1882,10 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
     },
     preview: previewThumbnail
       ? {
-        dataUrl: previewThumbnail,
-        ...getThumbnailDimensions(project.width, project.height, DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE),
-        encoding: previewEncoding,
-      }
+          dataUrl: previewThumbnail,
+          ...getThumbnailDimensions(project.width, project.height, DEFAULT_PROJECT_PREVIEW_THUMBNAIL_SIZE),
+          encoding: previewEncoding,
+        }
       : undefined,
   };
 
@@ -1721,11 +1895,37 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
   zip.file(PROJECT_ARCHIVE_ENTRY, projectJson);
   zip.file(PROJECT_PREVIEW_ARCHIVE_ENTRY, previewJson);
 
-  return zip.generateAsync({
+  const archiveData = await zip.generateAsync({
     type: 'uint8array',
     compression: 'DEFLATE',
-    compressionOptions: { level: 9 }
+    compressionOptions: { level: 9 },
   });
+
+  const report = buildProjectSaveSizeReport(
+    vesselProject,
+    previewManifest,
+    projectJson,
+    previewJson,
+    archiveData.byteLength,
+  );
+
+  return {
+    archiveData,
+    projectJson,
+    previewJson,
+    report,
+  };
+};
+
+export async function getProjectSaveSizeReport(project: Project, layers?: Layer[]): Promise<ProjectSaveSizeReport> {
+  const artifacts = await buildSerializedProjectArtifacts(project, layers);
+  return artifacts.report;
+}
+
+// Serialize a project for saving
+export async function serializeProject(project: Project, layers?: Layer[]): Promise<Uint8Array> {
+  const artifacts = await buildSerializedProjectArtifacts(project, layers);
+  return artifacts.archiveData;
 }
 
 const isSafeIntegerInRange = (value: unknown, min: number, max: number): value is number => {
@@ -2018,13 +2218,14 @@ export async function saveProjectToFile(
 
   const ensureProjectData = async (): Promise<Uint8Array> => {
     if (!projectData) {
-      projectData = await serializeProject(project, layers);
+      const artifacts = await buildSerializedProjectArtifacts(project, layers);
+      projectData = artifacts.archiveData;
     }
     return projectData;
   };
 
   const writeToHandle = async (handle: FileSystemFileHandle): Promise<void> => {
-    const writable = await handle.createWritable({ keepExistingData: true });
+    const writable = await handle.createWritable();
     try {
       const data = await ensureProjectData();
       const buffer = toArrayBuffer(data);
