@@ -15,6 +15,15 @@ const colorCycleRuntimeConsumerByStoreRef = new WeakMap<
   () => void
 >();
 const SHARED_RUNTIME_HANDLE_SENTINEL = -1;
+const isPanStoreSyncTransition = (
+  reason: string,
+  storeRef: React.MutableRefObject<AppState>
+): boolean => {
+  if (reason !== 'store-sync') {
+    return false;
+  }
+  return storeRef.current.colorCyclePlayback?.lastReason === 'pan';
+};
 
 const hasSharedColorCycleRuntimeConsumer = (
   storeRef: React.MutableRefObject<AppState>
@@ -177,6 +186,22 @@ export const stopContinuousColorCycleAnimationCore = (
 
   if (!isCCBrushActive && reason === 'unknown') {
     ccLog('stopContinuousColorCycleAnimation skipped (unknown reason, no CC brush)', { reason });
+    return;
+  }
+
+  if (isPanStoreSyncTransition(reason, storeRef)) {
+    continuousColorCycleAnimationActiveRef.current = false;
+    clearSharedColorCycleRuntimeConsumer(storeRef);
+    continuousColorCycleAnimationRef.current = null;
+    if (typeof window !== 'undefined') {
+      window.__ccRafAlive = false;
+    }
+    if (colorCycleAnimationRef.current) {
+      cancelAnimationFrame(colorCycleAnimationRef.current);
+      colorCycleAnimationRef.current = null;
+    }
+    drawingCanvasHasContent.current = false;
+    ccLog('stopContinuousColorCycleAnimation lightweight suspend for pan', { reason });
     return;
   }
 
@@ -379,6 +404,7 @@ export const startContinuousColorCycleAnimationCore = (
 
   try {
     const state = storeRef.current;
+    const lightweightPanResume = isPanStoreSyncTransition(reason, storeRef);
     const ccLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor');
     ccGroup('startContinuousColorCycleAnimation()', { reason, ccLayers: ccLayers.length });
     dumpLayerFlags();
@@ -403,21 +429,23 @@ export const startContinuousColorCycleAnimationCore = (
       hasCtx: !!drawingCtxRef.current
     });
 
-    try {
-      const mgr = getColorCycleBrushManager();
-      const projW = state.project?.width || 1024;
-      const projH = state.project?.height || 1024;
-      ccLayers.forEach(l => {
-        const hasBrush = !!mgr.getBrush(l.id);
-        if (!hasBrush) {
-          try { state.initColorCycleForLayer(l.id, projW, projH); ccLog('initColorCycleForLayer()', { id: l.id.slice(-6), reason }); } catch {}
-        }
-      });
-      ccLayers.forEach(l => {
-        const brush = mgr.getBrush(l.id);
-        brush?.stopAnimation?.();
-      });
-    } catch {}
+    if (!lightweightPanResume) {
+      try {
+        const mgr = getColorCycleBrushManager();
+        const projW = state.project?.width || 1024;
+        const projH = state.project?.height || 1024;
+        ccLayers.forEach(l => {
+          const hasBrush = !!mgr.getBrush(l.id);
+          if (!hasBrush) {
+            try { state.initColorCycleForLayer(l.id, projW, projH); ccLog('initColorCycleForLayer()', { id: l.id.slice(-6), reason }); } catch {}
+          }
+        });
+        ccLayers.forEach(l => {
+          const brush = mgr.getBrush(l.id);
+          brush?.stopAnimation?.();
+        });
+      } catch {}
+    }
 
     if (!overlayReady && !getEffectiveColorCyclePlaying()) {
       overlayReady = ensureOverlayInitialized();
@@ -429,17 +457,19 @@ export const startContinuousColorCycleAnimationCore = (
       });
     }
 
-    try {
-      const st = storeRef.current;
-      ccLayers.forEach(layer => {
-        const updatedData: Layer['colorCycleData'] = {
-          ...(layer.colorCycleData ?? {}),
-          isAnimating: true,
-        };
-        st.updateLayer(layer.id, { colorCycleData: updatedData });
-        ccLog('mark isAnimating=true', { id: layer.id.slice(-6), reason });
-      });
-    } catch {}
+    if (!lightweightPanResume) {
+      try {
+        const st = storeRef.current;
+        ccLayers.forEach(layer => {
+          const updatedData: Layer['colorCycleData'] = {
+            ...(layer.colorCycleData ?? {}),
+            isAnimating: true,
+          };
+          st.updateLayer(layer.id, { colorCycleData: updatedData });
+          ccLog('mark isAnimating=true', { id: layer.id.slice(-6), reason });
+        });
+      } catch {}
+    }
 
     const limitInitialRenderToActiveLayer = reason === 'stroke-start';
     cancelDeferredOverlayRender();
