@@ -410,6 +410,64 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restored.referenceLayerId).toBe('layer-2');
   });
 
+  it('persists layer types and reference layer metadata in serialized manifest', async () => {
+    const project: Project = {
+      id: 'project-types',
+      name: 'Layer Types Project',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [
+        {
+          id: 'layer-normal',
+          name: 'Normal',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          imageData: createSolidImageData(2, 2, [255, 0, 0, 255]),
+          framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [255, 0, 0, 255])),
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'normal',
+          version: 1,
+        },
+        {
+          id: 'layer-seq',
+          name: 'Sequential',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 1,
+          imageData: createSolidImageData(2, 2, [0, 0, 0, 0]),
+          framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'sequential',
+          sequentialData: {
+            frameCount: 1,
+            fps: 1,
+            durationMs: 1,
+            events: [],
+          },
+          version: 1,
+        },
+      ],
+      customBrushes: [],
+      referenceLayerId: 'layer-seq',
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await serializeProject(project);
+    const manifest = await readProjectManifest(payload);
+
+    expect(manifest.project.referenceLayerId).toBe('layer-seq');
+    expect(manifest.project.layers.map((layer) => layer.layerType)).toEqual(['normal', 'sequential']);
+  });
+
   it('migrates legacy flow-encoded gradient ids on load', async () => {
     const legacyGradientIds = [0, 63, 129, 194]; // slots 0, editor, 1, 2 in legacy encoding
     const gradientIdBuffer = Buffer.from(Uint8Array.from(legacyGradientIds)).toString('base64');

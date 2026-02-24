@@ -362,6 +362,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
             />
             <div
               role="presentation"
+              data-floating-rotate-handle
               style={{
                 position: 'absolute' as const,
                 width: rotateHandleSize,

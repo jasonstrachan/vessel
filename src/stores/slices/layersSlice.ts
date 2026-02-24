@@ -3079,10 +3079,27 @@ export const createLayersSlice = (
   }),
   setReferenceLayer: (id) => set((state) => {
     if (id && !state.layers.some(layer => layer.id === id)) {
-      return { referenceLayerId: null };
+      return {
+        referenceLayerId: null,
+        project: state.project
+          ? {
+              ...state.project,
+              referenceLayerId: null,
+            }
+          : state.project,
+      };
     }
 
-    return { referenceLayerId: id ?? null };
+    const nextReferenceLayerId = id ?? null;
+    return {
+      referenceLayerId: nextReferenceLayerId,
+      project: state.project
+        ? {
+            ...state.project,
+            referenceLayerId: nextReferenceLayerId,
+          }
+        : state.project,
+    };
   }),
   updateLayerAlignment: (layerId, alignment) => {
     set((state) => {

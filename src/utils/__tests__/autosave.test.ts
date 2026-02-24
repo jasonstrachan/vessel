@@ -267,7 +267,11 @@ describe('AutosaveService', () => {
     expect(fileBackupService.setFileHandle).toHaveBeenCalledWith(store.autosave.fileBackup.fileHandle);
     expect(fileBackupService.setDirectoryHandle).not.toHaveBeenCalled();
     expect(fileBackupService.saveProjectBackup).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'test-project', palette: store.palette }),
+      expect.objectContaining({
+        id: 'test-project',
+        palette: store.palette,
+        referenceLayerId: store.referenceLayerId,
+      }),
       store.layers,
       'single-file'
     );

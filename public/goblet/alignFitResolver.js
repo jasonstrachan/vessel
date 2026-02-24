@@ -50,7 +50,7 @@ const normalizeFit = (fit) => {
         case 'uniform':
             return 'contain';
         default:
-            return 'none';
+            return 'contain';
     }
 };
 export const normalizeAlignment = (alignment) => {
@@ -64,7 +64,7 @@ export const normalizeAlignment = (alignment) => {
         fit: normalizeFit(alignment === null || alignment === void 0 ? void 0 : alignment.fit),
         horizontal,
         vertical,
-        positioning: (_c = alignment === null || alignment === void 0 ? void 0 : alignment.positioning) !== null && _c !== void 0 ? _c : 'anchor',
+        positioning: (_c = alignment === null || alignment === void 0 ? void 0 : alignment.positioning) !== null && _c !== void 0 ? _c : 'auto',
         offsetPercent: normalizeOffsetPercent(alignment, horizontal, vertical)
     };
     return normalized;

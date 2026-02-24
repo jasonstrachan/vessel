@@ -46,6 +46,33 @@ describe('SelectionMarqueeHandles', () => {
     });
   });
 
+  it('renders selection handles for mask-driven selections', () => {
+    act(() => {
+      const mask = new ImageData(4, 4);
+      mask.data[3] = 255;
+      useAppStore.setState({
+        selectionStart: { x: 12, y: 8 },
+        selectionEnd: { x: 18, y: 14 },
+        selectionMask: mask,
+        selectionMaskBounds: { x: 12, y: 8, width: 6, height: 6 },
+      });
+    });
+
+    render(
+      <SelectionMarqueeHandles
+        zoom={1}
+        offsetX={0}
+        offsetY={0}
+        projectWidth={100}
+        projectHeight={100}
+      />,
+    );
+
+    const overlay = screen.getByTestId('selection-marquee-overlay');
+    expect(overlay.querySelector('[data-handle="right"]')).toBeTruthy();
+    expect(overlay.querySelector('[data-handle="rotate"]')).toBeTruthy();
+  });
+
   it('updates the selection bounds when dragging a resize handle', () => {
     render(
       <SelectionMarqueeHandles
@@ -246,5 +273,77 @@ describe('SelectionMarqueeHandles', () => {
 
     const state = useAppStore.getState();
     expect(state.selectionEnd?.x).toBe(45);
+  });
+
+  it('forwards rotate handle interaction into floating paste rotate control', () => {
+    const originalExtract = useAppStore.getState().extractSelectionToFloatingPaste;
+    const extractSelectionToFloatingPaste = jest.fn(() => true);
+    const forwardedRotatePointerDown = jest.fn();
+    const requestAnimationFrameSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      });
+
+    act(() => {
+      useAppStore.setState({ extractSelectionToFloatingPaste });
+    });
+    try {
+      render(
+        <div>
+          <SelectionMarqueeHandles
+            zoom={1}
+            offsetX={0}
+            offsetY={0}
+            projectWidth={100}
+            projectHeight={100}
+          />
+          <div
+            data-floating-rotate-handle
+            onPointerDown={forwardedRotatePointerDown}
+          />
+        </div>,
+      );
+
+      const overlay = screen.getByTestId('selection-marquee-overlay');
+      Object.defineProperty(overlay, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 100,
+          bottom: 100,
+          width: 100,
+          height: 100,
+          toJSON: () => ({}),
+        }),
+      });
+
+      const rotateHandle = overlay.querySelector('[data-handle="rotate"]');
+      expect(rotateHandle).toBeTruthy();
+      if (!rotateHandle) {
+        throw new Error('Rotate handle not found');
+      }
+
+      act(() => {
+        fireEvent.pointerDown(rotateHandle, {
+          pointerId: 41,
+          clientX: 20,
+          clientY: 10,
+          button: 0,
+        });
+      });
+
+      expect(extractSelectionToFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(forwardedRotatePointerDown).toHaveBeenCalledTimes(1);
+    } finally {
+      requestAnimationFrameSpy.mockRestore();
+      act(() => {
+        useAppStore.setState({ extractSelectionToFloatingPaste: originalExtract });
+      });
+    }
   });
 });

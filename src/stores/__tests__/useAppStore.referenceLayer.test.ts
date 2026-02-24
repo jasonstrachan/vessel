@@ -38,9 +38,11 @@ describe('reference layer management', () => {
 
     store.setReferenceLayer(layerId);
     expect(useAppStore.getState().referenceLayerId).toBe(layerId);
+    expect(useAppStore.getState().project?.referenceLayerId ?? null).toBe(layerId);
 
     store.setReferenceLayer(null);
     expect(useAppStore.getState().referenceLayerId).toBeNull();
+    expect(useAppStore.getState().project?.referenceLayerId ?? null).toBeNull();
   });
 
   it('only keeps the most recent reference layer selection', () => {
@@ -52,6 +54,7 @@ describe('reference layer management', () => {
     store.setReferenceLayer(secondLayerId);
 
     expect(useAppStore.getState().referenceLayerId).toBe(secondLayerId);
+    expect(useAppStore.getState().project?.referenceLayerId ?? null).toBe(secondLayerId);
   });
 
   it('clears referenceLayerId when the referenced layer is removed', () => {

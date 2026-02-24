@@ -239,7 +239,8 @@ class AutosaveService {
             const backupProject = {
               ...freshState.project,
               layerGroups: freshState.layerGroups,
-              palette: freshState.palette
+              palette: freshState.palette,
+              referenceLayerId: freshState.referenceLayerId ?? null,
             };
 
             const backupResult = await fileBackupService.saveProjectBackup(
