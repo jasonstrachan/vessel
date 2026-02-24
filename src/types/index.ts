@@ -740,6 +740,8 @@ export interface BrushSettings {
   // Dashed brush settings
   dashedEnabled: boolean;
   dashLength: number;
+  /** Increase stamp spacing when input moves faster. */
+  velocitySpacingEnabled?: boolean;
   /** Increase dash gap when input moves faster; keeps dash length unit-based. */
   velocityDashGapEnabled?: boolean;
   /** Strength multiplier for velocity-linked gap expansion (unitless, typically 0.25-4). */

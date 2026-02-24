@@ -333,6 +333,8 @@ export const processBatchedStrokes = (
             const isSequentialLayer = activeLayer?.layerType === 'sequential';
 
             if (!isColorCycleLayer && !isSequentialLayer && activeLayer?.layerType) {
+              args.lastDrawPosRef.current = worldPos;
+              args.lastDrawTimestampRef.current = pointTimestampMs;
               continue;
             }
 
@@ -343,6 +345,8 @@ export const processBatchedStrokes = (
               (isColorCycleLayer && targetCtx.canvas !== layerCanvas)
             ) {
               args.colorCycleLastPosRef.current = clippedEnd;
+              args.lastDrawPosRef.current = worldPos;
+              args.lastDrawTimestampRef.current = pointTimestampMs;
               continue;
             }
             if (activeLayer && deps.isEraserV2 && isColorCycleLayer) {
@@ -368,7 +372,7 @@ export const processBatchedStrokes = (
             if (usingCustomStamp && stampData) {
               args.resamplerBrushDataRef.current = stampData;
             }
-            const effectiveSpacing = getCcEffectiveSpacing(currentState);
+            const effectiveSpacing = getCcEffectiveSpacing(currentState, velocityPxPerMs);
             const spacingScreenPx = paused
               ? Math.max(1, Math.round(effectiveSpacing * 1.25))
               : effectiveSpacing;
@@ -514,6 +518,8 @@ export const processBatchedStrokes = (
             }
 
             args.colorCycleLastPosRef.current = clippedEnd;
+            args.lastDrawPosRef.current = worldPos;
+            args.lastDrawTimestampRef.current = pointTimestampMs;
             continue;
           } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
             if (currentState.tools.brushSettings.continuousSampling) {

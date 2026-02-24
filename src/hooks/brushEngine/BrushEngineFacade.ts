@@ -215,16 +215,19 @@ export class BrushEngineFacade {
     this.lastStrokePressure = pressure;
     this.lastCustomBrushData = customBrushData ?? null;
 
-    // Spacing slider is in pixels: 1 = 1px
-    const spacing = Math.max(0.25, this.config.brushSettings.spacing ?? 1);
+    // Calculate smoothed velocity
+    const smoothedVelocity = this.strokeProcessor.calculateSmoothedVelocity(velocity);
+    // Spacing slider is in pixels: 1 = 1px.
+    // Optional velocity spacing increases stamp gap at higher speed.
+    const spacing = this.utilities.calculateBrushSpacing(
+      size,
+      smoothedVelocity
+    );
 
     // Keep pointer path in raw space; only quantize stamp placement for grid mode.
     const isGridSnapping = this.utilities.shouldApplyGridSnap();
     const drawFrom = from;
     const drawTo = to;
-
-    // Calculate smoothed velocity
-    const smoothedVelocity = this.strokeProcessor.calculateSmoothedVelocity(velocity);
 
     // Determine if this is a pixel brush that should remain pixel-perfect
     // Override shape to CUSTOM if custom brush data is provided

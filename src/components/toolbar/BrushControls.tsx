@@ -131,6 +131,29 @@ type PigmentLiftControlsProps = {
   Slider: SliderComponent;
 };
 
+type VelocitySpacingToggleProps = {
+  id: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+};
+
+const VelocitySpacingToggle: React.FC<VelocitySpacingToggleProps> = ({ id, checked, onChange }) => (
+  <div className="flex items-center gap-1 ml-1" title="Link spacing to cursor speed">
+    <label
+      htmlFor={id}
+      className="text-[#9CA3AF]"
+      style={{ fontSize: '11px' }}
+    >
+      Vel
+    </label>
+    <CustomSwitch
+      id={id}
+      checked={checked}
+      onChange={onChange}
+    />
+  </div>
+);
+
 const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onChange, idSuffix, Slider }) => {
   const strength = settings.pigmentLiftStrength ?? 0.18;
   const feather = settings.pigmentLiftFeather ?? 3;
@@ -1257,6 +1280,11 @@ const BrushControls = () => {
               aria-label="Stamp Spacing"
               className="flex-1"
             />
+            <VelocitySpacingToggle
+              id="velocity-spacing-cc"
+              checked={Boolean(activeSettings.velocitySpacingEnabled)}
+              onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
+            />
           </div>
         </div>
 
@@ -1993,6 +2021,11 @@ const BrushControls = () => {
               aria-label="Spacing"
               className="flex-1"
             />
+            <VelocitySpacingToggle
+              id="velocity-spacing-spam"
+              checked={Boolean(activeSettings.velocitySpacingEnabled)}
+              onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
+            />
           </div>
         </div>
 
@@ -2178,6 +2211,11 @@ const BrushControls = () => {
               }
               aria-label="Mosaic Spacing"
               className="flex-1"
+            />
+            <VelocitySpacingToggle
+              id="velocity-spacing-mosaic"
+              checked={Boolean(activeSettings.velocitySpacingEnabled)}
+              onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
             />
           </div>
         </div>
@@ -2564,6 +2602,11 @@ const BrushControls = () => {
               }
               aria-label="Spacing"
               className="flex-1"
+            />
+            <VelocitySpacingToggle
+              id="velocity-spacing-resampler"
+              checked={Boolean(activeSettings.velocitySpacingEnabled)}
+              onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
             />
           </div>
         </div>
@@ -3402,6 +3445,11 @@ const BrushControls = () => {
               }
               aria-label="Spacing"
               className="flex-1"
+            />
+            <VelocitySpacingToggle
+              id="velocity-spacing-general"
+              checked={Boolean(activeSettings.velocitySpacingEnabled)}
+              onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
             />
           </div>
         </div>

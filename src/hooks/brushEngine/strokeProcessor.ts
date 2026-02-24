@@ -160,7 +160,7 @@ export const shouldDrawStamp = (
   // Scale dash length and gap using real rendered spacing so values stay linear with brush size
   // instead of growing quadratically when spacing is percentage-based.
   const brushSize = Number(actualSize || brushSettings.size) || 4;
-  const spacingPx = calculateBrushSpacing(brushSettings, brushSize);
+  const spacingPx = calculateBrushSpacing(brushSettings, brushSize, speedSamplePxPerMs);
 
   // Convert desired physical lengths (multipliers of brush size) into stamp counts.
   // For the dash we subtract one brush size so a value of 1 roughly paints one-brush-length

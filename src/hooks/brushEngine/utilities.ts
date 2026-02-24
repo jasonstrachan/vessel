@@ -6,6 +6,7 @@
 import type { BrushSettings } from '@/types';
 import { resolvePressureSizing } from '@/utils/pressureSizing';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
+import { resolveVelocityAdjustedSpacing } from '@/utils/velocitySpacing';
 
 /**
  * Calculate grid spacing from brush settings
@@ -48,13 +49,20 @@ export const snapToGridPure = (
  */
 export const calculateBrushSpacing = (
   brushSettings: BrushSettings,
-  baseSize: number
+  baseSize: number,
+  speedSamplePxPerMs?: number
 ): number => {
   const rawSpacing = typeof brushSettings.spacing === 'number' ? brushSettings.spacing : 0.1;
   const effectiveBaseSize = baseSize || brushSettings.size || 1;
   const isRatio = rawSpacing > 0 && rawSpacing < 1;
-  const calculated = isRatio ? effectiveBaseSize * rawSpacing : rawSpacing;
-  return Math.max(0.5, calculated || 0);
+  const baseSpacing = (isRatio ? effectiveBaseSize * rawSpacing : rawSpacing) || 0;
+  const velocityAdjustedSpacing = resolveVelocityAdjustedSpacing({
+    baseSpacing,
+    baseSize: effectiveBaseSize,
+    enabled: brushSettings.velocitySpacingEnabled,
+    speedPxPerMs: speedSamplePxPerMs,
+  });
+  return Math.max(0.5, velocityAdjustedSpacing);
 };
 
 /**
@@ -159,8 +167,8 @@ export const createBrushUtilities = (getSettings: () => BrushSettings) => {
       const spacing = calculateGridSpacing(getSettings());
       return snapToGridPure(x, y, spacing);
     },
-    calculateBrushSpacing: (baseSize: number) => 
-      calculateBrushSpacing(getSettings(), baseSize),
+    calculateBrushSpacing: (baseSize: number, speedSamplePxPerMs?: number) =>
+      calculateBrushSpacing(getSettings(), baseSize, speedSamplePxPerMs),
     calculatePressureSize: (baseSize: number, pressure: number) => {
       const settings = getSettings();
       const resolvedRange = resolveBrushPressureRange(settings);
