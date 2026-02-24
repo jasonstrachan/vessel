@@ -4,20 +4,6 @@ import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Layer, type Tool } from '@/types';
 
 interface UseDrawingCanvasKeyboardOptions {
-  isSpacePressedRef: React.MutableRefObject<boolean>;
-  setIsSpacePressed: React.Dispatch<React.SetStateAction<boolean>>;
-  setShowBrushCursorRef: React.MutableRefObject<React.Dispatch<React.SetStateAction<boolean>>>;
-  setCursorStyleRef: React.MutableRefObject<React.Dispatch<React.SetStateAction<string>>>;
-  mousePositionRef: React.MutableRefObject<{ x: number; y: number }>;
-  isMouseDownRef: React.MutableRefObject<boolean>;
-  panRef: React.MutableRefObject<{
-    startPan: (x: number, y: number) => void;
-    endPan: () => void;
-    panState: { isPanning: boolean };
-  }>;
-  pauseAnimationForPan: () => void;
-  defaultCursorStyle: string;
-  resumeAnimationAfterPan: () => Promise<void> | void;
   switchTool: (tool: Tool) => Promise<void> | void;
   saveProject: () => Promise<unknown>;
   openProjectModal: () => void;
@@ -103,16 +89,6 @@ interface UseDrawingCanvasKeyboardOptions {
 }
 
 export const useDrawingCanvasKeyboard = ({
-  isSpacePressedRef,
-  setIsSpacePressed,
-  setShowBrushCursorRef,
-  setCursorStyleRef,
-  mousePositionRef,
-  isMouseDownRef,
-  panRef,
-  pauseAnimationForPan,
-  defaultCursorStyle,
-  resumeAnimationAfterPan,
   switchTool,
   saveProject,
   openProjectModal,
@@ -151,33 +127,8 @@ export const useDrawingCanvasKeyboard = ({
   previousTool,
   cancelCrop,
 }: UseDrawingCanvasKeyboardOptions) => {
+  // Space/pan ownership lives in hooks/canvas/handlers/keyboardHandlers.ts to avoid dual state updates.
   useComprehensiveKeyboard({
-    onSpacePressed: () => {
-      if (!isSpacePressedRef.current) {
-        isSpacePressedRef.current = true;
-        setIsSpacePressed(true);
-        setShowBrushCursorRef.current(false);
-        setCursorStyleRef.current('grab');
-        const { x: pointerX, y: pointerY } = mousePositionRef.current;
-        if (isMouseDownRef.current) {
-          panRef.current.startPan(pointerX, pointerY);
-          setCursorStyleRef.current('grabbing');
-          pauseAnimationForPan();
-        }
-      }
-    },
-    onSpaceReleased: () => {
-      if (isSpacePressedRef.current) {
-        isSpacePressedRef.current = false;
-        setIsSpacePressed(false);
-        if (panRef.current.panState.isPanning) {
-          panRef.current.endPan();
-        }
-        setCursorStyleRef.current(defaultCursorStyle);
-        setShowBrushCursorRef.current(true);
-        void resumeAnimationAfterPan();
-      }
-    },
     onSave: () => {
       void saveProject().catch(() => {});
     },

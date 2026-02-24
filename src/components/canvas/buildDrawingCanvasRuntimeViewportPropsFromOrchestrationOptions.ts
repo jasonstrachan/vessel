@@ -51,7 +51,7 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions = ({
     offsetX: orchestration.interactionRuntime.pan.panState.offsetX,
     offsetY: orchestration.interactionRuntime.pan.panState.offsetY,
     currentTool: state.tools.currentTool,
-    isSpacePressed: orchestration.interactionRuntime.isSpacePressed,
+    isSpacePressed: orchestration.interactionRuntime.stateMachine.state.isSpacePressed,
     displayProjectName: state.displayProjectName,
     brushCursorHandleRef: orchestration.brushCursorHandleRef,
   },

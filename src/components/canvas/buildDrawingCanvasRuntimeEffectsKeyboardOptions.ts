@@ -6,18 +6,11 @@ type KeyboardOptions =
 export interface BuildDrawingCanvasRuntimeEffectsKeyboardOptionsArgs {
   refs: Pick<
     KeyboardOptions,
-    | 'isSpacePressedRef'
-    | 'setShowBrushCursorRef'
-    | 'setCursorStyleRef'
-    | 'mousePositionRef'
-    | 'isMouseDownRef'
-    | 'panRef'
     | 'canvasRef'
     | 'viewTransformRef'
   >;
   state: Pick<
     KeyboardOptions,
-    | 'defaultCursorStyle'
     | 'toolStateMachine'
     | 'drawingHandlers'
     | 'brushEngine'
@@ -34,9 +27,6 @@ export interface BuildDrawingCanvasRuntimeEffectsKeyboardOptionsArgs {
   >;
   actions: Pick<
     KeyboardOptions,
-    | 'setIsSpacePressed'
-    | 'pauseAnimationForPan'
-    | 'resumeAnimationAfterPan'
     | 'switchTool'
     | 'undo'
     | 'redo'

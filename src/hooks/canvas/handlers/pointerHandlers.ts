@@ -170,6 +170,9 @@ import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import { createSelectionHandlers } from './selectionHandlers';
+import { CURSOR_FALLBACK_CROSSHAIR } from './utils/cursorFallbacks';
+import { resolveSpacePanCursor } from './utils/spacePanCursor';
+import { resolveToolCursorState } from './utils/toolCursor';
 
 type VerticalSpacingMapperConfig = {
   centroid: { x: number; y: number };
@@ -266,6 +269,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     isBusyRef,
     isMouseDownRef,
     isSpacePressedRef,
+    suppressBootstrapUntilPointerUpRef,
     drawAnimationFrameRef,
     setSelectionBounds,
     clearSelection,
@@ -318,6 +322,88 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     pointerId: null,
     points: [],
     bounds: null,
+  };
+
+  const isSpaceInteractionActive = (): boolean => isSpacePressedRef.current;
+
+  let panInterruptFinalizeInFlight = false;
+  let panInterruptFinalizeScheduled = false;
+
+  const schedulePanInterruptFinalize = () => {
+    if (panInterruptFinalizeInFlight || panInterruptFinalizeScheduled) {
+      return;
+    }
+
+    const runFinalize = () => {
+      panInterruptFinalizeScheduled = false;
+      if (panInterruptFinalizeInFlight) {
+        return;
+      }
+      panInterruptFinalizeInFlight = true;
+      void drawingHandlers.finalizeDrawing(false).finally(() => {
+        panInterruptFinalizeInFlight = false;
+      });
+    };
+
+    if (process.env.NODE_ENV === 'test' || typeof requestAnimationFrame !== 'function') {
+      runFinalize();
+      return;
+    }
+
+    panInterruptFinalizeScheduled = true;
+    requestAnimationFrame(() => {
+      runFinalize();
+    });
+  };
+
+  const interruptActiveStrokeForPan = () => {
+    if (
+      suppressBootstrapUntilPointerUpRef.current ||
+      (!isMouseDownRef.current && !interaction.state.isDrawing)
+    ) {
+      return;
+    }
+    isMouseDownRef.current = false;
+    if (interaction.state.isDrawing) {
+      interaction.dispatch({ type: 'DRAWING_END' });
+      schedulePanInterruptFinalize();
+    }
+    compositeCanvasDirtyRef.current = true;
+    suppressBootstrapUntilPointerUpRef.current = true;
+  };
+
+  const applyToolCursor = (args: {
+    isDraggingFloatingPaste?: boolean;
+    isColorPicker: boolean;
+    useCrosshair: boolean;
+    fallbackCursor?: string;
+  }) => {
+    const { cursorStyle, showBrushCursor } = resolveToolCursorState({
+      ...args,
+      defaultCursorStyle: deps.defaultCursorStyle,
+    });
+    setCursorStyle(cursorStyle);
+    setShowBrushCursor(showBrushCursor);
+  };
+
+  const applySpacePanCursor = (args: {
+    isSpaceActive: boolean;
+    isPanning: boolean;
+    fallbackCursor?: string;
+    showBrushCursor?: boolean;
+  }) => {
+    setCursorStyle(
+      resolveSpacePanCursor({
+        isSpaceActive: args.isSpaceActive,
+        isPanning: args.isPanning,
+        defaultCursorStyle: deps.defaultCursorStyle,
+        fallbackCursor: args.fallbackCursor,
+      })
+    );
+
+    if (typeof args.showBrushCursor === 'boolean') {
+      setShowBrushCursor(args.showBrushCursor);
+    }
   };
 
   const CAPTURE_PADDING_PX = 2;
@@ -1710,6 +1796,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   );
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    suppressBootstrapUntilPointerUpRef.current = false;
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
       polygonGradientStateGuard != null &&
@@ -1823,13 +1910,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // Intentionally silent to avoid console noise
     }
     
-    const canPan = tools.currentTool !== 'crop' || isSpacePressedRef.current;
+    const isSpaceActive = isSpaceInteractionActive();
+    const canPan = tools.currentTool !== 'crop' || isSpaceActive;
 
     // SIMPLIFIED PANNING: Just check if space is pressed
-    if (isSpacePressedRef.current && canPan) {
+    if (isSpaceActive && canPan) {
+      interruptActiveStrokeForPan();
       pan.startPan(pointerPos.x, pointerPos.y);
-      setCursorStyle('grabbing');
-      setShowBrushCursor(false);
+      applySpacePanCursor({ isSpaceActive: true, isPanning: true, showBrushCursor: false });
       pauseAnimationForPan?.();
       // Intentionally quiet: avoid console noise for common panning
       return; // Skip everything else - we're panning
@@ -1846,6 +1934,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       shouldAlignCursor
     );
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
+
+    if ((event.buttons & 1) === 0) {
+      suppressBootstrapUntilPointerUpRef.current = false;
+    }
 
     if (event.button === 0 && selectionHandlers.handleSelectionHitTest({
       worldPos,
@@ -1883,8 +1975,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     if (tools.currentTool === 'color-picker') {
       applyColorPickerSample(worldPos);
-      setCursorStyle('crosshair');
-      setShowBrushCursor(false);
+      applyToolCursor({ isColorPicker: true, useCrosshair: false });
       return;
     }
 
@@ -1973,7 +2064,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         setIsDraggingFloatingPaste(true);
         floatingPasteDragStart.current = worldPos;
         floatingPasteOriginalPos.current = { ...floatingPaste.position };
-        setCursorStyle('move');
+        applyToolCursor({
+          isDraggingFloatingPaste: true,
+          isColorPicker: false,
+          useCrosshair: false,
+        });
         return; // Do not start drawing/selection when dragging paste
       }
 
@@ -2003,7 +2098,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
           (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
         }
-        setCursorStyle(deps.defaultCursorStyle || 'none');
+        applyToolCursor({ isColorPicker: false, useCrosshair: false });
         updateBrushCursorVisibility();
         return;
       }
@@ -2055,8 +2150,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           setIsDraggingFloatingPaste(true);
           floatingPasteDragStart.current = worldPos;
           floatingPasteOriginalPos.current = { ...nextFloatingPaste.position };
-          setCursorStyle('move');
-          setShowBrushCursor(false);
+          applyToolCursor({
+            isDraggingFloatingPaste: true,
+            isColorPicker: false,
+            useCrosshair: false,
+          });
 
           compositeCanvasDirtyRef.current = true;
           requestAnimationFrame(() => {
@@ -2088,13 +2186,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
 
     // Cursor rule: shapes use crosshair; stroke brushes use brush-size cursor when allowed
-    if (shouldRouteToShapeHandler || tools.shapeMode) {
-      setCursorStyle('crosshair');
-      setShowBrushCursor(false);
-    } else {
-      setCursorStyle(deps.defaultCursorStyle || 'none');
-      setShowBrushCursor(true);
-    }
+    applyToolCursor({
+      isColorPicker: false,
+      useCrosshair: shouldRouteToShapeHandler || tools.shapeMode,
+    });
 
     if (shouldRouteToShapeHandler) {
       const rewriteHandled = shapeHandler.handlePointerDown(event);
@@ -2586,7 +2681,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   // RAF aggregator for pointermove to ensure at most one heavy processing per frame
   let scheduledMoveRAF: number | null = null;
   let lastMoveEvent: React.PointerEvent<HTMLCanvasElement> | null = null;
-
   const processPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const {
       canvas,
@@ -2631,8 +2725,9 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       !isBusyRef.current &&
       (event.buttons & 1) === 1 && // primary button held
       !isMouseDownRef.current &&
+      !suppressBootstrapUntilPointerUpRef.current &&
       !pan.panState.isPanning &&
-      !isSpacePressedRef.current &&
+      !isSpaceInteractionActive() &&
       !tools.shapeMode &&
       (tools.currentTool === 'brush' || tools.currentTool === 'eraser')
     ) {
@@ -2723,27 +2818,32 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
 
     if (tools.currentTool === 'color-picker') {
-      setCursorStyle('crosshair');
-      setShowBrushCursor(false);
+      applyToolCursor({ isColorPicker: true, useCrosshair: false });
       if (isMouseDownRef.current) {
         applyColorPickerSample(worldPos);
       }
       return;
     }
 
-    const canPan = tools.currentTool !== 'crop' || isSpacePressedRef.current;
+    const isSpaceActive = isSpaceInteractionActive();
+    const canPan = tools.currentTool !== 'crop' || isSpaceActive;
 
     if (!canPan && pan.panState.isPanning) {
       pan.endPan();
-      setCursorStyle(deps.defaultCursorStyle || 'crosshair');
-      setShowBrushCursor(true);
+      suppressBootstrapUntilPointerUpRef.current = true;
+      applySpacePanCursor({
+        isSpaceActive: false,
+        isPanning: false,
+        fallbackCursor: CURSOR_FALLBACK_CROSSHAIR,
+        showBrushCursor: true,
+      });
     }
 
     // If space is held and mouse is down, but pan hasn't started yet, start it now and exit early.
-    if (isSpacePressedRef.current && isMouseDownRef.current && !pan.panState.isPanning && canPan) {
+    if (isSpaceActive && isMouseDownRef.current && !pan.panState.isPanning && canPan) {
+      interruptActiveStrokeForPan();
       pan.startPan(currentPointerPos.x, currentPointerPos.y);
-      setCursorStyle('grabbing');
-      setShowBrushCursor(false);
+      applySpacePanCursor({ isSpaceActive: true, isPanning: true, showBrushCursor: false });
       pauseAnimationForPan?.();
       return; // Important: skip shape/brush updates on the same frame
     }
@@ -2781,13 +2881,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     // Quick visibility: enforce cursor rule while drawing too
     if (interaction.state.isDrawing) {
-      if (shouldRouteToShapeHandler || tools.shapeMode) {
-        setCursorStyle('crosshair');
-        setShowBrushCursor(false);
-      } else {
-        setCursorStyle(deps.defaultCursorStyle || 'none');
-        setShowBrushCursor(true);
-      }
+      applyToolCursor({
+        isColorPicker: false,
+        useCrosshair: shouldRouteToShapeHandler || tools.shapeMode,
+      });
     }
 
     // Unified coalesced handling below covers both brush and shape drawing (with snapping)
@@ -3458,6 +3555,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    suppressBootstrapUntilPointerUpRef.current = false;
     const {
       canvas,
       tools,
@@ -3533,8 +3631,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
 
     if (tools.currentTool === 'color-picker') {
-      setCursorStyle('crosshair');
-      setShowBrushCursor(false);
+      applyToolCursor({ isColorPicker: true, useCrosshair: false });
       return;
     }
 
@@ -3545,7 +3642,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       tools.customBrushCapture?.mode === 'freehand'
     ) {
       const captured = completeFreehandCapture();
-      setCursorStyle(deps.defaultCursorStyle || 'none');
+      applyToolCursor({ isColorPicker: false, useCrosshair: false });
       updateBrushCursorVisibility();
       setShowBrushCursor(true);
       if (captured) {
@@ -3613,11 +3710,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // SIMPLIFIED PANNING: End pan if we were panning
     if (pan.panState.isPanning) {
       pan.endPan();
+      const isSpaceActive = isSpaceInteractionActive();
       // Restore cursor based on space state
-      if (isSpacePressedRef.current) {
-        setCursorStyle('grab');
-      } else {
-        setCursorStyle(deps.defaultCursorStyle || 'none');
+      applySpacePanCursor({ isSpaceActive, isPanning: false });
+      if (!isSpaceActive) {
         updateBrushCursorVisibility();
       }
       void resumeAnimationAfterPan?.();
@@ -3635,7 +3731,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       setIsDraggingFloatingPaste(false);
       floatingPasteDragStart.current = null;
       floatingPasteOriginalPos.current = null;
-      setCursorStyle(deps.defaultCursorStyle || 'none');
+      applyToolCursor({ isColorPicker: false, useCrosshair: false });
       updateBrushCursorVisibility();
       return;
     }
@@ -3863,7 +3959,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // Keep handler minimal; batch work to next animation frame
     // Never drop updates while drawing shapes; RAF will still run at display rate
     // Persist the synthetic event just in case (React 17+ no-ops)
-    if (isSpacePressedRef.current && isMouseDownRef.current && !pan.panState.isPanning) {
+    if (isSpaceInteractionActive() && isMouseDownRef.current && !pan.panState.isPanning) {
       processPointerMove(event);
       return;
     }
@@ -3886,7 +3982,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     updateBrushCursorVisibility(true);
     const { tools } = getDynamicDeps();
     if (tools.currentTool === 'color-picker') {
-      setCursorStyle('crosshair');
+      applyToolCursor({ isColorPicker: true, useCrosshair: false });
     }
   };
 
@@ -3901,7 +3997,14 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     updateBrushCursorVisibility(false);
     const { tools } = getDynamicDeps();
     if (tools.currentTool === 'color-picker') {
-      setCursorStyle(deps.defaultCursorStyle || 'crosshair');
+      setCursorStyle(
+        resolveToolCursorState({
+          isColorPicker: false,
+          useCrosshair: false,
+          defaultCursorStyle: deps.defaultCursorStyle,
+          fallbackCursor: CURSOR_FALLBACK_CROSSHAIR,
+        }).cursorStyle
+      );
     }
     if (pan.panState.isPanning) {
       pan.endPan();
@@ -3914,6 +4017,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    suppressBootstrapUntilPointerUpRef.current = false;
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
     const store = useAppStore.getState();
@@ -3943,8 +4047,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     const { tools } = getDynamicDeps();
     if (tools.currentTool === 'color-picker') {
-      setCursorStyle('crosshair');
-      setShowBrushCursor(false);
+      applyToolCursor({ isColorPicker: true, useCrosshair: false });
     }
     if (
       freehandCaptureState.active &&

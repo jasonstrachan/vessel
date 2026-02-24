@@ -23,8 +23,9 @@ type UseProjectPreviewLoaderOptions = {
   closeModal: () => void;
 };
 
-const EMPTY_FILE_RETRY_ATTEMPTS = 3;
-const EMPTY_FILE_RETRY_DELAY_MS = 120;
+const EMPTY_FILE_RETRY_ATTEMPTS = 8;
+const EMPTY_FILE_INITIAL_RETRY_DELAY_MS = 120;
+const EMPTY_FILE_MAX_RETRY_DELAY_MS = 1200;
 
 const waitFor = (ms: number) => new Promise<void>((resolve) => {
   setTimeout(resolve, ms);
@@ -39,12 +40,14 @@ const refreshPossiblyIncompleteFile = async (
   }
 
   let latest = file;
+  let retryDelayMs = EMPTY_FILE_INITIAL_RETRY_DELAY_MS;
   for (let attempt = 0; attempt < EMPTY_FILE_RETRY_ATTEMPTS; attempt += 1) {
-    await waitFor(EMPTY_FILE_RETRY_DELAY_MS);
+    await waitFor(retryDelayMs);
     latest = await fileHandle.getFile();
     if (latest.size > 0) {
       return latest;
     }
+    retryDelayMs = Math.min(Math.round(retryDelayMs * 1.5), EMPTY_FILE_MAX_RETRY_DELAY_MS);
   }
 
   return latest;

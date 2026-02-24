@@ -34,7 +34,7 @@ const createDeps = (): KeyboardDeps => {
 
   const deps = {
     isSpacePressedRef: { current: false },
-    setIsSpacePressed: jest.fn(),
+    suppressBootstrapUntilPointerUpRef: { current: false },
     setShowBrushCursor: jest.fn(),
     setCursorStyle: jest.fn(),
     isMouseDownRef: { current: false },
@@ -52,6 +52,16 @@ const createDeps = (): KeyboardDeps => {
       state: { isSpacePressed: false },
       dispatch,
     },
+    interaction: {
+      state: { isDrawing: false },
+      dispatch: jest.fn(),
+    },
+    drawingHandlers: {
+      endStrokeSession: jest.fn(),
+      clearStrokeSession: jest.fn(),
+      finalizeDrawing: jest.fn().mockResolvedValue(undefined),
+    },
+    compositeCanvasDirtyRef: { current: false },
     wrapperRef: { current: document.createElement('div') },
     canvasRef: { current: canvas },
     overlayCanvasRef: { current: overlayCanvas },
@@ -108,7 +118,6 @@ describe('createKeyboardHandlers', () => {
     handlers.handleKeyDown(new KeyboardEvent('keydown', { code: 'Space' }));
 
     expect(deps.isSpacePressedRef.current).toBe(true);
-    expect(deps.setIsSpacePressed).toHaveBeenCalledWith(true);
     expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'SPACE_DOWN' });
     expect(deps.setCursorStyle).toHaveBeenCalledWith('grab');
   });
@@ -128,9 +137,27 @@ describe('createKeyboardHandlers', () => {
     handlers.handleKeyUp(new KeyboardEvent('keyup', { code: 'Space' }));
 
     expect(deps.isSpacePressedRef.current).toBe(false);
+    expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(true);
     expect(deps.pan.endPan).toHaveBeenCalledTimes(1);
     expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'SPACE_UP' });
     expect(deps.setCursorStyle).toHaveBeenCalledWith('crosshair');
+  });
+
+  it('ends active stroke before space-pan takeover', () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+
+    deps.isMouseDownRef.current = true;
+    deps.interaction.state.isDrawing = true;
+
+    handlers.handleKeyDown(new KeyboardEvent('keydown', { code: 'Space' }));
+
+    expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'DRAWING_END' });
+    expect(deps.drawingHandlers.endStrokeSession).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledWith(false);
+    expect(deps.drawingHandlers.clearStrokeSession).not.toHaveBeenCalled();
+    expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(true);
+    expect(deps.pan.startPan).toHaveBeenCalledWith(12, 34);
   });
 
   it('releases space on blur based on ref state even if stateMachine is stale', () => {

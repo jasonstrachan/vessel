@@ -6,7 +6,6 @@ type BuildArgs = UseDrawingCanvasRuntimeEffectsFromStateOptions;
 
 export const buildDrawingCanvasRuntimeEffectsFromStateKeyboardArgs = ({
   state,
-  visualRuntime,
   renderRuntime,
   interactionRuntime,
   toolStateMachine,
@@ -18,17 +17,10 @@ export const buildDrawingCanvasRuntimeEffectsFromStateKeyboardArgs = ({
   draw,
 }: BuildArgs): UseDrawingCanvasRuntimeEffectsHandlersOptions['keyboardArgs'] => ({
   refs: {
-    isSpacePressedRef: interactionRuntime.isSpacePressedRef,
-    setShowBrushCursorRef: interactionRuntime.setShowBrushCursorRef,
-    setCursorStyleRef: interactionRuntime.setCursorStyleRef,
-    mousePositionRef: state.mousePositionRef,
-    isMouseDownRef: state.isMouseDownRef,
-    panRef: interactionRuntime.panRef,
     canvasRef: state.canvasRef,
     viewTransformRef: interactionRuntime.viewTransformRef,
   },
   state: {
-    defaultCursorStyle: visualRuntime.defaultCursorStyle,
     toolStateMachine,
     drawingHandlers,
     brushEngine,
@@ -44,9 +36,6 @@ export const buildDrawingCanvasRuntimeEffectsFromStateKeyboardArgs = ({
     previousTool: state.previousTool,
   },
   actions: {
-    setIsSpacePressed: interactionRuntime.setIsSpacePressed,
-    pauseAnimationForPan: animationRuntime.pauseAnimationForPan,
-    resumeAnimationAfterPan: animationRuntime.resumeAnimationAfterPan,
     switchTool: state.switchTool,
     undo: state.undo,
     redo: state.redo,

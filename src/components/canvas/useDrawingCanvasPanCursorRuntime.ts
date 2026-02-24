@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { useDrawingCanvasPanSync } from './useDrawingCanvasPanSync';
 import { useDrawingCanvasViewScaleSync } from './useDrawingCanvasViewScaleSync';
 import type { Tool } from '@/types';
@@ -10,8 +10,6 @@ interface UseDrawingCanvasPanCursorRuntimeOptions {
   canvasOffsetX: number;
   canvasOffsetY: number;
   setCanvasOffset: (x: number, y: number) => void;
-  setCursorStyle: React.Dispatch<React.SetStateAction<string>>;
-  setShowBrushCursor: React.Dispatch<React.SetStateAction<boolean>>;
   currentTool: Tool;
 }
 
@@ -21,8 +19,6 @@ export const useDrawingCanvasPanCursorRuntime = ({
   canvasOffsetX,
   canvasOffsetY,
   setCanvasOffset,
-  setCursorStyle,
-  setShowBrushCursor,
   currentTool,
 }: UseDrawingCanvasPanCursorRuntimeOptions) => {
   const viewTransformRef = useRef({
@@ -42,14 +38,8 @@ export const useDrawingCanvasPanCursorRuntime = ({
   });
 
   const isSpacePressedRef = useRef(false);
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const suppressBootstrapUntilPointerUpRef = useRef(false);
 
-  const panRef = useRef(pan);
-  panRef.current = pan;
-  const setCursorStyleRef = useRef(setCursorStyle);
-  setCursorStyleRef.current = setCursorStyle;
-  const setShowBrushCursorRef = useRef(setShowBrushCursor);
-  setShowBrushCursorRef.current = setShowBrushCursor;
   const previousToolRef = useRef<Tool | null>(currentTool);
   const lastStateMachineToolRef = useRef<Tool | null>(currentTool);
 
@@ -61,11 +51,7 @@ export const useDrawingCanvasPanCursorRuntime = ({
   return {
     viewTransformRef,
     isSpacePressedRef,
-    isSpacePressed,
-    setIsSpacePressed,
-    panRef,
-    setCursorStyleRef,
-    setShowBrushCursorRef,
+    suppressBootstrapUntilPointerUpRef,
     previousToolRef,
     lastStateMachineToolRef,
   };

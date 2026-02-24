@@ -28,6 +28,7 @@ type InjectedDepKey =
   | 'snapStrokeStartRef'
   | 'snapShiftAnchorRef'
   | 'snapLastBrushSampleRef'
+  | 'suppressBootstrapUntilPointerUpRef'
   | 'contourLinesStateRef'
   | 'contourLinesDefaultsCacheRef'
   | 'contourLinesFinalizingRef'
@@ -44,6 +45,7 @@ type BuildAugmentedEventHandlerDepsArgs = {
   snapStrokeStartRef: React.MutableRefObject<{ x: number; y: number } | null>;
   snapShiftAnchorRef: React.MutableRefObject<{ x: number; y: number } | null>;
   snapLastBrushSampleRef: React.MutableRefObject<{ x: number; y: number } | null>;
+  suppressBootstrapUntilPointerUpRef: React.MutableRefObject<boolean>;
   contourLinesStateRef: React.MutableRefObject<ContourLinesState>;
   contourLinesDefaultsCacheRef: React.MutableRefObject<Lines2DefaultsCache | null>;
   contourLinesFinalizingRef: React.MutableRefObject<boolean>;
@@ -62,6 +64,7 @@ export const createAugmentedEventHandlerDeps = (
     snapStrokeStartRef,
     snapShiftAnchorRef,
     snapLastBrushSampleRef,
+    suppressBootstrapUntilPointerUpRef,
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,
@@ -77,6 +80,7 @@ export const createAugmentedEventHandlerDeps = (
     snapStrokeStartRef,
     snapShiftAnchorRef,
     snapLastBrushSampleRef,
+    suppressBootstrapUntilPointerUpRef,
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,

@@ -4,6 +4,8 @@ import {
   cancelClickLineSelectionSession,
   finalizeClickLineSelectionSession,
 } from '@/hooks/canvas/handlers/selectionHandlers';
+import { CURSOR_FALLBACK_CROSSHAIR } from '@/hooks/canvas/handlers/utils/cursorFallbacks';
+import { resolveSpacePanCursor } from '@/hooks/canvas/handlers/utils/spacePanCursor';
 import type { EventHandlerDependencies, KeyboardHandlers } from '../utils/types';
 
 const isTextEntryTarget = (target: EventTarget | null): boolean => {
@@ -27,6 +29,52 @@ const scopeAllowsSpace = (): boolean => {
 export const createKeyboardHandlers = (
   deps: EventHandlerDependencies
 ): Pick<KeyboardHandlers, 'handleKeyDown' | 'handleKeyUp' | 'handleBlur'> => {
+  let panInterruptFinalizeInFlight = false;
+  let panInterruptFinalizeScheduled = false;
+
+  const schedulePanInterruptFinalize = () => {
+    if (panInterruptFinalizeInFlight || panInterruptFinalizeScheduled) {
+      return;
+    }
+
+    const runFinalize = () => {
+      panInterruptFinalizeScheduled = false;
+      if (panInterruptFinalizeInFlight) {
+        return;
+      }
+      panInterruptFinalizeInFlight = true;
+      void deps.drawingHandlers.finalizeDrawing(false).finally(() => {
+        panInterruptFinalizeInFlight = false;
+      });
+    };
+
+    if (process.env.NODE_ENV === 'test' || typeof requestAnimationFrame !== 'function') {
+      runFinalize();
+      return;
+    }
+
+    panInterruptFinalizeScheduled = true;
+    requestAnimationFrame(() => {
+      runFinalize();
+    });
+  };
+
+  const interruptActiveStrokeForPan = () => {
+    if (
+      deps.suppressBootstrapUntilPointerUpRef.current ||
+      (!deps.isMouseDownRef.current && !deps.interaction.state.isDrawing)
+    ) {
+      return;
+    }
+    deps.isMouseDownRef.current = false;
+    if (deps.interaction.state.isDrawing) {
+      deps.interaction.dispatch({ type: 'DRAWING_END' });
+      schedulePanInterruptFinalize();
+    }
+    deps.compositeCanvasDirtyRef.current = true;
+    deps.suppressBootstrapUntilPointerUpRef.current = true;
+  };
+
   const clearSelectionOverlay = () => {
     const overlayCanvas = deps.overlayCanvasRef.current;
     if (!overlayCanvas) {
@@ -46,9 +94,9 @@ export const createKeyboardHandlers = (
 
   const releaseSpaceInteraction = () => {
     deps.isSpacePressedRef.current = false;
-    deps.setIsSpacePressed?.(false);
 
     if (deps.pan.panState.isPanning) {
+      deps.suppressBootstrapUntilPointerUpRef.current = true;
       deps.pan.endPan();
     }
 
@@ -56,7 +104,14 @@ export const createKeyboardHandlers = (
       deps.stateMachine.dispatch({ type: 'SPACE_UP' });
     }
 
-    deps.setCursorStyle(deps.defaultCursorStyle ?? 'crosshair');
+    deps.setCursorStyle(
+      resolveSpacePanCursor({
+        isSpaceActive: false,
+        isPanning: false,
+        defaultCursorStyle: deps.defaultCursorStyle,
+        fallbackCursor: CURSOR_FALLBACK_CROSSHAIR,
+      })
+    );
     deps.setShowBrushCursor(deps.isPointerInsideCanvas?.() ?? true);
     void deps.resumeAnimationAfterPan?.();
   };
@@ -73,16 +128,30 @@ export const createKeyboardHandlers = (
       event.stopPropagation();
 
       deps.isSpacePressedRef.current = true;
-      deps.setIsSpacePressed?.(true);
       deps.stateMachine.dispatch({ type: 'SPACE_DOWN' });
       deps.setShowBrushCursor(false);
-      deps.setCursorStyle('grab');
+      deps.setCursorStyle(
+        resolveSpacePanCursor({
+          isSpaceActive: true,
+          isPanning: false,
+          defaultCursorStyle: deps.defaultCursorStyle,
+          fallbackCursor: CURSOR_FALLBACK_CROSSHAIR,
+        })
+      );
 
       if (deps.isMouseDownRef.current) {
+        interruptActiveStrokeForPan();
         const pointer = deps.mousePositionRef?.current ?? { x: 0, y: 0 };
         const { x: pointerX, y: pointerY } = pointer;
         deps.pan.startPan(pointerX, pointerY);
-        deps.setCursorStyle('grabbing');
+        deps.setCursorStyle(
+          resolveSpacePanCursor({
+            isSpaceActive: true,
+            isPanning: true,
+            defaultCursorStyle: deps.defaultCursorStyle,
+            fallbackCursor: CURSOR_FALLBACK_CROSSHAIR,
+          })
+        );
         deps.pauseAnimationForPan?.();
       }
       return;

@@ -111,6 +111,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
     isBusyRef: { current: false },
     isMouseDownRef: { current: false },
     isSpacePressedRef: { current: false },
+    suppressBootstrapUntilPointerUpRef: { current: false },
     drawAnimationFrameRef: { current: null },
     pointerMoveThrottled: { current: 0 },
     project: dynamic.project,
@@ -346,6 +347,51 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setCursorStyle).toHaveBeenCalledWith('grabbing');
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
     expect(deps.pauseAnimationForPan).toHaveBeenCalled();
+  });
+
+  it('ends active stroke when space-pan takes over on move', () => {
+    const { deps } = createDeps();
+    const handlers = createPointerHandlers(deps);
+
+    deps.isSpacePressedRef.current = true;
+    deps.isMouseDownRef.current = true;
+    deps.interaction.state.isDrawing = true;
+
+    handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 20, clientY: 20 }));
+
+    expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'DRAWING_END' });
+    expect(deps.drawingHandlers.endStrokeSession).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledWith(false);
+    expect(deps.drawingHandlers.clearStrokeSession).not.toHaveBeenCalled();
+    expect(deps.pan.startPan).toHaveBeenCalledWith(20, 20);
+    expect(deps.drawingHandlers.continueDrawing).not.toHaveBeenCalled();
+  });
+
+  it('does not resume drawing after space-pan release until pointer is lifted', () => {
+    const { deps } = createDeps();
+    const handlers = createPointerHandlers(deps);
+
+    deps.suppressBootstrapUntilPointerUpRef.current = true;
+    deps.isMouseDownRef.current = false;
+
+    handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 20, clientY: 20 }));
+    expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+
+    handlers.handlePointerUp(makePointerEvent({ clientX: 21, clientY: 21 }));
+    handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 22, clientY: 22 }));
+    expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not pan when ref is released even if state-machine snapshot is stale', () => {
+    const { deps } = createDeps();
+    deps.isSpacePressedRef.current = false;
+    (deps.stateMachine.state as { isSpacePressed?: boolean }).isSpacePressed = true;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 25, clientY: 30 }));
+
+    expect(deps.pan.startPan).not.toHaveBeenCalled();
+    expect(deps.setCursorStyle).not.toHaveBeenCalledWith('grabbing');
   });
 
   it('applies color picker sample and hides brush cursor', () => {

@@ -27,7 +27,6 @@ export const useDrawingCanvasRuntimeSetupStages = ({
       showFeedback,
       brushEngine,
       renderRuntime,
-      setCursorStyle: visualRuntime.setCursorStyle,
     });
 
   return {

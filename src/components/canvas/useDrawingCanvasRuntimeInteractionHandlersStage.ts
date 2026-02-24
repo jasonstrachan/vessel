@@ -12,7 +12,6 @@ interface UseDrawingCanvasRuntimeInteractionHandlersStageOptions {
   showFeedback?: (message: string) => void;
   brushEngine: VisualRuntime['brushEngine'];
   renderRuntime: RenderRuntime;
-  setCursorStyle: VisualRuntime['visualRuntime']['setCursorStyle'];
 }
 
 export const useDrawingCanvasRuntimeInteractionHandlersStage = ({
@@ -20,7 +19,6 @@ export const useDrawingCanvasRuntimeInteractionHandlersStage = ({
   showFeedback,
   brushEngine,
   renderRuntime,
-  setCursorStyle,
 }: UseDrawingCanvasRuntimeInteractionHandlersStageOptions) => {
   const interactionRuntime = useDrawingCanvasInteractionRuntime({
     viewport: {
@@ -31,8 +29,6 @@ export const useDrawingCanvasRuntimeInteractionHandlersStage = ({
     },
     cursor: {
       setCanvasOffset: state.setCanvasOffset,
-      setCursorStyle,
-      setShowBrushCursor: state.setShowBrushCursor,
     },
   });
 

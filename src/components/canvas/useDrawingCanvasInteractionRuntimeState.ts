@@ -12,8 +12,6 @@ export const useDrawingCanvasInteractionRuntimeState = ({
   canvasOffsetX,
   canvasOffsetY,
   setCanvasOffset,
-  setCursorStyle,
-  setShowBrushCursor,
   currentTool,
 }: UseDrawingCanvasInteractionRuntimeStateOptions) => {
   const interaction = useCanvasInteraction();
@@ -29,8 +27,6 @@ export const useDrawingCanvasInteractionRuntimeState = ({
     canvasOffsetX,
     canvasOffsetY,
     setCanvasOffset,
-    setCursorStyle,
-    setShowBrushCursor,
     currentTool,
   });
 

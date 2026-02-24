@@ -132,6 +132,7 @@ export interface EventHandlerDependencies {
   isBusyRef: React.MutableRefObject<boolean>;
   isMouseDownRef: React.MutableRefObject<boolean>;
   isSpacePressedRef: React.MutableRefObject<boolean>;
+  suppressBootstrapUntilPointerUpRef: React.MutableRefObject<boolean>;
   mousePositionRef?: React.MutableRefObject<{ x: number; y: number }>;
   isZoomingRef?: React.MutableRefObject<boolean>;
   zoomEndTimeoutRef?: React.MutableRefObject<number | null>;
@@ -182,7 +183,6 @@ export interface EventHandlerDependencies {
   floatingPasteOriginalPos: React.MutableRefObject<{ x: number; y: number } | null>;
   
   // Cursor state
-  setIsSpacePressed?: React.Dispatch<React.SetStateAction<boolean>>;
   setCursorStyle: React.Dispatch<React.SetStateAction<string>>;
   setShowBrushCursor: React.Dispatch<React.SetStateAction<boolean>>;
   setCursorPosition: (screenX: number, screenY: number) => void;

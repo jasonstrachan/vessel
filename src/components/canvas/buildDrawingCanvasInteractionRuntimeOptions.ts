@@ -5,10 +5,7 @@ interface BuildDrawingCanvasInteractionRuntimeOptionsArgs {
     UseDrawingCanvasInteractionRuntimeStateOptions,
     'canvasZoom' | 'canvasOffsetX' | 'canvasOffsetY' | 'currentTool'
   >;
-  cursor: Pick<
-    UseDrawingCanvasInteractionRuntimeStateOptions,
-    'setCanvasOffset' | 'setCursorStyle' | 'setShowBrushCursor'
-  >;
+  cursor: Pick<UseDrawingCanvasInteractionRuntimeStateOptions, 'setCanvasOffset'>;
 }
 
 export const buildDrawingCanvasInteractionRuntimeOptions = ({

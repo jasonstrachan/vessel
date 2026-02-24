@@ -32,13 +32,10 @@ export interface UseDrawingCanvasRuntimeEffectsFromStateOptions {
     | 'setPan'
     | 'setCanvasStateMachineTool'
     | 'forceCanvasIdle'
-    | 'setIsSpacePressed'
-    | 'setCursorStyleRef'
-    | 'setShowBrushCursorRef'
-    | 'panRef'
     | 'previousToolRef'
     | 'lastStateMachineToolRef'
     | 'isSpacePressedRef'
+    | 'suppressBootstrapUntilPointerUpRef'
     | 'viewTransformRef'
   >;
   toolStateMachine: RuntimeEffectsOptions['inputHandlersArgs']['state']['toolStateMachine'];
