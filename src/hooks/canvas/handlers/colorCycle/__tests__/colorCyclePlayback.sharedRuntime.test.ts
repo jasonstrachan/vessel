@@ -232,4 +232,75 @@ describe('colorCyclePlayback shared runtime integration', () => {
     expect(continuousColorCycleAnimationRef.current).toBeNull();
     expect(continuousColorCycleAnimationActiveRef.current).toBe(false);
   });
+
+  it('does not throttle store-sync start after a recent start timestamp', () => {
+    registerSharedRuntimeConsumer.mockImplementation(() => jest.fn());
+
+    const state = {
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE,
+          customBrushColorCycle: false,
+        },
+      },
+      colorCyclePlayback: {
+        desiredPlaying: true,
+        suspendDepth: 0,
+        lastReason: 'pan',
+      },
+      layers: [
+        {
+          id: 'layer-cc',
+          layerType: 'color-cycle',
+          colorCycleData: {
+            mode: 'index',
+            isAnimating: true,
+          },
+        },
+      ],
+      project: { width: 64, height: 64 },
+      initColorCycleForLayer: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as AppState;
+
+    const storeRef = { current: state } as React.MutableRefObject<AppState>;
+    const continuousColorCycleAnimationRef = { current: null as number | null };
+    const continuousColorCycleAnimationActiveRef = { current: false };
+
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(1000);
+
+    startContinuousColorCycleAnimationCore('store-sync', {
+      brushEngine: {
+        renderColorCycle: jest.fn(),
+        updateColorCycleAnimation: jest.fn(),
+        isColorCycleAnimating: jest.fn(() => false),
+      } as unknown as BrushEngine,
+      ensureOverlayInitialized: jest.fn(() => true),
+      renderAllColorCycleLayers: jest.fn(() => true),
+      storeRef,
+      getEffectiveColorCyclePlaying: jest.fn(() => true),
+      cancelDeferredOverlayRender: jest.fn(),
+      scheduleDeferredOverlayRender: jest.fn(),
+      ccLog: jest.fn(),
+      ccGroup: jest.fn(),
+      ccGroupEnd: jest.fn(),
+      dumpLayerFlags: jest.fn(),
+      debugWarn: jest.fn(),
+      continuousColorCycleAnimationRef,
+      continuousColorCycleAnimationActiveRef,
+      startingColorCycleAnimationRef: { current: false },
+      lastStartAtRef: { current: 950 },
+      drawingCanvasRef: { current: null },
+      drawingCtxRef: { current: null },
+      drawingCanvasHasContent: { current: false },
+      firstPaintRef: { current: true },
+      lastRendererLogTS: { current: 0 },
+      startCooldownMs: 200,
+    });
+
+    expect(registerSharedRuntimeConsumer).toHaveBeenCalledTimes(1);
+    expect(startSharedRuntime).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockRestore();
+  });
 });

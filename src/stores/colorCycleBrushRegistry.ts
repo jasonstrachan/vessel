@@ -73,8 +73,30 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
   const activeResources = new Set<string>();
   const now = () => (deps.now ?? Date.now)();
 
-  const devLog = (message: string, payload: Record<string, unknown>): void => {
+  const shouldLogRegistry = (): boolean => {
     if (process.env.NODE_ENV === 'production') {
+      return false;
+    }
+    try {
+      return Boolean((globalThis as { __TB_DEBUG?: { logCC?: boolean } }).__TB_DEBUG?.logCC);
+    } catch {
+      return false;
+    }
+  };
+
+  const shouldIncludeStack = (): boolean => {
+    if (process.env.NODE_ENV === 'production') {
+      return false;
+    }
+    try {
+      return Boolean((globalThis as { __TB_DEBUG?: { logCCVerbose?: boolean } }).__TB_DEBUG?.logCCVerbose);
+    } catch {
+      return false;
+    }
+  };
+
+  const devLog = (message: string, payload: Record<string, unknown>): void => {
+    if (!shouldLogRegistry()) {
       return;
     }
     console.log(message, payload);
@@ -317,13 +339,16 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     initColorCycleForLayer(layerId: string, width: number, height: number, gradient?: Uint8Array) {
-      devLog('[ccBrushRegistry] initColorCycleForLayer', {
+      const payload: Record<string, unknown> = {
         layerId,
         width,
         height,
         gradientBytes: gradient?.length ?? 0,
-        stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
-      });
+      };
+      if (shouldIncludeStack()) {
+        payload.stack = new Error().stack?.split('\n').slice(0, 4).join('\n');
+      }
+      devLog('[ccBrushRegistry] initColorCycleForLayer', payload);
       try {
         const existingBrush = brushes.get(layerId);
         if (existingBrush) {

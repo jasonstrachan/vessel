@@ -1,8 +1,35 @@
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import { NON_ACTIVE_COLOR_CYCLE_FPS } from '@/constants/colorCycle';
 
 export type ColorCycleBrush = ColorCycleBrushImplementation;
+const NON_ACTIVE_COLOR_CYCLE_FRAME_MS = 1000 / NON_ACTIVE_COLOR_CYCLE_FPS;
+const nonActiveLayerAnimationUpdateAt = new Map<string, number>();
+
+const shouldAdvanceColorCycleAnimation = (
+  layerId: string,
+  isActiveLayer: boolean,
+  isAnimating: boolean,
+  now: number
+): boolean => {
+  if (!isAnimating) {
+    nonActiveLayerAnimationUpdateAt.delete(layerId);
+    return false;
+  }
+
+  if (isActiveLayer) {
+    nonActiveLayerAnimationUpdateAt.set(layerId, now);
+    return true;
+  }
+
+  const lastUpdateAt = nonActiveLayerAnimationUpdateAt.get(layerId);
+  if (lastUpdateAt === undefined || now - lastUpdateAt >= NON_ACTIVE_COLOR_CYCLE_FRAME_MS) {
+    nonActiveLayerAnimationUpdateAt.set(layerId, now);
+    return true;
+  }
+  return false;
+};
 
 export type ColorCycleRenderDeps = {
   storeRef: React.MutableRefObject<AppState>;
@@ -49,7 +76,8 @@ export const renderAllColorCycleLayers = (
         return;
       }
 
-      if (layer.colorCycleData.isAnimating) {
+      const isActiveLayer = layer.id === currentState.activeLayerId;
+      if (shouldAdvanceColorCycleAnimation(layer.id, isActiveLayer, Boolean(layer.colorCycleData.isAnimating), now)) {
         colorCycleBrush.updateAnimation?.();
       }
 

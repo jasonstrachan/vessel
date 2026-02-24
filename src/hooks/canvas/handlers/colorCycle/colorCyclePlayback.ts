@@ -394,7 +394,8 @@ export const startContinuousColorCycleAnimationCore = (
     typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
       : Date.now();
-  if (now - lastStartAtRef.current < startCooldownMs) {
+  const bypassCooldown = reason === 'store-sync' || reason === 'toolbar';
+  if (!bypassCooldown && now - lastStartAtRef.current < startCooldownMs) {
     ccLog('startContinuousColorCycleAnimation throttled', { reason });
     return;
   }
