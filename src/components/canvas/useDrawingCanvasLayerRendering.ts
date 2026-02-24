@@ -6,6 +6,7 @@ import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
 import { getBufferedSequentialLayerFrameEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
 
 interface UseDrawingCanvasLayerRenderingOptions {
   project: { width: number; height: number; backgroundColor?: string | null } | null;
@@ -14,7 +15,7 @@ interface UseDrawingCanvasLayerRenderingOptions {
   brushShape: BrushShape | undefined;
   antialiasing: boolean;
   displayMode: 'auto' | 'pixelated' | 'smooth';
-  layerTransferCacheRef: React.MutableRefObject<Map<string, HTMLCanvasElement | OffscreenCanvas>>;
+  layerTransferCacheRef: React.MutableRefObject<Map<string, LayerTransferCacheEntry>>;
 }
 
 export const useDrawingCanvasLayerRendering = ({
@@ -109,30 +110,8 @@ export const useDrawingCanvasLayerRendering = ({
           // ignore transient draw errors
         }
       } else if (layer.imageData) {
-        let transferCanvas = layerTransferCacheRef.current.get(layer.id);
-        if (!transferCanvas) {
-          const canvas = document.createElement('canvas');
-          canvas.width = layer.imageData.width;
-          canvas.height = layer.imageData.height;
-          transferCanvas = canvas;
-          layerTransferCacheRef.current.set(layer.id, transferCanvas);
-        }
-        if (
-          transferCanvas.width !== layer.imageData.width ||
-          transferCanvas.height !== layer.imageData.height
-        ) {
-          transferCanvas.width = layer.imageData.width;
-          transferCanvas.height = layer.imageData.height;
-        }
-
-        const transferCtx = transferCanvas.getContext(
-          '2d',
-          { willReadFrequently: true } as CanvasRenderingContext2DSettings
-        ) as CanvasRenderingContext2D | null;
-
-        if (transferCtx) {
-          transferCtx.clearRect(0, 0, transferCanvas.width, transferCanvas.height);
-          transferCtx.putImageData(layer.imageData, 0, 0);
+        const transferCanvas = getLayerTransferCanvas(layer, layerTransferCacheRef.current);
+        if (transferCanvas) {
           try {
             ctx.drawImage(transferCanvas, 0, 0);
           } catch {

@@ -15,16 +15,6 @@ interface UseDrawingCanvasCompositeRebuildOptions {
   renderSplitComposites: () => void;
   setLayersNeedRecomposition: (next: boolean) => void;
   setNeedsRedraw: React.Dispatch<React.SetStateAction<number>>;
-  canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  drawRef: React.MutableRefObject<
-    | ((
-        ctx: CanvasRenderingContext2D,
-        transform: { scale: number; offsetX: number; offsetY: number },
-        skipDrawingCanvas?: boolean
-      ) => void)
-    | null
-  >;
-  viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
 }
 
 export const useDrawingCanvasCompositeRebuild = ({
@@ -41,9 +31,6 @@ export const useDrawingCanvasCompositeRebuild = ({
   renderSplitComposites,
   setLayersNeedRecomposition,
   setNeedsRedraw,
-  canvasRef,
-  drawRef,
-  viewTransformRef,
 }: UseDrawingCanvasCompositeRebuildOptions) => {
   useEffect(() => {
     if (!project) return;
@@ -71,14 +58,6 @@ export const useDrawingCanvasCompositeRebuild = ({
         setLayersNeedRecomposition(false);
       }
       setNeedsRedraw((prev) => prev + 1);
-
-      const canvas = canvasRef.current;
-      if (canvas && drawRef.current && viewTransformRef.current) {
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          drawRef.current(ctx, viewTransformRef.current);
-        }
-      }
     };
 
     const rebuiltResult = rebuildStaticComposite();
@@ -89,9 +68,7 @@ export const useDrawingCanvasCompositeRebuild = ({
     onRebuilt(Boolean(rebuiltResult));
   }, [
     activeLayerId,
-    canvasRef,
     compositeCanvasDirtyRef,
-    drawRef,
     lastActiveLayerIdRef,
     lastCompositeHashRef,
     lastSampleRef,
@@ -103,6 +80,5 @@ export const useDrawingCanvasCompositeRebuild = ({
     renderSplitComposites,
     setLayersNeedRecomposition,
     setNeedsRedraw,
-    viewTransformRef,
   ]);
 };

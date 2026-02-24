@@ -7,19 +7,9 @@ export const buildDrawingCanvasRuntimeEffectsFromStateRedrawArgs = ({
   state,
   visualRuntime,
   renderRuntime,
-  interactionRuntime,
 }: BuildArgs): UseDrawingCanvasRuntimeEffectsHandlersOptions['redrawArgs'] => ({
   redrawBase: {
     layersNeedRecomposition: state.layersNeedRecomposition,
-    compositeCanvasDirtyRef: state.compositeCanvasDirtyRef,
-    rebuildStaticComposite: renderRuntime.rebuildStaticComposite,
-    renderSplitComposites: renderRuntime.renderSplitComposites,
-    lastCompositeHashRef: state.lastCompositeHashRef,
-    layersHash: renderRuntime.layersHash,
-    lastActiveLayerIdRef: state.lastActiveLayerIdRef,
-    activeLayerId: state.activeLayerId,
-    lastSampleRef: renderRuntime.lastSampleRef,
-    preferReferenceSampling: state.preferReferenceSampling,
     selectionStart: state.selectionStart,
     selectionEnd: state.selectionEnd,
     hadSelectionRef: state.hadSelectionRef,
@@ -41,8 +31,5 @@ export const buildDrawingCanvasRuntimeEffectsFromStateRedrawArgs = ({
   redrawShared: {
     setLayersNeedRecomposition: state.setLayersNeedRecomposition,
     setNeedsRedraw: state.setNeedsRedraw,
-    canvasRef: state.canvasRef,
-    drawRef: state.drawRef,
-    viewTransformRef: interactionRuntime.viewTransformRef,
   },
 });

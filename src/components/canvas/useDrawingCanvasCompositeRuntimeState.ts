@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { Layer } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
+import type { LayerTransferCacheEntry } from './layerTransferCache';
 
 export const useDrawingCanvasCompositeRuntimeState = () => {
   const [isDraggingFloatingPaste, setIsDraggingFloatingPaste] = useState(false);
@@ -18,7 +19,7 @@ export const useDrawingCanvasCompositeRuntimeState = () => {
   const overCompositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const underCompositeHasContentRef = useRef(false);
   const overCompositeHasContentRef = useRef(false);
-  const layerTransferCacheRef = useRef<Map<string, HTMLCanvasElement | OffscreenCanvas>>(new Map());
+  const layerTransferCacheRef = useRef<Map<string, LayerTransferCacheEntry>>(new Map());
   const compositeSegmentsRef = useRef<CompositeSegment[]>([]);
   const layerMapRef = useRef<Map<string, Layer>>(new Map());
   const pendingColorCycleRefreshRef = useRef(false);

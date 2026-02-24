@@ -5,16 +5,16 @@ type EffectsBridgeOptions = Parameters<typeof useDrawingCanvasEffectsBridge>[0];
 interface UseDrawingCanvasRedrawCompositeOptionsArgs {
   redrawBase: Omit<
     EffectsBridgeOptions['redrawEffectsOptions'],
-    'setLayersNeedRecomposition' | 'setNeedsRedraw' | 'canvasRef' | 'drawRef' | 'viewTransformRef'
+    'setLayersNeedRecomposition' | 'setNeedsRedraw'
   >;
   compositeBase: Omit<
     EffectsBridgeOptions['compositeRebuildOptions'],
-    'setLayersNeedRecomposition' | 'setNeedsRedraw' | 'canvasRef' | 'drawRef' | 'viewTransformRef'
+    'setLayersNeedRecomposition' | 'setNeedsRedraw'
   >;
-  shared: Pick<
-    EffectsBridgeOptions['redrawEffectsOptions'],
-    'setLayersNeedRecomposition' | 'setNeedsRedraw' | 'canvasRef' | 'drawRef' | 'viewTransformRef'
-  >;
+  shared: {
+    setLayersNeedRecomposition: EffectsBridgeOptions['compositeRebuildOptions']['setLayersNeedRecomposition'];
+    setNeedsRedraw: EffectsBridgeOptions['redrawEffectsOptions']['setNeedsRedraw'];
+  };
 }
 
 export const useDrawingCanvasRedrawCompositeOptions = ({
@@ -24,7 +24,7 @@ export const useDrawingCanvasRedrawCompositeOptions = ({
 }: UseDrawingCanvasRedrawCompositeOptionsArgs) => ({
   redrawEffectsOptions: {
     ...redrawBase,
-    ...shared,
+    setNeedsRedraw: shared.setNeedsRedraw,
   },
   compositeRebuildOptions: {
     ...compositeBase,

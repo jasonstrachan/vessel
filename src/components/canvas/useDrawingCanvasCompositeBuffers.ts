@@ -1,10 +1,11 @@
 import type React from 'react';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { BrushShape, type Layer } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
+import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
   project: { width: number; height: number } | null;
@@ -13,7 +14,7 @@ interface UseDrawingCanvasCompositeBuffersOptions {
   brushShape: BrushShape | undefined;
   antialiasing: boolean;
   displayMode: 'auto' | 'pixelated' | 'smooth';
-  layerTransferCacheRef: React.MutableRefObject<Map<string, HTMLCanvasElement | OffscreenCanvas>>;
+  layerTransferCacheRef: React.MutableRefObject<Map<string, LayerTransferCacheEntry>>;
   underCompositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   overCompositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   underCompositeHasContentRef: React.MutableRefObject<boolean>;
@@ -39,6 +40,23 @@ export const useDrawingCanvasCompositeBuffers = ({
   renderStaticComposite,
   setCurrentOffscreenCanvas,
 }: UseDrawingCanvasCompositeBuffersOptions) => {
+  useEffect(() => {
+    const cache = layerTransferCacheRef.current;
+    if (cache.size === 0) {
+      return;
+    }
+
+    const rasterLayerIds = new Set(
+      layers.filter((layer) => Boolean(layer.imageData)).map((layer) => layer.id)
+    );
+
+    for (const layerId of cache.keys()) {
+      if (!rasterLayerIds.has(layerId)) {
+        cache.delete(layerId);
+      }
+    }
+  }, [layerTransferCacheRef, layers]);
+
   const renderSplitComposites = useCallback(() => {
     if (!project || project.width <= 0 || project.height <= 0) {
       underCompositeHasContentRef.current = false;
@@ -166,30 +184,8 @@ export const useDrawingCanvasCompositeBuffers = ({
           // ignore draw errors for transient states
         }
       } else if (layer.imageData) {
-        let transferCanvas = layerTransferCacheRef.current.get(layer.id);
-        if (!transferCanvas) {
-          const canvas = document.createElement('canvas');
-          canvas.width = layer.imageData.width;
-          canvas.height = layer.imageData.height;
-          transferCanvas = canvas;
-          layerTransferCacheRef.current.set(layer.id, transferCanvas);
-        }
-        if (
-          transferCanvas.width !== layer.imageData.width ||
-          transferCanvas.height !== layer.imageData.height
-        ) {
-          transferCanvas.width = layer.imageData.width;
-          transferCanvas.height = layer.imageData.height;
-        }
-
-        const transferCtx = transferCanvas.getContext(
-          '2d',
-          { willReadFrequently: true } as CanvasRenderingContext2DSettings
-        ) as CanvasRenderingContext2D | null;
-
-        if (transferCtx) {
-          transferCtx.clearRect(0, 0, transferCanvas.width, transferCanvas.height);
-          transferCtx.putImageData(layer.imageData, 0, 0);
+        const transferCanvas = getLayerTransferCanvas(layer, layerTransferCacheRef.current);
+        if (transferCanvas) {
           try {
             targetCtx.drawImage(transferCanvas, 0, 0);
             drewLayer = true;
