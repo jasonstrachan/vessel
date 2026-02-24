@@ -30,7 +30,7 @@ const reconcileRecolorPlayback = async (
   reason: CCReason
 ): Promise<void> => {
   const manager = RecolorManager.getInstance();
-  const recolorLayers = layers.filter(isRecolorLayer);
+  const recolorLayers = layers.filter(layer => isRecolorLayer(layer) && layer.visible);
   const layerIds = recolorLayers.map(layer => layer.id);
 
   try {

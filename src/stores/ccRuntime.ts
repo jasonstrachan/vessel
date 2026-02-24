@@ -69,6 +69,16 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
+    if (!layer.visible) {
+      try {
+        const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : undefined;
+        if (isPlaying) {
+          brush.stopAnimation?.();
+        }
+      } catch {}
+      continue;
+    }
+
     const { isAnimating } = layer.colorCycleData;
     const previous = lastRuntimeState.get(layer.id) ?? {};
     const nextSnapshot: RuntimeSnapshot = { ...previous };
