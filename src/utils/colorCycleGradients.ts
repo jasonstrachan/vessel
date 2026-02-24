@@ -376,15 +376,18 @@ export function setSharedColorCycleGradient(
   options?: { fork?: boolean }
 ): void {
   const state = useAppStore.getState();
-  if (state.tools.brushSettings.colorCycleUseForegroundGradient) {
-    return;
-  }
   const setBrushSettings = state.setBrushSettings;
   const setEraserSettings = state.setEraserSettings;
   const activeLayerId = state.activeLayerId;
   
-  // Update brush settings without re-sending unrelated fields (avoids side-effects)
-  setBrushSettings({ colorCycleGradient: gradient });
+  // Manual edits must own the gradient source; otherwise FG/sample can overwrite stops.
+  setBrushSettings({
+    colorCycleGradient: gradient,
+    ccGradientSource: 'manual',
+    colorCycleUseForegroundGradient: false,
+    autoSampleGradient: false,
+    autoSampleGradientRealtime: false,
+  });
   
   // Also update eraser settings if using color cycle
   const eraserSettings = state.tools.eraserSettings;

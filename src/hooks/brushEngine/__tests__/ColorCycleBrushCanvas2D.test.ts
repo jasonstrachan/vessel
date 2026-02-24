@@ -289,6 +289,9 @@ const fillDitherMocks = jest.requireMock('../ccGradientFillDither') as {
 const ccGradientDitherMocks = jest.requireMock('@/utils/colorCycle/ccGradientDither') as {
   fillCcGradientDither: jest.Mock;
 };
+const pressureCurveMocks = jest.requireMock('@/utils/pressureCurve') as {
+  applyPressureCurve: jest.Mock;
+};
 
 const makeCanvas = () => {
   const canvas = document.createElement('canvas');
@@ -689,5 +692,30 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setDitherPixelSize(5.6);
     expect(internals.ditherStrength).toBe(0);
     expect(internals.ditherPixelSize).toBe(5);
+  });
+
+  it('keeps color-cycle stroke pressure size continuous without integer jumps', () => {
+    pressureCurveMocks.applyPressureCurve.mockImplementation(
+      (pressure: number, minPercent: number, maxPercent: number, curveType: string) => {
+        expect(curveType).toBe('linear');
+        const p = Math.max(0, Math.min(1, pressure));
+        const min = minPercent / 100;
+        const max = maxPercent / 100;
+        return min + (max - min) * p;
+      }
+    );
+
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 20 });
+    brush.setPressureEnabled(true);
+    brush.setMinPressure(100);
+    brush.setMaxPressure(300);
+
+    const sizeA = (brush as any).resolvePressureBrushSize(0.49) as number;
+    const sizeB = (brush as any).resolvePressureBrushSize(0.53) as number;
+    const sizeC = (brush as any).resolvePressureBrushSize(0.57) as number;
+
+    expect(sizeA).toBeLessThan(sizeB);
+    expect(sizeB).toBeLessThan(sizeC);
+    expect(sizeB % 1).not.toBe(0);
   });
 });

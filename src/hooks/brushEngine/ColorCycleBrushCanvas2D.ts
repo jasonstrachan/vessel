@@ -358,6 +358,21 @@ export class ColorCycleBrushCanvas2D {
   private customStampSourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
   private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
   private customStampMaskCache: Map<string, StampMaskCacheEntry> = new Map();
+
+  private resolvePressureBrushSize(pressure: number): number {
+    if (!this.pressureEnabled) {
+      return Math.max(1, this.brushSize);
+    }
+
+    const safePressure = Number.isFinite(pressure) ? Math.max(0, Math.min(1, pressure)) : 1;
+    const multiplier = applyPressureCurve(
+      safePressure,
+      this.minPressure,
+      this.maxPressure,
+      'linear'
+    );
+    return Math.max(1, this.brushSize * multiplier);
+  }
   private gradientSignatures: Map<string, string> = new Map();
   private gradientSlotsByLayer: Map<string, Map<number, GradientStop[]>> = new Map();
   private gradientSlotSignaturesByLayer: Map<string, Map<number, string>> = new Map();
@@ -1098,15 +1113,8 @@ export class ColorCycleBrushCanvas2D {
         animator.setFlowMode(this.flowMode);
       } catch {}
       
-      // Calculate pressure-modulated brush size using smooth curve
-    const pressureSize = this.pressureEnabled 
-        ? Math.max(1, Math.round(this.brushSize * applyPressureCurve(
-            pressure,
-            this.minPressure,    // Already in percentage format (1-1000)
-            this.maxPressure,    // Already in percentage format (1-1000)
-            's-curve'            // Use smooth S-curve
-          )))
-        : this.brushSize;
+      // Keep stroke pressure response continuous across all stamp shapes.
+      const pressureSize = this.resolvePressureBrushSize(pressure);
       
       // Detailed paint debug removed
       
@@ -1332,10 +1340,7 @@ export class ColorCycleBrushCanvas2D {
       animator.setFlowMode(this.flowMode);
     } catch {}
 
-    const pressureMultiplier = this.pressureEnabled
-      ? applyPressureCurve(pressure, this.minPressure, this.maxPressure, 's-curve')
-      : 1;
-    const targetSize = Math.max(1, Math.round(this.brushSize * pressureMultiplier));
+    const targetSize = this.resolvePressureBrushSize(pressure);
 
     const baseWidth = Math.max(1, stamp.width);
     const baseHeight = Math.max(1, stamp.height);

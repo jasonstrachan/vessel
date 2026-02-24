@@ -2,6 +2,7 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { GradientEditor } from '../GradientEditor';
+import { getPresetStops } from '@/utils/gradientPresets';
 
 const startRecolorSampling = jest.fn();
 const addNotification = jest.fn();
@@ -25,15 +26,18 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
   useKeyboardScope: jest.fn(),
 }));
 
-type DropdownProps = { onAction?: (action: string) => void };
+type DropdownProps = { onAction?: (action: string) => void; onChange?: (value: string) => void };
 type ColorPickerProps = { onChange?: (value: string) => void; onCommit?: () => void };
 
 jest.mock('@/components/ui/Dropdown', () => {
-  const DropdownMock = ({ onAction }: DropdownProps) => (
+  const DropdownMock = ({ onAction, onChange, value }: DropdownProps & { value?: string }) => (
     <div>
+      <div data-testid="dropdown-value">{value ?? ''}</div>
       <button data-testid="action-add" onClick={() => onAction?.('add')}>add</button>
       <button data-testid="action-sample" onClick={() => onAction?.('sample')}>sample</button>
       <button data-testid="action-toggle" onClick={() => onAction?.('toggle-sampled')}>toggle</button>
+      <button data-testid="select-rainbow" onClick={() => onChange?.('rainbow')}>rainbow</button>
+      <button data-testid="select-default" onClick={() => onChange?.('bw-stripes')}>default</button>
     </div>
   );
   DropdownMock.displayName = 'DropdownMock';
@@ -62,6 +66,8 @@ describe('GradientEditor', () => {
     jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined as any);
     jest.spyOn(window.localStorage.__proto__, 'setItem').mockImplementation(() => {});
     jest.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => null);
+    (window.localStorage.setItem as jest.Mock).mockClear();
+    (window.localStorage.getItem as jest.Mock).mockClear();
     startRecolorSampling.mockClear();
     addNotification.mockClear();
     setBrushSettings.mockClear();
@@ -122,5 +128,61 @@ describe('GradientEditor', () => {
     fireEvent.click(screen.getByTestId('color-commit'));
 
     expect(onChange).toHaveBeenCalled();
+    expect(window.localStorage.setItem).toHaveBeenCalled();
+  });
+
+  it('persists edits made to preset dropdown gradients as overrides', () => {
+    const { container } = render(
+      <GradientEditor
+        stops={[
+          { position: 0, color: '#FF0000' },
+          { position: 1, color: '#00FF00' },
+        ]}
+        onChange={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('select-rainbow'));
+
+    const stopHandle = container.querySelector('.gradient-editor div[style*="background-color"]');
+    expect(stopHandle).toBeTruthy();
+
+    fireEvent.doubleClick(stopHandle!);
+    fireEvent.click(screen.getByTestId('color-change'));
+    fireEvent.click(screen.getByTestId('color-commit'));
+
+    const lastSetItemCall = (window.localStorage.setItem as jest.Mock).mock.calls.at(-1);
+    expect(lastSetItemCall).toBeTruthy();
+    const payload = JSON.parse(lastSetItemCall![1] as string) as Array<{ id: string }>;
+    expect(payload.some((entry) => entry.id === 'rainbow')).toBe(true);
+  });
+
+  it('shows matching preset id after restoring stops from props', () => {
+    const rainbow = getPresetStops('rainbow');
+    expect(rainbow).toBeTruthy();
+
+    render(
+      <GradientEditor
+        stops={(rainbow ?? []).map((stop) => ({ ...stop }))}
+        onChange={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('dropdown-value').textContent).toBe('rainbow');
+  });
+
+  it('does not overwrite black and white preset when restoring another preset on load', () => {
+    const rainbow = getPresetStops('rainbow');
+    expect(rainbow).toBeTruthy();
+
+    render(
+      <GradientEditor
+        stops={(rainbow ?? []).map((stop) => ({ ...stop }))}
+        onChange={jest.fn()}
+      />
+    );
+
+    expect(window.localStorage.setItem).not.toHaveBeenCalled();
+    expect(screen.getByTestId('dropdown-value').textContent).toBe('rainbow');
   });
 });

@@ -65,7 +65,12 @@ const loadGradients = (): SavedGradient[] => {
         isDefault: false,
         stops: (g.stops ?? []).map(toGradientStop)
       }));
-      return [...defaults, ...customGradients];
+      const customById = new Map(customGradients.map((gradient) => [gradient.id, gradient]));
+      const mergedDefaults = defaults.map((gradient) => customById.get(gradient.id) ?? gradient);
+      const additionalCustom = customGradients.filter(
+        (gradient) => !defaults.some((preset) => preset.id === gradient.id)
+      );
+      return [...mergedDefaults, ...additionalCustom];
     }
   } catch (e) {
     console.error('Failed to load gradients:', e);
@@ -122,6 +127,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const colorPickerUndoRef = useRef(false);
   const pendingGradientUpdateRef = useRef<number | null>(null);
   const pendingGradientStopsRef = useRef<GradientStop[] | null>(null);
+  const hasResolvedInitialSelectionRef = useRef(false);
   const editSessionActiveRef = useRef(false);
   const editSessionTimeoutRef = useRef<number | null>(null);
   const gradientHeightClass = sampleTarget === 'brush' ? 'h-4' : 'h-8';
@@ -287,6 +293,16 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       .join(','),
   []);
 
+  const findMatchingGradientId = useCallback((
+    signature: string,
+    gradients: SavedGradient[]
+  ): string | null => {
+    const match = gradients.find((gradient) =>
+      stopsSignature(normalizeStops(gradient.stops ?? [])) === signature
+    );
+    return match?.id ?? null;
+  }, [stopsSignature]);
+
   // If auto-sample toggles ON for brush, arm a one-shot capture to add the next
   // sampled gradient to the saved list once stops meaningfully change.
   useEffect(() => {
@@ -349,20 +365,46 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
           pendingSampleAddRef.current = false;
         }
       }
+
+      const matchedId = findMatchingGradientId(nextSig, savedGradients);
+      if (matchedId && matchedId !== selectedGradientId) {
+        setSelectedGradientId(matchedId);
+      } else if (!matchedId && !hasResolvedInitialSelectionRef.current) {
+        // Avoid mutating a preset id before we know what this restored gradient represents.
+        setSelectedGradientId('');
+      }
+      if (!hasResolvedInitialSelectionRef.current) {
+        hasResolvedInitialSelectionRef.current = true;
+      }
     }
-  }, [initialStops, sampleTarget, stopsSignature]);
+  }, [
+    findMatchingGradientId,
+    initialStops,
+    sampleTarget,
+    savedGradients,
+    selectedGradientId,
+    stopsSignature
+  ]);
 
   // Update saved gradient when stops change without triggering recursive renders
   useEffect(() => {
     if (!selectedGradientId || stops.length === 0) return;
+    if (!hasResolvedInitialSelectionRef.current) {
+      return;
+    }
 
     const target = savedGradients.find(g => g.id === selectedGradientId);
-    if (!target || target.isDefault) {
+    if (!target) {
       return;
     }
 
     const normalizedStops = normalizeStops(stops);
     const incomingSignature = stopsSignature(normalizedStops);
+    const matchedId = findMatchingGradientId(incomingSignature, savedGradients);
+    if (matchedId && matchedId !== selectedGradientId) {
+      setSelectedGradientId(matchedId);
+      return;
+    }
     const existingSignature = stopsSignature(
       normalizeStops(target.stops ?? [])
     );
@@ -377,12 +419,13 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       const updated = [...prev];
       updated[index] = {
         ...prev[index],
+        isDefault: false,
         stops: normalizedStops
       };
       saveCustomGradients(updated);
       return updated;
     });
-  }, [savedGradients, selectedGradientId, stops, stopsSignature]);
+  }, [findMatchingGradientId, savedGradients, selectedGradientId, stops, stopsSignature]);
 
   // Generate CSS gradient string with opacity (fallback transparent when no stops)
   const gradientString = (stops.length > 0
