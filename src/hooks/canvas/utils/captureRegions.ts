@@ -1,5 +1,8 @@
 import type { BrushSettings } from '@/types';
-import { BrushShape } from '@/types';
+import {
+  alignPointToPixel as alignPointToPixelWithPolicy,
+  shouldPixelAlignBrush as shouldPixelAlignBrushWithPolicy,
+} from '@/hooks/canvas/utils/strokeRasterPolicy';
 
 export type BoundingBox = {
   minX: number;
@@ -147,26 +150,12 @@ export const captureRegionFromPoints = (
 };
 
 export const shouldPixelAlignBrush = (settings: BrushSettings | null | undefined): boolean => {
-  if (!settings) {
-    return false;
-  }
-  if (settings.brushShape === BrushShape.PIXEL_ROUND || settings.brushShape === BrushShape.PIXEL_DITHER) {
-    return true;
-  }
-  return settings.brushShape === BrushShape.SQUARE && settings.antialiasing === false;
+  return shouldPixelAlignBrushWithPolicy(settings);
 };
 
 export const alignPointToPixel = <T extends { x: number; y: number }>(
   point: T,
   shouldAlign: boolean
 ): T => {
-  if (!shouldAlign) {
-    return point;
-  }
-  const alignedX = Math.round(point.x);
-  const alignedY = Math.round(point.y);
-  if (alignedX === point.x && alignedY === point.y) {
-    return point;
-  }
-  return { ...point, x: alignedX, y: alignedY };
+  return alignPointToPixelWithPolicy(point, shouldAlign);
 };

@@ -173,6 +173,7 @@ import { createSelectionHandlers } from './selectionHandlers';
 import { CURSOR_FALLBACK_CROSSHAIR } from './utils/cursorFallbacks';
 import { resolveSpacePanCursor } from './utils/spacePanCursor';
 import { resolveToolCursorState } from './utils/toolCursor';
+import { shouldPixelAlignBrush } from '@/hooks/canvas/utils/strokeRasterPolicy';
 
 type VerticalSpacingMapperConfig = {
   centroid: { x: number; y: number };
@@ -1157,11 +1158,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const shouldPixelAlignCursor = (
     settings: { brushShape?: BrushShape; antialiasing?: boolean } | null | undefined
   ): boolean => {
-    if (!settings) return false;
-    if (settings.brushShape === BrushShape.PIXEL_ROUND || settings.brushShape === BrushShape.PIXEL_DITHER) {
-      return true;
-    }
-    return settings.brushShape === BrushShape.SQUARE && settings.antialiasing === false;
+    return shouldPixelAlignBrush(settings as BrushSettings | null | undefined);
   };
 
   const alignPointToPixel = <T extends Point>(point: T, shouldAlign: boolean): T => {

@@ -546,10 +546,15 @@ export class IndexBuffer {
         : 0;
     const halfSize = brushSize / 2;
 
-    const minX = Math.max(0, Math.floor(x - halfSize));
-    const maxX = Math.min(this.width - 1, Math.floor(x + halfSize));
-    const minY = Math.max(0, Math.floor(y - halfSize));
-    const maxY = Math.min(this.height - 1, Math.floor(y + halfSize));
+    // Use half-open bounds so brushSize=1 maps to exactly one pixel footprint.
+    const minX = Math.max(0, Math.ceil(x - halfSize));
+    const maxX = Math.min(this.width - 1, Math.ceil(x + halfSize) - 1);
+    const minY = Math.max(0, Math.ceil(y - halfSize));
+    const maxY = Math.min(this.height - 1, Math.ceil(y + halfSize) - 1);
+
+    if (maxX < minX || maxY < minY) {
+      return;
+    }
 
     const useMask = !!maskTile && maskTileSize > 0;
     const shouldClearMaskedPixels = useMask && !!maskClears;

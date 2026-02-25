@@ -117,13 +117,13 @@ describe('IndexBuffer', () => {
       
       // Check corners are painted
       expect(buffer.getPixel(45, 45)).toBe(2); // Green index
-      expect(buffer.getPixel(55, 45)).toBe(2);
-      expect(buffer.getPixel(45, 55)).toBe(2);
-      expect(buffer.getPixel(55, 55)).toBe(2);
+      expect(buffer.getPixel(54, 45)).toBe(2);
+      expect(buffer.getPixel(45, 54)).toBe(2);
+      expect(buffer.getPixel(54, 54)).toBe(2);
       
       // Check outside square
       expect(buffer.getPixel(44, 44)).toBe(0);
-      expect(buffer.getPixel(56, 56)).toBe(0);
+      expect(buffer.getPixel(55, 55)).toBe(0);
     });
 
     it('should honor stamp masks when painting squares', () => {
@@ -136,10 +136,10 @@ describe('IndexBuffer', () => {
       buffer.paintSquareWithIndex(centerX, centerY, brushSize, 2, mask, tileSize);
 
       const half = brushSize / 2;
-      const minX = Math.max(0, Math.floor(centerX - half));
-      const maxX = Math.min(99, Math.floor(centerX + half));
-      const minY = Math.max(0, Math.floor(centerY - half));
-      const maxY = Math.min(99, Math.floor(centerY + half));
+      const minX = Math.max(0, Math.ceil(centerX - half));
+      const maxX = Math.min(99, Math.ceil(centerX + half) - 1);
+      const minY = Math.max(0, Math.ceil(centerY - half));
+      const maxY = Math.min(99, Math.ceil(centerY + half) - 1);
       const totalArea = (maxX - minX + 1) * (maxY - minY + 1);
 
       const filled = collectFilledPixels().filter(
@@ -168,8 +168,8 @@ describe('IndexBuffer', () => {
       buffer.paintSquareWithIndex(centerX, centerY, brushSize, 2, mask, tileSize, false, 3);
 
       const half = brushSize / 2;
-      const minX = Math.max(0, Math.floor(centerX - half));
-      const minY = Math.max(0, Math.floor(centerY - half));
+      const minX = Math.max(0, Math.ceil(centerX - half));
+      const minY = Math.max(0, Math.ceil(centerY - half));
 
       expect(buffer.getPixel(minX, minY)).toBe(2);
       expect(buffer.getPixel(minX + 1, minY)).toBe(3);
@@ -180,8 +180,8 @@ describe('IndexBuffer', () => {
       const centerX = 40;
       const centerY = 40;
       const half = brushSize / 2;
-      const minX = Math.max(0, Math.floor(centerX - half));
-      const minY = Math.max(0, Math.floor(centerY - half));
+      const minX = Math.max(0, Math.ceil(centerX - half));
+      const minY = Math.max(0, Math.ceil(centerY - half));
 
       buffer.paintSquareWithIndex(centerX, centerY, brushSize, 2);
 

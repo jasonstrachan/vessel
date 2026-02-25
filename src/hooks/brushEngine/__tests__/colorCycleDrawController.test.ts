@@ -138,4 +138,65 @@ describe('colorCycleDrawController', () => {
     expect(renderColorCycle).toHaveBeenCalledWith(ctx, true, { withOverlay: false });
     expect(firstStampImmediateRef.current).toBe(false);
   });
+
+  it('quantizes color-cycle paint coordinates by stamp raster anchor', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+
+    drawColorCycleStroke({
+      ctx,
+      x: 10.2,
+      y: 12.9,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'round',
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+    });
+
+    expect(brush.paint).toHaveBeenCalledWith(10.5, 12.5, 'layer-1', 1, 0);
+
+    (brush.paint as jest.Mock).mockClear();
+
+    drawColorCycleStroke({
+      ctx,
+      x: 10.2,
+      y: 12.9,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square',
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+    });
+
+    expect(brush.paint).toHaveBeenCalledWith(10, 12, 'layer-1', 1, 0);
+  });
 });

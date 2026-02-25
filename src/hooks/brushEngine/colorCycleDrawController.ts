@@ -1,6 +1,10 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import type { CustomBrushStrokeData } from './BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
+import {
+  quantizeToRasterPoint,
+  resolveColorCycleRasterAnchor,
+} from '@/hooks/canvas/utils/strokeRasterPolicy';
 
 type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
@@ -303,6 +307,8 @@ export const drawColorCycleStroke = ({
       return;
     }
 
+    const rasterAnchor = resolveColorCycleRasterAnchor(brushSettings);
+
     if (activeLayerTransparencyLock) {
       const mask = getActiveLayerBitmapCanvas();
       if (mask) {
@@ -310,8 +316,9 @@ export const drawColorCycleStroke = ({
         const canvasHeight = ctx.canvas.height || 1;
         const scaleToMaskX = mask.width / canvasWidth;
         const scaleToMaskY = mask.height / canvasHeight;
-        const mx = Math.floor(x * scaleToMaskX);
-        const my = Math.floor(y * scaleToMaskY);
+        const maskPoint = quantizeToRasterPoint(x, y, scaleToMaskX, scaleToMaskY, rasterAnchor);
+        const mx = Math.floor(maskPoint.x);
+        const my = Math.floor(maskPoint.y);
         const brushSize = brushSettings.size || 1;
         let radius = Math.max(
           1,
@@ -343,8 +350,9 @@ export const drawColorCycleStroke = ({
 
     const scaleX = internalCanvas.width / (ctx.canvas.width || 1);
     const scaleY = internalCanvas.height / (ctx.canvas.height || 1);
-    const paintX = Math.floor(x * scaleX);
-    const paintY = Math.floor(y * scaleY);
+    const paintPoint = quantizeToRasterPoint(x, y, scaleX, scaleY, rasterAnchor);
+    const paintX = paintPoint.x;
+    const paintY = paintPoint.y;
 
     if (
       paintX >= 0 && paintX < internalCanvas.width &&
