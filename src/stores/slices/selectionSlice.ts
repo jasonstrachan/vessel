@@ -83,6 +83,8 @@ export interface SelectionSlice {
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
   updateFloatingPasteRotation: (rotation: number) => void;
+  flipFloatingPasteHorizontal: () => void;
+  flipFloatingPasteVertical: () => void;
   commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
   copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
@@ -146,6 +148,74 @@ const cloneOptionalImageData = (imageData: ImageData | null): ImageData | null =
     return null;
   }
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+};
+
+const flipImageData = (imageData: ImageData, axis: 'horizontal' | 'vertical'): ImageData => {
+  const { width, height, data } = imageData;
+  const source = data;
+  const next = new Uint8ClampedArray(source.length);
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = axis === 'horizontal' ? width - 1 - x : x;
+      const sourceY = axis === 'vertical' ? height - 1 - y : y;
+      const sourceIndex = (sourceY * width + sourceX) * 4;
+      const destIndex = (y * width + x) * 4;
+
+      next[destIndex] = source[sourceIndex];
+      next[destIndex + 1] = source[sourceIndex + 1];
+      next[destIndex + 2] = source[sourceIndex + 2];
+      next[destIndex + 3] = source[sourceIndex + 3];
+    }
+  }
+
+  return new ImageData(next, width, height);
+};
+
+const flipColorCycleIndices = (
+  indices: Uint8Array,
+  width: number,
+  height: number,
+  axis: 'horizontal' | 'vertical'
+): Uint8Array => {
+  const expectedLength = width * height;
+  if (indices.length !== expectedLength) {
+    return indices.slice();
+  }
+
+  const next = new Uint8Array(indices.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = axis === 'horizontal' ? width - 1 - x : x;
+      const sourceY = axis === 'vertical' ? height - 1 - y : y;
+      const sourceIndex = sourceY * width + sourceX;
+      const destIndex = y * width + x;
+      next[destIndex] = indices[sourceIndex];
+    }
+  }
+
+  return next;
+};
+
+const flipVectorPath = (
+  vectorPath: NonNullable<SelectionSlice['floatingPaste']>['vectorPath'],
+  width: number,
+  height: number,
+  axis: 'horizontal' | 'vertical'
+) => {
+  if (!vectorPath || vectorPath.points.length === 0) {
+    return vectorPath;
+  }
+
+  const flippedPoints = vectorPath.points.map((point) => ({
+    x: axis === 'horizontal' ? width - point.x : point.x,
+    y: axis === 'vertical' ? height - point.y : point.y,
+  }));
+
+  return {
+    mode: vectorPath.mode,
+    points: flippedPoints,
+  };
 };
 
 export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice> = (set, get, store) => {
@@ -640,6 +710,64 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
             }
           : null,
       })),
+    flipFloatingPasteHorizontal: () =>
+      set((state) => {
+        const floatingPaste = state.floatingPaste;
+        if (!floatingPaste || !floatingPaste.imageData) {
+          return { floatingPaste };
+        }
+
+        const imageData = floatingPaste.imageData;
+        return {
+          floatingPaste: {
+            ...floatingPaste,
+            imageData: flipImageData(imageData, 'horizontal'),
+            colorCycleIndices: floatingPaste.colorCycleIndices
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleIndices,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'horizontal'
+                )
+              : floatingPaste.colorCycleIndices,
+            vectorPath: flipVectorPath(
+              floatingPaste.vectorPath ?? null,
+              floatingPaste.width,
+              floatingPaste.height,
+              'horizontal'
+            ),
+          },
+        };
+      }),
+    flipFloatingPasteVertical: () =>
+      set((state) => {
+        const floatingPaste = state.floatingPaste;
+        if (!floatingPaste || !floatingPaste.imageData) {
+          return { floatingPaste };
+        }
+
+        const imageData = floatingPaste.imageData;
+        return {
+          floatingPaste: {
+            ...floatingPaste,
+            imageData: flipImageData(imageData, 'vertical'),
+            colorCycleIndices: floatingPaste.colorCycleIndices
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleIndices,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'vertical'
+                )
+              : floatingPaste.colorCycleIndices,
+            vectorPath: flipVectorPath(
+              floatingPaste.vectorPath ?? null,
+              floatingPaste.width,
+              floatingPaste.height,
+              'vertical'
+            ),
+          },
+        };
+      }),
     commitFloatingPaste: () => selectionPasteHelpers.commitFloatingPaste(),
     cancelFloatingPaste: () => selectionPasteHelpers.cancelFloatingPaste(),
     copySelectionToClipboard: async (options) => {

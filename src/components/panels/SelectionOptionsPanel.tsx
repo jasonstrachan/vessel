@@ -22,6 +22,35 @@ const SelectionOptionsPanel: React.FC = () => {
   const currentTool = useAppStore(selectCurrentTool);
   const selectionMode = useAppStore((state) => state.tools.selectionMode);
   const setSelectionMode = useAppStore((state) => state.setSelectionMode);
+  const selectionStart = useAppStore((state) => state.selectionStart);
+  const selectionEnd = useAppStore((state) => state.selectionEnd);
+  const floatingPaste = useAppStore((state) => state.floatingPaste);
+  const extractSelectionToFloatingPaste = useAppStore((state) => state.extractSelectionToFloatingPaste);
+  const flipFloatingPasteHorizontal = useAppStore((state) => state.flipFloatingPasteHorizontal);
+  const flipFloatingPasteVertical = useAppStore((state) => state.flipFloatingPasteVertical);
+
+  const hasSelectionBounds = Boolean(selectionStart && selectionEnd);
+  const canFlipSelection = Boolean(floatingPaste || hasSelectionBounds);
+
+  const handleFlipHorizontal = React.useCallback(() => {
+    if (!floatingPaste) {
+      const extracted = extractSelectionToFloatingPaste();
+      if (!extracted) {
+        return;
+      }
+    }
+    flipFloatingPasteHorizontal();
+  }, [extractSelectionToFloatingPaste, flipFloatingPasteHorizontal, floatingPaste]);
+
+  const handleFlipVertical = React.useCallback(() => {
+    if (!floatingPaste) {
+      const extracted = extractSelectionToFloatingPaste();
+      if (!extracted) {
+        return;
+      }
+    }
+    flipFloatingPasteVertical();
+  }, [extractSelectionToFloatingPaste, flipFloatingPasteVertical, floatingPaste]);
 
   if (currentTool !== 'selection') {
     return null;
@@ -36,6 +65,24 @@ const SelectionOptionsPanel: React.FC = () => {
         onChange={(value) => setSelectionMode(value as SelectionMode)}
         size="sm"
       />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className="h-7 px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={handleFlipHorizontal}
+          disabled={!canFlipSelection}
+        >
+          Flip H
+        </button>
+        <button
+          type="button"
+          className="h-7 px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={handleFlipVertical}
+          disabled={!canFlipSelection}
+        >
+          Flip V
+        </button>
+      </div>
       <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">{HELP_TEXT[selectionMode]}</p>
     </div>
   );

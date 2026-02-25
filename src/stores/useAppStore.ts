@@ -455,6 +455,8 @@ export interface AppState {
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
   updateFloatingPasteRotation: (rotation: number) => void;
+  flipFloatingPasteHorizontal: () => void;
+  flipFloatingPasteVertical: () => void;
   commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
   

@@ -63,4 +63,68 @@ describe('floating paste transform state', () => {
     expect(floatingPaste?.displayWidth).toBe(12);
     expect(floatingPaste?.displayHeight).toBe(12);
   });
+
+  it('flipFloatingPasteHorizontal mirrors image and color-cycle indices', () => {
+    const imageData = new ImageData(
+      new Uint8ClampedArray([
+        1, 0, 0, 255,
+        2, 0, 0, 255,
+        3, 0, 0, 255,
+        4, 0, 0, 255,
+      ]),
+      2,
+      2
+    );
+
+    useAppStore.getState().setFloatingPaste({
+      imageData,
+      position: { x: 0, y: 0 },
+      width: 2,
+      height: 2,
+      colorCycleIndices: new Uint8Array([10, 11, 12, 13]),
+    });
+
+    useAppStore.getState().flipFloatingPasteHorizontal();
+    const floatingPaste = useAppStore.getState().floatingPaste;
+
+    expect(Array.from(floatingPaste?.imageData?.data ?? [])).toEqual([
+      2, 0, 0, 255,
+      1, 0, 0, 255,
+      4, 0, 0, 255,
+      3, 0, 0, 255,
+    ]);
+    expect(Array.from(floatingPaste?.colorCycleIndices ?? [])).toEqual([11, 10, 13, 12]);
+  });
+
+  it('flipFloatingPasteVertical mirrors image and color-cycle indices', () => {
+    const imageData = new ImageData(
+      new Uint8ClampedArray([
+        1, 0, 0, 255,
+        2, 0, 0, 255,
+        3, 0, 0, 255,
+        4, 0, 0, 255,
+      ]),
+      2,
+      2
+    );
+
+    useAppStore.getState().setFloatingPaste({
+      imageData,
+      position: { x: 0, y: 0 },
+      width: 2,
+      height: 2,
+      colorCycleIndices: new Uint8Array([10, 11, 12, 13]),
+    });
+
+    useAppStore.getState().flipFloatingPasteVertical();
+    const floatingPaste = useAppStore.getState().floatingPaste;
+
+    expect(Array.from(floatingPaste?.imageData?.data ?? [])).toEqual([
+      3, 0, 0, 255,
+      4, 0, 0, 255,
+      1, 0, 0, 255,
+      2, 0, 0, 255,
+    ]);
+    expect(Array.from(floatingPaste?.colorCycleIndices ?? [])).toEqual([12, 13, 10, 11]);
+  });
 });

@@ -135,7 +135,7 @@ jest.mock('@/history/helpers/colorCycle', () => ({
 }));
 
 function createMockStore() {
-  return {
+  const store = {
     toggleModal: jest.fn(),
     autosave: {
       isEnabled: true,
@@ -154,10 +154,13 @@ function createMockStore() {
         lastBackupTime: null,
       },
     },
-    canvas: { showRulers: false },
+    canvas: { showRulers: false, showFPSMeter: true },
     setAutosaveEnabled: jest.fn(),
     setAutosaveInterval: jest.fn(),
     toggleRulers: jest.fn(),
+    setShowFPSMeter: jest.fn((visible: boolean) => {
+      store.canvas.showFPSMeter = visible;
+    }),
     setHistorySize: jest.fn(),
     newProject: jest.fn(),
     ensureCustomBrushHydrated: jest.fn().mockResolvedValue(undefined),
@@ -165,6 +168,7 @@ function createMockStore() {
     palette: { activeSlot: 'foreground', foregroundColor: '#000000', backgroundColor: '#ffffff' },
     ui: { modals: { document: false, settings: false, export: false, loadProject: false } },
   };
+  return store;
 }
 
 type MockStore = ReturnType<typeof createMockStore>;
@@ -218,5 +222,23 @@ describe('Home page client rendering', () => {
   it('hydrates custom brushes on mount', () => {
     render(<Home />);
     expect(mockStore.ensureCustomBrushHydrated).toHaveBeenCalled();
+  });
+
+  it('renders FPS meter after settings hydration when enabled', () => {
+    render(<Home />);
+    expect(screen.getByTestId('fps-meter')).toBeInTheDocument();
+  });
+
+  it('applies persisted FPS visibility preference from settings', () => {
+    localStorage.setItem(
+      'vessel-settings',
+      JSON.stringify({
+        canvas: { showFPSMeter: false },
+      })
+    );
+
+    render(<Home />);
+
+    expect(mockStore.setShowFPSMeter).toHaveBeenCalledWith(false);
   });
 });

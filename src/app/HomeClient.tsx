@@ -56,6 +56,7 @@ export default function Home() {
   
   // Feedback strip state
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [isSettingsHydrated, setIsSettingsHydrated] = useState(false);
   
   const showFeedback = useCallback((message: string) => {
     setFeedbackMessage(message);
@@ -101,9 +102,9 @@ export default function Home() {
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {
-    const savedSettings = localStorage.getItem('vessel-settings');
-    if (savedSettings) {
-      try {
+    try {
+      const savedSettings = localStorage.getItem('vessel-settings');
+      if (savedSettings) {
         const settings = JSON.parse(savedSettings);
 
         // Load autosave settings
@@ -128,10 +129,12 @@ export default function Home() {
             setHistorySize(settings.history.maxHistorySize);
           }
         }
-      } catch (error) {
-        homeLog.warn('Failed to load persisted settings; clearing stored payload.', { error });
-        localStorage.removeItem('vessel-settings');
       }
+    } catch (error) {
+      homeLog.warn('Failed to load persisted settings; clearing stored payload.', { error });
+      localStorage.removeItem('vessel-settings');
+    } finally {
+      setIsSettingsHydrated(true);
     }
   }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, toggleRulers]);
 
@@ -233,7 +236,7 @@ export default function Home() {
       {/* <TestPluginBrushes /> */}
 
       {/* Simple FPS overlay */}
-      {showFPSMeter && <FPSMeter />}
+      {isSettingsHydrated && showFPSMeter && <FPSMeter />}
 
 
     </main>
