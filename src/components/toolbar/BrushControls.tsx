@@ -3465,13 +3465,7 @@ const BrushControls = () => {
                   <p className="text-xs text-gray-500">
                     Cycle Length {activeCustomBrushColorCycle?.schemaVersion === 2 ? activeCustomBrushColorCycle.sourceCycleLength : 'n/a'}
                   </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <label className="text-xs text-gray-300">Use Alpha Mask</label>
-                    <CustomSwitch
-                      checked={activeSettings.customBrushUseCapturedAlphaMask !== false}
-                      onChange={(checked) => setActiveSettings({ customBrushUseCapturedAlphaMask: checked })}
-                    />
-                  </div>
+                  <p className="text-xs text-gray-500">Alpha Mask captured</p>
                   {!hasCapturedColorCyclePayload && (
                     <p className="mt-2 text-xs text-amber-400">
                       Capture from an active color-cycle layer to use this mode.

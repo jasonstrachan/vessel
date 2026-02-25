@@ -1,7 +1,7 @@
 import { BrushEngineFacade } from '@/hooks/brushEngine/BrushEngineFacade';
 import { BrushShape, type BrushSettings } from '@/types';
 
-const createSettings = (useAlphaMask: boolean): BrushSettings => ({
+const createSettings = (): BrushSettings => ({
   size: 2,
   opacity: 1,
   color: '#000000',
@@ -28,7 +28,7 @@ const createSettings = (useAlphaMask: boolean): BrushSettings => ({
   brushShape: BrushShape.CUSTOM,
   customBrushColorCycle: true,
   customBrushColorCycleMode: 'captured-data',
-  customBrushUseCapturedAlphaMask: useAlphaMask,
+  customBrushUseCapturedAlphaMask: true,
   colorCycleSpeed: 0,
   colorCycleGradient: [
     { position: 0, color: '#ff0000' },
@@ -48,7 +48,7 @@ const countOpaquePixels = (imageData: ImageData): number => {
 };
 
 describe('BrushEngineFacade captured custom-brush color cycle', () => {
-  it('applies captured alpha mask when enabled', () => {
+  it('always applies captured alpha mask', () => {
     const imageData = new ImageData(
       new Uint8ClampedArray([
         255, 255, 255, 255,
@@ -71,9 +71,9 @@ describe('BrushEngineFacade captured custom-brush color cycle', () => {
       alphaMask: new Uint8Array([255, 0, 255, 0]),
     };
 
-    const resolvePattern = (useAlphaMask: boolean): ImageData => {
+    const resolvePattern = (): ImageData => {
       const engine = new BrushEngineFacade({
-        brushSettings: createSettings(useAlphaMask),
+        brushSettings: createSettings(),
       });
       const pattern = (
         engine as unknown as {
@@ -107,11 +107,11 @@ describe('BrushEngineFacade captured custom-brush color cycle', () => {
       return pattern;
     };
 
-    const opaqueWithMask = countOpaquePixels(resolvePattern(true));
-    const opaqueWithoutMask = countOpaquePixels(resolvePattern(false));
+    const opaqueWithMask = countOpaquePixels(resolvePattern());
+    const opaqueWithMaskSettingDisabled = countOpaquePixels(resolvePattern());
 
     expect(opaqueWithMask).toBeGreaterThan(0);
-    expect(opaqueWithMask).toBeLessThan(opaqueWithoutMask);
+    expect(opaqueWithMask).toBe(opaqueWithMaskSettingDisabled);
   });
 
   it('prefers phaseMap over indexMap when both maps exist', () => {
@@ -136,7 +136,7 @@ describe('BrushEngineFacade captured custom-brush color cycle', () => {
     };
 
     const engine = new BrushEngineFacade({
-      brushSettings: createSettings(true),
+      brushSettings: createSettings(),
     });
     const pattern = (
       engine as unknown as {

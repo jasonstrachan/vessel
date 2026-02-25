@@ -988,7 +988,7 @@ export class BrushEngineFacade {
     const phaseBucket = ((Math.round(phase * cycleLength) % cycleLength) + cycleLength) % cycleLength;
     const gradientHash = this.hashGradient(stops);
     const sourceKey = customBrushData.cacheKey ?? `anon:${width}x${height}`;
-    const useAlphaMask = this.config.brushSettings.customBrushUseCapturedAlphaMask !== false;
+    const useAlphaMask = true;
     const key = `${sourceKey}:ccd:${gradientHash}:${cycleLength}:${phaseBucket}:${useAlphaMask ? 1 : 0}`;
     const cached = this.customCapturedPatternCache.get(key);
     if (cached) {
