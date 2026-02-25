@@ -41,7 +41,7 @@ import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCyc
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
-import type { DerivedGradientSpec } from '@/types';
+import type { CustomBrushColorCycleData, DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
@@ -67,6 +67,7 @@ interface CustomStampInput {
   height: number;
   cacheKey?: string;
   isResampler?: boolean;
+  colorCycle?: CustomBrushColorCycleData;
 }
 
 type RgbColor = { r: number; g: number; b: number };
@@ -1373,6 +1374,24 @@ export class ColorCycleBrushCanvas2D {
     const originX = Math.round(x - maskEntry.width / 2);
     const originY = Math.round(y - maskEntry.height / 2);
     const alpha = maskEntry.alpha;
+    const colorCycle = stamp.colorCycle;
+    const capturedPhaseMap =
+      colorCycle?.schemaVersion === 2 && colorCycle.mode === 'captured-data'
+        ? (
+            colorCycle.phaseMap && colorCycle.phaseMap.length === colorCycle.mapWidth * colorCycle.mapHeight
+              ? colorCycle.phaseMap
+              : colorCycle.indexMap && colorCycle.indexMap.length === colorCycle.mapWidth * colorCycle.mapHeight
+                ? colorCycle.indexMap
+                : undefined
+          )
+        : undefined;
+    const capturedMapWidth = colorCycle?.schemaVersion === 2 ? colorCycle.mapWidth : 0;
+    const capturedMapHeight = colorCycle?.schemaVersion === 2 ? colorCycle.mapHeight : 0;
+    const cycleSpan =
+      colorCycle?.schemaVersion === 2
+        ? Math.max(1, Math.min(255, Math.round(colorCycle.sourceCycleLength || 256) - 1))
+        : 255;
+    const phaseOffset = cycleSpan > 0 ? strokeData.stampCounter % cycleSpan : 0;
 
     for (let py = 0; py < maskEntry.height; py++) {
       const targetY = originY + py;
@@ -1384,7 +1403,35 @@ export class ColorCycleBrushCanvas2D {
         if (alpha[rowOffset + px] < 16) continue;
         this.logSetIndexSample(id, targetX, targetY);
         const flowSlot = this.resolveFlowSlot(strokeData, strokeData.flow.activeSlot ?? 0);
-        animator.setIndex(targetX, targetY, colorIndex, flowSlot);
+        if (
+          capturedPhaseMap &&
+          capturedMapWidth > 0 &&
+          capturedMapHeight > 0 &&
+          rotation === 0
+        ) {
+          const srcX = Math.max(
+            0,
+            Math.min(
+              capturedMapWidth - 1,
+              Math.floor((px * capturedMapWidth) / Math.max(1, maskEntry.width))
+            )
+          );
+          const srcY = Math.max(
+            0,
+            Math.min(
+              capturedMapHeight - 1,
+              Math.floor((py * capturedMapHeight) / Math.max(1, maskEntry.height))
+            )
+          );
+          const sourceIndex = capturedPhaseMap[srcY * capturedMapWidth + srcX] ?? 0;
+          if (sourceIndex <= 0) {
+            continue;
+          }
+          const mapped = ((Math.max(1, sourceIndex) - 1 + phaseOffset) % cycleSpan) + 1;
+          animator.setIndex(targetX, targetY, mapped, flowSlot);
+        } else {
+          animator.setIndex(targetX, targetY, colorIndex, flowSlot);
+        }
       }
     }
 
