@@ -43,3 +43,6 @@ audit-full-summary.md
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local captures
+/screenshots/
