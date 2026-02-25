@@ -410,6 +410,23 @@
   - scaledBrushCache optimizes performance
   - Memory-efficient ImageData handling
 
+### Custom Brush Color Cycle Workflow (2026-02-25)
+- **Custom brushes can now carry Color Cycle metadata** when captured from an active Color Cycle layer.
+- **Capture behavior**:
+  - Capture from active Color Cycle layer imports gradient + speed into the temporary custom brush.
+  - Capture from all layers remains static and does not auto-import Color Cycle metadata.
+  - Rectangle and freehand capture follow the same metadata rules.
+- **Phase offset controls for painting**:
+  - `Global`: all stamps share the same animation phase.
+  - `Per-stroke seeded`: each stroke starts from a deterministic seed phase.
+  - `Jittered`: each stamp gets bounded phase jitter (with `Phase Jitter` amount).
+- **Persistence**:
+  - Custom brush Color Cycle metadata is saved in project files and local custom-brush storage.
+  - Selecting a saved custom brush restores Color Cycle speed/gradient/phase defaults automatically.
+- **Why this matters**:
+  - Avoids lockstep animation when painting repeated custom-brush stamps.
+  - Makes captured CC brushes reusable across sessions with consistent playback defaults.
+
 ### Dynamic Canvas Size (2025-01-13)
 - **Removed hardcoded 2000x2000 canvas limit**: Canvas can now be any custom size
 - **New default dimensions**: 1920x1080 (HD resolution) for better performance

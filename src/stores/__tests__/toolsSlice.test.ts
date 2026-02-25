@@ -10,6 +10,7 @@ import {
 } from '@/stores/slices/toolsSlice';
 import { brushPresets, mosaicBrushPreset } from '@/presets/brushPresets';
 import { createDefaultLayerAlignment, createDefaultPalette } from '@/utils/layoutDefaults';
+import { createCustomBrushPreset } from '@/utils/customBrushPreset';
 import { BrushShape, Project, type CustomBrush } from '@/types';
 import { defaultCropState } from '@/stores/slices/cropSlice';
 import { DEFAULT_RECTANGLE_BRUSH_STATE } from '@/stores/helpers/toolsState';
@@ -461,6 +462,72 @@ describe('tools slice', () => {
       expect(savedBrush?.imageData.width).toBe(4);
       expect(savedBrush?.thumbnail).toMatch(/^data:image\/png;base64,/);
       expect(nextState.tools.brushSettings.selectedCustomBrush).toBe(brushId);
+    });
+
+    it('applies persisted custom-brush color cycle metadata when selecting a custom preset', () => {
+      const store = useAppStore.getState();
+      const ccBrush: CustomBrush = {
+        id: 'cc-brush',
+        name: 'CC Brush',
+        imageData: new ImageData(8, 8),
+        width: 8,
+        height: 8,
+        createdAt: Date.now(),
+        thumbnail: '',
+        naturalWidth: 8,
+        naturalHeight: 8,
+        maxDimension: 8,
+        colorCycle: {
+          schemaVersion: 1,
+          source: 'color-cycle-layer',
+          gradient: [
+            { position: 0, color: '#102030' },
+            { position: 1, color: '#f0e0d0' },
+          ],
+          speed: 2.25,
+          phaseMode: 'jittered',
+          phaseJitter: 0.35,
+        },
+      };
+
+      store.addCustomBrush(ccBrush);
+      store.setBrushSettings({
+        customBrushColorCycle: false,
+        colorCycleSpeed: 0.1,
+        customBrushCcPhaseMode: 'global',
+        customBrushCcPhaseJitter: 0,
+        colorCycleGradient: [{ position: 0, color: '#000000' }],
+      });
+
+      const preset = createCustomBrushPreset(ccBrush);
+      const legacyPreset = {
+        ...preset,
+        customBrushData: preset.customBrushData
+          ? {
+              imageData: preset.customBrushData.imageData,
+              width: preset.customBrushData.width,
+              height: preset.customBrushData.height,
+            }
+          : undefined,
+      };
+
+      store.setBrushPreset(legacyPreset);
+
+      const settings = useAppStore.getState().tools.brushSettings;
+      expect(settings.selectedCustomBrush).toBe(ccBrush.id);
+      expect(settings.customBrushColorCycle).toBe(true);
+      expect(settings.colorCycleSpeed).toBe(2.25);
+      expect(settings.customBrushCcPhaseMode).toBe('jittered');
+      expect(settings.customBrushCcPhaseJitter).toBeCloseTo(0.35, 5);
+      expect(settings.colorCycleGradient).toEqual([
+        { position: 0, color: '#102030' },
+        { position: 1, color: '#f0e0d0' },
+      ]);
+      expect(settings.customBrushSizePercent).toBe(100);
+      expect(settings.size).toBe(8);
+      expect(settings.pressureEnabled).toBe(false);
+      expect(settings.minPressure).toBe(99);
+      expect(settings.maxPressure).toBeUndefined();
     });
   });
 

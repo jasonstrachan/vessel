@@ -13,6 +13,12 @@ import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
+import {
+  computeCustomBrushPhaseAtStamp,
+  computeCustomBrushStampJitter,
+  computeCustomBrushStrokeSeedPhase,
+  resolveCustomBrushCcPhaseMode,
+} from './customColorCyclePhase';
 import { applyDithering } from './dithering';
 import { isStrokeBrush } from '@/utils/brushCategories';
 import {
@@ -91,6 +97,10 @@ export class BrushEngineFacade {
     initialized: false
   };
   private customColorCyclePhase = 0;
+  private customStrokeCyclePhaseBase = 0;
+  private customStrokeCycleStampIndex = 0;
+  private customStrokeCycleSeed = 0;
+  private customStrokeCycleInitialized = false;
   private lastCustomColorCycleEnabled = false;
   private lastCustomGradientHash = '';
   private recentStamps: SequentialStampPoint[] = [];
@@ -140,6 +150,14 @@ export class BrushEngineFacade {
     this.lastCustomGradientHash = this.hashGradient(config.brushSettings.colorCycleGradient);
   }
 
+  private resetCustomColorCycleState(): void {
+    this.customColorCyclePhase = 0;
+    this.customStrokeCyclePhaseBase = 0;
+    this.customStrokeCycleStampIndex = 0;
+    this.customStrokeCycleSeed = 0;
+    this.customStrokeCycleInitialized = false;
+  }
+
   /**
    * Update configuration
    */
@@ -173,16 +191,43 @@ export class BrushEngineFacade {
       const nextHash = this.hashGradient(nextSettings.colorCycleGradient);
 
       if (!nowEnabled) {
-        this.customColorCyclePhase = 0;
+        this.resetCustomColorCycleState();
       } else {
         if (!this.lastCustomColorCycleEnabled || nextHash !== this.lastCustomGradientHash) {
-          this.customColorCyclePhase = 0;
+          this.resetCustomColorCycleState();
         }
       }
 
       this.lastCustomColorCycleEnabled = nowEnabled;
       this.lastCustomGradientHash = nextHash;
     }
+  }
+
+  private initializeCustomStrokeCycleStateIfNeeded(params: BrushStrokeParams, shape: BrushShape): void {
+    const settings = this.config.brushSettings;
+    const isCustomBrushCycle = settings.customBrushColorCycle && shape === BrushShape.CUSTOM;
+    if (!isCustomBrushCycle) {
+      return;
+    }
+
+    const mode = resolveCustomBrushCcPhaseMode(settings.customBrushCcPhaseMode);
+    if (mode === 'global') {
+      return;
+    }
+
+    if (this.pixelQueue.initialized || this.customStrokeCycleInitialized) {
+      return;
+    }
+
+    const seed = computeCustomBrushStrokeSeedPhase(
+      params.from.x,
+      params.from.y,
+      params.timestamp
+    );
+    this.customStrokeCycleSeed = seed;
+    this.customStrokeCyclePhaseBase = seed;
+    this.customStrokeCycleStampIndex = 0;
+    this.customStrokeCycleInitialized = true;
   }
 
   /**
@@ -298,6 +343,8 @@ export class BrushEngineFacade {
       pattern: customBrushData?.imageData, // Pass custom brush data as pattern
       isColorizable: customBrushData?.isColorizable // Pass colorizable flag for custom brushes
     };
+
+    this.initializeCustomStrokeCycleStateIfNeeded(params, shape);
 
     // Apply color for the stroke
     ctx.fillStyle = settings.color;
@@ -754,12 +801,36 @@ export class BrushEngineFacade {
       ? this.config.brushSettings.colorCycleGradient
       : DEFAULT_COLOR_CYCLE_GRADIENT;
 
-    const color = this.sampleGradientColor(stops, this.customColorCyclePhase);
     const step = Math.max(
       0,
       Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, this.config.brushSettings.colorCycleSpeed ?? 0.1)
     );
-    this.customColorCyclePhase = (this.customColorCyclePhase + step) % 1;
+
+    const mode = resolveCustomBrushCcPhaseMode(this.config.brushSettings.customBrushCcPhaseMode);
+    const jitterAmount =
+      mode === 'jittered'
+        ? Math.max(0, Math.min(1, this.config.brushSettings.customBrushCcPhaseJitter ?? 0))
+        : 0;
+
+    let phase = this.customColorCyclePhase;
+    if (mode === 'global') {
+      this.customColorCyclePhase = (this.customColorCyclePhase + step) % 1;
+    } else {
+      const jitterOffset = computeCustomBrushStampJitter(
+        this.customStrokeCycleSeed,
+        this.customStrokeCycleStampIndex,
+        jitterAmount
+      );
+      phase = computeCustomBrushPhaseAtStamp(
+        this.customStrokeCyclePhaseBase,
+        this.customStrokeCycleStampIndex,
+        step,
+        jitterOffset
+      );
+      this.customStrokeCycleStampIndex += 1;
+    }
+
+    const color = this.sampleGradientColor(stops, phase);
     return color;
   }
 
@@ -946,6 +1017,10 @@ export class BrushEngineFacade {
     this.lastStrokePressure = null;
     this.lastCustomBrushData = null;
     this.mosaicState = null;
+    this.customStrokeCycleStampIndex = 0;
+    this.customStrokeCycleSeed = 0;
+    this.customStrokeCyclePhaseBase = 0;
+    this.customStrokeCycleInitialized = false;
   }
 
   /**

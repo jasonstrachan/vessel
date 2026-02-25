@@ -475,6 +475,7 @@ export interface BrushPreset {
     imageData: ImageData;
     width: number;
     height: number;
+    colorCycle?: CustomBrush['colorCycle'];
   };
   // Preferred settings for this brush
   preferredSettings?: Partial<BrushSettings>;
@@ -535,6 +536,14 @@ export interface CustomBrush {
   naturalWidth?: number;
   naturalHeight?: number;
   maxDimension?: number;
+  colorCycle?: {
+    schemaVersion: 1;
+    source?: 'color-cycle-layer' | 'manual' | 'unknown';
+    gradient?: Array<{ position: number; color: string }>;
+    speed?: number;
+    phaseMode?: 'global' | 'per-stroke-seeded' | 'jittered';
+    phaseJitter?: number;
+  };
 }
 
 
@@ -907,6 +916,8 @@ export interface BrushSettings {
 
   // Custom brush color cycle toggle
   customBrushColorCycle?: boolean; // true = cycle gradient colors per stamp for custom brushes
+  customBrushCcPhaseMode?: 'global' | 'per-stroke-seeded' | 'jittered';
+  customBrushCcPhaseJitter?: number; // 0-1 amount used only by jittered mode
 
   // Color cycle brush settings
   colorCycleSpeed?: number; // 0-2.64 (brush animation speed)

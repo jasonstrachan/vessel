@@ -881,6 +881,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleSpeed !== undefined) {
         settingsToSave.colorCycleSpeed = newSettings.colorCycleSpeed;
       }
+      if (settings.customBrushCcPhaseMode !== undefined) {
+        settingsToSave.customBrushCcPhaseMode = newSettings.customBrushCcPhaseMode;
+      }
+      if (settings.customBrushCcPhaseJitter !== undefined) {
+        settingsToSave.customBrushCcPhaseJitter = newSettings.customBrushCcPhaseJitter;
+      }
       if (settings.colorCycleLayerSpeedScale !== undefined) {
         settingsToSave.colorCycleLayerSpeedScale = newSettings.colorCycleLayerSpeedScale;
       }
@@ -1581,6 +1587,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       presetSuggestedSize ?? defaultBrushSettingsForStore.size ?? 5;
     const appropriateSize =
       typeof state.globalBrushSize === 'number' ? state.globalBrushSize : fallbackSize;
+    let nextGlobalBrushSize = appropriateSize;
 
     let newBrushSettings: BrushSettings = {
       ...defaultBrushSettingsForStore, // 1. Start with the absolute base defaults.
@@ -1675,6 +1682,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       
       newBrushSettings.brushShape = BrushShape.CUSTOM;
       newBrushSettings.selectedCustomBrush = customBrushId;
+      newBrushSettings.pressureEnabled = false;
+      newBrushSettings.minPressure = 99;
+      newBrushSettings.maxPressure = undefined;
       newBrushSettings.useSwatchColor = false;
       newBrushSettings.hueShift = 0;
       newBrushSettings.lightnessAdjust = 0;
@@ -1708,11 +1718,19 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           naturalHeight: data.height,
           maxDimension: Math.max(data.width, data.height),
           thumbnail: preset.thumbnail || '',
+          colorCycle: data.colorCycle ?? customBrush?.colorCycle,
           createdAt: customBrush?.createdAt || Date.now()
         };
       }
       
       if (customBrush) {
+        const maxDimension = Math.max(
+          1,
+          Math.round(
+            customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height)
+          )
+        );
+
         newBrushSettings.currentBrushTip = {
           imageData: customBrush.imageData,
           brushId: customBrush.id,
@@ -1723,6 +1741,49 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           naturalHeight: customBrush.naturalHeight ?? customBrush.height,
           maxDimension: customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height)
         };
+        // Custom brushes should default to captured tip scale (100%) on selection.
+        // This avoids carrying unrelated global brush sizes into custom brush rendering.
+        newBrushSettings.customBrushSizePercent = 100;
+        newBrushSettings.size = maxDimension;
+        nextGlobalBrushSize = maxDimension;
+
+        const customBrushColorCycle = customBrush.colorCycle;
+        if (customBrushColorCycle?.schemaVersion === 1) {
+          newBrushSettings.customBrushColorCycle = true;
+
+          if (
+            Array.isArray(customBrushColorCycle.gradient) &&
+            customBrushColorCycle.gradient.length > 0
+          ) {
+            const nextGradient = cloneGradientStops(customBrushColorCycle.gradient);
+            if (nextGradient) {
+              newBrushSettings.colorCycleGradient = nextGradient;
+              if (!gradientsEqual(currentSettings.colorCycleGradient, nextGradient)) {
+                newBrushSettings.colorCycleGradientVersion =
+                  (currentSettings.colorCycleGradientVersion ?? 0) + 1;
+              }
+            }
+          }
+
+          if (
+            typeof customBrushColorCycle.speed === 'number' &&
+            Number.isFinite(customBrushColorCycle.speed)
+          ) {
+            newBrushSettings.colorCycleSpeed = customBrushColorCycle.speed;
+          }
+
+          newBrushSettings.customBrushCcPhaseMode =
+            customBrushColorCycle.phaseMode === 'per-stroke-seeded' ||
+            customBrushColorCycle.phaseMode === 'jittered'
+              ? customBrushColorCycle.phaseMode
+              : 'global';
+
+          newBrushSettings.customBrushCcPhaseJitter =
+            typeof customBrushColorCycle.phaseJitter === 'number' &&
+            Number.isFinite(customBrushColorCycle.phaseJitter)
+              ? Math.max(0, Math.min(1, customBrushColorCycle.phaseJitter))
+              : 0;
+        }
       } else {
         
       }
@@ -1812,7 +1873,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       ...(brushSpecificSettingsChanged ? { brushSpecificSettings: updatedBrushSpecificSettings } : {}),
       currentBrushPreset: preset,
       activeBrushComponents: components,
-      globalBrushSize: appropriateSize, // Update global size to match new brush
+      globalBrushSize: nextGlobalBrushSize, // Update global size to match new brush
       tools: {
         ...state.tools,
         ccGradientSource: nextCcGradientSource,
@@ -1826,11 +1887,17 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     };
 
-    const pressureSyncedState = {
-      ...updatedState,
-      pressureSettings: globalPressure,
-      tools: applyPressureToTools(updatedState.tools, globalPressure)
-    };
+    const pressureSyncedState =
+      newBrushSettings.brushShape === BrushShape.CUSTOM
+        ? {
+            ...updatedState,
+            pressureSettings: globalPressure,
+          }
+        : {
+            ...updatedState,
+            pressureSettings: globalPressure,
+            tools: applyPressureToTools(updatedState.tools, globalPressure),
+          };
     
     // If switching away from custom brush, discard temporary brush
     if (presetDefaults.brushShape !== undefined && 

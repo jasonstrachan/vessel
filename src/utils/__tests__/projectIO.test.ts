@@ -981,6 +981,77 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restored.layerGroups).toEqual([]);
     expect(restored.layers[0]?.groupId).toBeUndefined();
   });
+
+  it('round-trips custom brush color-cycle payload through serialize/deserialize', async () => {
+    const brushImageData = createSolidImageData(3, 2, [12, 34, 56, 255]);
+    const layer: Layer = {
+      id: 'layer-basic',
+      name: 'Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(2, 2, [255, 0, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [255, 0, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+
+    const project: Project = {
+      id: 'project-custom-cc',
+      name: 'Custom Brush CC',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [
+        {
+          id: 'brush-cc',
+          name: 'CC Brush',
+          imageData: brushImageData,
+          thumbnail: '',
+          width: 3,
+          height: 2,
+          createdAt: 1700000000000,
+          naturalWidth: 3,
+          naturalHeight: 2,
+          maxDimension: 3,
+          colorCycle: {
+            schemaVersion: 1,
+            source: 'color-cycle-layer',
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            speed: 0.4,
+            phaseMode: 'jittered',
+            phaseJitter: 0.2,
+          },
+        },
+      ],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await serializeProject(project);
+    const restored = await deserializeProject(payload);
+    const restoredBrush = restored.customBrushes[0];
+    expect(restoredBrush?.id).toBe('brush-cc');
+    expect(restoredBrush?.colorCycle).toEqual({
+      schemaVersion: 1,
+      source: 'color-cycle-layer',
+      gradient: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      speed: 0.4,
+      phaseMode: 'jittered',
+      phaseJitter: 0.2,
+    });
+  });
 });
 
 describe('projectIO saveProjectToFile', () => {

@@ -1209,6 +1209,14 @@ export class ColorCycleBrushCanvas2D {
             });
           }
         }
+      } else if (pressureSize <= 1) {
+        const perf = this.perfStroke;
+        const stampStart = perf ? nowMs() : 0;
+        animator.setIndex(Math.floor(x), Math.floor(y), primaryIndex, flowSlot);
+        if (perf) {
+          perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);
+          perf.stampCounter += 1;
+        }
       } else if (this.stampShape === 'triangle') {
         const perf = this.perfStroke;
         const stampStart = perf ? nowMs() : 0;

@@ -28,3 +28,12 @@ Pointer/keyboard input is captured by hooks like `useDrawingHandlers`, `useCanva
 2. Read `src/stores/useAppStore.ts` to understand available actions and state slices.
 3. Review `src/components/canvas/DrawingCanvas.tsx` and `src/hooks/**` to see how input flows into rendering.
 4. Browse `docs/` for deep dives on pixel-perfect rendering, color-cycle internals, and performance notes.
+
+## 7. Custom Brush + Color Cycle quick notes
+- Custom brushes support optional Color Cycle metadata (`gradient`, `speed`, phase defaults).
+- Capturing from the active Color Cycle layer imports CC settings into the custom brush; all-layers capture remains static by design.
+- When painting with a custom brush and Color Cycle enabled, phase mode can be:
+  - `global`
+  - `per-stroke-seeded`
+  - `jittered` (uses `phaseJitter` in `[0..1]`)
+- These settings persist through project save/load and local custom brush storage.

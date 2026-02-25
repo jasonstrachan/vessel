@@ -439,6 +439,7 @@ const BrushControls = () => {
     currentTool === 'eraser' ? eraserSettings : brushSettings;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
+  const sizeLabel = isActiveCustomBrush ? 'Tip Scale %' : `Size ${sizeUnit}`;
   const capability: BrushCapabilities = currentBrushPresetId
     ? getPresetCapabilities(
         currentBrushPresetId,
@@ -1079,10 +1080,24 @@ const BrushControls = () => {
       if (activeSettings.colorCycleSpeed === undefined || activeSettings.colorCycleSpeed === null) {
         updates.colorCycleSpeed = 0.1;
       }
+      if (!activeSettings.customBrushCcPhaseMode) {
+        updates.customBrushCcPhaseMode = 'global';
+      }
+      if (activeSettings.customBrushCcPhaseJitter === undefined || activeSettings.customBrushCcPhaseJitter === null) {
+        updates.customBrushCcPhaseJitter = 0;
+      }
     }
 
     setActiveSettings(updates);
-  }, [activeLayer, activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, setActiveSettings, showColorCycleLayerHint]);
+  }, [
+    activeLayer,
+    activeSettings.colorCycleGradient,
+    activeSettings.colorCycleSpeed,
+    activeSettings.customBrushCcPhaseJitter,
+    activeSettings.customBrushCcPhaseMode,
+    setActiveSettings,
+    showColorCycleLayerHint,
+  ]);
 
   // Ensure Color Cycle brushes start with a sensible spacing value even when no preset overrides exist
   React.useEffect(() => {
@@ -1246,7 +1261,7 @@ const BrushControls = () => {
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Size {sizeUnit}
+              {sizeLabel}
             </label>
             <NonCcSlider
               value={sizeSlider.value}
@@ -3307,13 +3322,63 @@ const BrushControls = () => {
         <div className="mb-3">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Color Cycle
+              CC
             </label>
             <CustomSwitch
               checked={isCustomColorCycleEnabled}
               onChange={handleToggleCustomColorCycle}
             />
           </div>
+
+          <div className="mt-2">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Scale %
+              </label>
+              <NonCcSlider
+                value={customBrushPercent}
+                min={5}
+                max={1000}
+                step={5}
+                onChange={(value) => {
+                  setCustomBrushSizePercent(value);
+                  if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
+                    const updatedSize =
+                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                    setEraserSettings({ size: updatedSize });
+                  }
+                }}
+                aria-label="Custom Brush Tip Scale (%)"
+                className="flex-1"
+              />
+            </div>
+          </div>
+
+          {!isDitherGradient && (
+            <div className="mt-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Spacing
+                </label>
+                <NonCcSlider
+                  value={activeSettings.spacing}
+                  min={1}
+                  max={40}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+                  }
+                  aria-label="Spacing"
+                  className="flex-1"
+                />
+                <VelocitySpacingToggle
+                  id="velocity-spacing-custom"
+                  checked={Boolean(activeSettings.velocitySpacingEnabled)}
+                  onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
+                />
+              </div>
+            </div>
+          )}
 
           {isCustomColorCycleEnabled && (
             <div className="mt-2">
@@ -3344,6 +3409,72 @@ const BrushControls = () => {
                   />
                 </div>
               </div>
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Speed
+                  </label>
+                  <NonCcSlider
+                    value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
+                    min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+                    max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+                    step={COLOR_CYCLE_SPEED_STEP}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        colorCycleSpeed: Math.max(
+                          MIN_BRUSH_COLOR_CYCLE_SPEED,
+                          Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
+                        ),
+                      })
+                    }
+                    aria-label="Custom Brush Color Cycle Speed"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Phase
+                  </label>
+                  <Dropdown
+                    value={activeSettings.customBrushCcPhaseMode ?? 'global'}
+                    options={[
+                      { value: 'global', label: 'Global' },
+                      { value: 'per-stroke-seeded', label: 'Per Stroke' },
+                      { value: 'jittered', label: 'Jittered' },
+                    ]}
+                    onChange={(value) =>
+                      setActiveSettings({
+                        customBrushCcPhaseMode: value as NonNullable<BrushSettings['customBrushCcPhaseMode']>,
+                      })
+                    }
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              {(activeSettings.customBrushCcPhaseMode ?? 'global') === 'jittered' && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2">
+                    <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                      Jitter
+                    </label>
+                    <NonCcSlider
+                      value={activeSettings.customBrushCcPhaseJitter ?? 0}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(value) =>
+                        setActiveSettings({
+                          customBrushCcPhaseJitter: Math.max(0, Math.min(1, Number(value))),
+                        })
+                      }
+                      aria-label="Custom Brush Color Cycle Phase Jitter"
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3374,27 +3505,18 @@ const BrushControls = () => {
       )}
 
       {/* Size */}
-      {!isDitherGradient && (
+      {!isDitherGradient && !isActiveCustomBrush && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Size {sizeUnit}
             </label>
             <NonCcSlider
-              value={isActiveCustomBrush ? customBrushPercent : effectiveGlobalBrushSize}
-              min={isActiveCustomBrush ? 5 : 1}
-              max={isActiveCustomBrush ? 1000 : 500}
-              step={isActiveCustomBrush ? 5 : 1}
+              value={effectiveGlobalBrushSize}
+              min={1}
+              max={500}
+              step={1}
               onChange={(value) => {
-                if (isActiveCustomBrush) {
-                  setCustomBrushSizePercent(value);
-                  if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
-                    const updatedSize =
-                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
-                    setEraserSettings({ size: updatedSize });
-                  }
-                  return;
-                }
                 const min = 1;
                 const max = 500;
                 const next = Math.min(max, Math.max(min, Math.round(value)));
@@ -3429,7 +3551,7 @@ const BrushControls = () => {
       </div>
 
       {/* Spacing */}
-      {!isDitherGradient && (
+      {!isDitherGradient && !isActiveCustomBrush && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>

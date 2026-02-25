@@ -8,15 +8,17 @@ import {
   selectCustomBrushCaptureAllLayers,
   selectCustomBrushCaptureMode,
   selectCustomBrushFreehandPath,
+  selectBrushSettings,
 } from '@/stores/selectors/toolsSelectors';
 import { selectSelectionRects } from '@/stores/selectors/pasteSelectors';
 import { selectActiveLayer } from '@/stores/selectors/layersSelectors';
 import { CustomBrush, BrushShape } from '@/types';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import { captureBrushFromCanvas, captureBrushFromPath, selectionToCaptureBounds } from '@/utils/customBrushCapture';
 import type { BrushCaptureResult } from '@/utils/customBrushCapture';
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
 export const CustomBrushPanel = () => {
   const addCustomBrush = useAppStore((state) => state.addCustomBrush);
@@ -33,9 +35,36 @@ export const CustomBrushPanel = () => {
   const sampleAllLayers = useAppStore(selectCustomBrushCaptureAllLayers);
   const captureMode = useAppStore(selectCustomBrushCaptureMode);
   const freehandPath = useAppStore(selectCustomBrushFreehandPath);
+  const brushSettings = useAppStore(selectBrushSettings);
   const setCustomBrushSampleAllLayers = useAppStore((state) => state.setCustomBrushSampleAllLayers);
   const setCustomBrushCaptureMode = useAppStore((state) => state.setCustomBrushCaptureMode);
   const setCustomBrushFreehandPath = useAppStore((state) => state.setCustomBrushFreehandPath);
+  const [ccImportedHint, setCcImportedHint] = useState(false);
+
+  const cancelCapture = useCallback(() => {
+    const hasTemporaryBrush = Boolean(temporaryCustomBrush);
+    setTemporaryCustomBrush(null);
+    setCustomBrushFreehandPath(null);
+    clearSelection();
+    setCcImportedHint(false);
+
+    const selectedBrushId = brushSettings.selectedCustomBrush;
+    const isTempSelected = typeof selectedBrushId === 'string' && selectedBrushId.startsWith('temp_brush_');
+    if (hasTemporaryBrush || isTempSelected) {
+      setBrushSettings({
+        brushShape: BrushShape.ROUND,
+        selectedCustomBrush: null,
+        currentBrushTip: undefined,
+      });
+    }
+  }, [
+    temporaryCustomBrush,
+    brushSettings.selectedCustomBrush,
+    setTemporaryCustomBrush,
+    setCustomBrushFreehandPath,
+    clearSelection,
+    setBrushSettings,
+  ]);
 
   const resolveCaptureCanvas = useCallback(() => {
     if (!sampleAllLayers && activeLayer) {
@@ -51,10 +80,18 @@ export const CustomBrushPanel = () => {
   useEffect(() => {
     if (!selectionStart && !selectionEnd) {
       setTemporaryCustomBrush(null);
+      setCcImportedHint(false);
     }
   }, [selectionStart, selectionEnd, setTemporaryCustomBrush]);
 
-  const applyCaptureResult = useCallback((captureResult: BrushCaptureResult) => {
+  const applyCaptureResult = useCallback((
+    captureResult: BrushCaptureResult,
+    options?: {
+      enableColorCycle?: boolean;
+      gradientStops?: Array<{ position: number; color: string }>;
+      speed?: number;
+    }
+  ) => {
     const {
       imageData,
       width,
@@ -76,6 +113,16 @@ export const CustomBrushPanel = () => {
       naturalWidth,
       naturalHeight,
       maxDimension,
+      colorCycle: options?.enableColorCycle
+        ? {
+            schemaVersion: 1,
+            source: 'color-cycle-layer',
+            gradient: options.gradientStops?.map((stop) => ({ ...stop })),
+            speed: typeof options.speed === 'number' ? options.speed : 0.1,
+            phaseMode: 'global',
+            phaseJitter: 0,
+          }
+        : undefined,
     };
 
     setTemporaryCustomBrush(tempBrush);
@@ -89,6 +136,19 @@ export const CustomBrushPanel = () => {
       selectedCustomBrush: tempBrush.id,
       size: normalizedSize,
       customBrushSizePercent: 100,
+      pressureEnabled: false,
+      minPressure: 99,
+      maxPressure: undefined,
+      customBrushColorCycle: options?.enableColorCycle ?? false,
+      colorCycleGradient: options?.enableColorCycle
+        ? (options?.gradientStops?.map((stop) => ({ ...stop })) ??
+          DEFAULT_GRADIENT_STOPS.map((stop) => ({ ...stop })))
+        : undefined,
+      colorCycleSpeed: options?.enableColorCycle
+        ? Math.max(0, Math.min(2.64, Number(options?.speed ?? 0.1)))
+        : undefined,
+      customBrushCcPhaseMode: options?.enableColorCycle ? 'global' : undefined,
+      customBrushCcPhaseJitter: options?.enableColorCycle ? 0 : undefined,
       currentBrushTip: {
         imageData: tempBrush.imageData,
         brushId: tempBrush.id,
@@ -130,11 +190,27 @@ export const CustomBrushPanel = () => {
       return;
     }
 
-    applyCaptureResult(captureResult);
+    const sourceIsColorCycleLayer =
+      !sampleAllLayers &&
+      activeLayer?.layerType === 'color-cycle';
+    const sourceGradient =
+      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
+    const sourceSpeed =
+      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
+
+    const enableColorCycle = sourceIsColorCycleLayer;
+    setCcImportedHint(enableColorCycle);
+    applyCaptureResult(captureResult, {
+      enableColorCycle: sourceIsColorCycleLayer,
+      gradientStops: sourceGradient,
+      speed: sourceSpeed,
+    });
   }, [
     captureMode,
     selectionStart,
     selectionEnd,
+    activeLayer,
+    sampleAllLayers,
     resolveCaptureCanvas,
     applyCaptureResult
   ]);
@@ -162,11 +238,27 @@ export const CustomBrushPanel = () => {
       return;
     }
 
-    applyCaptureResult(captureResult);
+    const sourceIsColorCycleLayer =
+      !sampleAllLayers &&
+      activeLayer?.layerType === 'color-cycle';
+    const sourceGradient =
+      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
+    const sourceSpeed =
+      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
+
+    const enableColorCycle = sourceIsColorCycleLayer;
+    setCcImportedHint(enableColorCycle);
+    applyCaptureResult(captureResult, {
+      enableColorCycle: sourceIsColorCycleLayer,
+      gradientStops: sourceGradient,
+      speed: sourceSpeed,
+    });
     setCustomBrushFreehandPath(null);
   }, [
     captureMode,
     freehandPath,
+    activeLayer,
+    sampleAllLayers,
     resolveCaptureCanvas,
     applyCaptureResult,
     setCustomBrushFreehandPath
@@ -185,6 +277,18 @@ export const CustomBrushPanel = () => {
       createBrushFromFreehandPath();
     }
   }, [captureMode, createBrushFromFreehandPath, freehandPath]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      cancelCapture();
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [cancelCapture]);
 
   const handleSaveCustomBrush = () => {
     if (!temporaryCustomBrush) return;
@@ -225,6 +329,9 @@ export const CustomBrushPanel = () => {
       selectedCustomBrush: permanentBrush.id,
       size: normalizedSize,
       customBrushSizePercent: 100,
+      pressureEnabled: false,
+      minPressure: 99,
+      maxPressure: undefined,
       currentBrushTip: {
         imageData: permanentBrush.imageData,
         brushId: permanentBrush.id,
@@ -243,6 +350,7 @@ export const CustomBrushPanel = () => {
     setTimeout(() => {
       setTemporaryCustomBrush(null);
       clearSelection();
+      setCcImportedHint(false);
     }, 50);
   };
 
@@ -267,15 +375,7 @@ export const CustomBrushPanel = () => {
               Save
             </button>
             <button
-              onClick={() => {
-                setTemporaryCustomBrush(null);
-                clearSelection();
-                setBrushSettings({
-                  brushShape: BrushShape.ROUND, // Reset to round brush
-                  selectedCustomBrush: null,
-                  currentBrushTip: undefined
-                });
-              }}
+              onClick={cancelCapture}
               className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
               title="Cancel"
             >
@@ -284,7 +384,7 @@ export const CustomBrushPanel = () => {
           </div>
         ) : (
           <div className="text-sm text-gray-400">
-            {canCreateBrush ? 'Selection ready' : 'Press C and select an area'}
+            {canCreateBrush ? 'Selection ready' : ''}
           </div>
         )}
       </div>
@@ -313,11 +413,6 @@ export const CustomBrushPanel = () => {
             );
           })}
         </div>
-        <p className="mt-1 text-xs text-gray-500">
-          {captureMode === 'rectangle'
-            ? 'Press C and drag a marquee to capture a box area.'
-            : 'Draw a freehand outline directly on the canvas; release to capture that exact region.'}
-        </p>
       </div>
 
       <div className="mt-2 flex items-center justify-between">
@@ -328,10 +423,6 @@ export const CustomBrushPanel = () => {
           onChange={setCustomBrushSampleAllLayers}
         />
       </div>
-      <p className="mt-1 text-xs text-gray-500">
-        When off, capture only the active layer.
-      </p>
-
       {/* Show temporary brush preview if available */}
       {hasTemporaryBrush && (
         <div className="mt-4 p-3 bg-[#1a1a1a] rounded">
@@ -348,6 +439,11 @@ export const CustomBrushPanel = () => {
               <p className="text-xs text-gray-500">
                 Size: {temporaryCustomBrush.width}×{temporaryCustomBrush.height}
               </p>
+              {ccImportedHint && (
+                <p className="text-xs text-amber-400 mt-1">
+                  Imported color-cycle gradient and speed from active CC layer.
+                </p>
+              )}
             </div>
           </div>
         </div>

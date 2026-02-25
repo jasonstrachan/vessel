@@ -94,6 +94,8 @@ export const pixelBrushSettings: BrushSettings = {
   contourLines2Density: 4,
   contourLines2Alternate: false,
   customBrushColorCycle: false,
+  customBrushCcPhaseMode: 'global',
+  customBrushCcPhaseJitter: 0,
   colorCycleFlowMode: 'forward',
   colorCycleFillMode: 'concentric',
   colorCycleBandSpacingPx: 12,
@@ -187,6 +189,8 @@ export const defaultBrushSettings: BrushSettings = {
   colorCycleStampDitherClears: false,
   colorCycleStampDitherPressureLinked: false,
   customBrushColorCycle: false,
+  customBrushCcPhaseMode: 'global',
+  customBrushCcPhaseJitter: 0,
   autoSampleColor: false,
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,

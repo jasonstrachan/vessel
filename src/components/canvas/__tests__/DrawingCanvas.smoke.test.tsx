@@ -78,6 +78,7 @@ jest.mock('@/stores/useAppStore', () => {
     recolorSampling: { active: false },
     globalBrushSize: null,
     history: { undoStack: [], redoStack: [] },
+    historyMaxSize: 50,
     getCompositeSegmentsSnapshot: jest.fn(() => []),
     setLayersNeedRecomposition: jest.fn(),
     setCanvasMessage: jest.fn(),
@@ -93,6 +94,7 @@ jest.mock('@/stores/useAppStore', () => {
     resumeColorCycle: jest.fn(),
     renderStaticComposite: jest.fn(() => true),
     setCurrentOffscreenCanvas: jest.fn(),
+    setHistorySize: jest.fn(),
   } as any;
 
   const useAppStore = (selector?: any) => (selector ? selector(mockState) : mockState);

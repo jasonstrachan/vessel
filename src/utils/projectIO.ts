@@ -608,6 +608,14 @@ interface SerializedCustomBrush {
   naturalWidth?: number;
   naturalHeight?: number;
   maxDimension?: number;
+  colorCycle?: {
+    schemaVersion: 1;
+    source?: 'color-cycle-layer' | 'manual' | 'unknown';
+    gradient?: Array<{ position: number; color: string }>;
+    speed?: number;
+    phaseMode?: 'global' | 'per-stroke-seeded' | 'jittered';
+    phaseJitter?: number;
+  };
 }
 
 interface ColorCycleBrushState {
@@ -1539,6 +1547,29 @@ async function serializeCustomBrush(brush: CustomBrush): Promise<SerializedCusto
     naturalWidth,
     naturalHeight,
     maxDimension,
+    colorCycle: brush.colorCycle
+      ? {
+          schemaVersion: 1,
+          source: brush.colorCycle.source ?? 'unknown',
+          gradient: Array.isArray(brush.colorCycle.gradient)
+            ? brush.colorCycle.gradient.map((stop) => ({
+                position: Number(stop.position),
+                color: String(stop.color),
+              }))
+            : undefined,
+          speed: typeof brush.colorCycle.speed === 'number' ? brush.colorCycle.speed : undefined,
+          phaseMode:
+            brush.colorCycle.phaseMode === 'per-stroke-seeded' || brush.colorCycle.phaseMode === 'jittered'
+              ? brush.colorCycle.phaseMode
+              : brush.colorCycle.phaseMode === 'global'
+                ? 'global'
+                : undefined,
+          phaseJitter:
+            typeof brush.colorCycle.phaseJitter === 'number'
+              ? Math.max(0, Math.min(1, brush.colorCycle.phaseJitter))
+              : undefined,
+        }
+      : undefined,
   };
 }
 
@@ -1562,6 +1593,42 @@ async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): P
     naturalWidth,
     naturalHeight,
     maxDimension,
+    colorCycle:
+      serializedBrush.colorCycle?.schemaVersion === 1
+        ? {
+            schemaVersion: 1,
+            source:
+              serializedBrush.colorCycle.source === 'color-cycle-layer' ||
+              serializedBrush.colorCycle.source === 'manual'
+                ? serializedBrush.colorCycle.source
+                : 'unknown',
+            gradient: Array.isArray(serializedBrush.colorCycle.gradient)
+              ? serializedBrush.colorCycle.gradient
+                  .filter((stop) => typeof stop?.position === 'number' && typeof stop?.color === 'string')
+                  .map((stop) => ({
+                    position: Math.max(0, Math.min(1, stop.position)),
+                    color: stop.color,
+                  }))
+              : undefined,
+            speed:
+              typeof serializedBrush.colorCycle.speed === 'number' &&
+              Number.isFinite(serializedBrush.colorCycle.speed)
+                ? serializedBrush.colorCycle.speed
+                : undefined,
+            phaseMode:
+              serializedBrush.colorCycle.phaseMode === 'per-stroke-seeded' ||
+              serializedBrush.colorCycle.phaseMode === 'jittered'
+                ? serializedBrush.colorCycle.phaseMode
+                : serializedBrush.colorCycle.phaseMode === 'global'
+                  ? 'global'
+                  : undefined,
+            phaseJitter:
+              typeof serializedBrush.colorCycle.phaseJitter === 'number' &&
+              Number.isFinite(serializedBrush.colorCycle.phaseJitter)
+                ? Math.max(0, Math.min(1, serializedBrush.colorCycle.phaseJitter))
+                : undefined,
+          }
+        : undefined,
   };
 }
 

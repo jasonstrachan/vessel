@@ -23,12 +23,14 @@ Welcome to the documentation hub for Vessel.
 ### 🧪 testing/
 **Testing guidance**
 - Test helpers and conventions
+- Manual feature QA checklists (including custom brush + color cycle workflow)
 
 ## Quick Navigation
 
 - For **architecture and features**: read `project.md`
 - For **current priorities**: check `roadmap.md` and `todo.md`
 - For **deployment issues**: see `issues.md`
+- For **custom brush color cycle QA**: see `testing/custom-brush-color-cycle-qa.md`
 
 ## Documentation Standards
 
@@ -47,4 +49,4 @@ When adding or modifying features:
 
 ---
 
-*Last Updated: December 2025*
+*Last Updated: February 2026*

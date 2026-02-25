@@ -375,4 +375,33 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(afterSecond[firstIndex]).toBe(firstExpectedByte);
     expect(afterSecond[secondIndex]).toBe(secondExpectedByte);
   });
+
+  it('keeps 1px color-cycle square strokes to a single pixel per stamp', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-1px-square';
+
+    brush.setBrushSize(1);
+    brush.setStampShape('square');
+    brush.startStroke(layerId);
+    brush.paint(6, 6, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as { animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }> })
+      .animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for 1px square test');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    let written = 0;
+    for (const value of data) {
+      if (value !== 0) {
+        written += 1;
+      }
+    }
+
+    expect(written).toBe(1);
+    expect(data[6 + 6 * canvas.width]).toBeGreaterThan(0);
+  });
 });

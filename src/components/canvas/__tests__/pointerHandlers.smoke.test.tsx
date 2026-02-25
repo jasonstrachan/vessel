@@ -171,6 +171,7 @@ describe('pointerHandlers smoke', () => {
       contourLinesStateRef: { current: createDefaultContourLinesState() },
       contourLinesDefaultsCacheRef: { current: null },
       contourLinesFinalizingRef: { current: false },
+      suppressBootstrapUntilPointerUpRef: { current: false },
       selectionRuntimeRef: {
         current: {
           pendingSelectionHistory: null,

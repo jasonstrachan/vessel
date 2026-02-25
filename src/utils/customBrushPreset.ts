@@ -33,7 +33,8 @@ export function createCustomBrushPreset(
     customBrushData: {
       imageData: brush.imageData,
       width: brush.width,
-      height: brush.height
+      height: brush.height,
+      colorCycle: brush.colorCycle
     }
   };
 }
