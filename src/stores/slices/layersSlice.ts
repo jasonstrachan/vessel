@@ -326,6 +326,26 @@ const cloneGradientStops = (
   return stops.map((stop) => ({ ...stop }));
 };
 
+const areGradientStopsEqual = (
+  left?: Array<{ position: number; color: string }> | null,
+  right?: Array<{ position: number; color: string }> | null
+): boolean => {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftStop = left[index];
+    const rightStop = right[index];
+    if (leftStop.position !== rightStop.position || leftStop.color !== rightStop.color) {
+      return false;
+    }
+  }
+  return true;
+};
+
 const applyColorCycleEraseMask = (
   layer: Layer,
   targetCanvas: HTMLCanvasElement | OffscreenCanvas
@@ -2886,6 +2906,20 @@ export const createLayersSlice = (
       logError('setActiveLayer: Invalid layer ID', id);
       return state;
     }
+
+    // Fast path: avoid rerunning selection/runtime work when nothing changes.
+    if (state.activeLayerId === id) {
+      if (opts?.preserveSelection) {
+        if (state.selectedLayerIds.includes(id)) {
+          return state;
+        }
+      } else if (
+        state.selectedLayerIds.length === 1 &&
+        state.selectedLayerIds[0] === id
+      ) {
+        return state;
+      }
+    }
     // quiet
     
     /* console.log('🟢 SET ACTIVE LAYER DEBUG:', {
@@ -2985,29 +3019,49 @@ export const createLayersSlice = (
         savedBrushShape = state.tools.brushSettings.brushShape;
       }
 
-      const layerGradientStops = resolveActiveGradientStops(layer.colorCycleData);
-      const gradientForBrushSettings = layerGradientStops
-        ? layerGradientStops.map(stop => ({ ...stop }))
-        : undefined;
-
-      const nextBrushSettings = {
-        ...state.tools.brushSettings,
-        customBrushColorCycle: true,
-        ...(gradientForBrushSettings ? { colorCycleGradient: gradientForBrushSettings } : {})
-      };
       const resolvedFlowMode = 'forward' as const;
-      nextBrushSettings.colorCycleFlowMode = resolvedFlowMode;
+      const layerGradientStops = resolveActiveGradientStops(layer.colorCycleData);
+      const currentGradientStops = state.tools.brushSettings.colorCycleGradient;
+      const hasGradientChange =
+        Boolean(layerGradientStops) && !areGradientStopsEqual(currentGradientStops, layerGradientStops);
+
+      const shouldUpdateBrushSettings =
+        state.tools.brushSettings.customBrushColorCycle !== true ||
+        state.tools.brushSettings.colorCycleFlowMode !== resolvedFlowMode ||
+        hasGradientChange;
+
+      let nextBrushSettings = state.tools.brushSettings;
+      if (shouldUpdateBrushSettings) {
+        nextBrushSettings = {
+          ...state.tools.brushSettings,
+          customBrushColorCycle: true,
+          colorCycleFlowMode: resolvedFlowMode,
+          ...(hasGradientChange && layerGradientStops
+            ? { colorCycleGradient: layerGradientStops.map(stop => ({ ...stop })) }
+            : {})
+        };
+      }
+
+      const shouldUpdateToolMemory =
+        savedRegularTool !== state.tools.lastRegularTool ||
+        savedBrushShape !== state.tools.lastRegularBrushShape ||
+        state.tools.lastColorCycleShapeMode !== state.tools.shapeMode;
+
+      const nextTools =
+        shouldUpdateBrushSettings || shouldUpdateToolMemory
+          ? {
+              ...state.tools,
+              lastRegularTool: savedRegularTool,
+              lastRegularBrushShape: savedBrushShape,
+              lastColorCycleShapeMode: state.tools.shapeMode,
+              brushSettings: nextBrushSettings
+            }
+          : state.tools;
 
       const result = {
         activeLayerId: id,
         selectedLayerIds: baseSelection,
-        tools: {
-          ...state.tools,
-          lastRegularTool: savedRegularTool,
-          lastRegularBrushShape: savedBrushShape,
-          lastColorCycleShapeMode: state.tools.shapeMode,
-          brushSettings: nextBrushSettings
-        }
+        tools: nextTools
       };
 
       try {

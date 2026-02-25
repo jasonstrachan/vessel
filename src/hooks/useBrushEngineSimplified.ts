@@ -1536,11 +1536,7 @@ export const useBrushEngineSimplified = () => {
         brush.setPlaybackSpeedScale(resolvedColorCycleLayerSpeedScale);
       }
     });
-  }, [
-    activeLayerId,
-    getActiveLayerColorCycleBrush,
-    resolvedColorCycleLayerSpeedScale,
-  ]);
+  }, [resolvedColorCycleLayerSpeedScale]);
 
   useEffect(() => {
     const recolorManager = RecolorManager.getInstance();
@@ -1731,7 +1727,7 @@ export const useBrushEngineSimplified = () => {
     return () => {
       unsubscribe();
     };
-  }, [ensureColorCycleAnimation, activeLayerId]);
+  }, [ensureColorCycleAnimation]);
 
   // Clean up resources
   useEffect(() => {

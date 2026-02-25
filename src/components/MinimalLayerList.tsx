@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, memo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
@@ -85,14 +85,10 @@ export const LayerColorSwatches = memo<{
 
 LayerColorSwatches.displayName = 'LayerColorSwatches';
 
-type LayerRowState = {
-  layer: Layer | null;
+type LayerRowProps = {
+  layer: Layer;
   isActive: boolean;
   isSelected: boolean;
-};
-
-type LayerRowProps = {
-  layerId: string;
   canDeleteLayer: boolean;
   onLayerClick: (event: React.MouseEvent, layerId: string) => void;
   onToggleVisibility: (event: React.MouseEvent, layerId: string) => void;
@@ -102,22 +98,11 @@ type LayerRowProps = {
   generateGradientCSS: (gradient: Array<{ position: number; color: string }> | undefined) => string;
 };
 
-const useLayerRowState = (layerId: string): LayerRowState =>
-  useAppStore(
-    useCallback(
-      (state) => ({
-        layer: state.layers.find((l) => l.id === layerId) ?? null,
-        isActive: state.activeLayerId === layerId,
-        isSelected: state.selectedLayerIds.includes(layerId),
-      }),
-      [layerId]
-    ),
-    shallow
-  );
-
 const LayerRow = memo<LayerRowProps>(
   ({
-    layerId,
+    layer,
+    isActive,
+    isSelected,
     canDeleteLayer,
     onLayerClick,
     onToggleVisibility,
@@ -126,11 +111,6 @@ const LayerRow = memo<LayerRowProps>(
     onRemoveLayer,
     generateGradientCSS,
   }) => {
-    const { layer, isActive, isSelected } = useLayerRowState(layerId);
-
-    if (!layer) {
-      return null;
-    }
     const isHighlighted = isActive || isSelected;
 
     const rowClassName = `
@@ -297,7 +277,9 @@ const MinimalLayerList = () => {
   
   // Store subscriptions
   const displayedLayerIds = useAppStore(selectLayerIdsDescending, shallow);
+  const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
+  const selectedLayerIds = useAppStore(selectSelectedLayerIds, shallow);
   const layersRef = useStoreSelectorRef(selectLayers);
   const selectedLayerIdsRef = useStoreSelectorRef(selectSelectedLayerIds);
   const brushSettingsRef = useStoreSelectorRef(selectBrushSettings);
@@ -308,10 +290,18 @@ const MinimalLayerList = () => {
   const setActiveLayer = useAppStore((state) => state.setActiveLayer);
   const reorderLayers = useAppStore((state) => state.reorderLayers);
   const removeLayer = useAppStore((state) => state.removeLayer);
-  const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const canDeleteLayer = displayedLayerIds.length > 1;
+  const selectedLayerIdSet = useMemo(() => new Set(selectedLayerIds), [selectedLayerIds]);
+  const layerById = useMemo(() => {
+    const map = new Map<string, Layer>();
+    for (let index = 0; index < layers.length; index += 1) {
+      const layer = layers[index];
+      map.set(layer.id, layer);
+    }
+    return map;
+  }, [layers]);
   
   // Remove local overrides; animation state comes from store + unified event
   
@@ -602,19 +592,13 @@ const MinimalLayerList = () => {
   }, [resetDragState]);
   
   const handleLayerClick = useCallback((event: React.MouseEvent, layerId: string) => {
-    const selection = selectedLayerIdsRef.current;
-
     if (event.shiftKey) {
-      // Shift adds the clicked layer to the selection without removing others.
-      const nextSelection = selection.includes(layerId) ? selection : [...selection, layerId];
-      setSelectedLayerIds(nextSelection);
       setActiveLayer(layerId, { preserveSelection: true });
       return;
     }
 
     setActiveLayer(layerId);
-    setSelectedLayerIds([layerId]);
-  }, [selectedLayerIdsRef, setActiveLayer, setSelectedLayerIds]);
+  }, [setActiveLayer]);
 
   const handleRemoveLayer = useCallback((layerId: string) => {
     removeLayer(layerId);
@@ -711,16 +695,20 @@ const MinimalLayerList = () => {
                 renderPreview={renderDropPreview}
                 isActive={dropIndicatorIndex === index}
               />
-              <LayerRow
-                layerId={layerId}
-                canDeleteLayer={canDeleteLayer}
-                onLayerClick={handleLayerClick}
-                onToggleVisibility={handleToggleVisibility}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onRemoveLayer={handleRemoveLayer}
-                generateGradientCSS={generateGradientCSS}
-              />
+              {layerById.has(layerId) && (
+                <LayerRow
+                  layer={layerById.get(layerId) as Layer}
+                  isActive={activeLayerId === layerId}
+                  isSelected={selectedLayerIdSet.has(layerId)}
+                  canDeleteLayer={canDeleteLayer}
+                  onLayerClick={handleLayerClick}
+                  onToggleVisibility={handleToggleVisibility}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onRemoveLayer={handleRemoveLayer}
+                  generateGradientCSS={generateGradientCSS}
+                />
+              )}
             </React.Fragment>
           ))}
           <DropSlot
