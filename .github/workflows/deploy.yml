@@ -1,0 +1,87 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main, master, poc1 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run production dependency audit
+        run: npm run audit:prod
+
+      - name: Run full dependency audit (non-blocking)
+        run: npm run audit:full
+        continue-on-error: true
+
+      - name: Export full dependency audit report (JSON)
+        run: npm run audit:full:json
+        continue-on-error: true
+
+      - name: Build full dependency audit summary (markdown)
+        run: npm run audit:full:summary
+        continue-on-error: true
+
+      - name: Upload full audit report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-audit-report
+          path: |
+            audit-full.json
+            audit-full-summary.md
+          if-no-files-found: ignore
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run type check
+        run: npm run type-check
+
+      - name: Run load-project guardrail tests
+        run: npm run test:load-project-modal:guardrails
+
+      - name: Run load-project perf smoke tests
+        run: npm run test:load-project-modal:perf
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build:github
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./out
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,52 @@
+{
+  "area": 3145728,
+  "bbox": {
+    "minX": 0,
+    "minY": 0,
+    "width": 2048,
+    "height": 1536
+  },
+  "options": {
+    "label": "concave-profile",
+    "fixtures": [
+      "concave"
+    ],
+    "modes": [
+      "scanline"
+    ]
+  },
+  "results": [
+    {
+      "label": "concave-scanline",
+      "durationMs": 141.34154200000003,
+      "checksum": 798,
+      "profiling": {
+        "mode": "scanline",
+        "width": 2048,
+        "height": 1536,
+        "area": 3145728,
+        "vertices": 8,
+        "bands": 24,
+        "cellSize": 1,
+        "ditherEnabled": false,
+        "maskMs": 4.450749999999999,
+        "edtMs": 113.682459,
+        "fillMs": 22.90145899999999
+      }
+    }
+  ],
+  "counters": {
+    "getImageDataCalls": 0,
+    "getImageDataMp": 0,
+    "getImageDataMs": 0,
+    "commits": 0,
+    "serializeMs": 0,
+    "commitMs": 0,
+    "ccFillGpuMs": 0,
+    "ccFillGpuCount": 0,
+    "ccFillCpuMs": 0,
+    "ccFillCpuCount": 0,
+    "ccFillWorkerMs": 141.34154200000003,
+    "ccFillWorkerCount": 1
+  }
+}

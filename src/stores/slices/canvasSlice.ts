@@ -1,0 +1,133 @@
+import type { StateCreator } from 'zustand';
+import type { CanvasState } from '@/types';
+import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM } from '@/constants/canvas';
+
+type AppState = import('../useAppStore').AppState;
+
+export interface CanvasSlice {
+  canvas: CanvasState;
+  canvasViewport: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+  setZoom: (zoom: number) => void;
+  setRotation: (rotation: number) => void;
+  setGridSize: (size: number) => void;
+  setCanvasOffset: (offsetX: number, offsetY: number) => void;
+  setCanvasViewport: (viewport: { left: number; top: number; width: number; height: number }) => void;
+  toggleRulers: () => void;
+  setShowFPSMeter: (visible: boolean) => void;
+  setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
+  setCanvasDimensions: (width: number, height: number) => void;
+  resizeCanvas: (width: number, height: number) => Promise<void>;
+  setSelection: (selection: CanvasState['selection']) => void;
+  setCursor: (cursor: CanvasState['cursor']) => void;
+}
+
+const createDefaultSelection = (): CanvasState['selection'] => ({
+  active: false,
+  bounds: { x: 0, y: 0, width: 0, height: 0 },
+  pixels: typeof ImageData !== 'undefined' ? new ImageData(1, 1) : ({} as ImageData),
+});
+
+export const defaultCanvasState: CanvasState = {
+  zoom: 1,
+  rotation: 0,
+  gridSize: 16,
+  showRulers: false,
+  showFPSMeter: true,
+  displayMode: 'pixelated',
+  canvasWidth: 2000,
+  canvasHeight: 2000,
+  offsetX: 0,
+  offsetY: 0,
+  selection: createDefaultSelection(),
+  cursor: {
+    x: 0,
+    y: 0,
+    pressure: 0,
+  },
+};
+
+export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (set, get) => ({
+  canvas: defaultCanvasState,
+  canvasViewport: {
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+  },
+  setZoom: (zoom) =>
+    set((state) => ({
+      canvas: {
+        ...state.canvas,
+        zoom: Math.max(MIN_CANVAS_ZOOM, Math.min(MAX_CANVAS_ZOOM, zoom)),
+      },
+    })),
+  setRotation: (rotation) =>
+    set((state) => ({
+      canvas: { ...state.canvas, rotation },
+    })),
+  setGridSize: (gridSize) =>
+    set((state) => ({
+      canvas: { ...state.canvas, gridSize },
+    })),
+  setCanvasOffset: (offsetX, offsetY) =>
+    set((state) => {
+      if (state.canvas.offsetX === offsetX && state.canvas.offsetY === offsetY) {
+        return state;
+      }
+      return {
+        canvas: { ...state.canvas, offsetX, offsetY },
+      };
+    }),
+  setCanvasViewport: (viewport) =>
+    set((state) => {
+      const { left, top, width, height } = state.canvasViewport;
+      if (
+        left === viewport.left &&
+        top === viewport.top &&
+        width === viewport.width &&
+        height === viewport.height
+      ) {
+        return state;
+      }
+      return {
+        canvasViewport: viewport,
+      };
+    }),
+  toggleRulers: () =>
+    set((state) => ({
+      canvas: { ...state.canvas, showRulers: !state.canvas.showRulers },
+    })),
+  setShowFPSMeter: (visible) =>
+    set((state) => {
+      if (state.canvas.showFPSMeter === visible) {
+        return state;
+      }
+      return {
+        canvas: { ...state.canvas, showFPSMeter: visible },
+      };
+    }),
+  setDisplayMode: (mode) =>
+    set((state) => ({
+      canvas: { ...state.canvas, displayMode: mode },
+    })),
+  setCanvasDimensions: (width, height) =>
+    set((state) => ({
+      canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height },
+    })),
+  resizeCanvas: async (width, height) => {
+    await get().resizeProjectCanvas(width, height);
+  },
+  setSelection: (selection) =>
+    set((state) => ({
+      canvas: { ...state.canvas, selection },
+    })),
+  setCursor: (cursor) =>
+    set((state) => ({
+      canvas: { ...state.canvas, cursor },
+    })),
+});

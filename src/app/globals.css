@@ -1,0 +1,499 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap');
+@import '../styles/gradient-editor.css';
+
+/* Reset canvas default styles */
+canvas {
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  display: block;
+}
+
+/* Ensure UI panels have default cursor */
+.toolbar, .controls-panel, .layer-panel, [role="toolbar"], [role="panel"] {
+  cursor: default !important;
+}
+
+/* Ensure interactive UI elements have pointer cursor */
+button, input, select, textarea, [role="button"], .clickable {
+  cursor: pointer !important;
+}
+
+/* Remove focus outlines from buttons and selects */
+button:focus,
+select:focus {
+  outline: none !important;
+}
+
+/* Override default blue selection in dropdowns */
+select option:checked,
+select option:hover,
+select option:focus,
+select option:active {
+  background-color: #555 !important;
+  color: #D9D9D9 !important;
+  box-shadow: none !important;
+}
+
+/* Hide offscreen canvas */
+.truly-offscreen-canvas {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  visibility: hidden;
+}
+
+@layer base {
+  :root {
+    --ascii-surface-bg: #111111;
+    --ascii-thumb-fill: #d9d9d9;
+    --ascii-track-line-color: #d9d9d9;
+    --ascii-surface-dot: var(--ascii-track-line-color);
+    --ascii-track-overlay-opacity: 1;
+    --ascii-slider-pattern-base-size: 4px;
+    --ascii-slider-pattern-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect x='1' y='1' width='2' height='2' fill='%23fff'/%3E%3Crect x='5' y='5' width='2' height='2' fill='%23fff'/%3E%3C/svg%3E");
+  }
+
+  input[type='number'],
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    font-size: 11px;
+    line-height: 1.1;
+  }
+
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    margin: 0;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    background-color: #141514;
+    color: #D9D9D9;
+  }
+}
+
+@layer components {
+  /* Minimal dark scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #333 #1a1a1a;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: #1a1a1a;
+    border-radius: 0;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 0;
+    border: none;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: #444;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: #1a1a1a;
+  }
+
+  .ascii-surface {
+    background-color: var(--ascii-surface-bg);
+  }
+
+  /* Ensure separators render as dashed lines across the UI */
+  .border,
+  .border-t,
+  .border-r,
+  .border-b,
+  .border-l,
+  .border-x,
+  .border-y,
+  .border-s,
+  .border-e,
+  [class*='divide-x'],
+  [class*='divide-y'] {
+    border-style: solid !important;
+    border-color: currentColor !important;
+  }
+
+  [class*='divide-x'] > :not([hidden]) ~ :not([hidden]) {
+    border-style: solid !important;
+    border-color: currentColor !important;
+  }
+
+  [class*='divide-y'] > :not([hidden]) ~ :not([hidden]) {
+    border-style: solid !important;
+    border-color: currentColor !important;
+  }
+
+  .ascii-slider-track {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background-color: var(--slider-surface-color, #000000);
+    background-image: var(
+      --slider-track-gradient,
+      linear-gradient(to right, transparent, transparent)
+    );
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    background-position: center;
+    overflow: hidden;
+    color: var(--slider-pattern-color, currentColor);
+    --ascii-slider-pattern-size: var(
+      --slider-pattern-size,
+      var(--ascii-slider-pattern-base-size)
+    );
+    --ascii-slider-pattern-image-source: var(
+      --slider-pattern-image,
+      var(--ascii-slider-pattern-image)
+    );
+    z-index: 0;
+    isolation: isolate;
+  }
+
+  .ascii-slider-track::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--ascii-slider-pattern-image-source);
+    background-size: var(--ascii-slider-pattern-size)
+      var(--ascii-slider-pattern-size);
+    background-position: 0 0;
+    background-repeat: repeat;
+    pointer-events: none;
+    opacity: var(--ascii-track-overlay-opacity, 1);
+    z-index: 0;
+  }
+
+  .ascii-slider-range {
+    position: relative;
+    height: 100%;
+    background-color: var(--slider-thumb-color, var(--ascii-thumb-fill));
+    z-index: 1;
+  }
+
+  .ascii-slider-thumb {
+    display: block;
+    height: var(--ascii-thumb-size, 18px);
+    width: calc(var(--ascii-thumb-size, 18px) * 0.75);
+    background-color: var(--slider-thumb-color, var(--ascii-thumb-fill));
+  }
+
+  .ascii-slider-root[data-orientation='horizontal'] > span:has(> .ascii-slider-thumb) {
+    position: absolute;
+    top: 50%;
+  }
+
+  .ascii-slider-root[data-orientation='horizontal'] {
+    --radix-slider-thumb-transform: translate(-50%, -50%) !important;
+  }
+
+  .ascii-slider-root[data-orientation='horizontal']:has(.ascii-slider-thumb[data-state='active']),
+  .ascii-slider-root[data-orientation='horizontal']:has(.ascii-slider-thumb:focus-visible) {
+    --radix-slider-thumb-transform: translate(-50%, -50%) translate(-1px, -1px) !important;
+  }
+
+  /* Native slider styling */
+  .slider,
+  .brush-editor-slider {
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    border-radius: 0;
+    background: transparent;
+    outline: none;
+    opacity: 1;
+    touch-action: none;
+    transition: all .2s;
+    cursor: pointer;
+    flex: 1;
+    --ascii-thumb-size: var(--ascii-thumb-hitbox, 20px);
+    position: relative;
+    color: var(--slider-pattern-color, currentColor);
+    --ascii-slider-pattern-size: var(
+      --slider-pattern-size,
+      var(--ascii-slider-pattern-base-size)
+    );
+    --ascii-slider-pattern-image-source: var(
+      --slider-pattern-image,
+      var(--ascii-slider-pattern-image)
+    );
+    --slider-progress: 0%;
+  }
+
+  .slider.bg-transparent {
+    background: transparent;
+  }
+
+  /* WebKit browsers - show progress track */
+  .slider::-webkit-slider-runnable-track,
+  .brush-editor-slider::-webkit-slider-runnable-track {
+    position: relative;
+    height: 100%;
+    border-radius: 0;
+    background-image:
+      linear-gradient(
+        to right,
+        var(--slider-thumb-color, var(--ascii-thumb-fill)) 0,
+        var(--slider-thumb-color, var(--ascii-thumb-fill)) var(--slider-progress),
+        transparent var(--slider-progress),
+        transparent 100%
+      ),
+      var(--ascii-slider-pattern-image-source),
+      var(--slider-track-gradient, linear-gradient(to right, transparent, transparent));
+    background-size:
+      100% 100%,
+      var(--ascii-slider-pattern-size) var(--ascii-slider-pattern-size),
+      100% 100%;
+    background-position:
+      center,
+      0 0,
+      center;
+    background-repeat:
+      no-repeat,
+      repeat,
+      no-repeat;
+    background-color: var(--slider-surface-color, #000000);
+    color: inherit;
+    opacity: 1;
+  }
+
+  /* Firefox - show progress */
+  .slider::-moz-range-track,
+  .brush-editor-slider::-moz-range-track {
+    height: 100%;
+    border-radius: 0;
+    background-image:
+      linear-gradient(
+        to right,
+        var(--slider-thumb-color, var(--ascii-thumb-fill)) 0,
+        var(--slider-thumb-color, var(--ascii-thumb-fill)) var(--slider-progress),
+        transparent var(--slider-progress),
+        transparent 100%
+      ),
+      var(--ascii-slider-pattern-image-source),
+      var(--slider-track-gradient, linear-gradient(to right, transparent, transparent));
+    background-size:
+      100% 100%,
+      var(--ascii-slider-pattern-size) var(--ascii-slider-pattern-size),
+      100% 100%;
+    background-position:
+      center,
+      0 0,
+      center;
+    background-repeat:
+      no-repeat,
+      repeat,
+      no-repeat;
+    background-color: var(--slider-surface-color, #000000);
+    color: inherit;
+    opacity: 1;
+  }
+
+  .slider::-moz-range-progress,
+  .brush-editor-slider::-moz-range-progress {
+    height: 100%;
+    border-radius: 0;
+    background-color: var(--slider-thumb-color, var(--ascii-thumb-fill));
+  }
+
+  .slider::-webkit-slider-thumb,
+  .brush-editor-slider::-webkit-slider-thumb {
+    appearance: none;
+    height: var(--ascii-thumb-size);
+    width: calc(var(--ascii-thumb-size) * 0.75);
+    border-radius: 0;
+    background: var(--slider-thumb-color, var(--ascii-thumb-fill));
+    cursor: pointer;
+    margin-top: 0;
+  }
+
+  .slider::-moz-range-thumb,
+  .brush-editor-slider::-moz-range-thumb {
+    height: var(--ascii-thumb-size);
+    width: calc(var(--ascii-thumb-size) * 0.75);
+    border-radius: 0;
+    background: var(--slider-thumb-color, var(--ascii-thumb-fill));
+    cursor: pointer;
+  }
+
+  /* RGB sliders with visible thumbs - shorter height */
+  .slider.rgb-slider {
+    height: 18px;
+  }
+
+  .slider.red-slider {
+    --slider-thumb-color: #ff0000;
+  }
+
+  .slider.green-slider {
+    --slider-thumb-color: #00ff00;
+  }
+
+  .slider.blue-slider {
+    --slider-thumb-color: #0000ff;
+  }
+
+  .slider.rgb-slider::-webkit-slider-runnable-track {
+    height: 18px;
+  }
+
+  .slider.rgb-slider::-moz-range-track {
+    height: 18px;
+  }
+
+  .slider.rgb-slider::-webkit-slider-thumb {
+    appearance: none;
+    height: 18px;
+    width: 18px;
+    border-radius: 0;
+    background: #D9D9D9;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: all .2s;
+  }
+
+  .slider.rgb-slider::-moz-range-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 0;
+    background: #D9D9D9;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: all .2s;
+  }
+
+  /* Red slider */
+  .slider.red-slider::-webkit-slider-thumb {
+    background: #ff0000;
+  }
+
+  .slider.red-slider::-moz-range-thumb {
+    background: #ff0000;
+  }
+
+  /* Green slider */
+  .slider.green-slider::-webkit-slider-thumb {
+    background: #00ff00;
+  }
+
+  .slider.green-slider::-moz-range-thumb {
+    background: #00ff00;
+  }
+
+  /* Blue slider */
+  .slider.blue-slider::-webkit-slider-thumb {
+    background: #0000ff;
+  }
+
+  .slider.blue-slider::-moz-range-thumb {
+    background: #0000ff;
+  }
+
+  /* Custom switch styling */
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 20px;
+  }
+
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--slider-surface-color, #000000);
+    overflow: hidden;
+    transition: .2s;
+    border-radius: 0;
+    color: var(--slider-pattern-color, currentColor);
+    --ascii-slider-pattern-size: var(
+      --slider-pattern-size,
+      var(--ascii-slider-pattern-base-size)
+    );
+    --ascii-slider-pattern-image-source: var(
+      --slider-pattern-image,
+      var(--ascii-slider-pattern-image)
+    );
+  }
+
+  .switch-slider::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--ascii-slider-pattern-image-source);
+    background-size: var(--ascii-slider-pattern-size)
+      var(--ascii-slider-pattern-size);
+    background-position: 0 0;
+    background-repeat: repeat;
+    opacity: var(--ascii-track-overlay-opacity, 1);
+    pointer-events: none;
+  }
+
+  .switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: var(--switch-thumb-color, #d9d9d9);
+    transition: .2s;
+    border-radius: 0;
+    opacity: 1;
+    z-index: 1;
+  }
+
+  .switch input:checked + .switch-slider {
+    background-color: transparent;
+  }
+
+  .switch input:checked + .switch-slider:before {
+    transform: translateX(20px);
+  }
+
+  /* Force white text in all inputs */
+  input[type="number"],
+  input[type="text"] {
+    color: #D9D9D9 !important;
+  }
+
+  /* Hide number input spinners */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+}

@@ -1,0 +1,7 @@
+export default function ExportIcon() {
+  return (
+    <svg width="22" height="30" viewBox="0 0 14 19" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path fillRule="evenodd" clipRule="evenodd" d="M8.29923 0.536743H5.70077V2.84082H8.29923V0.536743ZM5.70077 4.44397H8.29923V8.42188H13.9111V18.4585H0.0888596V8.42188H5.70077V4.44397Z" fill="currentColor" fillOpacity="0.8"/>
+    </svg>
+  );
+}

@@ -1,0 +1,230 @@
+import { BrushShape, type BrushSettings } from '@/types';
+import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
+import type { GradientDitherOptions, Point2D } from './shapeTypes';
+
+type FillBrush = ColorCycleBrushImplementation & {
+  setLayerId?: (layerId: string) => void;
+  setActiveLayer?: (layerId: string) => void;
+  getLayerId?: () => string | null | undefined;
+  fillShapeDispatch?: (payload: {
+    mode: 'linear' | 'concentric';
+    vertices: Point2D[];
+    layerId: string;
+    direction?: Point2D;
+    options?: {
+      spacing?: number;
+      continuous?: boolean;
+      ccGradient?: boolean;
+      ditherLevels?: number;
+      ditherPixelSize?: number;
+      roi?: GradientDitherOptions['roi'];
+      lostEdge?: number;
+    };
+  }) => Promise<void> | void;
+};
+
+type SharedArgs = {
+  initializeColorCycleBrush: () => ColorCycleBrushImplementation | null;
+  activeLayerId: string | null;
+  isCCGradientActiveLayer: boolean;
+  brushSettings: Pick<
+    BrushSettings,
+    | 'ditherEnabled'
+    | 'gradientBands'
+    | 'brushShape'
+    | 'colorCycleBandSpacingPx'
+    | 'spacing'
+    | 'lostEdge'
+  >;
+  defaultBandSpacing: number;
+  clampColorCycleBandSpacing: (value?: number) => number;
+  requestGradientApply: (layerId: string, reason: string) => void;
+  flushGradientApply: (layerId: string) => void;
+  renderBrushToLayerCanvas: (brush: ColorCycleBrushImplementation, layerId: string) => void;
+};
+
+const prepareFillContext = ({
+  brush,
+  layerId,
+  reason,
+  requestGradientApply,
+  flushGradientApply,
+}: {
+  brush: FillBrush;
+  layerId: string;
+  reason: 'fill-linear' | 'fill-concentric';
+  requestGradientApply: (layerId: string, reason: string) => void;
+  flushGradientApply: (layerId: string) => void;
+}) => {
+  brush.setLayerId?.(layerId);
+  brush.setActiveLayer?.(layerId);
+  const currentBrushLayerId = brush.getLayerId?.();
+  if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
+    requestGradientApply(layerId, reason);
+    flushGradientApply(layerId);
+  }
+};
+
+const resolveFillSettings = ({
+  isCCGradientActiveLayer,
+  brushSettings,
+  defaultBandSpacing,
+  clampColorCycleBandSpacing,
+  useShapeSpacing,
+}: {
+  isCCGradientActiveLayer: boolean;
+  brushSettings: SharedArgs['brushSettings'];
+  defaultBandSpacing: number;
+  clampColorCycleBandSpacing: (value?: number) => number;
+  useShapeSpacing: boolean;
+}) => {
+  const ccGradientMode = isCCGradientActiveLayer;
+  const wantDither = ccGradientMode && !!brushSettings.ditherEnabled;
+  const bands = ccGradientMode ? 254 : brushSettings.gradientBands || 12;
+  const spacing = clampColorCycleBandSpacing(
+    useShapeSpacing
+      ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? defaultBandSpacing
+      : brushSettings.spacing ?? defaultBandSpacing
+  );
+  const ditherLevels = wantDither
+    ? Math.max(2, Math.min(16, Math.round(brushSettings.gradientBands ?? 16)))
+    : undefined;
+
+  return { ccGradientMode, wantDither, bands, spacing, ditherLevels };
+};
+
+export const fillColorCycleLinear = async ({
+  vertices,
+  direction,
+  options,
+  initializeColorCycleBrush,
+  activeLayerId,
+  isCCGradientActiveLayer,
+  brushSettings,
+  defaultBandSpacing,
+  clampColorCycleBandSpacing,
+  requestGradientApply,
+  flushGradientApply,
+  renderBrushToLayerCanvas,
+}: SharedArgs & {
+  vertices: Point2D[];
+  direction: Point2D;
+  options?: GradientDitherOptions;
+}): Promise<void> => {
+  const brush = initializeColorCycleBrush() as FillBrush | null;
+  const layerId = activeLayerId;
+
+  if (brush && layerId) {
+    prepareFillContext({
+      brush,
+      layerId,
+      reason: 'fill-linear',
+      requestGradientApply,
+      flushGradientApply,
+    });
+
+    const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    const { ccGradientMode, wantDither, bands, spacing, ditherLevels } = resolveFillSettings({
+      isCCGradientActiveLayer,
+      brushSettings,
+      defaultBandSpacing,
+      clampColorCycleBandSpacing,
+      useShapeSpacing,
+    });
+
+    brush.setGradientBands(bands);
+    brush.setBandSpacing(spacing);
+
+    if (wantDither && typeof options?.ditherPixelSize === 'number') {
+      brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
+    }
+
+    await Promise.resolve(
+      brush.fillShapeDispatch?.({
+        mode: 'linear',
+        vertices,
+        layerId,
+        direction,
+        options: {
+          spacing,
+          continuous: ccGradientMode,
+          ccGradient: ccGradientMode,
+          ditherLevels,
+          ditherPixelSize: options?.ditherPixelSize,
+          roi: options?.roi,
+          lostEdge: brushSettings.lostEdge,
+        },
+      })
+    );
+
+    brush.endStroke(layerId);
+    renderBrushToLayerCanvas(brush, layerId);
+  }
+};
+
+export const fillColorCycleConcentric = async ({
+  vertices,
+  options,
+  initializeColorCycleBrush,
+  activeLayerId,
+  isCCGradientActiveLayer,
+  brushSettings,
+  defaultBandSpacing,
+  clampColorCycleBandSpacing,
+  requestGradientApply,
+  flushGradientApply,
+  renderBrushToLayerCanvas,
+}: SharedArgs & {
+  vertices: Point2D[];
+  options?: GradientDitherOptions;
+}): Promise<void> => {
+  const brush = initializeColorCycleBrush() as FillBrush | null;
+  const layerId = activeLayerId;
+
+  if (brush && layerId) {
+    prepareFillContext({
+      brush,
+      layerId,
+      reason: 'fill-concentric',
+      requestGradientApply,
+      flushGradientApply,
+    });
+
+    const { ccGradientMode, wantDither, bands, ditherLevels } = resolveFillSettings({
+      isCCGradientActiveLayer,
+      brushSettings,
+      defaultBandSpacing,
+      clampColorCycleBandSpacing,
+      useShapeSpacing: true,
+    });
+
+    const spacing = clampColorCycleBandSpacing(
+      brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? defaultBandSpacing
+    );
+
+    brush.setGradientBands(bands);
+
+    if (wantDither && typeof options?.ditherPixelSize === 'number') {
+      brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
+    }
+
+    await Promise.resolve(
+      brush.fillShapeDispatch?.({
+        mode: 'concentric',
+        vertices,
+        layerId,
+        options: {
+          spacing,
+          ccGradient: ccGradientMode,
+          ditherLevels,
+          ditherPixelSize: options?.ditherPixelSize,
+          roi: options?.roi,
+          lostEdge: brushSettings.lostEdge,
+        },
+      })
+    );
+
+    brush.endStroke(layerId);
+    renderBrushToLayerCanvas(brush, layerId);
+  }
+};

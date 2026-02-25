@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vessel Goblet 2 Viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        cursor: default;
+        user-select: none;
+      }
+      canvas {
+        display: block;
+        background: #000;
+        image-rendering: pixelated;
+      }
+      #goblet-status {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 8px 16px;
+        border-radius: 999px;
+        background: rgba(12, 17, 24, 0.7);
+        color: #fff;
+        font: 500 14px/1.4 'IBM Plex Mono', 'Courier New', monospace;
+        letter-spacing: 0.01em;
+        text-align: center;
+        pointer-events: none;
+        transition: opacity 160ms ease;
+        opacity: 0;
+        max-width: min(90vw, 480px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      }
+      #goblet-status[data-visible='true'] {
+        opacity: 1;
+      }
+      #goblet-status[data-level='error'] {
+        color: #ff8686;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="preview-canvas" aria-hidden="true"></canvas>
+    <input id="file-input" type="file" accept="application/json" hidden />
+
+    <script type="module">
+      import {
+        renderVesselWebGL,
+        resizeVesselWebGL,
+        debugLog,
+        isGobletDiagnosticsEnabled,
+        setGobletDiagnosticsEnabled
+      } from './goblet2.js';
+
+      const canvas = document.getElementById('preview-canvas');
+      const fileInput = document.getElementById('file-input');
+      let isRendering = false;
+      let pendingMetadata = null;
+      let lastMetadata = null;
+
+      const statusElement = (() => {
+        const element = document.createElement('div');
+        element.id = 'goblet-status';
+        element.setAttribute('role', 'status');
+        element.dataset.visible = 'false';
+        element.dataset.level = 'info';
+        document.body.appendChild(element);
+        return element;
+      })();
+
+      const isDiagnosticsEnabled = () => isGobletDiagnosticsEnabled();
+
+      window.vesselGobletSetDiagnostics = (value) => setGobletDiagnosticsEnabled(value);
+
+      const setStatus = (message, level = 'info') => {
+        const text = typeof message === 'string' ? message.trim() : '';
+        const severity = level === 'error' ? 'error' : 'info';
+
+        if (severity === 'info') {
+          statusElement.textContent = '';
+          statusElement.dataset.visible = 'false';
+          statusElement.dataset.level = 'info';
+          return;
+        }
+
+        statusElement.dataset.level = 'error';
+        if (text) {
+          statusElement.textContent = text;
+          statusElement.dataset.visible = 'true';
+          console.error('[Vessel Goblet]', text);
+        } else {
+          statusElement.textContent = '';
+          statusElement.dataset.visible = 'false';
+        }
+      };
+
+      const summarizeMetadata = () => {};
+
+      const computeScale = (metadata) => {
+        const viewport = metadata?.viewport ?? {};
+        const width = Number(viewport.designWidth ?? viewport.width) || 0;
+        const height = Number(viewport.designHeight ?? viewport.height) || 0;
+        if (!width || !height) {
+          return 1;
+        }
+
+        const viewportWidth = window.innerWidth || width;
+        const viewportHeight = window.innerHeight || height;
+        const widthRatio = viewportWidth / width;
+        const heightRatio = viewportHeight / height;
+
+        if (!Number.isFinite(widthRatio) || !Number.isFinite(heightRatio) || widthRatio <= 0 || heightRatio <= 0) {
+          return 1;
+        }
+
+        if (viewport.mode === 'fill' || viewport.mode === 'fit') {
+          return 1;
+        }
+
+        const baseScale = Math.min(widthRatio, heightRatio, 1);
+        return baseScale > 0 ? baseScale : 1;
+      };
+
+      const drawMetadata = async (metadata) => {
+        if (!metadata) {
+          return;
+        }
+        pendingMetadata = metadata;
+        if (isRendering) {
+          return;
+        }
+        isRendering = true;
+        while (pendingMetadata) {
+          const current = pendingMetadata;
+          pendingMetadata = null;
+          try {
+            const scale = computeScale(current);
+            debugLog('[DEBUG] drawMetadata computed scale', {
+              scale,
+              viewport: current?.viewport,
+              windowSize: { width: window.innerWidth, height: window.innerHeight }
+            });
+            if (current?.viewport?.mode) {
+              document.body.dataset.viewportMode = current.viewport.mode;
+            } else {
+              delete document.body.dataset.viewportMode;
+            }
+            const summary = await renderVesselWebGL(current, canvas, { scale });
+            debugLog('[DEBUG] drawMetadata render summary', summary);
+            lastMetadata = current;
+          } catch (error) {
+            console.error('Failed to render Goblet bundle', error);
+            break;
+          }
+        }
+        isRendering = false;
+      };
+
+      const renderBundle = async (file) => {
+        if (!file) {
+          return;
+        }
+        try {
+          const text = await file.text();
+          const metadata = JSON.parse(text);
+          if (isDiagnosticsEnabled()) {
+            metadata?.layers?.forEach((layer, idx) => {
+              const brushState = layer?.colorCycle?.brushState;
+              const indexBuffer = brushState?.indexBuffer;
+              if (indexBuffer) {
+                debugLog('[DEBUG] Layer index buffer summary', {
+                  index: idx,
+                  layerId: layer?.id,
+                  type: typeof indexBuffer,
+                  isArray: Array.isArray(indexBuffer),
+                  length: typeof indexBuffer === 'string' ? indexBuffer.length : indexBuffer?.length,
+                  preview: Array.isArray(indexBuffer)
+                    ? indexBuffer.slice(0, 16)
+                    : typeof indexBuffer === 'string'
+                      ? indexBuffer.slice(0, 64)
+                      : null
+                });
+              }
+            });
+          }
+          void drawMetadata(metadata);
+        } catch (error) {
+          console.error('Failed to load Goblet bundle', error);
+        }
+      };
+
+      const handleFileSelection = (event) => {
+        const file = event?.target?.files?.[0];
+        if (file) {
+          void renderBundle(file);
+        }
+        if (event?.target) {
+          event.target.value = '';
+        }
+      };
+
+      fileInput.addEventListener('change', handleFileSelection);
+
+      window.addEventListener('dragover', (event) => {
+        event.preventDefault();
+      });
+
+      window.addEventListener('drop', (event) => {
+        event.preventDefault();
+        const file = event.dataTransfer?.files?.[0];
+        if (file) {
+          void renderBundle(file);
+        }
+      });
+
+      window.addEventListener('keydown', (event) => {
+        const isOpenShortcut = (event.key === 'o' || event.key === 'O') && (event.metaKey || event.ctrlKey);
+        if (isOpenShortcut) {
+          event.preventDefault();
+          fileInput.click();
+        }
+      });
+
+
+      const readyMessage = 'Goblet ready. Drop a bundle or use Ctrl/Cmd+O to open a file.';
+      setStatus(readyMessage);
+    </script>
+  </body>
+</html>

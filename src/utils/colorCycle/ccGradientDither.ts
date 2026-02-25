@@ -1,0 +1,477 @@
+import {
+  BAYER_8x8_MATRIX,
+  BLUE_NOISE_16x16,
+  VOID_CLUSTER_8x8,
+  type DitherAlgorithm,
+  type PatternStyle,
+} from '@/utils/ditherAlgorithms';
+
+type Point = { x: number; y: number };
+
+export type CcGradientDitherOptions = {
+  vertices: Point[];
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  pixelSize: number;
+  levels: number;
+  baseOffset: number;
+  algorithm?: DitherAlgorithm;
+  patternStyle?: PatternStyle;
+  sampleNormalized: (x: number, y: number) => number;
+  writeIndex: (x: number, y: number, index: number) => void;
+  logSetIndexSample?: (x: number, y: number) => void;
+  yieldIfNeeded?: (row: number) => Promise<void>;
+};
+
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+const noiseAt = (x: number, y: number): number => {
+  let n = (x | 0) * 374761393 + (y | 0) * 668265263;
+  n = (n ^ (n >>> 13)) * 1274126177;
+  n = (n ^ (n >>> 16)) >>> 0;
+  return (n & 0xffff) / 65536;
+};
+
+const indexFromNormalized = (pos: number, baseOffset: number): number => {
+  const raw = Math.round(pos * 254);
+  const shifted = (raw + baseOffset) % 255;
+  return Math.max(1, Math.min(255, shifted + 1));
+};
+
+type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
+type ErrorDiffusionKernel = {
+  taps: ReadonlyArray<ErrorDiffusionTap>;
+  divisor: number;
+  serpentine?: boolean;
+};
+
+type ErrorDiffusionProfile = {
+  threshold: number;
+  jitterBase: number;
+};
+
+const ERROR_DIFFUSION_KERNELS: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionKernel>> = {
+  'floyd-steinberg': {
+    taps: [
+      { dx: 1, dy: 0, weight: 7 },
+      { dx: -1, dy: 1, weight: 3 },
+      { dx: 0, dy: 1, weight: 5 },
+      { dx: 1, dy: 1, weight: 1 },
+    ],
+    divisor: 16,
+    serpentine: true,
+  },
+  'jarvis-judice-ninke': {
+    taps: [
+      { dx: 1, dy: 0, weight: 7 },
+      { dx: 2, dy: 0, weight: 5 },
+      { dx: -2, dy: 1, weight: 3 },
+      { dx: -1, dy: 1, weight: 5 },
+      { dx: 0, dy: 1, weight: 7 },
+      { dx: 1, dy: 1, weight: 5 },
+      { dx: 2, dy: 1, weight: 3 },
+      { dx: -2, dy: 2, weight: 1 },
+      { dx: -1, dy: 2, weight: 3 },
+      { dx: 0, dy: 2, weight: 5 },
+      { dx: 1, dy: 2, weight: 3 },
+      { dx: 2, dy: 2, weight: 1 },
+    ],
+    divisor: 48,
+    serpentine: true,
+  },
+  stucki: {
+    taps: [
+      { dx: 1, dy: 0, weight: 8 },
+      { dx: 2, dy: 0, weight: 4 },
+      { dx: -2, dy: 1, weight: 2 },
+      { dx: -1, dy: 1, weight: 4 },
+      { dx: 0, dy: 1, weight: 8 },
+      { dx: 1, dy: 1, weight: 4 },
+      { dx: 2, dy: 1, weight: 2 },
+      { dx: -2, dy: 2, weight: 1 },
+      { dx: -1, dy: 2, weight: 2 },
+      { dx: 0, dy: 2, weight: 4 },
+      { dx: 1, dy: 2, weight: 2 },
+      { dx: 2, dy: 2, weight: 1 },
+    ],
+    divisor: 42,
+    serpentine: true,
+  },
+  burkes: {
+    taps: [
+      { dx: 1, dy: 0, weight: 8 },
+      { dx: 2, dy: 0, weight: 4 },
+      { dx: -2, dy: 1, weight: 2 },
+      { dx: -1, dy: 1, weight: 4 },
+      { dx: 0, dy: 1, weight: 8 },
+      { dx: 1, dy: 1, weight: 4 },
+      { dx: 2, dy: 1, weight: 2 },
+    ],
+    divisor: 32,
+    serpentine: true,
+  },
+  'sierra-3': {
+    taps: [
+      { dx: 1, dy: 0, weight: 5 },
+      { dx: 2, dy: 0, weight: 3 },
+      { dx: -2, dy: 1, weight: 2 },
+      { dx: -1, dy: 1, weight: 4 },
+      { dx: 0, dy: 1, weight: 5 },
+      { dx: 1, dy: 1, weight: 4 },
+      { dx: 2, dy: 1, weight: 2 },
+      { dx: -1, dy: 2, weight: 2 },
+      { dx: 0, dy: 2, weight: 3 },
+      { dx: 1, dy: 2, weight: 2 },
+    ],
+    divisor: 32,
+    serpentine: true,
+  },
+  'sierra-2': {
+    taps: [
+      { dx: 1, dy: 0, weight: 4 },
+      { dx: 2, dy: 0, weight: 3 },
+      { dx: -2, dy: 1, weight: 1 },
+      { dx: -1, dy: 1, weight: 2 },
+      { dx: 0, dy: 1, weight: 3 },
+      { dx: 1, dy: 1, weight: 2 },
+      { dx: 2, dy: 1, weight: 1 },
+    ],
+    divisor: 16,
+    serpentine: true,
+  },
+  'sierra-lite': {
+    taps: [
+      { dx: 1, dy: 0, weight: 2 },
+      { dx: -1, dy: 1, weight: 1 },
+      { dx: 0, dy: 1, weight: 1 },
+    ],
+    divisor: 4,
+    serpentine: true,
+  },
+  atkinson: {
+    taps: [
+      { dx: 1, dy: 0, weight: 1 },
+      { dx: 2, dy: 0, weight: 1 },
+      { dx: -1, dy: 1, weight: 1 },
+      { dx: 0, dy: 1, weight: 1 },
+      { dx: 1, dy: 1, weight: 1 },
+      { dx: 0, dy: 2, weight: 1 },
+    ],
+    divisor: 8,
+    serpentine: true,
+  },
+};
+
+const ERROR_DIFFUSION_PROFILES: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionProfile>> = {
+  'floyd-steinberg': { threshold: 0.5, jitterBase: 0.04 },
+  'jarvis-judice-ninke': { threshold: 0.46, jitterBase: 0.02 },
+  stucki: { threshold: 0.48, jitterBase: 0.02 },
+  burkes: { threshold: 0.53, jitterBase: 0.03 },
+  'sierra-3': { threshold: 0.5, jitterBase: 0.025 },
+  'sierra-2': { threshold: 0.52, jitterBase: 0.03 },
+  'sierra-lite': { threshold: 0.5, jitterBase: 0 },
+  atkinson: { threshold: 0.45, jitterBase: 0.015 },
+};
+
+const resolveOrderedThreshold = (
+  algorithm: DitherAlgorithm,
+  patternStyle: PatternStyle | undefined,
+  x: number,
+  y: number
+): number => {
+  if (algorithm === 'bayer') {
+    return BAYER_8x8_MATRIX[y & 7][x & 7];
+  }
+  if (algorithm === 'blue-noise') {
+    return BLUE_NOISE_16x16[y & 15][x & 15];
+  }
+  if (algorithm === 'void-and-cluster') {
+    return VOID_CLUSTER_8x8[y & 7][x & 7];
+  }
+
+  const style = patternStyle ?? 'dots';
+  switch (style) {
+    case 'lines':
+      return ((x + y) & 1) === 0 ? 0.3 : 0.7;
+    case 'vertical-lines':
+      return (x & 1) === 0 ? 0.3 : 0.7;
+    case 'horizontal-lines':
+      return (y & 1) === 0 ? 0.3 : 0.7;
+    case 'crosshatch':
+      return (((x & 1) + (y & 1)) * 0.25) + 0.25;
+    case 'diagonal':
+      return (((x + y) & 3) + 0.5) / 4;
+    case 'tone-adaptive':
+      return 0.5 + (BAYER_8x8_MATRIX[y & 7][x & 7] - 0.5) * 0.55;
+    case 'dots':
+    default:
+      return BAYER_8x8_MATRIX[y & 7][x & 7];
+  }
+};
+
+export const fillCcGradientDither = async ({
+  vertices,
+  minX,
+  minY,
+  maxX,
+  maxY,
+  pixelSize,
+  levels,
+  baseOffset,
+  algorithm = 'sierra-lite',
+  patternStyle = 'dots',
+  sampleNormalized,
+  writeIndex,
+  logSetIndexSample,
+  yieldIfNeeded,
+}: CcGradientDitherOptions): Promise<void> => {
+  const clampedLevels = Math.max(2, Math.min(255, Math.floor(levels)));
+  const cellSize = clampedLevels <= 2 ? 1 : Math.max(1, Math.floor(pixelSize));
+  const bboxWidth = Math.max(1, maxX - minX + 1);
+  const bboxHeight = Math.max(1, maxY - minY + 1);
+  const gridW = Math.max(1, Math.ceil(bboxWidth / cellSize));
+  const gridH = Math.max(1, Math.ceil(bboxHeight / cellSize));
+
+  const cellIndices = new Uint16Array(gridW * gridH);
+  const cellCoverage = new Uint8Array(gridW * gridH);
+  const activeMask = new Uint8Array(gridW * gridH);
+  const activeCellsByRow: number[][] = Array.from({ length: gridH }, () => []);
+  const rowSpans: Array<Array<[number, number]>> = Array.from({ length: bboxHeight }, () => []);
+
+  const activeCells: number[] = [];
+  const cellSeen = new Uint8Array(gridW);
+  const thresholdJitter = algorithm === 'sierra-lite' ? 0 : 0.2;
+
+  for (let row = 0; row < bboxHeight; row += 1) {
+    const y = minY + row;
+    const intersections: number[] = [];
+    for (let i = 0; i < vertices.length; i += 1) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % vertices.length];
+      if (Math.abs(v2.y - v1.y) < 1e-4) continue;
+      if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
+        const t = (y - v1.y) / (v2.y - v1.y);
+        const x = v1.x + t * (v2.x - v1.x);
+        intersections.push(x);
+      }
+    }
+
+    intersections.sort((a, b) => a - b);
+    for (let i = 0; i < intersections.length - 1; i += 2) {
+      const startFloat = intersections[i];
+      const endFloat = intersections[i + 1];
+      if (endFloat <= startFloat) continue;
+      rowSpans[row].push([Math.floor(startFloat), Math.ceil(endFloat)]);
+    }
+  }
+
+  for (let cy = 0; cy < gridH; cy += 1) {
+    cellSeen.fill(0);
+    activeCells.length = 0;
+
+    const rowStart = cy * cellSize;
+    const rowEnd = Math.min(bboxHeight - 1, rowStart + cellSize - 1);
+    for (let row = rowStart; row <= rowEnd; row += 1) {
+      const spans = rowSpans[row];
+      for (let i = 0; i < spans.length; i += 1) {
+        const [startX, endX] = spans[i];
+        const startCell = Math.floor((startX - minX) / cellSize);
+        const endCell = Math.floor((endX - minX) / cellSize);
+        for (let cx = startCell; cx <= endCell; cx += 1) {
+          if (cx < 0 || cx >= gridW) continue;
+          if (!cellSeen[cx]) {
+            cellSeen[cx] = 1;
+            activeCells.push(cx);
+          }
+        }
+      }
+    }
+
+    if (!activeCells.length) {
+      continue;
+    }
+    activeCells.sort((a, b) => a - b);
+    activeCellsByRow[cy] = activeCells.slice();
+
+    const serpentine = (cy & 1) === 1;
+    const start = serpentine ? activeCells.length - 1 : 0;
+    const end = serpentine ? -1 : activeCells.length;
+    const step = serpentine ? -1 : 1;
+
+    const sampleY = minY + cy * cellSize + cellSize * 0.5;
+    for (let i = start; i !== end; i += step) {
+      const cx = activeCells[i];
+      const sampleX = minX + cx * cellSize + cellSize * 0.5;
+      let r = clamp01(sampleNormalized(sampleX, sampleY));
+      if (clampedLevels > 1 && algorithm !== 'sierra-lite') {
+        const j = (noiseAt(Math.floor(sampleX), Math.floor(sampleY)) - 0.5) * (0.2 / clampedLevels);
+        r = clamp01(r + j);
+      }
+      const cellIdx = cy * gridW + cx;
+      activeMask[cellIdx] = 255;
+      cellCoverage[cellIdx] = Math.max(0, Math.min(255, Math.round(r * 255)));
+    }
+  }
+
+  if (algorithm === 'sierra-lite') {
+    let errCurr = new Float32Array(gridW);
+    let errNext = new Float32Array(gridW);
+    for (let cy = 0; cy < gridH; cy += 1) {
+      const activeRow = activeCellsByRow[cy];
+      if (!activeRow.length) {
+        const swapErr = errCurr;
+        errCurr = errNext;
+        errNext = swapErr;
+        errNext.fill(0);
+        continue;
+      }
+
+      const swapErr = errCurr;
+      errCurr = errNext;
+      errNext = swapErr;
+      errNext.fill(0);
+
+      const serpentine = (cy & 1) === 1;
+      const start = serpentine ? activeRow.length - 1 : 0;
+      const end = serpentine ? -1 : activeRow.length;
+      const step = serpentine ? -1 : 1;
+
+      for (let i = start; i !== end; i += step) {
+        const cx = activeRow[i];
+        const cellIdx = cy * gridW + cx;
+        const scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
+        const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
+        const frac = scaled - lower;
+        const adj = frac + (errCurr[cx] || 0);
+        const thr = 0.5 + (noiseAt(cx, cy) - 0.5) * thresholdJitter;
+        const chooseUpper = lower < clampedLevels - 1 && adj >= thr;
+        const q = chooseUpper ? 1 : 0;
+        const err = frac - q;
+
+        if (!serpentine) {
+          if (cx + 1 < gridW) errCurr[cx + 1] += err * 0.5;
+          if (cx - 1 >= 0) errNext[cx - 1] += err * 0.25;
+        } else {
+          if (cx - 1 >= 0) errCurr[cx - 1] += err * 0.5;
+          if (cx + 1 < gridW) errNext[cx + 1] += err * 0.25;
+        }
+        errNext[cx] += err * 0.25;
+
+        const level = chooseUpper ? lower + 1 : lower;
+        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
+      }
+    }
+  } else if (algorithm in ERROR_DIFFUSION_KERNELS) {
+    const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
+    const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
+    const errBuf = new Float32Array(gridW * gridH);
+    const jitterScale = profile.jitterBase / Math.max(1, clampedLevels - 1);
+
+    for (let cy = 0; cy < gridH; cy += 1) {
+      const activeRow = activeCellsByRow[cy];
+      if (!activeRow.length) continue;
+
+      const useSerpentine = kernel.serpentine !== false;
+      const leftToRight = useSerpentine ? (cy & 1) === 0 : true;
+      const start = leftToRight ? 0 : activeRow.length - 1;
+      const end = leftToRight ? activeRow.length : -1;
+      const step = leftToRight ? 1 : -1;
+
+      for (let i = start; i !== end; i += step) {
+        const cx = activeRow[i];
+        const cellIdx = cy * gridW + cx;
+        let scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
+        scaled += errBuf[cellIdx] || 0;
+        if (jitterScale > 0) {
+          scaled += (noiseAt(cx, cy) - 0.5) * jitterScale;
+        }
+        scaled = Math.max(0, Math.min(clampedLevels - 1, scaled));
+
+        const lower = Math.floor(scaled);
+        const upper = Math.min(clampedLevels - 1, lower + 1);
+        const frac = scaled - lower;
+        const level = frac >= profile.threshold ? upper : lower;
+        const err = scaled - level;
+
+        if (err !== 0) {
+          const norm = 1 / Math.max(1, kernel.divisor);
+          for (let k = 0; k < kernel.taps.length; k += 1) {
+            const tap = kernel.taps[k];
+            const nx = cx + (leftToRight ? tap.dx : -tap.dx);
+            const ny = cy + tap.dy;
+            if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+            const nIdx = ny * gridW + nx;
+            if (!activeMask[nIdx]) continue;
+            errBuf[nIdx] += err * tap.weight * norm;
+          }
+        }
+
+        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
+      }
+    }
+  } else {
+    const phaseX = Math.floor(minX / Math.max(1, cellSize));
+    const phaseY = Math.floor(minY / Math.max(1, cellSize));
+    for (let cy = 0; cy < gridH; cy += 1) {
+      const activeRow = activeCellsByRow[cy];
+      if (!activeRow.length) continue;
+      for (let i = 0; i < activeRow.length; i += 1) {
+        const cx = activeRow[i];
+        const cellIdx = cy * gridW + cx;
+        const scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
+        const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
+        const frac = scaled - lower;
+        const threshold = resolveOrderedThreshold(
+          algorithm,
+          patternStyle,
+          cx + phaseX,
+          cy + phaseY
+        );
+        const chooseUpper = lower < clampedLevels - 1 && frac >= threshold;
+        const level = chooseUpper ? lower + 1 : lower;
+        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
+      }
+    }
+  }
+
+  for (let row = 0; row < bboxHeight; row += 1) {
+    const y = minY + row;
+    if (yieldIfNeeded) {
+      await yieldIfNeeded(row);
+    }
+    const spans = rowSpans[row];
+    if (!spans.length) continue;
+
+    const cy = Math.max(0, Math.min(gridH - 1, Math.floor((y - minY) / cellSize)));
+    const rowOffset = cy * gridW;
+
+    for (let i = 0; i < spans.length; i += 1) {
+      const [startX, endX] = spans[i];
+      const startCell = Math.floor((startX - minX) / cellSize);
+      const endCell = Math.floor((endX - minX) / cellSize);
+
+      for (let cx = startCell; cx <= endCell; cx += 1) {
+        if (cx < 0 || cx >= gridW) continue;
+        const index = cellIndices[rowOffset + cx];
+        if (index <= 0) continue;
+
+        const cellX = minX + cx * cellSize;
+        const cellXEnd = Math.min(endX, cellX + cellSize - 1);
+        const fillStart = Math.max(startX, cellX);
+        if (fillStart > cellXEnd) continue;
+
+        for (let x = fillStart; x <= cellXEnd; x += 1) {
+          if (logSetIndexSample) {
+            logSetIndexSample(x, y);
+          }
+          writeIndex(x, y, index);
+        }
+      }
+    }
+  }
+};

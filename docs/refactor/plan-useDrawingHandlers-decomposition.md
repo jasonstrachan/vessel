@@ -1,0 +1,3431 @@
+# Plan: Decompose `useDrawingHandlers.ts`
+
+Date: 2025-12-31
+
+## Goal
+Break the 7k‑line `src/hooks/useDrawingHandlers.ts` into focused modules without changing behavior. Improve maintainability, isolate tool logic, and make tests more targeted.
+
+## Scope
+- **In**: `src/hooks/useDrawingHandlers.ts`, `src/hooks/canvas/handlers/**`, `src/hooks/canvas/utils/**`, tool-specific modules.
+- **Out**: Functional changes to rendering, history semantics, export, or UI behavior. No API changes to store slices in this phase.
+
+## Constraints
+- No behavior changes: refactor‑only.
+- Keep public APIs stable.
+- Use `@/*` imports.
+- Keep files under ~500–800 LOC where possible.
+
+## Current Risk Hotspots
+- `useDrawingHandlers.ts` (7,029 LOC) mixes:
+  - input capture + pointer logic
+  - tool gating and state machine transitions
+  - history recording / delta capture
+  - color‑cycle brush management
+  - recolor sampling
+  - selection and crop workflows
+  - shape fill finalization
+
+## Refactor Strategy (Phased)
+
+### Phase 0 — Inventory + Guardrails
+- [x] Map internal sections in `useDrawingHandlers.ts` and tag by concern.
+- [x] Identify shared helpers already living in `src/hooks/canvas/handlers/` and `src/hooks/canvas/utils/`.
+- [x] Add thin typings or interfaces for handler modules (non‑runtime).
+- [x] Define a `HandlerDeps` contract listing all dependencies passed into handlers (store, refs, engines).
+
+Deliverable:
+- [x] A short section map (comment block) at top of `useDrawingHandlers.ts`.
+- [x] `HandlerDeps` type definition colocated with handlers (`src/hooks/canvas/utils/types.ts`).
+
+---
+
+### Phase 1 — Extract Pure/Utility Helpers (Low Risk)
+**Goal**: Move pure, stateless helpers into `src/hooks/canvas/utils/`.
+
+Candidates:
+- [x] Color‑cycle gradient helpers (done in current patch)
+- [x] CSS color parsing helpers (none found in `useDrawingHandlers` for extraction)
+- [x] Geometry/pressure utilities (extracted stroke capture padding helper into `hooks/canvas/utils`)
+
+Deliverable:
+- [x] `src/hooks/canvas/utils/colorCycleHelpers.ts` (already created)
+- [x] Any additional utilities extracted without call‑site behavior change (stroke capture padding helper)
+
+---
+
+### Phase 2 — Extract Tool Modules (Moderate Risk)
+**Goal**: Extract tool‑specific flows into `src/hooks/canvas/handlers/<tool>.ts` or `src/hooks/canvas/handlers/<tool>/` modules.
+
+#### 2.1 Shape Tool Finalization
+Move shape finalize/lost‑edge logic to `src/hooks/canvas/handlers/shapes`.
+- Related logic today:
+  - Shape finalize + erosion + dither
+  - `applyLostEdgeErosionToContext`
+  - `renderDitherGradientToImageData`
+
+Deliverable:
+- [x] `ShapeFinalizeHandler.ts` (or similar) that exposes a `finalizeShape()` with explicit inputs.
+  - [x] Implemented: `ShapeFinalizeHandler.ts` now owns raster shape finalize + dither gradient finalize helpers; `buildLostEdgePolygon` moved.
+  - [x] Lost-edge polygon erosion helper extracted to `applyPolygonLostEdgeErosion`.
+  - [x] Raster shape commit helper extracted to `commitRasterShapeFill`.
+
+#### 2.2 Recolor Sampling Flow
+Move recolor sampling steps into `src/hooks/canvas/handlers/recolorSampling.ts`.
+- Inputs: sampling state, pointer updates, target resolution
+- Outputs: updated recolor settings + layer updates
+
+Deliverable:
+- [x] `recolorSamplingHandler.ts` + integration wiring in `useDrawingHandlers`.
+  - [x] Implemented: `recolorSamplingHandler.ts` extracted from pointer handlers and wired into `pointerHandlers` (no behavior change).
+
+#### 2.3 Crop & Selection Flows
+If state machine logic is already in `src/hooks/canvas/handlers`, move remaining logic that lives in `useDrawingHandlers`.
+
+Deliverable:
+- [x] `cropHandlers.ts` or `selectionHandlers.ts`
+  - [x] Implemented: `selectionHandlers.ts` extracted from `pointerHandlers` for selection hit-test/start/move/end/clear flows.
+  - [x] Crop-specific handler extraction not needed (no crop-specific logic left in `useDrawingHandlers` beyond tool gating).
+
+---
+
+### Phase 3 — Color‑Cycle Brush Pipeline Isolation (Higher Risk)
+**Goal**: Separate history/commit/save behavior for color‑cycle layers into a dedicated helper module.
+
+Move into:
+- `src/hooks/canvas/handlers/colorCycle/`
+  - [x] `colorCycleCommit.ts` (raster overlay commits + brush history scheduling + CC deferred save helper extracted; remaining CC commit paths still inline)
+  - [x] `colorCycleHistory.ts`
+- [x] `colorCycleShapeFill.ts` (linear/concentric CC shape fill helpers extracted)
+- [x] `colorCycleShapeFill.ts` extended with `runColorCycleShapeFill` and linear direction helper
+
+Deliverables:
+- Dedicated “commit” API used by `useDrawingHandlers` and any other call‑sites.
+  - [x] Implemented: `src/hooks/canvas/handlers/colorCycle/colorCycleHistory.ts` for deferred CC saves + queued history commits; `useDrawingHandlers` now delegates.
+  - [x] Extract remaining commit/save paths into `colorCycleCommit.ts` (CC layer stroke commit helper).
+
+---
+
+### Phase 4 — Orchestration Simplification
+**Goal**: Keep `useDrawingHandlers.ts` as orchestration only.
+
+- All heavy logic delegated to handlers.
+- File becomes:
+  - dependencies + wiring
+  - state/refs coordination
+  - hook return surface
+
+Deliverable:
+- [x] `useDrawingHandlers.ts` under ~1,500 LOC (currently ~238 LOC on 2026-02-08).
+  - [x] color-cycle interaction pause/resume moved to `colorCycleInteraction.ts`.
+  - [x] color-cycle rendering/deferred overlay scheduling moved to `colorCycleRender.ts`.
+  - [x] color-cycle playback start/stop moved to `colorCyclePlayback.ts`.
+  - [x] overlay canvas init/resize moved to `overlayCanvas.ts`.
+  - [x] color-cycle surface helpers moved to `colorCycleSurface.ts`.
+  - [x] capture-region utilities moved to `captureRegions.ts`.
+  - [x] brush sampling helpers (auto-sample stops, preview render/clear, sampleHexAt) moved to `brushSampling.ts`.
+  - [x] linear direction selection flow refactored into local helper (`handleLinearDirectionSelection`) for readability.
+  - [x] shape finalization flow refactored into local helper (`handleShapeFinalize`) for readability.
+  - [x] color-cycle brush finalization flow refactored into local helper (`finalizeColorCycleBrush`) for readability.
+  - [x] stroke capture prep (ROI + beforeImage) refactored into local helper (`prepareStrokeCapture`).
+  - [x] color-cycle layer canvas init refactored into local helper (`ensureColorCycleLayerCanvas`).
+  - [x] Extract color-cycle brush finalize + auto-sample stop orchestration into `handlers/colorCycle/colorCycleFinalize.ts`.
+  - [x] Extract CC layer stroke commit branch into `handlers/colorCycle/colorCycleStrokeCommit.ts`.
+  - [x] Extract stroke history commit orchestration into `handlers/colorCycle/colorCycleStrokeHistory.ts`.
+  - [x] Extract sampling cleanup reset into `handlers/brushSampling.ts` (`resetAutoSampleState`).
+  - [x] Extract CC layer canvas init helper into `handlers/colorCycle/colorCycleLayerInit.ts`.
+  - [x] Extract remaining CC brush end-of-stroke pipeline (commit + history + sampling handoff) into `handlers/colorCycle/`.
+  - [x] Extract eraser finalize path into `handlers/eraserFinalize.ts`.
+  - [x] Extract stroke capture prep into `handlers/strokeCapture.ts`.
+  - [x] Extract stroke coalesce payload builder into `handlers/strokeHistoryCoalesce.ts`.
+  - [x] Extract stroke history metadata resolver into `handlers/strokeHistoryMetadata.ts`.
+  - [x] Extract color-cycle brush flags helper into `utils/colorCycleBrushFlags.ts`.
+  - [x] Extract custom brush data resolver into `utils/customBrushData.ts`.
+  - [x] Extract stroke session helpers into `handlers/strokeSession.ts`.
+  - [x] Extract CC brush eraser settings helper into `handlers/colorCycle/colorCycleEraserSettings.ts`.
+  - [x] Extract CC stamp target context helper into `handlers/colorCycle/colorCycleStampTarget.ts`.
+  - [x] Extract brush rotation resolver into `utils/brushRotation.ts`.
+  - [x] Extract idle scheduling helpers into `utils/idle.ts`.
+  - [x] Extract snapshot/shape image helpers into `utils/snapshots.ts`.
+  - [x] Extract canvas backdrop and line clipping helpers into `utils/canvasBackdrop.ts` and `utils/lineClipping.ts`.
+  - [x] Extract color-cycle layer guard into `utils/layerGuards.ts`.
+  - [x] Extract perf/timing debug helpers into `utils/perfDebug.ts`.
+  - [x] Extract shape snapshot helpers into `handlers/shapeSnapshots.ts`.
+  - [x] Extract shape pressure handling into `handlers/shapePressure.ts`.
+  - [x] Extract CC finalize queue flush helper into `handlers/colorCycle/colorCycleFinalizeQueue.ts`.
+  - [x] Extract finalize stroke prep (batch cancel + resampler reset + engine finalize) into `handlers/strokeFinalizePrep.ts`.
+  - [x] Extract finalize guard evaluation into `handlers/finalizeGuards.ts`.
+  - [x] Extract finalize busy lock helper into `handlers/finalizeBusyLock.ts`.
+  - [x] Extract finalize overlay clear helper into `handlers/finalizeOverlayClear.ts`.
+  - [x] Extract pending eraser finalize helper into `handlers/eraserFinalize.ts`.
+  - [x] Extract finalize cleanup block into `handlers/finalizeCleanup.ts`.
+  - [x] Remaining sensible extractions (not strictly for size)
+    - [x] Mask-healing helpers (`createBrushStampSource`, begin/extend/end mask heal) into `handlers/maskHealing.ts`.
+    - [x] Custom brush capture/resampler workflow (captureBrushFromCanvas + resampler refs) into `handlers/customBrushCapture.ts`.
+    - [x] CC animation pause/resume helpers (`pauseAllBrushCCAnimationsNow`, `resumePausedBrushCCAnimations`) into `handlers/colorCycle/colorCycleInteraction.ts` or sibling.
+    - [x] Shape tool orchestration (`startShapeDrawing`, `continueShapeDrawing`, `finalizeShapeDrawing`, direction selection) into `handlers/shapes/shapeDrawing.ts`.
+    - [x] Stroke batching + pixel queue plumbing (`strokeBatchRef`, `processBatchedStrokes`, queue setup) into `handlers/strokeBatching.ts`.
+
+Progress notes:
+- 2026-02-07: Canvas event-handler decomposition slice landed for keyboard/wheel/paste/blur.
+  - Added `src/hooks/canvas/handlers/keyboardHandlers.ts`.
+  - Added `src/hooks/canvas/handlers/wheelHandlers.ts`.
+  - Added `src/hooks/canvas/handlers/clipboardHandlers.ts`.
+  - `src/hooks/canvas/useCanvasEventHandlers.ts` no longer contains keyboard/wheel/paste/blur TODO stubs.
+  - `src/components/canvas/DrawingCanvas.tsx` now delegates keyboard/wheel/paste listener behavior through `useCanvasEventHandlers`.
+- 2026-02-07: Shape flush test lane reopened.
+  - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx` unskipped and converted to active public-API assertions.
+- 2026-02-07: Additional Phase 4 extraction from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/handlers/colorCycle/ccGradientSamplingController.ts`.
+  - Moved sampled-gradient update/count/source-reset controller logic out of `useDrawingHandlers`.
+  - Added `src/hooks/canvas/handlers/colorCycle/colorCyclePlaybackDebug.ts` and moved verbose CC playback trace wrappers out of `useDrawingHandlers`.
+  - Added `src/hooks/canvas/handlers/shapes/shapeDrawingDispatch.ts` and moved shape draw/finalize dispatch wrappers out of `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useDrawingPlaybackEffects.ts` and moved playback/overlay/store-sync effect orchestration out of `useDrawingHandlers`.
+  - Current `useDrawingHandlers.ts` LOC: 2999 (down from 3427 in this execution pass).
+- 2026-02-07: DrawingCanvas decomposition follow-up.
+  - Added `src/components/canvas/useCanvasShapeEditorHandlers.ts` and moved canvas-shape editor pointer handlers out of `DrawingCanvas`.
+  - Current `DrawingCanvas.tsx` LOC: 3500 (down from 3931 in this execution pass).
+- 2026-02-07: DrawingCanvas keyboard orchestration extraction.
+  - Added `src/components/canvas/useDrawingCanvasKeyboard.ts` and moved `useComprehensiveKeyboard` orchestration out of `DrawingCanvas`.
+  - Preserved keyboard parity for save/open and undo/redo gating.
+  - Current `DrawingCanvas.tsx` LOC: 3337.
+- 2026-02-07: Additional Phase 4 `useDrawingHandlers` reduction.
+  - Added `src/hooks/canvas/handlers/colorCycle/ensureActiveColorCycleGradientSlot.ts`.
+  - Moved foreground-derived gradient slot orchestration and slot-rebuild helpers out of `useDrawingHandlers`.
+  - Current `useDrawingHandlers.ts` LOC: 2758 (down from 2999 in this pass; down from 3427 at start of Phase 4 execution).
+- 2026-02-07: DrawingCanvas redraw effects extraction.
+  - Added `src/components/canvas/useDrawingCanvasRedrawEffects.ts`.
+  - Moved recomposition invalidation, selection redraw, color-cycle frame listeners, and undo-stack monitor effects out of `DrawingCanvas`.
+  - Preserved sync-first recomposition path to avoid test-time `act(...)` warnings.
+  - Current `DrawingCanvas.tsx` LOC: 3274.
+- 2026-02-07: DrawingCanvas tool + pointer decomposition continued.
+  - Added `src/components/canvas/useDrawingCanvasToolSync.ts`.
+  - Added `src/components/canvas/useDrawingCanvasPointerUtils.ts`.
+  - Added `src/components/canvas/useDrawingCanvasPointerHandlers.ts`.
+  - Added `src/components/canvas/useDrawingCanvasEventBindings.ts`.
+  - Moved tool sync side-effects, pointer utility helpers, pointer adapter wrappers, and DOM key/wheel/paste listener binding effects out of `DrawingCanvas`.
+  - Current `DrawingCanvas.tsx` LOC: 3107.
+- 2026-02-07: DrawingCanvas decomposition continued (UI/resize/composite/style/overlay slices).
+  - Added `src/components/canvas/useDrawingCanvasUiEffects.ts`.
+  - Added `src/components/canvas/useDrawingCanvasResizeCenter.ts`.
+  - Added `src/components/canvas/useDrawingCanvasCompositeRebuild.ts`.
+  - Added `src/components/canvas/DrawingCanvasOverlays.tsx`.
+  - Added `src/components/canvas/useDrawingCanvasStyles.ts`.
+  - Added `src/components/canvas/useDrawingCanvasCursorEffects.ts`.
+  - Simplified inline `BrushCursor` rendering from IIFE to precomputed props.
+  - Current `DrawingCanvas.tsx` LOC: 2818.
+- 2026-02-07: DrawingCanvas render shell extraction.
+  - Added `src/components/canvas/DrawingCanvasViewport.tsx`.
+  - Moved wrapper/canvas/overlay/cursor render shell out of `DrawingCanvas` into presentational component.
+  - Current `DrawingCanvas.tsx` LOC: 2792.
+- 2026-02-07: DrawingCanvas cursor/sampling extraction.
+  - Added `src/components/canvas/brushCursorShape.ts`.
+  - Added `src/components/canvas/useDrawingCanvasCursorModel.ts`.
+  - Added `src/components/canvas/useDrawingCanvasSampling.ts`.
+  - Moved cursor shape derivation and sampling helpers out of `DrawingCanvas`.
+  - Preserved compatibility by re-exporting `resolveBrushCursorShape` from `DrawingCanvas`.
+  - Current `DrawingCanvas.tsx` LOC: 2589.
+- 2026-02-07: DrawingCanvas layer rendering extraction.
+  - Added `src/components/canvas/useDrawingCanvasLayerRendering.ts`.
+  - Moved non-active layer rendering helper out of `DrawingCanvas`.
+  - Current `DrawingCanvas.tsx` LOC: 2506.
+- 2026-02-07: DrawingCanvas composite buffer extraction.
+  - Added `src/components/canvas/useDrawingCanvasCompositeBuffers.ts`.
+  - Moved split/static composite buffer orchestration out of `DrawingCanvas`.
+  - Preserved async compatibility when rebuilding static composite.
+  - Current `DrawingCanvas.tsx` LOC: 2329.
+- 2026-02-07: DrawingCanvas background rendering extraction.
+  - Added `src/components/canvas/drawingCanvasBackground.ts`.
+  - Moved checkerboard/project background render helper out of `DrawingCanvas`.
+  - Current `DrawingCanvas.tsx` LOC: 2289.
+- 2026-02-07: DrawingCanvas floating-paste rendering extraction.
+  - Added `src/components/canvas/drawingCanvasFloatingPaste.ts`.
+  - Moved floating paste render + preview border logic out of `drawBase`.
+  - Current `DrawingCanvas.tsx` LOC: 2180.
+- 2026-02-07: DrawingCanvas selection rendering extraction.
+  - Added `src/components/canvas/drawingCanvasSelection.ts`.
+  - Moved selection marquee + mask-outline path rendering out of `drawBase`.
+  - Current `DrawingCanvas.tsx` LOC: 2118.
+- 2026-02-07: DrawingCanvas overlay compositing extraction.
+  - Added `src/components/canvas/drawingCanvasOverlay.ts`.
+  - Moved temporary overlay compositing + color-cycle animation block guard out of `drawBase`.
+  - Current `DrawingCanvas.tsx` LOC: 2082.
+- 2026-02-07: DrawingCanvas composite-stack extraction.
+  - Added `src/components/canvas/drawingCanvasCompositeStack.ts`.
+  - Moved main visible composite stack draw block (under split composite, eraser clip fallback, segment draw, bitmap/canvas fallback, over-composite pass) out of `drawBase`.
+  - Preserved invalid composite bitmap recovery path via returned flag and in-hook store reset/recompose trigger.
+  - Current `DrawingCanvas.tsx` LOC: 1969.
+- 2026-02-07: DrawingCanvas outline extraction.
+  - Added `src/components/canvas/drawingCanvasOutline.ts`.
+  - Moved project-outline + canvas-shape draft outline rendering out of `drawBase`.
+  - Current `DrawingCanvas.tsx` LOC: 1958.
+- 2026-02-07: Shape runtime arg-surface reduction (orchestration tightening).
+  - Updated `src/hooks/canvas/useDrawingShapeRuntime.ts` to own static shape/color-cycle helpers directly via imports (`ccGradientSampling`, shape finalize helpers, bbox helpers, snapshot/backdrop helpers, and config constants), reducing passthrough dependency noise from `useDrawingHandlers`.
+  - Removed obsolete `useDrawingShapeRuntime(...)` props from `src/hooks/useDrawingHandlers.ts` and cleaned now-unused imports.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 716
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Stroke runtime arg-surface reduction (orchestration tightening).
+  - Updated `src/hooks/canvas/useDrawingStrokeRuntime.ts` to import static stroke/grid/selector helpers locally (`shouldDrawStamp`, grid snap helpers, selector, line clip, pixel-align helpers) instead of receiving them from `useDrawingHandlers`.
+  - Removed obsolete stroke-runtime passthrough props and cleaned now-unused imports in `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 702
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Start/brush runtime arg-surface reduction (orchestration tightening).
+  - Updated `src/hooks/canvas/useDrawingBrushToolRuntime.ts` to own `resolveActiveCustomBrushData` directly.
+  - Updated `src/hooks/canvas/useDrawingStartRuntime.ts` and `src/hooks/canvas/useDrawingStrokeRuntime.ts` to own static resolver/rotation helpers directly, removing additional passthrough props from `useDrawingHandlers`.
+  - Cleaned obsolete orchestration arguments and imports in `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 695
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Playback/shape-aux runtime config localization (orchestration tightening).
+  - Updated `src/hooks/canvas/useDrawingPlaybackRuntime.ts` to own debug/config dependencies internally (`ccGroup`/`ccGroupEnd`/`ccLog`/`dumpLayerFlags`, `debugWarn`, and playback throttle/cooldown constants).
+  - Updated `src/hooks/canvas/useDrawingShapeAuxRuntime.ts` to own `FF.ERASER_V2` and `ROI_PADDING_PX` internally.
+  - Removed obsolete passthrough args/imports from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 682
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Shape runtime static-dependency localization (orchestration tightening).
+  - Updated `src/hooks/canvas/useDrawingShapeRuntime.ts` to own additional static dependencies directly:
+    - color-cycle brush manager/flags helpers
+    - capture-region helpers
+    - idle scheduler
+    - brush-state capture/surface binding helpers
+    - snapshot retry helper
+  - Removed the corresponding passthrough args from `useDrawingHandlers` shape-runtime callsite.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 674
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Finalize runtime static-dependency localization (orchestration tightening).
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to own static finalize helpers directly:
+    - `clearFinalizeOverlayIfNeeded`
+    - `bindBrushToCanvas`
+    - `dispatchColorCycleFrameUpdate`
+  - Removed corresponding passthrough args/imports from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 662
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: CC sampling callback static-dependency localization.
+  - Updated `src/hooks/canvas/useCcGradientSamplingCallbacks.ts` to own foreground-parameter resolver wiring (`getFgParamsFromState`) internally.
+  - Removed the corresponding passthrough arg/import from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 658
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Start-runtime resampler wiring localization.
+  - Updated `src/hooks/canvas/useDrawingStartRuntime.ts` to own `captureResamplerSingleSample(..., { captureBrushFromCanvas })` internally.
+  - Removed the corresponding passthrough callback/import from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 653
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Stroke-runtime throttle localization.
+  - Updated `src/hooks/canvas/useDrawingStrokeRuntime.ts` to own stroke throttle configuration internally (`STROKE_THROTTLE_MS`).
+  - Removed the corresponding `throttleMs` orchestration wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 651
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Idle scheduler localization in history/finalize runtimes.
+  - Updated `src/hooks/canvas/useColorCycleHistoryRuntime.ts` to own `runIdle`/`runIdleAsync` directly.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to own `runIdleAsync` directly.
+  - Removed idle scheduler passthrough imports/locals/args from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 642
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Feature-flag/constants localization across runtime hooks.
+  - Updated `src/hooks/canvas/useDrawingBrushToolRuntime.ts` to own `FF.ERASER_V2` for mask-healing enablement.
+  - Updated `src/hooks/canvas/useDrawingStartRuntime.ts` to own `FF.ERASER_V2` for tool-stroke start wiring.
+  - Updated `src/hooks/canvas/useDrawingStrokeRuntime.ts` to own `FF.ERASER_V2` for stroke input processing wiring.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to own `FF.ERASER_V2`, `BRUSH_HISTORY_COALESCE_WINDOW_MS`, and `ROI_PADDING_PX`.
+  - Removed corresponding passthrough args/imports from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 633
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: CC sampling constants localization.
+  - Updated `src/hooks/canvas/useCcGradientSamplingCallbacks.ts` to own `CC_SAMPLE_COUNT_WRITE_MS` and `CC_SAMPLED_RUNTIME_FLUSH_THROTTLE_MS` directly.
+  - Removed corresponding passthrough constants from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 629
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: History finalize-lane constant localization.
+  - Updated `src/hooks/canvas/useColorCycleHistoryRuntime.ts` to own `HISTORY_FINALIZE_LANE` internally.
+  - Removed corresponding passthrough constant wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 627
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Shape runtime debug-flag localization.
+  - Updated `src/hooks/canvas/useDrawingShapeRuntime.ts` to own `CC_DEBUG` internally.
+  - Removed corresponding passthrough debug-flag wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 626
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Finalize-context perfMeasure wrapper localization.
+  - Updated `src/hooks/canvas/useDrawingFinalizeContextRuntime.ts` to own the `perfMeasure` default-end-label wrapper.
+  - Removed inline wrapper lambda from `src/hooks/useDrawingHandlers.ts` finalize-context callsite.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 625
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Stroke runtime capture helper localization.
+  - Updated `src/hooks/canvas/useDrawingStrokeRuntime.ts` to own `captureBrushFromCanvas` internally.
+  - Removed corresponding passthrough wiring/import from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 623
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Brush-manager/brush-state helper localization across runtimes.
+  - Updated `src/hooks/canvas/useDrawingStartRuntime.ts` to own `getColorCycleBrushManager` and `captureColorCycleBrushState` directly.
+  - Updated `src/hooks/canvas/useDrawingColorCycleRuntimeControllers.ts` to own `getColorCycleBrushManager` directly.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to own `captureColorCycleBrushState` directly.
+  - Updated `src/hooks/canvas/useDrawingStrokeRuntime.ts` to own `getColorCycleBrushManager` directly.
+  - Removed corresponding passthrough imports/args from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 616
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Stroke runtime CC-flag helper localization.
+  - Updated `src/hooks/canvas/useDrawingStrokeRuntime.ts` to own `getColorCycleBrushFlags` internally.
+  - Removed corresponding passthrough import/wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 614
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Active-gradient-slot dispatcher localization across runtimes.
+  - Updated runtime hooks to own `createEnsureActiveColorCycleGradientSlotDispatcher()` internally:
+    - `src/hooks/canvas/useDrawingStartRuntime.ts`
+    - `src/hooks/canvas/useDrawingStrokeRuntime.ts`
+    - `src/hooks/canvas/useDrawingShapeRuntime.ts`
+  - Removed corresponding dispatcher import/memoized passthrough wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 604
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Cancel-animation helper localization.
+  - Updated `src/hooks/canvas/useDrawingColorCycleRuntimeControllers.ts` to own `cancelAnimationFrameSafe` directly.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to own `cancelAnimationFrameSafe` directly.
+  - Removed top-level cancel-animation memo and passthrough wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 596
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Pending-save tracker localization in history runtime.
+  - Updated `src/hooks/canvas/useColorCycleHistoryRuntime.ts` to own `trackPendingColorCycleSave` directly.
+  - Removed corresponding passthrough import/wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 594
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: CC sample-session ref extraction.
+  - Added `src/hooks/canvas/useCcGradientSampleSessionRef.ts` to own CC gradient sample-session ref initialization.
+  - Removed direct `useRef(createCcGradientSampleSession())` usage from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 592
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Brush-tool debug logger localization.
+  - Updated `src/hooks/canvas/useDrawingBrushToolRuntime.ts` to own `debugWarn` directly.
+  - Removed corresponding passthrough import/wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 591
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Mask-manager localization across runtime hooks.
+  - Updated runtime hooks to own `getMaskManager()` usage directly:
+    - `src/hooks/canvas/useDrawingBrushToolRuntime.ts`
+    - `src/hooks/canvas/useDrawingColorCycleRuntimeControllers.ts`
+    - `src/hooks/canvas/useDrawingStartRuntime.ts`
+  - Removed top-level `maskManager` memo and passthrough wiring/import from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 586
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Start-runtime debug logger localization.
+  - Updated `src/hooks/canvas/useDrawingStartRuntime.ts` to own `debugLog` directly.
+  - Removed corresponding passthrough import/wiring from `src/hooks/useDrawingHandlers.ts`.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- --runInBand src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 586
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: Overlay dispatcher orchestration extraction from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useOverlayCanvasRuntime.ts`.
+  - Moved overlay dispatcher memoization (`initDrawingCanvas`, `ensureOverlayInitialized`) out of `useDrawingHandlers`.
+  - Updated hook memo deps to include canvas refs/content refs and cleared lint dependency warnings.
+  - Validation passed:
+    - `npm run lint`
+    - `npm run type-check`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+  - Current LOC snapshot:
+    - `src/hooks/useDrawingHandlers.ts`: 1149
+    - `src/components/canvas/DrawingCanvas.tsx`: 903
+- 2026-02-07: `useDrawingHandlers` finalize eraser deps adapter extraction.
+  - Extended `src/hooks/canvas/handlers/eraserFinalize.ts` with `createFinalizeEraserStrokeDeps`.
+  - Added `src/hooks/canvas/handlers/finalizeBrushContextDeps.ts` and moved brush-context deps wiring out of `src/hooks/useDrawingHandlers.ts`.
+  - Replaced inline eraser/brush-context finalize deps adapters in `src/hooks/useDrawingHandlers.ts` with memoized factory wiring.
+  - Cleaned finalize callback deps list to remove stale entries after extraction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2516; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: DrawingCanvas animation-runtime extraction.
+  - Added `src/components/canvas/useDrawingCanvasAnimationRuntime.ts`.
+  - Moved animation start/stop wrappers, pan pause/resume playback gating, and BrushControls runtime handler wiring out of `DrawingCanvas`.
+  - Current `DrawingCanvas.tsx` LOC: 1910.
+- 2026-02-07: DrawingCanvas viewport + active-layer CC suspension extraction.
+  - Added `src/components/canvas/useDrawingCanvasViewportTracking.ts`.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleLayerSuspension.ts`.
+  - Moved wrapper viewport tracking effect and non-CC active-layer color-cycle suspend/resume effect out of `DrawingCanvas`.
+  - Current `DrawingCanvas.tsx` LOC: 1865.
+- 2026-02-07: DrawingCanvas color-cycle runtime refs extraction.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleRuntimeRefs.ts`.
+  - Moved color-cycle runtime ref synchronization and manager lifecycle ownership out of `DrawingCanvas`.
+  - `DrawingCanvas` now declares refs once and delegates update/lifecycle effects to the hook.
+  - Current `DrawingCanvas.tsx` LOC: 1855.
+- 2026-02-07: DrawingCanvas pan sync extraction.
+  - Added `src/components/canvas/useDrawingCanvasPanSync.ts`.
+  - Moved pan/store synchronization pipeline out of `DrawingCanvas`:
+    - pending RAF pan commit scheduling
+    - pan start/end perf session boundaries
+    - pan state sync back into store + view transform refs
+  - Current `DrawingCanvas.tsx` LOC: 1782.
+- 2026-02-07: DrawingCanvas cancel-operations extraction.
+  - Added `src/components/canvas/useDrawingCanvasCancelOps.ts`.
+  - Moved multi-tool cancellation/reset pipeline out of `DrawingCanvas` (`cancelActiveOperations`), including shape/gradient/fill/floating-paste cancellation and overlay clear + redraw dispatch.
+  - Current `DrawingCanvas.tsx` LOC: 1722.
+- 2026-02-07: DrawingCanvas rectangle-gradient finalize extraction.
+  - Added `src/components/canvas/useDrawingCanvasRectangleGradientFinalize.ts`.
+  - Moved `finalizeRectangleGradientFromState` orchestration out of `DrawingCanvas` (preset/sample color resolve, draw, finalize, composite refresh, cleanup).
+  - Current `DrawingCanvas.tsx` LOC: 1633.
+- 2026-02-07: DrawingCanvas active-shape finalize extraction.
+  - Added `src/components/canvas/useDrawingCanvasFinalizeActiveShape.ts`.
+  - Moved `finalizeActiveShape` orchestration out of `DrawingCanvas`, including:
+    - rectangle-gradient finalize delegation
+    - shape fill session commit/finalize and lost-edge erosion path
+    - shape-drawing finalize path
+    - overlay/composite cleanup + redraw + interaction end dispatch
+  - Current `DrawingCanvas.tsx` LOC: 1509.
+  - Current `useDrawingHandlers.ts` LOC: 2758.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: DrawingCanvas base renderer extraction.
+  - Added `src/components/canvas/useDrawingCanvasBaseRenderer.ts`.
+  - Moved `drawBase` orchestration/render layering out of `DrawingCanvas`, including:
+    - visible-world rect computation + checker/background render
+    - split composite + overlay/under/over stack composition and invalid bitmap recovery
+    - outline/floating-paste/selection layer draws
+  - Current `DrawingCanvas.tsx` LOC: 1279.
+  - Current `useDrawingHandlers.ts` LOC: 2758.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useCanvasEventHandlers` cleanup + flush test verification.
+  - Confirmed no remaining `TODO`/`FIXME`/`HACK` markers in `src/hooks/canvas/useCanvasEventHandlers.ts`.
+  - Simplified dynamic dependency syncing in `src/hooks/canvas/useCanvasEventHandlers.ts` by introducing a single `dynamicDeps` object and assigning it to `dynamicDepsRef.current`.
+  - Verified `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx` remains active (not skipped) and passing.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-drag polygon coercion extraction.
+  - Added `src/hooks/canvas/handlers/shapes/shapeDragPolygon.ts`.
+  - Moved `coerceDragShapeToPolygon` body out of `src/hooks/useDrawingHandlers.ts` into handler module.
+  - Current `useDrawingHandlers.ts` LOC: 2746.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` clear-canvas extraction.
+  - Added `src/hooks/canvas/handlers/clearDrawingCanvas.ts`.
+  - Moved `clearDrawingCanvas` implementation out of `src/hooks/useDrawingHandlers.ts` into handler module.
+  - Current `useDrawingHandlers.ts` LOC: 2750.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` CC gradient sample reset extraction.
+  - Added `resetCcGradientSampleState` to `src/hooks/canvas/handlers/colorCycle/ccGradientSampling.ts`.
+  - Moved inline reset of CC sampled gradient refs/session out of `src/hooks/useDrawingHandlers.ts` into the color-cycle handler module.
+  - Current `useDrawingHandlers.ts` LOC: 2757.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-drag reset extraction.
+  - Added `src/hooks/canvas/handlers/shapes/resetShapeDragRefs.ts`.
+  - Moved shape drag ref reset logic (`shapeDragStartRef`/`shapeDragLastRef`/`shapeDragMovedRef`) out of `src/hooks/useDrawingHandlers.ts`.
+  - Wired both zoom-change reset and `resetShapeDragRefs` callback through shared handler.
+  - Current `useDrawingHandlers.ts` LOC: 2762.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` simple-shape preview throttle extraction.
+  - Added `src/hooks/canvas/handlers/shapes/shapePreviewThrottle.ts`.
+  - Moved throttled preview trigger and preview renderer setter logic out of `src/hooks/useDrawingHandlers.ts`.
+  - Current `useDrawingHandlers.ts` LOC: 2742.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` polygon-gradient reset extraction.
+  - Added `src/hooks/canvas/handlers/shapes/resetPolygonGradientState.ts`.
+  - Moved full polygon gradient idle reset payload out of `src/hooks/useDrawingHandlers.ts` into shared handler.
+  - Current `useDrawingHandlers.ts` LOC: 2738.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` brush-half-size extraction.
+  - Added `src/hooks/canvas/handlers/getBrushHalfSize.ts`.
+  - Moved `getBrushHalfSize` computation out of `src/hooks/useDrawingHandlers.ts`.
+  - Current `useDrawingHandlers.ts` LOC: 2736.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` stroke-session pointer reset extraction.
+  - Extended `src/hooks/canvas/handlers/strokeSession.ts` with:
+    - `endStrokeSessionAndClearPointerDown`
+    - `clearStrokeSessionAndPointerDown`
+  - Moved duplicated `isPointerDownRef.current = false` updates out of `src/hooks/useDrawingHandlers.ts` end/clear session callbacks into shared stroke-session handler helpers.
+  - Current `useDrawingHandlers.ts` LOC: 2725.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` stroke-session dispatcher extraction.
+  - Extended `src/hooks/canvas/handlers/strokeSession.ts` with `createStrokeSessionDispatchers`.
+  - Replaced three local `useCallback` wrappers (`beginStrokeSession`, `endStrokeSession`, `clearStrokeSession`) in `src/hooks/useDrawingHandlers.ts` with one `useMemo` dispatcher object from the handler module.
+  - Current `useDrawingHandlers.ts` LOC: 2705.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` recompose scheduler extraction.
+  - Added `src/hooks/canvas/handlers/colorCycle/scheduleRecompose.ts`.
+  - Moved RAF-coalesced `colorCycleFrameUpdate` dispatch logic out of `src/hooks/useDrawingHandlers.ts`.
+  - Replaced inline `scheduleRecompose` body with handler delegation while preserving pending-guard and ROI detail payload behavior.
+  - Current `useDrawingHandlers.ts` LOC: 2704.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` frame-update dispatch extraction.
+  - Extended `src/hooks/canvas/handlers/colorCycle/scheduleRecompose.ts` with `dispatchColorCycleFrameUpdate`.
+  - Replaced direct `window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'))` calls in `src/hooks/useDrawingHandlers.ts` with shared helper usage.
+  - Current `useDrawingHandlers.ts` LOC: 2704.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` idle-wrapper simplification.
+  - Removed local `runIdle` / `runIdleAsync` `useCallback` wrappers in `src/hooks/useDrawingHandlers.ts`.
+  - Reused shared idle utilities directly (`runIdleExternal`, `runIdleAsyncExternal`) to reduce orchestration-only callback noise without changing behavior.
+  - Current `useDrawingHandlers.ts` LOC: 2697.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` mask-healing dispatcher extraction.
+  - Extended `src/hooks/canvas/handlers/maskHealing.ts` with `createMaskHealingDispatchers`.
+  - Replaced three local mask-healing callbacks in `src/hooks/useDrawingHandlers.ts` with a single memoized dispatcher object from the handler module.
+  - Current `useDrawingHandlers.ts` LOC: 2681.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` color-cycle history dispatcher extraction.
+  - Added `src/hooks/canvas/handlers/colorCycle/colorCycleHistoryDispatchers.ts`.
+  - Moved orchestration-only history/deferred-save callbacks out of `src/hooks/useDrawingHandlers.ts`:
+    - `scheduleHistoryCommit`
+    - `commitRasterOverlay`
+    - `scheduleDeferredColorCycleSave`
+    - `scheduleDeferredColorCycleSaveWithState`
+  - Replaced local callback cluster with one memoized dispatcher object from the new handler module.
+  - Current `useDrawingHandlers.ts` LOC: 2628.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` color-cycle runtime dispatcher extraction.
+  - Added `src/hooks/canvas/handlers/colorCycle/colorCycleRuntimeDispatchers.ts`.
+  - Moved orchestration-only runtime callbacks out of `src/hooks/useDrawingHandlers.ts`:
+    - `pauseColorCycleForNonCCInteraction`
+    - `resumeColorCycleAfterInteraction`
+    - `renderAllColorCycleLayers`
+    - `cancelDeferredOverlayRender`
+    - `scheduleDeferredOverlayRender`
+    - `stopContinuousColorCycleAnimationCore`
+  - Replaced inline callback cluster with one memoized dispatcher object.
+  - Current `useDrawingHandlers.ts` LOC: 2577.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` eraser segment extraction.
+  - Added `src/hooks/canvas/handlers/eraserSegment.ts`.
+  - Moved eraser stroke segment paint setup/body out of `src/hooks/useDrawingHandlers.ts`.
+  - Kept `drawEraserSegment` callback contract unchanged; callback now delegates to shared handler.
+  - Current `useDrawingHandlers.ts` LOC: 2563.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` manual stroke bounding-box extraction.
+  - Added `src/hooks/canvas/handlers/strokeBoundingBox.ts`.
+  - Moved `seedManualStrokeBoundingBox` ref mutation and bbox expansion loop out of `src/hooks/useDrawingHandlers.ts`.
+  - Kept callback API unchanged; callback now delegates to shared handler.
+  - Current `useDrawingHandlers.ts` LOC: 2558.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` pause-all-CC dispatcher extraction.
+  - Extended `src/hooks/canvas/handlers/colorCycle/colorCycleInteraction.ts` with `createPauseAllBrushCCAnimationsDispatcher`.
+  - Replaced local `pauseAllBrushCCAnimationsNow` dependency-mapping callback in `src/hooks/useDrawingHandlers.ts` with a memoized dispatcher from handler module.
+  - Current `useDrawingHandlers.ts` LOC: 2556.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` overlay dispatcher extraction.
+  - Extended `src/hooks/canvas/handlers/overlayCanvas.ts` with `createOverlayCanvasDispatchers`.
+  - Replaced local `initDrawingCanvas` and `ensureOverlayInitialized` callback wrappers in `src/hooks/useDrawingHandlers.ts` with one memoized dispatcher object.
+  - Current `useDrawingHandlers.ts` LOC: 2551.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-pressure update dispatcher extraction.
+  - Extended `src/hooks/canvas/handlers/shapePressure.ts` with `createUpdateShapePressureDispatcher`.
+  - Replaced inline `updateShapePressure` dependency/ref wiring in `src/hooks/useDrawingHandlers.ts` with memoized dispatcher usage.
+  - Current `useDrawingHandlers.ts` LOC: 2550.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-pressure debug helper extraction.
+  - Added `shapePressureDebugEnabled` to `src/hooks/canvas/handlers/shapePressure.ts`.
+  - Removed inline `shapePressureDebugEnabled` callback from `src/hooks/useDrawingHandlers.ts` and reused the shared helper in the update dispatcher deps.
+  - Current `useDrawingHandlers.ts` LOC: 2546.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `npm test -- src/components/canvas/__tests__/DrawingCanvas.cursorShape.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-pressure reset dispatcher extraction (stabilized).
+  - Added `createResetShapePressureStateDispatcher` to `src/hooks/canvas/handlers/shapePressure.ts`.
+  - Replaced inline `resetShapePressureState` body in `src/hooks/useDrawingHandlers.ts` with dispatcher usage while preserving lazy invocation (`useCallback`) so refs are read only at call-time.
+  - Current `useDrawingHandlers.ts` LOC: 2548.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-snapshot dispatcher extraction.
+  - Added `createShapeSnapshotDispatchers` to `src/hooks/canvas/handlers/shapeSnapshots.ts`.
+  - Replaced inline `clearShapeBeforeSnapshot` and `capturePendingShapeSnapshot` callback wrappers in `src/hooks/useDrawingHandlers.ts` with one memoized dispatcher object.
+  - Current `useDrawingHandlers.ts` LOC: 2549.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-preview dispatcher extraction.
+  - Added `createShapePreviewDispatchers` to `src/hooks/canvas/handlers/shapes/shapePreviewThrottle.ts`.
+  - Replaced inline `triggerSimpleShapePreview` and `setSimpleShapePreviewRenderer` callback wrappers in `src/hooks/useDrawingHandlers.ts` with one memoized dispatcher object.
+  - Current `useDrawingHandlers.ts` LOC: 2545.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` brush-size/polygon-reset wrapper factory extraction.
+  - Added `createBrushHalfSizeGetter` to `src/hooks/canvas/handlers/getBrushHalfSize.ts`.
+  - Added `createResetPolygonGradientStateDispatcher` to `src/hooks/canvas/handlers/shapes/resetPolygonGradientState.ts`.
+  - Replaced inline `getBrushHalfSize` and `resetPolygonState` wrappers in `src/hooks/useDrawingHandlers.ts` with memoized factory usage.
+  - Current `useDrawingHandlers.ts` LOC: 2544.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` recompose dispatcher factory extraction.
+  - Added `createScheduleRecomposeDispatcher` to `src/hooks/canvas/handlers/colorCycle/scheduleRecompose.ts`.
+  - Replaced inline `scheduleRecompose` callback wrapper in `src/hooks/useDrawingHandlers.ts` with memoized factory usage.
+  - Current `useDrawingHandlers.ts` LOC: 2544.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` effective-CC-playing getter extraction.
+  - Added `createEffectiveColorCyclePlayingGetter` to `src/hooks/canvas/handlers/colorCycle/colorCycleInteraction.ts`.
+  - Replaced inline `getEffectiveColorCyclePlaying` callback wrapper in `src/hooks/useDrawingHandlers.ts` with memoized factory usage.
+  - Current `useDrawingHandlers.ts` LOC: 2545.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` CC stamp-target getter extraction.
+  - Added `createColorCycleStampTargetCtxGetter` to `src/hooks/canvas/handlers/colorCycle/colorCycleStampTarget.ts`.
+  - Replaced inline `getCCStampTargetCtx` callback wrapper in `src/hooks/useDrawingHandlers.ts` with memoized factory usage.
+  - Current `useDrawingHandlers.ts` LOC: 2544.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` shape-drag reset dispatcher factory extraction.
+  - Added `createResetShapeDragRefsDispatcher` to `src/hooks/canvas/handlers/shapes/resetShapeDragRefs.ts`.
+  - Replaced inline `resetShapeDragRefs` callback wrapper in `src/hooks/useDrawingHandlers.ts` with memoized factory usage.
+  - Kept zoom-change reset path on direct `resetShapeDragRefs` handler call to avoid ref initialization-order issues in early effects.
+  - Current `useDrawingHandlers.ts` LOC: 2547.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` CC eraser-settings getter factory extraction.
+  - Added `createColorCycleBrushEraserSettingsGetter` to `src/hooks/canvas/handlers/colorCycle/colorCycleEraserSettings.ts`.
+  - Replaced inline `getColorCycleBrushEraserSettings` wrapper in `src/hooks/useDrawingHandlers.ts` with memoized factory usage and lazy getters for state/resampler data.
+  - Current `useDrawingHandlers.ts` LOC: 2548.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` clear-canvas dispatcher factory extraction.
+  - Added `createClearDrawingCanvasDispatcher` to `src/hooks/canvas/handlers/clearDrawingCanvas.ts`.
+  - Replaced inline `clearDrawingCanvas` wrapper in `src/hooks/useDrawingHandlers.ts` with memoized factory usage.
+  - Current `useDrawingHandlers.ts` LOC: 2550.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize visible-timer extraction.
+  - Added `src/hooks/canvas/handlers/finalizeVisibleTimer.ts`.
+  - Moved `startFinalizeVisibleTimer`/`endFinalizeVisibleTimer` closure scaffolding out of `finalizeDrawing` into `createFinalizeVisibleTimer`.
+  - Current `useDrawingHandlers.ts` LOC: 2542.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize options resolution extraction.
+  - Added `src/hooks/canvas/handlers/finalizeOptions.ts`.
+  - Moved `skipSaveOrOptions` parsing (`options`, `skipSave`, `historyActionOverride`, `historyDescriptionOverride`) out of `finalizeDrawing` via `resolveFinalizeOptions`.
+  - Current `useDrawingHandlers.ts` LOC: 2541.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize guard-context extraction.
+  - Extended `src/hooks/canvas/handlers/finalizeGuards.ts` with `resolveFinalizeGuardContext`.
+  - Moved snapshot/CC-flag/finalize-tool/guard context derivation out of `finalizeDrawing` in `src/hooks/useDrawingHandlers.ts`.
+  - Current `useDrawingHandlers.ts` LOC: 2539.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize prelude extraction.
+  - Added `src/hooks/canvas/handlers/finalizePrelude.ts` with `runFinalizePrelude`.
+  - Moved finalize prelude block out of `finalizeDrawing`:
+    - batched stroke flush
+    - color-cycle queue idle decision + flush/await
+    - pending eraser tool finalize
+  - Current `useDrawingHandlers.ts` LOC: 2529.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize layer-capture context extraction.
+  - Added `src/hooks/canvas/handlers/finalizeLayerCaptureContext.ts`.
+  - Moved finalize layer/capture setup out of `finalizeAfterQueue`:
+    - active layer id + before-image/color snapshot wiring
+    - stroke coalesce payload build
+    - stroke capture preparation + ROI/before-image resolution
+  - Current `useDrawingHandlers.ts` LOC: 2542 (slight increase from helper wiring/types; complexity in `finalizeAfterQueue` reduced).
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize brush-context extraction.
+  - Added `src/hooks/canvas/handlers/finalizeBrushContext.ts`.
+  - Moved brush-branch setup in `finalizeAfterQueue` into shared helper:
+    - active brush settings/flags and CC-layer/CC-brush booleans
+    - CC layer-canvas ensure path
+    - resolved history action/description metadata
+    - coalescing-disable flags for CC stroke semantics
+  - Current `useDrawingHandlers.ts` LOC: 2540.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize lost-edge dedup extraction.
+  - Added `src/hooks/canvas/handlers/finalizeLostEdge.ts`.
+  - Replaced duplicated polygon lost-edge finalize blocks in `finalizeAfterQueue` with shared `applyFinalizePolygonLostEdge` calls (pre-commit + pre-raster-commit with optional debug stats).
+  - Current `useDrawingHandlers.ts` LOC: 2529.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize post-commit tail extraction.
+  - Added `src/hooks/canvas/handlers/finalizePostCommit.ts`.
+  - Moved post-commit finalize tail out of `finalizeAfterQueue`:
+    - overlay clear path
+    - fallback history commit path
+    - non-CC brush cleanup buffer clear
+  - Current `useDrawingHandlers.ts` LOC: 2541 (slight net increase due to explicit helper boundaries/types while reducing tail nesting).
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` CC layer-content updater extraction.
+  - Extended `src/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit.ts` with `markColorCycleLayerHasContent`.
+  - Replaced inline `markLayerHasContent` updater block in `finalizeAfterQueue` with the shared helper.
+  - Current `useDrawingHandlers.ts` LOC: 2529.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` finalize raster-fallback extraction.
+  - Added `src/hooks/canvas/handlers/finalizeRasterFallback.ts`.
+  - Moved raster fallback finalize block out of `finalizeAfterQueue`:
+    - missing before-image guard + error path
+    - lost-edge pre-pass for raster commit
+    - raster overlay commit + historyHandled resolution
+  - Current `useDrawingHandlers.ts` LOC: 2542 (slight net increase from explicit helper boundary typing).
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+- 2026-02-07: `useDrawingHandlers` color-cycle commit deps factory extraction.
+  - Extended `src/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit.ts` with `createColorCycleStrokeCommitDeps`.
+  - Replaced large inline `commitColorCycleStrokeIfNeeded` deps object in `finalizeAfterQueue` with shared factory usage.
+  - Current `useDrawingHandlers.ts` LOC: 2541.
+  - Validation for this slice passed:
+    - `npm run type-check`
+    - `npm run lint`
+    - `npm test -- src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `npm test`
+
+## Handler Interface Contract
+- Handlers are plain functions (no React hooks).
+- All side effects must flow through explicit dependencies in `HandlerDeps`.
+- Handler inputs/outputs are typed; state mutation is via passed store/actions only.
+
+---
+
+## Dependency & Ownership Boundaries
+
+### Candidate Folder Structure
+```
+src/hooks/canvas/
+  handlers/
+    brushHandlers.ts
+    selectionHandlers.ts
+    cropHandlers.ts
+    recolorSamplingHandler.ts
+    shapes/
+      ShapeFinalizeHandler.ts
+      ShapeToolHandler.ts
+    colorCycle/
+      colorCycleCommit.ts
+      colorCycleHistory.ts
+  utils/
+    colorCycleHelpers.ts
+    pressureUtils.ts
+    geometryUtils.ts
+```
+
+### Invariants
+- `useDrawingHandlers` is the only place with hook‑level state and React lifecycle hooks.
+- Handlers are pure or side‑effect driven but do not use React hooks directly.
+
+---
+
+## Testing Strategy
+- Use existing tests under `src/hooks/canvas/__tests__` and `src/hooks/__tests__`.
+- Add targeted unit tests for extracted helpers as needed.
+- Ensure pointer handlers tests remain green.
+
+---
+
+## Incremental Commit Plan
+
+1. **Utility extraction** (low risk)
+   - Move helpers, update imports
+   - No behavior change
+2. **Shape finalize extraction**
+3. **Recolor sampling extraction**
+4. **Color‑cycle history/commit extraction**
+5. **Final cleanup + doc update**
+6. **Color-cycle brush finalize + auto-sample extraction** (done)
+
+---
+
+## Progress Notes
+- 2026-02-07: Extracted finalize post-commit stroke-history adapter into shared handler factory.
+  - Added `createCommitStrokeHistoryIfNeededDispatcher` in `src/hooks/canvas/handlers/colorCycle/colorCycleStrokeHistory.ts`.
+  - Replaced inline adapter block in `src/hooks/useDrawingHandlers.ts` with handler factory wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2524; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted canvas/drawing-handler tests, and full `npm test`.
+- 2026-02-07: Extracted finalize raster-fallback dependency adapter into handler-level factory.
+  - Added `src/hooks/canvas/handlers/finalizeRasterFallbackDeps.ts`.
+  - Added exported `FinalizeRasterFallbackArgs`/`FinalizeRasterFallbackDeps` contracts in `src/hooks/canvas/handlers/finalizeRasterFallback.ts`.
+  - Replaced inline raster-fallback deps block in `src/hooks/useDrawingHandlers.ts` with `createFinalizeRasterFallbackDeps`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2507; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted canvas/drawing-handler tests, and full `npm test`.
+- 2026-02-07: Consolidated duplicated color-cycle brush resolver wiring.
+  - Replaced repeated inline `getBrushForLayer` lambdas in `src/hooks/useDrawingHandlers.ts` with one shared `useCallback`.
+  - Wired shared resolver into both finalize-color-cycle and stroke-commit dep setup.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2511; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Extracted finalize post-commit dependency adapter into a handler factory.
+  - Added exported `RunFinalizePostCommitDeps` in `src/hooks/canvas/handlers/finalizePostCommit.ts`.
+  - Added `src/hooks/canvas/handlers/finalizePostCommitDeps.ts` with `createFinalizePostCommitDeps`.
+  - Replaced inline deps object passed to `runFinalizePostCommit` in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2511; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Extracted color-cycle finalize dependency adapter into a handler factory.
+  - Added `src/hooks/canvas/handlers/colorCycle/colorCycleFinalizeDeps.ts`.
+  - Replaced inline deps object passed to `finalizeColorCycleBrush` in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2511; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Moved finalize dependency-object construction out of the finalize callback body.
+  - Added memoized `commitStrokeHistoryDeps`, `finalizePostCommitDeps`, and `finalizeRasterFallbackDeps` in `src/hooks/useDrawingHandlers.ts`.
+  - Replaced inline finalize callback object blocks with the memoized deps references.
+  - Introduced module-level `IS_DEV` constant for finalize fallback wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2530; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Consolidated finalize deps orchestration into a shared helper.
+  - Added `src/hooks/canvas/handlers/finalizeDeps.ts` to compose post-commit + raster-fallback deps from one entry point.
+  - Replaced separate finalize deps memo blocks in `src/hooks/useDrawingHandlers.ts` with a single memoized `createFinalizeDeps` call.
+  - Removed local `IS_DEV` finalize constant from the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2515; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Hoisted finalize visible-timer wiring outside finalize callback body.
+  - Moved `createFinalizeVisibleTimer` setup in `src/hooks/useDrawingHandlers.ts` to hook-level memoized deps.
+  - Updated finalize callback dependency list (`startFinalizeVisibleTimer`, `endFinalizeVisibleTimer`) to preserve exhaustive-deps correctness.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2521; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Extracted finalize layer-capture deps adapter into dedicated handler factory.
+  - Added exported `PrepareFinalizeLayerCaptureContextDeps` type in `src/hooks/canvas/handlers/finalizeLayerCaptureContext.ts`.
+  - Added `src/hooks/canvas/handlers/finalizeLayerCaptureContextDeps.ts`.
+  - Replaced inline `prepareFinalizeLayerCaptureContext` wrapper deps in `src/hooks/useDrawingHandlers.ts` with memoized factory wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2513; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Extracted finalize brush-context deps adapter into dedicated handler factory.
+  - Added exported `PrepareFinalizeBrushContextDeps` type in `src/hooks/canvas/handlers/finalizeBrushContext.ts`.
+  - Added `src/hooks/canvas/handlers/finalizeBrushContextDeps.ts`.
+  - Replaced inline brush-context deps wrapper in `src/hooks/useDrawingHandlers.ts` with memoized factory wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2511; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, targeted drawing-handler tests, and full `npm test`.
+- 2026-02-07: Extracted finalize cleanup deps adapter into dedicated handler factory.
+  - Added exported `FinalizeDrawingCleanupArgs` type in `src/hooks/canvas/handlers/finalizeCleanup.ts`.
+  - Added `src/hooks/canvas/handlers/finalizeCleanupDeps.ts` with `createFinalizeDrawingCleanupDeps`.
+  - Replaced inline `finalizeDrawingCleanup` deps object in `src/hooks/useDrawingHandlers.ts` with memoized factory wiring and cleaned finalize callback dependency list.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2529; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Hoisted color-cycle stroke commit deps wiring out of finalize callback body.
+  - Added memoized `colorCycleCommitDeps` in `src/hooks/useDrawingHandlers.ts` via `createColorCycleStrokeCommitDeps`.
+  - Replaced per-finalize inline deps object construction with the memoized deps instance.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2537; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Hoisted finalize history-deps composition into shared factory wiring.
+  - Extended `src/hooks/canvas/handlers/colorCycle/colorCycleStrokeHistory.ts` with `createCommitStrokeHistoryDeps`.
+  - Added memoized `commitStrokeHistoryDeps` in `src/hooks/useDrawingHandlers.ts` and passed it into `createFinalizeDeps`.
+  - Replaced nested inline history deps object from finalize deps composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2545; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Split color-cycle finalize deps into base + runtime composition.
+  - Extended `src/hooks/canvas/handlers/colorCycle/colorCycleFinalizeDeps.ts` with:
+    - `createFinalizeColorCycleBrushBaseDeps`
+    - `createFinalizeColorCycleBrushDeps({ base, drawingCanvas, drawingCtx })`
+  - Added memoized `finalizeColorCycleBrushBaseDeps` in `src/hooks/useDrawingHandlers.ts`.
+  - Replaced inline large deps object in `finalizeColorCycleBrush` call with composed runtime deps.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2557; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Consolidated brush finalize-flow deps composition into one handler factory.
+  - Added `src/hooks/canvas/handlers/finalizeBrushFlowDeps.ts`.
+  - Moved creation of:
+    - `finalizeColorCycleBrushBaseDeps`
+    - `colorCycleCommitDeps`
+    into a single memoized `createFinalizeBrushFlowDeps` call in `src/hooks/useDrawingHandlers.ts`.
+  - Preserved existing runtime composition for `drawingCanvas`/`drawingCtx`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2550; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Moved finalize in-progress guard into color-cycle finalize handler path.
+  - Updated `src/hooks/canvas/handlers/colorCycle/colorCycleFinalize.ts` to own `finalizeInProgressRef` lifecycle with `try/finally`.
+  - Extended `src/hooks/canvas/handlers/colorCycle/colorCycleFinalizeDeps.ts` and `src/hooks/canvas/handlers/finalizeBrushFlowDeps.ts` to pass `finalizeInProgressRef` through deps composition.
+  - Removed manual in-progress toggle from `src/hooks/useDrawingHandlers.ts` finalize brush branch.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2549; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted color-cycle finalize call-site wrapper from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/handlers/colorCycle/runFinalizeColorCycleBrush.ts`.
+  - Moved `activeFlags` derivation + deps composition + `finalizeColorCycleBrush` invocation out of `src/hooks/useDrawingHandlers.ts`.
+  - `useDrawingHandlers` now calls `runFinalizeColorCycleBrush` with runtime canvas context and memoized base deps.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2542; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted color-cycle commit/fallback branch wrapper from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/handlers/colorCycle/runFinalizeColorCycleCommitBranch.ts`.
+  - Moved lost-edge prepass + color-cycle stroke commit + raster fallback handoff orchestration out of `src/hooks/useDrawingHandlers.ts`.
+  - `useDrawingHandlers` now consumes returned `{ historyHandled, strokeCaptureRoi, deferredLayerCanvas, brushForCleanup }` from the wrapper.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2529; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Added brush-flow-specific finalize post-commit wrapper.
+  - Extended `src/hooks/canvas/handlers/finalizePostCommit.ts` with `runFinalizePostCommitForBrushFlow`.
+  - Moved post-commit arg normalization (`skipSave`, coalescing, ROI selection, history skip flags) out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2529; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize lost-edge dispatcher composition.
+  - Added `src/hooks/canvas/handlers/finalizeLostEdgeDeps.ts` with `createFinalizeLostEdgeDispatcher`.
+  - Replaced inline lost-edge closure in the brush finalize commit branch with memoized dispatcher wiring in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2536; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted full brush finalize branch orchestration into dedicated handler.
+  - Added `src/hooks/canvas/handlers/finalizeBrushToolFlow.ts` to own brush-branch finalize sequencing:
+    - brush-context resolution
+    - color-cycle finalize attempt
+    - color-cycle commit/fallback branch
+    - post-commit finalize path
+  - Replaced the inline brush finalize branch in `src/hooks/useDrawingHandlers.ts` with one `runFinalizeBrushToolFlow` call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2463; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted eraser finalize branch wrapper.
+  - Added `src/hooks/canvas/handlers/finalizeEraserToolFlow.ts`.
+  - Replaced inline eraser finalize branch in `src/hooks/useDrawingHandlers.ts` with `runFinalizeEraserToolFlow`.
+  - Centralized eraser ROI reset in the new wrapper to keep branch orchestration lean.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2464; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Simplified brush-flow wrapper return contract.
+  - Updated `src/hooks/canvas/handlers/finalizeBrushToolFlow.ts` to return only `shouldReturn` (removed `coalescePayload` return plumbing).
+  - Removed now-unused reassignment wiring in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2463; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted active-layer finalize flow into dedicated handler.
+  - Added `src/hooks/canvas/handlers/finalizeActiveLayerFlow.ts`.
+  - Moved layer-capture preparation + tool-branch dispatch (eraser/brush) out of `src/hooks/useDrawingHandlers.ts`.
+  - `finalizeAfterQueue` now delegates to `runFinalizeActiveLayerFlow`, reducing in-hook nesting and branch complexity.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2415; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted `finalizeAfterQueue` orchestration into dedicated handler.
+  - Added `src/hooks/canvas/handlers/finalizeAfterQueue.ts`.
+  - Moved stroke-finalize prep + active-layer finalize dispatch out of `src/hooks/useDrawingHandlers.ts`.
+  - `useDrawingHandlers` now keeps queue idle gating and high-level finalize orchestration only.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2392; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Added finalize-after-queue dispatcher factory wiring.
+  - Extended `src/hooks/canvas/handlers/finalizeAfterQueue.ts` with `createFinalizeAfterQueueDispatcher`.
+  - Moved inline `runFinalizeAfterQueue` argument assembly in `src/hooks/useDrawingHandlers.ts` into memoized dispatcher composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2400; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize try-body execution orchestrator.
+  - Added `src/hooks/canvas/handlers/finalizeExecution.ts` with `runFinalizeExecution`.
+  - Moved busy-lock + prelude + queue idle gating orchestration out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2387; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize entry-context resolution.
+  - Added `src/hooks/canvas/handlers/finalizeEntryContext.ts` with `resolveFinalizeEntryContext`.
+  - Moved option parsing + guard resolution + pending eraser-tool derivation out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2379; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize lifecycle wrapper (`try/catch/finally`).
+  - Extended `src/hooks/canvas/handlers/finalizeExecution.ts` with `runFinalizeDrawingLifecycle`.
+  - Moved execution error handling + cleanup + pointer-reset lifecycle out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2377; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-after-queue deps bundle factory.
+  - Added `src/hooks/canvas/handlers/finalizeExecutionDeps.ts` with `createFinalizeAfterQueueDeps`.
+  - Replaced inline `finalizeAfterQueueDeps` object assembly in `src/hooks/useDrawingHandlers.ts` with memoized factory composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2387; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-execution dispatcher factory.
+  - Extended `src/hooks/canvas/handlers/finalizeExecution.ts` with `createFinalizeExecutionDispatcher`.
+  - Replaced inline `runFinalizeExecution` argument assembly in `src/hooks/useDrawingHandlers.ts` with memoized dispatcher wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2397; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-drawing dispatcher factory.
+  - Extended `src/hooks/canvas/handlers/finalizeExecution.ts` with `createFinalizeDrawingDispatcher`.
+  - Moved `finalizeDrawing` callback body orchestration (entry-context resolution + lifecycle invocation wiring) out of `src/hooks/useDrawingHandlers.ts`.
+  - `useDrawingHandlers` now composes a memoized dispatcher and exposes a thin callback wrapper.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2365; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-drawing dispatcher deps bundle factory.
+  - Extended `src/hooks/canvas/handlers/finalizeExecutionDeps.ts` with `createFinalizeDrawingDispatcherDeps`.
+  - Replaced inline finalize-drawing dispatcher dependency object assembly in `src/hooks/useDrawingHandlers.ts` with memoized deps-factory composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2368; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted continue-drawing flow into dedicated handler module.
+  - Added `src/hooks/canvas/handlers/continueDrawing.ts` with `createContinueDrawingHandler`.
+  - Replaced inline `continueDrawing` body in `src/hooks/useDrawingHandlers.ts` with memoized handler-factory wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2347; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted shape-pressure reset subscriptions into dedicated hook.
+  - Added `src/hooks/canvas/useShapePressureResetEffects.ts`.
+  - Moved fill-resolution and zoom-driven pressure reset subscriptions out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2305; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted shape-pressure model refs/dispatchers into dedicated hook.
+  - Added `src/hooks/canvas/useShapePressureModel.ts`.
+  - Moved shape-pressure refs + reset/update/compute orchestration out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2235; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted overlay initialization/resize effects into dedicated hook.
+  - Added `src/hooks/canvas/useOverlaySizeEffects.ts`.
+  - Moved overlay init/size sync effects out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2222; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted mark-gradient lifecycle effects into dedicated hook.
+  - Added `src/hooks/canvas/useMarkGradientLifecycle.ts`.
+  - Moved pointer-down ref registration and mark-gradient unmount cleanup effects out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2204; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-queue registration effect into dedicated hook.
+  - Added `src/hooks/canvas/useFinalizeQueueRegistration.ts`.
+  - Moved finalize queue registration/unregistration lifecycle out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2199; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted CC gradient source-reset lifecycle into dedicated hook.
+  - Added `src/hooks/canvas/useCcGradientSourceResetEffect.ts`.
+  - Moved callback-ref and subscription lifecycle for gradient-source reset out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2184; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted brush-sampling callback cluster into dedicated hook.
+  - Added `src/hooks/canvas/useBrushSamplingCallbacks.ts`.
+  - Moved preview render/clear and auto-sample reset/update + dither update callbacks out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2127; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted CC gradient-sampling callback cluster into dedicated hook.
+  - Added `src/hooks/canvas/useCcGradientSamplingCallbacks.ts`.
+  - Moved CC sample update/reset/get/apply callback orchestration out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2079; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted sampling-core callbacks into dedicated hook.
+  - Added `src/hooks/canvas/useSamplingCoreCallbacks.ts`.
+  - Moved `sampleHexAt` and `computeAutoSampleStops` callback wiring out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2061; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Replaced inline stroke-batching callback with dispatcher factory wiring.
+  - Extended `src/hooks/canvas/handlers/strokeBatching.ts` with `createProcessBatchedStrokesDispatcher`.
+  - Replaced inline `processBatchedStrokes` callback body in `src/hooks/useDrawingHandlers.ts` with memoized dispatcher composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2063; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-boundary callback wiring into dedicated hook.
+  - Added `src/hooks/canvas/useStrokeBoundaryCallbacks.ts`.
+  - Moved `drawEraserSegment` and `seedManualStrokeBoundingBox` callback wiring out of `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2047; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start sampling initialization into handler helper.
+  - Added `src/hooks/canvas/handlers/strokeSamplingStart.ts` with `initializeStrokeSamplingState`.
+  - Replaced inline auto-sample + sampled-gradient stroke-start initialization block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2041; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start palette sync block into handler helper.
+  - Added `src/hooks/canvas/handlers/strokeStartPalette.ts` with `syncStrokeStartPalette`.
+  - Replaced inline foreground palette/brush-color sync branch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2029; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted color-cycle stroke-start prep block into handler helper.
+  - Added `src/hooks/canvas/handlers/strokeStartColorCycle.ts` with `prepareStrokeStartColorCycleState`.
+  - Replaced inline non-CC pause + CC queue/distance/reset branch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2015; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start canvas prep block into handler helper.
+  - Added `src/hooks/canvas/handlers/strokeStartCanvas.ts` with `initializeStrokeStartCanvasState`.
+  - Replaced inline stamp reset + overlay clear + initial point refs branch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 2018; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted eraser stroke-start branch into handler helper.
+  - Added `src/hooks/canvas/handlers/startEraserStroke.ts` with `startEraserStroke`.
+  - Replaced inline eraser-v2 and legacy eraser start branch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1982; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted non-CC brush-engine stroke-start tail into helper.
+  - Added `src/hooks/canvas/handlers/startBrushStroke.ts` with `startNonColorCycleBrushStroke`.
+  - Replaced inline resampler/custom-stamp + initial `drawBrush` non-CC tail in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1971; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start before-color-state capture into handler helper.
+  - Added `src/hooks/canvas/handlers/strokeStartBeforeState.ts` with `captureStrokeStartBeforeColorState`.
+  - Replaced inline `captureColorCycleBrushState` + debug counter branch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1964; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start layer compatibility/CC-init guard into handler helper.
+  - Added `src/hooks/canvas/handlers/strokeStartLayerGuards.ts` with `runStrokeStartLayerGuards`.
+  - Replaced inline layer visibility + CC compatibility + CC gradient mark-session start block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1897; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start CC playback-sync block into handler helper.
+  - Added `src/hooks/canvas/handlers/strokeStartColorCyclePlayback.ts` with `syncStrokeStartColorCyclePlayback`.
+  - Replaced inline desired/effective CC playback and startup-kick branch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1883; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start capture-readiness init into helper.
+  - Added `src/hooks/canvas/handlers/strokeStartCaptureReady.ts` with `ensureStrokeStartColorCycleCaptureReady`.
+  - Replaced inline `initColorCycleForLayer` guard before before-state capture in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1882; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted user-brush stroke-start invocation into shared helper.
+  - Added `src/hooks/canvas/handlers/startUserBrushStroke.ts` with `startUserBrushStroke`.
+  - Replaced duplicated `setActiveBrush/startStroke` calls in `src/hooks/useDrawingHandlers.ts` and `src/hooks/canvas/handlers/startEraserStroke.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1890; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start auto-sample color pick into helper.
+  - Added `src/hooks/canvas/handlers/strokeStartAutoSampleColor.ts` with `applyStrokeStartAutoSampleColor`.
+  - Replaced inline regular-brush auto-sample color block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1863; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start session bootstrap into helper.
+  - Added `src/hooks/canvas/handlers/strokeStartSession.ts` with `beginStrokeStartSession`.
+  - Replaced inline `isPointerDown` + `beginStrokeSession` + overlay-init block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1865; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start capture-bounds initialization into helper.
+  - Added `src/hooks/canvas/handlers/strokeStartCaptureBounds.ts` with `initializeStrokeStartCaptureBounds`.
+  - Replaced inline stroke bounding-box + capture-padding init/reset block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1869; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start runtime-context resolution into helper.
+  - Added `src/hooks/canvas/handlers/strokeStartRuntime.ts` with `resolveStrokeStartRuntimeContext`.
+  - Replaced inline active-layer lookup + runtime-project fallback block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1871; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted CC stroke-start flow/gradient setup into helper.
+  - Added `src/hooks/canvas/handlers/startColorCycleStrokeConfig.ts` with `configureStartColorCycleStroke`.
+  - Replaced inline CC stroke-start flow-mode normalization + gradient-slot ensure block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1854; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted CC stroke-start queue/spacing prep into helper.
+  - Added `src/hooks/canvas/handlers/startColorCycleStrokeQueue.ts` with `prepareColorCycleStrokeQueue`.
+  - Replaced inline `effectiveSpacing`/`pixelQueue`/`markDirty` setup block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1836; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted CC stroke-start stamping progression into helper.
+  - Added `src/hooks/canvas/handlers/startColorCycleStrokeStamp.ts` with `startColorCycleStrokeStamp`.
+  - Replaced inline CC custom/non-custom start stamp branch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1759; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted CC stroke-start orchestration branch into handler helper.
+  - Added `src/hooks/canvas/handlers/startColorCycleStroke.ts` with `startColorCycleStroke`.
+  - Replaced inline CC active-layer guard + mask-heal bootstrap + config/queue/stamp orchestration in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1733; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted brush-tool stroke-start branch into orchestration helper.
+  - Added `src/hooks/canvas/handlers/startBrushToolStroke.ts` with `startBrushToolStroke`.
+  - Replaced inline brush-tool start path (`user brush` vs `CC` vs `non-CC`) in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1698; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start before-state/session prep into helper.
+  - Added `src/hooks/canvas/handlers/strokeStartBeforeStateSession.ts` with `prepareStrokeStartBeforeStateSession`.
+  - Replaced inline before-state reset/capture + CC capture-ready/playback sync + session bootstrap in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1662; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start prelude into orchestration helper.
+  - Added `src/hooks/canvas/handlers/strokeStartPrelude.ts` with `prepareStrokeStartPrelude`.
+  - Replaced inline start prelude (tool/brush context + auto-sample + capture-bounds + layer guards) in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1626; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start sampling/canvas initialization sequence into helper.
+  - Added `src/hooks/canvas/handlers/strokeStartSamplingCanvas.ts` with `prepareStrokeStartSamplingCanvas`.
+  - Replaced inline sampling init + CC stroke-start state prep + canvas init + palette sync block in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1591; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke-start tool dispatch into helper.
+  - Added `src/hooks/canvas/handlers/startDrawingToolStroke.ts` with `startDrawingToolStroke`.
+  - Replaced inline `eraser` vs `brush` start-branch dispatch in `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1575; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted full `startDrawing` orchestration into handler module.
+  - Added `src/hooks/canvas/handlers/startDrawing.ts` with `startDrawingHandler`.
+  - Replaced inline `startDrawing` orchestration body in `src/hooks/useDrawingHandlers.ts` with a single handler call plus wiring args.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1532; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted input stroke handler wiring into shared helper.
+  - Added `src/hooks/canvas/handlers/strokeInputHandlers.ts` with `createStrokeInputHandlers`.
+  - Replaced separate inline `processBatchedStrokes` and `continueDrawing` wiring blocks in `src/hooks/useDrawingHandlers.ts` with one memoized helper call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1526; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted continuous color-cycle start callback pair into dedicated helper module.
+  - Added `src/hooks/canvas/handlers/colorCycle/startContinuousColorCycleCallbacks.ts` with `createStartContinuousColorCycleAnimationCore` and `createStartContinuousColorCycleAnimation`.
+  - Replaced inline `startContinuousColorCycleAnimationCore` and traced wrapper wiring in `src/hooks/useDrawingHandlers.ts` with memoized helper dispatchers.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1529; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-drawing dispatcher/closure wiring into helper module.
+  - Added `src/hooks/canvas/handlers/finalizeDrawingHandlers.ts` with `createFinalizeDrawingDispatcher`, `createFinalizeDrawingHandlers`, and `buildFinalizeDrawingCleanup`.
+  - Replaced inline finalize dispatcher construction + `finalizeDrawing`/`finalizeStroke` closure wiring in `src/hooks/useDrawingHandlers.ts` with helper-based memoized wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1519; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted shape auxiliary handler wiring into shared helper.
+  - Added `src/hooks/canvas/handlers/shapes/shapeAuxHandlers.ts` with `createShapeAuxHandlers`.
+  - Replaced inline clear-canvas/coerce-drag-shape/shape-snapshot dispatcher wiring block in `src/hooks/useDrawingHandlers.ts` with one memoized helper call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1516; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted shape drawing dispatcher wiring wrapper into dedicated helper.
+  - Added `src/hooks/canvas/handlers/shapes/shapeDrawingHandlers.ts` with `createShapeDrawingHandlers`.
+  - Replaced local shape dispatcher construction wrapper in `src/hooks/useDrawingHandlers.ts` with helper call and inline `shapeDrawingRefs`/`shapeDrawingDeps`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1512; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted color-cycle playback wiring block into custom hook.
+  - Added `src/hooks/canvas/useColorCyclePlaybackHandlers.ts` with `useColorCyclePlaybackHandlers`.
+  - Replaced inline `startContinuousColorCycleAnimationCore`/wrapper + `useDrawingPlaybackEffects` wiring block in `src/hooks/useDrawingHandlers.ts` with the custom hook call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1490; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted shape drawing options assembly into helper builder.
+  - Added `src/hooks/canvas/handlers/shapes/buildShapeDrawingHandlerOptions.ts` with `buildShapeDrawingHandlerOptions`.
+  - Replaced inline `shapeDrawingRefs` + `shapeDrawingDeps` assembly block in `src/hooks/useDrawingHandlers.ts` with builder-based option construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1481; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted shape auxiliary argument assembly into helper builder.
+  - Added `src/hooks/canvas/handlers/shapes/buildShapeAuxHandlerArgs.ts` with `buildShapeAuxHandlerArgs`.
+  - Replaced inline `createShapeAuxHandlers` argument assembly block in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1474; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted color-cycle playback custom-hook argument assembly into builder.
+  - Added `src/hooks/canvas/handlers/colorCycle/buildColorCyclePlaybackHandlerArgs.ts` with `buildColorCyclePlaybackHandlerArgs`.
+  - Replaced inline `useColorCyclePlaybackHandlers` nested argument block in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1460; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted final return-object + feedback setter wiring into helper module.
+  - Added `src/hooks/canvas/handlers/buildDrawingHandlersResult.ts` with `createFeedbackCallbackSetter` and `buildDrawingHandlersResult`.
+  - Replaced inline `setFeedbackCallback` callback and direct return-object literal in `src/hooks/useDrawingHandlers.ts` with helper-based wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1464; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-pipeline argument assembly into typed builders.
+  - Added `src/hooks/canvas/handlers/buildFinalizePipelineArgs.ts` with `buildFinalizeAfterQueueDispatcherArgs`, `buildFinalizeBrushFlowDepsArgs`, and `buildFinalizeDrawingDispatcherArgs`.
+  - Replaced inline finalize dispatcher/deps argument objects in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1468; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-core dependency argument assembly into typed builders.
+  - Added `src/hooks/canvas/handlers/buildFinalizeCoreDepsArgs.ts` with `buildCommitStrokeHistoryDepsArgs` and `buildFinalizeDepsArgs`.
+  - Replaced inline `commitStrokeHistoryDeps`/`createFinalizeDeps` argument objects in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1472; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted finalize-context dependency argument assembly into typed builders.
+  - Added `src/hooks/canvas/handlers/buildFinalizeContextDepsArgs.ts` with `buildFinalizeLayerCaptureContextDepsArgs`, `buildFinalizeLostEdgeDispatcherArgs`, `buildFinalizeBrushContextDepsArgs`, `buildFinalizeEraserStrokeDepsArgs`, and `buildFinalizeDrawingCleanupDepsArgs`.
+  - Replaced inline finalize context/dependency argument objects in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1479; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+
+---
+
+## Definition of Done
+- `useDrawingHandlers.ts` split into handler modules
+- No behavior change in UI or tool workflows
+- Tests pass: `npm test`, `npm run lint`, `npm run type-check`
+- Documentation in `docs/refactor/plan-useDrawingHandlers-decomposition.md` kept current
+
+## Risk + Rollback
+- **Risk**: Subtle behavior changes from refactor-only movement.
+- **Mitigation**: Move code in small steps; add golden path tests for pointer handling.
+- **Rollback**: Revert the most recent extraction module and restore inline logic in `useDrawingHandlers.ts`.
+- 2026-02-07: Extracted continuous color-cycle stop callback wrapper into shared helper.
+  - Extended `src/hooks/canvas/handlers/colorCycle/startContinuousColorCycleCallbacks.ts` with `createStopContinuousColorCycleAnimation`.
+  - Replaced inline traced `stopContinuousColorCycleAnimation` callback in `src/hooks/useDrawingHandlers.ts` with helper-based memoized wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1482; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted `startDrawing` callback wrapper into shared helper.
+  - Added `src/hooks/canvas/handlers/startDrawingCallback.ts` with `buildStartDrawingSharedArgs` and `createStartDrawingCallback`.
+  - Replaced inline `startDrawing` callback body in `src/hooks/useDrawingHandlers.ts` with helper-based memoized callback wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1485; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted color-cycle runtime dispatcher argument assembly into typed builder.
+  - Added `src/hooks/canvas/handlers/colorCycle/buildColorCycleRuntimeDispatcherArgs.ts` with `buildColorCycleRuntimeDispatcherArgs`.
+  - Replaced inline `createColorCycleRuntimeDispatchers` argument object in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1487; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted color-cycle history dispatcher argument assembly into typed builder.
+  - Added `src/hooks/canvas/handlers/colorCycle/buildColorCycleHistoryDispatcherArgs.ts` with `buildColorCycleHistoryDispatcherArgs`.
+  - Replaced inline `createColorCycleHistoryDispatchers` argument object in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1492; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted stroke input handler argument assembly into typed builder.
+  - Added `src/hooks/canvas/handlers/buildStrokeInputHandlerArgs.ts` with `buildStrokeInputHandlerArgs`.
+  - Replaced inline `createStrokeInputHandlers` argument object in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1497; `src/components/canvas/DrawingCanvas.tsx` 1279.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas color-cycle gradient stop sampling helpers into utility module.
+  - Added `src/components/canvas/colorCycleGradientSampling.ts` with `resampleStopsToColors` and helper color interpolation functions.
+  - Removed inline gradient-stop color interpolation/resampling helpers from `src/components/canvas/DrawingCanvas.tsx` and imported the utility.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1497; `src/components/canvas/DrawingCanvas.tsx` 1220.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas default cursor-style decision tree into helper.
+  - Added `src/components/canvas/defaultCursorStyle.ts` with `resolveDefaultCursorStyle`.
+  - Replaced inline cursor-style decision logic in `src/components/canvas/DrawingCanvas.tsx` with helper-based memoized resolution.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1497; `src/components/canvas/DrawingCanvas.tsx` 1189.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas layer hash computation into helper.
+  - Added `src/components/canvas/layersHash.ts` with `buildLayersHash`.
+  - Replaced inline `layersHash` computation in `src/components/canvas/DrawingCanvas.tsx` with helper-based memoization.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1497; `src/components/canvas/DrawingCanvas.tsx` 1183.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas pointer-inside-canvas geometry into pure helper.
+  - Added `src/components/canvas/pointerInsideCanvas.ts` with `isPointerInsideCanvasAtPosition`.
+  - Replaced inline pointer-inside-canvas geometry logic in `src/components/canvas/DrawingCanvas.tsx` with helper call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1497; `src/components/canvas/DrawingCanvas.tsx` 1182.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted pause-all brush CC animation dispatcher argument assembly into typed builder.
+  - Added `src/hooks/canvas/handlers/colorCycle/buildPauseAllBrushCCAnimationsArgs.ts` with `buildPauseAllBrushCCAnimationsArgs`.
+  - Replaced inline `createPauseAllBrushCCAnimationsDispatcher` argument object in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1182.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas shape-editor bridge hook.
+  - Added `src/components/canvas/useDrawingCanvasShapeEditorBridge.ts` to own draft update callback wiring and `useCanvasShapeEditorHandlers` composition.
+  - Replaced inline `updateCanvasShapeDraft` + `useCanvasShapeEditorHandlers` wiring block in `src/components/canvas/DrawingCanvas.tsx` with the bridge hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1176.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas shape finalize flush registration effect.
+  - Added `src/components/canvas/useDrawingCanvasShapeFlushRegistration.ts` to own `registerToolFlush` / `unregisterToolFlush` orchestration.
+  - Replaced inline `useEffect` flush registration block in `src/components/canvas/DrawingCanvas.tsx` with the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1170.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas color-cycle callback ref and feedback bridge.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleCallbackRefs.ts` to own start/stop animation callback refs and feedback callback wiring.
+  - Replaced inline start/stop callback ref sync + feedback effect block in `src/components/canvas/DrawingCanvas.tsx` with the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1159.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas shape-editor UX effects.
+  - Added `src/components/canvas/useDrawingCanvasShapeEditorEffects.ts` for canvas-shape editor reset and instructional feedback side-effects.
+  - Replaced inline shape-editor `useEffect` blocks in `src/components/canvas/DrawingCanvas.tsx` with the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1150.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas draw callback orchestration hook.
+  - Added `src/components/canvas/useDrawingCanvasDrawCallback.ts` to own draw performance timing and render callback orchestration.
+  - Replaced inline `draw` callback body in `src/components/canvas/DrawingCanvas.tsx` with hook-based composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1128.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas initial draw synchronization effect.
+  - Added `src/components/canvas/useDrawingCanvasInitialDrawEffect.ts` to own draw-ref synchronization and initial canvas draw orchestration.
+  - Replaced inline draw-ref sync + initial draw `useEffect` in `src/components/canvas/DrawingCanvas.tsx` with the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1122.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas handler adapter callbacks.
+  - Added `src/components/canvas/useDrawingCanvasHandlerAdapters.ts` for `setCurrentToolById`, `setFloatingPasteFromHandlers`, and cursor-position bridge callbacks.
+  - Replaced inline adapter callback blocks in `src/components/canvas/DrawingCanvas.tsx` with hook-based adapters.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1098.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas color-cycle worker init effect.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleWorkerInit.ts` for compositor worker init/ping and fallback warning flow.
+  - Replaced inline worker-init `useEffect` block in `src/components/canvas/DrawingCanvas.tsx` with the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1075.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas color-cycle segment refresh orchestration.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleSegmentRefresh.ts` for segment snapshot tracking, layer-map synchronization, deferred refresh scheduling, and refresh execution.
+  - Replaced inline `refreshColorCycleSegments` callback + related synchronization/effect blocks in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1017.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas brush-manager initialization effect.
+  - Added `src/components/canvas/useDrawingCanvasBrushManagerInit.ts` to own initial color-cycle brush manager binding.
+  - Replaced inline brush-manager init `useEffect` in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1016.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas cursor-style state/effect wiring.
+  - Added `src/components/canvas/useDrawingCanvasCursorStyleState.ts` for default-cursor synchronization and cursor-style state plumbing.
+  - Replaced inline cursor-style state/effect block in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1011.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas pointer-inside callback hook.
+  - Added `src/components/canvas/useDrawingCanvasPointerInside.ts` for pointer-in-canvas callback wiring.
+  - Replaced inline `isPointerInsideCanvas` callback in `src/components/canvas/DrawingCanvas.tsx` with the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1004.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas view-transform scale synchronization effect.
+  - Added `src/components/canvas/useDrawingCanvasViewScaleSync.ts` to own canvas zoom -> view transform scale synchronization.
+  - Replaced inline view-scale `useEffect` in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 1006.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas input handler pipeline bridge.
+  - Added `src/components/canvas/useDrawingCanvasInputHandlers.ts` to own `useCanvasEventHandlers` wiring, pointer handler composition, and event binding registration.
+  - Replaced the large inline event-handler/pointer/binding orchestration block in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1502; `src/components/canvas/DrawingCanvas.tsx` 947.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted `useDrawingHandlers` ensure-active color-cycle gradient slot dispatcher wrapper.
+  - Added `src/hooks/canvas/handlers/colorCycle/ensureActiveColorCycleGradientSlotDispatcher.ts` with `createEnsureActiveColorCycleGradientSlotDispatcher`.
+  - Replaced inline `ensureActiveColorCycleGradientSlot` callback wrapper in `src/hooks/useDrawingHandlers.ts` with helper-based memoized dispatcher wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1500; `src/components/canvas/DrawingCanvas.tsx` 947.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted `useDrawingHandlers` overlay canvas dispatcher argument assembly into typed builder.
+  - Added `src/hooks/canvas/handlers/buildOverlayCanvasDispatcherArgs.ts` with `buildOverlayCanvasDispatcherArgs`.
+  - Replaced inline `createOverlayCanvasDispatchers` argument object in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1505; `src/components/canvas/DrawingCanvas.tsx` 947.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas default cursor-style memo hook.
+  - Added `src/components/canvas/useDrawingCanvasDefaultCursorStyle.ts` to own default cursor-style memoized resolution.
+  - Replaced inline `defaultCursorStyle` memo block in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1505; `src/components/canvas/DrawingCanvas.tsx` 943.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas shape editor state composition hook.
+  - Added `src/components/canvas/useDrawingCanvasShapeEditorState.ts` to own `activeCanvasShape`, `canvasBounds`, and shape editor refs.
+  - Replaced inline shape-editor state memo/ref setup in `src/components/canvas/DrawingCanvas.tsx` with the hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1505; `src/components/canvas/DrawingCanvas.tsx` 932.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted `useDrawingHandlers` brush stamp source factory wiring.
+  - Added `src/hooks/canvas/handlers/createBrushStampSourceFactory.ts` with `createBrushStampSourceFactory`.
+  - Replaced inline `createBrushStampSource` callback wrapper in `src/hooks/useDrawingHandlers.ts` with helper-based memoized factory wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1507; `src/components/canvas/DrawingCanvas.tsx` 932.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted `useDrawingHandlers` get-brush-for-layer dispatcher wrapper.
+  - Added `src/hooks/canvas/handlers/colorCycle/getBrushForLayerDispatcher.ts` with `createGetBrushForLayerDispatcher`.
+  - Replaced inline `getBrushForLayer` callback wrapper in `src/hooks/useDrawingHandlers.ts` with helper-based memoized dispatcher wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1509; `src/components/canvas/DrawingCanvas.tsx` 932.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas tools snapshot memo hook.
+  - Added `src/components/canvas/useDrawingCanvasToolsSnapshot.ts` to own memoized tool/brush/fill/eraser snapshot composition.
+  - Replaced inline `tools` memo block in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1509; `src/components/canvas/DrawingCanvas.tsx` 930.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted `useDrawingHandlers` color-cycle brush eraser-settings getter args builder.
+  - Added `src/hooks/canvas/handlers/colorCycle/buildColorCycleBrushEraserSettingsGetterArgs.ts` with `buildColorCycleBrushEraserSettingsGetterArgs`.
+  - Replaced inline `createColorCycleBrushEraserSettingsGetter` argument object in `src/hooks/useDrawingHandlers.ts` with builder-based argument construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1514; `src/components/canvas/DrawingCanvas.tsx` 930.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Extracted DrawingCanvas canvas-shape-editor value normalization hook.
+  - Added `src/components/canvas/useDrawingCanvasShapeEditorValue.ts` to own fallback canvas-shape-editor value memo and store normalization.
+  - Replaced inline fallback + coalescing logic in `src/components/canvas/DrawingCanvas.tsx` with hook composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1514; `src/components/canvas/DrawingCanvas.tsx` 922.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+- 2026-02-07: Cleaned `useCanvasEventHandlers` dynamic dependency augmentation wiring.
+  - Added `src/hooks/canvas/handlers/createAugmentedEventHandlerDeps.ts` to centralize typed augmented dependency creation with live dynamic getters.
+  - Updated `src/hooks/canvas/useCanvasEventHandlers.ts` to use the new helper and removed direct `Object.defineProperties` orchestration.
+  - Added missing `selectionMask` and `selectionMaskBounds` fields to `EventHandlerDependencies` in `src/hooks/canvas/utils/types.ts`; aligned pointer handler test dependency fixture in `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1514; `src/components/canvas/DrawingCanvas.tsx` 924.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Simplified DrawingCanvas input-handler hook wiring by internalizing canvas snapshot composition.
+  - Updated `src/components/canvas/useDrawingCanvasInputHandlers.ts` to accept `canvasZoom` and derive the `canvas` snapshot internally from `project`.
+  - Removed inline `canvas` object assembly from `src/components/canvas/DrawingCanvas.tsx` `useDrawingCanvasInputHandlers` call-site.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1514; `src/components/canvas/DrawingCanvas.tsx` 919.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Simplified DrawingCanvas input-handler tools wiring.
+  - Replaced inline `tools` object rematerialization in `src/components/canvas/DrawingCanvas.tsx` with direct pass-through of the existing memoized `tools` snapshot.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1514; `src/components/canvas/DrawingCanvas.tsx` 912.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted shape-aux handler setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/handlers/shapes/useShapeAuxHandlers.ts` to encapsulate shape aux-handler argument building and factory wiring.
+  - Replaced inline `useMemo(createShapeAuxHandlers(buildShapeAuxHandlerArgs(...)))` block in `src/hooks/useDrawingHandlers.ts` with `useShapeAuxHandlers(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1496; `src/components/canvas/DrawingCanvas.tsx` 912.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted DrawingCanvas input pointer-options assembly.
+  - Added `src/components/canvas/useDrawingCanvasInputPointerOptions.ts` to own memoized `pointerOptions` construction for `useDrawingCanvasInputHandlers`.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to consume `pointerOptions` from the new hook, reducing inline orchestration.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1496; `src/components/canvas/DrawingCanvas.tsx` 915.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Simplified DrawingCanvas custom-brush freehand setter adapter wiring.
+  - Updated `src/components/canvas/useDrawingCanvasInputHandlers.ts` to accept normalized custom-brush freehand setter payloads and handle `undefined` normalization internally.
+  - Removed inline normalization wrapper in `src/components/canvas/DrawingCanvas.tsx` and passed `setCustomBrushFreehandPath` directly.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1496; `src/components/canvas/DrawingCanvas.tsx` 913.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted finalize dispatcher chain from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useFinalizeDrawingHandlers.ts` to encapsulate finalize-after-queue deps composition, finalize execution dispatcher creation, and finalize drawing handler creation.
+  - Replaced inline finalize chain in `src/hooks/useDrawingHandlers.ts` with `useFinalizeDrawingHandlers(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1447; `src/components/canvas/DrawingCanvas.tsx` 913.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Flattened `useDrawingCanvasInputHandlers` event-binding API.
+  - Updated `src/components/canvas/useDrawingCanvasInputHandlers.ts` to consume `wrapperRef` / `canvasRef` directly and pass them explicitly into `useCanvasEventHandlers` and `useDrawingCanvasEventBindings`.
+  - Removed nested `eventBindings` wrapper object from `src/components/canvas/DrawingCanvas.tsx` call-site.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1447; `src/components/canvas/DrawingCanvas.tsx` 909.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Consolidated DrawingCanvas input-handler wiring through a bridge hook.
+  - Added `src/components/canvas/useDrawingCanvasInputHandlersBridge.ts` to compose `useDrawingCanvasInputPointerOptions` + `useDrawingCanvasInputHandlers`.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to remove standalone `pointerOptions` orchestration and consume the bridge hook directly.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1447; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted finalize flow deps assembly from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useFinalizeFlowDeps.ts` to encapsulate finalize-after-queue dispatcher creation and finalize brush-flow deps creation.
+  - Replaced inline finalize flow setup in `src/hooks/useDrawingHandlers.ts` with `useFinalizeFlowDeps(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1420; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted finalize context/dependency setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useFinalizeContextDeps.ts` to encapsulate finalize layer-capture deps, lost-edge dispatcher setup, brush-context deps, eraser finalize deps, finalize-visible timer setup, and finalize-drawing cleanup deps setup.
+  - Replaced the inline finalize context memo block in `src/hooks/useDrawingHandlers.ts` with `useFinalizeContextDeps(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1370; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted finalize core deps setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useFinalizeCoreDeps.ts` to encapsulate commit-stroke-history deps construction and finalize-core deps construction.
+  - Replaced inline commit-stroke-history + finalize-core memo setup in `src/hooks/useDrawingHandlers.ts` with `useFinalizeCoreDeps(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1354; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted stroke-input handler setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useStrokeInputHandlers.ts` to encapsulate `processBatchedStrokes` / `continueDrawing` construction.
+  - Replaced inline stroke-input memo setup in `src/hooks/useDrawingHandlers.ts` with `useStrokeInputHandlers(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1329; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted start-drawing handler setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useStartDrawingHandler.ts` to encapsulate start-drawing shared-args construction and start-drawing callback construction.
+  - Replaced inline `startDrawingSharedArgs` + `startDrawing` memo setup in `src/hooks/useDrawingHandlers.ts` with `useStartDrawingHandler(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1296; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted color-cycle runtime controller setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useColorCycleRuntimeControllers.ts` to encapsulate pause-all controller setup, runtime dispatcher setup, and stop-continuous-animation setup.
+  - Replaced inline color-cycle runtime controller memo setup in `src/hooks/useDrawingHandlers.ts` with `useColorCycleRuntimeControllers(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1265; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted brush-tool runtime setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useBrushToolRuntime.ts` to encapsulate brush-stamp source factory setup, mask-healing dispatchers setup/cleanup, brush-half-size getter setup, color-cycle eraser settings getter setup, color-cycle stamp-target getter setup, stroke-session dispatcher setup, and polygon-gradient reset dispatcher setup.
+  - Replaced the inline brush-tool runtime memo setup block in `src/hooks/useDrawingHandlers.ts` with `useBrushToolRuntime(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1216; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted color-cycle history runtime setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useColorCycleHistoryRuntime.ts` to encapsulate finalize queue registration and color-cycle history dispatcher setup.
+  - Replaced inline finalize queue + color-cycle history dispatcher memo setup in `src/hooks/useDrawingHandlers.ts` with `useColorCycleHistoryRuntime(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1200; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted shape-preview runtime setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useShapePreviewRuntime.ts` to encapsulate shape-drag reset dispatcher setup and shape-preview dispatchers setup.
+  - Replaced inline shape-preview runtime memo setup block in `src/hooks/useDrawingHandlers.ts` with `useShapePreviewRuntime(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1192; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted color-cycle runtime bindings setup from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useColorCycleRuntimeBindings.ts` to encapsulate effective-playback selector setup, brush-for-layer dispatcher setup, and recompose scheduler setup.
+  - Replaced inline `getEffectiveColorCyclePlaying` / `getBrushForLayer` / `scheduleRecompose` setup in `src/hooks/useDrawingHandlers.ts` with `useColorCycleRuntimeBindings(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1163; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted shape-drawing handler wiring from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useShapeDrawingHandlers.ts` to encapsulate `buildShapeDrawingHandlerOptions(...)` + `createShapeDrawingHandlers(...)` composition.
+  - Replaced inline shape-drawing handler composition block in `src/hooks/useDrawingHandlers.ts` with `useShapeDrawingHandlers(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1142; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted color-cycle playback runtime wiring from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useColorCyclePlaybackRuntime.ts` to encapsulate `buildColorCyclePlaybackHandlerArgs(...)` + `useColorCyclePlaybackHandlers(...)` composition.
+  - Replaced inline color-cycle playback handler construction block in `src/hooks/useDrawingHandlers.ts` with `useColorCyclePlaybackRuntime(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1137; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Extracted ref initialization surface from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/useDrawingHandlerRefs.ts` to centralize the hook's ref creation (canvas refs, stroke refs, color-cycle refs, sampling refs, and shape refs).
+  - Replaced large inline ref-initialization block in `src/hooks/useDrawingHandlers.ts` with `useDrawingHandlerRefs()` destructuring.
+  - Kept `ccGradientSampleSessionRef` local to preserve existing session lifecycle.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1102; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Consolidated finalize runtime wiring.
+  - Added `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to encapsulate finalize core deps + finalize flow deps + finalize handler assembly.
+  - Replaced inline `useFinalizeCoreDeps` / `useFinalizeFlowDeps` / `useFinalizeDrawingHandlers` composition in `src/hooks/useDrawingHandlers.ts` with `useDrawingFinalizeRuntime(...)`.
+  - Preserved context-specific finalize wiring in `useDrawingHandlers` (`useFinalizeContextDeps`) and passed typed base deps into the new runtime hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1091; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Full-suite regression validation pass.
+  - Ran `npm test` after finalize-runtime consolidation.
+  - Result: 210 suites passed, 875 tests passed, 0 failures.
+- 2026-02-07: Finalize-context runtime wrapper added.
+  - Added `src/hooks/canvas/useDrawingFinalizeContextRuntime.ts` to encapsulate the `useFinalizeContextDeps` wiring surface and keep finalize-visible-timer policy co-located.
+  - Replaced inline `useFinalizeContextDeps(...)` options assembly in `src/hooks/useDrawingHandlers.ts` with `useDrawingFinalizeContextRuntime(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1089; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Start-drawing runtime composition extraction.
+  - Added `src/hooks/canvas/useDrawingStartRuntime.ts`.
+  - Replaced inline `useStartDrawingHandler(...)` argument assembly in `src/hooks/useDrawingHandlers.ts` with `useDrawingStartRuntime(...)`.
+  - Preserved behavior for brush prelude/session setup, CC sampling canvas setup, and tool-stroke startup.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1064; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Local config/constants extraction from `useDrawingHandlers`.
+  - Added `src/hooks/canvas/drawingHandlersConfig.ts` and moved local constants + synthetic stop reasons + perf debug bootstrap out of `useDrawingHandlers`.
+  - Replaced in-file constants/perf setup in `src/hooks/useDrawingHandlers.ts` with config imports.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1051; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Stroke-input runtime composition extraction.
+  - Added `src/hooks/canvas/useDrawingStrokeRuntime.ts`.
+  - Replaced inline `useStrokeInputHandlers(...)` process/continue composition in `src/hooks/useDrawingHandlers.ts` with `useDrawingStrokeRuntime(...)`.
+  - Switched stroke runtime plumbing to consume shared refs bundle (`useDrawingHandlerRefs`) directly.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1021; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Testing export surface extracted.
+  - Added `src/hooks/canvas/drawingHandlersTestingExports.ts` and moved the `__TESTING__` bundle there.
+  - `src/hooks/useDrawingHandlers.ts` now re-exports `__TESTING__` instead of owning test-export-only imports.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 1000; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Final Phase 4 trim below 1k LOC.
+  - Removed stale section-map comments in `src/hooks/useDrawingHandlers.ts` after decomposition milestones were documented in roadmap files.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 991; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Shape-aux runtime wiring extraction.
+  - Added `src/hooks/canvas/useDrawingShapeAuxRuntime.ts`.
+  - Replaced inline `useShapeAuxHandlers(...)` wiring in `src/hooks/useDrawingHandlers.ts` with `useDrawingShapeAuxRuntime(...)` consuming shared refs.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 976; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Shape runtime wiring extraction.
+  - Added `src/hooks/canvas/useDrawingShapeRuntime.ts`.
+  - Replaced inline `useShapeDrawingHandlers(...)` wiring in `src/hooks/useDrawingHandlers.ts` with `useDrawingShapeRuntime(...)` consuming shared refs.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 953; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Start runtime simplified to refs-based wiring.
+  - Refactored `src/hooks/canvas/useDrawingStartRuntime.ts` to consume `useDrawingHandlerRefs` output directly plus focused deps.
+  - Reduced `src/hooks/useDrawingHandlers.ts` call-site argument surface for `useDrawingStartRuntime(...)` significantly.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 921; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Playback runtime simplified to refs-based wiring.
+  - Added `src/hooks/canvas/useDrawingPlaybackRuntime.ts`.
+  - Replaced large inline `useColorCyclePlaybackRuntime(...)` call in `src/hooks/useDrawingHandlers.ts` with `useDrawingPlaybackRuntime(...)` consuming shared refs.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 898; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Finalize-context runtime simplified to refs-based wiring.
+  - Refactored `src/hooks/canvas/useDrawingFinalizeContextRuntime.ts` to consume shared refs and focused dependencies.
+  - Replaced inline finalize-context argument assembly in `src/hooks/useDrawingHandlers.ts` with refs-based call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 878; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Finalize runtime simplified to refs-based wiring.
+  - Refactored `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to consume shared refs and focused finalize dependencies.
+  - Replaced large inline finalize runtime assembly block in `src/hooks/useDrawingHandlers.ts` with a compact refs-based call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 811; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Color-cycle runtime-controller wiring extraction.
+  - Added `src/hooks/canvas/useDrawingColorCycleRuntimeControllers.ts`.
+  - Replaced inline `useColorCycleRuntimeControllers(...)` wiring in `src/hooks/useDrawingHandlers.ts` with refs-based wrapper usage.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 761; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-07: Brush-tool runtime wiring extraction.
+  - Added `src/hooks/canvas/useDrawingBrushToolRuntime.ts`.
+  - Replaced inline `useBrushToolRuntime(...)` wiring in `src/hooks/useDrawingHandlers.ts` with refs-based wrapper usage.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 746; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: Shape-aux capture helper localization (follow-up cleanup).
+  - Localized `captureRegionFromPoints` and `captureLayerRegionImageData` usage inside `src/hooks/canvas/useDrawingShapeAuxRuntime.ts`, and removed now-redundant callsite plumbing from `src/hooks/useDrawingHandlers.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 903.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas store-state extraction.
+  - Added `src/components/canvas/useDrawingCanvasStoreState.ts` to centralize `DrawingCanvas` store selectors/actions and keep component orchestration focused on runtime wiring.
+  - Replaced large in-component selector/action block in `src/components/canvas/DrawingCanvas.tsx` with a single `useDrawingCanvasStoreState()` destructure.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 882.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas composite runtime-state extraction.
+  - Added `src/components/canvas/useDrawingCanvasCompositeRuntimeState.ts` to own floating-paste drag state plus composite/paste cache refs used by render and pointer pipelines.
+  - Replaced in-component composite/floating-paste runtime-state block in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasCompositeRuntimeState()`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 877.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas animation-state extraction.
+  - Added `src/components/canvas/useDrawingCanvasAnimationState.ts` to own color-cycle animation suspension/runtime refs.
+  - Replaced inline animation state refs in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasAnimationState()`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 878.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas pan/cursor runtime extraction.
+  - Added `src/components/canvas/useDrawingCanvasPanCursorRuntime.ts` to own pan sync + view-scale sync wiring and related cursor/pan runtime refs/state.
+  - Replaced inline pan/cursor runtime orchestration in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasPanCursorRuntime(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 860.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas render-runtime refs extraction.
+  - Added `src/components/canvas/useDrawingCanvasRenderRuntimeRefs.ts` to own draw/render/event refs (`drawRef`, `drawingAnimationFrameRef`, `previewAnimationFrameRef`, `overlayCanvasRef`, `devicePixelRatioRef`, `hasCenteredRef`).
+  - Replaced inline render-runtime refs in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasRenderRuntimeRefs()`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 858.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas color-cycle runtime-state extraction.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleRuntimeState.ts` to own color-cycle runtime refs (`updateColorCycleGradientRef`, `setColorCycleFlowModeRef`, `colorCycleManagerRef`) and ref-synchronization wiring.
+  - Replaced inline color-cycle runtime refs + `useDrawingCanvasColorCycleRuntimeRefs(...)` setup in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasColorCycleRuntimeState(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 847.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas color-cycle animation bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleAnimationBridge.ts` to centralize callback-ref wiring, viewport tracking, animation runtime wiring, and active-layer suspension wiring for color-cycle playback.
+  - Replaced the inline color-cycle animation orchestration block in `src/components/canvas/DrawingCanvas.tsx` with a single bridge-hook call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 831.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas input-bridge orchestration extraction.
+  - Added `src/components/canvas/useDrawingCanvasInputBridge.ts` to compose pointer-utils, canvas-shape editor bridge, and input-handlers bridge setup in one place.
+  - Replaced the large inline pointer/shape/input orchestration block in `src/components/canvas/DrawingCanvas.tsx` with a single `useDrawingCanvasInputBridge(...)` call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 808.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas interaction bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasInteractionBridge.ts` to centralize keyboard + tool-sync orchestration.
+  - Replaced separate inline `useDrawingCanvasKeyboard(...)` and `useDrawingCanvasToolSync(...)` calls in `src/components/canvas/DrawingCanvas.tsx` with one `useDrawingCanvasInteractionBridge(...)` call.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 808.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas core-state extraction.
+  - Added `src/components/canvas/useDrawingCanvasCoreState.ts` to centralize top-level canvas refs/state (canvas/wrapper/busy/mouse, pointer throttle, brush-cursor UI state, worker warning/ref caches).
+  - Replaced the corresponding inline core-state block in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasCoreState()`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 810.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas visual-setup bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasVisualSetupBridge.ts` to compose brush-manager init, color-cycle worker init, color-cycle segment refresh setup, pointer-inside resolver, and cursor-style state setup.
+  - Replaced the corresponding inline visual/runtime setup block in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasVisualSetupBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 790.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas render-setup bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasRenderSetupBridge.ts` to compose sampling setup, composite buffer setup, non-active-layer renderer setup, and base renderer setup.
+  - Replaced the corresponding inline render/composite setup block in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasRenderSetupBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 767.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas handlers-setup bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasHandlersSetupBridge.ts` to compose tool-state machine setup, drawing-handlers setup, cancel/finalize orchestration, shape flush registration, and shape-editor feedback/reset effects.
+  - Replaced the corresponding inline tool/drawing/finalization block in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasHandlersSetupBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 717.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas effects-bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasEffectsBridge.ts` to compose redraw, interaction, pointer/input handlers, cursor effects, composite rebuild, UI effects, and resize-center wiring into one orchestration hook.
+  - Replaced the corresponding inline effects/event orchestration block in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasEffectsBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 707.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas viewport-props extraction.
+  - Added `src/components/canvas/useDrawingCanvasViewportProps.ts` and exported `DrawingCanvasViewportProps` from `src/components/canvas/DrawingCanvasViewport.tsx`.
+  - Replaced inline styles/cursor-model/viewport-prop assembly in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasViewportProps(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 583; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers store-state bootstrap extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersStoreState.ts` to encapsulate selector/bootstrap setup (`captureCanvasToActiveLayer`, `shapeMode`, active-layer dimensions, `toolsRef`, `storeRef`).
+  - Replaced inline selector/bootstrap block in `src/hooks/useDrawingHandlers.ts` with `useDrawingHandlersStoreState()`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 571; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers sampling-runtime bridge extraction.
+  - Added `src/hooks/canvas/useDrawingSamplingRuntimeBridge.ts` to compose sampling core callbacks, CC gradient sampling callbacks, brush sampling callbacks, and CC gradient source-reset effect wiring.
+  - Replaced inline sampling-runtime orchestration block in `src/hooks/useDrawingHandlers.ts` with `useDrawingSamplingRuntimeBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 562; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers shape-runtime bridge extraction.
+  - Added `src/hooks/canvas/useDrawingShapeRuntimeBridge.ts` to compose shape-pressure model setup, gradient lifecycle mark setup, shape-preview runtime setup, pressure-reset effects, and stroke-boundary callbacks.
+  - Replaced inline shape-runtime orchestration block in `src/hooks/useDrawingHandlers.ts` with `useDrawingShapeRuntimeBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 522; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers color-cycle/overlay runtime bridge extraction.
+  - Added `src/hooks/canvas/useDrawingColorCycleOverlayRuntimeBridge.ts` to compose color-cycle runtime controllers, overlay runtime setup, and overlay-size effects.
+  - Replaced inline color-cycle/overlay orchestration block in `src/hooks/useDrawingHandlers.ts` with `useDrawingColorCycleOverlayRuntimeBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 505; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers finalize-runtime bridge wiring extraction.
+  - Wired `src/hooks/useDrawingHandlers.ts` to `src/hooks/canvas/useDrawingFinalizeRuntimeBridge.ts`, replacing direct `useDrawingFinalizeContextRuntime(...)` + `useDrawingFinalizeRuntime(...)` orchestration.
+  - Tightened bridge typing so `runtimeOptions` injects finalize-visibility timers from context (`startFinalizeVisibleTimer`, `endFinalizeVisibleTimer`) and no longer requires them at call sites.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 488; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers stroke-lifecycle bridge extraction.
+  - Added `src/hooks/canvas/useDrawingStrokeLifecycleRuntimeBridge.ts` to compose `useDrawingStartRuntime(...)` and `useDrawingStrokeRuntime(...)` wiring behind a single orchestration hook.
+  - Replaced direct start/stroke runtime wiring blocks in `src/hooks/useDrawingHandlers.ts` with `useDrawingStrokeLifecycleRuntimeBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 488; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers return-surface bridge extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersResultBridge.ts` and routed the final return assembly in `src/hooks/useDrawingHandlers.ts` through it.
+  - Preserved concrete return typing via a generic bridge signature (`<T extends Record<string, unknown>>`) to avoid widening to `unknown`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 488; `src/components/canvas/DrawingCanvas.tsx` 704.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas interaction-runtime state extraction.
+  - Added `src/components/canvas/useDrawingCanvasInteractionRuntimeState.ts` to compose canvas interaction, canvas state machine, simple pan, and pan/cursor runtime setup in one hook.
+  - Replaced the corresponding inline interaction/pan/runtime setup block in `src/components/canvas/DrawingCanvas.tsx`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 488; `src/components/canvas/DrawingCanvas.tsx` 699.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers shape-lifecycle bridge extraction.
+  - Added `src/hooks/canvas/useDrawingShapeLifecycleBridge.ts` to compose `useDrawingShapeAuxRuntime(...)` and `useDrawingShapeRuntime(...)` with snapshot handoff wiring inside a single bridge.
+  - Replaced direct shape aux/runtime orchestration blocks in `src/hooks/useDrawingHandlers.ts` with `useDrawingShapeLifecycleBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 482; `src/components/canvas/DrawingCanvas.tsx` 699.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers playback/feedback bridge extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackHandlersBridge.ts` to compose playback runtime wiring (`useDrawingPlaybackRuntime`) with feedback callback registration (`createFeedbackCallbackSetter`).
+  - Replaced direct playback-runtime call and `useMemo` feedback setter block in `src/hooks/useDrawingHandlers.ts` with `useDrawingPlaybackHandlersBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 477; `src/components/canvas/DrawingCanvas.tsx` 699.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas setup-bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasSetupBridge.ts` to consolidate mask-manager init, tool snapshot setup, crop-state setup, project display name, canvas-shape editor state, handler adapters, and color-cycle worker support gating.
+  - Replaced the corresponding top-level setup block in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasSetupBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 477; `src/components/canvas/DrawingCanvas.tsx` 685.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas input-bridge options extraction.
+  - Added `src/components/canvas/useDrawingCanvasInputBridgeOptions.ts` to build `inputBridgeOptions` payload for `useDrawingCanvasEffectsBridge(...)`.
+  - Replaced inline `inputBridgeOptions` assembly in `src/components/canvas/DrawingCanvas.tsx` with a precomputed `inputBridgeOptions` value from the new helper hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 477; `src/components/canvas/DrawingCanvas.tsx` 688.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas interaction-bridge options extraction.
+  - Added `src/components/canvas/useDrawingCanvasInteractionBridgeOptions.ts` to centralize `interactionBridgeOptions` payload assembly and default app-store keyboard actions (`saveProject`, `openProjectModal`, `canUndo`, `canRedo`).
+  - Replaced inline `interactionBridgeOptions` assembly in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasInteractionBridgeOptions(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 477; `src/components/canvas/DrawingCanvas.tsx` 687.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas redraw/composite options extraction.
+  - Added `src/components/canvas/useDrawingCanvasRedrawCompositeOptions.ts` to centralize shared `redrawEffectsOptions` and `compositeRebuildOptions` payload assembly for `useDrawingCanvasEffectsBridge(...)`.
+  - Replaced duplicated inline redraw/composite option assembly in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasRedrawCompositeOptions(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 477; `src/components/canvas/DrawingCanvas.tsx` 691.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas viewport options extraction.
+  - Added `src/components/canvas/useDrawingCanvasViewportBridgeOptions.ts` and routed viewport option assembly through it before calling `useDrawingCanvasViewportProps(...)`.
+  - Replaced direct inline viewport option payload in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasViewportBridgeOptions(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 477; `src/components/canvas/DrawingCanvas.tsx` 694.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers runtime-cluster bridge extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersRuntimeBridge.ts` to orchestrate stroke lifecycle, finalize runtime, shape lifecycle, and playback handlers in one bridge.
+  - Replaced direct runtime cluster wiring block in `src/hooks/useDrawingHandlers.ts` with `useDrawingHandlersRuntimeBridge(...)`, while preserving bridge-injected deps (`processBatchedStrokes`, `setPointerDown`, `startDrawing`, `continueDrawing`, `finalizeDrawing`).
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 459; `src/components/canvas/DrawingCanvas.tsx` 694.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas effects-options builder extraction.
+  - Added `src/components/canvas/buildDrawingCanvasEffectsBridgeOptions.ts` to centralize `useDrawingCanvasEffectsBridge(...)` payload composition for redraw/interaction/input/composite/cursor/ui/resize options.
+  - Replaced large inline options object at the call site in `src/components/canvas/DrawingCanvas.tsx` with precomputed `effectsBridgeOptions`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 459; `src/components/canvas/DrawingCanvas.tsx` 699.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers color-cycle dependency bridge extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersColorCycleBridge.ts` to compose color-cycle runtime bindings, color-cycle history runtime, sampling runtime bridge, and overlay runtime bridge in one module.
+  - Replaced the corresponding inline color-cycle/history/sampling/overlay wiring block in `src/hooks/useDrawingHandlers.ts` with `useDrawingHandlersColorCycleBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 452; `src/components/canvas/DrawingCanvas.tsx` 699.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers runtime-setup bridge extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersRuntimeSetupBridge.ts` to centralize runtime setup composition for `useDrawingHandlersRuntimeBridge(...)` from grouped runtime outputs (`shapeRuntime`, `brushToolRuntime`, `colorCycleRuntime`).
+  - Replaced the large inline runtime-bridge options block in `src/hooks/useDrawingHandlers.ts` with `useDrawingHandlersRuntimeSetupBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 248; `src/components/canvas/DrawingCanvas.tsx` 699.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas runtime-effects bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeEffectsBridge.ts` to compose input/interaction/redraw-composite/effects options and return pointer/blur handlers from one orchestration hook.
+  - Replaced multi-step inline option-building + `useDrawingCanvasEffectsBridge(...)` call chain in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasRuntimeEffectsBridge(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 248; `src/components/canvas/DrawingCanvas.tsx` 687.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas viewport runtime-bridge extraction.
+  - Added `src/components/canvas/useDrawingCanvasViewportRuntimeBridge.ts` and moved viewport-props call composition behind it.
+  - Replaced inline `useDrawingCanvasViewportProps(useDrawingCanvasViewportBridgeOptions(...))` call in `src/components/canvas/DrawingCanvas.tsx` with `useDrawingCanvasViewportRuntimeBridge(...)`.
+  - Removed obsolete pass-through helper `src/components/canvas/useDrawingCanvasViewportBridgeOptions.ts`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 248; `src/components/canvas/DrawingCanvas.tsx` 684.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/hooks/__tests__/useDrawingHandlers.strokeHarness.test.ts`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas render-setup options extraction.
+  - Added `src/components/canvas/buildDrawingCanvasRenderSetupOptions.ts` to centralize duplicated render/composite/layer/base option wiring for `useDrawingCanvasRenderSetupBridge`.
+  - Replaced the inline multi-object render setup block in `src/components/canvas/DrawingCanvas.tsx` with `buildDrawingCanvasRenderSetupOptions(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 671.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas handlers/interaction options extraction.
+  - Added `src/components/canvas/buildDrawingCanvasHandlersSetupOptions.ts` to centralize `useDrawingCanvasHandlersSetupBridge(...)` option composition from base/runtime/shape-editor groups.
+  - Added `src/components/canvas/buildDrawingCanvasInteractionRuntimeOptions.ts` to centralize `useDrawingCanvasInteractionRuntimeState(...)` option composition from viewport/cursor groups.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to delegate those two option-building blocks through the new builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 687.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas runtime-effects args builder extraction.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsBridgeOptions.ts` to centralize runtime-effects bridge argument shaping.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to route the `useDrawingCanvasRuntimeEffectsBridge(...)` payload through `buildDrawingCanvasRuntimeEffectsBridgeOptions(...)`.
+  - Exported `UseDrawingCanvasRuntimeEffectsBridgeOptions` from `src/components/canvas/useDrawingCanvasRuntimeEffectsBridge.ts` for typed builder wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 680.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas color-cycle animation + viewport options extraction.
+  - Added `src/components/canvas/buildDrawingCanvasColorCycleAnimationOptions.ts` to centralize option composition for `useDrawingCanvasColorCycleAnimationBridge(...)`.
+  - Added `src/components/canvas/buildDrawingCanvasViewportRuntimeOptions.ts` to centralize option composition for `useDrawingCanvasViewportRuntimeBridge(...)`.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to route both inline payloads through the new builders.
+  - Exported `UseDrawingCanvasColorCycleAnimationBridgeOptions` and `DrawingCanvasViewportRuntimeOptions` from their bridge modules for typed builder wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 694.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas runtime-effects input/keyboard payload extraction.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsInputHandlersOptions.ts` to centralize `inputHandlersOptions` payload shaping.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsKeyboardOptions.ts` to centralize `keyboardOptions` payload shaping.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to route both nested runtime-effects payloads through these builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 713.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas visual + color-cycle runtime options extraction.
+  - Added `src/components/canvas/buildDrawingCanvasVisualSetupOptions.ts` to centralize `useDrawingCanvasVisualSetupBridge(...)` option composition across runtime/pointer/cursor groups.
+  - Added `src/components/canvas/buildDrawingCanvasColorCycleRuntimeOptions.ts` to centralize `useDrawingCanvasColorCycleRuntimeState(...)` option composition.
+  - Exported `UseDrawingCanvasVisualSetupBridgeOptions` and `UseDrawingCanvasColorCycleRuntimeStateOptions` from bridge modules for typed builder wiring.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to route both option blocks through these builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 727.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas setup-bridge options extraction.
+  - Added `src/components/canvas/buildDrawingCanvasSetupOptions.ts` to centralize option composition for `useDrawingCanvasSetupBridge(...)` across project/tool/handler groups.
+  - Exported `UseDrawingCanvasSetupBridgeOptions` from `src/components/canvas/useDrawingCanvasSetupBridge.ts` for typed builder wiring.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to route setup-bridge options through `buildDrawingCanvasSetupOptions(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 736.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas runtime-effects tool-sync/redraw/ui args extraction.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsToolSyncOptions.ts` to centralize `toolSyncOptions` payload wiring.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsRedrawArgs.ts` to centralize `redrawBase`/`compositeBase`/`redrawShared` payload grouping.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsUiArgs.ts` to centralize `cursorEffectsOptions`/`uiEffectsOptions`/`resizeCenterOptions` payload grouping.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to route these runtime-effects sub-payloads through the new builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 741.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas runtime-effects consolidation hook extraction.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeEffectsHandlers.ts` to centralize runtime-effects bridge option assembly and builder composition behind one hook.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to replace the inline `useDrawingCanvasRuntimeEffectsBridge(buildDrawingCanvasRuntimeEffectsBridgeOptions(...))` composition with `useDrawingCanvasRuntimeEffectsHandlers(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 735.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas animation/viewport runtime wrapper extraction.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleAnimationRuntime.ts` to centralize color-cycle animation bridge option assembly.
+  - Added `src/components/canvas/useDrawingCanvasViewportRuntimeProps.ts` to centralize viewport runtime option assembly.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to replace inline builder+bridge pairs with these wrapper hooks.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 729.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas setup/render runtime wrapper extraction.
+  - Added `src/components/canvas/useDrawingCanvasSetupRuntime.ts` to centralize setup-bridge option assembly.
+  - Added `src/components/canvas/useDrawingCanvasRenderRuntimeSetup.ts` to centralize render-setup bridge option assembly.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to replace setup/render builder+bridge pairs with these runtime wrappers.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 723.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas interaction/handlers/visual runtime wrapper extraction.
+  - Added `src/components/canvas/useDrawingCanvasInteractionRuntime.ts` to centralize interaction runtime option assembly.
+  - Added `src/components/canvas/useDrawingCanvasHandlersRuntimeSetup.ts` to centralize handlers setup option assembly.
+  - Added `src/components/canvas/useDrawingCanvasVisualRuntimeSetup.ts` to centralize visual setup option assembly.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to replace three builder+bridge pairs with these runtime wrappers.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 714.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas element-ref normalization extraction.
+  - Added `src/components/canvas/useDrawingCanvasElementRefs.ts` to centralize typed `canvasRef`/`wrapperRef`/`overlayCanvasRef` casting.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to consume normalized refs in handlers setup and runtime-effects input refs.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 721.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas color-cycle/draw runtime wrapper extraction.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleRuntime.ts` to centralize color-cycle runtime-state option assembly.
+  - Added `src/components/canvas/useDrawingCanvasDrawRuntime.ts` to centralize draw callback setup plus initial draw effect wiring.
+  - Updated `src/components/canvas/DrawingCanvas.tsx` to replace direct color-cycle runtime and draw+initial-effect orchestration with these wrappers.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 717.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: DrawingCanvas runtime extraction to dedicated hook.
+  - Added `src/components/canvas/useDrawingCanvasRuntime.ts` and moved DrawingCanvas orchestration from component file into this hook.
+  - Replaced `src/components/canvas/DrawingCanvas.tsx` with a thin render shell that consumes `useDrawingCanvasRuntime(...)` and renders `DrawingCanvasViewport`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 711.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingCanvasRuntime animation/viewport-from-state wrapper extraction.
+  - Added `src/components/canvas/useDrawingCanvasColorCycleAnimationFromState.ts` to replace nested grouped animation payload assembly at callsite.
+  - Added `src/components/canvas/useDrawingCanvasViewportRuntimeFromState.ts` to replace nested grouped viewport payload assembly at callsite.
+  - Updated `src/components/canvas/useDrawingCanvasRuntime.ts` to use these wrappers.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 703.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingCanvasRuntime state-bundle extraction.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeStateBundle.ts` and moved the core/store/setup/composite/render-ref initialization cluster into this hook.
+  - Updated `src/components/canvas/useDrawingCanvasRuntime.ts` to consume `useDrawingCanvasRuntimeStateBundle()` and removed direct initialization imports.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 659.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingCanvasRuntime runtime-effects payload extraction.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeEffectsFromState.ts` and moved the `useDrawingCanvasRuntimeEffectsHandlers(...)` payload assembly out of `useDrawingCanvasRuntime.ts`.
+  - Exported `UseDrawingCanvasRuntimeEffectsHandlersOptions` from `src/components/canvas/useDrawingCanvasRuntimeEffectsHandlers.ts` to keep the new extraction hook strictly typed against bridge contracts.
+  - Updated `src/components/canvas/useDrawingCanvasRuntime.ts` to call `useDrawingCanvasRuntimeEffectsFromState(...)`, reducing local orchestration complexity.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 390; `src/components/canvas/useDrawingCanvasRuntimeEffectsFromState.ts` 332.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingCanvasRuntime orchestration-chain extraction.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` and moved the visual/render/interaction/handlers/animation/draw setup chain out of `useDrawingCanvasRuntime.ts`.
+  - Updated `src/components/canvas/useDrawingCanvasRuntime.ts` to consume the orchestration hook and focus on composition of effects+viewport props.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 140; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 258; `src/components/canvas/useDrawingCanvasRuntimeEffectsFromState.ts` 332.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-effects-from-state hook decomposition to builder/types.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateOptions.ts` to hold runtime-effects option assembly.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeEffectsFromState.types.ts` for shared typed input contract.
+  - Simplified `src/components/canvas/useDrawingCanvasRuntimeEffectsFromState.ts` to orchestration-only wrapper.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 140; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 258; `src/components/canvas/useDrawingCanvasRuntimeEffectsFromState.ts` 7; `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateOptions.ts` 278.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-effects-from-state builder split into focused modules.
+  - Split `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateOptions.ts` into focused builders:
+    - `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStatePointerOptions.ts`
+    - `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateInputArgs.ts`
+    - `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateKeyboardArgs.ts`
+    - `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateToolSyncOptions.ts`
+    - `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateRedrawArgs.ts`
+    - `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateUiArgs.ts`
+    - `src/components/canvas/drawingCanvasRuntimeEffectsFromStateShared.ts`
+  - Reduced `buildDrawingCanvasRuntimeEffectsFromStateOptions.ts` to a composition-only module.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 140; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 258; `src/components/canvas/useDrawingCanvasRuntimeEffectsFromState.ts` 7; `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromStateOptions.ts` 23.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: orchestration setup-stage extraction.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeSetupStages.ts` and moved setup chain logic (visual + brush engine + color-cycle runtime + render + interaction + handlers) out of `useDrawingCanvasRuntimeOrchestration.ts`.
+  - Reduced `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` to animation+draw composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 140; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 83; `src/components/canvas/useDrawingCanvasRuntimeSetupStages.ts` 158.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: setup-stages split into focused stage hooks.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeVisualStage.ts` for visual runtime + brush engine + color-cycle runtime.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeRenderStage.ts` for render runtime setup.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeInteractionHandlersStage.ts` for interaction + handlers setup wiring.
+  - Reduced `src/components/canvas/useDrawingCanvasRuntimeSetupStages.ts` to composition-only stage orchestration.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 140; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 83; `src/components/canvas/useDrawingCanvasRuntimeSetupStages.ts` 41.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime hook wiring extraction (effects + viewport).
+  - Added `src/components/canvas/useDrawingCanvasRuntimeEffectsFromOrchestration.ts` to encapsulate runtime-effects wiring from orchestration outputs.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeViewportPropsFromOrchestration.ts` to encapsulate viewport-props wiring from orchestration/state.
+  - Reduced `src/components/canvas/useDrawingCanvasRuntime.ts` to composition-only runtime shell.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 64; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 83.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: orchestration animation/draw stage extraction.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeAnimationStage.ts` to isolate color-cycle animation stage wiring.
+  - Added `src/components/canvas/useDrawingCanvasRuntimeDrawStage.ts` to isolate draw-runtime stage wiring.
+  - Updated `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` to compose setup + animation + draw stages.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 64; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 74.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: orchestration wrapper option-builder extraction.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromOrchestrationOptions.ts` to centralize runtime-effects wrapper option assembly.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions.ts` to centralize viewport-props wrapper option assembly.
+  - Reduced wrappers to orchestration-only:
+    - `src/components/canvas/useDrawingCanvasRuntimeEffectsFromOrchestration.ts` (25 LOC)
+    - `src/components/canvas/useDrawingCanvasRuntimeViewportPropsFromOrchestration.ts` (32 LOC)
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 64; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 74.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime shell argument-builder extraction.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeEffectsFromOrchestrationArgs.ts` to centralize runtime-effects wrapper invocation arguments.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeViewportPropsFromOrchestrationArgs.ts` to centralize viewport wrapper invocation arguments.
+  - Reduced `src/components/canvas/useDrawingCanvasRuntime.ts` to a thinner composition shell (57 LOC).
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 74.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: orchestration stage argument-builder extraction.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeAnimationStageArgs.ts` to centralize animation-stage invocation args.
+  - Added `src/components/canvas/buildDrawingCanvasRuntimeDrawStageArgs.ts` to centralize draw-stage invocation args.
+  - Updated `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` to delegate stage arg assembly.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/components/canvas/useDrawingCanvasRuntimeOrchestration.ts` 80.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-state-bundle composition refactor.
+  - Refactored `src/components/canvas/useDrawingCanvasRuntimeStateBundle.ts` from large destructure/return form into composed state sections (`coreState`, `shapeEditorState`, `runtimeStoreState`, `setupRuntime`, `compositeRuntime`, `renderRuntimeRefs`, `elementRefs`).
+  - Preserved runtime bundle surface while reducing boilerplate and improving maintainability.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/components/canvas/useDrawingCanvasRuntimeStateBundle.ts` 109.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useCanvasEventHandlers callback/ref extraction.
+  - Added `src/hooks/canvas/useCanvasEventHandlerRefs.ts` to encapsulate persistent refs + preview session helpers.
+  - Added `src/hooks/canvas/useCanvasEventHandlerCallbacks.ts` to encapsulate keyboard/wheel/paste callback wrappers.
+  - Updated `src/hooks/canvas/useCanvasEventHandlers.ts` to compose these helpers and keep orchestration focused.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/hooks/canvas/useCanvasEventHandlers.ts` 143; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useCanvasEventHandlers dynamic-deps/result extraction.
+  - Added `src/hooks/canvas/useCanvasEventHandlerDynamicDepsRef.ts` to isolate dynamic dependency ref synchronization.
+  - Added `src/hooks/canvas/buildCanvasEventHandlersResult.ts` to centralize final event-handler object assembly.
+  - Updated `src/hooks/canvas/useCanvasEventHandlers.ts` to compose both helpers and reduce inline orchestration.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/hooks/canvas/useCanvasEventHandlers.ts` 135; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useCanvasEventHandlers dependency-split extraction.
+  - Added `src/hooks/canvas/canvasEventHandlerDeps.ts` to own `EventHandlerDependenciesInput` and `splitCanvasEventHandlerDeps(...)`.
+  - Updated `src/hooks/canvas/useCanvasEventHandlers.ts` to consume split deps helper and reduce inline dependency shaping.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/hooks/canvas/useCanvasEventHandlers.ts` 66; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useCanvasEventHandlers augmented-deps/handler-module extraction.
+  - Added `src/hooks/canvas/useCanvasAugmentedEventHandlerDeps.ts` to encapsulate augmented dependency wiring.
+  - Added `src/hooks/canvas/createCanvasEventHandlerModules.ts` to centralize handler module creation (pointer/keyboard/wheel/clipboard).
+  - Updated `src/hooks/canvas/useCanvasEventHandlers.ts` to orchestration-only composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 238; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers bridge-option extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersColorCycleBridgeOptions.ts` to centralize `useDrawingHandlersColorCycleBridge(...)` option assembly.
+  - Added `src/hooks/canvas/buildDrawingHandlersRuntimeSetupBridgeOptions.ts` to centralize `useDrawingHandlersRuntimeSetupBridge(...)` option assembly.
+  - Added `src/hooks/canvas/buildDrawingHandlersResultArgs.ts` to centralize `useDrawingHandlersResultArgsBridge(...)` argument assembly.
+  - Updated `src/hooks/useDrawingHandlers.ts` to compose these builders and remove large inline payload construction.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 163; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers runtime-stage extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` to encapsulate refs + shape/brush/color-cycle/runtime-setup orchestration.
+  - Updated `src/hooks/useDrawingHandlers.ts` to consume runtime-stage helper and focus on result assembly.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 94; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers runtime-stage arg-builder extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersRuntimeStagesColorCycleArgs.ts` to centralize color-cycle stage arg mapping.
+  - Added `src/hooks/canvas/buildDrawingHandlersRuntimeStagesSetupArgs.ts` to centralize runtime-setup stage arg mapping.
+  - Updated `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` to delegate stage argument assembly to dedicated builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 94; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: useDrawingHandlers result-runtime extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersResultRuntime.ts` to encapsulate result-args + result-bridge composition.
+  - Updated `src/hooks/useDrawingHandlers.ts` to call result-runtime helper and remove inline result assembly payload.
+  - Updated `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` to reuse a shared local `options` object for stage arg builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 76; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-stage return surface tightening.
+  - Removed unused `brushEngine` and `userBrushEngine` from `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` return object.
+  - Kept `src/hooks/useDrawingHandlers.ts` consumption aligned with the tighter runtime-stage contract.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 76; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 108.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-stage bridge composition extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersBridgeRuntimes.ts` to encapsulate color-cycle/runtime-setup bridge composition within the drawing-handlers runtime stage.
+  - Updated `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` to delegate bridge composition and keep stage orchestration concise.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 76; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 89.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-stage options builder extraction.
+  - Added `src/hooks/canvas/buildUseDrawingHandlersRuntimeStagesOptions.ts` to centralize options assembly for `useDrawingHandlersRuntimeStages(...)`.
+  - Updated `src/hooks/useDrawingHandlers.ts` to consume the options builder for cleaner orchestration callsites.
+  - Updated `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` to use type-only imports for bridge option type inference.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 89.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: bridge-runtime stage split (color-cycle/setup).
+  - Added `src/hooks/canvas/useDrawingHandlersColorCycleRuntimeStage.ts` to isolate color-cycle bridge stage.
+  - Added `src/hooks/canvas/useDrawingHandlersRuntimeSetupStage.ts` to isolate runtime-setup bridge stage.
+  - Updated `src/hooks/canvas/useDrawingHandlersBridgeRuntimes.ts` to compose the two focused stage hooks.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 89.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: tool-runtime stage extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersToolRuntimes.ts` to encapsulate brush/user engines + refs/store + shape/brush runtime setup.
+  - Updated `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` to consume tool-runtime stage and remain focused on options + bridge composition.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 73.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-stage shared type extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersRuntimeStages.types.ts` to own `UseDrawingHandlersRuntimeStagesOptions` and perf typing.
+  - Updated runtime-stage builders/hooks to consume shared options types instead of `Parameters<typeof useDrawingHandlersRuntimeStages>[0]`.
+  - Reduced coupling between builder modules and hook signatures while preserving behavior.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: result-runtime handler-map extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersResultRuntimeHandlers.ts` to centralize runtime-handler projection for result-args assembly.
+  - Updated `src/hooks/canvas/useDrawingHandlersResultRuntime.ts` to orchestration-only composition by delegating runtime-handler mapping to the new builder.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingHandlersResultRuntime.ts` 34.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-setup bridge payload extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersRuntimeSetupBridge.types.ts` to centralize runtime-setup bridge contracts and shared option/result aliases.
+  - Added `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` to own full `useDrawingHandlersRuntimeBridge(...)` payload assembly.
+  - Updated `src/hooks/canvas/useDrawingHandlersRuntimeSetupBridge.ts` to orchestration-only composition that delegates payload construction to the new builder.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingHandlersRuntimeSetupBridge.ts` 11.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-bridge stroke-lifecycle section extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersStrokeLifecycleOptions.ts` to isolate `strokeLifecycleOptions` assembly from `buildDrawingHandlersRuntimeBridgeArgs(...)`.
+  - Updated `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` to compose the new stroke-lifecycle builder and reduce inline payload size.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` 190.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-bridge finalize section extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersFinalizeRuntimeOptions.ts` to isolate `finalizeRuntimeOptions` assembly from `buildDrawingHandlersRuntimeBridgeArgs(...)`.
+  - Updated `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` to compose finalize + stroke section builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` 151.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-bridge shape section extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersShapeLifecycleOptions.ts` to isolate `shapeLifecycleOptions` assembly from `buildDrawingHandlersRuntimeBridgeArgs(...)`.
+  - Updated `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` to compose dedicated stroke/finalize/shape section builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` 112.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-bridge playback section extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersPlaybackHandlersOptions.ts` to isolate `playbackHandlersOptions` assembly from `buildDrawingHandlersRuntimeBridgeArgs(...)`.
+  - Updated `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` to compose dedicated stroke/finalize/shape/playback section builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` 117.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: runtime-bridge section builder contract tightening.
+  - Updated `src/hooks/canvas/buildDrawingHandlersStrokeLifecycleOptions.ts`, `src/hooks/canvas/buildDrawingHandlersFinalizeRuntimeOptions.ts`, `src/hooks/canvas/buildDrawingHandlersShapeLifecycleOptions.ts`, and `src/hooks/canvas/buildDrawingHandlersPlaybackHandlersOptions.ts` to accept narrow section-specific input contracts instead of full setup options.
+  - Updated `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` callsites to pass only required fields per section builder.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersRuntimeBridgeArgs.ts` 82.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: shape lifecycle internal split (aux/runtime).
+  - Added `src/hooks/canvas/buildDrawingHandlersShapeAuxOptions.ts` for `shapeAuxOptions` assembly.
+  - Added `src/hooks/canvas/buildDrawingHandlersShapeRuntimeOptions.ts` for `shapeRuntimeOptions` assembly.
+  - Updated `src/hooks/canvas/buildDrawingHandlersShapeLifecycleOptions.ts` to compose aux/runtime sub-builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersShapeLifecycleOptions.ts` 63.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize runtime internal split (context/runtime).
+  - Added `src/hooks/canvas/buildDrawingHandlersFinalizeContextOptions.ts` for finalize context option assembly.
+  - Added `src/hooks/canvas/buildDrawingHandlersFinalizeStageRuntimeOptions.ts` for finalize runtime option assembly.
+  - Updated `src/hooks/canvas/buildDrawingHandlersFinalizeRuntimeOptions.ts` to compose the new sub-builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersFinalizeRuntimeOptions.ts` 59.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: stroke lifecycle internal split (start/runtime).
+  - Added `src/hooks/canvas/buildDrawingHandlersStrokeStartRuntimeOptions.ts` for `startRuntimeOptions` assembly.
+  - Added `src/hooks/canvas/buildDrawingHandlersStrokeRuntimeOptions.ts` for `strokeRuntimeOptions` assembly.
+  - Updated `src/hooks/canvas/buildDrawingHandlersStrokeLifecycleOptions.ts` to compose start/runtime sub-builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/buildDrawingHandlersStrokeLifecycleOptions.ts` 51.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: tool-runtime stage split (engines + bridges).
+  - Added `src/hooks/canvas/useDrawingHandlersEngineRuntimes.ts` to isolate brush/user engine hook wiring.
+  - Added `src/hooks/canvas/useDrawingHandlersToolRuntimeBridges.ts` to isolate shape/brush runtime bridge setup.
+  - Updated `src/hooks/canvas/useDrawingHandlersToolRuntimes.ts` to orchestration-only composition across store state, refs, engines, and bridges.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingHandlersToolRuntimes.ts` 39.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: result-args bridge decomposition (refs/shape/runtime/color-cycle).
+  - Added `src/hooks/canvas/useDrawingHandlersResultArgsBridge.types.ts` for shared bridge option typing.
+  - Added `src/hooks/canvas/buildDrawingHandlersResultRefsArgs.ts`.
+  - Added `src/hooks/canvas/buildDrawingHandlersResultShapeArgs.ts`.
+  - Added `src/hooks/canvas/buildDrawingHandlersResultRuntimeHandlerArgs.ts`.
+  - Added `src/hooks/canvas/buildDrawingHandlersResultColorCycleArgs.ts`.
+  - Updated `src/hooks/canvas/useDrawingHandlersResultArgsBridge.ts` to orchestration-only composition of grouped builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingHandlersResultArgsBridge.ts` 21.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: result-args bridge brush-tool mapping extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersResultBrushToolArgs.ts` to isolate brush-tool result mapping.
+  - Updated `src/hooks/canvas/useDrawingHandlersResultArgsBridge.ts` to compose brush-tool args via builder (no inline brush mapping).
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingHandlersResultArgsBridge.ts` 20.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: bridge-runtime stage shared-type extraction.
+  - Added `src/hooks/canvas/useDrawingHandlersBridgeRuntimes.types.ts` to centralize shared stage option types used by bridge-runtime stage hooks.
+  - Updated `src/hooks/canvas/useDrawingHandlersColorCycleRuntimeStage.ts` to consume shared `UseDrawingHandlersColorCycleRuntimeStageOptions`.
+  - Updated `src/hooks/canvas/useDrawingHandlersRuntimeSetupStage.ts` to consume shared `UseDrawingHandlersRuntimeSetupStageOptions`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingHandlersBridgeRuntimes.ts` 70.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: bridge-runtime stage option builder extraction.
+  - Added `src/hooks/canvas/buildDrawingHandlersBridgeColorCycleStageOptions.ts` to isolate color-cycle stage option mapping.
+  - Added `src/hooks/canvas/buildDrawingHandlersBridgeRuntimeSetupStageOptions.ts` to isolate runtime-setup stage option mapping.
+  - Updated `src/hooks/canvas/useDrawingHandlersBridgeRuntimes.ts` to compose stage hooks via dedicated option builders.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingHandlersBridgeRuntimes.ts` 76.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback effects overlay/init extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackOverlayEffects.ts` to isolate overlay clear listener + drawing-canvas init effects.
+  - Updated `src/hooks/canvas/useDrawingPlaybackEffects.ts` to compose overlay/init concerns through the dedicated hook and keep playback/store-sync logic focused.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackEffects.ts` 245.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback effects store-trace extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackStoreTraceEffect.ts` to isolate layer isAnimating flip subscription/tracing.
+  - Updated `src/hooks/canvas/useDrawingPlaybackEffects.ts` to delegate store trace behavior to the dedicated hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackEffects.ts` 202.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback effects startup-kick extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackStartupKickEffect.ts` to isolate startup playback kick behavior gated by project/overlay readiness.
+  - Updated `src/hooks/canvas/useDrawingPlaybackEffects.ts` to delegate startup kick behavior to the dedicated hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackEffects.ts` 191.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback effects lifecycle extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackLifecycleEffects.ts` to isolate startPlaybackRef wiring and deferred-overlay cleanup on unmount.
+  - Updated `src/hooks/canvas/useDrawingPlaybackEffects.ts` to delegate lifecycle concerns to the dedicated hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackEffects.ts` 185.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback effects sync-subscription extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackSyncEffect.ts` to isolate color-cycle playback sync subscription and start/stop throttled logging behavior.
+  - Updated `src/hooks/canvas/useDrawingPlaybackEffects.ts` to delegate sync subscription behavior to the dedicated hook.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackEffects.ts` 91.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback effects options-type extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackEffects.types.ts` for `UseDrawingPlaybackEffectsOptions`.
+  - Updated `src/hooks/canvas/useDrawingPlaybackEffects.ts` to import the options type and keep file scope focused on orchestration.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackEffects.ts` 67.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback sync state-machine extraction.
+  - Added `src/hooks/canvas/createDrawingPlaybackSync.ts` to isolate playback start/stop sync state-machine behavior and throttle logging rules.
+  - Updated `src/hooks/canvas/useDrawingPlaybackSyncEffect.ts` to compose subscription wiring around `createDrawingPlaybackSync(...)`.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackSyncEffect.ts` 74.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback sync shared option types extraction.
+  - Added `src/hooks/canvas/useDrawingPlaybackSyncEffect.types.ts` to centralize sync-core and sync-effect option contracts.
+  - Updated `src/hooks/canvas/createDrawingPlaybackSync.ts` and `src/hooks/canvas/useDrawingPlaybackSyncEffect.ts` to consume the shared types and remove duplicated inline interfaces.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingPlaybackSyncEffect.ts` 61.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize-runtime handler-args extraction.
+  - Added `src/hooks/canvas/buildDrawingFinalizeHandlersArgs.ts` to isolate `useFinalizeDrawingHandlers(...)` argument assembly.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to delegate final handler-args construction through the new builder and keep runtime focused on dependency wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingFinalizeRuntime.ts` 190.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize-runtime shared type-contract extraction.
+  - Added `src/hooks/canvas/useDrawingFinalizeRuntime.types.ts` to centralize finalize runtime argument and flow type contracts.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to consume shared `UseDrawingFinalizeRuntimeArgs` + `FinalizeFlowArgs` types and keep runtime file focused on orchestration logic.
+  - Updated `src/hooks/canvas/buildDrawingFinalizeHandlersArgs.ts` to import `UseDrawingFinalizeRuntimeArgs` from the new types module instead of inferring via runtime hook type.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingFinalizeRuntime.ts` 150.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize-runtime cancelAnimationFrame helper extraction.
+  - Added `src/hooks/canvas/getCancelAnimationFrameSafe.ts` to isolate runtime-safe `cancelAnimationFrame` binding.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to consume the helper and reduce inline environment checks.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: playback-sync throttle logger extraction.
+  - Added `src/hooks/canvas/logDrawingPlaybackSkipWithThrottle.ts` to centralize throttled skip-logging behavior for start/stop playback sync paths.
+  - Updated `src/hooks/canvas/createDrawingPlaybackSync.ts` to delegate both start/stop skip logs through the shared throttled logger helper.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize-runtime flow arg-builder extraction (dispatcher + brush-flow).
+  - Added `src/hooks/canvas/buildDrawingFinalizeAfterQueueDispatcherArgs.ts` to isolate `finalizeAfterQueueDispatcherArgs` assembly.
+  - Added `src/hooks/canvas/buildDrawingFinalizeBrushFlowDepsArgs.ts` to isolate `finalizeBrushFlowDepsArgs` assembly.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to compose `useFinalizeFlowDeps(...)` through the new builders and remove inline payload blocks.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingFinalizeRuntime.ts` 119.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize-runtime core-deps arg-builder extraction.
+  - Added `src/hooks/canvas/buildDrawingFinalizeCoreDepsArgs.ts` to isolate `commitStrokeHistoryDepsArgs` and `finalizeDepsArgs` assembly for `useFinalizeCoreDeps(...)`.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to compose `useFinalizeCoreDeps(...)` via dedicated builders and remove inline core-deps payload blocks.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingFinalizeRuntime.ts` 117.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize-runtime flow-options composer extraction.
+  - Added `src/hooks/canvas/buildDrawingFinalizeFlowDepsOptions.ts` to compose `useFinalizeFlowDeps(...)` options from dispatcher + brush-flow arg builders.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to consume the new flow-options composer and keep orchestration wiring concise.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingFinalizeRuntime.ts` 109.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-02-08: finalize-runtime core-options composer extraction.
+  - Added `src/hooks/canvas/buildDrawingFinalizeCoreDepsOptions.ts` to compose `useFinalizeCoreDeps(...)` options from commit-history + finalize-deps arg builders.
+  - Updated `src/hooks/canvas/useDrawingFinalizeRuntime.ts` to consume the new core-options composer and remove remaining inline core options wiring.
+  - Current LOC: `src/hooks/useDrawingHandlers.ts` 79; `src/hooks/canvas/useCanvasEventHandlers.ts` 43; `src/components/canvas/DrawingCanvas.tsx` 42; `src/components/canvas/useDrawingCanvasRuntime.ts` 57; `src/hooks/canvas/useDrawingHandlersRuntimeStages.ts` 53; `src/hooks/canvas/useDrawingFinalizeRuntime.ts` 104.
+  - Validation passed: `npm run type-check`, `npm run lint`, and targeted tests:
+    - `src/components/canvas/__tests__/DrawingCanvas.smoke.test.tsx`
+    - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
+    - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
+    - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`

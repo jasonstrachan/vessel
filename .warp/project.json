@@ -1,0 +1,50 @@
+﻿{
+  "name": "Vessel Drawing App",
+  "description": "Next.js-based drawing application with P5.js canvas",
+  "version": "3.0.0",
+  "framework": "Next.js 15",
+  "language": "TypeScript",
+  "package_manager": "npm",
+  
+  "development": {
+    "server_port": "3000",
+    "default_command": "npm run dev",
+    "test_command": "npm test",
+    "build_command": "npm run build",
+    "lint_command": "npm run lint"
+  },
+  
+  "directories": {
+    "source": "src/",
+    "tests": ["tests/", "__tests__/"],
+    "assets": ["public/", "assets/"],
+    "docs": "docs/",
+    "scripts": "scripts/"
+  },
+  
+  "key_files": [
+    "package.json",
+    "next.config.ts", 
+    "tailwind.config.ts",
+    "tsconfig.json",
+    "README.md"
+  ],
+  
+  "environment_files": [
+    ".env",
+    ".env.local", 
+    ".env.development"
+  ],
+  
+  "technologies": [
+    "Next.js",
+    "React", 
+    "TypeScript",
+    "P5.js",
+    "Tailwind CSS",
+    "HeroUI",
+    "Zustand",
+    "Jest",
+    "Framer Motion"
+  ]
+}

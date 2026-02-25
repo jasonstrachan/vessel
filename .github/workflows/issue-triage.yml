@@ -1,0 +1,213 @@
+name: Automated Issue Triage and Agent Assignment
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Analyze Issue and Assign Agent
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Bug categorization system based on Vessel codebase analysis
+            const bugCategories = {
+              canvas_rendering: {
+                name: "Canvas Rendering Specialist",
+                color: "d73a4a",
+                keywords: ["cursor", "alignment", "offset", "coordinate", "transform", "zoom", "pan", "drawing position"],
+                bodyKeywords: ["getBoundingClientRect", "transform", "screenToCanvas", "clientX", "clientY"],
+                files: ["DrawingCanvas.tsx", "BrushCursor.tsx"]
+              },
+              brush_engine: {
+                name: "Brush Engine Specialist", 
+                color: "a2eeef",
+                keywords: ["brush", "drawing", "stroke", "pressure", "pixel", "antialiasing", "cache", "line"],
+                bodyKeywords: ["useBrushEngine", "drawCustomBrushStamp", "scaledBrushCache", "pressureEnabled"],
+                files: ["useBrushEngine.ts", "scaledBrushCache.ts", "brushCache.ts"]
+              },
+              state_management: {
+                name: "State Management Specialist",
+                color: "7057ff",
+                keywords: ["settings", "persist", "save", "load", "state", "sync", "reset"],
+                bodyKeywords: ["useAppStore", "localStorage", "brushSettings", "persistence"],
+                files: ["useAppStore.ts", "BrushLibrary.tsx"]
+              },
+              ui_layout: {
+                name: "UI Layout Specialist",
+                color: "0075ca",
+                keywords: ["layout", "component", "ui", "render", "mount", "visible", "position"],
+                bodyKeywords: ["useEffect", "useState", "component", "CSS", "mounting"],
+                files: ["components/"]
+              },
+              performance: {
+                name: "Performance Specialist",
+                color: "e4e669",
+                keywords: ["performance", "memory", "slow", "lag", "cache", "optimization", "freeze"],
+                bodyKeywords: ["memory leak", "cache miss", "slow rendering", "optimization"],
+                files: ["memoryCleanup.ts", "performanceMonitor.ts"]
+              },
+              file_io: {
+                name: "File I/O Specialist",
+                color: "c2e0c6",
+                keywords: ["save", "load", "export", "import", "file", "project", "backup"],
+                bodyKeywords: ["projectIO", "autosave", "fileBackup", "export"],
+                files: ["projectIO.ts", "autosave.ts", "fileBackupService.ts"]
+              },
+              dev_environment: {
+                name: "Development Environment Specialist",
+                color: "f9d0c4", 
+                keywords: ["server", "build", "dev", "compile", "error", "crash", "connection"],
+                bodyKeywords: ["next dev", "npm run", "build error", "server crash"],
+                files: ["next.config.ts", "package.json"]
+              }
+            };
+
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+            const body = (issue.body || "").toLowerCase();
+            const existingLabels = issue.labels.map(label => label.name);
+
+            // Calculate confidence scores for each category
+            const scores = {};
+            
+            for (const [category, config] of Object.entries(bugCategories)) {
+              let score = 0;
+              
+              // Title keyword matching (weight: 3)
+              const titleMatches = config.keywords.filter(keyword => 
+                title.includes(keyword.toLowerCase())
+              ).length;
+              score += titleMatches * 3;
+              
+              // Body keyword matching (weight: 2)
+              const bodyMatches = config.bodyKeywords.filter(keyword => 
+                body.includes(keyword.toLowerCase())
+              ).length;
+              score += bodyMatches * 2;
+              
+              // File mention matching (weight: 1)
+              const fileMatches = config.files.filter(file => 
+                body.includes(file.toLowerCase())
+              ).length;
+              score += fileMatches * 1;
+              
+              // Normalize score (0-1 range)
+              const maxPossibleScore = (config.keywords.length * 3) + (config.bodyKeywords.length * 2) + (config.files.length * 1);
+              scores[category] = maxPossibleScore > 0 ? score / maxPossibleScore : 0;
+            }
+
+            // Find primary and secondary categories
+            const sortedCategories = Object.entries(scores)
+              .sort(([,a], [,b]) => b - a);
+            
+            const primaryCategory = sortedCategories[0];
+            const secondaryCategory = sortedCategories[1];
+
+            console.log("Confidence scores:", scores);
+            console.log("Primary category:", primaryCategory);
+            console.log("Secondary category:", secondaryCategory);
+
+            // Only assign if we have decent confidence (> 0.1)
+            if (primaryCategory[1] > 0.1) {
+              const categoryKey = primaryCategory[0];
+              const categoryConfig = bugCategories[categoryKey];
+              
+              // Create agent assignment label
+              const agentLabel = `agent:${categoryKey}`;
+              const priorityLabel = primaryCategory[1] > 0.5 ? `priority:high-confidence` : `priority:medium-confidence`;
+              
+              // Prepare labels to add
+              const labelsToAdd = [agentLabel, priorityLabel];
+              
+              // Add secondary category if confidence > 0.3
+              if (secondaryCategory[1] > 0.3) {
+                labelsToAdd.push(`agent:${secondaryCategory[0]}-secondary`);
+              }
+              
+              // Add escalation label if primary confidence < 0.5
+              if (primaryCategory[1] < 0.5) {
+                labelsToAdd.push('needs:manual-review');
+              }
+
+              // Remove existing agent labels first
+              const existingAgentLabels = existingLabels.filter(label => 
+                label.startsWith('agent:') || label.startsWith('priority:') || label === 'needs:manual-review'
+              );
+              
+              for (const labelName of existingAgentLabels) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    name: labelName
+                  });
+                } catch (error) {
+                  console.log(`Label ${labelName} not found, skipping removal`);
+                }
+              }
+
+              // Add new labels
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labelsToAdd
+              });
+
+              // Add comment with agent assignment
+              const confidencePercent = Math.round(primaryCategory[1] * 100);
+              let comment = `🤖 **Automated Agent Assignment**\n\n`;
+              comment += `**Primary Agent**: ${categoryConfig.name} (${confidencePercent}% confidence)\n`;
+              comment += `**Specializes in**: ${categoryConfig.keywords.slice(0, 5).join(', ')}\n\n`;
+              
+              if (secondaryCategory[1] > 0.3) {
+                const secondaryConfig = bugCategories[secondaryCategory[0]];
+                const secondaryPercent = Math.round(secondaryCategory[1] * 100);
+                comment += `**Secondary Agent**: ${secondaryConfig.name} (${secondaryPercent}% confidence)\n\n`;
+              }
+              
+              if (primaryCategory[1] < 0.5) {
+                comment += `⚠️ **Manual Review Needed**: Confidence below 50%. Please verify agent assignment.\n\n`;
+              }
+
+              comment += `---\n*This assignment was made automatically based on issue content analysis. You can modify labels to reassign agents.*`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: comment
+              });
+
+            } else {
+              // Low confidence - assign to general debugging
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['agent:general-debugging', 'needs:manual-review', 'priority:low-confidence']
+              });
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `🤖 **Unable to automatically categorize this issue**\n\nThe issue content doesn't clearly match any specialized agent categories. Assigned to general debugging team for manual triage.\n\n**Please add more specific labels or details to help with automatic routing in the future.**`
+              });
+            }

@@ -1,0 +1,2437 @@
+import type { StateCreator } from 'zustand';
+import type {
+  BrushSettings,
+  ToolState,
+  CustomBrush,
+  BrushComponent,
+  BrushPreset,
+  PolygonGradientState,
+  BrushEditorState,
+  PaletteState,
+  Tool,
+  SelectionMode,
+  ShapeState,
+  ShapePoint,
+  Rectangle,
+} from '@/types';
+import { BrushShape } from '@/types';
+import {
+  brushPresets,
+  applyBrushPreset,
+  defaultBrushSettings,
+  mosaicBrushPreset,
+} from '@/presets/brushPresets';
+import {
+  PressureSettings,
+  DEFAULT_RECTANGLE_BRUSH_STATE,
+  applyPressureToTools,
+  applyPressureUpdate,
+  clampPressurePercent,
+  clampCustomBrushPercent,
+  quantizeCustomBrushPercent,
+  pixelsFromCustomPercent,
+  percentFromPixelSize,
+  cloneGradientStops,
+  gradientsEqual,
+  findStoredColorCycleGradient,
+  isColorCyclePresetId,
+  isColorCycleBrushShape,
+} from '@/stores/helpers/toolsState';
+import { getDefaultMaxPressurePercent, PRESSURE_BASE_PERCENT } from '@/utils/pressureSettings';
+import { applyPaletteSnapshot } from '@/stores/helpers/paletteState';
+import { brushCache } from '@/utils/brushCache';
+import { scaledBrushCache } from '@/utils/scaledBrushCache';
+import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
+import { debugLog } from '@/utils/debug';
+import { createDefaultColorAdjustState } from '@/stores/slices/colorAdjustSlice';
+
+const DEBUG_LOSTEDGE =
+  typeof process !== 'undefined' &&
+  process.env?.NEXT_PUBLIC_DEBUG_LOSTEDGE === 'true';
+
+type AppState = import('../useAppStore').AppState;
+type RecolorSamplingState = AppState['recolorSampling'];
+
+const initialBrushPreset = mosaicBrushPreset;
+const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
+const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
+
+const resolveActiveColorCycleLayerGradient = (state: AppState): BrushSettings['colorCycleGradient'] => {
+  const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+  if (!activeLayer || activeLayer.layerType !== 'color-cycle' || !activeLayer.colorCycleData) {
+    return undefined;
+  }
+
+  const defs = activeLayer.colorCycleData.gradientDefs ?? [];
+  const activeDef =
+    defs.find((entry) => entry.id === activeLayer.colorCycleData?.activeGradientId) ?? defs[0];
+  const targetSlot = activeLayer.colorCycleData.paintSlot ?? activeDef?.currentSlot;
+  if (typeof targetSlot === 'number') {
+    const slotStops = activeLayer.colorCycleData.slotPalettes?.find(
+      (entry) => entry.slot === targetSlot
+    )?.stops;
+    if (slotStops && slotStops.length > 0) {
+      return cloneGradientStops(slotStops);
+    }
+  }
+
+  const legacyStops = activeLayer.colorCycleData.gradient;
+  if (legacyStops && legacyStops.length > 0) {
+    return cloneGradientStops(legacyStops);
+  }
+
+  return undefined;
+};
+
+export const defaultBrushSettingsForStore: BrushSettings = {
+  ...defaultBrushSettings,
+  ...defaultPresetSettings,
+};
+
+const createDefaultEraserSettings = (): BrushSettings => ({
+  ...defaultBrushSettingsForStore,
+  blendMode: 'destination-out',
+  color: 'rgba(255, 255, 255, 0.1)',
+  linkSizeToBrush: true,
+});
+
+export const createDefaultToolState = (): ToolState => ({
+  currentTool: 'brush',
+  previousTool: 'brush',
+  selectionMode: 'marquee',
+  lastRegularTool: 'brush',
+  lastRegularBrushShape: BrushShape.SQUARE,
+  lastRegularShapeMode: false,
+  lastColorCycleShapeMode: false,
+  ccGradientSource: 'manual',
+  brushSettings: { ...defaultBrushSettingsForStore },
+  eraserSettings: createDefaultEraserSettings(),
+  fillSettings: {
+    threshold: 0,
+    contiguous: true,
+    eraseInstead: false,
+  },
+  shapeMode: false,
+  customBrushCapture: {
+    sampleAllLayers: false,
+    mode: 'rectangle',
+    freehandPath: null,
+  },
+});
+
+export const defaultBrushEditorState: BrushEditorState = {
+  status: 'IDLE',
+  editingBrushId: null,
+  editingBounds: null,
+  originalCanvasState: null,
+  hueShift: 0,
+  lightness: 0,
+  saturation: 100,
+};
+
+export const defaultShapeState: ShapeState = {
+  isDrawing: false,
+  points: [],
+  previewPath: undefined,
+};
+
+export const createDefaultPolygonGradientState = (): PolygonGradientState => ({
+  drawingState: 'idle',
+  points: [],
+  previewPath: undefined,
+  rotationReferenceAngle: undefined,
+  rotationInitialRotation: undefined,
+  tempSize: undefined,
+  sizeReferenceDistance: undefined,
+  sizeInitialSize: undefined,
+  spacingReferenceDistance: undefined,
+  spacingReferenceSpacing: undefined,
+  flowRandomSeed: undefined,
+  mode: undefined,
+  tempRotation: undefined,
+  tempSpacing: undefined,
+  tempMaxSteps: undefined,
+  tempOrientation: undefined,
+  tempNoiseStrength: undefined,
+  gpuJobId: undefined,
+  vertices: undefined,
+  fillColor: undefined,
+  adjustmentStartPos: undefined,
+});
+
+export const createDefaultRecolorSamplingState = (): RecolorSamplingState => ({
+  active: false,
+  start: null,
+  end: null,
+  samples: 12,
+  target: 'recolor',
+});
+
+export const defaultPressureSettings: PressureSettings = {
+  enabled: Boolean(defaultBrushSettingsForStore.pressureEnabled),
+  min: clampPressurePercent(defaultBrushSettingsForStore.minPressure ?? 0),
+  max: clampPressurePercent(
+    defaultBrushSettingsForStore.maxPressure ??
+      Math.max(0, getDefaultMaxPressurePercent(defaultBrushSettingsForStore.brushShape) - PRESSURE_BASE_PERCENT)
+  ),
+};
+
+const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => ({
+  size: settings.size,
+  opacity: settings.opacity,
+  spacing: settings.spacing,
+  colorJitter: settings.colorJitter,
+  risographIntensity: settings.risographIntensity,
+  ditherEnabled: settings.ditherEnabled,
+  ditherPhaseJitter: settings.ditherPhaseJitter,
+  ditherPaletteSpread: settings.ditherPaletteSpread,
+  ditherAlgorithm: settings.ditherAlgorithm,
+  patternStyle: settings.patternStyle,
+  ditherStrokeTipShape: settings.ditherStrokeTipShape,
+  ditherBackgroundFill: settings.ditherBackgroundFill,
+  ditherGradBgFill: settings.ditherGradBgFill,
+  ditherGradStops: settings.ditherGradStops,
+  ditherGradSampleEnabled: settings.ditherGradSampleEnabled,
+  trans: settings.trans,
+  pressureEnabled: settings.pressureEnabled,
+  minPressure: settings.minPressure,
+  maxPressure: settings.maxPressure,
+  colorCycleStampDitherEnabled: settings.colorCycleStampDitherEnabled,
+  colorCycleStampDitherPixelSize: settings.colorCycleStampDitherPixelSize,
+  colorCycleStampShape: settings.colorCycleStampShape,
+  colorCycleStampDitherBgFill: settings.colorCycleStampDitherBgFill,
+  colorCycleStampDitherClears: settings.colorCycleStampDitherClears,
+  colorCycleStampDitherPressureLinked: settings.colorCycleStampDitherPressureLinked,
+  pressureLinkedFillResolution: settings.pressureLinkedFillResolution,
+  pressureDitherSmoosh: settings.pressureDitherSmoosh,
+  pigmentLiftEnabled: settings.pigmentLiftEnabled,
+  pigmentLiftStrength: settings.pigmentLiftStrength,
+  pigmentLiftFeather: settings.pigmentLiftFeather,
+  pigmentLiftNoise: settings.pigmentLiftNoise,
+  lostEdge: settings.lostEdge,
+  fillResolution: settings.fillResolution,
+  rotationEnabled: settings.rotationEnabled,
+  dashedEnabled: settings.dashedEnabled,
+  dashLength: settings.dashLength,
+  velocitySpacingEnabled: settings.velocitySpacingEnabled,
+  velocityDashGapEnabled: settings.velocityDashGapEnabled,
+  velocityDashGapStrength: settings.velocityDashGapStrength,
+  dashGap: settings.dashGap,
+  gridSnapEnabled: settings.gridSnapEnabled,
+  gridSnapSize: settings.gridSnapSize,
+  shapeEnabled: settings.shapeEnabled,
+  customBrushColorCycle: settings.customBrushColorCycle,
+  customBrushColorCycleMode: settings.customBrushColorCycleMode,
+  customBrushUseCapturedAlphaMask: settings.customBrushUseCapturedAlphaMask,
+  customBrushCcPhaseMode: settings.customBrushCcPhaseMode,
+  customBrushCcPhaseJitter: settings.customBrushCcPhaseJitter,
+  antialiasing: settings.antialiasing,
+  colors: settings.colors,
+  colorCycleSpeed: settings.colorCycleSpeed,
+  colorCycleLayerSpeedScale: settings.colorCycleLayerSpeedScale,
+  colorCycleGradient: settings.colorCycleGradient,
+  colorCycleFPS: settings.colorCycleFPS,
+  colorCycleFlowMode: settings.colorCycleFlowMode,
+  colorCycleFillMode: settings.colorCycleFillMode,
+  gradientBands: settings.gradientBands,
+  gradientLength: settings.gradientLength,
+  colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
+  ccGradientSource: settings.ccGradientSource,
+  continuousSampling: settings.continuousSampling,
+  resampleInterval: settings.resampleInterval,
+  polygonSampleColors: settings.polygonSampleColors,
+  autoSampleColor: settings.autoSampleColor,
+  autoSampleGradientRealtime: settings.autoSampleGradientRealtime,
+  mosaicTilePx: settings.mosaicTilePx,
+  mosaicBlocksCount: settings.mosaicBlocksCount,
+  mosaicPaletteCount: settings.mosaicPaletteCount,
+  mosaicSegmentPx: settings.mosaicSegmentPx,
+  mosaicSegmentJitter: settings.mosaicSegmentJitter,
+  mosaicDitherEnabled: settings.mosaicDitherEnabled,
+  mosaicSeed: settings.mosaicSeed,
+});
+
+const COLOR_ADJUST_TOOL: Tool = 'color-adjust';
+const SHAPE_CAPABLE_TOOLS: Tool[] = ['brush', 'custom'];
+const isShapeCapableTool = (tool?: Tool | null): boolean => {
+  if (!tool) {
+    return false;
+  }
+  return SHAPE_CAPABLE_TOOLS.includes(tool);
+};
+
+export interface ToolsSlice {
+  tools: ToolState;
+  ccGradientSampleCount: number;
+  ccGradientSampleResetToken: number;
+  globalBrushSize: number;
+  pressureSettings: PressureSettings;
+  brushPresets: BrushPreset[];
+  currentBrushPreset: BrushPreset | null;
+  activeBrushComponents: BrushComponent[];
+  temporaryCustomBrush: CustomBrush | null;
+  shapeState: ShapeState;
+  rectangleBrushState: {
+    drawingState: 'idle' | 'definingLength' | 'definingWidth';
+    startPos: { x: number; y: number };
+    endPos: { x: number; y: number };
+    currentPos: { x: number; y: number };
+    width: number;
+    startColor: string;
+    endColor: string;
+  };
+  polygonGradientState: PolygonGradientState;
+  recolorSampling: RecolorSamplingState;
+  brushEditor: BrushEditorState;
+  brushSpecificSettings: Record<string, Partial<BrushSettings>>;
+  shapeModeByBrush: Record<string, boolean>;
+  setShapeDrawing: (isDrawing: boolean) => void;
+  addShapePoint: (point: ShapePoint) => void;
+  clearShapePoints: () => void;
+  setShapePreviewPath: (path: Path2D | undefined) => void;
+  setRectangleBrushState: (partialState: Partial<ToolsSlice['rectangleBrushState']>) => void;
+  setPressureSettings: (settings: Partial<PressureSettings>) => void;
+  bumpGlobalBrushSize: (delta: number) => void;
+  setGlobalBrushSize: (size: number) => void;
+  setCustomBrushSizePercent: (percent: number) => void;
+  setBrushSettings: (settings: Partial<BrushSettings>) => void;
+  setEraserSettings: (settings: Partial<BrushSettings>) => void;
+  setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
+  setCcGradientSource: (source: ToolState['ccGradientSource']) => void;
+  setCcGradientSampleCount: (count: number) => void;
+  resetCcGradientSample: () => void;
+  setShapeMode: (enabled: boolean) => void;
+  setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;
+  setCustomBrushCaptureMode: (mode: 'rectangle' | 'freehand') => void;
+  setCustomBrushFreehandPath: (payload: { points: { x: number; y: number }[]; bounds: Rectangle | null } | null) => void;
+  setSelectionMode: (mode: SelectionMode) => void;
+  setCurrentTool: (tool: Tool) => void;
+  setTemporaryCustomBrush: (brush: CustomBrush | null) => void;
+  setPolygonGradientState: (partial: Partial<PolygonGradientState>) => void;
+  addPolygonGradientPoint: (x: number, y: number, color: string) => void;
+  clearPolygonGradientPoints: () => void;
+  startRecolorSampling: (samples?: number, target?: 'recolor' | 'brush') => void;
+  updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
+  stopRecolorSampling: () => void;
+  setBrushPreset: (preset: BrushPreset, preserveEditMode?: boolean) => void;
+  getBrushPresets: () => BrushPreset[];
+  getBrushPresetById: (id: string) => BrushPreset | undefined;
+  removeBrushPreset: (presetId: string) => void;
+  startBrushEdit: (brushId: string, canvas: HTMLCanvasElement) => void;
+  saveBrushEdit: (canvas: HTMLCanvasElement) => void;
+  cancelBrushEdit: (canvas?: HTMLCanvasElement | null) => void;
+  setBrushEditorHue: (hue: number) => void;
+  setBrushEditorLightness: (lightness: number) => void;
+  setBrushEditorSaturation: (saturation: number) => void;
+  updateCurrentBrushTip: (brushTip: {
+    imageData: ImageData;
+    brushId: string;
+    isColorizable: boolean;
+    width?: number;
+    height?: number;
+  }) => void;
+  refreshCurrentBrushTipFromSource: () => void;
+  _saveCurrentBrushSettings: () => void;
+  saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
+  loadBrushSettings: (brushId: string) => Partial<BrushSettings>;
+  clearBrushSettings: (brushId: string) => void;
+}
+
+export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set, get) => ({
+  tools: createDefaultToolState(),
+  ccGradientSampleCount: 0,
+  ccGradientSampleResetToken: 0,
+  globalBrushSize: defaultBrushSettingsForStore.size ?? 5,
+  pressureSettings: defaultPressureSettings,
+  brushPresets,
+  currentBrushPreset: initialBrushPreset,
+  activeBrushComponents: initialBrushPreset.components,
+  temporaryCustomBrush: null,
+  setTemporaryCustomBrush: (brush) => set({ temporaryCustomBrush: brush }),
+  shapeState: defaultShapeState,
+  rectangleBrushState: DEFAULT_RECTANGLE_BRUSH_STATE,
+  polygonGradientState: createDefaultPolygonGradientState(),
+  recolorSampling: createDefaultRecolorSamplingState(),
+  brushEditor: defaultBrushEditorState,
+  brushSpecificSettings: {},
+  shapeModeByBrush: {},
+
+  setShapeDrawing: (isDrawing) =>
+    set((state) => ({
+      shapeState: { ...state.shapeState, isDrawing },
+    })),
+
+  addShapePoint: (point) =>
+    set((state) => ({
+      shapeState: {
+        ...state.shapeState,
+        points: [...state.shapeState.points, point],
+      },
+    })),
+
+  clearShapePoints: () =>
+    set((state) => ({
+      shapeState: {
+        ...state.shapeState,
+        points: [],
+        previewPath: undefined,
+      },
+    })),
+
+  setShapePreviewPath: (path) =>
+    set((state) => ({
+      shapeState: { ...state.shapeState, previewPath: path },
+    })),
+
+  setRectangleBrushState: (partialState) =>
+    set((state) => ({
+      rectangleBrushState: { ...state.rectangleBrushState, ...partialState },
+    })),
+
+  setPressureSettings: (updates) => {
+    set((state) => {
+      let nextPressure = applyPressureUpdate(state.pressureSettings, updates);
+      if (
+        updates.enabled === true &&
+        updates.min === undefined &&
+        updates.max === undefined &&
+        nextPressure.min === 0 &&
+        nextPressure.max === 0
+      ) {
+        const fallbackMaxDelta = PRESSURE_BASE_PERCENT;
+        nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+      }
+      return {
+        pressureSettings: nextPressure,
+        tools: applyPressureToTools(state.tools, nextPressure),
+      };
+    });
+  },
+
+  bumpGlobalBrushSize: (delta) => {
+    set((state) => {
+      const baseSize = state.globalBrushSize ?? 1;
+      const unclamped = Math.round(baseSize + delta);
+      const nextSize = Math.min(Math.max(unclamped, 1), 500);
+
+      const brushSettings: BrushSettings = {
+        ...state.tools.brushSettings,
+        size: nextSize,
+      };
+
+      if (brushSettings.brushShape === BrushShape.CUSTOM) {
+        const derivedPercent = percentFromPixelSize(nextSize, state, brushSettings);
+        if (derivedPercent !== null) {
+          brushSettings.customBrushSizePercent = quantizeCustomBrushPercent(derivedPercent);
+        } else if (brushSettings.customBrushSizePercent === undefined) {
+          brushSettings.customBrushSizePercent = 100;
+        }
+      } else {
+        brushSettings.customBrushSizePercent = undefined;
+      }
+
+      const shouldSyncEraser = state.tools.eraserSettings.linkSizeToBrush !== false;
+      const eraserSettings = shouldSyncEraser
+        ? { ...state.tools.eraserSettings, size: nextSize }
+        : state.tools.eraserSettings;
+
+      return {
+        globalBrushSize: nextSize,
+        tools: {
+          ...state.tools,
+          brushSettings,
+          eraserSettings,
+        },
+      };
+    });
+  },
+
+  setGlobalBrushSize: (size) => {
+    set((state) => {
+      const nextSize = Math.max(1, Math.round(size));
+      const brushSettings: BrushSettings = {
+        ...state.tools.brushSettings,
+        size: nextSize,
+      };
+
+      if (brushSettings.brushShape === BrushShape.CUSTOM) {
+        const derivedPercent = percentFromPixelSize(nextSize, state, brushSettings);
+        if (derivedPercent !== null) {
+          brushSettings.customBrushSizePercent = quantizeCustomBrushPercent(derivedPercent);
+        } else if (brushSettings.customBrushSizePercent === undefined) {
+          brushSettings.customBrushSizePercent = 100;
+        }
+      } else {
+        brushSettings.customBrushSizePercent = undefined;
+      }
+
+      const shouldSyncEraser = state.tools.eraserSettings.linkSizeToBrush !== false;
+      const eraserSettings = shouldSyncEraser
+        ? { ...state.tools.eraserSettings, size: nextSize }
+        : state.tools.eraserSettings;
+
+      return {
+        globalBrushSize: nextSize,
+        tools: {
+          ...state.tools,
+          brushSettings,
+          eraserSettings,
+        },
+      };
+    });
+  },
+
+  setCustomBrushSizePercent: (percent) => {
+    set((state) => {
+      const tools = state.tools;
+      const quantized = quantizeCustomBrushPercent(clampCustomBrushPercent(percent));
+      const brushSettings = tools.brushSettings;
+      let pixelSize = brushSettings.size ?? state.globalBrushSize ?? 1;
+
+      if (brushSettings.brushShape === BrushShape.CUSTOM) {
+        const computed = pixelsFromCustomPercent(quantized, state, brushSettings);
+        if (computed !== null) {
+          pixelSize = computed;
+        }
+      } else {
+        pixelSize = Math.max(1, Math.round(percent));
+      }
+
+      const nextBrushSettings: BrushSettings = {
+        ...brushSettings,
+        size: pixelSize,
+        customBrushSizePercent:
+          brushSettings.brushShape === BrushShape.CUSTOM ? quantized : undefined,
+      };
+
+      const shouldSyncEraser = tools.eraserSettings.linkSizeToBrush !== false;
+      const updatedEraserSettings = shouldSyncEraser
+        ? { ...tools.eraserSettings, size: pixelSize }
+        : tools.eraserSettings;
+
+      return {
+        globalBrushSize: pixelSize,
+        tools: {
+          ...tools,
+          brushSettings: nextBrushSettings,
+          eraserSettings: updatedEraserSettings,
+        },
+      };
+    });
+  },
+  setBrushSettings: (incomingSettings) => {
+    let pendingPalette: PaletteState | null = null;
+    set((state) => {
+    // quiet
+    try {
+    const settings = {
+      ...incomingSettings,
+    } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+
+    let incomingCustomPercent: number | undefined;
+    if (Object.prototype.hasOwnProperty.call(settings, 'customBrushSizePercent')) {
+      const rawPercent = settings.customBrushSizePercent;
+      if (rawPercent !== undefined && rawPercent !== null) {
+        const numericPercent = Number(rawPercent);
+        if (Number.isFinite(numericPercent)) {
+          incomingCustomPercent = numericPercent;
+        }
+      }
+      delete settings.customBrushSizePercent;
+    }
+
+    const currentSettings = state.tools.brushSettings;
+    const nextBrushShapeForPressure = settings.brushShape ?? currentSettings.brushShape;
+    const pressureUpdates: Partial<PressureSettings> = {};
+    let hasPressureUpdate = false;
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'pressureEnabled')) {
+      const value = settings.pressureEnabled;
+      if (value !== undefined) {
+        pressureUpdates.enabled = Boolean(value);
+        hasPressureUpdate = true;
+      }
+      delete settings.pressureEnabled;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'minPressure')) {
+      const value = settings.minPressure;
+      if (value !== undefined) {
+        pressureUpdates.min = Number(value);
+        hasPressureUpdate = true;
+      }
+      delete settings.minPressure;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'maxPressure')) {
+      const value = settings.maxPressure;
+      if (value !== undefined) {
+        pressureUpdates.max = Number(value);
+        hasPressureUpdate = true;
+      }
+      delete settings.maxPressure;
+    }
+
+    let nextPressure = hasPressureUpdate
+      ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
+      : state.pressureSettings;
+    if (
+      pressureUpdates.enabled === true &&
+      !Object.prototype.hasOwnProperty.call(settings, 'minPressure') &&
+      !Object.prototype.hasOwnProperty.call(settings, 'maxPressure') &&
+      nextPressure.min === 0 &&
+      nextPressure.max === 0
+    ) {
+      const defaultMaxDelta = Math.max(
+        0,
+        getDefaultMaxPressurePercent(nextBrushShapeForPressure) - PRESSURE_BASE_PERCENT
+      );
+      const fallbackMaxDelta = defaultMaxDelta > 0 ? defaultMaxDelta : PRESSURE_BASE_PERCENT;
+      nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+    }
+
+    if (settings.colorCycleFlowForward !== undefined) {
+      settings.colorCycleFlowMode = 'forward';
+      delete settings.colorCycleFlowForward;
+    }
+
+    const settingsKeys = Object.keys(settings);
+    if (!hasPressureUpdate && incomingCustomPercent === undefined) {
+      if (settingsKeys.length === 0) {
+        return state;
+      }
+
+      const isColorOnlyNoop =
+        settingsKeys.length === 1 &&
+        settingsKeys[0] === 'color' &&
+        settings.color === currentSettings.color;
+      if (isColorOnlyNoop) {
+        return state;
+      }
+    }
+
+    let newSettings = { ...currentSettings, ...settings };
+    if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
+      newSettings.colorCycleFlowMode = 'forward';
+    }
+
+    if (DEBUG_LOSTEDGE && Object.prototype.hasOwnProperty.call(settings, 'lostEdge')) {
+      console.debug('[LE:slider->store]', {
+        incoming: settings.lostEdge,
+        previous: currentSettings.lostEdge,
+        next: newSettings.lostEdge
+      });
+    }
+
+    const nextBrushShape = settings.brushShape ?? currentSettings.brushShape;
+    const wasCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
+    const isCustomBrush = nextBrushShape === BrushShape.CUSTOM;
+    const lastRegularSize =
+      currentSettings.lastRegularBrushSize ??
+      currentSettings.size ??
+      state.globalBrushSize ??
+      1;
+    if (nextBrushShape === BrushShape.CUSTOM) {
+      if (!wasCustomBrush) {
+        newSettings.lastRegularBrushSize = Math.max(1, Math.round(lastRegularSize));
+      }
+      let percentToApply = incomingCustomPercent;
+
+      if (percentToApply === undefined && typeof settings.size === 'number') {
+        const derived = percentFromPixelSize(
+          settings.size,
+          state,
+          { ...newSettings, brushShape: nextBrushShape }
+        );
+        if (derived !== null) {
+          percentToApply = derived;
+        }
+      }
+
+      if (percentToApply === undefined && typeof newSettings.customBrushSizePercent === 'number') {
+        percentToApply = newSettings.customBrushSizePercent;
+      }
+
+      if (percentToApply === undefined) {
+        const baseSize = typeof newSettings.size === 'number'
+          ? newSettings.size
+          : state.globalBrushSize ?? 1;
+        const derived = percentFromPixelSize(baseSize, state, newSettings);
+        percentToApply = derived ?? 100;
+      }
+
+      percentToApply = quantizeCustomBrushPercent(clampCustomBrushPercent(percentToApply));
+      const computedSize =
+        pixelsFromCustomPercent(
+          percentToApply,
+          state,
+          {
+            ...newSettings,
+            brushShape: nextBrushShape,
+            customBrushSizePercent: percentToApply
+          }
+        ) ?? (typeof newSettings.size === 'number' ? newSettings.size : state.globalBrushSize ?? 1);
+
+      newSettings = {
+        ...newSettings,
+        brushShape: nextBrushShape,
+        size: Math.max(1, Math.round(computedSize)),
+        customBrushSizePercent: percentToApply
+      };
+    } else {
+      if (incomingCustomPercent !== undefined && Number.isFinite(incomingCustomPercent)) {
+        const fallbackSize = Math.max(1, Math.round(incomingCustomPercent));
+        newSettings = { ...newSettings, size: fallbackSize };
+      }
+      newSettings = {
+        ...newSettings,
+        customBrushSizePercent: undefined,
+        brushShape: nextBrushShape
+      };
+    }
+
+    if (wasCustomBrush && !isCustomBrush && !Object.prototype.hasOwnProperty.call(settings, 'size')) {
+      const restored = Math.max(1, Math.round(lastRegularSize));
+      newSettings = {
+        ...newSettings,
+        size: restored
+      };
+    }
+
+    newSettings = {
+      ...newSettings,
+      pressureEnabled: nextPressure.enabled,
+      minPressure: nextPressure.min,
+      maxPressure: nextPressure.max,
+    };
+    const explicitGradientVersion = settings.colorCycleGradientVersion;
+    if (settings.colorCycleGradient !== undefined && explicitGradientVersion === undefined) {
+      const gradientChanged = !gradientsEqual(
+        currentSettings.colorCycleGradient,
+        settings.colorCycleGradient
+      );
+      if (gradientChanged) {
+        newSettings.colorCycleGradientVersion =
+          (currentSettings.colorCycleGradientVersion ?? 0) + 1;
+      } else if (currentSettings.colorCycleGradientVersion !== undefined) {
+        newSettings.colorCycleGradientVersion = currentSettings.colorCycleGradientVersion;
+      }
+    } else if (explicitGradientVersion !== undefined) {
+      newSettings.colorCycleGradientVersion = explicitGradientVersion;
+    } else if (
+      newSettings.colorCycleGradientVersion === undefined &&
+      currentSettings.colorCycleGradientVersion !== undefined
+    ) {
+      newSettings.colorCycleGradientVersion = currentSettings.colorCycleGradientVersion;
+    }
+    
+    // Auto-save brush-specific settings when they change (excluding size)
+    // Determine current brush ID (standard brush preset or custom brush)
+    const currentBrushId = state.currentBrushPreset 
+      ? state.currentBrushPreset.id 
+      : (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush 
+         ? currentSettings.selectedCustomBrush 
+         : null);
+
+    // The dedicated dither brush should never disable dithering
+    if (DITHER_BRUSH_IDS.includes(currentBrushId ?? '') && newSettings.ditherEnabled !== true) {
+      newSettings = { ...newSettings, ditherEnabled: true };
+    }
+         
+    // Store brush settings to save for later
+    let brushSettingsToSave: { brushId: string; settings: Partial<BrushSettings> } | null = null;
+    
+    if (currentBrushId) {
+      // Get existing saved settings for this brush
+      const existingSavedSettings = state.brushSpecificSettings[currentBrushId] || {};
+      
+      // Merge with new settings
+      const settingsToSave: Partial<BrushSettings> = {
+        ...existingSavedSettings
+      };
+
+      delete settingsToSave.pressureEnabled;
+      delete settingsToSave.minPressure;
+      delete settingsToSave.maxPressure;
+      
+      // Update with changed settings
+      if (settings.opacity !== undefined) settingsToSave.opacity = newSettings.opacity;
+      if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
+      if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
+      if (settings.risographIntensity !== undefined) settingsToSave.risographIntensity = newSettings.risographIntensity;
+      if (settings.risographColorShift !== undefined) settingsToSave.risographColorShift = newSettings.risographColorShift;
+      if (settings.ditherEnabled !== undefined) settingsToSave.ditherEnabled = newSettings.ditherEnabled;
+      if (settings.ditherPhaseJitter !== undefined) {
+        settingsToSave.ditherPhaseJitter = newSettings.ditherPhaseJitter;
+      }
+      if (settings.ditherPaletteSpread !== undefined) {
+        settingsToSave.ditherPaletteSpread = newSettings.ditherPaletteSpread;
+      }
+      if (settings.ditherAlgorithm !== undefined) {
+        settingsToSave.ditherAlgorithm = newSettings.ditherAlgorithm;
+      }
+      if (settings.patternStyle !== undefined) {
+        settingsToSave.patternStyle = newSettings.patternStyle;
+      }
+      if (settings.ditherStrokeTipShape !== undefined) {
+        settingsToSave.ditherStrokeTipShape = newSettings.ditherStrokeTipShape;
+      }
+      if (settings.ditherBackgroundFill !== undefined) {
+        settingsToSave.ditherBackgroundFill = newSettings.ditherBackgroundFill;
+      }
+      if (settings.ditherGradBgFill !== undefined) {
+        settingsToSave.ditherGradBgFill = newSettings.ditherGradBgFill;
+      }
+      if (settings.ditherGradStops !== undefined) {
+        settingsToSave.ditherGradStops = newSettings.ditherGradStops;
+      }
+      if (settings.ditherGradSampleEnabled !== undefined) {
+        settingsToSave.ditherGradSampleEnabled = newSettings.ditherGradSampleEnabled;
+      }
+      if (settings.trans !== undefined) {
+        settingsToSave.trans = newSettings.trans;
+      }
+      if (settings.pigmentLiftEnabled !== undefined) {
+        settingsToSave.pigmentLiftEnabled = newSettings.pigmentLiftEnabled;
+      }
+      if (settings.pigmentLiftStrength !== undefined) {
+        settingsToSave.pigmentLiftStrength = newSettings.pigmentLiftStrength;
+      }
+      if (settings.pigmentLiftFeather !== undefined) {
+        settingsToSave.pigmentLiftFeather = newSettings.pigmentLiftFeather;
+      }
+      if (settings.pigmentLiftNoise !== undefined) {
+        settingsToSave.pigmentLiftNoise = newSettings.pigmentLiftNoise;
+      }
+      if (settings.lostEdge !== undefined) {
+        settingsToSave.lostEdge = newSettings.lostEdge;
+      }
+      if (settings.colorCycleStampDitherEnabled !== undefined) {
+        settingsToSave.colorCycleStampDitherEnabled = newSettings.colorCycleStampDitherEnabled;
+      }
+      if (settings.colorCycleStampDitherPixelSize !== undefined) {
+        settingsToSave.colorCycleStampDitherPixelSize = newSettings.colorCycleStampDitherPixelSize;
+      }
+      if (settings.colorCycleStampDitherBgFill !== undefined) {
+        settingsToSave.colorCycleStampDitherBgFill = newSettings.colorCycleStampDitherBgFill;
+      }
+      if (settings.colorCycleStampDitherClears !== undefined) {
+        settingsToSave.colorCycleStampDitherClears = newSettings.colorCycleStampDitherClears;
+      }
+      if (settings.colorCycleStampDitherPressureLinked !== undefined) {
+        settingsToSave.colorCycleStampDitherPressureLinked = newSettings.colorCycleStampDitherPressureLinked;
+      }
+      if (settings.colorCycleStampShape !== undefined) {
+        settingsToSave.colorCycleStampShape = newSettings.colorCycleStampShape;
+      }
+      if (settings.pressureLinkedFillResolution !== undefined) {
+        settingsToSave.pressureLinkedFillResolution = newSettings.pressureLinkedFillResolution;
+      }
+      if (settings.pressureDitherSmoosh !== undefined) {
+        settingsToSave.pressureDitherSmoosh = newSettings.pressureDitherSmoosh;
+      }
+      if (settings.fillResolution !== undefined) settingsToSave.fillResolution = newSettings.fillResolution;
+      if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
+      if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;
+      if (settings.dashLength !== undefined) settingsToSave.dashLength = newSettings.dashLength;
+      if (settings.velocitySpacingEnabled !== undefined) {
+        settingsToSave.velocitySpacingEnabled = newSettings.velocitySpacingEnabled;
+      }
+      if (settings.velocityDashGapEnabled !== undefined) {
+        settingsToSave.velocityDashGapEnabled = newSettings.velocityDashGapEnabled;
+      }
+      if (settings.velocityDashGapStrength !== undefined) {
+        settingsToSave.velocityDashGapStrength = newSettings.velocityDashGapStrength;
+      }
+      if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
+      if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
+      if (settings.gridSnapSize !== undefined) settingsToSave.gridSnapSize = newSettings.gridSnapSize;
+      if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
+      if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
+      if (settings.hueShift !== undefined) settingsToSave.hueShift = newSettings.hueShift;
+      if (settings.lightnessAdjust !== undefined) settingsToSave.lightnessAdjust = newSettings.lightnessAdjust;
+      if (settings.saturationAdjust !== undefined) settingsToSave.saturationAdjust = newSettings.saturationAdjust;
+      if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
+      if (settings.rectGradientPresetId !== undefined) settingsToSave.rectGradientPresetId = newSettings.rectGradientPresetId;
+      if (settings.polygonSampleColors !== undefined) settingsToSave.polygonSampleColors = newSettings.polygonSampleColors;
+      if (settings.autoSampleGradientRealtime !== undefined) {
+        settingsToSave.autoSampleGradientRealtime = newSettings.autoSampleGradientRealtime;
+      }
+      if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
+      if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
+      if (settings.colorCycleGradient !== undefined) {
+        settingsToSave.colorCycleGradient = newSettings.colorCycleGradient;
+      }
+      if (settings.colorCycleUseForegroundGradient !== undefined) {
+        settingsToSave.colorCycleUseForegroundGradient = newSettings.colorCycleUseForegroundGradient;
+      }
+      if (settings.colorCycleFgLightness !== undefined) {
+        settingsToSave.colorCycleFgLightness = newSettings.colorCycleFgLightness;
+      }
+      if (settings.colorCycleFgVariance !== undefined) {
+        settingsToSave.colorCycleFgVariance = newSettings.colorCycleFgVariance;
+      }
+      if (settings.colorCycleFgHueShift !== undefined) {
+        settingsToSave.colorCycleFgHueShift = newSettings.colorCycleFgHueShift;
+      }
+      if (settings.colorCycleFgSaturationShift !== undefined) {
+        settingsToSave.colorCycleFgSaturationShift = newSettings.colorCycleFgSaturationShift;
+      }
+      if (settings.colorCycleFgOpacity !== undefined) {
+        settingsToSave.colorCycleFgOpacity = newSettings.colorCycleFgOpacity;
+      }
+      if (settings.colorCycleFgStops !== undefined) {
+        settingsToSave.colorCycleFgStops = newSettings.colorCycleFgStops;
+      }
+      if (settings.colorCycleSpeed !== undefined) {
+        settingsToSave.colorCycleSpeed = newSettings.colorCycleSpeed;
+      }
+      if (settings.customBrushColorCycle !== undefined) {
+        settingsToSave.customBrushColorCycle = newSettings.customBrushColorCycle;
+      }
+      if (settings.customBrushColorCycleMode !== undefined) {
+        settingsToSave.customBrushColorCycleMode = newSettings.customBrushColorCycleMode;
+      }
+      if (settings.customBrushUseCapturedAlphaMask !== undefined) {
+        settingsToSave.customBrushUseCapturedAlphaMask = newSettings.customBrushUseCapturedAlphaMask;
+      }
+      if (settings.customBrushCcPhaseMode !== undefined) {
+        settingsToSave.customBrushCcPhaseMode = newSettings.customBrushCcPhaseMode;
+      }
+      if (settings.customBrushCcPhaseJitter !== undefined) {
+        settingsToSave.customBrushCcPhaseJitter = newSettings.customBrushCcPhaseJitter;
+      }
+      if (settings.colorCycleLayerSpeedScale !== undefined) {
+        settingsToSave.colorCycleLayerSpeedScale = newSettings.colorCycleLayerSpeedScale;
+      }
+      if (settings.ccGradientSource !== undefined) {
+        settingsToSave.ccGradientSource = newSettings.ccGradientSource;
+      }
+      if (settings.mosaicTilePx !== undefined) {
+        settingsToSave.mosaicTilePx = newSettings.mosaicTilePx;
+      }
+      if (settings.mosaicBlocksCount !== undefined) {
+        settingsToSave.mosaicBlocksCount = newSettings.mosaicBlocksCount;
+      }
+      if (settings.mosaicPaletteCount !== undefined) {
+        settingsToSave.mosaicPaletteCount = newSettings.mosaicPaletteCount;
+      }
+      if (settings.mosaicSegmentPx !== undefined) {
+        settingsToSave.mosaicSegmentPx = newSettings.mosaicSegmentPx;
+      }
+      if (settings.mosaicSegmentJitter !== undefined) {
+        settingsToSave.mosaicSegmentJitter = newSettings.mosaicSegmentJitter;
+      }
+      if (settings.mosaicDitherEnabled !== undefined) {
+        settingsToSave.mosaicDitherEnabled = newSettings.mosaicDitherEnabled;
+      }
+      if (settings.mosaicSeed !== undefined) {
+        settingsToSave.mosaicSeed = newSettings.mosaicSeed;
+      }
+      if (settings.colorCycleFlowMode !== undefined) {
+        settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
+      }
+      if (currentBrushId === 'color-cycle-gradient' && settings.colorCycleFillMode !== undefined) {
+        settingsToSave.colorCycleFillMode = newSettings.colorCycleFillMode;
+      } else if (currentBrushId !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
+        delete settingsToSave.colorCycleFillMode;
+      }
+      if (settings.gradientBands !== undefined) {
+        settingsToSave.gradientBands = newSettings.gradientBands;
+      }
+      if (settings.gradientLength !== undefined) {
+        settingsToSave.gradientLength = newSettings.gradientLength;
+      }
+      if (
+        settings.colorCycleGradient !== undefined ||
+        settings.colorCycleGradientVersion !== undefined
+      ) {
+        settingsToSave.colorCycleGradientVersion = newSettings.colorCycleGradientVersion;
+      }
+      
+      brushSettingsToSave = { brushId: currentBrushId, settings: settingsToSave };
+    }
+    
+    // Handle brush-specific resource cleanup when switching between custom and regular brushes
+    if (newSettings.brushShape !== undefined) {
+      const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
+      const isCustom = newSettings.brushShape === BrushShape.CUSTOM;
+
+      if (wasCustom && !isCustom) {
+        // Clear stale custom brush tip data when switching away from custom brushes
+        newSettings.currentBrushTip = undefined;
+        newSettings.selectedCustomBrush = null;
+      }
+
+      if (wasCustom !== isCustom) {
+        try {
+          brushCache.clear();
+          scaledBrushCache.clear();
+        } catch {
+          // Cache cleanup failed, continue silently
+        }
+      }
+    }
+    
+    // CRITICAL: Always clear currentBrushTip for standard brushes to prevent contamination
+    // But ONLY if we're not in the process of setting it to CUSTOM with a currentBrushTip
+    if (newSettings.brushShape !== BrushShape.CUSTOM && !settings.currentBrushTip) {
+      newSettings.currentBrushTip = undefined;
+      newSettings.selectedCustomBrush = null;
+    }
+    
+    // Keep brush editor adjustments in sync while editing
+    let nextBrushEditor = state.brushEditor;
+    if (state.brushEditor.status === 'EDITING') {
+      const nextHueShift = settings.hueShift !== undefined
+        ? settings.hueShift
+        : newSettings.hueShift !== undefined
+          ? newSettings.hueShift
+          : state.brushEditor.hueShift;
+      const nextLightness = settings.lightnessAdjust !== undefined
+        ? settings.lightnessAdjust
+        : newSettings.lightnessAdjust !== undefined
+          ? newSettings.lightnessAdjust
+          : state.brushEditor.lightness;
+      const nextSaturation = settings.saturationAdjust !== undefined
+        ? settings.saturationAdjust
+        : newSettings.saturationAdjust !== undefined
+          ? newSettings.saturationAdjust
+          : state.brushEditor.saturation;
+
+      if (
+        nextHueShift !== state.brushEditor.hueShift ||
+        nextLightness !== state.brushEditor.lightness ||
+        nextSaturation !== state.brushEditor.saturation
+      ) {
+        nextBrushEditor = {
+          ...state.brushEditor,
+          hueShift: nextHueShift,
+          lightness: nextLightness,
+          saturation: nextSaturation
+        };
+      }
+    }
+    
+    // Clear temporary brush when switching away from custom brushes
+    let nextCcGradientSource = state.tools.ccGradientSource;
+    if (Object.prototype.hasOwnProperty.call(settings, 'ccGradientSource')) {
+      const desired = settings.ccGradientSource;
+      if (desired) {
+        nextCcGradientSource = desired;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, 'colorCycleUseForegroundGradient')) {
+      if (settings.colorCycleUseForegroundGradient) {
+        nextCcGradientSource = 'fg';
+      } else if (state.tools.ccGradientSource === 'fg') {
+        nextCcGradientSource = 'manual';
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, 'autoSampleGradientRealtime')) {
+      if (settings.autoSampleGradientRealtime) {
+        nextCcGradientSource = 'sampled';
+      } else if (state.tools.ccGradientSource === 'sampled') {
+        nextCcGradientSource = 'manual';
+      }
+    }
+
+    newSettings.ccGradientSource = nextCcGradientSource;
+
+    let updatedState = {
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: newSettings,
+        ccGradientSource: nextCcGradientSource,
+      },
+      globalBrushSize: isCustomBrush
+        ? state.globalBrushSize
+        : (typeof newSettings.size === 'number' ? newSettings.size : state.globalBrushSize),
+      pressureSettings: nextPressure
+    };
+
+    updatedState = {
+      ...updatedState,
+      tools: applyPressureToTools(updatedState.tools, nextPressure)
+    };
+
+    if (nextBrushEditor !== state.brushEditor) {
+      updatedState = {
+        ...updatedState,
+        brushEditor: nextBrushEditor
+      };
+    }
+    
+    
+    // Apply brush settings save if needed (avoid circular dependency)
+    if (brushSettingsToSave) {
+      updatedState = {
+        ...updatedState,
+        brushSpecificSettings: {
+          ...updatedState.brushSpecificSettings,
+          [brushSettingsToSave.brushId]: brushSettingsToSave.settings
+        }
+      };
+    }
+    
+    if (newSettings.color !== currentSettings.color) {
+      pendingPalette = {
+        ...state.palette,
+        foregroundColor: newSettings.color ?? state.palette.foregroundColor,
+      };
+    }
+    
+    // If switching away from custom brush, discard temporary brush
+    if (newSettings.brushShape !== undefined && 
+        currentSettings.brushShape === BrushShape.CUSTOM && 
+        newSettings.brushShape !== BrushShape.CUSTOM) {
+      return {
+        ...updatedState,
+        temporaryCustomBrush: null
+      };
+    }
+    
+    return updatedState;
+    } catch (error) {
+      debugLog('brush-error', 'Failed to apply brush settings', error);
+      // Return state unchanged on failure to prevent app crash
+      return state;
+    }
+  });
+
+    if (pendingPalette) {
+      applyPaletteSnapshot(set, get, pendingPalette);
+    }
+  },
+  setEraserSettings: (incomingSettings) => {
+    let pendingPalette: PaletteState | null = null;
+    set((state) => {
+    const settings = { ...incomingSettings } as Partial<BrushSettings>;
+    const currentEraserSettings = state.tools.eraserSettings;
+    const nextEraserShapeForPressure =
+      currentEraserSettings.brushShape ?? state.tools.brushSettings.brushShape;
+
+    const pressureUpdates: Partial<PressureSettings> = {};
+    let hasPressureUpdate = false;
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'pressureEnabled')) {
+      const value = settings.pressureEnabled;
+      if (value !== undefined) {
+        pressureUpdates.enabled = Boolean(value);
+        hasPressureUpdate = true;
+      }
+      delete settings.pressureEnabled;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'minPressure')) {
+      const value = settings.minPressure;
+      if (value !== undefined) {
+        pressureUpdates.min = Number(value);
+        hasPressureUpdate = true;
+      }
+      delete settings.minPressure;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'maxPressure')) {
+      const value = settings.maxPressure;
+      if (value !== undefined) {
+        pressureUpdates.max = Number(value);
+        hasPressureUpdate = true;
+      }
+      delete settings.maxPressure;
+    }
+
+    let nextPressure = hasPressureUpdate
+      ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
+      : state.pressureSettings;
+    if (
+      pressureUpdates.enabled === true &&
+      !Object.prototype.hasOwnProperty.call(settings, 'minPressure') &&
+      !Object.prototype.hasOwnProperty.call(settings, 'maxPressure') &&
+      nextPressure.min === 0 &&
+      nextPressure.max === 0
+    ) {
+      const defaultMaxDelta = Math.max(
+        0,
+        getDefaultMaxPressurePercent(nextEraserShapeForPressure) - PRESSURE_BASE_PERCENT
+      );
+      const fallbackMaxDelta = defaultMaxDelta > 0 ? defaultMaxDelta : PRESSURE_BASE_PERCENT;
+      nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+    }
+
+    const settingsKeys = Object.keys(settings);
+    if (!hasPressureUpdate) {
+      if (settingsKeys.length === 0) {
+        return state;
+      }
+
+      const isColorOnlyNoop =
+        settingsKeys.length === 1 &&
+        settingsKeys[0] === 'color' &&
+        settings.color === currentEraserSettings.color;
+      if (isColorOnlyNoop) {
+        return state;
+      }
+    }
+
+    const next = {
+      ...state.tools.eraserSettings,
+      ...settings,
+      pressureEnabled: nextPressure.enabled,
+      minPressure: nextPressure.min,
+      maxPressure: nextPressure.max,
+    };
+    if (settings.linkSizeToBrush === true) {
+      const syncSize = state.globalBrushSize ?? next.size;
+      if (typeof syncSize === 'number') {
+        next.size = syncSize;
+      }
+    }
+    let paletteUpdate: PaletteState | null = null;
+    if (
+      settings.color !== undefined &&
+      state.palette.activeSlot === 'foreground' &&
+      state.tools.currentTool === 'eraser' &&
+      state.palette.foregroundColor !== settings.color
+    ) {
+      paletteUpdate = {
+        ...state.palette,
+        foregroundColor: settings.color
+      };
+    }
+
+    const baseTools: ToolState = {
+      ...state.tools,
+      eraserSettings: next,
+      brushSettings: paletteUpdate
+        ? { ...state.tools.brushSettings, color: paletteUpdate.foregroundColor }
+        : state.tools.brushSettings
+    };
+
+    const nextTools = applyPressureToTools(baseTools, nextPressure);
+    const baseReturn = {
+      tools: nextTools,
+      pressureSettings: nextPressure,
+    };
+    if (!paletteUpdate) {
+      return baseReturn;
+    }
+
+    pendingPalette = paletteUpdate;
+    return baseReturn;
+  });
+
+    if (pendingPalette) {
+      applyPaletteSnapshot(set, get, pendingPalette);
+    }
+  },
+  setFillSettings: (settings) => set((state) => ({
+    tools: {
+      ...state.tools,
+      fillSettings: { ...state.tools.fillSettings, ...settings }
+    }
+  })),
+  setCcGradientSource: (source) => {
+    const nextSource = source ?? 'manual';
+    const updates: Partial<BrushSettings> = {
+      ccGradientSource: nextSource,
+    };
+
+    if (nextSource === 'fg') {
+      updates.colorCycleUseForegroundGradient = true;
+      updates.autoSampleGradient = false;
+      updates.autoSampleGradientRealtime = false;
+      updates.ccGradientSamplePerShape = false;
+    } else if (nextSource === 'sampled') {
+      updates.colorCycleUseForegroundGradient = false;
+      updates.autoSampleGradient = false;
+      updates.autoSampleGradientRealtime = false;
+      updates.ccGradientSamplePerShape = false;
+    } else {
+      updates.colorCycleUseForegroundGradient = false;
+      updates.autoSampleGradient = false;
+      updates.autoSampleGradientRealtime = false;
+    }
+
+    get().setBrushSettings(updates);
+  },
+  setCcGradientSampleCount: (count) => set(() => ({
+    ccGradientSampleCount: Math.max(0, Math.round(count)),
+  })),
+  resetCcGradientSample: () => set((state) => ({
+    ccGradientSampleCount: 0,
+    ccGradientSampleResetToken: state.ccGradientSampleResetToken + 1,
+  })),
+  setCustomBrushSampleAllLayers: (sampleAllLayers) =>
+    set((state) => {
+      const currentCapture = state.tools.customBrushCapture ?? { sampleAllLayers: false };
+      if (currentCapture.sampleAllLayers === sampleAllLayers) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          customBrushCapture: {
+            ...currentCapture,
+            sampleAllLayers,
+          },
+        },
+      };
+    }),
+  setCustomBrushCaptureMode: (mode) =>
+    set((state) => {
+      const currentCapture = state.tools.customBrushCapture ?? {
+        sampleAllLayers: false,
+        mode: 'rectangle' as const,
+        freehandPath: null,
+      };
+      if (currentCapture.mode === mode) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          customBrushCapture: {
+            ...currentCapture,
+            mode,
+            // Reset stored freehand path whenever the mode changes to avoid stale captures
+            freehandPath: null,
+          },
+        },
+      };
+    }),
+  setCustomBrushFreehandPath: (payload) =>
+    set((state) => {
+      const currentCapture = state.tools.customBrushCapture ?? {
+        sampleAllLayers: false,
+        mode: 'rectangle' as const,
+        freehandPath: null,
+      };
+      if (currentCapture.freehandPath === payload) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          customBrushCapture: {
+            ...currentCapture,
+            freehandPath: payload,
+          },
+        },
+      };
+    }),
+  setSelectionMode: (mode) =>
+    set((state) => {
+      if (state.tools.selectionMode === mode) {
+        return state;
+      }
+      return {
+        tools: {
+          ...state.tools,
+          selectionMode: mode,
+        },
+      };
+    }),
+  setShapeMode: (enabled) => set((state) => {
+    try {
+      // Gate noisy logs behind debug toggle
+      debugLog('shape-store', 'setShapeMode', {
+        enabled,
+        prev: state.tools.shapeMode,
+        tool: state.tools.currentTool,
+        brushShape: state.tools.brushSettings.brushShape,
+        selectedCustomBrush: state.tools.brushSettings.selectedCustomBrush,
+      });
+    } catch {}
+
+    const isCC = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+                  state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
+                  state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    const activeBrushId = state.currentBrushPreset?.id ?? null;
+    const nextShapeModeByBrush = activeBrushId
+      ? { ...state.shapeModeByBrush, [activeBrushId]: enabled }
+      : state.shapeModeByBrush;
+    return {
+      ...(nextShapeModeByBrush !== state.shapeModeByBrush
+        ? { shapeModeByBrush: nextShapeModeByBrush }
+        : {}),
+      tools: {
+        ...state.tools,
+        shapeMode: enabled,
+        // Persist per-domain shape mode memories so switching brushes restores expected state
+        ...(isCC ? { lastColorCycleShapeMode: enabled } : { lastRegularShapeMode: enabled })
+      }
+    };
+  }),
+  setCurrentTool: (tool) => {
+    const stateBeforeSwitch = get();
+    stateBeforeSwitch._saveCurrentBrushSettings();
+    const shapeFillSession = stateBeforeSwitch.shapeFill.session;
+    const isShapeFillActive =
+      !!shapeFillSession &&
+      stateBeforeSwitch.tools.currentTool === 'brush' &&
+      stateBeforeSwitch.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+    const toolChanged = tool !== stateBeforeSwitch.tools.currentTool;
+    const shouldClearSelection =
+      stateBeforeSwitch.tools.currentTool === 'selection' &&
+      tool !== 'selection' &&
+      toolChanged &&
+      (stateBeforeSwitch.selectionStart !== null || stateBeforeSwitch.selectionEnd !== null);
+
+    if (isShapeFillActive && toolChanged) {
+      stateBeforeSwitch.cancelShapeFillSession();
+    }
+
+    if (shouldClearSelection) {
+      stateBeforeSwitch.clearSelection();
+    }
+
+    if (tool === 'custom') {
+      const currentState = get();
+      if (currentState.temporaryCustomBrush) {
+        get().setTemporaryCustomBrush(null);
+      }
+      if (currentState.selectionStart || currentState.selectionEnd) {
+        get().clearSelection();
+      }
+    }
+
+    if (stateBeforeSwitch.tools.currentTool === 'crop' && tool !== 'crop') {
+      get().resetCrop();
+    }
+
+    try {
+      set((state) => {
+        const newBrushSettings = { ...state.tools.brushSettings };
+        const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+        const currentToolSupportsShapes = isShapeCapableTool(state.tools.currentTool);
+        const nextToolSupportsShapes = isShapeCapableTool(tool);
+        const isCurrentColorCycleBrush = isColorCycleBrushShape(state.tools.brushSettings.brushShape);
+
+        let lastRegularTool = state.tools.lastRegularTool;
+        let lastRegularBrushShape = state.tools.lastRegularBrushShape;
+        let lastRegularShapeMode = state.tools.lastRegularShapeMode;
+        let lastColorCycleShapeMode = state.tools.lastColorCycleShapeMode;
+
+        if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') &&
+            tool !== 'brush' && tool !== 'eraser') {
+          lastRegularTool = state.tools.currentTool;
+          lastRegularBrushShape = state.tools.brushSettings.brushShape;
+        }
+
+        if (state.tools.currentTool === 'custom' && tool !== 'custom' && tool !== 'brush') {
+          newBrushSettings.brushShape = BrushShape.ROUND;
+          newBrushSettings.selectedCustomBrush = null;
+        }
+
+        if (tool === 'custom') {
+          newBrushSettings.currentBrushTip = undefined;
+        }
+
+        let newShapeMode = state.tools.shapeMode;
+        if (wasShapeFillBrush && tool !== 'brush') {
+          newShapeMode = false;
+        }
+
+        if (currentToolSupportsShapes && !nextToolSupportsShapes) {
+          if (isCurrentColorCycleBrush) {
+            lastColorCycleShapeMode = state.tools.shapeMode;
+          } else {
+            lastRegularShapeMode = state.tools.shapeMode;
+          }
+          newShapeMode = false;
+        } else if (!currentToolSupportsShapes && nextToolSupportsShapes) {
+          const nextIsColorCycleBrush = isColorCycleBrushShape(newBrushSettings.brushShape);
+          const mosaicShapeMode = state.currentBrushPreset?.id === 'mosaic'
+            ? state.shapeModeByBrush['mosaic']
+            : undefined;
+          newShapeMode = nextIsColorCycleBrush
+            ? (lastColorCycleShapeMode ?? false)
+            : (mosaicShapeMode ?? lastRegularShapeMode ?? false);
+        }
+
+        if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser' || state.tools.currentTool === 'custom') &&
+            tool !== 'brush' && tool !== 'eraser' && tool !== 'custom') {
+          newShapeMode = false;
+          get().setPolygonGradientState({
+            drawingState: 'idle',
+            points: [],
+            vertices: undefined,
+            fillColor: undefined,
+          });
+          get().setRectangleBrushState({
+            drawingState: 'idle',
+            startPos: { x: 0, y: 0 },
+            endPos: { x: 0, y: 0 }
+          });
+        }
+
+        const pressure = state.pressureSettings;
+        const syncedBrushSettings = {
+          ...newBrushSettings,
+          pressureEnabled: pressure.enabled,
+          minPressure: pressure.min,
+          maxPressure: pressure.max,
+        };
+
+        const nextTools = applyPressureToTools(
+          {
+            ...state.tools,
+            previousTool: state.tools.currentTool,
+            currentTool: tool,
+            lastRegularTool,
+            lastRegularBrushShape,
+            lastRegularShapeMode,
+            lastColorCycleShapeMode,
+            brushSettings: syncedBrushSettings,
+            shapeMode: newShapeMode,
+          },
+          pressure
+        );
+
+        return {
+          tools: nextTools,
+        };
+      });
+    } catch {}
+
+    if (tool === COLOR_ADJUST_TOOL) {
+      const store = get();
+      if (!store.colorAdjust.active || toolChanged) {
+        store.startColorAdjustSession();
+      }
+    } else if (stateBeforeSwitch.tools.currentTool === COLOR_ADJUST_TOOL) {
+      const store = get();
+      if (stateBeforeSwitch.colorAdjust?.active) {
+        store.cancelColorAdjust();
+      } else {
+        set({ colorAdjust: createDefaultColorAdjustState() });
+      }
+    }
+  },
+  
+  setPolygonGradientState: (partialState) => set((state) => ({
+    polygonGradientState: { ...state.polygonGradientState, ...partialState }
+  })),
+  addPolygonGradientPoint: (x, y, color) => set((state) => ({
+    polygonGradientState: {
+      ...state.polygonGradientState,
+      points: [...state.polygonGradientState.points, { x, y, color }]
+    }
+  })),
+  clearPolygonGradientPoints: () => set((state) => ({
+    polygonGradientState: {
+      ...state.polygonGradientState,
+      points: [],
+      previewPath: undefined
+    }
+  })),
+
+  startRecolorSampling: (samples = 12, target = 'recolor') => {
+    const clampedSamples = Math.max(2, Math.min(64, Math.round(samples)));
+    set(() => ({
+      recolorSampling: {
+        active: true,
+        start: null,
+        end: null,
+        samples: clampedSamples,
+        target,
+      },
+    }));
+  },
+  updateRecolorSampling: (partial) =>
+    set((state) => ({
+      recolorSampling: {
+        ...state.recolorSampling,
+        ...partial,
+      },
+    })),
+  stopRecolorSampling: () =>
+    set(() => ({ recolorSampling: createDefaultRecolorSamplingState() })),
+
+  setBrushPreset: (preset, preserveEditMode = false) => {
+    const stateBeforeSwitch = get();
+    // Save current settings before switching
+    stateBeforeSwitch._saveCurrentBrushSettings();
+
+    if (
+      stateBeforeSwitch.shapeFill.session &&
+      stateBeforeSwitch.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL &&
+      stateBeforeSwitch.currentBrushPreset?.id !== preset.id
+    ) {
+      stateBeforeSwitch.cancelShapeFillSession();
+    }
+    
+    // Cancel any active brush edit session before switching (unless preserveEditMode is true)
+    const state = get();
+    if (state.brushEditor.status === 'EDITING' && !preserveEditMode) {
+      const canvas = state.currentOffscreenCanvas;
+      if (canvas) {
+        get().cancelBrushEdit(canvas);
+      }
+    }
+
+    set((state) => {
+    // --- THIS IS THE NEW, ROBUST REPLACEMENT ---
+    let userOverrides = get().loadBrushSettings(preset.id);
+    if (userOverrides) {
+      userOverrides = { ...userOverrides };
+      delete userOverrides.size;
+      delete userOverrides.pressureEnabled;
+      delete userOverrides.minPressure;
+      delete userOverrides.maxPressure;
+      if (preset.id !== 'color-cycle-gradient' && userOverrides.colorCycleFillMode !== undefined) {
+        delete userOverrides.colorCycleFillMode;
+      }
+    }
+    const hasUserColorCycleSpeed = userOverrides?.colorCycleSpeed !== undefined;
+    const hasUserColorCycleLayerSpeedScale = userOverrides?.colorCycleLayerSpeedScale !== undefined;
+    const hasUserColorCycleFlowMode = userOverrides?.colorCycleFlowMode !== undefined;
+    const hasUserColorCycleFPS = userOverrides?.colorCycleFPS !== undefined;
+    const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
+    const currentSettings = state.tools.brushSettings;
+    let updatedBrushSpecificSettings = state.brushSpecificSettings;
+
+
+    // Always start from the current global size; fall back to preset default only if undefined
+    const presetSuggestedSize =
+      typeof presetDefaults.size === 'number' ? presetDefaults.size : undefined;
+    const fallbackSize =
+      presetSuggestedSize ?? defaultBrushSettingsForStore.size ?? 5;
+    const appropriateSize =
+      typeof state.globalBrushSize === 'number' ? state.globalBrushSize : fallbackSize;
+    let nextGlobalBrushSize = appropriateSize;
+
+    let newBrushSettings: BrushSettings = {
+      ...defaultBrushSettingsForStore, // 1. Start with the absolute base defaults.
+      ...presetDefaults,               // 2. Apply the preset settings (which now includes user overrides).
+      
+      // 3. Finally, preserve the settings that carry over between any brush.
+      color: currentSettings.color,
+      blendMode: currentSettings.blendMode,
+      size: appropriateSize            // Use appropriate size based on brush type
+    };
+
+    const globalPressure = state.pressureSettings;
+    newBrushSettings = {
+      ...newBrushSettings,
+      pressureEnabled: globalPressure.enabled,
+      minPressure: globalPressure.min,
+      maxPressure: globalPressure.max,
+    };
+
+    // Preserve Color Cycle dynamics across preset switches unless user changes them
+    // This keeps animation feel consistent between Color Cycle variants
+    if (currentSettings.colorCycleSpeed !== undefined && !hasUserColorCycleSpeed) {
+      newBrushSettings.colorCycleSpeed = currentSettings.colorCycleSpeed;
+    }
+    if (
+      currentSettings.colorCycleLayerSpeedScale !== undefined &&
+      !hasUserColorCycleLayerSpeedScale
+    ) {
+      newBrushSettings.colorCycleLayerSpeedScale = currentSettings.colorCycleLayerSpeedScale;
+    }
+    if (currentSettings.colorCycleFlowMode !== undefined && !hasUserColorCycleFlowMode) {
+      newBrushSettings.colorCycleFlowMode = 'forward';
+    }
+    if (currentSettings.colorCycleFPS !== undefined && !hasUserColorCycleFPS) {
+      newBrushSettings.colorCycleFPS = currentSettings.colorCycleFPS;
+    }
+    if (newBrushSettings.colorCycleFlowMode && newBrushSettings.colorCycleFlowMode !== 'forward') {
+      newBrushSettings.colorCycleFlowMode = 'forward';
+    }
+
+    const previousGradient = currentSettings.colorCycleGradient;
+    const previousGradientVersion = currentSettings.colorCycleGradientVersion;
+    const storedGradientEntry = findStoredColorCycleGradient(state.brushSpecificSettings);
+    const shouldApplyColorCycleGradient = isColorCycleBrushShape(newBrushSettings.brushShape);
+
+    if (shouldApplyColorCycleGradient) {
+      const activeLayerGradient = resolveActiveColorCycleLayerGradient(state);
+      const gradientSource = activeLayerGradient && activeLayerGradient.length > 0
+        ? activeLayerGradient
+        : previousGradient && previousGradient.length > 0
+          ? previousGradient
+          : storedGradientEntry?.gradient;
+      const gradientVersionSource = previousGradient && previousGradient.length > 0
+        ? previousGradientVersion
+        : storedGradientEntry?.version;
+
+      if (gradientSource && gradientSource.length > 0) {
+        const gradientClone = cloneGradientStops(gradientSource);
+        if (gradientClone && gradientClone.length > 0) {
+          newBrushSettings.colorCycleGradient = gradientClone;
+          if (typeof gradientVersionSource === 'number') {
+            newBrushSettings.colorCycleGradientVersion = gradientVersionSource;
+          }
+
+          if (isColorCyclePresetId(preset.id)) {
+            const existingSettings = state.brushSpecificSettings[preset.id] || {};
+            updatedBrushSpecificSettings = {
+              ...updatedBrushSpecificSettings,
+              [preset.id]: {
+                ...existingSettings,
+                colorCycleGradient: cloneGradientStops(gradientSource),
+                ...(typeof gradientVersionSource === 'number'
+                  ? { colorCycleGradientVersion: gradientVersionSource }
+                  : existingSettings.colorCycleGradientVersion !== undefined
+                    ? { colorCycleGradientVersion: existingSettings.colorCycleGradientVersion }
+                    : {})
+              }
+            };
+          }
+        }
+      }
+    }
+
+    // Keep dithering always enabled for the dedicated dither brush
+    if (DITHER_BRUSH_IDS.includes(preset.id)) {
+      newBrushSettings.ditherEnabled = true;
+    }
+
+    // Handle custom brush presets specifically
+    if (preset.isCustomBrush) {
+      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+      
+      newBrushSettings.brushShape = BrushShape.CUSTOM;
+      newBrushSettings.selectedCustomBrush = customBrushId;
+      newBrushSettings.pressureEnabled = false;
+      newBrushSettings.minPressure = 99;
+      newBrushSettings.maxPressure = undefined;
+      newBrushSettings.useSwatchColor = false;
+      newBrushSettings.hueShift = 0;
+      newBrushSettings.lightnessAdjust = 0;
+      newBrushSettings.saturationAdjust = 100;
+      
+      // CRITICAL FIX: Load the custom brush data into currentBrushTip
+      // The issue was that custom brushes selected from the library weren't
+      // properly loading their imageData into currentBrushTip
+      
+      // First check temporary custom brush
+      let customBrush = state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId 
+        ? state.temporaryCustomBrush 
+        : null;
+
+      if (!customBrush) {
+        customBrush = state.getCustomBrushById(customBrushId);
+      }
+      
+      // IMPORTANT: Always use preset.customBrushData as the primary source
+      // This ensures custom brushes loaded from BrushLibrary work correctly
+      if (preset.customBrushData) {
+        const data = preset.customBrushData;
+        // Create/update the custom brush object with preset data
+        customBrush = {
+          id: customBrushId,
+          name: preset.name,
+          imageData: data.imageData,
+          width: data.width,
+          height: data.height,
+          naturalWidth: data.width,
+          naturalHeight: data.height,
+          maxDimension: Math.max(data.width, data.height),
+          thumbnail: preset.thumbnail || '',
+          colorCycle: data.colorCycle ?? customBrush?.colorCycle,
+          createdAt: customBrush?.createdAt || Date.now()
+        };
+      }
+      
+      if (customBrush) {
+        const maxDimension = Math.max(
+          1,
+          Math.round(
+            customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height)
+          )
+        );
+
+        newBrushSettings.currentBrushTip = {
+          imageData: customBrush.imageData,
+          brushId: customBrush.id,
+          isColorizable: false,
+          width: customBrush.width,
+          height: customBrush.height,
+          naturalWidth: customBrush.naturalWidth ?? customBrush.width,
+          naturalHeight: customBrush.naturalHeight ?? customBrush.height,
+          maxDimension: customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height),
+          colorCycle: customBrush.colorCycle,
+        };
+        // Custom brushes should default to captured tip scale (100%) on selection.
+        // This avoids carrying unrelated global brush sizes into custom brush rendering.
+        newBrushSettings.customBrushSizePercent = 100;
+        newBrushSettings.size = maxDimension;
+        nextGlobalBrushSize = maxDimension;
+
+        const customBrushColorCycle = customBrush.colorCycle;
+        if (customBrushColorCycle?.schemaVersion === 1 || customBrushColorCycle?.schemaVersion === 2) {
+          newBrushSettings.customBrushColorCycle = true;
+          newBrushSettings.customBrushColorCycleMode =
+            customBrushColorCycle.schemaVersion === 2
+              ? customBrushColorCycle.mode
+              : 'tip';
+          newBrushSettings.customBrushUseCapturedAlphaMask =
+            customBrushColorCycle.schemaVersion === 2
+              ? customBrushColorCycle.useAlphaMask !== false
+              : true;
+
+          if (
+            Array.isArray(customBrushColorCycle.gradient) &&
+            customBrushColorCycle.gradient.length > 0
+          ) {
+            const nextGradient = cloneGradientStops(customBrushColorCycle.gradient);
+            if (nextGradient) {
+              newBrushSettings.colorCycleGradient = nextGradient;
+              if (!gradientsEqual(currentSettings.colorCycleGradient, nextGradient)) {
+                newBrushSettings.colorCycleGradientVersion =
+                  (currentSettings.colorCycleGradientVersion ?? 0) + 1;
+              }
+            }
+          }
+
+          if (
+            typeof customBrushColorCycle.speed === 'number' &&
+            Number.isFinite(customBrushColorCycle.speed)
+          ) {
+            newBrushSettings.colorCycleSpeed = customBrushColorCycle.speed;
+          }
+
+          newBrushSettings.customBrushCcPhaseMode =
+            customBrushColorCycle.phaseMode === 'per-stroke-seeded' ||
+            customBrushColorCycle.phaseMode === 'jittered'
+              ? customBrushColorCycle.phaseMode
+              : 'global';
+
+          newBrushSettings.customBrushCcPhaseJitter =
+            typeof customBrushColorCycle.phaseJitter === 'number' &&
+            Number.isFinite(customBrushColorCycle.phaseJitter)
+              ? Math.max(0, Math.min(1, customBrushColorCycle.phaseJitter))
+              : 0;
+        } else {
+          newBrushSettings.customBrushColorCycle = false;
+          newBrushSettings.customBrushColorCycleMode = 'tip';
+          newBrushSettings.customBrushUseCapturedAlphaMask = true;
+        }
+      } else {
+        
+      }
+    }
+    
+    // Handle brush resource cleanup and brush tip state when switching between custom and regular brushes
+    if (presetDefaults.brushShape !== undefined) {
+      const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
+      const isCustom = presetDefaults.brushShape === BrushShape.CUSTOM;
+
+      if (wasCustom && !isCustom) {
+        newBrushSettings.currentBrushTip = undefined;
+        newBrushSettings.selectedCustomBrush = null;
+      }
+
+      if (wasCustom !== isCustom) {
+        try {
+          // Clear only brush-specific caches, preserve other caches for performance
+          brushCache.clear();
+          scaledBrushCache.clear();
+        } catch {
+          // Cache cleanup failed, continue silently
+        }
+      }
+    }
+    
+    // Force antialiasing off for Spam Text brush (disables shape mode)
+    if (newBrushSettings.brushShape === BrushShape.SPAM_TEXT) {
+      newBrushSettings.antialiasing = false;
+    }
+
+    // Explicitly enforce Color Cycle variant selection
+    // Some UI sequences may briefly override the shape; guard here by preset id
+    if (preset.id === 'color-cycle-shape') {
+      newBrushSettings.brushShape = BrushShape.COLOR_CYCLE_SHAPE;
+    } else if (preset.id === 'color-cycle-stroke') {
+      newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
+    }
+
+    let nextCcGradientSource = newBrushSettings.ccGradientSource ?? state.tools.ccGradientSource ?? 'manual';
+    if (newBrushSettings.colorCycleUseForegroundGradient) {
+      nextCcGradientSource = 'fg';
+    } else if (newBrushSettings.autoSampleGradientRealtime || newBrushSettings.autoSampleGradient) {
+      nextCcGradientSource = 'sampled';
+    }
+    newBrushSettings.ccGradientSource = nextCcGradientSource;
+    
+    // Decide shapeMode based on brush domain (Color Cycle vs regular)
+    const isNewCC = newBrushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+                    newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
+                    newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+    const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
+    const forceShapeModePreset = preset.id === 'dither-shape';
+    const forceShapeOffPreset = preset.id === 'dither-stroke';
+
+    let nextShapeMode: boolean;
+    if (forceShapeModePreset) {
+      nextShapeMode = true;
+    } else if (forceShapeOffPreset) {
+      nextShapeMode = false;
+    } else if (isShapeFillBrush) {
+      nextShapeMode = true;
+    } else if (isNewCC) {
+      // Respect explicit CC variant presets; otherwise restore last CC shape mode
+      if (preset.id === 'color-cycle-shape' || preset.id === 'color-cycle-gradient') {
+        nextShapeMode = true;
+      } else if (preset.id === 'color-cycle-stroke') {
+        nextShapeMode = false;
+      } else {
+        nextShapeMode = state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode ?? false;
+      }
+    } else {
+      // Non-CC brushes should not inherit CC shape mode
+      if (preset.id === 'mosaic') {
+        nextShapeMode = state.shapeModeByBrush[preset.id] ?? false;
+      } else {
+        nextShapeMode = wasShapeFillBrush ? false : state.tools.lastRegularShapeMode ?? false;
+      }
+    }
+
+    // Clear temporary brush when switching away from custom brushes
+    const brushSpecificSettingsChanged = updatedBrushSpecificSettings !== state.brushSpecificSettings;
+
+    const updatedState = {
+      ...state,
+      ...(brushSpecificSettingsChanged ? { brushSpecificSettings: updatedBrushSpecificSettings } : {}),
+      currentBrushPreset: preset,
+      activeBrushComponents: components,
+      globalBrushSize: nextGlobalBrushSize, // Update global size to match new brush
+      tools: {
+        ...state.tools,
+        ccGradientSource: nextCcGradientSource,
+        // Keep shapeMode separate between CC and default brushes
+        shapeMode: nextShapeMode,
+        ...(isNewCC
+          ? { lastColorCycleShapeMode: nextShapeMode }
+          : { lastRegularShapeMode: nextShapeMode }
+        ),
+        brushSettings: newBrushSettings
+      }
+    };
+
+    const pressureSyncedState =
+      newBrushSettings.brushShape === BrushShape.CUSTOM
+        ? {
+            ...updatedState,
+            pressureSettings: globalPressure,
+          }
+        : {
+            ...updatedState,
+            pressureSettings: globalPressure,
+            tools: applyPressureToTools(updatedState.tools, globalPressure),
+          };
+    
+    // If switching away from custom brush, discard temporary brush
+    if (presetDefaults.brushShape !== undefined && 
+        currentSettings.brushShape === BrushShape.CUSTOM && 
+        presetDefaults.brushShape !== BrushShape.CUSTOM) {
+      return {
+        ...pressureSyncedState,
+        temporaryCustomBrush: null
+      };
+    }
+    
+    return pressureSyncedState;
+    });
+  },
+  getBrushPresets: () => brushPresets,
+  getBrushPresetById: (id) => brushPresets.find((preset) => preset.id === id),
+  removeBrushPreset: (presetId) => set((state) => {
+    // Don't allow deletion of default presets
+    const presetToDelete = state.brushPresets.find(p => p.id === presetId);
+    if (!presetToDelete || presetToDelete.isDefault) return state;
+    
+    const newPresets = state.brushPresets.filter(p => p.id !== presetId);
+    
+    // If deleting the currently active preset, switch to default
+    let newCurrentPreset = state.currentBrushPreset;
+    if (state.currentBrushPreset?.id === presetId) {
+      newCurrentPreset = newPresets.find(p => p.isDefault) || newPresets[0] || null;
+    }
+    
+    return {
+      brushPresets: newPresets,
+      currentBrushPreset: newCurrentPreset
+    };
+  }),
+  
+  startBrushEdit: (brushId, canvas) => set((state) => {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
+    if (!ctx) {
+      return state;
+    }
+
+    let brushData: CustomBrush | null = null;
+
+    // First, try to find in custom brushes
+    brushData = state.getCustomBrushById(brushId);
+
+    // If not found in custom brushes, check default brush presets
+    if (!brushData) {
+      const defaultBrush = brushPresets.find(b => b.id === brushId);
+      if (defaultBrush) {
+        // Generate temporary image data for the default brush
+        const tempCanvas = document.createElement('canvas');
+        const size = 32; // Default editing size for brush presets
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
+        if (tempCtx) {
+          // Create a simple black brush shape based on the preset
+          tempCtx.fillStyle = '#000000';
+          if (defaultBrush.id === 'pixel-square' || defaultBrush.id.includes('pixel')) {
+            // Square pixel brush
+            tempCtx.fillRect(0, 0, size, size);
+          } else if (defaultBrush.id.includes('square')) {
+            // Square brush
+            tempCtx.fillRect(0, 0, size, size);
+          } else {
+            // Round brush (default)
+            tempCtx.beginPath();
+            tempCtx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
+            tempCtx.fill();
+          }
+          
+          // Create temporary brush data
+          brushData = {
+            id: brushId,
+            name: defaultBrush.name,
+            imageData: tempCtx.getImageData(0, 0, size, size),
+            thumbnail: tempCanvas.toDataURL(),
+            width: size,
+            height: size,
+            createdAt: Date.now()
+          };
+        }
+      }
+    }
+
+    // If still no brush found, exit
+    if (!brushData) {
+      return state;
+    }
+
+    // Calculate centered bounds using the actual canvas dimensions
+    const brushWidth = brushData.imageData.width;
+    const brushHeight = brushData.imageData.height;
+    
+    // Get the canvas dimensions - if it's the offscreen canvas, use project dimensions
+    const canvasWidth = state.project?.width || canvas.width;
+    const canvasHeight = state.project?.height || canvas.height;
+    
+    const centerX = Math.floor((canvasWidth - brushWidth) / 2);
+    const centerY = Math.floor((canvasHeight - brushHeight) / 2);
+    
+    const bounds = { x: centerX, y: centerY, width: brushWidth, height: brushHeight };
+
+    // Create an empty ImageData for originalCanvasState since we're not modifying the main canvas
+    // This is just to satisfy the type requirements and prevent errors
+    const originalCanvasState = ctx.createImageData(bounds.width, bounds.height);
+    
+    // NOTE: We don't draw the brush onto the main canvas here
+    // The BrushEditorUI panel renders and manages its own off-main canvas
+
+    // Automatically select the brush being edited
+    const targetSize = typeof state.globalBrushSize === 'number'
+      ? state.globalBrushSize
+      : 100;
+    const newBrushSettings = {
+      ...state.tools.brushSettings,
+      brushShape: BrushShape.CUSTOM,
+      selectedCustomBrush: brushId,
+      currentBrushTip: {
+        imageData: brushData.imageData,
+        brushId: brushId,
+        isColorizable: false,
+        width: brushData.width,
+        height: brushData.height,
+        colorCycle: brushData.colorCycle,
+      },
+      size: targetSize
+    };
+    
+    // Clear caches to ensure fresh brush data
+    brushCache.clear();
+    scaledBrushCache.clear();
+    
+    const preserveAdjustments =
+      state.brushEditor.status === 'EDITING' && state.brushEditor.editingBrushId === brushId;
+
+    const nextHueShift = preserveAdjustments ? state.brushEditor.hueShift : 0;
+    const nextLightness = preserveAdjustments ? state.brushEditor.lightness : 0;
+    const nextSaturation = preserveAdjustments ? state.brushEditor.saturation : 100;
+
+    return {
+      brushEditor: {
+        status: 'EDITING' as const,
+        editingBrushId: brushId,
+        editingBounds: bounds,
+        originalCanvasState,
+        hueShift: nextHueShift,  // Preserve adjustments when reloading the same brush
+        lightness: nextLightness,
+        saturation: nextSaturation,
+        editingBrushData: brushData // Store the brush data for reference
+      },
+      tools: {
+        ...state.tools,
+        brushSettings: newBrushSettings
+      },
+      globalBrushSize: targetSize
+    };
+  }),
+  saveBrushEdit: (canvas) => {
+    const state = get();
+    if (
+      state.brushEditor.status !== 'EDITING' ||
+      !state.brushEditor.editingBounds ||
+      !state.brushEditor.editingBrushId
+    ) {
+      return;
+    }
+
+    const ctx = canvas.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings
+    ) as CanvasRenderingContext2D | null;
+    if (!ctx) {
+      return;
+    }
+
+    const bounds = state.brushEditor.editingBounds;
+    const brushId = state.brushEditor.editingBrushId;
+
+    const editedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    const thumbnailSize = 64;
+    let thumbnail = '';
+    if (typeof document !== 'undefined') {
+      const thumbnailCanvas = document.createElement('canvas');
+      thumbnailCanvas.width = thumbnailSize;
+      thumbnailCanvas.height = thumbnailSize;
+      const thumbnailCtx = thumbnailCanvas.getContext(
+        '2d',
+        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+      ) as CanvasRenderingContext2D | null;
+
+      if (thumbnailCtx) {
+        const scale = Math.min(thumbnailSize / canvas.width, thumbnailSize / canvas.height);
+        const scaledWidth = canvas.width * scale;
+        const scaledHeight = canvas.height * scale;
+        const offsetX = (thumbnailSize - scaledWidth) / 2;
+        const offsetY = (thumbnailSize - scaledHeight) / 2;
+
+        thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
+        const tempCtx = tempCanvas.getContext('2d', {
+          willReadFrequently: true,
+        } as CanvasRenderingContext2DSettings);
+
+        if (tempCtx) {
+          tempCtx.putImageData(editedImageData, 0, 0);
+          thumbnailCtx.drawImage(
+            tempCanvas,
+            0,
+            0,
+            bounds.width,
+            bounds.height,
+            offsetX,
+            offsetY,
+            scaledWidth,
+            scaledHeight
+          );
+        }
+
+        thumbnail = thumbnailCanvas.toDataURL();
+      }
+    }
+
+    const existingCustomBrush = state.getCustomBrushById(brushId);
+    let targetCustomBrushId: string;
+    let targetBrush: CustomBrush | null = null;
+
+    if (existingCustomBrush) {
+      const updatedBrush: CustomBrush = {
+        ...existingCustomBrush,
+        imageData: editedImageData,
+        thumbnail,
+        width: canvas.width,
+        height: canvas.height,
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        maxDimension: Math.max(canvas.width, canvas.height),
+      };
+      state.updateCustomBrush(brushId, {
+        imageData: editedImageData,
+        thumbnail,
+        width: canvas.width,
+        height: canvas.height,
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        maxDimension: Math.max(canvas.width, canvas.height),
+      });
+      targetCustomBrushId = updatedBrush.id;
+      targetBrush = updatedBrush;
+    } else {
+      const defaultBrush = brushPresets.find((b) => b.id === brushId);
+      const newCustomBrushId = `custom-${brushId}-${Date.now()}`;
+      const newCustomBrush: CustomBrush = {
+        id: newCustomBrushId,
+        name: `Custom ${defaultBrush?.name || 'Brush'}`,
+        imageData: editedImageData,
+        thumbnail,
+        width: canvas.width,
+        height: canvas.height,
+        createdAt: Date.now(),
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        maxDimension: Math.max(canvas.width, canvas.height),
+      };
+      state.addCustomBrush(newCustomBrush);
+      targetCustomBrushId = newCustomBrushId;
+      targetBrush = newCustomBrush;
+    }
+
+    brushCache.clear();
+    scaledBrushCache.clear();
+
+    set((current) => {
+      const targetSize =
+        typeof current.globalBrushSize === 'number' ? current.globalBrushSize : 100;
+      const brushTipSource =
+        targetBrush ??
+        current.getCustomBrushById(targetCustomBrushId) ??
+        null;
+
+      const nextBrushTip = brushTipSource
+        ? {
+            imageData: brushTipSource.imageData,
+            brushId: brushTipSource.id,
+            isColorizable: false,
+            width: brushTipSource.width,
+            height: brushTipSource.height,
+            naturalWidth: brushTipSource.naturalWidth ?? brushTipSource.width,
+            naturalHeight: brushTipSource.naturalHeight ?? brushTipSource.height,
+            maxDimension: brushTipSource.maxDimension ?? Math.max(brushTipSource.width, brushTipSource.height),
+          }
+        : undefined;
+
+      return {
+        brushEditor: defaultBrushEditorState,
+        tools: {
+          ...current.tools,
+          brushSettings: {
+            ...current.tools.brushSettings,
+            brushShape: BrushShape.CUSTOM,
+            selectedCustomBrush: targetCustomBrushId,
+            size: targetSize,
+            currentBrushTip: nextBrushTip,
+          },
+        },
+        globalBrushSize: targetSize,
+      };
+    });
+  },
+  setBrushEditorHue: (hue: number) => set((state) => ({
+    brushEditor: { ...state.brushEditor, hueShift: hue },
+    tools: {
+      ...state.tools,
+      brushSettings: {
+        ...state.tools.brushSettings,
+        hueShift: hue
+      }
+    }
+  })),
+  setBrushEditorLightness: (lightness: number) => set((state) => ({
+    brushEditor: { ...state.brushEditor, lightness },
+    tools: {
+      ...state.tools,
+      brushSettings: {
+        ...state.tools.brushSettings,
+        lightnessAdjust: lightness
+      }
+    }
+  })),
+  setBrushEditorSaturation: (saturation: number) => set((state) => ({
+    brushEditor: { ...state.brushEditor, saturation },
+    tools: {
+      ...state.tools,
+      brushSettings: {
+        ...state.tools.brushSettings,
+        saturationAdjust: saturation
+      }
+    }
+  })),
+  updateCurrentBrushTip: (brushTip) => set((state) => ({
+    tools: {
+      ...state.tools,
+      brushSettings: {
+        ...state.tools.brushSettings,
+        currentBrushTip: brushTip
+      }
+    }
+  })),
+  refreshCurrentBrushTipFromSource: () => set((state) => {
+    if (state.brushEditor.status === 'EDITING') {
+      return {};
+    }
+
+    const settings = state.tools.brushSettings;
+    if (settings.brushShape !== BrushShape.CUSTOM || !settings.selectedCustomBrush) {
+      return {};
+    }
+
+    const brushId = settings.selectedCustomBrush;
+    const fromProject = state.getCustomBrushById(brushId);
+    const fromTemporary = state.temporaryCustomBrush && state.temporaryCustomBrush.id === brushId
+      ? state.temporaryCustomBrush
+      : null;
+    const sourceBrush = fromProject || fromTemporary;
+    if (!sourceBrush) {
+      return {};
+    }
+
+    const hueShift = settings.hueShift ?? 0;
+    const lightnessAdjust = settings.lightnessAdjust ?? 0;
+    const saturationAdjust = settings.saturationAdjust ?? 100;
+
+    const needsAdjustment = hueShift !== 0 || lightnessAdjust !== 0 || saturationAdjust !== 100;
+    const baseImageData = sourceBrush.imageData;
+    const adjustedImageData = needsAdjustment
+      ? adjustHueLightnessSaturation(baseImageData, hueShift, lightnessAdjust, saturationAdjust)
+      : new ImageData(new Uint8ClampedArray(baseImageData.data), baseImageData.width, baseImageData.height);
+
+    const nextBrushTip = {
+      imageData: adjustedImageData,
+      brushId: sourceBrush.id,
+      isColorizable: false,
+      width: sourceBrush.width,
+      height: sourceBrush.height,
+      colorCycle: sourceBrush.colorCycle,
+    } as BrushSettings['currentBrushTip'];
+
+    try {
+      scaledBrushCache.clearForBrush('current-brush-tip');
+      scaledBrushCache.clearForBrush(sourceBrush.id);
+    } catch {}
+
+    return {
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          currentBrushTip: nextBrushTip
+        }
+      }
+    };
+  }),
+  cancelBrushEdit: () => set((state) => {
+    if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
+      return { 
+        brushEditor: defaultBrushEditorState,
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            currentBrushTip: undefined,
+            selectedCustomBrush: null,
+            brushShape: BrushShape.ROUND // Reset to default
+          }
+        }
+        // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
+      };
+    }
+
+    // NOTE: We don't need to restore anything to the main canvas
+    // The brush editor works entirely in its own inline canvas
+
+    // Clear currentBrushTip when canceling brush edit
+    return { 
+      brushEditor: defaultBrushEditorState,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          currentBrushTip: undefined,
+          selectedCustomBrush: null,
+          brushShape: BrushShape.ROUND // Reset to default
+        }
+      }
+      // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
+    };
+  }),
+  _saveCurrentBrushSettings: () => {
+    const state = get();
+    const { tools, currentBrushPreset, brushSpecificSettings } = state;
+    const currentTool = tools.currentTool;
+    const currentBrushSettings = tools.brushSettings;
+    
+    const brushIdToSave = currentBrushPreset?.id ?? 
+        (currentBrushSettings.brushShape === BrushShape.CUSTOM && currentBrushSettings.selectedCustomBrush
+            ? currentBrushSettings.selectedCustomBrush
+            : null);
+
+    if (brushIdToSave && (currentTool === 'brush' || currentTool === 'custom')) {
+      const existingSettings = brushSpecificSettings[brushIdToSave] || {};
+      const settingsToSave = {
+        ...existingSettings,
+        ...getSerializableBrushSettings(currentBrushSettings),
+      };
+      if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
+        delete settingsToSave.colorCycleFillMode;
+      }
+      set(prevState => ({
+        brushSpecificSettings: {
+            ...prevState.brushSpecificSettings,
+            [brushIdToSave]: settingsToSave,
+        },
+      }));
+    }
+  },
+  saveBrushSettings: (brushId, settings) =>
+    set((state) => {
+      const existingSettings = state.brushSpecificSettings[brushId] || {};
+      const newSettings = { ...existingSettings, ...settings };
+      if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
+        newSettings.colorCycleFlowMode = 'forward';
+      }
+
+      return {
+        brushSpecificSettings: {
+          ...state.brushSpecificSettings,
+          [brushId]: newSettings,
+        },
+      };
+    }),
+  loadBrushSettings: (brushId) => {
+    const state = get();
+    const loadedSettings = state.brushSpecificSettings[brushId] || {};
+
+    const normalized = {
+      ...loadedSettings,
+    } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+
+    if (normalized.colorCycleFlowForward !== undefined) {
+      normalized.colorCycleFlowMode = 'forward';
+      delete normalized.colorCycleFlowForward;
+    }
+    if (normalized.colorCycleFlowMode && normalized.colorCycleFlowMode !== 'forward') {
+      normalized.colorCycleFlowMode = 'forward';
+    }
+
+    return normalized;
+  },
+  clearBrushSettings: (brushId) =>
+    set((state) => {
+      const { [brushId]: removed, ...remaining } = state.brushSpecificSettings;
+      void removed;
+      return { brushSpecificSettings: remaining };
+    }),
+});

@@ -1,0 +1,40 @@
+{
+  "area": 3145728,
+  "bbox": {
+    "minX": 0,
+    "minY": 0,
+    "width": 2048,
+    "height": 1536
+  },
+  "options": {
+    "label": "concave-window",
+    "fixtures": [
+      "concave"
+    ],
+    "modes": [
+      "scanline"
+    ]
+  },
+  "results": [
+    {
+      "label": "concave-scanline",
+      "durationMs": 73.24270800000001,
+      "checksum": 798,
+      "profiling": null
+    }
+  ],
+  "counters": {
+    "getImageDataCalls": 0,
+    "getImageDataMp": 0,
+    "getImageDataMs": 0,
+    "commits": 0,
+    "serializeMs": 0,
+    "commitMs": 0,
+    "ccFillGpuMs": 0,
+    "ccFillGpuCount": 0,
+    "ccFillCpuMs": 0,
+    "ccFillCpuCount": 0,
+    "ccFillWorkerMs": 73.24270800000001,
+    "ccFillWorkerCount": 1
+  }
+}
