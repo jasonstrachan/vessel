@@ -371,6 +371,36 @@ const buildAlphaMask = (imageData: ImageData): Uint8Array => {
   return mask;
 };
 
+export const buildCapturedColorCycleDataFromImage = (
+  captureResult: BrushCaptureResult,
+  options?: {
+    gradient?: Array<{ position: number; color: string }>;
+    speed?: number;
+  }
+): CustomBrushColorCycleV2 => {
+  const sourceCycleLength = DEFAULT_SOURCE_CYCLE_LENGTH;
+  const mapWidth = captureResult.width;
+  const mapHeight = captureResult.height;
+  const phaseMap = buildLuminancePhaseMap(captureResult.imageData, sourceCycleLength);
+  const alphaMask = buildAlphaMask(captureResult.imageData);
+
+  return {
+    schemaVersion: 2,
+    mode: 'captured-data',
+    source: 'color-cycle-layer',
+    gradient: options?.gradient?.map((stop) => ({ ...stop })),
+    speed: typeof options?.speed === 'number' ? options.speed : 0.1,
+    phaseMode: 'global',
+    phaseJitter: 0,
+    sourceCycleLength,
+    mapWidth,
+    mapHeight,
+    phaseMap,
+    alphaMask,
+    useAlphaMask: true,
+  };
+};
+
 export const captureColorCycleDataFromLayer = (
   options: ColorCycleCaptureOptions
 ): CustomBrushColorCycleV2 | undefined => {
@@ -381,27 +411,20 @@ export const captureColorCycleDataFromLayer = (
 
   const gradient = activeLayer.colorCycleData?.gradient?.map((stop) => ({ ...stop }));
   const speed = activeLayer.colorCycleData?.brushSpeed;
-  const sourceCycleLength = DEFAULT_SOURCE_CYCLE_LENGTH;
-  const mapWidth = captureResult.width;
-  const mapHeight = captureResult.height;
-  const indexMap = cropGradientIndexMap(activeLayer, bounds, mapWidth, mapHeight);
-  const phaseMap = buildLuminancePhaseMap(captureResult.imageData, sourceCycleLength);
-  const alphaMask = buildAlphaMask(captureResult.imageData);
+  const basePayload = buildCapturedColorCycleDataFromImage(captureResult, {
+    gradient,
+    speed,
+  });
+  const indexMap = cropGradientIndexMap(
+    activeLayer,
+    bounds,
+    basePayload.mapWidth,
+    basePayload.mapHeight
+  );
 
   return {
-    schemaVersion: 2,
-    mode: indexMap || phaseMap ? 'captured-data' : 'tip',
-    source: 'color-cycle-layer',
-    gradient,
-    speed: typeof speed === 'number' ? speed : 0.1,
-    phaseMode: 'global',
-    phaseJitter: 0,
-    sourceCycleLength,
-    mapWidth,
-    mapHeight,
-    phaseMap,
+    ...basePayload,
+    mode: 'captured-data',
     indexMap,
-    alphaMask,
-    useAlphaMask: true,
   };
 };

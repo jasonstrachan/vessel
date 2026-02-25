@@ -21,6 +21,7 @@ import {
   captureBrushFromPath,
   selectionToCaptureBounds,
   captureColorCycleDataFromLayer,
+  buildCapturedColorCycleDataFromImage,
 } from '@/utils/customBrushCapture';
 import type { BrushCaptureResult } from '@/utils/customBrushCapture';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
@@ -195,13 +196,23 @@ export const CustomBrushPanel = () => {
     const sourceIsColorCycleLayer =
       !sampleAllLayers &&
       activeLayer?.layerType === 'color-cycle';
+    const sourceGradient =
+      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
+    const sourceSpeed =
+      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
     const colorCycleData = sourceIsColorCycleLayer
-      ? captureColorCycleDataFromLayer({
-          activeLayer,
-          sampleAllLayers,
-          bounds,
-          captureResult,
-        })
+      ? (
+          captureColorCycleDataFromLayer({
+            activeLayer,
+            sampleAllLayers,
+            bounds,
+            captureResult,
+          }) ??
+          buildCapturedColorCycleDataFromImage(captureResult, {
+            gradient: sourceGradient,
+            speed: sourceSpeed,
+          })
+        )
       : undefined;
 
     const enableColorCycle = sourceIsColorCycleLayer;
@@ -245,13 +256,23 @@ export const CustomBrushPanel = () => {
     const sourceIsColorCycleLayer =
       !sampleAllLayers &&
       activeLayer?.layerType === 'color-cycle';
+    const sourceGradient =
+      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
+    const sourceSpeed =
+      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
     const colorCycleData = sourceIsColorCycleLayer
-      ? captureColorCycleDataFromLayer({
-          activeLayer,
-          sampleAllLayers,
-          bounds: freehandPath.bounds,
-          captureResult,
-        })
+      ? (
+          captureColorCycleDataFromLayer({
+            activeLayer,
+            sampleAllLayers,
+            bounds: freehandPath.bounds,
+            captureResult,
+          }) ??
+          buildCapturedColorCycleDataFromImage(captureResult, {
+            gradient: sourceGradient,
+            speed: sourceSpeed,
+          })
+        )
       : undefined;
 
     const enableColorCycle = sourceIsColorCycleLayer;
