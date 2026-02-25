@@ -692,6 +692,19 @@ const BrushControls = () => {
 
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
   const isCapturedDataMode = isCustomColorCycleEnabled && customColorCycleMode === 'captured-data';
+  React.useEffect(() => {
+    if (!isCustomColorCycleEnabled) {
+      return;
+    }
+    if (customColorCycleMode === 'captured-data' && !hasCapturedColorCyclePayload) {
+      setActiveSettings({ customBrushColorCycleMode: 'tip' });
+    }
+  }, [
+    customColorCycleMode,
+    hasCapturedColorCyclePayload,
+    isCustomColorCycleEnabled,
+    setActiveSettings,
+  ]);
   const showColorCycleBands =
     !isColorCycleGradientPreset &&
     (isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) || isCustomColorCycleEnabled);

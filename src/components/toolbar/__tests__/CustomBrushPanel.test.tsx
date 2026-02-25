@@ -7,6 +7,7 @@ import type { Layer } from '@/types';
 const mockCaptureBrushFromCanvas = jest.fn();
 const mockCaptureBrushFromPath = jest.fn();
 const mockCaptureColorCycleDataFromLayer = jest.fn();
+const mockBuildCapturedColorCycleDataFromImage = jest.fn();
 
 jest.mock('@/utils/customBrushCapture', () => ({
   __esModule: true,
@@ -14,6 +15,8 @@ jest.mock('@/utils/customBrushCapture', () => ({
   captureBrushFromCanvas: (...args: unknown[]) => mockCaptureBrushFromCanvas(...args),
   captureBrushFromPath: (...args: unknown[]) => mockCaptureBrushFromPath(...args),
   captureColorCycleDataFromLayer: (...args: unknown[]) => mockCaptureColorCycleDataFromLayer(...args),
+  buildCapturedColorCycleDataFromImage: (...args: unknown[]) =>
+    mockBuildCapturedColorCycleDataFromImage(...args),
 }));
 
 jest.mock('@/components/ui/CustomSwitch', () => ({
@@ -180,6 +183,16 @@ describe('CustomBrushPanel CC capture hint', () => {
       phaseMap: new Uint16Array(16),
       alphaMask: new Uint8Array(16),
     });
+    mockBuildCapturedColorCycleDataFromImage.mockReturnValue({
+      schemaVersion: 2,
+      mode: 'captured-data',
+      source: 'color-cycle-layer',
+      sourceCycleLength: 256,
+      mapWidth: 4,
+      mapHeight: 4,
+      phaseMap: new Uint16Array(16),
+      alphaMask: new Uint8Array(16),
+    });
   });
 
   it('shows CC import hint when capturing from active color-cycle layer only', async () => {
@@ -277,6 +290,22 @@ describe('CustomBrushPanel CC capture hint', () => {
     expect(latestCallArg.pressureEnabled).toBe(false);
     expect(latestCallArg.minPressure).toBe(99);
     expect(latestCallArg.maxPressure).toBeUndefined();
+  });
+
+  it('falls back to image-derived captured payload when layer map extraction is unavailable', async () => {
+    mockCaptureColorCycleDataFromLayer.mockReturnValue(undefined);
+
+    render(<CustomBrushPanel />);
+
+    await waitFor(() => {
+      expect(mockBuildCapturedColorCycleDataFromImage).toHaveBeenCalled();
+    });
+
+    const setTemporaryCustomBrush =
+      (useAppStore as unknown as { getState: () => MockState }).getState().setTemporaryCustomBrush as jest.Mock;
+    const tempBrushArg = setTemporaryCustomBrush.mock.calls.at(-1)?.[0] as { colorCycle?: { schemaVersion?: number; mode?: string } };
+    expect(tempBrushArg.colorCycle?.schemaVersion).toBe(2);
+    expect(tempBrushArg.colorCycle?.mode).toBe('captured-data');
   });
 
   it('cancels temporary capture on Escape in rectangle mode', async () => {
