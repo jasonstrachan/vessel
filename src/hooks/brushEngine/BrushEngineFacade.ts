@@ -1014,10 +1014,10 @@ export class BrushEngineFacade {
       }
 
       const base =
-        indexMap && indexMap.length === pixelCount
-          ? indexMap[i]
-          : phaseMap && phaseMap.length === pixelCount
-            ? phaseMap[i]
+        phaseMap && phaseMap.length === pixelCount
+          ? phaseMap[i]
+          : indexMap && indexMap.length === pixelCount
+            ? indexMap[i]
             : 0;
       const resolved = (base + phaseBucket) % cycleLength;
       const paletteOffset = resolved * 4;
