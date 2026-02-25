@@ -1,4 +1,4 @@
-import type { BrushSettings } from '@/types';
+import type { BrushSettings, CustomBrushColorCycleData } from '@/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 
 export type CustomBrushStoreState = {
@@ -12,6 +12,7 @@ export type CustomBrushStoreState = {
     height: number;
     naturalWidth?: number;
     naturalHeight?: number;
+    colorCycle?: CustomBrushColorCycleData;
   } | null;
   getCustomBrushById?: (id: string) => {
     id?: string;
@@ -20,6 +21,7 @@ export type CustomBrushStoreState = {
     height: number;
     naturalWidth?: number;
     naturalHeight?: number;
+    colorCycle?: CustomBrushColorCycleData;
   } | null;
 };
 
@@ -76,6 +78,10 @@ const assignBrushCacheKey = (imageData: ImageData, keyPrefix: string): string =>
   return key;
 };
 
+const isCapturedDataMode = (
+  colorCycle: CustomBrushColorCycleData | undefined
+): boolean => colorCycle?.schemaVersion === 2 && colorCycle.mode === 'captured-data';
+
 export const resolveActiveCustomBrushData = (
   state: CustomBrushStoreState
 ): CustomBrushStrokeData | undefined => {
@@ -92,7 +98,9 @@ export const resolveActiveCustomBrushData = (
       width: brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width,
       height: brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height,
       isColorizable:
-        brushTip.isColorizable || settings.useSwatchColor || !!settings.customBrushColorCycle,
+        !isCapturedDataMode(brushTip.colorCycle) &&
+        (brushTip.isColorizable || settings.useSwatchColor || !!settings.customBrushColorCycle),
+      colorCycle: brushTip.colorCycle,
       cacheKey
     };
   }
@@ -108,7 +116,10 @@ export const resolveActiveCustomBrushData = (
         imageData: tempBrush.imageData,
         width: tempBrush.naturalWidth ?? tempBrush.width,
         height: tempBrush.naturalHeight ?? tempBrush.height,
-        isColorizable: settings.useSwatchColor || !!settings.customBrushColorCycle,
+        isColorizable:
+          !isCapturedDataMode(tempBrush.colorCycle) &&
+          (settings.useSwatchColor || !!settings.customBrushColorCycle),
+        colorCycle: tempBrush.colorCycle,
         cacheKey
       };
     }
@@ -123,7 +134,10 @@ export const resolveActiveCustomBrushData = (
         imageData: saved.imageData,
         width: saved.naturalWidth ?? saved.width,
         height: saved.naturalHeight ?? saved.height,
-        isColorizable: settings.useSwatchColor || !!settings.customBrushColorCycle,
+        isColorizable:
+          !isCapturedDataMode(saved.colorCycle) &&
+          (settings.useSwatchColor || !!settings.customBrushColorCycle),
+        colorCycle: saved.colorCycle,
         cacheKey
       };
     }

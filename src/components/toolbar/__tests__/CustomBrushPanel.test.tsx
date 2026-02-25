@@ -6,12 +6,14 @@ import type { Layer } from '@/types';
 
 const mockCaptureBrushFromCanvas = jest.fn();
 const mockCaptureBrushFromPath = jest.fn();
+const mockCaptureColorCycleDataFromLayer = jest.fn();
 
 jest.mock('@/utils/customBrushCapture', () => ({
   __esModule: true,
   selectionToCaptureBounds: () => ({ x: 0, y: 0, width: 4, height: 4 }),
   captureBrushFromCanvas: (...args: unknown[]) => mockCaptureBrushFromCanvas(...args),
   captureBrushFromPath: (...args: unknown[]) => mockCaptureBrushFromPath(...args),
+  captureColorCycleDataFromLayer: (...args: unknown[]) => mockCaptureColorCycleDataFromLayer(...args),
 }));
 
 jest.mock('@/components/ui/CustomSwitch', () => ({
@@ -168,6 +170,16 @@ describe('CustomBrushPanel CC capture hint', () => {
     });
     mockCaptureBrushFromCanvas.mockReturnValue(createCaptureResult());
     mockCaptureBrushFromPath.mockReturnValue(createCaptureResult());
+    mockCaptureColorCycleDataFromLayer.mockReturnValue({
+      schemaVersion: 2,
+      mode: 'captured-data',
+      source: 'color-cycle-layer',
+      sourceCycleLength: 256,
+      mapWidth: 4,
+      mapHeight: 4,
+      phaseMap: new Uint16Array(16),
+      alphaMask: new Uint8Array(16),
+    });
   });
 
   it('shows CC import hint when capturing from active color-cycle layer only', async () => {
@@ -189,8 +201,10 @@ describe('CustomBrushPanel CC capture hint', () => {
     expect(latestCallArg.maxPressure).toBeUndefined();
     const setTemporaryCustomBrush =
       (useAppStore as unknown as { getState: () => MockState }).getState().setTemporaryCustomBrush as jest.Mock;
-    const tempBrushArg = setTemporaryCustomBrush.mock.calls.at(-1)?.[0] as { colorCycle?: { source?: string } };
+    const tempBrushArg = setTemporaryCustomBrush.mock.calls.at(-1)?.[0] as { colorCycle?: { source?: string; schemaVersion?: number; mode?: string } };
     expect(tempBrushArg.colorCycle?.source).toBe('color-cycle-layer');
+    expect(tempBrushArg.colorCycle?.schemaVersion).toBe(2);
+    expect(tempBrushArg.colorCycle?.mode).toBe('captured-data');
   });
 
   it('does not show CC import hint when capture source is all layers', async () => {

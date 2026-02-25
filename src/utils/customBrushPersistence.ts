@@ -1,4 +1,9 @@
 import type { CustomBrush } from '@/types';
+import {
+  deserializeCustomBrushColorCycle,
+  serializeCustomBrushColorCycle,
+  type SerializedCustomBrushColorCycle,
+} from '@/utils/customBrushColorCycle';
 
 const STORAGE_KEY = 'vessel-custom-brushes';
 
@@ -13,14 +18,7 @@ interface StoredCustomBrush {
   naturalWidth?: number;
   naturalHeight?: number;
   maxDimension?: number;
-  colorCycle?: {
-    schemaVersion: 1;
-    source?: 'color-cycle-layer' | 'manual' | 'unknown';
-    gradient?: Array<{ position: number; color: string }>;
-    speed?: number;
-    phaseMode?: 'global' | 'per-stroke-seeded' | 'jittered';
-    phaseJitter?: number;
-  };
+  colorCycle?: SerializedCustomBrushColorCycle;
 }
 
 interface StoredCustomBrushState {
@@ -91,30 +89,7 @@ export function saveCustomBrushesToStorage(brushes: CustomBrush[], defaultCustom
         naturalWidth: brush.naturalWidth ?? brush.width,
         naturalHeight: brush.naturalHeight ?? brush.height,
         maxDimension: brush.maxDimension ?? Math.max(brush.width, brush.height),
-        colorCycle: brush.colorCycle
-          ? {
-              schemaVersion: 1,
-              source: brush.colorCycle.source ?? 'unknown',
-              gradient: Array.isArray(brush.colorCycle.gradient)
-                ? brush.colorCycle.gradient.map((stop) => ({
-                    position: Number(stop.position),
-                    color: String(stop.color),
-                  }))
-                : undefined,
-              speed:
-                typeof brush.colorCycle.speed === 'number' ? brush.colorCycle.speed : undefined,
-              phaseMode:
-                brush.colorCycle.phaseMode === 'per-stroke-seeded' || brush.colorCycle.phaseMode === 'jittered'
-                  ? brush.colorCycle.phaseMode
-                  : brush.colorCycle.phaseMode === 'global'
-                    ? 'global'
-                    : undefined,
-              phaseJitter:
-                typeof brush.colorCycle.phaseJitter === 'number'
-                  ? Math.max(0, Math.min(1, brush.colorCycle.phaseJitter))
-                  : undefined,
-            }
-          : undefined,
+        colorCycle: serializeCustomBrushColorCycle(brush.colorCycle),
       }))
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -158,38 +133,7 @@ export async function loadCustomBrushesFromStorage(): Promise<{
           naturalWidth,
           naturalHeight,
           maxDimension: brush.maxDimension ?? Math.max(naturalWidth, naturalHeight),
-          colorCycle:
-            brush.colorCycle?.schemaVersion === 1
-              ? {
-                  schemaVersion: 1,
-                  source:
-                    brush.colorCycle.source === 'color-cycle-layer' || brush.colorCycle.source === 'manual'
-                      ? brush.colorCycle.source
-                      : 'unknown',
-                  gradient: Array.isArray(brush.colorCycle.gradient)
-                    ? brush.colorCycle.gradient
-                        .filter((stop) => typeof stop?.position === 'number' && typeof stop?.color === 'string')
-                        .map((stop) => ({
-                          position: Math.max(0, Math.min(1, stop.position)),
-                          color: stop.color,
-                        }))
-                    : undefined,
-                  speed:
-                    typeof brush.colorCycle.speed === 'number' && Number.isFinite(brush.colorCycle.speed)
-                      ? brush.colorCycle.speed
-                      : undefined,
-                  phaseMode:
-                    brush.colorCycle.phaseMode === 'per-stroke-seeded' || brush.colorCycle.phaseMode === 'jittered'
-                      ? brush.colorCycle.phaseMode
-                      : brush.colorCycle.phaseMode === 'global'
-                        ? 'global'
-                        : undefined,
-                  phaseJitter:
-                    typeof brush.colorCycle.phaseJitter === 'number' && Number.isFinite(brush.colorCycle.phaseJitter)
-                      ? Math.max(0, Math.min(1, brush.colorCycle.phaseJitter))
-                      : undefined,
-                }
-              : undefined,
+          colorCycle: deserializeCustomBrushColorCycle(brush.colorCycle),
         };
       })
     );

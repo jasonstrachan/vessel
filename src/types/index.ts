@@ -536,15 +536,40 @@ export interface CustomBrush {
   naturalWidth?: number;
   naturalHeight?: number;
   maxDimension?: number;
-  colorCycle?: {
-    schemaVersion: 1;
-    source?: 'color-cycle-layer' | 'manual' | 'unknown';
-    gradient?: Array<{ position: number; color: string }>;
-    speed?: number;
-    phaseMode?: 'global' | 'per-stroke-seeded' | 'jittered';
-    phaseJitter?: number;
-  };
+  colorCycle?: CustomBrushColorCycleData;
 }
+
+export type CustomBrushColorCycleSource = 'color-cycle-layer' | 'manual' | 'unknown';
+export type CustomBrushCcPhaseMode = 'global' | 'per-stroke-seeded' | 'jittered';
+export type CustomBrushColorCycleMode = 'tip' | 'captured-data';
+
+export interface CustomBrushColorCycleV1 {
+  schemaVersion: 1;
+  source?: CustomBrushColorCycleSource;
+  gradient?: Array<{ position: number; color: string }>;
+  speed?: number;
+  phaseMode?: CustomBrushCcPhaseMode;
+  phaseJitter?: number;
+}
+
+export interface CustomBrushColorCycleV2 {
+  schemaVersion: 2;
+  mode: CustomBrushColorCycleMode;
+  source?: CustomBrushColorCycleSource;
+  gradient?: Array<{ position: number; color: string }>;
+  speed?: number;
+  phaseMode?: CustomBrushCcPhaseMode;
+  phaseJitter?: number;
+  sourceCycleLength: number;
+  mapWidth: number;
+  mapHeight: number;
+  phaseMap?: Uint16Array;
+  indexMap?: Uint16Array;
+  alphaMask?: Uint8Array;
+  useAlphaMask?: boolean;
+}
+
+export type CustomBrushColorCycleData = CustomBrushColorCycleV1 | CustomBrushColorCycleV2;
 
 
 export interface CanvasState {
@@ -858,6 +883,7 @@ export interface BrushSettings {
     naturalWidth?: number;
     naturalHeight?: number;
     maxDimension?: number;
+    colorCycle?: CustomBrushColorCycleData;
   };
   // Rectangle/Polygon gradient colors count
   colors?: number; // 1-10 for gradient brushes
@@ -916,6 +942,8 @@ export interface BrushSettings {
 
   // Custom brush color cycle toggle
   customBrushColorCycle?: boolean; // true = cycle gradient colors per stamp for custom brushes
+  customBrushColorCycleMode?: 'tip' | 'captured-data';
+  customBrushUseCapturedAlphaMask?: boolean;
   customBrushCcPhaseMode?: 'global' | 'per-stroke-seeded' | 'jittered';
   customBrushCcPhaseJitter?: number; // 0-1 amount used only by jittered mode
 

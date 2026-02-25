@@ -365,6 +365,7 @@ jest.mock('@/stores/useAppStore', () => {
     currentCompositeBitmap: null,
     setCurrentCompositeBitmap: () => {},
     project: null,
+    getCustomBrushById: () => null,
     setProject: () => {},
     layersSnapshots: [],
     history: { undoStack: [], redoStack: [], maxHistorySize: 50, isCapturing: false },
@@ -496,10 +497,64 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
   });
 });
 
+describe('BrushControls – Custom brush captured data mode', () => {
+  it('renders mode group and captured metadata panel', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'custom' as BrushSettings['brushShape'],
+          selectedCustomBrush: 'brush-v2',
+          customBrushColorCycle: true,
+          customBrushColorCycleMode: 'tip',
+        },
+      },
+      temporaryCustomBrush: {
+        id: 'brush-v2',
+        name: 'Brush V2',
+        imageData: new ImageData(2, 2),
+        thumbnail: '',
+        width: 2,
+        height: 2,
+        createdAt: 1,
+        colorCycle: {
+          schemaVersion: 2,
+          mode: 'captured-data',
+          sourceCycleLength: 256,
+          mapWidth: 2,
+          mapHeight: 2,
+          phaseMap: new Uint16Array([0, 1, 2, 3]),
+        },
+      } as unknown as AppState['temporaryCustomBrush'],
+    }));
+
+    render(<BrushControls />);
+    expect(screen.getByRole('button', { name: 'Tip Mode' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Color Cycle Data' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Color Cycle Data' }));
+    expect(screen.getByText('Captured')).toBeInTheDocument();
+    expect(screen.getByText('Map 2x2')).toBeInTheDocument();
+    expect(screen.getByText('Cycle Length 256')).toBeInTheDocument();
+  });
+});
+
 describe('BrushControls – Color Cycle gradient fill mode', () => {
   it('shows fill mode toggle only for the color cycle gradient preset', () => {
     useAppStore.setState((state) => ({
       ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+        },
+      },
       brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
       currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
     }));
@@ -526,6 +581,9 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
         ...state.tools,
         brushSettings: {
           ...state.tools.brushSettings,
+          brushShape: 'color_cycle' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
           colorCycleFillMode: 'linear',
         },
       },

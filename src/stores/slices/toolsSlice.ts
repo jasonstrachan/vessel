@@ -220,6 +220,11 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   gridSnapEnabled: settings.gridSnapEnabled,
   gridSnapSize: settings.gridSnapSize,
   shapeEnabled: settings.shapeEnabled,
+  customBrushColorCycle: settings.customBrushColorCycle,
+  customBrushColorCycleMode: settings.customBrushColorCycleMode,
+  customBrushUseCapturedAlphaMask: settings.customBrushUseCapturedAlphaMask,
+  customBrushCcPhaseMode: settings.customBrushCcPhaseMode,
+  customBrushCcPhaseJitter: settings.customBrushCcPhaseJitter,
   antialiasing: settings.antialiasing,
   colors: settings.colors,
   colorCycleSpeed: settings.colorCycleSpeed,
@@ -880,6 +885,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.colorCycleSpeed !== undefined) {
         settingsToSave.colorCycleSpeed = newSettings.colorCycleSpeed;
+      }
+      if (settings.customBrushColorCycle !== undefined) {
+        settingsToSave.customBrushColorCycle = newSettings.customBrushColorCycle;
+      }
+      if (settings.customBrushColorCycleMode !== undefined) {
+        settingsToSave.customBrushColorCycleMode = newSettings.customBrushColorCycleMode;
+      }
+      if (settings.customBrushUseCapturedAlphaMask !== undefined) {
+        settingsToSave.customBrushUseCapturedAlphaMask = newSettings.customBrushUseCapturedAlphaMask;
       }
       if (settings.customBrushCcPhaseMode !== undefined) {
         settingsToSave.customBrushCcPhaseMode = newSettings.customBrushCcPhaseMode;
@@ -1739,7 +1753,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           height: customBrush.height,
           naturalWidth: customBrush.naturalWidth ?? customBrush.width,
           naturalHeight: customBrush.naturalHeight ?? customBrush.height,
-          maxDimension: customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height)
+          maxDimension: customBrush.maxDimension ?? Math.max(customBrush.width, customBrush.height),
+          colorCycle: customBrush.colorCycle,
         };
         // Custom brushes should default to captured tip scale (100%) on selection.
         // This avoids carrying unrelated global brush sizes into custom brush rendering.
@@ -1748,8 +1763,16 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         nextGlobalBrushSize = maxDimension;
 
         const customBrushColorCycle = customBrush.colorCycle;
-        if (customBrushColorCycle?.schemaVersion === 1) {
+        if (customBrushColorCycle?.schemaVersion === 1 || customBrushColorCycle?.schemaVersion === 2) {
           newBrushSettings.customBrushColorCycle = true;
+          newBrushSettings.customBrushColorCycleMode =
+            customBrushColorCycle.schemaVersion === 2
+              ? customBrushColorCycle.mode
+              : 'tip';
+          newBrushSettings.customBrushUseCapturedAlphaMask =
+            customBrushColorCycle.schemaVersion === 2
+              ? customBrushColorCycle.useAlphaMask !== false
+              : true;
 
           if (
             Array.isArray(customBrushColorCycle.gradient) &&
@@ -1783,6 +1806,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             Number.isFinite(customBrushColorCycle.phaseJitter)
               ? Math.max(0, Math.min(1, customBrushColorCycle.phaseJitter))
               : 0;
+        } else {
+          newBrushSettings.customBrushColorCycle = false;
+          newBrushSettings.customBrushColorCycleMode = 'tip';
+          newBrushSettings.customBrushUseCapturedAlphaMask = true;
         }
       } else {
         
@@ -2022,7 +2049,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         brushId: brushId,
         isColorizable: false,
         width: brushData.width,
-        height: brushData.height
+        height: brushData.height,
+        colorCycle: brushData.colorCycle,
       },
       size: targetSize
     };
@@ -2285,7 +2313,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       brushId: sourceBrush.id,
       isColorizable: false,
       width: sourceBrush.width,
-      height: sourceBrush.height
+      height: sourceBrush.height,
+      colorCycle: sourceBrush.colorCycle,
     } as BrushSettings['currentBrushTip'];
 
     try {

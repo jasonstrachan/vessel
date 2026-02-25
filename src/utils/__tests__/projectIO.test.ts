@@ -1052,6 +1052,84 @@ describe('projectIO serialize/deserialize layering', () => {
       phaseJitter: 0.2,
     });
   });
+
+  it('round-trips schema v2 custom brush captured payload through serialize/deserialize', async () => {
+    const brushImageData = createSolidImageData(2, 2, [12, 34, 56, 255]);
+    const layer: Layer = {
+      id: 'layer-basic-v2',
+      name: 'Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(2, 2, [255, 0, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [255, 0, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+
+    const project: Project = {
+      id: 'project-custom-cc-v2',
+      name: 'Custom Brush CC V2',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [
+        {
+          id: 'brush-cc-v2',
+          name: 'CC Brush V2',
+          imageData: brushImageData,
+          thumbnail: '',
+          width: 2,
+          height: 2,
+          createdAt: 1700000000000,
+          naturalWidth: 2,
+          naturalHeight: 2,
+          maxDimension: 2,
+          colorCycle: {
+            schemaVersion: 2,
+            mode: 'captured-data',
+            source: 'color-cycle-layer',
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            speed: 0.4,
+            phaseMode: 'global',
+            phaseJitter: 0,
+            sourceCycleLength: 256,
+            mapWidth: 2,
+            mapHeight: 2,
+            phaseMap: new Uint16Array([0, 64, 128, 255]),
+            indexMap: new Uint16Array([1, 2, 3, 4]),
+            alphaMask: new Uint8Array([255, 128, 64, 0]),
+          },
+        },
+      ],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await serializeProject(project);
+    const restored = await deserializeProject(payload);
+    const restoredBrush = restored.customBrushes[0];
+    const cc = restoredBrush?.colorCycle;
+
+    expect(cc?.schemaVersion).toBe(2);
+    if (!cc || cc.schemaVersion !== 2) {
+      throw new Error('Expected schema v2 color cycle payload');
+    }
+    expect(cc.mode).toBe('captured-data');
+    expect(cc.mapWidth).toBe(2);
+    expect(cc.mapHeight).toBe(2);
+    expect(Array.from(cc.phaseMap ?? [])).toEqual([0, 64, 128, 255]);
+    expect(Array.from(cc.indexMap ?? [])).toEqual([1, 2, 3, 4]);
+    expect(Array.from(cc.alphaMask ?? [])).toEqual([255, 128, 64, 0]);
+  });
 });
 
 describe('projectIO saveProjectToFile', () => {

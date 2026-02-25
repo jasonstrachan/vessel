@@ -130,4 +130,88 @@ describe('customBrushPersistence', () => {
       phaseJitter: 1,
     });
   });
+
+  it('round-trips schema v2 captured-data payload through local storage', async () => {
+    const brush: CustomBrush = {
+      id: 'cc-brush-v2',
+      name: 'CC Brush V2',
+      imageData: createImageData(2, 2),
+      thumbnail: '',
+      width: 2,
+      height: 2,
+      createdAt: 456,
+      naturalWidth: 2,
+      naturalHeight: 2,
+      maxDimension: 2,
+      colorCycle: {
+        schemaVersion: 2,
+        mode: 'captured-data',
+        source: 'color-cycle-layer',
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        speed: 0.25,
+        phaseMode: 'global',
+        phaseJitter: 0,
+        sourceCycleLength: 256,
+        mapWidth: 2,
+        mapHeight: 2,
+        phaseMap: new Uint16Array([0, 64, 128, 255]),
+        indexMap: new Uint16Array([1, 2, 3, 4]),
+        alphaMask: new Uint8Array([255, 200, 128, 0]),
+        useAlphaMask: true,
+      },
+    };
+
+    saveCustomBrushesToStorage([brush], brush.id);
+    const loaded = await loadCustomBrushesFromStorage();
+
+    expect(loaded?.brushes[0].colorCycle?.schemaVersion).toBe(2);
+    const cc = loaded?.brushes[0].colorCycle;
+    if (!cc || cc.schemaVersion !== 2) {
+      throw new Error('Expected schema v2 color cycle payload');
+    }
+    expect(cc.mode).toBe('captured-data');
+    expect(Array.from(cc.phaseMap ?? [])).toEqual([0, 64, 128, 255]);
+    expect(Array.from(cc.indexMap ?? [])).toEqual([1, 2, 3, 4]);
+    expect(Array.from(cc.alphaMask ?? [])).toEqual([255, 200, 128, 0]);
+  });
+
+  it('falls back malformed schema v2 payloads to tip mode', async () => {
+    const payload = {
+      version: 1,
+      defaultCustomBrushId: null,
+      brushes: [
+        {
+          id: 'cc-brush-v2-bad',
+          name: 'Broken Brush',
+          width: 2,
+          height: 2,
+          thumbnail: '',
+          createdAt: 1,
+          imageDataUrl: 'data:image/png;base64,AAAA',
+          colorCycle: {
+            schemaVersion: 2,
+            mode: 'captured-data',
+            source: 'color-cycle-layer',
+            sourceCycleLength: 0,
+            mapWidth: 2,
+            mapHeight: 2,
+            phaseMapBase64: 'AAAA',
+          },
+        },
+      ],
+    };
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    const loaded = await loadCustomBrushesFromStorage();
+    const cc = loaded?.brushes[0].colorCycle;
+    expect(cc?.schemaVersion).toBe(2);
+    if (!cc || cc.schemaVersion !== 2) {
+      throw new Error('Expected schema v2 color cycle payload');
+    }
+    expect(cc.mode).toBe('tip');
+    expect(cc.sourceCycleLength).toBe(1);
+  });
 });

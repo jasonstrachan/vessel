@@ -16,7 +16,12 @@ import { CustomBrush, BrushShape } from '@/types';
 import { useEffect, useCallback, useState } from 'react';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
-import { captureBrushFromCanvas, captureBrushFromPath, selectionToCaptureBounds } from '@/utils/customBrushCapture';
+import {
+  captureBrushFromCanvas,
+  captureBrushFromPath,
+  selectionToCaptureBounds,
+  captureColorCycleDataFromLayer,
+} from '@/utils/customBrushCapture';
 import type { BrushCaptureResult } from '@/utils/customBrushCapture';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
@@ -87,9 +92,7 @@ export const CustomBrushPanel = () => {
   const applyCaptureResult = useCallback((
     captureResult: BrushCaptureResult,
     options?: {
-      enableColorCycle?: boolean;
-      gradientStops?: Array<{ position: number; color: string }>;
-      speed?: number;
+      colorCycleData?: CustomBrush['colorCycle'];
     }
   ) => {
     const {
@@ -102,6 +105,7 @@ export const CustomBrushPanel = () => {
       thumbnail,
     } = captureResult;
 
+    const hasColorCycle = Boolean(options?.colorCycleData);
     const tempBrush: CustomBrush = {
       id: `temp_brush_${Date.now()}`,
       name: 'Temp Brush',
@@ -113,16 +117,7 @@ export const CustomBrushPanel = () => {
       naturalWidth,
       naturalHeight,
       maxDimension,
-      colorCycle: options?.enableColorCycle
-        ? {
-            schemaVersion: 1,
-            source: 'color-cycle-layer',
-            gradient: options.gradientStops?.map((stop) => ({ ...stop })),
-            speed: typeof options.speed === 'number' ? options.speed : 0.1,
-            phaseMode: 'global',
-            phaseJitter: 0,
-          }
-        : undefined,
+      colorCycle: options?.colorCycleData,
     };
 
     setTemporaryCustomBrush(tempBrush);
@@ -139,16 +134,22 @@ export const CustomBrushPanel = () => {
       pressureEnabled: false,
       minPressure: 99,
       maxPressure: undefined,
-      customBrushColorCycle: options?.enableColorCycle ?? false,
-      colorCycleGradient: options?.enableColorCycle
-        ? (options?.gradientStops?.map((stop) => ({ ...stop })) ??
+      customBrushColorCycle: hasColorCycle,
+      customBrushColorCycleMode:
+        options?.colorCycleData?.schemaVersion === 2 ? options.colorCycleData.mode : 'tip',
+      customBrushUseCapturedAlphaMask:
+        options?.colorCycleData?.schemaVersion === 2
+          ? options.colorCycleData.useAlphaMask !== false
+          : true,
+      colorCycleGradient: hasColorCycle
+        ? (options?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ??
           DEFAULT_GRADIENT_STOPS.map((stop) => ({ ...stop })))
         : undefined,
-      colorCycleSpeed: options?.enableColorCycle
-        ? Math.max(0, Math.min(2.64, Number(options?.speed ?? 0.1)))
+      colorCycleSpeed: hasColorCycle
+        ? Math.max(0, Math.min(2.64, Number(options?.colorCycleData?.speed ?? 0.1)))
         : undefined,
-      customBrushCcPhaseMode: options?.enableColorCycle ? 'global' : undefined,
-      customBrushCcPhaseJitter: options?.enableColorCycle ? 0 : undefined,
+      customBrushCcPhaseMode: hasColorCycle ? (options?.colorCycleData?.phaseMode ?? 'global') : undefined,
+      customBrushCcPhaseJitter: hasColorCycle ? (options?.colorCycleData?.phaseJitter ?? 0) : undefined,
       currentBrushTip: {
         imageData: tempBrush.imageData,
         brushId: tempBrush.id,
@@ -157,6 +158,7 @@ export const CustomBrushPanel = () => {
         naturalWidth: tempBrush.naturalWidth ?? tempBrush.width,
         naturalHeight: tempBrush.naturalHeight ?? tempBrush.height,
         maxDimension: tempBrush.maxDimension ?? Math.max(tempBrush.width, tempBrush.height),
+        colorCycle: tempBrush.colorCycle,
         isColorizable: false
       }
     });
@@ -193,17 +195,19 @@ export const CustomBrushPanel = () => {
     const sourceIsColorCycleLayer =
       !sampleAllLayers &&
       activeLayer?.layerType === 'color-cycle';
-    const sourceGradient =
-      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
-    const sourceSpeed =
-      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
+    const colorCycleData = sourceIsColorCycleLayer
+      ? captureColorCycleDataFromLayer({
+          activeLayer,
+          sampleAllLayers,
+          bounds,
+          captureResult,
+        })
+      : undefined;
 
     const enableColorCycle = sourceIsColorCycleLayer;
     setCcImportedHint(enableColorCycle);
     applyCaptureResult(captureResult, {
-      enableColorCycle: sourceIsColorCycleLayer,
-      gradientStops: sourceGradient,
-      speed: sourceSpeed,
+      colorCycleData,
     });
   }, [
     captureMode,
@@ -241,17 +245,19 @@ export const CustomBrushPanel = () => {
     const sourceIsColorCycleLayer =
       !sampleAllLayers &&
       activeLayer?.layerType === 'color-cycle';
-    const sourceGradient =
-      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
-    const sourceSpeed =
-      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
+    const colorCycleData = sourceIsColorCycleLayer
+      ? captureColorCycleDataFromLayer({
+          activeLayer,
+          sampleAllLayers,
+          bounds: freehandPath.bounds,
+          captureResult,
+        })
+      : undefined;
 
     const enableColorCycle = sourceIsColorCycleLayer;
     setCcImportedHint(enableColorCycle);
     applyCaptureResult(captureResult, {
-      enableColorCycle: sourceIsColorCycleLayer,
-      gradientStops: sourceGradient,
-      speed: sourceSpeed,
+      colorCycleData,
     });
     setCustomBrushFreehandPath(null);
   }, [
@@ -340,6 +346,7 @@ export const CustomBrushPanel = () => {
         naturalWidth: permanentBrush.naturalWidth ?? permanentBrush.width,
         naturalHeight: permanentBrush.naturalHeight ?? permanentBrush.height,
         maxDimension: permanentBrush.maxDimension ?? Math.max(permanentBrush.width, permanentBrush.height),
+        colorCycle: permanentBrush.colorCycle,
         isColorizable: false
       }
     });

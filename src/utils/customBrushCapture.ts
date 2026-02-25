@@ -1,3 +1,5 @@
+import type { CustomBrushColorCycleV2, Layer } from '@/types';
+
 export type CapturePoint = { x: number; y: number };
 
 export type BrushCaptureBounds = {
@@ -27,7 +29,16 @@ export type BrushCaptureOptions = {
   generateThumbnail?: boolean;
 };
 
+export type ColorCycleCaptureOptions = {
+  activeLayer: Layer | null | undefined;
+  sampleAllLayers: boolean;
+  bounds: BrushCaptureBounds;
+  captureResult: BrushCaptureResult;
+};
+
 const DEFAULT_THUMBNAIL_SIZE = 64;
+
+const DEFAULT_SOURCE_CYCLE_LENGTH = 256;
 
 export const selectionToCaptureBounds = (
   start: CapturePoint | null | undefined,
@@ -287,5 +298,110 @@ export const captureBrushFromPath = (
     naturalHeight,
     maxDimension,
     thumbnail,
+  };
+};
+
+const resolveCycleCanvasSize = (layer: Layer): { width: number; height: number } => {
+  const width = layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width ?? layer.framebuffer.width;
+  const height = layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height ?? layer.framebuffer.height;
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  };
+};
+
+const cropGradientIndexMap = (
+  layer: Layer,
+  bounds: BrushCaptureBounds,
+  width: number,
+  height: number
+): Uint16Array | undefined => {
+  const sourceBuffer = layer.colorCycleData?.gradientIdBuffer;
+  if (!sourceBuffer) {
+    return undefined;
+  }
+
+  const { width: canvasWidth, height: canvasHeight } = resolveCycleCanvasSize(layer);
+  const source = new Uint8Array(sourceBuffer);
+  if (source.length < canvasWidth * canvasHeight) {
+    return undefined;
+  }
+
+  const map = new Uint16Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    const srcY = bounds.y + y;
+    if (srcY < 0 || srcY >= canvasHeight) {
+      continue;
+    }
+    for (let x = 0; x < width; x += 1) {
+      const srcX = bounds.x + x;
+      if (srcX < 0 || srcX >= canvasWidth) {
+        continue;
+      }
+      const srcIndex = srcY * canvasWidth + srcX;
+      const dstIndex = y * width + x;
+      map[dstIndex] = source[srcIndex];
+    }
+  }
+
+  return map;
+};
+
+const buildLuminancePhaseMap = (
+  imageData: ImageData,
+  cycleLength: number
+): Uint16Array => {
+  const maxIndex = Math.max(1, cycleLength - 1);
+  const map = new Uint16Array(imageData.width * imageData.height);
+  for (let i = 0, p = 0; i < map.length; i += 1, p += 4) {
+    const r = imageData.data[p];
+    const g = imageData.data[p + 1];
+    const b = imageData.data[p + 2];
+    const luminance = Math.round((0.299 * r + 0.587 * g + 0.114 * b) / 255 * maxIndex);
+    map[i] = Math.max(0, Math.min(maxIndex, luminance));
+  }
+  return map;
+};
+
+const buildAlphaMask = (imageData: ImageData): Uint8Array => {
+  const mask = new Uint8Array(imageData.width * imageData.height);
+  for (let i = 0, p = 3; i < mask.length; i += 1, p += 4) {
+    mask[i] = imageData.data[p];
+  }
+  return mask;
+};
+
+export const captureColorCycleDataFromLayer = (
+  options: ColorCycleCaptureOptions
+): CustomBrushColorCycleV2 | undefined => {
+  const { activeLayer, sampleAllLayers, bounds, captureResult } = options;
+  if (sampleAllLayers || !activeLayer || activeLayer.layerType !== 'color-cycle') {
+    return undefined;
+  }
+
+  const gradient = activeLayer.colorCycleData?.gradient?.map((stop) => ({ ...stop }));
+  const speed = activeLayer.colorCycleData?.brushSpeed;
+  const sourceCycleLength = DEFAULT_SOURCE_CYCLE_LENGTH;
+  const mapWidth = captureResult.width;
+  const mapHeight = captureResult.height;
+  const indexMap = cropGradientIndexMap(activeLayer, bounds, mapWidth, mapHeight);
+  const phaseMap = buildLuminancePhaseMap(captureResult.imageData, sourceCycleLength);
+  const alphaMask = buildAlphaMask(captureResult.imageData);
+
+  return {
+    schemaVersion: 2,
+    mode: indexMap || phaseMap ? 'captured-data' : 'tip',
+    source: 'color-cycle-layer',
+    gradient,
+    speed: typeof speed === 'number' ? speed : 0.1,
+    phaseMode: 'global',
+    phaseJitter: 0,
+    sourceCycleLength,
+    mapWidth,
+    mapHeight,
+    phaseMap,
+    indexMap,
+    alphaMask,
+    useAlphaMask: true,
   };
 };

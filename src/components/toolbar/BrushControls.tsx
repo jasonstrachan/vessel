@@ -17,7 +17,7 @@ import {
   selectGlobalBrushSize,
   selectShapeMode,
 } from '@/stores/selectors/toolsSelectors';
-import { BrushShape, type BrushSettings } from "@/types";
+import { BrushShape, type BrushSettings, type CustomBrush } from "@/types";
 import CommittedNumberInput from "../ui/CommittedNumberInput";
 import Input from "../ui/Input";
 import CommittedProgressSlider from "../ui/CommittedProgressSlider";
@@ -395,6 +395,8 @@ const BrushControls = () => {
   const ccGradientSampleCount = useAppStore((state) => state.ccGradientSampleCount);
   const resetCcGradientSample = useAppStore((state) => state.resetCcGradientSample);
   const palette = useAppStore((state) => state.palette);
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
+  const getCustomBrushById = useAppStore((state) => state.getCustomBrushById);
   const customBrushPercent = brushSettings.customBrushSizePercent ?? 100;
   const shapeMode = useAppStore(selectShapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
@@ -438,6 +440,27 @@ const BrushControls = () => {
   const activeSettings =
     currentTool === 'eraser' ? eraserSettings : brushSettings;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
+  const selectedCustomBrushId = activeSettings.selectedCustomBrush;
+  const activeCustomBrush = React.useMemo<CustomBrush | null>(() => {
+    if (!isActiveCustomBrush || !selectedCustomBrushId) {
+      return null;
+    }
+    if (temporaryCustomBrush?.id === selectedCustomBrushId) {
+      return temporaryCustomBrush;
+    }
+    return typeof getCustomBrushById === 'function'
+      ? getCustomBrushById(selectedCustomBrushId)
+      : null;
+  }, [getCustomBrushById, isActiveCustomBrush, selectedCustomBrushId, temporaryCustomBrush]);
+  const activeCustomBrushColorCycle = activeCustomBrush?.colorCycle;
+  const hasCapturedColorCyclePayload = Boolean(
+    activeCustomBrushColorCycle?.schemaVersion === 2 &&
+    activeCustomBrushColorCycle.mode === 'captured-data' &&
+    activeCustomBrushColorCycle.mapWidth > 0 &&
+    activeCustomBrushColorCycle.mapHeight > 0 &&
+    (activeCustomBrushColorCycle.phaseMap || activeCustomBrushColorCycle.indexMap)
+  );
+  const customColorCycleMode = activeSettings.customBrushColorCycleMode ?? 'tip';
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
   const sizeLabel = isActiveCustomBrush ? 'Tip Scale %' : `Size ${sizeUnit}`;
   const capability: BrushCapabilities = currentBrushPresetId
@@ -668,6 +691,7 @@ const BrushControls = () => {
   }, [foregroundDerivedStops]);
 
   const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
+  const isCapturedDataMode = isCustomColorCycleEnabled && customColorCycleMode === 'captured-data';
   const showColorCycleBands =
     !isColorCycleGradientPreset &&
     (isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) || isCustomColorCycleEnabled);
@@ -1063,7 +1087,11 @@ const BrushControls = () => {
   }, [activeSettings.colorCycleGradient]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
-    if (checked && activeLayer?.layerType !== 'color-cycle') {
+    if (
+      checked &&
+      activeLayer?.layerType !== 'color-cycle' &&
+      !(hasCapturedColorCyclePayload && customColorCycleMode === 'captured-data')
+    ) {
       showColorCycleLayerHint();
       setActiveSettings({ customBrushColorCycle: false });
       return;
@@ -1074,6 +1102,14 @@ const BrushControls = () => {
     };
 
     if (checked) {
+      updates.customBrushColorCycleMode =
+        hasCapturedColorCyclePayload && activeCustomBrushColorCycle?.schemaVersion === 2
+          ? (activeCustomBrushColorCycle.mode ?? 'captured-data')
+          : 'tip';
+      updates.customBrushUseCapturedAlphaMask =
+        activeCustomBrushColorCycle?.schemaVersion === 2
+          ? activeCustomBrushColorCycle.useAlphaMask !== false
+          : true;
       if (!activeSettings.colorCycleGradient || activeSettings.colorCycleGradient.length === 0) {
         updates.colorCycleGradient = DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }));
       }
@@ -1095,6 +1131,9 @@ const BrushControls = () => {
     activeSettings.colorCycleSpeed,
     activeSettings.customBrushCcPhaseJitter,
     activeSettings.customBrushCcPhaseMode,
+    activeCustomBrushColorCycle,
+    customColorCycleMode,
+    hasCapturedColorCyclePayload,
     setActiveSettings,
     showColorCycleLayerHint,
   ]);
@@ -3382,98 +3421,147 @@ const BrushControls = () => {
 
           {isCustomColorCycleEnabled && (
             <div className="mt-2">
-              <GradientEditor
-                sampleTarget="brush"
-                stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
-                onChange={(stops) => {
-                  scheduleGradientFlush(stops);
+              <ButtonGroup
+                options={[
+                  { label: 'Tip Mode', value: 'tip' },
+                  { label: 'Color Cycle Data', value: 'captured-data' },
+                ]}
+                value={customColorCycleMode}
+                onChange={(value) => {
+                  const nextMode = value as NonNullable<BrushSettings['customBrushColorCycleMode']>;
+                  if (nextMode === 'captured-data' && !hasCapturedColorCyclePayload) {
+                    return;
+                  }
+                  setActiveSettings({
+                    customBrushColorCycleMode: nextMode,
+                  });
                 }}
-                onEditStart={() => {
-                  gradientForkRef.current = true;
-                }}
+                size="sm"
+                className="w-full"
               />
-              <div className="mt-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Bands
-                  </label>
-                  <NonCcSlider
-                    value={bandsSlider.value}
-                    min={2}
-                    max={64}
-                    step={1}
-                    onChange={(value) => bandsSlider.onChange(Math.round(value))}
-                    onCommit={bandsSlider.onCommit}
-                    aria-label="Gradient Bands"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              <div className="mt-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Speed
-                  </label>
-                  <NonCcSlider
-                    value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
-                    min={MIN_BRUSH_COLOR_CYCLE_SPEED}
-                    max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-                    step={COLOR_CYCLE_SPEED_STEP}
-                    onChange={(value) =>
-                      setActiveSettings({
-                        colorCycleSpeed: Math.max(
-                          MIN_BRUSH_COLOR_CYCLE_SPEED,
-                          Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
-                        ),
-                      })
-                    }
-                    aria-label="Custom Brush Color Cycle Speed"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              <div className="mt-2">
-                <div className="flex items-center gap-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Phase
-                  </label>
-                  <Dropdown
-                    value={activeSettings.customBrushCcPhaseMode ?? 'global'}
-                    options={[
-                      { value: 'global', label: 'Global' },
-                      { value: 'per-stroke-seeded', label: 'Per Stroke' },
-                      { value: 'jittered', label: 'Jittered' },
-                    ]}
-                    onChange={(value) =>
-                      setActiveSettings({
-                        customBrushCcPhaseMode: value as NonNullable<BrushSettings['customBrushCcPhaseMode']>,
-                      })
-                    }
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              {(activeSettings.customBrushCcPhaseMode ?? 'global') === 'jittered' && (
-                <div className="mt-2">
-                  <div className="flex items-center gap-2">
-                    <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                      Jitter
-                    </label>
-                    <NonCcSlider
-                      value={activeSettings.customBrushCcPhaseJitter ?? 0}
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      onChange={(value) =>
-                        setActiveSettings({
-                          customBrushCcPhaseJitter: Math.max(0, Math.min(1, Number(value))),
-                        })
-                      }
-                      aria-label="Custom Brush Color Cycle Phase Jitter"
-                      className="flex-1"
+
+              {isCapturedDataMode && (
+                <div className="mt-2 rounded border border-[#3a3a3a] bg-[#1f1f1f] p-2">
+                  <p className="text-xs text-gray-300">
+                    {hasCapturedColorCyclePayload ? 'Captured' : 'Not captured'}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Map {activeCustomBrushColorCycle?.schemaVersion === 2 ? `${activeCustomBrushColorCycle.mapWidth}x${activeCustomBrushColorCycle.mapHeight}` : 'n/a'}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Cycle Length {activeCustomBrushColorCycle?.schemaVersion === 2 ? activeCustomBrushColorCycle.sourceCycleLength : 'n/a'}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <label className="text-xs text-gray-300">Use Alpha Mask</label>
+                    <CustomSwitch
+                      checked={activeSettings.customBrushUseCapturedAlphaMask !== false}
+                      onChange={(checked) => setActiveSettings({ customBrushUseCapturedAlphaMask: checked })}
                     />
                   </div>
+                  {!hasCapturedColorCyclePayload && (
+                    <p className="mt-2 text-xs text-amber-400">
+                      Capture from an active color-cycle layer to use this mode.
+                    </p>
+                  )}
                 </div>
+              )}
+
+              {!isCapturedDataMode && (
+                <>
+                  <GradientEditor
+                    sampleTarget="brush"
+                    stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
+                    onChange={(stops) => {
+                      scheduleGradientFlush(stops);
+                    }}
+                    onEditStart={() => {
+                      gradientForkRef.current = true;
+                    }}
+                  />
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        Bands
+                      </label>
+                      <NonCcSlider
+                        value={bandsSlider.value}
+                        min={2}
+                        max={64}
+                        step={1}
+                        onChange={(value) => bandsSlider.onChange(Math.round(value))}
+                        onCommit={bandsSlider.onCommit}
+                        aria-label="Gradient Bands"
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        Speed
+                      </label>
+                      <NonCcSlider
+                        value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
+                        min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+                        max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+                        step={COLOR_CYCLE_SPEED_STEP}
+                        onChange={(value) =>
+                          setActiveSettings({
+                            colorCycleSpeed: Math.max(
+                              MIN_BRUSH_COLOR_CYCLE_SPEED,
+                              Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
+                            ),
+                          })
+                        }
+                        aria-label="Custom Brush Color Cycle Speed"
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        Phase
+                      </label>
+                      <Dropdown
+                        value={activeSettings.customBrushCcPhaseMode ?? 'global'}
+                        options={[
+                          { value: 'global', label: 'Global' },
+                          { value: 'per-stroke-seeded', label: 'Per Stroke' },
+                          { value: 'jittered', label: 'Jittered' },
+                        ]}
+                        onChange={(value) =>
+                          setActiveSettings({
+                            customBrushCcPhaseMode: value as NonNullable<BrushSettings['customBrushCcPhaseMode']>,
+                          })
+                        }
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                  {(activeSettings.customBrushCcPhaseMode ?? 'global') === 'jittered' && (
+                    <div className="mt-2">
+                      <div className="flex items-center gap-2">
+                        <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                          Jitter
+                        </label>
+                        <NonCcSlider
+                          value={activeSettings.customBrushCcPhaseJitter ?? 0}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          onChange={(value) =>
+                            setActiveSettings({
+                              customBrushCcPhaseJitter: Math.max(0, Math.min(1, Number(value))),
+                            })
+                          }
+                          aria-label="Custom Brush Color Cycle Phase Jitter"
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

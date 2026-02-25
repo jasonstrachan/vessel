@@ -3,7 +3,13 @@
  * Simplified interface that combines all brush engine modules
  */
 
-import { BrushShape, type BrushSettings, type CustomBrush, type SequentialStampPoint } from '@/types';
+import {
+  BrushShape,
+  type BrushSettings,
+  type CustomBrush,
+  type CustomBrushColorCycleData,
+  type SequentialStampPoint,
+} from '@/types';
 import { createStrokeProcessor } from './strokeProcessor';
 import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencies } from './shapes';
 import { createBrushUtilities } from './utilities';
@@ -60,6 +66,7 @@ export interface CustomBrushStrokeData {
   isColorizable?: boolean;
   isResampler?: boolean;
   cacheKey?: string;
+  colorCycle?: CustomBrushColorCycleData;
 }
 
 export interface BrushStrokeParams {
@@ -103,10 +110,14 @@ export class BrushEngineFacade {
   private customStrokeCycleInitialized = false;
   private lastCustomColorCycleEnabled = false;
   private lastCustomGradientHash = '';
+  private customCapturedPatternCache = new Map<string, ImageData>();
+  private customCyclePaletteCache = new Map<string, Uint8ClampedArray>();
   private recentStamps: SequentialStampPoint[] = [];
   private stampTrackingActive = false;
   private trackedStampPressure = 1;
   private trackedStampAlpha = 1;
+  private static readonly MAX_CAPTURED_PATTERN_CACHE = 512;
+  private static readonly MAX_CAPTURED_PALETTE_CACHE = 64;
 
   constructor(config: BrushEngineConfig) {
     this.config = config;
@@ -381,8 +392,25 @@ export class BrushEngineFacade {
           const posKey = `${x},${y}`;
           if (!stampedPositions.has(posKey)) {
             if (this.canDrawAt(ctx, x, y)) {
+              let stampPattern = settings.pattern;
+              let stampIsColorizable = settings.isColorizable;
               if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
-                ctx.fillStyle = this.getNextCustomCycleColor();
+                const phase = this.getNextCustomCyclePhase();
+                const capturedPattern = customBrushData
+                  ? this.getCapturedDataPattern(customBrushData, phase)
+                  : null;
+                if (capturedPattern) {
+                  stampPattern = capturedPattern;
+                  stampIsColorizable = false;
+                  ctx.fillStyle = settings.color;
+                } else {
+                  ctx.fillStyle = this.sampleGradientColor(
+                    this.config.brushSettings.colorCycleGradient?.length
+                      ? this.config.brushSettings.colorCycleGradient
+                      : DEFAULT_COLOR_CYCLE_GRADIENT,
+                    phase
+                  );
+                }
               } else {
                 ctx.fillStyle = settings.color;
               }
@@ -395,8 +423,8 @@ export class BrushEngineFacade {
                 settings.antiAliasing,
                 settings.rotation,
                 settings.risographIntensity,
-                settings.pattern,
-                settings.centerAlignment
+                stampPattern,
+                stampIsColorizable
               );
             }
             stampedPositions.add(posKey);
@@ -437,7 +465,14 @@ export class BrushEngineFacade {
         this.pixelQueue.lastDrawnY = snappedTo.y;
       } else {
         // Normal rendering with interpolation
-        if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
+        const forceSmoothForCapturedCustom =
+          settings.shape === BrushShape.CUSTOM &&
+          !!customBrushData?.colorCycle &&
+          customBrushData.colorCycle.schemaVersion === 2 &&
+          customBrushData.colorCycle.mode === 'captured-data' &&
+          this.config.brushSettings.customBrushColorCycle === true;
+
+        if (!forceSmoothForCapturedCustom && (isPixelBrush || isPixelSquare || !brushSettings.antialiasing)) {
           // Ensure pixel-perfect rendering
           ctx.imageSmoothingEnabled = false;
           // Pixel-perfect brush
@@ -446,7 +481,7 @@ export class BrushEngineFacade {
           // Ensure smooth rendering
           ctx.imageSmoothingEnabled = true;
           // Smooth brush - use stroke interpolation
-          this.renderSmoothStroke(ctx, drawFrom, drawTo, settings);
+          this.renderSmoothStroke(ctx, drawFrom, drawTo, settings, customBrushData);
         }
       }
     } finally {
@@ -461,7 +496,8 @@ export class BrushEngineFacade {
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
     to: { x: number; y: number },
-    settings: RenderSettings
+    settings: RenderSettings,
+    customBrushData?: CustomBrushStrokeData
   ): void {
     // Calculate distance (optimized)
     const dx = to.x - from.x;
@@ -505,8 +541,25 @@ export class BrushEngineFacade {
           this.pixelQueue.accumulatedDistance -= spacingThreshold;
           // Check transparency lock
           if (this.canDrawAt(ctx, x, y)) {
+            let stampPattern = settings.pattern;
+            let stampIsColorizable = settings.isColorizable;
             if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
-              ctx.fillStyle = this.getNextCustomCycleColor();
+              const phase = this.getNextCustomCyclePhase();
+              const capturedPattern = customBrushData
+                ? this.getCapturedDataPattern(customBrushData, phase)
+                : null;
+              if (capturedPattern) {
+                stampPattern = capturedPattern;
+                stampIsColorizable = false;
+                ctx.fillStyle = settings.color;
+              } else {
+                ctx.fillStyle = this.sampleGradientColor(
+                  this.config.brushSettings.colorCycleGradient?.length
+                    ? this.config.brushSettings.colorCycleGradient
+                    : DEFAULT_COLOR_CYCLE_GRADIENT,
+                  phase
+                );
+              }
             } else {
               ctx.fillStyle = settings.color;
             }
@@ -519,8 +572,8 @@ export class BrushEngineFacade {
               settings.antiAliasing,
               settings.rotation,
               settings.risographIntensity,
-              settings.pattern,
-              settings.isColorizable // Pass isColorizable as centerAlignment for custom brushes
+              stampPattern,
+              stampIsColorizable // Pass isColorizable as centerAlignment for custom brushes
             );
           }
         }
@@ -546,8 +599,25 @@ export class BrushEngineFacade {
       if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
         this.pixelQueue.accumulatedDistance -= spacingThreshold;
         if (this.canDrawAt(ctx, to.x, to.y)) {
+          let stampPattern = settings.pattern;
+          let stampIsColorizable = settings.isColorizable;
           if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
-            ctx.fillStyle = this.getNextCustomCycleColor();
+            const phase = this.getNextCustomCyclePhase();
+            const capturedPattern = customBrushData
+              ? this.getCapturedDataPattern(customBrushData, phase)
+              : null;
+            if (capturedPattern) {
+              stampPattern = capturedPattern;
+              stampIsColorizable = false;
+              ctx.fillStyle = settings.color;
+            } else {
+              ctx.fillStyle = this.sampleGradientColor(
+                this.config.brushSettings.colorCycleGradient?.length
+                  ? this.config.brushSettings.colorCycleGradient
+                  : DEFAULT_COLOR_CYCLE_GRADIENT,
+                phase
+              );
+            }
           } else {
             ctx.fillStyle = settings.color;
           }
@@ -560,8 +630,8 @@ export class BrushEngineFacade {
             settings.antiAliasing,
             settings.rotation,
             settings.risographIntensity,
-            settings.pattern,
-            settings.isColorizable
+            stampPattern,
+            stampIsColorizable
           );
         }
       }
@@ -796,11 +866,27 @@ export class BrushEngineFacade {
     return `rgb(${r}, ${g}, ${b})`;
   }
 
-  private getNextCustomCycleColor(): string {
-    const stops = this.config.brushSettings.colorCycleGradient && this.config.brushSettings.colorCycleGradient.length > 0
-      ? this.config.brushSettings.colorCycleGradient
-      : DEFAULT_COLOR_CYCLE_GRADIENT;
+  private trimImageDataCache(cache: Map<string, ImageData>, limit: number): void {
+    if (cache.size <= limit) {
+      return;
+    }
+    const oldestKey = cache.keys().next().value;
+    if (typeof oldestKey === 'string') {
+      cache.delete(oldestKey);
+    }
+  }
 
+  private trimPaletteCache(cache: Map<string, Uint8ClampedArray>, limit: number): void {
+    if (cache.size <= limit) {
+      return;
+    }
+    const oldestKey = cache.keys().next().value;
+    if (typeof oldestKey === 'string') {
+      cache.delete(oldestKey);
+    }
+  }
+
+  private getNextCustomCyclePhase(): number {
     const step = Math.max(
       0,
       Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, this.config.brushSettings.colorCycleSpeed ?? 0.1)
@@ -815,23 +901,137 @@ export class BrushEngineFacade {
     let phase = this.customColorCyclePhase;
     if (mode === 'global') {
       this.customColorCyclePhase = (this.customColorCyclePhase + step) % 1;
-    } else {
-      const jitterOffset = computeCustomBrushStampJitter(
-        this.customStrokeCycleSeed,
-        this.customStrokeCycleStampIndex,
-        jitterAmount
-      );
-      phase = computeCustomBrushPhaseAtStamp(
-        this.customStrokeCyclePhaseBase,
-        this.customStrokeCycleStampIndex,
-        step,
-        jitterOffset
-      );
-      this.customStrokeCycleStampIndex += 1;
+      return phase;
     }
 
-    const color = this.sampleGradientColor(stops, phase);
-    return color;
+    const jitterOffset = computeCustomBrushStampJitter(
+      this.customStrokeCycleSeed,
+      this.customStrokeCycleStampIndex,
+      jitterAmount
+    );
+    phase = computeCustomBrushPhaseAtStamp(
+      this.customStrokeCyclePhaseBase,
+      this.customStrokeCycleStampIndex,
+      step,
+      jitterOffset
+    );
+    this.customStrokeCycleStampIndex += 1;
+    return phase;
+  }
+
+  private getGradientPalette(
+    stops: Array<{ position: number; color: string }>,
+    cycleLength: number
+  ): Uint8ClampedArray {
+    const gradientHash = this.hashGradient(stops);
+    const key = `${gradientHash}:${cycleLength}`;
+    const cached = this.customCyclePaletteCache.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const length = Math.max(1, Math.min(1024, Math.round(cycleLength)));
+    const palette = new Uint8ClampedArray(length * 4);
+    for (let i = 0; i < length; i += 1) {
+      const t = length <= 1 ? 0 : i / (length - 1);
+      const color = this.sampleGradientColor(stops, t);
+      const [r, g, b] = parseColor(color);
+      const p = i * 4;
+      palette[p] = r;
+      palette[p + 1] = g;
+      palette[p + 2] = b;
+      palette[p + 3] = 255;
+    }
+
+    this.customCyclePaletteCache.set(key, palette);
+    this.trimPaletteCache(this.customCyclePaletteCache, BrushEngineFacade.MAX_CAPTURED_PALETTE_CACHE);
+    return palette;
+  }
+
+  private getCapturedDataPattern(
+    customBrushData: CustomBrushStrokeData,
+    phase: number
+  ): ImageData | null {
+    const colorCycle = customBrushData.colorCycle;
+    if (
+      !colorCycle ||
+      colorCycle.schemaVersion !== 2 ||
+      colorCycle.mode !== 'captured-data'
+    ) {
+      return null;
+    }
+
+    const width = colorCycle.mapWidth;
+    const height = colorCycle.mapHeight;
+    const pixelCount = width * height;
+    if (width <= 0 || height <= 0 || pixelCount <= 0) {
+      return null;
+    }
+
+    if (customBrushData.imageData.width !== width || customBrushData.imageData.height !== height) {
+      return null;
+    }
+
+    const hasMaps =
+      (colorCycle.indexMap && colorCycle.indexMap.length === pixelCount) ||
+      (colorCycle.phaseMap && colorCycle.phaseMap.length === pixelCount);
+    if (!hasMaps) {
+      return null;
+    }
+
+    const stops = this.config.brushSettings.colorCycleGradient?.length
+      ? this.config.brushSettings.colorCycleGradient
+      : colorCycle.gradient?.length
+        ? colorCycle.gradient
+        : DEFAULT_COLOR_CYCLE_GRADIENT;
+    const cycleLength = Math.max(1, Math.min(1024, Math.round(colorCycle.sourceCycleLength || 256)));
+    const phaseBucket = ((Math.round(phase * cycleLength) % cycleLength) + cycleLength) % cycleLength;
+    const gradientHash = this.hashGradient(stops);
+    const sourceKey = customBrushData.cacheKey ?? `anon:${width}x${height}`;
+    const useAlphaMask = this.config.brushSettings.customBrushUseCapturedAlphaMask !== false;
+    const key = `${sourceKey}:ccd:${gradientHash}:${cycleLength}:${phaseBucket}:${useAlphaMask ? 1 : 0}`;
+    const cached = this.customCapturedPatternCache.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const palette = this.getGradientPalette(stops, cycleLength);
+    const src = customBrushData.imageData.data;
+    const output = new Uint8ClampedArray(src.length);
+    const indexMap = colorCycle.indexMap;
+    const phaseMap = colorCycle.phaseMap;
+    const alphaMask =
+      useAlphaMask && colorCycle.alphaMask && colorCycle.alphaMask.length === pixelCount
+        ? colorCycle.alphaMask
+        : undefined;
+
+    for (let i = 0, p = 0; i < pixelCount; i += 1, p += 4) {
+      const baseAlpha = src[p + 3];
+      const maskAlpha = alphaMask ? alphaMask[i] : 255;
+      const alpha = Math.round((baseAlpha * maskAlpha) / 255);
+      if (alpha <= 0) {
+        continue;
+      }
+
+      const base =
+        indexMap && indexMap.length === pixelCount
+          ? indexMap[i]
+          : phaseMap && phaseMap.length === pixelCount
+            ? phaseMap[i]
+            : 0;
+      const resolved = (base + phaseBucket) % cycleLength;
+      const paletteOffset = resolved * 4;
+      output[p] = palette[paletteOffset];
+      output[p + 1] = palette[paletteOffset + 1];
+      output[p + 2] = palette[paletteOffset + 2];
+      output[p + 3] = alpha;
+    }
+
+    const imageData = new ImageData(output, width, height);
+    (imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey = key;
+    this.customCapturedPatternCache.set(key, imageData);
+    this.trimImageDataCache(this.customCapturedPatternCache, BrushEngineFacade.MAX_CAPTURED_PATTERN_CACHE);
+    return imageData;
   }
 
   private createTrackedShapeDrawer(
