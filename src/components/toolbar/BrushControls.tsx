@@ -452,7 +452,8 @@ const BrushControls = () => {
       ? getCustomBrushById(selectedCustomBrushId)
       : null;
   }, [getCustomBrushById, isActiveCustomBrush, selectedCustomBrushId, temporaryCustomBrush]);
-  const activeCustomBrushColorCycle = activeCustomBrush?.colorCycle;
+  const activeCustomBrushColorCycle =
+    activeCustomBrush?.colorCycle ?? activeSettings.currentBrushTip?.colorCycle;
   const hasCapturedColorCyclePayload = Boolean(
     activeCustomBrushColorCycle?.schemaVersion === 2 &&
     activeCustomBrushColorCycle.mode === 'captured-data' &&
