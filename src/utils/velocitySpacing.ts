@@ -1,5 +1,5 @@
 // Tuned to be intentionally obvious at normal/high drawing speed.
-export const VELOCITY_SPACING_MAX_SCALE = 2.15;
+export const VELOCITY_SPACING_MAX_SCALE = 4.2;
 export const VELOCITY_SPACING_DEADZONE_PX_PER_MS = 0.06;
 export const VELOCITY_SPACING_RANGE_PX_PER_MS = 0.85;
 export const VELOCITY_SPACING_CURVE = 1.15;
