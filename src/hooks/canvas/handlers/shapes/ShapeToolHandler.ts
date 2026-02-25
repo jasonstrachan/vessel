@@ -248,6 +248,63 @@ const snapshotLayerImageData = (layer: Layer | null | undefined): ImageData | nu
   }
 };
 
+const applyTransparencyLockMaskToContext = (
+  targetCtx: CanvasRenderingContext2D,
+  layer: Layer,
+  fallbackMaskImage: ImageData | null = null
+): void => {
+  if (layer.transparencyLocked !== true) {
+    return;
+  }
+
+  const targetWidth = targetCtx.canvas.width | 0;
+  const targetHeight = targetCtx.canvas.height | 0;
+  if (!targetWidth || !targetHeight) {
+    return;
+  }
+
+  let hasMaskSource = false;
+  const maskImage = layer.imageData ?? fallbackMaskImage;
+
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = 'destination-in';
+
+  const framebuffer = layer.framebuffer;
+  if (framebuffer && framebuffer.width > 0 && framebuffer.height > 0) {
+    try {
+      targetCtx.drawImage(framebuffer as CanvasImageSource, 0, 0, targetWidth, targetHeight);
+      hasMaskSource = true;
+    } catch {
+      // Fallback to image-data mask below.
+    }
+  }
+
+  if (!hasMaskSource && maskImage) {
+    const maskCanvas = canvasPool.acquire(maskImage.width, maskImage.height);
+    try {
+      const maskCtx = maskCanvas.getContext(
+        '2d',
+        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+      );
+      if (maskCtx) {
+        maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+        maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        maskCtx.putImageData(maskImage, 0, 0);
+        targetCtx.drawImage(maskCanvas, 0, 0, targetWidth, targetHeight);
+        hasMaskSource = true;
+      }
+    } finally {
+      canvasPool.release(maskCanvas);
+    }
+  }
+
+  targetCtx.restore();
+
+  if (!hasMaskSource) {
+    targetCtx.clearRect(0, 0, targetWidth, targetHeight);
+  }
+};
+
 const computeBoundingBox = (points: Array<{ x: number; y: number }>): ShapeFillBoundingBox | null => {
   if (points.length === 0) {
     return null;
@@ -626,6 +683,10 @@ export const createShapeToolHandler = (
       drawCtx.closePath();
       drawCtx.stroke();
     }
+    const activeLayer = store.layers.find(layer => layer.id === store.activeLayerId);
+    if (activeLayer && activeLayer.layerType !== 'color-cycle') {
+      applyTransparencyLockMaskToContext(drawCtx, activeLayer, activeLayer.imageData ?? null);
+    }
     drawCtx.restore();
     drawingHandlers.drawingCanvasHasContent.current = true;
   };
@@ -799,6 +860,7 @@ export const createShapeToolHandler = (
     }
 
     const liveLayerSnapshot = snapshotLayerImageData(activeLayer);
+    applyTransparencyLockMaskToContext(drawCtx, activeLayer, liveLayerSnapshot);
     const beforeImage =
       shapeFillHistoryContext.layerId === activeLayer.id
         ? shapeFillHistoryContext.beforeImage ?? liveLayerSnapshot
@@ -2482,7 +2544,13 @@ export const createShapeToolHandler = (
           resetShapeFillHistoryContext();
           clearCurrentPreview();
           interaction.dispatch({ type: 'DRAWING_START' });
-          drawingHandlers.startShapeDrawing(fallbackWorldPos, fallbackPressure);
+          drawingHandlers.startShapeDrawing(
+            fallbackWorldPos,
+            fallbackPressure,
+            undefined,
+            undefined,
+            { renderPreview: false }
+          );
         };
 
         if (session.stage === FillStage.AdjustingParam) {
@@ -2534,7 +2602,13 @@ export const createShapeToolHandler = (
       useAppStore.getState().cancelShapeFillSession();
       clearCurrentPreview();
       interaction.dispatch({ type: 'DRAWING_START' });
-      drawingHandlers.startShapeDrawing(worldPos, pressure);
+      drawingHandlers.startShapeDrawing(
+        worldPos,
+        pressure,
+        undefined,
+        undefined,
+        { renderPreview: false }
+      );
       return true;
     }
 
@@ -2622,7 +2696,13 @@ export const createShapeToolHandler = (
           typeof performance !== 'undefined' && typeof performance.now === 'function'
             ? performance.now()
             : Date.now();
-        drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure);
+        drawingHandlers.continueShapeDrawing(
+          previewWorld,
+          pressure,
+          nowTs,
+          event.pressure,
+          { renderPreview: false }
+        );
       }
 
       const store = useAppStore.getState();
@@ -3937,5 +4017,6 @@ export const createShapeToolHandler = (
 
 export const __shapeToolTestUtils = {
   isShapeFillToolActive,
+  applyTransparencyLockMaskToContext,
 };
 const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing']);
