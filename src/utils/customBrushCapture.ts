@@ -1,4 +1,5 @@
 import type { CustomBrushColorCycleV2, Layer } from '@/types';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 
 export type CapturePoint = { x: number; y: number };
 
@@ -39,6 +40,7 @@ export type ColorCycleCaptureOptions = {
 const DEFAULT_THUMBNAIL_SIZE = 64;
 
 const DEFAULT_SOURCE_CYCLE_LENGTH = 256;
+const colorCycleBrushManager = getColorCycleBrushManager();
 
 export const selectionToCaptureBounds = (
   start: CapturePoint | null | undefined,
@@ -310,41 +312,67 @@ const resolveCycleCanvasSize = (layer: Layer): { width: number; height: number }
   };
 };
 
-const cropGradientIndexMap = (
-  layer: Layer,
+const cropScalarMap = (
+  source: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
   bounds: BrushCaptureBounds,
   width: number,
   height: number
 ): Uint16Array | undefined => {
-  const sourceBuffer = layer.colorCycleData?.gradientIdBuffer;
-  if (!sourceBuffer) {
-    return undefined;
-  }
-
-  const { width: canvasWidth, height: canvasHeight } = resolveCycleCanvasSize(layer);
-  const source = new Uint8Array(sourceBuffer);
-  if (source.length < canvasWidth * canvasHeight) {
+  if (source.length < sourceWidth * sourceHeight) {
     return undefined;
   }
 
   const map = new Uint16Array(width * height);
   for (let y = 0; y < height; y += 1) {
     const srcY = bounds.y + y;
-    if (srcY < 0 || srcY >= canvasHeight) {
+    if (srcY < 0 || srcY >= sourceHeight) {
       continue;
     }
     for (let x = 0; x < width; x += 1) {
       const srcX = bounds.x + x;
-      if (srcX < 0 || srcX >= canvasWidth) {
+      if (srcX < 0 || srcX >= sourceWidth) {
         continue;
       }
-      const srcIndex = srcY * canvasWidth + srcX;
+      const srcIndex = srcY * sourceWidth + srcX;
       const dstIndex = y * width + x;
       map[dstIndex] = source[srcIndex];
     }
   }
 
   return map;
+};
+
+const cropPaintPhaseMap = (
+  layer: Layer,
+  bounds: BrushCaptureBounds,
+  width: number,
+  height: number
+): Uint16Array | undefined => {
+  if (layer.layerType !== 'color-cycle') {
+    return undefined;
+  }
+
+  const { width: canvasWidth, height: canvasHeight } = resolveCycleCanvasSize(layer);
+  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const snapshot = brush?.getLayerSnapshot?.(layer.id);
+  const sourceBuffer =
+    snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
+      ? snapshot.paintBuffer
+      : undefined;
+  if (!sourceBuffer) {
+    return undefined;
+  }
+
+  return cropScalarMap(
+    new Uint8Array(sourceBuffer),
+    canvasWidth,
+    canvasHeight,
+    bounds,
+    width,
+    height
+  );
 };
 
 const buildLuminancePhaseMap = (
@@ -415,7 +443,7 @@ export const captureColorCycleDataFromLayer = (
     gradient,
     speed,
   });
-  const indexMap = cropGradientIndexMap(
+  const phaseMap = cropPaintPhaseMap(
     activeLayer,
     bounds,
     basePayload.mapWidth,
@@ -425,6 +453,7 @@ export const captureColorCycleDataFromLayer = (
   return {
     ...basePayload,
     mode: 'captured-data',
-    indexMap,
+    phaseMap: phaseMap ?? basePayload.phaseMap,
+    indexMap: undefined,
   };
 };
