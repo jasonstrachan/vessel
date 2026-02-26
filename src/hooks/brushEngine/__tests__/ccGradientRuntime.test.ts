@@ -37,7 +37,7 @@ const makeLayer = (overrides: Partial<Layer> = {}): Layer =>
   } as unknown as Layer);
 
 describe('ccGradientRuntime', () => {
-  it('normalizes runtime slot palettes to a stable stop count', () => {
+  it('preserves runtime slot palettes without stop-count normalization', () => {
     const layer = makeLayer();
     const brushSettings = makeBrushSettings();
 
@@ -45,12 +45,12 @@ describe('ccGradientRuntime', () => {
     const slot0 = snapshot.slotPalettes.find((entry) => entry.slot === 0);
 
     expect(slot0).toBeTruthy();
-    expect(slot0?.stops.length).toBe(32);
+    expect(slot0?.stops.length).toBe(2);
     expect(slot0?.stops[0]?.position).toBe(0);
-    expect(slot0?.stops[31]?.position).toBe(1);
+    expect(slot0?.stops[1]?.position).toBe(1);
   });
 
-  it('adds a normalized fallback paint-slot palette when missing', () => {
+  it('adds a fallback paint-slot palette when missing', () => {
     const layer = makeLayer({
       colorCycleData: {
         gradientDefs: [{ id: 'g0', currentSlot: 5 }],
@@ -72,6 +72,6 @@ describe('ccGradientRuntime', () => {
 
     expect(snapshot.paintSlot).toBe(5);
     expect(slot5).toBeTruthy();
-    expect(slot5?.stops.length).toBe(32);
+    expect(slot5?.stops.length).toBe(3);
   });
 });

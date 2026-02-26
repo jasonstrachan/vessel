@@ -718,4 +718,47 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(sizeB).toBeLessThan(sizeC);
     expect(sizeB % 1).not.toBe(0);
   });
+
+  it('applies commit opacity in commitToLayer and restores previous context alpha', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 4, fps: 60 });
+    const layerId = 'layer-opacity';
+    const paint = new Uint8Array(8 * 6);
+    paint[0] = 1;
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: paint.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const ctx: Partial<CanvasRenderingContext2D> & Record<string, unknown> = {
+      globalCompositeOperation: 'multiply',
+      globalAlpha: 0.77,
+      imageSmoothingEnabled: true,
+      save: jest.fn(),
+      restore: jest.fn(),
+      setTransform: jest.fn(),
+      clearRect: jest.fn(),
+      drawImage: jest.fn(),
+    };
+    const targetCanvas = {
+      width: 8,
+      height: 6,
+      getContext: jest.fn(() => ctx),
+    } as unknown as HTMLCanvasElement;
+
+    let alphaDuringRender = -1;
+    const renderSpy = jest
+      .spyOn(brush as unknown as { renderAnimatorToContext: (...args: unknown[]) => void }, 'renderAnimatorToContext')
+      .mockImplementation((...args: unknown[]) => {
+        const renderCtx = args[1] as CanvasRenderingContext2D;
+        alphaDuringRender = renderCtx.globalAlpha;
+      });
+
+    brush.commitToLayer(targetCanvas, layerId, 0.35);
+
+    expect(alphaDuringRender).toBeCloseTo(0.35, 5);
+    expect(ctx.globalAlpha).toBe(0.77);
+    expect(ctx.globalCompositeOperation).toBe('multiply');
+    renderSpy.mockRestore();
+  });
 });
