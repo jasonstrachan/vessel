@@ -514,6 +514,45 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
 });
 
 describe('BrushControls – Custom brush captured data mode', () => {
+  it('places custom CC speed controls below spacing and above mode selector', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      layers: [{ id: 'layer-1', name: 'CC', layerType: 'color-cycle' } as unknown as AppState['layers'][number]],
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'custom' as BrushSettings['brushShape'],
+          selectedCustomBrush: 'brush-v2',
+          customBrushColorCycle: true,
+          customBrushColorCycleMode: 'tip',
+        },
+      },
+      temporaryCustomBrush: {
+        id: 'brush-v2',
+        name: 'Brush V2',
+        imageData: new ImageData(2, 2),
+        thumbnail: '',
+        width: 2,
+        height: 2,
+        createdAt: 1,
+      } as unknown as AppState['temporaryCustomBrush'],
+    }));
+
+    render(<BrushControls />);
+
+    const spacing = screen.getByLabelText('Spacing');
+    const speed = screen.getByLabelText('Custom Brush Color Cycle Speed');
+    const modeButton = screen.getByRole('button', { name: 'Tip Mode' });
+
+    expect(
+      spacing.compareDocumentPosition(speed) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      speed.compareDocumentPosition(modeButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('renders mode group and captured metadata panel', async () => {
     const user = userEvent.setup();
     useAppStore.setState((state) => ({
@@ -555,6 +594,9 @@ describe('BrushControls – Custom brush captured data mode', () => {
     expect(screen.getByText('Captured')).toBeInTheDocument();
     expect(screen.getByText('Map 2x2')).toBeInTheDocument();
     expect(screen.getByText('Cycle Length 256')).toBeInTheDocument();
+    expect(screen.getByLabelText('Custom Brush Color Cycle Speed')).toBeInTheDocument();
+    const velocityToggle = document.getElementById('velocity-animation-speed-custom') as HTMLInputElement | null;
+    expect(velocityToggle).toBeTruthy();
   });
 });
 
