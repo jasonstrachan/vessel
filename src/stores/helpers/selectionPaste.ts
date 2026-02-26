@@ -4,7 +4,7 @@ import type { Rectangle } from '@/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
-import { logError } from '@/utils/debug';
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import {
   debugCaptureColorCycleScalarRegion,
   deriveColorCycleIndicesFromImageData,
@@ -121,6 +121,71 @@ const roundRect = (rect: FloatRect): Rectangle => {
     width: Math.max(0, right - x),
     height: Math.max(0, bottom - y),
   };
+};
+
+const toRoundedDestinationRect = (rect: FloatRect): Rectangle => ({
+  x: Math.round(rect.x),
+  y: Math.round(rect.y),
+  width: Math.max(1, Math.round(rect.width)),
+  height: Math.max(1, Math.round(rect.height)),
+});
+
+const resampleScalarNearest = (
+  source: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number
+): Uint8Array => {
+  if (targetWidth <= 0 || targetHeight <= 0) {
+    return new Uint8Array(0);
+  }
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return new Uint8Array(targetWidth * targetHeight);
+  }
+  if (sourceWidth === targetWidth && sourceHeight === targetHeight) {
+    return source.slice();
+  }
+
+  const output = new Uint8Array(targetWidth * targetHeight);
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor((y * sourceHeight) / targetHeight));
+    const outputRow = y * targetWidth;
+    const sourceRow = sourceY * sourceWidth;
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor((x * sourceWidth) / targetWidth));
+      output[outputRow + x] = source[sourceRow + sourceX] ?? 0;
+    }
+  }
+  return output;
+};
+
+const resampleAlphaNearest = (
+  imageData: ImageData | null | undefined,
+  targetWidth: number,
+  targetHeight: number
+): Uint8Array | null => {
+  if (!imageData || targetWidth <= 0 || targetHeight <= 0) {
+    return null;
+  }
+
+  const sourceWidth = imageData.width;
+  const sourceHeight = imageData.height;
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return null;
+  }
+
+  const output = new Uint8Array(targetWidth * targetHeight);
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor((y * sourceHeight) / targetHeight));
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor((x * sourceWidth) / targetWidth));
+      const sourceIndex = (sourceY * sourceWidth + sourceX) * 4 + 3;
+      output[y * targetWidth + x] = imageData.data[sourceIndex] ?? 0;
+    }
+  }
+
+  return output;
 };
 
 const unionWithProjectBounds = (
@@ -396,20 +461,13 @@ export const createSelectionPasteHelpers = ({
           }
         }
       }
-      const colorCycleDestRect: Rectangle = {
-        x: Math.round(floatingPaste.position.x),
-        y: Math.round(floatingPaste.position.y),
-        width: floatingPaste.width,
-        height: floatingPaste.height,
-      };
+      const colorCycleDestRect = toRoundedDestinationRect(destinationRect);
 
-      if (process.env.NODE_ENV !== 'production' && activeLayer.layerType === 'color-cycle') {
-        console.log('[floatingPaste] CC destRect', {
-          layerId: activeLayer.id,
-          rect: colorCycleDestRect,
-          indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
-        });
-      }
+      debugLog('selection-paste-cc', 'CC destRect', {
+        layerId: activeLayer.id,
+        rect: colorCycleDestRect,
+        indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
+      });
 
       const resolvedColorCycleIndices = hasColorCycleIndices(floatingPaste)
         ? floatingPaste.colorCycleIndices
@@ -444,11 +502,9 @@ export const createSelectionPasteHelpers = ({
       const hasColorCycleData = Boolean(resolvedColorCycleIndices && resolvedColorCycleIndices.length > 0);
 
       if (activeLayer.layerType === 'color-cycle' && !hasColorCycleData) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[floatingPaste] Missing color cycle indices for paste commit', {
-            layerId: activeLayer.id,
-          });
-        }
+        debugWarn('selection-paste-cc', 'Missing color cycle indices for paste commit', {
+          layerId: activeLayer.id,
+        });
         addNotification?.({
           type: 'warning',
           title: 'Paste blocked',
@@ -459,38 +515,58 @@ export const createSelectionPasteHelpers = ({
       }
 
       if (activeLayer.layerType === 'color-cycle' && hasColorCycleData) {
+        const requiresResample =
+          colorCycleDestRect.width !== floatingPaste.width ||
+          colorCycleDestRect.height !== floatingPaste.height;
+        const colorCycleSourceIndices = requiresResample
+          ? resampleScalarNearest(
+              resolvedColorCycleIndices!,
+              floatingPaste.width,
+              floatingPaste.height,
+              colorCycleDestRect.width,
+              colorCycleDestRect.height
+            )
+          : resolvedColorCycleIndices!;
+        const colorCycleSourceWidth = requiresResample ? colorCycleDestRect.width : floatingPaste.width;
+        const colorCycleSourceHeight = requiresResample ? colorCycleDestRect.height : floatingPaste.height;
+        const alphaData = requiresResample
+          ? resampleAlphaNearest(
+              floatingPaste.imageData,
+              colorCycleDestRect.width,
+              colorCycleDestRect.height
+            )
+          : (floatingPaste.imageData?.data ?? null);
+
         const beforeRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
         const applied = writeColorCycleRegion(
           state,
           activeLayer,
           project,
           colorCycleDestRect,
-          resolvedColorCycleIndices!,
-          floatingPaste.width,
-          floatingPaste.height,
+          colorCycleSourceIndices,
+          colorCycleSourceWidth,
+          colorCycleSourceHeight,
           {
             offsetX: 0,
             offsetY: 0,
-            alphaData: floatingPaste.imageData?.data ?? null,
-            alphaStride: 4,
-            alphaChannelOffset: 3,
+            alphaData,
+            alphaStride: requiresResample ? 1 : 4,
+            alphaChannelOffset: requiresResample ? 0 : 3,
             alphaThreshold: 0,
             gradientSlot: resolvedGradientSlot,
           }
         );
         const afterRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
 
-        if (process.env.NODE_ENV !== 'production') {
-          const beforeNonZero = beforeRegion ? beforeRegion.some((value) => value !== 0) : null;
-          const afterNonZero = afterRegion ? afterRegion.some((value) => value !== 0) : null;
-          console.log('[floatingPaste] CC region diff', {
-            applied,
-            beforeNonZero,
-            afterNonZero,
-            firstBefore: beforeRegion ? beforeRegion.slice(0, 16) : null,
-            firstAfter: afterRegion ? afterRegion.slice(0, 16) : null,
-          });
-        }
+        const beforeNonZero = beforeRegion ? beforeRegion.some((value) => value !== 0) : null;
+        const afterNonZero = afterRegion ? afterRegion.some((value) => value !== 0) : null;
+        debugLog('selection-paste-cc', 'CC region diff', {
+          applied,
+          beforeNonZero,
+          afterNonZero,
+          firstBefore: beforeRegion ? beforeRegion.slice(0, 16) : null,
+          firstAfter: afterRegion ? afterRegion.slice(0, 16) : null,
+        });
 
         if (applied) {
           const eraseMask = activeLayer.colorCycleData?.eraseMask;
@@ -531,19 +607,15 @@ export const createSelectionPasteHelpers = ({
           return;
         }
 
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[floatingPaste] Failed to write color-cycle paste region', {
-            layerId: activeLayer.id,
-            rect: colorCycleDestRect,
-          });
-        }
+        debugWarn('selection-paste-cc', 'Failed to write color-cycle paste region', {
+          layerId: activeLayer.id,
+          rect: colorCycleDestRect,
+        });
         return;
       }
 
       if (!floatingPaste.imageData) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[floatingPaste] Missing bitmap data for paste operation.');
-        }
+        debugWarn('selection-paste', 'Missing bitmap data for paste operation.');
         return;
       }
 
