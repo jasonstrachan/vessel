@@ -31,9 +31,10 @@ const AnimationControlsPanel: React.FC = () => {
   const sequentialPlaybackActive = useAppStore(selectSequentialPlaybackActive);
   const sequentialCaptureActive = useAppStore(selectSequentialCaptureActive);
   const sequentialRecord = useAppStore(selectSequentialRecordState);
+  const sequentialPlaybackRunning = sequentialPlaybackActive && suspendDepth === 0;
 
   const isPlaybackRunning =
-    effectivePlaying || sequentialPlaybackActive || sequentialCaptureActive;
+    effectivePlaying || sequentialPlaybackRunning || sequentialCaptureActive;
 
   const handleTogglePlayback = React.useCallback(() => {
     if (isPlaybackRunning) {

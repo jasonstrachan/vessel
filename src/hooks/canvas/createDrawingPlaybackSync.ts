@@ -26,10 +26,10 @@ export const createDrawingPlaybackSync = ({
       if (!continuousColorCycleAnimationActiveRef.current && !startingColorCycleAnimationRef.current) {
         try {
           const st = storeRef.current;
-          const depth = selectColorCycleSuspendDepth(st);
-          if (depth > 0) {
+          const suspendDepth = selectColorCycleSuspendDepth(st);
+          if (suspendDepth > 0) {
             st.forceResumeColorCycle('toolbar');
-            ccLog('forceResumeColorCycle(toolbar) due to suspend depth', { depth });
+            ccLog('forceResumeColorCycle(toolbar) due to suspend depth', { depth: suspendDepth });
           }
         } catch {
           // no-op

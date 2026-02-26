@@ -264,7 +264,7 @@ describe('AnimationControlsPanel', () => {
     expect(screen.getByRole('button', { name: /play/i })).toBeInTheDocument();
   });
 
-  it('pauses when sequential playback is active even if color-cycle playback is suspended', () => {
+  it('shows play and force-resumes when sequential playback is suspended', () => {
     appStore.setState({
       colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
@@ -279,11 +279,12 @@ describe('AnimationControlsPanel', () => {
     });
 
     render(<AnimationControlsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /pause/i }));
+    fireEvent.click(screen.getByRole('button', { name: /play/i }));
 
     const store = appStore.getState();
-    expect(store.pauseColorCycle).toHaveBeenCalledWith('toolbar');
-    expect(store.playColorCycle).not.toHaveBeenCalled();
+    expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(store.pauseColorCycle).not.toHaveBeenCalled();
   });
 
   it('updates sequential controls when active sequential layer is selected', () => {
