@@ -49,6 +49,7 @@ export interface SelectionSlice {
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
   selectLayerAlpha: (layerId?: string | null) => void;
+  invertSelection: () => void;
   deleteSelectedPixels: () => void;
   extractSelectionToFloatingPaste: () => boolean;
   floatingPaste: {
@@ -146,6 +147,58 @@ const findOpaquePixelBounds = (imageData: ImageData): Rectangle | null => {
     width: maxX - minX + 1,
     height: maxY - minY + 1,
   };
+};
+
+const resolveSelectionInvertDimensions = (state: Pick<
+  AppState,
+  'project' | 'layers' | 'activeLayerId' | 'selectionEnd' | 'selectionMaskBounds'
+>): { width: number; height: number } | null => {
+  const activeLayer = state.activeLayerId
+    ? state.layers.find((layer) => layer.id === state.activeLayerId) ?? null
+    : null;
+
+  const maskMaxX = state.selectionMaskBounds
+    ? state.selectionMaskBounds.x + state.selectionMaskBounds.width
+    : undefined;
+  const maskMaxY = state.selectionMaskBounds
+    ? state.selectionMaskBounds.y + state.selectionMaskBounds.height
+    : undefined;
+
+  const resolvedWidth =
+    activeLayer?.imageData?.width ??
+    activeLayer?.framebuffer?.width ??
+    state.project?.width ??
+    maskMaxX ??
+    state.selectionEnd?.x;
+  const resolvedHeight =
+    activeLayer?.imageData?.height ??
+    activeLayer?.framebuffer?.height ??
+    state.project?.height ??
+    maskMaxY ??
+    state.selectionEnd?.y;
+
+  const width = Math.max(0, Math.floor(resolvedWidth ?? 0));
+  const height = Math.max(0, Math.floor(resolvedHeight ?? 0));
+
+  if (!width || !height) {
+    return null;
+  }
+
+  return { width, height };
+};
+
+const cropMaskToBounds = (mask: ImageData, bounds: Rectangle): ImageData => {
+  const cropped = new ImageData(bounds.width, bounds.height);
+  const source = mask.data;
+  const target = cropped.data;
+
+  for (let y = 0; y < bounds.height; y += 1) {
+    const sourceStart = ((bounds.y + y) * mask.width + bounds.x) * 4;
+    const sourceEnd = sourceStart + bounds.width * 4;
+    target.set(source.subarray(sourceStart, sourceEnd), y * bounds.width * 4);
+  }
+
+  return cropped;
 };
 
 const cloneOptionalImageData = (imageData: ImageData | null): ImageData | null => {
@@ -507,6 +560,107 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask: maskData,
         selectionMaskBounds: { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight },
         selectionMaskLayerId: targetLayerId,
+      });
+    },
+    invertSelection: () => {
+      const state = get();
+      const { selectionStart, selectionEnd, selectionMask, selectionMaskBounds } = state;
+      const hasSelection = Boolean(
+        (selectionStart && selectionEnd) || (selectionMask && selectionMaskBounds),
+      );
+      if (!hasSelection) {
+        return;
+      }
+
+      const dimensions = resolveSelectionInvertDimensions(state);
+      if (!dimensions) {
+        return;
+      }
+
+      const { width, height } = dimensions;
+      const selectedCoverage = new Uint8Array(width * height);
+      const markSelected = (x: number, y: number) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) {
+          return;
+        }
+        selectedCoverage[y * width + x] = 1;
+      };
+
+      if (selectionMask && selectionMaskBounds) {
+        for (let y = 0; y < selectionMask.height; y += 1) {
+          const sourceRow = y * selectionMask.width * 4;
+          for (let x = 0; x < selectionMask.width; x += 1) {
+            const alpha = selectionMask.data[sourceRow + x * 4 + 3];
+            if (alpha <= 0) {
+              continue;
+            }
+            markSelected(selectionMaskBounds.x + x, selectionMaskBounds.y + y);
+          }
+        }
+      } else if (selectionStart && selectionEnd) {
+        const bounds = computeBoundsFromSelection(selectionStart, selectionEnd);
+        const minX = Math.max(0, Math.floor(bounds.x));
+        const minY = Math.max(0, Math.floor(bounds.y));
+        const maxX = Math.min(width, Math.ceil(bounds.x + bounds.width));
+        const maxY = Math.min(height, Math.ceil(bounds.y + bounds.height));
+
+        for (let y = minY; y < maxY; y += 1) {
+          for (let x = minX; x < maxX; x += 1) {
+            markSelected(x, y);
+          }
+        }
+      }
+
+      const invertedMask = new ImageData(width, height);
+      let hasInvertedPixels = false;
+      for (let i = 0; i < selectedCoverage.length; i += 1) {
+        if (selectedCoverage[i] === 1) {
+          continue;
+        }
+        const pixel = i * 4;
+        invertedMask.data[pixel] = 255;
+        invertedMask.data[pixel + 1] = 255;
+        invertedMask.data[pixel + 2] = 255;
+        invertedMask.data[pixel + 3] = 255;
+        hasInvertedPixels = true;
+      }
+
+      if (!hasInvertedPixels) {
+        set({
+          selectionStart: null,
+          selectionEnd: null,
+          selectionVectorPath: null,
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+        });
+        return;
+      }
+
+      const invertedBounds = findOpaquePixelBounds(invertedMask);
+      if (!invertedBounds) {
+        set({
+          selectionStart: null,
+          selectionEnd: null,
+          selectionVectorPath: null,
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+        });
+        return;
+      }
+
+      const croppedMask = cropMaskToBounds(invertedMask, invertedBounds);
+      set({
+        selectionStart: { x: invertedBounds.x, y: invertedBounds.y },
+        selectionEnd: {
+          x: invertedBounds.x + invertedBounds.width,
+          y: invertedBounds.y + invertedBounds.height,
+        },
+        selectionVectorPath: null,
+        selectionMask: croppedMask,
+        selectionMaskBounds: invertedBounds,
+        selectionMaskLayerId: state.activeLayerId ?? state.selectionMaskLayerId ?? null,
       });
     },
     deleteSelectedPixels: () => {

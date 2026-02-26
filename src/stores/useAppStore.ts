@@ -396,6 +396,7 @@ export interface AppState {
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
   selectLayerAlpha: (layerId?: string | null) => void;
+  invertSelection: () => void;
   deleteSelectedPixels: () => void;
   extractSelectionToFloatingPaste: () => boolean;
   copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
