@@ -86,23 +86,36 @@ export const resolveActiveCustomBrushData = (
   state: CustomBrushStoreState
 ): CustomBrushStrokeData | undefined => {
   const settings = state.tools.brushSettings;
+  const selectedCustomBrushId = settings.selectedCustomBrush ?? null;
 
   if (settings.currentBrushTip) {
     const brushTip = settings.currentBrushTip;
-    const cacheKey = assignBrushCacheKey(
-      brushTip.imageData,
-      `tip:${brushTip.brushId ?? 'anon'}`
-    );
-    return {
-      imageData: brushTip.imageData,
-      width: brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width,
-      height: brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height,
-      isColorizable:
-        !isCapturedDataMode(brushTip.colorCycle) &&
-        (brushTip.isColorizable || settings.useSwatchColor || !!settings.customBrushColorCycle),
-      colorCycle: brushTip.colorCycle,
-      cacheKey
-    };
+    const tipBrushId = brushTip.brushId ?? null;
+    const tipMatchesSelected =
+      !selectedCustomBrushId ||
+      !tipBrushId ||
+      tipBrushId === selectedCustomBrushId;
+
+    // Guard against stale tip data: if a different custom brush is selected,
+    // resolve from selected source instead of reusing the previous tip.
+    if (!tipMatchesSelected) {
+      // Fall through to selectedCustomBrush resolution below.
+    } else {
+      const cacheKey = assignBrushCacheKey(
+        brushTip.imageData,
+        `tip:${brushTip.brushId ?? 'anon'}`
+      );
+      return {
+        imageData: brushTip.imageData,
+        width: brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width,
+        height: brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height,
+        isColorizable:
+          !isCapturedDataMode(brushTip.colorCycle) &&
+          (brushTip.isColorizable || settings.useSwatchColor || !!settings.customBrushColorCycle),
+        colorCycle: brushTip.colorCycle,
+        cacheKey
+      };
+    }
   }
 
   if (settings.selectedCustomBrush) {

@@ -2170,7 +2170,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Only allow shape handlers when using brush/eraser/custom tools
     // This prevents shape mode from intercepting other tools like fill, eyedropper, etc.
     const shouldRouteToShapeHandler =
-      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
+      tools.currentTool === 'brush' &&
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
 
     // Cursor rule: shapes use crosshair; stroke brushes use brush-size cursor when allowed
@@ -2217,7 +2217,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     if (
       event.button === 0 &&
-      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
+      tools.currentTool === 'brush' &&
       tools.shapeMode &&
       tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
@@ -2837,7 +2837,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
 
     const shouldRouteToShapeHandler =
-      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
+      tools.currentTool === 'brush' &&
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
 
     // Check if we're in hatch adjustment mode
@@ -2936,7 +2936,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             if (!shiftAnchorWorldPosRef.current) {
               shiftAnchorWorldPosRef.current = lastBrushSampleWorldPosRef.current || coalescedWorldPos;
             }
-            if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+            if (tools.currentTool === 'brush' && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
               const pts = drawingHandlers.shapePointsRef?.current || [];
               if (pts.length >= 1) {
                 const anchor = pts[pts.length - 1];
@@ -2969,7 +2969,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           });
           
           // Draw with the intermediate position and pressure
-          if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+          if (tools.currentTool === 'brush' && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
             drawingHandlers.continueShapeDrawing(coalescedWorldPos);
           } else {
             drawingHandlers.continueDrawing(
@@ -3484,7 +3484,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       }
       
       // Normal brush or shape mode
-      if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+      if (tools.currentTool === 'brush' && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         const isMouseDown = (event.buttons & 1) === 1;
         const penActive = event.pointerType === 'pen' && (event.pressure ?? 0) > 0;
         const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -3671,7 +3671,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     const mousePos = getMousePos(event);
 
     const shouldRouteToShapeHandler =
-      (tools.currentTool === 'brush' || tools.currentTool === 'custom') &&
+      tools.currentTool === 'brush' &&
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
 
     if (shouldRouteToShapeHandler && shapeHandler.handlePointerUp(event)) {
@@ -3777,7 +3777,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       // Mark composite as dirty BEFORE finalization to ensure it updates
       compositeCanvasDirtyRef.current = true;
       
-      if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+      if (tools.currentTool === 'brush' && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         // Guard: require at least 3 points to finalize a polygon
         let shapePointCount = drawingHandlers.shapePointsRef.current.length;
         if (shapePointCount < 3) {

@@ -54,6 +54,45 @@ describe('useDrawingHandlers custom brush resolution', () => {
     expect(result?.isColorizable).toBe(false);
   });
 
+  it('prefers selected brush source when current tip points to a different brush', () => {
+    const staleTip = {
+      brushId: 'old-tip',
+      imageData: new ImageData(4, 4),
+      width: 4,
+      height: 4,
+      naturalWidth: 4,
+      naturalHeight: 4,
+      isColorizable: false,
+    } as any;
+
+    const selectedBrush = {
+      id: 'saved-2',
+      imageData: new ImageData(3, 2),
+      width: 3,
+      height: 2,
+      naturalWidth: 3,
+      naturalHeight: 2,
+    } as any;
+
+    const state = {
+      tools: {
+        ...baseSettings,
+        brushSettings: {
+          ...baseSettings.brushSettings,
+          selectedCustomBrush: 'saved-2',
+          currentBrushTip: staleTip,
+        },
+      },
+      project: { customBrushes: [selectedBrush] },
+      getCustomBrushById: (id: string) => (id === 'saved-2' ? selectedBrush : null),
+    } as any;
+
+    const result = resolveActiveCustomBrushData(state);
+    expect(result?.width).toBe(3);
+    expect(result?.height).toBe(2);
+    expect(result?.cacheKey).toMatch(/^project:saved-2:\d+x\d+:[a-f0-9]{8}$/);
+  });
+
   it('returns undefined when no matching brush exists', () => {
     const state = {
       tools: { ...baseSettings, brushSettings: { ...baseSettings.brushSettings, selectedCustomBrush: 'missing' } },

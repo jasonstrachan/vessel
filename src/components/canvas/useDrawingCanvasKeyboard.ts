@@ -136,6 +136,67 @@ export const useDrawingCanvasKeyboard = ({
       openProjectModal();
     },
     onCustomTool: () => {
+      const store = useAppStore.getState();
+      const selectedId = store.tools.brushSettings.selectedCustomBrush ?? null;
+      const defaultId = store.project?.defaultCustomBrushId ?? null;
+      const tempBrush = store.temporaryCustomBrush;
+      const customBrushes = store.listCustomBrushes();
+      const firstCustomId = customBrushes[0]?.id ?? null;
+
+      const candidateIds = [selectedId, defaultId, tempBrush?.id ?? null, firstCustomId]
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+      let activeCustomBrush = null as ReturnType<typeof store.getCustomBrushById> | null;
+      let activeCustomBrushId: string | null = null;
+
+      for (const candidateId of candidateIds) {
+        const resolved =
+          tempBrush && tempBrush.id === candidateId
+            ? tempBrush
+            : store.getCustomBrushById(candidateId);
+        if (resolved) {
+          activeCustomBrush = resolved;
+          activeCustomBrushId = resolved.id;
+          break;
+        }
+      }
+
+      if (activeCustomBrush && activeCustomBrushId) {
+        const maxDimension = Math.max(
+          1,
+          Math.round(
+            activeCustomBrush.maxDimension ??
+              Math.max(activeCustomBrush.width, activeCustomBrush.height)
+          )
+        );
+
+        // Custom brush keyboard activation should always enter stroke mode,
+        // not inherited shape mode from prior brushes/presets.
+        store.setShapeMode(false);
+        store.setGlobalBrushSize(maxDimension);
+        store.setBrushSettings({
+          brushShape: BrushShape.CUSTOM,
+          selectedCustomBrush: activeCustomBrushId,
+          size: maxDimension,
+          customBrushSizePercent: 100,
+          currentBrushTip: {
+            imageData: activeCustomBrush.imageData,
+            brushId: activeCustomBrush.id,
+            isColorizable: false,
+            width: activeCustomBrush.width,
+            height: activeCustomBrush.height,
+            naturalWidth: activeCustomBrush.naturalWidth ?? activeCustomBrush.width,
+            naturalHeight: activeCustomBrush.naturalHeight ?? activeCustomBrush.height,
+            maxDimension:
+              activeCustomBrush.maxDimension ??
+              Math.max(activeCustomBrush.width, activeCustomBrush.height),
+            colorCycle: activeCustomBrush.colorCycle,
+          },
+        });
+        void switchTool('brush');
+        return;
+      }
+
       void switchTool('custom');
     },
     onUndo: async () => {

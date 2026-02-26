@@ -6,6 +6,9 @@ import type { Rect } from './engineShared';
 
 export const shouldApplyStrokeDitherForSettings = (settings: BrushSettings): boolean => {
   const shape = settings.brushShape;
+  if (shape === BrushShape.CUSTOM) {
+    return false;
+  }
   if (isColorCycleBrush(shape)) {
     return false;
   }
