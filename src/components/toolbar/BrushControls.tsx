@@ -408,7 +408,6 @@ const BrushControls = () => {
     currentBrushPresetId === 'dither-shape';
   const isDitherStrokePreset = currentBrushPresetId === 'dither-stroke';
   const isDitherShapePreset = currentBrushPresetId === 'dither-shape';
-  const hideShapeToggle = isDitherStrokePreset || isDitherShapePreset;
   const isMosaicPreset = currentBrushPresetId === 'mosaic';
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
@@ -465,6 +464,7 @@ const BrushControls = () => {
   const customColorCycleMode = activeSettings.customBrushColorCycleMode ?? 'tip';
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
   const sizeLabel = isActiveCustomBrush ? 'Tip Scale %' : `Size ${sizeUnit}`;
+  const hideShapeToggle = (isDitherStrokePreset || isDitherShapePreset) && !isActiveCustomBrush;
   const capability: BrushCapabilities = currentBrushPresetId
     ? getPresetCapabilities(
         currentBrushPresetId,
@@ -472,7 +472,11 @@ const BrushControls = () => {
       )
     : {};
   const canDitherForShape = (shape?: BrushShape) =>
-    capability.canDither !== undefined ? capability.canDither : supportsDither(shape ?? BrushShape.ROUND);
+    isActiveCustomBrush
+      ? false
+      : capability.canDither !== undefined
+        ? capability.canDither
+        : supportsDither(shape ?? BrushShape.ROUND);
 
   const NonCcSlider = isColorCycleBrush(activeSettings.brushShape)
     ? ProgressSlider
@@ -2811,7 +2815,7 @@ const BrushControls = () => {
         )}
 
         {/* Dashed (hidden for Dither Shape) */}
-        {!isDitherShapePreset && (
+        {(!isDitherShapePreset || isActiveCustomBrush) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label
@@ -3919,7 +3923,7 @@ const BrushControls = () => {
       )}
 
       {/* Dashed (hidden for Dither Shape) */}
-      {!isDitherShapePreset && (
+      {(!isDitherShapePreset || isActiveCustomBrush) && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label

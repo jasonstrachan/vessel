@@ -1042,12 +1042,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
     newSettings.ccGradientSource = nextCcGradientSource;
 
+    const forceShapeModeOffForCustom =
+      newSettings.brushShape === BrushShape.CUSTOM && state.tools.shapeMode;
+
     let updatedState = {
       ...state,
       tools: {
         ...state.tools,
         brushSettings: newSettings,
         ccGradientSource: nextCcGradientSource,
+        ...(forceShapeModeOffForCustom
+          ? { shapeMode: false, lastRegularShapeMode: false }
+          : {}),
       },
       globalBrushSize: isCustomBrush
         ? state.globalBrushSize
@@ -1887,6 +1893,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       } else {
         nextShapeMode = state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode ?? false;
       }
+    } else if (preset.isCustomBrush || newBrushSettings.brushShape === BrushShape.CUSTOM) {
+      // Custom brush tip already defines shape; never keep polygon shape mode enabled.
+      nextShapeMode = false;
     } else {
       // Non-CC brushes should not inherit CC shape mode
       if (preset.id === 'mosaic') {
