@@ -6,7 +6,7 @@ import type {
   Project,
   SequentialStrokeEvent,
 } from '@/types';
-import { cloneLayerAlignment, normalizeLayers } from '@/utils/layoutDefaults';
+import { cloneLayerAlignment, dedupeLayerIds, normalizeLayers } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { clamp } from '@/utils/num';
 import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
@@ -1578,12 +1578,14 @@ export const createLayersSlice = (
       setLayers: (incomingLayers) => {
         clearSequentialLayerRendererAll();
         set((state) => {
-          const normalized = normalizeLayers(
-            incomingLayers.map((layer, index) => ({
-              ...layer,
-              order: index,
-              alignment: cloneLayerAlignment(layer.alignment),
-            })),
+          const normalized = dedupeLayerIds(
+            normalizeLayers(
+              incomingLayers.map((layer, index) => ({
+                ...layer,
+                order: index,
+                alignment: cloneLayerAlignment(layer.alignment),
+              })),
+            ),
           );
 
           trackLayerChanges('setLayers', normalized);

@@ -358,6 +358,48 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.projectFilename).toBe('sequential.vessel');
   });
 
+  it('warns and repairs duplicate layer ids during import', async () => {
+    const notifySpy = useAppStore.getState().addNotification as jest.Mock;
+    notifySpy.mockClear();
+    const duplicateId = 'layer-dup';
+    const project: Project = {
+      id: 'project-duplicate-layer-ids',
+      name: 'Duplicate IDs',
+      width: 320,
+      height: 180,
+      layers: [
+        makeLayer(duplicateId, { order: 0 }),
+        makeLayer(duplicateId, { order: 1 }),
+      ],
+      backgroundColor: '#101010',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#111111',
+        backgroundColor: '#eeeeee',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    await useAppStore.getState().importProject(project, { fileName: 'duplicate-ids.vessel' });
+
+    const nextState = useAppStore.getState();
+    const ids = nextState.layers.map((layer) => layer.id);
+    expect(ids).toEqual([duplicateId, `${duplicateId}-1`]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(nextState.activeLayerId).toBe(duplicateId);
+    expect(nextState.selectedLayerIds).toEqual([duplicateId]);
+    expect(notifySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'warning',
+        title: 'Layer IDs Repaired',
+      }),
+    );
+  });
+
   it('exports the current project as PNG and emits a success notification', async () => {
     const notifySpy = useAppStore.getState().addNotification as jest.Mock;
     notifySpy.mockClear();

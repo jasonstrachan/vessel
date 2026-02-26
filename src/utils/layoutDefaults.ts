@@ -161,6 +161,33 @@ export const normalizeLayer = <T extends Layer>(layer: T): T => ({
 
 export const normalizeLayers = <T extends Layer>(layers: T[]): T[] => layers.map(normalizeLayer);
 
+export const dedupeLayerIds = <T extends Layer>(layers: T[]): T[] => {
+  const seenIds = new Set<string>();
+
+  return layers.map((layer, index) => {
+    const baseId = typeof layer.id === 'string' && layer.id.trim().length > 0
+      ? layer.id
+      : `layer-${index + 1}`;
+
+    let nextId = baseId;
+    let suffix = 1;
+    while (seenIds.has(nextId)) {
+      nextId = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    seenIds.add(nextId);
+
+    if (nextId === layer.id) {
+      return layer;
+    }
+
+    return {
+      ...layer,
+      id: nextId,
+    };
+  });
+};
+
 export const createDefaultPalette = (): PaletteState => ({
   foregroundColor: '#000000',
   backgroundColor: '#FFFFFF',
@@ -196,7 +223,7 @@ export const normalizeProject = (project: Project): Project => {
       ? project.defaultCustomBrushId ?? null
       : null;
 
-  const normalizedLayers = normalizeLayers(project.layers);
+  const normalizedLayers = dedupeLayerIds(normalizeLayers(project.layers));
   const usedGroupIds = new Set(
     normalizedLayers
       .map((layer) => layer.groupId)
