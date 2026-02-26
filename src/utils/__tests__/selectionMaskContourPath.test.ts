@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 describe('selectionMaskContourPath', () => {
   class MockPath2D {
     public moves: Array<{ type: 'move' | 'line'; x: number; y: number }> = [];
@@ -51,4 +49,3 @@ describe('selectionMaskContourPath', () => {
     expect(second).toBe(first);
   });
 });
-

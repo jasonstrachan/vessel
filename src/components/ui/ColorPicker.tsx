@@ -21,6 +21,9 @@ interface HSV {
 
 const GRID_COLS = 14;
 const GRID_ROWS = 14;
+const HUE_WIDTH = 28;
+
+const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function hexToHsv(hex: string): HSV {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -204,11 +207,18 @@ export default function ColorPicker({
 
     if (/^#[0-9A-F]{6}$/i.test(raw)) {
       const upper = raw.toUpperCase();
-      lastOpaqueHexRef.current = upper;
       setIsTransparent(false);
+      setHexValue(upper);
+
+      // Preserve local grid-cell precision when the parent echoes back
+      // the same hex value this picker already emitted.
+      if (upper === lastOpaqueHexRef.current) {
+        return;
+      }
+
       const nextHsv = hexToHsv(upper);
       setCurrentHsv(nextHsv);
-      setHexValue(upper);
+      lastOpaqueHexRef.current = upper;
       lastAppliedHsvRef.current = nextHsv;
     }
   }, [color, allowTransparent]);
@@ -219,7 +229,6 @@ export default function ColorPicker({
       return;
     }
 
-    const HUE_WIDTH = 28;
     const MIN_SV_SIZE = 120;
 
     const updateSize = () => {
@@ -422,15 +431,19 @@ export default function ColorPicker({
       onInteractionStart?.();
 
       const rect = canvas.getBoundingClientRect();
-      const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
-      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+      const left = Number.isFinite(rect.left) ? rect.left : 0;
+      const top = Number.isFinite(rect.top) ? rect.top : 0;
+      const clientX = Number.isFinite(e.clientX) ? e.clientX : left;
+      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
+      const x = clamp(clientX - left, 0, canvas.width - 1);
+      const y = clamp(clientY - top, 0, canvas.height - 1);
 
       const cellWidth = canvas.width / GRID_COLS;
       const cellHeight = canvas.height / GRID_ROWS;
       const gridCol = Math.floor(x / cellWidth);
       const gridRow = Math.floor(y / cellHeight);
-      const clampedCol = Math.max(0, Math.min(GRID_COLS - 1, gridCol));
-      const clampedRow = Math.max(0, Math.min(GRID_ROWS - 1, gridRow));
+      const clampedCol = clamp(gridCol, 0, GRID_COLS - 1);
+      const clampedRow = clamp(gridRow, 0, GRID_ROWS - 1);
 
       // Check for special cells
       if (clampedCol === 0 && clampedRow === 0) {
@@ -459,15 +472,19 @@ export default function ColorPicker({
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
-      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+      const left = Number.isFinite(rect.left) ? rect.left : 0;
+      const top = Number.isFinite(rect.top) ? rect.top : 0;
+      const clientX = Number.isFinite(e.clientX) ? e.clientX : left;
+      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
+      const x = clamp(clientX - left, 0, canvas.width - 1);
+      const y = clamp(clientY - top, 0, canvas.height - 1);
 
       const cellWidth = canvas.width / GRID_COLS;
       const cellHeight = canvas.height / GRID_ROWS;
       const gridCol = Math.floor(x / cellWidth);
       const gridRow = Math.floor(y / cellHeight);
-      const clampedCol = Math.max(0, Math.min(GRID_COLS - 1, gridCol));
-      const clampedRow = Math.max(0, Math.min(GRID_ROWS - 1, gridRow));
+      const clampedCol = clamp(gridCol, 0, GRID_COLS - 1);
+      const clampedRow = clamp(gridRow, 0, GRID_ROWS - 1);
 
       // Check for special cells
       if (clampedCol === 0 && clampedRow === 0) {
@@ -509,7 +526,9 @@ export default function ColorPicker({
       onInteractionStart?.();
 
       const rect = canvas.getBoundingClientRect();
-      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+      const top = Number.isFinite(rect.top) ? rect.top : 0;
+      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
+      const y = clamp(clientY - top, 0, canvas.height - 1);
       const h = (y / canvas.height) * 360;
 
       applyHsvUpdate({ ...currentHsv, h });
@@ -525,7 +544,9 @@ export default function ColorPicker({
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+      const top = Number.isFinite(rect.top) ? rect.top : 0;
+      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
+      const y = clamp(clientY - top, 0, canvas.height - 1);
       const h = (y / canvas.height) * 360;
 
       scheduleHsvUpdate({ ...currentHsv, h });
@@ -547,11 +568,22 @@ export default function ColorPicker({
   // Geometry for selection overlay (avoid per-move canvas redraws)
   const cellWidth = svSize / GRID_COLS;
   const cellHeight = svSize / GRID_ROWS;
-  const indicatorX = Math.floor(((currentHsv.s / 100) * svSize) / cellWidth) * cellWidth;
-  const indicatorY = Math.floor((((100 - currentHsv.v) / 100) * svSize) / cellHeight) * cellHeight;
+  const normalizedHexValue = hexValue.trim().toUpperCase();
+  const isPureBlackCell = normalizedHexValue === '#000000';
+  const isPureWhiteCell = normalizedHexValue === '#FFFFFF';
+  const indicatorCol = isPureBlackCell
+    ? GRID_COLS - 1
+    : isPureWhiteCell
+      ? 0
+      : clamp(Math.floor((currentHsv.s / 100) * GRID_COLS), 0, GRID_COLS - 1);
+  const indicatorRow = isPureBlackCell
+    ? GRID_ROWS - 1
+    : isPureWhiteCell
+      ? 0
+      : clamp(Math.floor(((100 - currentHsv.v) / 100) * GRID_ROWS), 0, GRID_ROWS - 1);
+  const indicatorX = indicatorCol * cellWidth;
+  const indicatorY = indicatorRow * cellHeight;
   const indicatorStroke = currentHsv.v > 50 ? "#000" : "#fff";
-
-  const hueWidth = 28;
 
   return (
     <div
@@ -583,7 +615,7 @@ export default function ColorPicker({
         </div>
         <canvas
           ref={hueCanvasRef}
-          width={hueWidth}
+          width={HUE_WIDTH}
           height={svSize}
           className="cursor-pointer"
           onPointerDown={handleHuePointerDown}

@@ -371,6 +371,45 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.shapeMode).toBe(false);
   });
 
+  it('keeps regular brush size stable after switching to a custom brush and back', () => {
+    const store = useAppStore.getState();
+    store.setGlobalBrushSize(12);
+
+    const customBrush: CustomBrush = {
+      id: 'size-switch-custom',
+      name: 'Size Switch Custom',
+      imageData: new ImageData(128, 64),
+      width: 128,
+      height: 64,
+      naturalWidth: 128,
+      naturalHeight: 64,
+      maxDimension: 128,
+      createdAt: Date.now(),
+      thumbnail: '',
+    };
+    store.addCustomBrush(customBrush);
+
+    const customPreset = createCustomBrushPreset(customBrush);
+    store.setBrushPreset(customPreset);
+
+    const afterCustom = useAppStore.getState();
+    expect(afterCustom.globalBrushSize).toBe(12);
+    expect(afterCustom.tools.brushSettings.size).toBe(128);
+    expect(afterCustom.tools.brushSettings.lastRegularBrushSize).toBe(12);
+
+    const regularPreset = brushPresets.find((candidate) => candidate.id === 'pixel-square');
+    expect(regularPreset).toBeTruthy();
+    if (!regularPreset) {
+      return;
+    }
+    store.setBrushPreset(regularPreset);
+
+    const afterRegular = useAppStore.getState();
+    expect(afterRegular.globalBrushSize).toBe(12);
+    expect(afterRegular.tools.brushSettings.size).toBe(12);
+    expect(afterRegular.tools.brushSettings.brushShape).not.toBe(BrushShape.CUSTOM);
+  });
+
   it('merges rectangle brush state updates', () => {
     const store = useAppStore.getState();
     store.setRectangleBrushState({ width: 42 });

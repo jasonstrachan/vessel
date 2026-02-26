@@ -509,9 +509,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       const updatedEraserSettings = shouldSyncEraser
         ? { ...tools.eraserSettings, size: pixelSize }
         : tools.eraserSettings;
+      const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
 
       return {
-        globalBrushSize: pixelSize,
+        globalBrushSize: isCustomBrush ? state.globalBrushSize : pixelSize,
         tools: {
           ...tools,
           brushSettings: nextBrushSettings,
@@ -1601,6 +1602,20 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const hasUserColorCycleFPS = userOverrides?.colorCycleFPS !== undefined;
     const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
     const currentSettings = state.tools.brushSettings;
+    const wasCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
+    const fallbackRegularSize = state.globalBrushSize ?? presetDefaults.size ?? defaultBrushSettingsForStore.size ?? 5;
+    const previousRegularSize = Math.max(
+      1,
+      Math.round(
+        wasCustomBrush
+          ? (
+              typeof currentSettings.lastRegularBrushSize === 'number'
+                ? currentSettings.lastRegularBrushSize
+                : fallbackRegularSize
+            )
+          : (currentSettings.size ?? state.globalBrushSize ?? fallbackRegularSize)
+      )
+    );
     let updatedBrushSpecificSettings = state.brushSpecificSettings;
 
 
@@ -1609,8 +1624,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       typeof presetDefaults.size === 'number' ? presetDefaults.size : undefined;
     const fallbackSize =
       presetSuggestedSize ?? defaultBrushSettingsForStore.size ?? 5;
-    const appropriateSize =
-      typeof state.globalBrushSize === 'number' ? state.globalBrushSize : fallbackSize;
+    const appropriateSize = wasCustomBrush && !preset.isCustomBrush
+      ? previousRegularSize
+      : (typeof state.globalBrushSize === 'number' ? state.globalBrushSize : fallbackSize);
     let nextGlobalBrushSize = appropriateSize;
 
     let newBrushSettings: BrushSettings = {
@@ -1622,6 +1638,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       blendMode: currentSettings.blendMode,
       size: appropriateSize            // Use appropriate size based on brush type
     };
+    if (preset.isCustomBrush) {
+      newBrushSettings.lastRegularBrushSize = previousRegularSize;
+    }
 
     const globalPressure = state.pressureSettings;
     newBrushSettings = {
@@ -1770,7 +1789,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         // This avoids carrying unrelated global brush sizes into custom brush rendering.
         newBrushSettings.customBrushSizePercent = 100;
         newBrushSettings.size = maxDimension;
-        nextGlobalBrushSize = maxDimension;
+        nextGlobalBrushSize = previousRegularSize;
 
         const customBrushColorCycle = customBrush.colorCycle;
         if (customBrushColorCycle?.schemaVersion === 1 || customBrushColorCycle?.schemaVersion === 2) {
