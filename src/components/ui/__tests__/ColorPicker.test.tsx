@@ -90,4 +90,19 @@ describe('ColorPicker', () => {
 
     expect(onCommit).toHaveBeenCalledTimes(3);
   });
+
+  it('keeps SV indicator in-bounds for pure black', () => {
+    const onChange = jest.fn();
+    const { container } = render(<ColorPicker color="#000000" onChange={onChange} />);
+    const indicator = container.querySelector('div.pointer-events-none.absolute.left-0.top-0') as HTMLDivElement;
+
+    expect(indicator).toBeTruthy();
+    expect(indicator.style.transform).toMatch(/translate\(([-\d.]+)px, ([-\d.]+)px\)/);
+
+    const [, x, y] = indicator.style.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\)/) || [];
+    expect(Number(x)).toBeLessThan(212);
+    expect(Number(y)).toBeLessThan(212);
+    expect(Number(x)).toBeGreaterThan(190);
+    expect(Number(y)).toBeGreaterThan(190);
+  });
 });

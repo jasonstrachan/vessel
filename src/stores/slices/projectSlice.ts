@@ -316,11 +316,29 @@ export const createProjectSlice =
         };
 
         const targetSize = Math.max(1, Math.round(maxDimension));
+        const isCurrentlyCustomBrush = state.tools.brushSettings.brushShape === BrushShape.CUSTOM;
+        const stableRegularSize = Math.max(
+          1,
+          Math.round(
+            isCurrentlyCustomBrush
+              ? (
+                  state.tools.brushSettings.lastRegularBrushSize ??
+                  state.globalBrushSize ??
+                  targetSize
+                )
+              : (
+                  state.tools.brushSettings.size ??
+                  state.globalBrushSize ??
+                  targetSize
+                )
+          )
+        );
         const brushSettings: BrushSettings = {
           ...state.tools.brushSettings,
           brushShape: BrushShape.CUSTOM,
           selectedCustomBrush: brush.id,
           size: targetSize,
+          lastRegularBrushSize: stableRegularSize,
           customBrushSizePercent: 100,
           useSwatchColor: false,
           hueShift: 0,
@@ -337,7 +355,7 @@ export const createProjectSlice =
             customBrushes: [...state.project.customBrushes, brushWithMetadata],
             updatedAt: new Date(),
           },
-          globalBrushSize: targetSize,
+          globalBrushSize: stableRegularSize,
           tools: {
             ...state.tools,
             brushSettings,
