@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   selectEffectiveColorCyclePlaying,
   useAppStore,
@@ -18,35 +18,7 @@ export const useDrawingPlaybackSyncEffect = ({
   skipCcLogThrottleMs,
   ccLog,
 }: UseDrawingPlaybackSyncEffectOptions) => {
-  useEffect(() => {
-    let previous = getEffectiveColorCyclePlaying();
-    const syncPlayback = createDrawingPlaybackSync({
-      startContinuousColorCycleAnimation,
-      stopContinuousColorCycleAnimation,
-      storeRef,
-      continuousColorCycleAnimationActiveRef,
-      startingColorCycleAnimationRef,
-      skipStartLogAtRef,
-      skipStopLogAtRef,
-      skipCcLogThrottleMs,
-      ccLog,
-    });
-
-    syncPlayback(previous, 'startup');
-
-    const unsubscribe = useAppStore.subscribe((state) => {
-      const next = selectEffectiveColorCyclePlaying(state);
-      if (next === previous) {
-        return;
-      }
-      previous = next;
-      syncPlayback(next, 'store-sync');
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [
+  const latestRef = useRef({
     startContinuousColorCycleAnimation,
     stopContinuousColorCycleAnimation,
     getEffectiveColorCyclePlaying,
@@ -57,5 +29,50 @@ export const useDrawingPlaybackSyncEffect = ({
     skipStopLogAtRef,
     skipCcLogThrottleMs,
     ccLog,
-  ]);
+  });
+
+  latestRef.current = {
+    startContinuousColorCycleAnimation,
+    stopContinuousColorCycleAnimation,
+    getEffectiveColorCyclePlaying,
+    storeRef,
+    continuousColorCycleAnimationActiveRef,
+    startingColorCycleAnimationRef,
+    skipStartLogAtRef,
+    skipStopLogAtRef,
+    skipCcLogThrottleMs,
+    ccLog,
+  };
+
+  useEffect(() => {
+    const runSync = (playing: boolean, reason: 'startup' | 'store-sync') => {
+      const latest = latestRef.current;
+      const syncPlayback = createDrawingPlaybackSync({
+        startContinuousColorCycleAnimation: latest.startContinuousColorCycleAnimation,
+        stopContinuousColorCycleAnimation: latest.stopContinuousColorCycleAnimation,
+        storeRef: latest.storeRef,
+        continuousColorCycleAnimationActiveRef: latest.continuousColorCycleAnimationActiveRef,
+        startingColorCycleAnimationRef: latest.startingColorCycleAnimationRef,
+        skipStartLogAtRef: latest.skipStartLogAtRef,
+        skipStopLogAtRef: latest.skipStopLogAtRef,
+        skipCcLogThrottleMs: latest.skipCcLogThrottleMs,
+        ccLog: latest.ccLog,
+      });
+      syncPlayback(playing, reason);
+    };
+
+    let previous = latestRef.current.getEffectiveColorCyclePlaying();
+    runSync(previous, 'startup');
+
+    const unsubscribe = useAppStore.subscribe((state) => {
+      const next = selectEffectiveColorCyclePlaying(state);
+      if (next === previous) {
+        return;
+      }
+      previous = next;
+      runSync(next, 'store-sync');
+    });
+
+    return () => unsubscribe();
+  }, []);
 };
