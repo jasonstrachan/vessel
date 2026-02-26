@@ -8,15 +8,23 @@ import { CURSOR_FALLBACK_CROSSHAIR } from '@/hooks/canvas/handlers/utils/cursorF
 import { resolveSpacePanCursor } from '@/hooks/canvas/handlers/utils/spacePanCursor';
 import type { EventHandlerDependencies, KeyboardHandlers } from '../utils/types';
 
+const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
+
 const isTextEntryTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target.isContentEditable
-  );
+
+  if (target instanceof HTMLTextAreaElement || target.isContentEditable) {
+    return true;
+  }
+
+  if (target instanceof HTMLInputElement) {
+    const inputType = (target.type || 'text').toLowerCase();
+    return TEXTUAL_INPUT_TYPES.has(inputType);
+  }
+
+  return false;
 };
 
 const scopeAllowsSpace = (): boolean => {
