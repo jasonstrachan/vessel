@@ -7,6 +7,7 @@ import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { logError } from '@/utils/debug';
 import {
   debugCaptureColorCycleScalarRegion,
+  deriveColorCycleIndicesFromImageData,
   hasColorCycleIndices,
   writeColorCycleRegion,
 } from '@/stores/helpers/colorCycleSelection';
@@ -410,7 +411,37 @@ export const createSelectionPasteHelpers = ({
         });
       }
 
-      const hasColorCycleData = hasColorCycleIndices(floatingPaste);
+      const resolvedColorCycleIndices = hasColorCycleIndices(floatingPaste)
+        ? floatingPaste.colorCycleIndices
+        : (activeLayer.layerType === 'color-cycle'
+          ? deriveColorCycleIndicesFromImageData({
+              imageData: floatingPaste.imageData,
+              layer: activeLayer,
+              fallbackGradientStops: state.tools?.brushSettings?.colorCycleGradient,
+              alphaThreshold: 0,
+            })
+          : null);
+      const usesDerivedColorCycleIndices =
+        activeLayer.layerType === 'color-cycle' &&
+        !hasColorCycleIndices(floatingPaste) &&
+        Boolean(resolvedColorCycleIndices && resolvedColorCycleIndices.length > 0);
+      const resolvedGradientSlot = (() => {
+        if (!usesDerivedColorCycleIndices || activeLayer.layerType !== 'color-cycle') {
+          return undefined;
+        }
+        const data = activeLayer.colorCycleData;
+        if (typeof data?.paintSlot === 'number') {
+          return data.paintSlot;
+        }
+        const activeDef = data?.activeGradientId
+          ? data.gradientDefs?.find((entry) => entry.id === data.activeGradientId)
+          : (data?.gradientDefs?.[0] ?? null);
+        if (typeof activeDef?.currentSlot === 'number') {
+          return activeDef.currentSlot;
+        }
+        return undefined;
+      })();
+      const hasColorCycleData = Boolean(resolvedColorCycleIndices && resolvedColorCycleIndices.length > 0);
 
       if (activeLayer.layerType === 'color-cycle' && !hasColorCycleData) {
         if (process.env.NODE_ENV !== 'production') {
@@ -434,7 +465,7 @@ export const createSelectionPasteHelpers = ({
           activeLayer,
           project,
           colorCycleDestRect,
-          floatingPaste.colorCycleIndices!,
+          resolvedColorCycleIndices!,
           floatingPaste.width,
           floatingPaste.height,
           {
@@ -444,6 +475,7 @@ export const createSelectionPasteHelpers = ({
             alphaStride: 4,
             alphaChannelOffset: 3,
             alphaThreshold: 0,
+            gradientSlot: resolvedGradientSlot,
           }
         );
         const afterRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
