@@ -239,6 +239,101 @@ describe('selection paste commit', () => {
     });
   });
 
+  it('rebuilds move beforeImage when history context is missing a full-layer snapshot', async () => {
+    const movedPixels = new ImageData(2, 1);
+    movedPixels.data.set([200, 100, 50, 255, 10, 20, 30, 128]);
+    const { helpers, state } = setupHelpers({
+      imageData: movedPixels,
+      position: { x: 10, y: 10 },
+      displayWidth: 6,
+      displayHeight: 3,
+      width: 2,
+      height: 1,
+      sourceLayerId: 'layer-1',
+    });
+
+    state.floatingPasteHistoryContext = {
+      sourceLayerId: 'layer-1',
+      sourceBounds: { x: 2, y: 2, width: 2, height: 1 },
+      beforeImage: null,
+      beforeColorState: null,
+      selectionBefore: {
+        start: { x: 2, y: 2 },
+        end: { x: 4, y: 3 },
+      },
+    };
+
+    await helpers.commitFloatingPaste();
+
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+    const args = commitLayerHistory.mock.calls[0]?.[0];
+    expect(args?.bitmapRoi).toEqual({ x: 2, y: 2, width: 14, height: 11 });
+    expect(args?.beforeImage?.width).toBe(14);
+    expect(args?.beforeImage?.height).toBe(11);
+
+    if (!args?.beforeImage) {
+      return;
+    }
+
+    const firstPixel = Array.from(args.beforeImage.data.slice(0, 4));
+    const secondPixel = Array.from(args.beforeImage.data.slice(4, 8));
+    expect(firstPixel).toEqual([200, 100, 50, 255]);
+    expect(secondPixel).toEqual([10, 20, 30, 128]);
+  });
+
+  it('prefers sourceBeforeImage over transformed bitmap when rebuilding move beforeImage', async () => {
+    const transformedPixels = new ImageData(2, 2);
+    transformedPixels.data.set([
+      255, 0, 0, 255, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 255, 0, 255,
+    ]);
+    const sourceBefore = new ImageData(2, 2);
+    sourceBefore.data.set([
+      1, 2, 3, 255, 4, 5, 6, 255,
+      7, 8, 9, 255, 10, 11, 12, 255,
+    ]);
+
+    const { helpers, state } = setupHelpers({
+      imageData: transformedPixels,
+      position: { x: 8, y: 8 },
+      displayWidth: 4,
+      displayHeight: 4,
+      width: 2,
+      height: 2,
+      sourceLayerId: 'layer-1',
+    });
+
+    state.floatingPasteHistoryContext = {
+      sourceLayerId: 'layer-1',
+      sourceBounds: { x: 2, y: 2, width: 2, height: 2 },
+      sourceBeforeImage: sourceBefore,
+      beforeImage: null,
+      beforeColorState: null,
+      selectionBefore: {
+        start: { x: 2, y: 2 },
+        end: { x: 4, y: 4 },
+      },
+    };
+
+    await helpers.commitFloatingPaste();
+
+    const args = commitLayerHistory.mock.calls[0]?.[0];
+    expect(args?.beforeImage?.width).toBe(10);
+    expect(args?.beforeImage?.height).toBe(10);
+    if (!args?.beforeImage) {
+      return;
+    }
+
+    const roiPixelAtSourceTopLeft = (args.beforeImage.width * 0 + 0) * 4;
+    const roiPixelAtSourceTopRight = (args.beforeImage.width * 0 + 1) * 4;
+    expect(Array.from(args.beforeImage.data.slice(roiPixelAtSourceTopLeft, roiPixelAtSourceTopLeft + 4))).toEqual([
+      1, 2, 3, 255,
+    ]);
+    expect(Array.from(args.beforeImage.data.slice(roiPixelAtSourceTopRight, roiPixelAtSourceTopRight + 4))).toEqual([
+      4, 5, 6, 255,
+    ]);
+  });
+
   it('clears the floating paste without capturing when it sits fully outside the canvas', async () => {
     const { helpers, state, captureCanvasToActiveLayer } = setupHelpers({
       position: { x: 80, y: 80 },

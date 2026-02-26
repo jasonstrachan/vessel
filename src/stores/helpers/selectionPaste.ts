@@ -165,10 +165,64 @@ const extractImageDataRoi = (
   return new ImageData(result, roi.width, roi.height);
 };
 
+const synthesizeMoveBeforeImage = ({
+  roi,
+  sourceBounds,
+  sourceImage,
+  context2d,
+}: {
+  roi: Rectangle;
+  sourceBounds: Rectangle;
+  sourceImage: ImageData;
+  context2d: CanvasRenderingContext2D;
+}): ImageData | null => {
+  if (roi.width <= 0 || roi.height <= 0) {
+    return null;
+  }
+
+  let composed: ImageData;
+  try {
+    composed = context2d.getImageData(roi.x, roi.y, roi.width, roi.height);
+  } catch {
+    return null;
+  }
+
+  const sourceX = Math.floor(sourceBounds.x);
+  const sourceY = Math.floor(sourceBounds.y);
+  const sourceWidth = Math.min(Math.ceil(sourceBounds.width), sourceImage.width);
+  const sourceHeight = Math.min(Math.ceil(sourceBounds.height), sourceImage.height);
+  const overlayStartX = Math.max(sourceX, roi.x);
+  const overlayStartY = Math.max(sourceY, roi.y);
+  const overlayEndX = Math.min(sourceX + sourceWidth, roi.x + roi.width);
+  const overlayEndY = Math.min(sourceY + sourceHeight, roi.y + roi.height);
+
+  if (overlayEndX <= overlayStartX || overlayEndY <= overlayStartY) {
+    return composed;
+  }
+
+  for (let y = overlayStartY; y < overlayEndY; y += 1) {
+    const sourceRow = (y - sourceY) * sourceImage.width;
+    const composedRow = (y - roi.y) * composed.width;
+    for (let x = overlayStartX; x < overlayEndX; x += 1) {
+      const sourceIndex = (sourceRow + (x - sourceX)) * 4;
+      const destIndex = (composedRow + (x - roi.x)) * 4;
+      composed.data[destIndex] = sourceImage.data[sourceIndex] ?? 0;
+      composed.data[destIndex + 1] = sourceImage.data[sourceIndex + 1] ?? 0;
+      composed.data[destIndex + 2] = sourceImage.data[sourceIndex + 2] ?? 0;
+      composed.data[destIndex + 3] = sourceImage.data[sourceIndex + 3] ?? 0;
+    }
+  }
+
+  return composed;
+};
+
 const rebuildMoveBeforeColorState = ({
   currentState,
   sourceBounds,
   sourceIndices,
+  sourceGradientIds,
+  sourceSpeed,
+  sourceFlow,
   sourceWidth,
   sourceHeight,
   canvasWidth,
@@ -177,6 +231,9 @@ const rebuildMoveBeforeColorState = ({
   currentState: ColorCycleSerializedState;
   sourceBounds: Rectangle;
   sourceIndices: Uint8Array;
+  sourceGradientIds?: Uint8Array | null;
+  sourceSpeed?: Uint8Array | null;
+  sourceFlow?: Uint8Array | null;
   sourceWidth: number;
   sourceHeight: number;
   canvasWidth: number;
@@ -188,6 +245,15 @@ const rebuildMoveBeforeColorState = ({
   const layer0 = currentState.layers[0];
   const paintBuffer = layer0?.strokeData?.paintBuffer
     ? new Uint8Array(layer0.strokeData.paintBuffer)
+    : null;
+  const gradientBuffer = layer0?.strokeData?.gradientIdBuffer
+    ? new Uint8Array(layer0.strokeData.gradientIdBuffer)
+    : null;
+  const speedBuffer = layer0?.strokeData?.speedBuffer
+    ? new Uint8Array(layer0.strokeData.speedBuffer)
+    : null;
+  const flowBuffer = layer0?.strokeData?.flowBuffer
+    ? new Uint8Array(layer0.strokeData.flowBuffer)
     : null;
   if (!paintBuffer || paintBuffer.length !== canvasWidth * canvasHeight) {
     return currentState;
@@ -209,6 +275,15 @@ const rebuildMoveBeforeColorState = ({
       const srcIndex = localY * sourceWidth + localX;
       const dstIndex = y * canvasWidth + x;
       restored[dstIndex] = sourceIndices[srcIndex] ?? 0;
+      if (gradientBuffer && gradientBuffer.length === canvasWidth * canvasHeight) {
+        gradientBuffer[dstIndex] = sourceGradientIds?.[srcIndex] ?? 0;
+      }
+      if (speedBuffer && speedBuffer.length === canvasWidth * canvasHeight) {
+        speedBuffer[dstIndex] = sourceSpeed?.[srcIndex] ?? 0;
+      }
+      if (flowBuffer && flowBuffer.length === canvasWidth * canvasHeight) {
+        flowBuffer[dstIndex] = sourceFlow?.[srcIndex] ?? 0;
+      }
     }
   }
 
@@ -218,6 +293,9 @@ const rebuildMoveBeforeColorState = ({
       ? {
           ...layer0.strokeData,
           paintBuffer: restored.buffer,
+          gradientIdBuffer: gradientBuffer?.buffer ?? layer0.strokeData.gradientIdBuffer,
+          speedBuffer: speedBuffer?.buffer ?? layer0.strokeData.speedBuffer,
+          flowBuffer: flowBuffer?.buffer ?? layer0.strokeData.flowBuffer,
         }
       : layer0.strokeData,
   };
@@ -284,6 +362,9 @@ export const createSelectionPasteHelpers = ({
           currentState: beforeColorState,
           sourceBounds: floatingPasteHistoryContext.sourceBounds,
           sourceIndices: floatingPaste.colorCycleIndices,
+          sourceGradientIds: floatingPasteHistoryContext.sourceGradientIds,
+          sourceSpeed: floatingPasteHistoryContext.sourceSpeed,
+          sourceFlow: floatingPasteHistoryContext.sourceFlow,
           sourceWidth: floatingPaste.width,
           sourceHeight: floatingPaste.height,
           canvasWidth: project.width,
@@ -477,6 +558,20 @@ export const createSelectionPasteHelpers = ({
               height: roiHeight,
             }
           : null;
+      if (
+        !beforeImage &&
+        useMoveHistoryContext &&
+        moveHistoryRoi &&
+        floatingPasteHistoryContext &&
+        (floatingPasteHistoryContext.sourceBeforeImage || floatingPaste.imageData)
+      ) {
+        beforeImage = synthesizeMoveBeforeImage({
+          roi: moveHistoryRoi,
+          sourceBounds: floatingPasteHistoryContext.sourceBounds,
+          sourceImage: floatingPasteHistoryContext.sourceBeforeImage ?? floatingPaste.imageData!,
+          context2d: tempCtx,
+        });
+      }
       if (!beforeImage) {
         beforeImage = bitmapRoi
           ? tempCtx.getImageData(bitmapRoi.x, bitmapRoi.y, bitmapRoi.width, bitmapRoi.height)

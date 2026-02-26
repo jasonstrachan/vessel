@@ -5928,7 +5928,12 @@ export class ColorCycleBrushCanvas2D {
   applyPaintPatch(
     layerId: string,
     roi: { x: number; y: number; width: number; height: number },
-    bytes: Uint8Array
+    bytes: Uint8Array,
+    extras?: {
+      gradientIdBytes?: Uint8Array;
+      speedBytes?: Uint8Array;
+      flowBytes?: Uint8Array;
+    }
   ): boolean {
     const width = this.width;
     const height = this.height;
@@ -5948,19 +5953,41 @@ export class ColorCycleBrushCanvas2D {
     if (bytes.length < patchWidth * patchHeight) {
       return false;
     }
+    if (extras?.gradientIdBytes && extras.gradientIdBytes.length < patchWidth * patchHeight) {
+      return false;
+    }
+    if (extras?.speedBytes && extras.speedBytes.length < patchWidth * patchHeight) {
+      return false;
+    }
+    if (extras?.flowBytes && extras.flowBytes.length < patchWidth * patchHeight) {
+      return false;
+    }
 
     const strokeData = this.ensureStrokeState(layerId);
     const animator = this.ensureFullResolution(layerId, 'restore');
     this.bindStrokeBuffersToAnimator(strokeData, animator);
 
     const paint = strokeData.buffers.paint;
+    const gid = strokeData.buffers.gid;
+    const spd = strokeData.buffers.spd;
+    const flow = strokeData.buffers.flow;
     let hasNonZero = strokeData.hasContent;
     let srcIndex = 0;
     for (let row = 0; row < patchHeight; row += 1) {
       const destBase = (y + row) * width + x;
       for (let col = 0; col < patchWidth; col += 1) {
         const value = bytes[srcIndex++] ?? 0;
-        paint[destBase + col] = value;
+        const destIndex = destBase + col;
+        paint[destIndex] = value;
+        if (extras?.gradientIdBytes) {
+          gid[destIndex] = extras.gradientIdBytes[srcIndex - 1] ?? 0;
+        }
+        if (extras?.speedBytes) {
+          spd[destIndex] = extras.speedBytes[srcIndex - 1] ?? 0;
+        }
+        if (extras?.flowBytes) {
+          flow[destIndex] = extras.flowBytes[srcIndex - 1] ?? 0;
+        }
         if (!hasNonZero && value !== 0) {
           hasNonZero = true;
         }
@@ -5969,6 +5996,17 @@ export class ColorCycleBrushCanvas2D {
 
     strokeData.hasContent = hasNonZero;
     this.layerStrokes.set(layerId, strokeData);
+
+    try {
+      animator.setIndexBufferFromArray(
+        strokeData.buffers.paint,
+        strokeData.buffers.gid,
+        strokeData.buffers.spd,
+        strokeData.buffers.flow
+      );
+      this.bindStrokeBuffersToAnimator(strokeData, animator);
+      this.snapshotFromBuffers(strokeData);
+    } catch {}
 
     try {
       animator.markDirtyBounds({

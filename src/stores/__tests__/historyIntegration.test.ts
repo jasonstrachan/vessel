@@ -570,6 +570,49 @@ describe('history integration', () => {
     expect(readPixelAlpha(movedLayer!.imageData!, 1, 1)).toBe(255);
   });
 
+  it('undoes non-square marquee resize without leaving transparent artifacts', async () => {
+    const width = 12;
+    const height = 10;
+    const before = new ImageData(width, height);
+    for (let i = 0; i < before.data.length; i += 4) {
+      before.data[i] = 80;
+      before.data[i + 1] = 140;
+      before.data[i + 2] = 200;
+      before.data[i + 3] = 255;
+    }
+
+    const layer = createLayer(
+      'layer-resize-undo',
+      new ImageData(new Uint8ClampedArray(before.data), width, height),
+    );
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 2, y: 2 },
+      selectionEnd: { x: 6, y: 4 },
+      project: state.project
+        ? {
+            ...state.project,
+            width,
+            height,
+            layers: [layer],
+          }
+        : state.project,
+    }));
+
+    const store = useAppStore.getState();
+    const extracted = store.extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+    store.updateFloatingPasteRect({ x: 7, y: 5, width: 3, height: 5 });
+    await store.commitFloatingPaste();
+    await store.undo();
+
+    const layerAfterUndo = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(layerAfterUndo?.imageData).not.toBeNull();
+    expect(Array.from(layerAfterUndo!.imageData!.data)).toEqual(Array.from(before.data));
+  });
+
   it('records and replays color-cycle selection move commits', async () => {
     const width = 8;
     const height = 6;
@@ -599,15 +642,31 @@ describe('history integration', () => {
     expect(brush).not.toBeNull();
 
     const seed = new Uint8Array(width * height);
+    const seedSpeed = new Uint8Array(width * height);
+    const seedFlow = new Uint8Array(width * height);
     seed[1 + (1 * width)] = 9;
     seed[2 + (1 * width)] = 10;
     seed[1 + (2 * width)] = 11;
     seed[2 + (2 * width)] = 12;
+    seedSpeed[1 + (1 * width)] = 120;
+    seedSpeed[2 + (1 * width)] = 121;
+    seedSpeed[1 + (2 * width)] = 122;
+    seedSpeed[2 + (2 * width)] = 123;
+    seedFlow[1 + (1 * width)] = 1;
+    seedFlow[2 + (1 * width)] = 2;
+    seedFlow[1 + (2 * width)] = 1;
+    seedFlow[2 + (2 * width)] = 2;
     brush?.applyLayerSnapshot?.(layer.id, {
       paintBuffer: seed.slice().buffer,
+      speedBuffer: seedSpeed.slice().buffer,
+      flowBuffer: seedFlow.slice().buffer,
       hasContent: true,
       strokeCounter: 1,
     });
+    const preMoveSnapshot = brush?.getLayerSnapshot?.(layer.id);
+    const preMoveSpeed = preMoveSnapshot?.speedBuffer ? new Uint8Array(preMoveSnapshot.speedBuffer) : null;
+    expect(preMoveSpeed).not.toBeNull();
+    expect(preMoveSpeed![1 + (1 * width)]).toBe(120);
 
     const store = useAppStore.getState();
     const extracted = store.extractSelectionToFloatingPaste();
@@ -639,5 +698,10 @@ describe('history integration', () => {
 
     await store.undo();
     expect(store.canRedo()).toBe(true);
+    const undoSnapshot = brush?.getLayerSnapshot?.(layer.id);
+    const undoSpeed = undoSnapshot?.speedBuffer ? new Uint8Array(undoSnapshot.speedBuffer) : null;
+    expect(undoSpeed).not.toBeNull();
+    expect(undoSpeed![1 + (1 * width)]).toBe(120);
+    expect(undoSpeed![2 + (1 * width)]).toBe(121);
   });
 });

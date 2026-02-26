@@ -194,6 +194,63 @@ describe('colorCycleSelection helpers', () => {
     expect(incoming[5]).toBe(0);
   });
 
+  it('clears only masked pixels when alphaData is provided', () => {
+    const buffer = new Uint8Array(16).fill(5);
+    const alphaData = new Uint8ClampedArray([
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 255,
+    ]);
+
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: buffer.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas },
+    } as Layer;
+
+    const state = {
+      updateLayer: jest.fn(),
+      setCurrentCompositeBitmap: jest.fn(),
+      setLayersNeedRecomposition: jest.fn(),
+      markCompositeSegmentsDirtyByLayerIds: jest.fn(),
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const cleared = clearColorCycleRegion(
+      state,
+      layer,
+      project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      { alphaData, alphaWidth: 2, alphaHeight: 2, alphaStride: 4, alphaChannelOffset: 3, alphaThreshold: 0 }
+    );
+
+    expect(cleared).toBe(true);
+    const snapshotArg = mockApplyLayerSnapshot.mock.calls[mockApplyLayerSnapshot.mock.calls.length - 1][1];
+    const incoming = new Uint8Array(snapshotArg.paintBuffer);
+    expect(incoming[0]).toBe(0); // opaque mask
+    expect(incoming[1]).toBe(5); // transparent mask
+    expect(incoming[4]).toBe(5); // transparent mask
+    expect(incoming[5]).toBe(0); // opaque mask
+  });
+
   it('preserves destination pixels where source alpha is transparent', () => {
     const buffer = new Uint8Array(16).fill(9);
     const src = new Uint8Array([1, 2, 3, 4]);

@@ -13,6 +13,7 @@ import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import {
   captureSelectionBitmap,
   captureSelectionBitmapFromMask,
+  copyScalarRegion,
   resolveLayerImageData,
 } from '@/stores/helpers/selectionCapture';
 
@@ -21,6 +22,10 @@ type AppState = import('../useAppStore').AppState;
 export interface FloatingPasteHistoryContext {
   sourceLayerId: string;
   sourceBounds: Rectangle;
+  sourceBeforeImage?: ImageData | null;
+  sourceGradientIds?: Uint8Array | null;
+  sourceSpeed?: Uint8Array | null;
+  sourceFlow?: Uint8Array | null;
   beforeImage: ImageData | null;
   beforeColorState: ColorCycleSerializedState | null;
   selectionBefore: SelectionSnapshot;
@@ -148,6 +153,152 @@ const cloneOptionalImageData = (imageData: ImageData | null): ImageData | null =
     return null;
   }
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+};
+
+const extractImageDataRegion = (imageData: ImageData | null, bounds: Rectangle): ImageData | null => {
+  if (!imageData || bounds.width <= 0 || bounds.height <= 0) {
+    return null;
+  }
+
+  const x = Math.max(0, Math.floor(bounds.x));
+  const y = Math.max(0, Math.floor(bounds.y));
+  const right = Math.min(imageData.width, Math.ceil(bounds.x + bounds.width));
+  const bottom = Math.min(imageData.height, Math.ceil(bounds.y + bounds.height));
+  const width = right - x;
+  const height = bottom - y;
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let row = 0; row < height; row += 1) {
+    const srcStart = ((y + row) * imageData.width + x) * 4;
+    const srcEnd = srcStart + width * 4;
+    data.set(imageData.data.subarray(srcStart, srcEnd), row * width * 4);
+  }
+
+  return new ImageData(data, width, height);
+};
+
+const extractColorCycleRegion = (
+  state: ColorCycleSerializedState | null,
+  bounds: Rectangle,
+  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer'
+): Uint8Array | null => {
+  const layer = state?.layers?.[0];
+  if (!layer?.strokeData) {
+    return null;
+  }
+  const source = layer.strokeData[field];
+  if (!source) {
+    return null;
+  }
+  const bytes = new Uint8Array(source);
+  const width = layer.data?.indexBuffer?.width ?? 0;
+  const height = layer.data?.indexBuffer?.height ?? 0;
+  if (!width || !height || bytes.length < width * height) {
+    return null;
+  }
+  return copyScalarRegion(bytes, width, height, {
+    x: Math.floor(bounds.x),
+    y: Math.floor(bounds.y),
+    width: Math.max(1, Math.ceil(bounds.width)),
+    height: Math.max(1, Math.ceil(bounds.height)),
+  });
+};
+
+type ColorCycleMaskClearOptions = NonNullable<Parameters<typeof clearColorCycleRegion>[4]>;
+
+const buildColorCycleMaskClearOptions = (
+  bounds: Rectangle,
+  selectionMask: ImageData | null,
+  selectionMaskBounds: Rectangle | null
+): ColorCycleMaskClearOptions | undefined => {
+  if (!selectionMask || !selectionMaskBounds) {
+    return undefined;
+  }
+
+  return {
+    alphaData: selectionMask.data,
+    alphaWidth: selectionMask.width,
+    alphaHeight: selectionMask.height,
+    offsetX: bounds.x - selectionMaskBounds.x,
+    offsetY: bounds.y - selectionMaskBounds.y,
+    alphaStride: 4,
+    alphaChannelOffset: 3,
+    alphaThreshold: 0,
+  };
+};
+
+const clearColorCycleEraseMask = (
+  eraseMask: HTMLCanvasElement | OffscreenCanvas | undefined,
+  bounds: Rectangle,
+  selectionMask: ImageData | null,
+  selectionMaskBounds: Rectangle | null
+) => {
+  const ctx = eraseMask?.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    return;
+  }
+
+  const x = Math.floor(bounds.x);
+  const y = Math.floor(bounds.y);
+  const right = Math.ceil(bounds.x + bounds.width);
+  const bottom = Math.ceil(bounds.y + bounds.height);
+  const width = Math.max(0, right - x);
+  const height = Math.max(0, bottom - y);
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  if (!selectionMask || !selectionMaskBounds) {
+    ctx.clearRect(x, y, width, height);
+    return;
+  }
+
+  try {
+    const region = ctx.getImageData(x, y, width, height);
+    const regionData = region.data;
+    const maskData = selectionMask.data;
+    const maskX = Math.floor(selectionMaskBounds.x);
+    const maskY = Math.floor(selectionMaskBounds.y);
+
+    let changed = false;
+    for (let py = 0; py < height; py += 1) {
+      const targetY = y + py;
+      const localMaskY = targetY - maskY;
+      if (localMaskY < 0 || localMaskY >= selectionMask.height) {
+        continue;
+      }
+      for (let px = 0; px < width; px += 1) {
+        const targetX = x + px;
+        const localMaskX = targetX - maskX;
+        if (localMaskX < 0 || localMaskX >= selectionMask.width) {
+          continue;
+        }
+        const maskAlpha = maskData[(localMaskY * selectionMask.width + localMaskX) * 4 + 3];
+        if (maskAlpha === 0) {
+          continue;
+        }
+        const index = (py * width + px) * 4;
+        if (regionData[index] === 0 && regionData[index + 1] === 0 && regionData[index + 2] === 0 && regionData[index + 3] === 0) {
+          continue;
+        }
+        regionData[index] = 0;
+        regionData[index + 1] = 0;
+        regionData[index + 2] = 0;
+        regionData[index + 3] = 0;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      ctx.putImageData(region, x, y);
+    }
+  } catch {
+    ctx.clearRect(x, y, width, height);
+  }
 };
 
 const flipImageData = (imageData: ImageData, axis: 'horizontal' | 'vertical'): ImageData => {
@@ -393,11 +544,16 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           : null;
 
       if (activeLayer.layerType === 'color-cycle') {
-        const cleared = clearColorCycleRegion(state, activeLayer, project, { x, y, width, height });
+        const cleared = clearColorCycleRegion(
+          state,
+          activeLayer,
+          project,
+          { x, y, width, height },
+          buildColorCycleMaskClearOptions({ x, y, width, height }, selectionMask, selectionMaskBounds)
+        );
         if (cleared) {
           const eraseMask = activeLayer.colorCycleData?.eraseMask;
-          const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
-          eraseMaskCtx?.clearRect(x, y, width, height);
+          clearColorCycleEraseMask(eraseMask, { x, y, width, height }, selectionMask, selectionMaskBounds);
           state.scheduleColorCycleSlotRebuild?.('delete-selected');
         }
       } else {
@@ -557,16 +713,10 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           y: capture.bounds.y,
           width: capture.bounds.width,
           height: capture.bounds.height,
-        });
+        }, buildColorCycleMaskClearOptions(capture.bounds, selectionMask, selectionMaskBounds));
         if (cleared) {
           const eraseMask = activeLayer.colorCycleData?.eraseMask;
-          const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
-          eraseMaskCtx?.clearRect(
-            capture.bounds.x,
-            capture.bounds.y,
-            capture.bounds.width,
-            capture.bounds.height,
-          );
+          clearColorCycleEraseMask(eraseMask, capture.bounds, selectionMask, selectionMaskBounds);
           state.scheduleColorCycleSlotRebuild?.('extract-selection-transform');
         }
       } else {
@@ -635,6 +785,10 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
             width: capture.bounds.width,
             height: capture.bounds.height,
           },
+          sourceBeforeImage: extractImageDataRegion(sourceImageData, capture.bounds),
+          sourceGradientIds: extractColorCycleRegion(beforeColorState, capture.bounds, 'gradientIdBuffer'),
+          sourceSpeed: extractColorCycleRegion(beforeColorState, capture.bounds, 'speedBuffer'),
+          sourceFlow: extractColorCycleRegion(beforeColorState, capture.bounds, 'flowBuffer'),
           beforeImage,
           beforeColorState,
           selectionBefore,
@@ -822,11 +976,10 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   y: capture.bounds.y,
                   width: capture.bounds.width,
                   height: capture.bounds.height,
-                });
+                }, buildColorCycleMaskClearOptions(capture.bounds, state.selectionMask, state.selectionMaskBounds));
                 if (skipImageUpdate) {
                   const eraseMask = activeLayer.colorCycleData?.eraseMask;
-                  const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
-                  eraseMaskCtx?.clearRect(capture.bounds.x, capture.bounds.y, capture.bounds.width, capture.bounds.height);
+                  clearColorCycleEraseMask(eraseMask, capture.bounds, state.selectionMask, state.selectionMaskBounds);
                   state.scheduleColorCycleSlotRebuild?.('cut-selection');
                 }
               }

@@ -190,7 +190,17 @@ export const clearColorCycleRegion = (
   state: AppState,
   layer: Layer,
   project: Project,
-  rect: Rectangle
+  rect: Rectangle,
+  options?: {
+    offsetX?: number;
+    offsetY?: number;
+    alphaData?: Uint8ClampedArray | Uint8Array | null;
+    alphaWidth?: number;
+    alphaHeight?: number;
+    alphaStride?: number;
+    alphaChannelOffset?: number;
+    alphaThreshold?: number;
+  }
 ): boolean =>
   mutateColorCycleLayer(state, layer, project, (buffer, bufferWidth, bufferHeight) => {
     const { startX, startY, endX, endY } = clampRect(rect, bufferWidth, bufferHeight);
@@ -198,10 +208,33 @@ export const clearColorCycleRegion = (
       return false;
     }
 
+    const offsetX = Math.max(0, options?.offsetX ?? 0);
+    const offsetY = Math.max(0, options?.offsetY ?? 0);
+    const alphaData = options?.alphaData ?? null;
+    const alphaWidth = Math.max(1, options?.alphaWidth ?? endX - startX);
+    const alphaHeight = Math.max(1, options?.alphaHeight ?? endY - startY);
+    const alphaStride = Math.max(1, options?.alphaStride ?? 4);
+    const alphaChannelOffset = Math.max(0, options?.alphaChannelOffset ?? 3);
+    const alphaThreshold = Math.max(0, options?.alphaThreshold ?? 0);
     let changed = false;
     for (let y = startY; y < endY; y += 1) {
       const rowOffset = y * bufferWidth;
+      const srcY = y - startY + offsetY;
+      if (alphaData && (srcY < 0 || srcY >= alphaHeight)) {
+        continue;
+      }
       for (let x = startX; x < endX; x += 1) {
+        const srcX = x - startX + offsetX;
+        if (alphaData && (srcX < 0 || srcX >= alphaWidth)) {
+          continue;
+        }
+        if (alphaData) {
+          const alphaIndex = (srcY * alphaWidth + srcX) * alphaStride + alphaChannelOffset;
+          const alpha = alphaData[alphaIndex] ?? 0;
+          if (alpha <= alphaThreshold) {
+            continue;
+          }
+        }
         const index = rowOffset + x;
         if (buffer[index] !== 0) {
           buffer[index] = 0;
