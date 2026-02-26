@@ -16,6 +16,12 @@ const mockedUseAppStore = useAppStore as unknown as {
 
 type KeyboardDeps = Parameters<typeof createKeyboardHandlers>[0];
 
+const createKeyboardEventWithTarget = (code: string, target: EventTarget): KeyboardEvent => {
+  const event = new KeyboardEvent('keydown', { code });
+  Object.defineProperty(event, 'target', { value: target });
+  return event;
+};
+
 const createDeps = (): KeyboardDeps => {
   const dispatch = jest.fn();
   const endPan = jest.fn(() => {
@@ -120,6 +126,30 @@ describe('createKeyboardHandlers', () => {
     expect(deps.isSpacePressedRef.current).toBe(true);
     expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'SPACE_DOWN' });
     expect(deps.setCursorStyle).toHaveBeenCalledWith('grab');
+  });
+
+  it('ignores space when a text input has focus', () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+    const textInput = document.createElement('input');
+    textInput.type = 'text';
+
+    handlers.handleKeyDown(createKeyboardEventWithTarget('Space', textInput));
+
+    expect(deps.isSpacePressedRef.current).toBe(false);
+    expect(deps.stateMachine.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('allows space-pan when a range input has focus', () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+    const rangeInput = document.createElement('input');
+    rangeInput.type = 'range';
+
+    handlers.handleKeyDown(createKeyboardEventWithTarget('Space', rangeInput));
+
+    expect(deps.isSpacePressedRef.current).toBe(true);
+    expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'SPACE_DOWN' });
   });
 
   it('releases stuck space on keyup even when scope no longer allows space', () => {
