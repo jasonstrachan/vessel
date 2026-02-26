@@ -48,6 +48,8 @@ jest.mock('@/history/helpers/layerHistory', () => ({
 }));
 
 jest.mock('@/utils/debug', () => ({
+  debugLog: jest.fn(),
+  debugWarn: jest.fn(),
   logError: jest.fn(),
 }));
 
@@ -384,6 +386,8 @@ describe('selection paste commit', () => {
         colorCycleIndices: null,
         width: 2,
         height: 1,
+        displayWidth: 2,
+        displayHeight: 1,
         imageData: new ImageData(
           new Uint8ClampedArray([
             255, 0, 0, 255,
@@ -429,6 +433,8 @@ describe('selection paste commit', () => {
         colorCycleIndices,
         width: 2,
         height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
         position: { x: 5.4, y: 7.6 },
       },
       {
@@ -464,14 +470,14 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).toBeNull();
   });
 
-  it('uses intrinsic CC payload size and rounded position even when display is scaled', async () => {
+  it('resamples CC payload to transformed display size on commit', async () => {
     const colorCycleIndices = new Uint8Array([9, 8, 7, 6]);
     const { helpers, state, layer } = setupHelpers(
       {
         colorCycleIndices,
         width: 2,
         height: 2,
-        displayWidth: 6, // scaled up in UI, but CC data should stay intrinsic
+        displayWidth: 6,
         displayHeight: 5,
         position: { x: 3.2, y: 9.9 },
       },
@@ -488,15 +494,21 @@ describe('selection paste commit', () => {
       state,
       layer,
       state.project,
-      { x: 3, y: 10, width: 2, height: 2 },
-      colorCycleIndices,
-      2,
-      2,
+      { x: 3, y: 10, width: 6, height: 5 },
+      new Uint8Array([
+        9, 9, 9, 8, 8, 8,
+        9, 9, 9, 8, 8, 8,
+        9, 9, 9, 8, 8, 8,
+        7, 7, 7, 6, 6, 6,
+        7, 7, 7, 6, 6, 6,
+      ]),
+      6,
+      5,
       expect.objectContaining({
         offsetX: 0,
         offsetY: 0,
-        alphaStride: 4,
-        alphaChannelOffset: 3,
+        alphaStride: 1,
+        alphaChannelOffset: 0,
         alphaThreshold: 0,
       })
     );

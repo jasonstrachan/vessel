@@ -704,4 +704,80 @@ describe('history integration', () => {
     expect(undoSpeed![1 + (1 * width)]).toBe(120);
     expect(undoSpeed![2 + (1 * width)]).toBe(121);
   });
+
+  it('commits resized marquee transforms on color-cycle layers', async () => {
+    const width = 8;
+    const height = 8;
+    const layer = createColorCycleLayer('layer-cc-resize', width, height);
+
+    useAppStore.setState(() => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      project: {
+        id: 'proj-cc-resize-1',
+        name: 'CC Resize Test',
+        width,
+        height,
+        layers: [layer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const manager = getColorCycleBrushManager();
+    useAppStore.getState().initColorCycleForLayer(layer.id, width, height);
+    const brush = manager.getLayerColorCycleBrush(layer.id);
+    expect(brush).not.toBeNull();
+
+    const seed = new Uint8Array(width * height);
+    seed[1 + (1 * width)] = 9;
+    seed[2 + (1 * width)] = 10;
+    seed[1 + (2 * width)] = 11;
+    seed[2 + (2 * width)] = 12;
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: seed.slice().buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const store = useAppStore.getState();
+    const extracted = store.extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+    const extractedPaste = useAppStore.getState().floatingPaste;
+    expect(extractedPaste).not.toBeNull();
+    if (extractedPaste?.imageData) {
+      const opaqueData = new Uint8ClampedArray(extractedPaste.imageData.data);
+      for (let i = 3; i < opaqueData.length; i += 4) {
+        opaqueData[i] = 255;
+      }
+      useAppStore.setState({
+        floatingPaste: {
+          ...extractedPaste,
+          imageData: new ImageData(opaqueData, extractedPaste.imageData.width, extractedPaste.imageData.height),
+        },
+      });
+    }
+
+    store.updateFloatingPasteRect({ x: 4, y: 3, width: 4, height: 4 });
+    await store.commitFloatingPaste();
+
+    const snapshot = brush?.getLayerSnapshot?.(layer.id);
+    const buffer = snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null;
+    expect(buffer).not.toBeNull();
+
+    // Scaled 2x2 -> 4x4 should preserve nearest-neighbor block structure.
+    expect(buffer![4 + (3 * width)]).toBe(9);
+    expect(buffer![5 + (3 * width)]).toBe(9);
+    expect(buffer![6 + (3 * width)]).toBe(10);
+    expect(buffer![7 + (3 * width)]).toBe(10);
+
+    expect(buffer![4 + (5 * width)]).toBe(11);
+    expect(buffer![5 + (5 * width)]).toBe(11);
+    expect(buffer![6 + (5 * width)]).toBe(12);
+    expect(buffer![7 + (5 * width)]).toBe(12);
+  });
 });
