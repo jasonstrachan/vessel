@@ -1306,12 +1306,17 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
     layers.push(snapshot);
   }
 
-  const hasMetadata =
-    state.cycleSpeed !== undefined ||
-    state.fps !== undefined ||
-    state.brushSize !== undefined;
+  const hasRestorableLayerPayload = layers.some((layer) => (
+    Boolean(layer.strokeData?.paintBuffer) ||
+    Boolean(layer.strokeData?.gradientIdBuffer) ||
+    Boolean(layer.strokeData?.gradientDefIdBuffer) ||
+    Boolean(layer.strokeData?.speedBuffer) ||
+    Boolean(layer.animator?.indexBuffer.data) ||
+    Boolean(layer.animator?.indexBuffer.gradientId) ||
+    Boolean(layer.animator?.indexBuffer.speedData)
+  ));
 
-  if (layers.length === 0 && !hasMetadata) {
+  if (!hasRestorableLayerPayload) {
     return undefined;
   }
 
@@ -2377,7 +2382,21 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
       const savedBrushState = savedBrushStates.get(layer);
+      const hasRestorableSavedBrushLayers = Boolean(
+        savedBrushState?.layers?.some((snapshot) => (
+          Boolean(snapshot.strokeData?.paintBuffer) ||
+          Boolean(snapshot.strokeData?.gradientIdBuffer) ||
+          Boolean(snapshot.strokeData?.gradientDefIdBuffer) ||
+          Boolean(snapshot.strokeData?.speedBuffer) ||
+          Boolean(snapshot.animator?.indexBuffer.data) ||
+          Boolean(snapshot.animator?.indexBuffer.gradientId) ||
+          Boolean(snapshot.animator?.indexBuffer.speedData)
+        ))
+      );
       if (savedBrushState) {
+        if (!hasRestorableSavedBrushLayers) {
+          savedBrushStates.delete(layer);
+        } else {
         try {
           const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
 
@@ -2477,6 +2496,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         } catch (error) {
           console.error('[projectIO] Failed to restore color cycle brush state:', error);
         }
+        }
       }
       // Check if we have saved WebGL state
       const savedState = savedWebGLStates.get(layer);
@@ -2547,13 +2567,15 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         }
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
 
-        if (imageDataHasVisiblePixels(layer.imageData)) {
-          if (layer.imageData) {
+        const externalBaseImageData = layer.colorCycleData.canvasImageData ?? layer.imageData;
+        if (imageDataHasVisiblePixels(externalBaseImageData)) {
+          if (externalBaseImageData) {
             try {
               const ctx = layer.colorCycleData.canvas?.getContext('2d', { willReadFrequently: true });
-              ctx?.putImageData(layer.imageData, 0, 0);
+              ctx?.putImageData(externalBaseImageData, 0, 0);
             } catch {}
           }
+          layer.colorCycleData.hasContent = true;
           if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {
             try {
               colorCycleBrush.markLayerHasExternalBase(layer.id);

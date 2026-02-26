@@ -616,7 +616,12 @@ export class ColorCycleBrushCanvas2D {
   }
 
   markLayerHasExternalBase(layerId: string) {
-    void layerId;
+    if (!layerId) {
+      return;
+    }
+    const strokeData = this.ensureStrokeState(layerId);
+    strokeData.externalBase.hasExternalBase = true;
+    this.layerStrokes.set(layerId, strokeData);
   }
 
   private createAnimator(layerId: string, options: { initial: 'reduced' | 'full' }): ColorCycleAnimator {
@@ -1690,6 +1695,7 @@ export class ColorCycleBrushCanvas2D {
     strokeData.buffers.flow.fill(0);
     strokeData.buffers.def.fill(0);
     strokeData.hasContent = false;
+    strokeData.externalBase.hasExternalBase = false;
 
     const animator = this.ensureFullResolution(id, 'stroke');
     animator.setIndexBufferFromArray(
@@ -4239,7 +4245,10 @@ export class ColorCycleBrushCanvas2D {
     }
 
     if (!hasRenderableContent) {
-      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      const shouldPreserveExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
+      if (!shouldPreserveExternalBase) {
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      }
       return;
     }
 
@@ -4266,7 +4275,10 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      const shouldPreserveExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
+      if (!shouldPreserveExternalBase) {
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      }
       this.renderAnimatorToContext(animator, ctx, targetCanvas);
       try {
         const maskManager = getMaskManager();
@@ -4459,7 +4471,10 @@ export class ColorCycleBrushCanvas2D {
       try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      const shouldPreserveExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
+      if (!shouldPreserveExternalBase) {
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      }
       this.renderAnimatorToContext(animator, ctx, targetCanvas);
 
       try {
@@ -5828,6 +5843,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     strokeData.hasContent = hasLayerContent;
+    strokeData.externalBase.hasExternalBase = false;
     strokeData.strokeCounter = snapshot.strokeCounter || 0;
     strokeData.lastPoint = null;
     strokeData.stampCounter = 0;

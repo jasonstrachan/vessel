@@ -4,6 +4,7 @@ import {
   getProjectSaveSizeReport,
   readProjectManifest,
   readProjectPreviewManifest,
+  restoreColorCycleBrushes,
   saveProjectToFile,
   serializeProject
 } from '@/utils/projectIO';
@@ -497,6 +498,136 @@ describe('projectIO serialize/deserialize layering', () => {
         contextProto.rect = originalRect;
       }
     }
+  });
+
+  it('does not persist metadata-only color-cycle brushState payloads', async () => {
+    const ccImageData = createSolidImageData(4, 4, [12, 34, 56, 255]);
+    const layer: Layer = {
+      id: 'layer-cc-metadata-only',
+      name: 'CC Metadata Only',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(4, 4, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvasImageData: ccImageData,
+        canvasWidth: ccImageData.width,
+        canvasHeight: ccImageData.height,
+        isAnimating: false,
+        colorCycleBrush: {
+          getFullState: () => ({
+            cycleSpeed: 0.35,
+            fps: 24,
+            brushSize: 7,
+            layers: [],
+          }),
+        } as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+      },
+    };
+
+    const project: Project = {
+      id: 'project-cc-metadata-only',
+      name: 'CC Metadata Only',
+      width: 4,
+      height: 4,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    try {
+      const payload = await serializeProject(project, project.layers);
+      const zip = await JSZip.loadAsync(payload);
+      const projectJson = await zip.file('project.json')?.async('string');
+      if (!projectJson) {
+        throw new Error('Missing project.json');
+      }
+
+      const manifest = JSON.parse(projectJson) as {
+        project: {
+          layers: Array<{ colorCycleData?: { brushState?: unknown } }>;
+        };
+      };
+
+      expect(manifest.project.layers[0]?.colorCycleData?.brushState).toBeUndefined();
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
+  it('preserves recovered color-cycle canvas pixels on first commit when runtime has external base only', async () => {
+    const canvasImageData = createSolidImageData(3, 3, [240, 120, 60, 255]);
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = 3;
+    colorCycleCanvas.height = 3;
+
+    const layer: Layer = {
+      id: 'layer-cc-external-base',
+      name: 'CC External Base',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(3, 3, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: colorCycleCanvas,
+        canvasImageData,
+        canvasWidth: 3,
+        canvasHeight: 3,
+        isAnimating: false,
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([layer]);
+    const restoredCanvas = restoredLayer.colorCycleData?.canvas;
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | {
+          commitToLayer?: (canvas: HTMLCanvasElement, layerId: string) => void;
+        }
+      | undefined;
+
+    expect(restoredCanvas).toBeTruthy();
+    expect(restoredBrush?.commitToLayer).toBeDefined();
+    if (!restoredCanvas || !restoredBrush?.commitToLayer) {
+      throw new Error('Expected restored color cycle runtime');
+    }
+
+    const before = restoredCanvas.getContext('2d', { willReadFrequently: true })?.getImageData(1, 1, 1, 1);
+    expect(before).toBeTruthy();
+    const beforePixel = before?.data ?? new Uint8ClampedArray([0, 0, 0, 0]);
+    expect(beforePixel[3]).toBeGreaterThan(0);
+
+    restoredBrush.commitToLayer(restoredCanvas, restoredLayer.id);
+
+    const after = restoredCanvas.getContext('2d', { willReadFrequently: true })?.getImageData(1, 1, 1, 1);
+    expect(after).toBeTruthy();
+    const afterPixel = after?.data ?? new Uint8ClampedArray([0, 0, 0, 0]);
+    expect(Array.from(afterPixel)).toEqual(Array.from(beforePixel));
   });
 
   it('prefers per-layer framebuffer pixels when saving', async () => {
