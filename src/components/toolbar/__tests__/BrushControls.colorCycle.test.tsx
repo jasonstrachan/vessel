@@ -182,6 +182,7 @@ jest.mock('@/stores/useAppStore', () => {
     dashedEnabled: false,
     dashLength: 1,
     dashGap: 1,
+    velocityAnimationSpeedEnabled: false,
     useSwatchColor: false,
     flow: 1,
     gridSnapEnabled: false,
@@ -396,6 +397,21 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(screen.getByTestId('gradient-editor')).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
+  });
+
+  it('toggles velocity-linked animation speed for color cycle strokes', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const toggle = document.getElementById('velocity-animation-speed-cc') as HTMLInputElement | null;
+    expect(toggle).toBeTruthy();
+    expect(toggle?.checked).toBe(false);
+
+    if (!toggle) {
+      throw new Error('Missing velocity-animation-speed-cc toggle');
+    }
+    await user.click(toggle);
+    expect(useAppStore.getState().tools.brushSettings.velocityAnimationSpeedEnabled).toBe(true);
   });
 
   it('allows selecting the diamond stamp for color cycle stroke', async () => {

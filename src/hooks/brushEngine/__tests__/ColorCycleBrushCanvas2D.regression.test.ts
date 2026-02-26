@@ -1,6 +1,7 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { useAppStore } from '@/stores/useAppStore';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
@@ -349,7 +350,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.endStroke(layerId);
 
     const animator = (brush as unknown as {
-      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array; spd?: Uint8Array } }>;
     }).animators.get(layerId);
     if (!animator) {
       throw new Error('Missing animator for speed write-only test');
@@ -374,6 +375,66 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
     expect(afterSecond[firstIndex]).toBe(firstExpectedByte);
     expect(afterSecond[secondIndex]).toBe(secondExpectedByte);
+  });
+
+  it('keeps write-speed bytes stable while velocity influences phase progression', () => {
+    const state = useAppStore.getState();
+    state.tools.brushSettings.velocityAnimationSpeedEnabled = true;
+
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-velocity-animation';
+    brush.setBrushSize(1);
+    brush.setGradientBands(254);
+    brush.setSpeed(0.2);
+
+    const baseSpeedByte = encodeColorCycleSpeedByte(0.2);
+
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1);
+    brush.paint(14, 2, layerId, 1, 0, 2.5);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array; spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for velocity animation speed test');
+    }
+    const spd = animator.getIndexBuffers().spd;
+    if (!spd) {
+      throw new Error('Missing speed buffer for velocity animation speed test');
+    }
+    const idx = animator.getIndexBuffers().data;
+    if (!idx) {
+      throw new Error('Missing index buffer for velocity animation speed test');
+    }
+
+    const firstIndex = 2 + 2 * canvas.width;
+    const secondIndex = 14 + 2 * canvas.width;
+    expect(spd[firstIndex]).toBe(baseSpeedByte);
+    expect(spd[secondIndex]).toBe(baseSpeedByte);
+    expect(idx[secondIndex]).toBeGreaterThan(idx[firstIndex]);
+
+    state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
+  });
+
+  it('reduces phase advance at higher velocity when velocity animation toggle is enabled', () => {
+    const state = useAppStore.getState();
+    state.tools.brushSettings.velocityAnimationSpeedEnabled = true;
+
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+
+    const lowSpeedAdvance = (brush as unknown as {
+      resolvePhaseAdvancePerStamp: (speedSamplePxPerMs?: number) => number;
+    }).resolvePhaseAdvancePerStamp(0.1);
+    const highSpeedAdvance = (brush as unknown as {
+      resolvePhaseAdvancePerStamp: (speedSamplePxPerMs?: number) => number;
+    }).resolvePhaseAdvancePerStamp(2.5);
+
+    expect(lowSpeedAdvance).toBeGreaterThan(highSpeedAdvance);
+    state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
   });
 
   it('keeps 1px color-cycle square strokes to a single pixel per stamp', () => {

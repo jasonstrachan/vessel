@@ -214,6 +214,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   dashedEnabled: settings.dashedEnabled,
   dashLength: settings.dashLength,
   velocitySpacingEnabled: settings.velocitySpacingEnabled,
+  velocityAnimationSpeedEnabled: settings.velocityAnimationSpeedEnabled,
   velocityDashGapEnabled: settings.velocityDashGapEnabled,
   velocityDashGapStrength: settings.velocityDashGapStrength,
   dashGap: settings.dashGap,
@@ -836,6 +837,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.dashLength !== undefined) settingsToSave.dashLength = newSettings.dashLength;
       if (settings.velocitySpacingEnabled !== undefined) {
         settingsToSave.velocitySpacingEnabled = newSettings.velocitySpacingEnabled;
+      }
+      if (settings.velocityAnimationSpeedEnabled !== undefined) {
+        settingsToSave.velocityAnimationSpeedEnabled = newSettings.velocityAnimationSpeedEnabled;
       }
       if (settings.velocityDashGapEnabled !== undefined) {
         settingsToSave.velocityDashGapEnabled = newSettings.velocityDashGapEnabled;
