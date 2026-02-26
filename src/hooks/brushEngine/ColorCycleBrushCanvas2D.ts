@@ -1434,7 +1434,9 @@ export class ColorCycleBrushCanvas2D {
       colorCycle?.schemaVersion === 2
         ? Math.max(1, Math.min(255, Math.round(colorCycle.sourceCycleLength || 256) - 1))
         : 255;
-    const phaseOffset = cycleSpan > 0 ? strokeData.stampCounter % cycleSpan : 0;
+    const phaseOffset = cycleSpan > 0
+      ? Math.floor(((strokeData.strokePhaseUnits % cycleSpan) + cycleSpan) % cycleSpan)
+      : 0;
 
     for (let py = 0; py < maskEntry.height; py++) {
       const targetY = originY + py;

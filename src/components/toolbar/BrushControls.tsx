@@ -3453,6 +3453,40 @@ const BrushControls = () => {
 
           {isCustomColorCycleEnabled && (
             <div className="mt-2">
+              <div className="flex items-center gap-2">
+                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                  Speed
+                </label>
+                <NonCcSlider
+                  value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
+                  min={MIN_BRUSH_COLOR_CYCLE_SPEED}
+                  max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+                  step={COLOR_CYCLE_SPEED_STEP}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      colorCycleSpeed: Math.max(
+                        MIN_BRUSH_COLOR_CYCLE_SPEED,
+                        Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
+                      ),
+                    })
+                  }
+                  aria-label="Custom Brush Color Cycle Speed"
+                  className="flex-1"
+                />
+                <VelocityLinkToggle
+                  id="velocity-animation-speed-custom"
+                  checked={Boolean(activeSettings.velocityAnimationSpeedEnabled)}
+                  onChange={(checked) =>
+                    setActiveSettings({ velocityAnimationSpeedEnabled: checked })
+                  }
+                  title="Link animation speed to cursor speed"
+                />
+              </div>
+            </div>
+          )}
+
+          {isCustomColorCycleEnabled && (
+            <div className="mt-2">
               <ButtonGroup
                 options={[
                   { label: 'Tip Mode', value: 'tip' },
@@ -3518,37 +3552,6 @@ const BrushControls = () => {
                         onCommit={bandsSlider.onCommit}
                         aria-label="Gradient Bands"
                         className="flex-1"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <div className="flex items-center gap-2">
-                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                        Speed
-                      </label>
-                      <NonCcSlider
-                        value={activeSettings.colorCycleSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED}
-                        min={MIN_BRUSH_COLOR_CYCLE_SPEED}
-                        max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-                        step={COLOR_CYCLE_SPEED_STEP}
-                        onChange={(value) =>
-                          setActiveSettings({
-                            colorCycleSpeed: Math.max(
-                              MIN_BRUSH_COLOR_CYCLE_SPEED,
-                              Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Number(value))
-                            ),
-                          })
-                        }
-                        aria-label="Custom Brush Color Cycle Speed"
-                        className="flex-1"
-                      />
-                      <VelocityLinkToggle
-                        id="velocity-animation-speed-custom"
-                        checked={Boolean(activeSettings.velocityAnimationSpeedEnabled)}
-                        onChange={(checked) =>
-                          setActiveSettings({ velocityAnimationSpeedEnabled: checked })
-                        }
-                        title="Link animation speed to cursor speed"
                       />
                     </div>
                   </div>

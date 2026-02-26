@@ -437,6 +437,57 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
   });
 
+  it('applies velocity-linked phase advance for custom captured-data stamps', () => {
+    const state = useAppStore.getState();
+    state.tools.brushSettings.velocityAnimationSpeedEnabled = true;
+
+    const layerId = 'layer-custom-captured-velocity';
+    const makeBrush = () => {
+      const canvas = makeCanvas(16, 16);
+      const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+      brush.setBrushSize(1);
+      brush.startStroke(layerId);
+      return { brush, canvas };
+    };
+
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1),
+      width: 1,
+      height: 1,
+      colorCycle: {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        sourceCycleLength: 256,
+        mapWidth: 1,
+        mapHeight: 1,
+        phaseMap: new Uint16Array([1]),
+      },
+    };
+
+    const low = makeBrush();
+    low.brush.paintCustomStamp(stamp, 4, 4, layerId, 1, 0, 0.1);
+    low.brush.endStroke(layerId);
+    const lowStroke = (low.brush as unknown as {
+      layerStrokes: Map<string, { strokePhaseUnits: number }>;
+    }).layerStrokes.get(layerId);
+    if (!lowStroke) {
+      throw new Error('Missing low-speed stroke data');
+    }
+
+    const high = makeBrush();
+    high.brush.paintCustomStamp(stamp, 4, 4, layerId, 1, 0, 2.5);
+    high.brush.endStroke(layerId);
+    const highStroke = (high.brush as unknown as {
+      layerStrokes: Map<string, { strokePhaseUnits: number }>;
+    }).layerStrokes.get(layerId);
+    if (!highStroke) {
+      throw new Error('Missing high-speed stroke data');
+    }
+
+    expect(lowStroke.strokePhaseUnits).toBeGreaterThan(highStroke.strokePhaseUnits);
+    state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
+  });
+
   it('keeps 1px color-cycle square strokes to a single pixel per stamp', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
