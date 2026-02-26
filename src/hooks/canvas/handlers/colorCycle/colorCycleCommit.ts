@@ -96,7 +96,7 @@ export type DeferredSaveWithStateDeps = {
 export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
   commitCurrentStroke?: (layerId?: string) => void;
   finalizeCurrentStroke?: (layerId?: string) => void;
-  commitToLayer?: (canvas: HTMLCanvasElement, layerId: string) => void;
+  commitToLayer?: (canvas: HTMLCanvasElement, layerId: string, opacity?: number) => void;
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   clearPaintBuffer?: (layerId?: string) => void;
   flush?: (layerId?: string) => void;
@@ -489,7 +489,7 @@ export const commitColorCycleLayerStroke = async (
       brush.updateColorCycleTexture?.();
 
       if (typeof brush.commitToLayer === 'function') {
-        brush.commitToLayer(layerCanvas, targetLayerId);
+        brush.commitToLayer(layerCanvas, targetLayerId, args.brushSettings.opacity ?? 1);
       } else {
         brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
       }

@@ -179,6 +179,19 @@ const getStopBorderColor = (stop: GradientStop, isSelected: boolean): string => 
   return isSelected ? 'rgba(0, 0, 0, 1)' : 'rgba(0, 0, 0, 0.82)';
 };
 
+const stopToCssGradientPart = (stop: GradientStop): string => {
+  const colorValue = (stop.color ?? '#000000').trim();
+  const parsed = parseColor(colorValue);
+  if (!parsed) {
+    const alpha = clampAlpha(typeof stop.opacity === 'number' ? stop.opacity : 0);
+    return `rgba(0, 0, 0, ${alpha}) ${stop.position * 100}%`;
+  }
+
+  const stopOpacity = clampAlpha(typeof stop.opacity === 'number' ? stop.opacity : 1);
+  const alpha = clampAlpha(parsed.a * stopOpacity);
+  return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha}) ${stop.position * 100}%`;
+};
+
 // Load custom gradients from localStorage and merge with defaults
 const loadGradients = (): SavedGradient[] => {
   const defaults = GRADIENT_PRESETS.map(g => ({
@@ -561,22 +574,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   // Generate CSS gradient string with opacity (fallback transparent when no stops)
   const gradientString = (stops.length > 0
     ? stops
-        .map(s => {
-        const colorValue = s.color ?? '#000000';
-        const isTransparentStop = typeof colorValue === 'string' && colorValue.toLowerCase() === 'transparent';
-        const opacity = typeof s.opacity === 'number' ? s.opacity : isTransparentStop ? 0 : 1;
-        let r = 0;
-        let g = 0;
-        let b = 0;
-
-        if (!isTransparentStop && /^#[0-9A-F]{6}$/i.test(colorValue)) {
-          r = parseInt(colorValue.slice(1, 3), 16);
-          g = parseInt(colorValue.slice(3, 5), 16);
-          b = parseInt(colorValue.slice(5, 7), 16);
-        }
-
-        return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
-      })
+      .map(stopToCssGradientPart)
       .join(', ')
     : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%');
 
@@ -924,14 +922,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     if (!gradient) return option.label;
 
     const gradientCss = gradient.stops
-      .map(s => {
-        const opacity = s.opacity ?? 1;
-        const hex = s.color;
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
-      })
+      .map(stopToCssGradientPart)
       .join(', ');
 
     return (

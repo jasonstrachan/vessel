@@ -4314,7 +4314,7 @@ export class ColorCycleBrushCanvas2D {
    * Commit current layer content to a target canvas. This is a convenience helper
    * used by higher-level handlers to separate strokes in history.
    */
-  commitToLayer(targetCanvas: HTMLCanvasElement, layerId: string) {
+  commitToLayer(targetCanvas: HTMLCanvasElement, layerId: string, opacity: number = 1) {
     // Validate inputs
     if (!targetCanvas) {
       console.warn('[ColorCycleBrush.commitToLayer] No target canvas provided');
@@ -4458,7 +4458,8 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
     }
 
-    // Save state and composite using source-over at full opacity
+    const commitOpacity = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
+    // Save state and composite using source-over at commit opacity.
     const prevComposite = ctx.globalCompositeOperation;
     const prevAlpha = ctx.globalAlpha;
     const prevSmoothing = ctx.imageSmoothingEnabled;
@@ -4466,7 +4467,7 @@ export class ColorCycleBrushCanvas2D {
     try { ctx.save(); } catch {}
     try {
       ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1.0;
+      ctx.globalAlpha = commitOpacity;
       // Ensure no stray transforms affect placement
       try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch {}
       ctx.imageSmoothingEnabled = false;
