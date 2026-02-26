@@ -48,6 +48,27 @@ const toGradientStop = (stop: GradientStop | PresetGradientStop): GradientStop =
 const normalizeStops = (stops: Array<GradientStop | PresetGradientStop>): GradientStop[] =>
   stops.map(toGradientStop);
 
+const clampAlpha = (value: number): number => Math.max(0, Math.min(1, value));
+
+const getStopFillColor = (stop: GradientStop): string => {
+  const colorValue = stop.color ?? '#000000';
+  const normalizedColor = colorValue.trim();
+  const alpha = clampAlpha(stop.opacity ?? 1);
+
+  if (normalizedColor.toLowerCase() === 'transparent') {
+    return 'transparent';
+  }
+
+  if (/^#[0-9A-F]{6}$/i.test(normalizedColor)) {
+    const r = parseInt(normalizedColor.slice(1, 3), 16);
+    const g = parseInt(normalizedColor.slice(3, 5), 16);
+    const b = parseInt(normalizedColor.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  return normalizedColor;
+};
+
 // Load custom gradients from localStorage and merge with defaults
 const loadGradients = (): SavedGradient[] => {
   const defaults = GRADIENT_PRESETS.map(g => ({
@@ -943,8 +964,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               <div 
                 className="relative w-4 h-4 shadow-lg"
                 style={{
-                  backgroundColor: stop.color,
-                  opacity: stop.opacity ?? 1
+                  backgroundColor: getStopFillColor(stop)
                 }}
               >
                 <div

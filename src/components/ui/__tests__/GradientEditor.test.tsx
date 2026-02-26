@@ -48,6 +48,7 @@ jest.mock('@/components/ui/ColorPicker', () => {
   const ColorPickerMock = ({ onChange, onCommit }: ColorPickerProps) => (
     <div>
       <button data-testid="color-change" onClick={() => onChange?.('#00FF00')}>change</button>
+      <button data-testid="color-transparent" onClick={() => onChange?.('transparent')}>transparent</button>
       <button data-testid="color-commit" onClick={() => onCommit?.()}>commit</button>
     </div>
   );
@@ -129,6 +130,29 @@ describe('GradientEditor', () => {
 
     expect(onChange).toHaveBeenCalled();
     expect(window.localStorage.setItem).toHaveBeenCalled();
+  });
+
+  it('keeps stop frame visible when stop color is set to transparent', () => {
+    const onChange = jest.fn();
+    const { container } = render(
+      <GradientEditor
+        stops={[
+          { position: 0, color: '#FF0000' },
+          { position: 1, color: '#00FF00' },
+        ]}
+        onChange={onChange}
+      />
+    );
+
+    const stopHandle = container.querySelector('.gradient-editor div[style*="background-color"]') as HTMLDivElement | null;
+    expect(stopHandle).toBeTruthy();
+
+    fireEvent.doubleClick(stopHandle!);
+    fireEvent.click(screen.getByTestId('color-transparent'));
+
+    const transparentHandle = container.querySelector('.gradient-editor div[style*="background-color: transparent"]') as HTMLDivElement | null;
+    expect(transparentHandle).toBeTruthy();
+    expect(transparentHandle?.style.opacity).toBe('');
   });
 
   it('persists edits made to preset dropdown gradients as overrides', () => {
