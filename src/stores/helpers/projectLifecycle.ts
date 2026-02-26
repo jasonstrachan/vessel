@@ -5,6 +5,7 @@ import {
   normalizeProject,
   createDefaultPalette,
   normalizeLayers,
+  dedupeLayerIds,
   cloneExportLayout,
   createDefaultLayerAlignment,
   createDefaultExportLayout,
@@ -195,13 +196,18 @@ export const createProjectLifecycle = ({
     };
 
     const toolsWithPalette = updateToolsWithPalette(normalizedPalette, state.tools);
-    const normalizedLayers = normalizeLayers(finalLayers);
+    const normalizedLayers = dedupeLayerIds(normalizeLayers(finalLayers));
+    const repairedLayerIdCount = normalizedLayers.reduce((count, layer, index) => {
+      const previousId = finalLayers[index]?.id;
+      return count + (previousId === layer.id ? 0 : 1);
+    }, 0);
     const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
     const validLayerIds = new Set(syncedLayers.map((layer) => layer.id));
     const nextReferenceLayerId =
       loadedProject.referenceLayerId && validLayerIds.has(loadedProject.referenceLayerId)
         ? loadedProject.referenceLayerId
         : null;
+    const nextActiveLayerId = syncedLayers[0]?.id ?? null;
 
     set({
       project: projectWithPalette,
@@ -209,8 +215,8 @@ export const createProjectLifecycle = ({
       paletteDirty: false,
       layers: syncedLayers,
       layerGroups: projectWithPalette.layerGroups ?? [],
-      activeLayerId: loadedProject.layers[0]?.id ?? null,
-      selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
+      activeLayerId: nextActiveLayerId,
+      selectedLayerIds: nextActiveLayerId ? [nextActiveLayerId] : [],
       referenceLayerId: nextReferenceLayerId,
       canvas: loadedProject.viewState
         ? {
@@ -223,6 +229,14 @@ export const createProjectLifecycle = ({
       tools: toolsWithPalette,
     });
     get().setLayersNeedRecomposition(true);
+    if (repairedLayerIdCount > 0) {
+      get().addNotification({
+        type: 'warning',
+        title: 'Layer IDs Repaired',
+        message: `Fixed ${repairedLayerIdCount} duplicate or invalid layer ID${repairedLayerIdCount === 1 ? '' : 's'} while loading this project.`,
+        timestamp: new Date(),
+      });
+    }
 
     try {
       const stateAfterLoad = get();

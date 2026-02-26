@@ -290,10 +290,16 @@ const clearColorCycleEraseMask = (
   selectionMask: ImageData | null,
   selectionMaskBounds: Rectangle | null
 ) => {
-  const ctx = eraseMask?.getContext('2d', { willReadFrequently: true });
-  if (!ctx) {
+  const ctxRaw = eraseMask?.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+  if (
+    !ctxRaw ||
+    !('clearRect' in ctxRaw) ||
+    !('getImageData' in ctxRaw) ||
+    !('putImageData' in ctxRaw)
+  ) {
     return;
   }
+  const ctx = ctxRaw;
 
   const x = Math.floor(bounds.x);
   const y = Math.floor(bounds.y);
