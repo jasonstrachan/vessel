@@ -6,6 +6,7 @@ import type { Layer } from '@/types';
 
 jest.mock('@/stores/helpers/colorCycleSelection', () => ({
   writeColorCycleRegion: jest.fn(() => false),
+  deriveColorCycleIndicesFromImageData: jest.fn(() => null),
   hasColorCycleIndices: jest.fn((payload?: { colorCycleIndices?: Uint8Array | null }) =>
     Boolean(payload?.colorCycleIndices && payload.colorCycleIndices.length)
   ),
@@ -13,12 +14,20 @@ jest.mock('@/stores/helpers/colorCycleSelection', () => ({
 }));
 
 type WriteColorCycleRegion = typeof import('@/stores/helpers/colorCycleSelection')['writeColorCycleRegion'];
+type DeriveColorCycleIndicesFromImageData =
+  typeof import('@/stores/helpers/colorCycleSelection')['deriveColorCycleIndicesFromImageData'];
+type HasColorCycleIndices = typeof import('@/stores/helpers/colorCycleSelection')['hasColorCycleIndices'];
 
-const { writeColorCycleRegion } = jest.requireMock('@/stores/helpers/colorCycleSelection') as {
+const { writeColorCycleRegion, deriveColorCycleIndicesFromImageData, hasColorCycleIndices } =
+  jest.requireMock('@/stores/helpers/colorCycleSelection') as {
   writeColorCycleRegion: jest.MockedFunction<WriteColorCycleRegion>;
+  deriveColorCycleIndicesFromImageData: jest.MockedFunction<DeriveColorCycleIndicesFromImageData>;
+  hasColorCycleIndices: jest.MockedFunction<HasColorCycleIndices>;
 };
 
 const mockWriteColorCycleRegion = writeColorCycleRegion;
+const mockDeriveColorCycleIndicesFromImageData = deriveColorCycleIndicesFromImageData;
+const mockHasColorCycleIndices = hasColorCycleIndices;
 
 type CommitLayerHistory = typeof import('@/history/helpers/layerHistory')['commitLayerHistory'];
 
@@ -347,7 +356,7 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).toBeNull();
   });
 
-  it('blocks color-cycle paste without indices and notifies the user', async () => {
+  it('blocks color-cycle paste when indices are missing and conversion fails', async () => {
     const { helpers, state, captureCanvasToActiveLayer } = setupHelpers(
       {
         colorCycleIndices: null,
@@ -356,6 +365,8 @@ describe('selection paste commit', () => {
         layerType: 'color-cycle',
       }
     );
+    mockHasColorCycleIndices.mockReturnValueOnce(false);
+    mockDeriveColorCycleIndicesFromImageData.mockReturnValueOnce(null);
 
     await helpers.commitFloatingPaste();
 
@@ -364,6 +375,51 @@ describe('selection paste commit', () => {
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.addNotification).toHaveBeenCalledTimes(1);
     expect(state.floatingPaste).not.toBeNull();
+  });
+
+  it('auto-converts bitmap paste into color-cycle indices when needed', async () => {
+    const convertedIndices = new Uint8Array([1, 255]);
+    const { helpers, state, layer } = setupHelpers(
+      {
+        colorCycleIndices: null,
+        width: 2,
+        height: 1,
+        imageData: new ImageData(
+          new Uint8ClampedArray([
+            255, 0, 0, 255,
+            0, 0, 255, 255,
+          ]),
+          2,
+          1
+        ),
+        position: { x: 4.4, y: 6.6 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    mockHasColorCycleIndices.mockReturnValueOnce(false);
+    mockDeriveColorCycleIndicesFromImageData.mockReturnValueOnce(convertedIndices);
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockDeriveColorCycleIndicesFromImageData).toHaveBeenCalledTimes(1);
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      { x: 4, y: 7, width: 2, height: 1 },
+      convertedIndices,
+      2,
+      1,
+      expect.objectContaining({
+        offsetX: 0,
+        offsetY: 0,
+      })
+    );
+    expect(state.floatingPaste).toBeNull();
   });
 
   it('writes color-cycle indices directly when committing a floating paste on a color-cycle layer', async () => {

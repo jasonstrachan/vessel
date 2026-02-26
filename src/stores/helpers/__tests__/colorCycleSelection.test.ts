@@ -1,4 +1,8 @@
-import { writeColorCycleRegion, clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
+import {
+  writeColorCycleRegion,
+  clearColorCycleRegion,
+  deriveColorCycleIndicesFromImageData,
+} from '@/stores/helpers/colorCycleSelection';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
@@ -360,5 +364,147 @@ describe('colorCycleSelection helpers', () => {
     );
 
     expect(applied).toBe(false);
+  });
+
+  it('derives CC indices from RGBA using the active slot palette', () => {
+    const source = new FakeImageData(
+      new Uint8ClampedArray([
+        255, 0, 0, 255,
+        0, 0, 255, 255,
+      ]),
+      2,
+      1
+    );
+
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(2, 1),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: {
+        paintSlot: 3,
+        slotPalettes: [
+          {
+            slot: 3,
+            stops: [
+              { position: 0, color: '#ff0000' },
+              { position: 1, color: '#0000ff' },
+            ],
+          },
+        ],
+      },
+    } as Layer;
+
+    const result = deriveColorCycleIndicesFromImageData({
+      imageData: source as unknown as ImageData,
+      layer,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.length).toBe(2);
+    expect(result?.[0]).toBe(1);
+    expect(result?.[1]).toBe(255);
+  });
+
+  it('writes transparent source pixels as index 0 while deriving CC indices', () => {
+    const source = new FakeImageData(
+      new Uint8ClampedArray([
+        50, 60, 70, 0,
+        255, 0, 0, 255,
+      ]),
+      2,
+      1
+    );
+
+    const layer: Layer = {
+      id: 'layer-cc-alpha',
+      name: 'CC alpha',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(2, 1),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: {
+        gradient: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#00ff00' },
+        ],
+      },
+    } as Layer;
+
+    const result = deriveColorCycleIndicesFromImageData({
+      imageData: source as unknown as ImageData,
+      layer,
+    });
+
+    expect(result).toEqual(new Uint8Array([0, 1]));
+  });
+
+  it('writes gradient slot ids when requested during CC region write', () => {
+    const buffer = new Uint8Array(16);
+    const gradientIds = new Uint8Array(16).fill(0);
+    const src = new Uint8Array([1, 2, 3, 4]);
+
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: buffer.buffer,
+      gradientIdBuffer: gradientIds.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas },
+    } as Layer;
+
+    const state = {
+      updateLayer: jest.fn(),
+      setCurrentCompositeBitmap: jest.fn(),
+      setLayersNeedRecomposition: jest.fn(),
+      markCompositeSegmentsDirtyByLayerIds: jest.fn(),
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const applied = writeColorCycleRegion(
+      state,
+      layer,
+      project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      src,
+      2,
+      2,
+      { gradientSlot: 5 }
+    );
+
+    expect(applied).toBe(true);
+    const snapshotArg = mockApplyLayerSnapshot.mock.calls[mockApplyLayerSnapshot.mock.calls.length - 1][1];
+    const incomingGradient = new Uint8Array(snapshotArg.gradientIdBuffer);
+    expect(incomingGradient[0]).toBe(5);
+    expect(incomingGradient[1]).toBe(5);
+    expect(incomingGradient[4]).toBe(5);
+    expect(incomingGradient[5]).toBe(5);
   });
 });

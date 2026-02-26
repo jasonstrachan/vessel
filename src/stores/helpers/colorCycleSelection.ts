@@ -2,10 +2,18 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { copyScalarRegion } from '@/stores/helpers/selectionCapture';
 import type { Layer, Project, Rectangle } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
+import { parseCssColor } from '@/utils/color/parseCssColor';
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 
 const colorCycleBrushManager = getColorCycleBrushManager();
 
-type BufferMutator = (buffer: Uint8Array, width: number, height: number) => boolean;
+type BufferMutator = (buffers: {
+  paint: Uint8Array;
+  gradientId: Uint8Array;
+  width: number;
+  height: number;
+}) => boolean;
 
 const getCanvasForLayer = (layer: Layer, fallbackWidth: number, fallbackHeight: number) => {
   if (layer.colorCycleData?.canvas) {
@@ -98,10 +106,12 @@ const mutateColorCycleLayer = (
   }
 
   const incoming = snapshot.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null;
+  const incomingGradientId = snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null;
   if (!incoming && process.env.NODE_ENV !== 'production') {
     console.warn('[cc] no paintBuffer in snapshot', { layerId: layer.id });
   }
   const working = new Uint8Array(bufferLength);
+  const workingGradientId = new Uint8Array(bufferLength);
   if (incoming && incoming.length) {
     if (incoming.length !== bufferLength && process.env.NODE_ENV !== 'production') {
       console.warn('[cc] paintBuffer/canvas mismatch in mutateColorCycleLayer', {
@@ -115,7 +125,25 @@ const mutateColorCycleLayer = (
     working.set(incoming.subarray(0, Math.min(incoming.length, working.length)));
   }
 
-  const mutated = mutator(working, canvas.width, canvas.height);
+  if (incomingGradientId && incomingGradientId.length) {
+    if (incomingGradientId.length !== bufferLength && process.env.NODE_ENV !== 'production') {
+      console.warn('[cc] gradientIdBuffer/canvas mismatch in mutateColorCycleLayer', {
+        layerId: layer.id,
+        incoming: incomingGradientId.length,
+        bufferLength,
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height,
+      });
+    }
+    workingGradientId.set(incomingGradientId.subarray(0, Math.min(incomingGradientId.length, workingGradientId.length)));
+  }
+
+  const mutated = mutator({
+    paint: working,
+    gradientId: workingGradientId,
+    width: canvas.width,
+    height: canvas.height,
+  });
   if (!mutated) {
     return false;
   }
@@ -124,6 +152,7 @@ const mutateColorCycleLayer = (
 
   brush.applyLayerSnapshot(layer.id, {
     paintBuffer: working.buffer,
+    gradientIdBuffer: workingGradientId.buffer,
     hasContent,
     strokeCounter: snapshot.strokeCounter,
   });
@@ -202,7 +231,7 @@ export const clearColorCycleRegion = (
     alphaThreshold?: number;
   }
 ): boolean =>
-  mutateColorCycleLayer(state, layer, project, (buffer, bufferWidth, bufferHeight) => {
+  mutateColorCycleLayer(state, layer, project, ({ paint: buffer, width: bufferWidth, height: bufferHeight }) => {
     const { startX, startY, endX, endY } = clampRect(rect, bufferWidth, bufferHeight);
     if (startX >= endX || startY >= endY) {
       return false;
@@ -260,9 +289,10 @@ export const writeColorCycleRegion = (
     alphaStride?: number;
     alphaChannelOffset?: number;
     alphaThreshold?: number;
+    gradientSlot?: number;
   }
 ): boolean =>
-  mutateColorCycleLayer(state, layer, project, (buffer, bufferWidth, bufferHeight) => {
+  mutateColorCycleLayer(state, layer, project, ({ paint: buffer, gradientId, width: bufferWidth, height: bufferHeight }) => {
     const { startX, startY, endX, endY } = clampRect(rect, bufferWidth, bufferHeight);
     if (startX >= endX || startY >= endY) {
       return false;
@@ -274,6 +304,8 @@ export const writeColorCycleRegion = (
     const alphaStride = Math.max(1, options?.alphaStride ?? 4);
     const alphaChannelOffset = Math.max(0, options?.alphaChannelOffset ?? 3);
     const alphaThreshold = Math.max(0, options?.alphaThreshold ?? 0);
+    const hasGradientSlot = typeof options?.gradientSlot === 'number' && Number.isFinite(options.gradientSlot);
+    const gradientSlot = hasGradientSlot ? (Math.round(options.gradientSlot as number) & FLOW_SLOT_MASK) : 0;
     let changed = false;
     for (let y = startY; y < endY; y += 1) {
       const destRowOffset = y * bufferWidth;
@@ -300,6 +332,10 @@ export const writeColorCycleRegion = (
           buffer[destIndex] = value;
           changed = true;
         }
+        if (hasGradientSlot && gradientId[destIndex] !== gradientSlot) {
+          gradientId[destIndex] = gradientSlot;
+          changed = true;
+        }
       }
     }
     return changed;
@@ -308,6 +344,169 @@ export const writeColorCycleRegion = (
 export const hasColorCycleIndices = (payload?: { colorCycleIndices?: Uint8Array | null }): payload is {
   colorCycleIndices: Uint8Array;
 } => Boolean(payload?.colorCycleIndices && payload.colorCycleIndices.length);
+
+type GradientStop = { position: number; color: string };
+
+const clampByte = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
+
+const normalizeStops = (stops: GradientStop[]): GradientStop[] => {
+  const normalized = stops
+    .map((stop) => ({
+      position: Math.max(0, Math.min(1, stop.position)),
+      color: stop.color,
+    }))
+    .sort((a, b) => a.position - b.position);
+
+  if (normalized.length === 0) {
+    return DEFAULT_GRADIENT_STOPS.map((stop) => ({ ...stop }));
+  }
+  if (normalized.length === 1) {
+    const only = normalized[0];
+    return [
+      { position: 0, color: only.color },
+      { position: 1, color: only.color },
+    ];
+  }
+  if (normalized[0].position > 0) {
+    normalized.unshift({ position: 0, color: normalized[0].color });
+  }
+  if (normalized[normalized.length - 1].position < 1) {
+    normalized.push({ position: 1, color: normalized[normalized.length - 1].color });
+  }
+  return normalized;
+};
+
+const resolvePasteGradientStops = (
+  layer: Layer,
+  fallbackStops?: GradientStop[] | null
+): GradientStop[] => {
+  const colorCycleData = layer.colorCycleData;
+  const activeDef = (() => {
+    if (!colorCycleData?.gradientDefs?.length) {
+      return null;
+    }
+    if (colorCycleData.activeGradientId) {
+      const explicit = colorCycleData.gradientDefs.find((entry) => entry.id === colorCycleData.activeGradientId);
+      if (explicit) {
+        return explicit;
+      }
+    }
+    return colorCycleData.gradientDefs[0] ?? null;
+  })();
+
+  const preferredSlot =
+    (typeof colorCycleData?.paintSlot === 'number' ? colorCycleData.paintSlot : undefined) ??
+    (typeof activeDef?.currentSlot === 'number' ? activeDef.currentSlot : undefined) ??
+    (typeof colorCycleData?.fgActiveSlot === 'number' ? colorCycleData.fgActiveSlot : undefined);
+
+  const activeSlotPalette =
+    typeof preferredSlot === 'number'
+      ? colorCycleData?.slotPalettes?.find((entry) => entry.slot === preferredSlot)
+      : null;
+  if (activeSlotPalette?.stops?.length) {
+    return normalizeStops(activeSlotPalette.stops);
+  }
+  if (colorCycleData?.gradient?.length) {
+    return normalizeStops(colorCycleData.gradient);
+  }
+  if (fallbackStops?.length) {
+    return normalizeStops(fallbackStops);
+  }
+  return normalizeStops(DEFAULT_GRADIENT_STOPS);
+};
+
+const buildGradientLut = (stops: GradientStop[]): Uint8Array => {
+  const normalizedStops = normalizeStops(stops);
+  const lut = new Uint8Array(255 * 3);
+
+  for (let i = 0; i < 255; i += 1) {
+    const t = i / 254;
+    let left = normalizedStops[0];
+    let right = normalizedStops[normalizedStops.length - 1];
+    for (let j = 0; j < normalizedStops.length - 1; j += 1) {
+      const start = normalizedStops[j];
+      const end = normalizedStops[j + 1];
+      if (t >= start.position && t <= end.position) {
+        left = start;
+        right = end;
+        break;
+      }
+    }
+    const leftColor = parseCssColor(left.color, { r: 255, g: 255, b: 255, a: 255 });
+    const rightColor = parseCssColor(right.color, { r: 255, g: 255, b: 255, a: 255 });
+    const range = Math.max(1e-6, right.position - left.position);
+    const localT = Math.max(0, Math.min(1, (t - left.position) / range));
+    lut[i * 3] = clampByte(leftColor.r + (rightColor.r - leftColor.r) * localT);
+    lut[i * 3 + 1] = clampByte(leftColor.g + (rightColor.g - leftColor.g) * localT);
+    lut[i * 3 + 2] = clampByte(leftColor.b + (rightColor.b - leftColor.b) * localT);
+  }
+  return lut;
+};
+
+export const deriveColorCycleIndicesFromImageData = ({
+  imageData,
+  layer,
+  fallbackGradientStops,
+  alphaThreshold = 0,
+}: {
+  imageData: ImageData | null | undefined;
+  layer: Layer;
+  fallbackGradientStops?: GradientStop[] | null;
+  alphaThreshold?: number;
+}): Uint8Array | null => {
+  if (!imageData || !imageData.data || imageData.width <= 0 || imageData.height <= 0) {
+    return null;
+  }
+  if (layer.layerType !== 'color-cycle') {
+    return null;
+  }
+
+  const lut = buildGradientLut(resolvePasteGradientStops(layer, fallbackGradientStops));
+  const output = new Uint8Array(imageData.width * imageData.height);
+  const colorToIndex = new Map<number, number>();
+
+  const pixelCount = imageData.width * imageData.height;
+  for (let i = 0; i < pixelCount; i += 1) {
+    const srcOffset = i * 4;
+    const alpha = imageData.data[srcOffset + 3] ?? 0;
+    if (alpha <= alphaThreshold) {
+      output[i] = 0;
+      continue;
+    }
+
+    const r = imageData.data[srcOffset] ?? 0;
+    const g = imageData.data[srcOffset + 1] ?? 0;
+    const b = imageData.data[srcOffset + 2] ?? 0;
+    const colorKey = (r << 16) | (g << 8) | b;
+    const cached = colorToIndex.get(colorKey);
+    if (cached !== undefined) {
+      output[i] = cached;
+      continue;
+    }
+
+    let bestIndex = 1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let lutIndex = 0; lutIndex < 255; lutIndex += 1) {
+      const lutOffset = lutIndex * 3;
+      const dr = r - lut[lutOffset];
+      const dg = g - lut[lutOffset + 1];
+      const db = b - lut[lutOffset + 2];
+      const distance = dr * dr + dg * dg + db * db;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = lutIndex + 1;
+        if (distance === 0) {
+          break;
+        }
+      }
+    }
+
+    colorToIndex.set(colorKey, bestIndex);
+    output[i] = bestIndex;
+  }
+
+  return output;
+};
 
 export const debugCaptureColorCycleScalarRegion = (
   layer: Layer,
