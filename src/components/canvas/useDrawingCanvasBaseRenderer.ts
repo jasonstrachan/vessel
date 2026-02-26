@@ -116,7 +116,7 @@ interface UseDrawingCanvasBaseRendererOptions {
   selectionStart: Point | null;
   selectionEnd: Point | null;
   selectionMask: ImageData | null;
-  selectionMaskBounds: { x: number; y: number } | null;
+  selectionMaskBounds: { x: number; y: number; width: number; height: number } | null;
   selectionVectorPath: {
     mode: 'freehand' | 'click-line';
     points: Point[];

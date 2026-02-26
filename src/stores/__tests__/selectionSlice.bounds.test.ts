@@ -36,6 +36,9 @@ const createProject = (layer: Layer): Project => ({
 });
 
 describe('selection slice bounds helpers', () => {
+  const alphaAt = (mask: ImageData, x: number, y: number): number =>
+    mask.data[(y * mask.width + x) * 4 + 3];
+
   const resetStore = () => {
     useAppStore.setState({
       project: null,
@@ -112,5 +115,56 @@ describe('selection slice bounds helpers', () => {
     expect(useAppStore.getState().selectionMask).toBeNull();
     expect(useAppStore.getState().selectionMaskBounds).toBeNull();
     expect(useAppStore.getState().selectionMaskLayerId).toBeNull();
+  });
+
+  it('invertSelection inverts marquee bounds across the active layer dimensions', () => {
+    const layer = createLayer('layer-invert', 4, 3);
+    const project = createProject(layer);
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 2 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    useAppStore.getState().invertSelection();
+
+    const state = useAppStore.getState();
+    expect(state.selectionMask).toBeTruthy();
+    expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 4, height: 3 });
+    expect(state.selectionStart).toEqual({ x: 0, y: 0 });
+    expect(state.selectionEnd).toEqual({ x: 4, y: 3 });
+    expect(alphaAt(state.selectionMask as ImageData, 1, 1)).toBe(0);
+    expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
+  });
+
+  it('invertSelection clears selection when current selection covers the whole layer', () => {
+    const layer = createLayer('layer-full', 4, 3);
+    const project = createProject(layer);
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 3 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    useAppStore.getState().invertSelection();
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toBeNull();
+    expect(state.selectionEnd).toBeNull();
+    expect(state.selectionMask).toBeNull();
+    expect(state.selectionMaskBounds).toBeNull();
+    expect(state.selectionMaskLayerId).toBeNull();
   });
 });
