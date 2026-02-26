@@ -45,6 +45,7 @@ import type { CustomBrushColorCycleData, DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
+import { resolveVelocitySpacingStrength } from '@/utils/velocitySpacing';
 
 // Stamp dithering has two concepts:
 // 1) Live stamp coverage mask / tiling (what users see during drawing)
@@ -88,6 +89,7 @@ type LayerStrokeState = {
   hasContent: boolean;
   strokeCounter: number;
   stampCounter: number;
+  strokePhaseUnits: number;
   strokeCycleSpeed: number;
   strokeSpeedByte: number;
   lastPoint: Vec2 | null;
@@ -238,6 +240,7 @@ interface StampMaskCacheEntry {
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
+const MAX_PHASE_ADVANCE_PER_STAMP = 3;
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const createYieldController = () => {
@@ -579,6 +582,7 @@ export class ColorCycleBrushCanvas2D {
       hasContent: Boolean(options?.hasContent),
       strokeCounter: 0,
       stampCounter: 0,
+      strokePhaseUnits: 0,
       strokeCycleSpeed: initialStrokeCycleSpeed,
       strokeSpeedByte: initialStrokeSpeedByte,
       lastPoint: null,
@@ -893,6 +897,27 @@ export class ColorCycleBrushCanvas2D {
     return { id, animator, strokeData };
   }
 
+  private resolvePhaseAdvancePerStamp(speedSamplePxPerMs?: number): number {
+    let velocityAnimationSpeedEnabled = false;
+    try {
+      velocityAnimationSpeedEnabled = Boolean(
+        useAppStore.getState().tools?.brushSettings?.velocityAnimationSpeedEnabled
+      );
+    } catch {
+      velocityAnimationSpeedEnabled = false;
+    }
+
+    if (!velocityAnimationSpeedEnabled || !Number.isFinite(speedSamplePxPerMs)) {
+      return 1;
+    }
+
+    const strength = resolveVelocitySpacingStrength({
+      enabled: true,
+      speedPxPerMs: speedSamplePxPerMs,
+    });
+    return MAX_PHASE_ADVANCE_PER_STAMP - strength * (MAX_PHASE_ADVANCE_PER_STAMP - 1);
+  }
+
   private getWriteCycleSpeed(strokeData?: LayerStrokeState | null): number {
     const hasActiveStrokeSpeed =
       Boolean(strokeData) &&
@@ -933,16 +958,19 @@ export class ColorCycleBrushCanvas2D {
 
   private computeColorBandIndex(strokeData: LayerStrokeState): number {
     const bands = Math.max(2, Math.min(254, Math.floor(this.gradientBands || 12)));
-    const phaseIndex = Math.max(0, Math.min(254, strokeData.stampCounter % 255));
+    const phaseIndex = ((strokeData.strokePhaseUnits % 255) + 255) % 255;
     const normalized = bands <= 1 ? 0 : phaseIndex / 254;
     const bandIndex = Math.max(0, Math.min(bands - 1, Math.round(normalized * (bands - 1))));
     return this.mapBandIndexToPaletteIndex(bandIndex, bands);
   }
 
   private computeColorBandIndexPerStamp(strokeData: LayerStrokeState): number {
-    const bands = Math.max(2, Math.min(254, Math.floor(this.gradientBands || 12)));
-    const bandIndex = Math.max(0, Math.min(bands - 1, strokeData.stampCounter % bands));
-    return this.mapBandIndexToPaletteIndex(bandIndex, bands);
+    return this.computeColorBandIndex(strokeData);
+  }
+
+  private advanceStrokePhase(strokeData: LayerStrokeState, speedSamplePxPerMs?: number): void {
+    const advance = this.resolvePhaseAdvancePerStamp(speedSamplePxPerMs);
+    strokeData.strokePhaseUnits = (strokeData.strokePhaseUnits + advance) % 255;
   }
 
 
@@ -1077,7 +1105,14 @@ export class ColorCycleBrushCanvas2D {
     return entry;
   }
 
-  paint(x: number, y: number, layerId?: string, pressure: number = 1.0, _rotation: number = 0) {
+  paint(
+    x: number,
+    y: number,
+    layerId?: string,
+    pressure: number = 1.0,
+    _rotation: number = 0,
+    speedSamplePxPerMs?: number
+  ) {
     if (typeof window !== 'undefined') {
       const globalWindow = window as typeof window & {
         __CC_probe?: { start: number; paint: number; end: number; last: Record<string, unknown> };
@@ -1103,6 +1138,7 @@ export class ColorCycleBrushCanvas2D {
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
 
     if (strokeData) {
+      this.advanceStrokePhase(strokeData, speedSamplePxPerMs);
       const colorIndex = this.computeColorBandIndex(strokeData);
       const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
@@ -1324,7 +1360,8 @@ export class ColorCycleBrushCanvas2D {
     y: number,
     layerId?: string,
     pressure: number = 1.0,
-    rotation: number = 0
+    rotation: number = 0,
+    speedSamplePxPerMs?: number
   ) {
     if (!stamp?.imageData) {
       return;
@@ -1332,6 +1369,7 @@ export class ColorCycleBrushCanvas2D {
 
     const targetLayerId = layerId || this.activeLayerId || 'default';
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
+    this.advanceStrokePhase(strokeData, speedSamplePxPerMs);
     const colorIndex = this.computeColorBandIndexPerStamp(strokeData);
     const speedByte = this.getWriteSpeedByte(strokeData);
     if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
@@ -2176,6 +2214,7 @@ export class ColorCycleBrushCanvas2D {
       );
       if (clearBuffer && !this._isHistoryRestore) {
         const preservedStampCounter = strokeData.stampCounter;
+        const preservedPhaseUnits = strokeData.strokePhaseUnits;
         strokeData.buffers.paint.fill(0);
         strokeData.buffers.gid.fill(0);
         strokeData.buffers.spd.fill(0);
@@ -2184,6 +2223,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.hasContent = false;
         // Preserve stamp counter for continuous gradient flow between shapes
         strokeData.stampCounter = preservedStampCounter;
+        strokeData.strokePhaseUnits = preservedPhaseUnits;
       }
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.strokeCycleSpeed = strokeStartSpeed;
@@ -5195,6 +5235,7 @@ export class ColorCycleBrushCanvas2D {
             sd.strokeCounter = 0;
             sd.lastPoint = null;
             sd.stampCounter = 0;
+            sd.strokePhaseUnits = 0;
             sd.snapshot = undefined;
             sd.stampDither = undefined;
           }
@@ -5790,6 +5831,7 @@ export class ColorCycleBrushCanvas2D {
     strokeData.strokeCounter = snapshot.strokeCounter || 0;
     strokeData.lastPoint = null;
     strokeData.stampCounter = 0;
+    strokeData.strokePhaseUnits = 0;
     strokeData.stampDither = undefined;
     const liveHandle = animator ? animator.beginDirectFill() : null;
     const livePaint =

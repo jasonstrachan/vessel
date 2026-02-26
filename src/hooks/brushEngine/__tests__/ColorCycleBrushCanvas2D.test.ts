@@ -537,13 +537,13 @@ describe('ColorCycleBrushCanvas2D', () => {
     const strokeData = (brush as any).ensureStrokeState('layer-1');
 
     brush.setGradientBands(4);
-    strokeData.stampCounter = 0;
+    strokeData.strokePhaseUnits = 0;
     const first = (brush as any).computeColorBandIndex(strokeData);
 
-    strokeData.stampCounter = 85;
+    strokeData.strokePhaseUnits = 85;
     const mid = (brush as any).computeColorBandIndex(strokeData);
 
-    strokeData.stampCounter = 170;
+    strokeData.strokePhaseUnits = 170;
     const nearEnd = (brush as any).computeColorBandIndex(strokeData);
 
     expect(first).not.toBe(mid);
@@ -556,15 +556,15 @@ describe('ColorCycleBrushCanvas2D', () => {
     const strokeData = (brush as any).ensureStrokeState('layer-1');
 
     brush.setGradientBands(4);
-    strokeData.stampCounter = 0;
+    strokeData.strokePhaseUnits = 0;
     const band4Start = (brush as any).computeColorBandIndex(strokeData);
-    strokeData.stampCounter = 127;
+    strokeData.strokePhaseUnits = 127;
     const band4Mid = (brush as any).computeColorBandIndex(strokeData);
 
     brush.setGradientBands(12);
-    strokeData.stampCounter = 0;
+    strokeData.strokePhaseUnits = 0;
     const band12Start = (brush as any).computeColorBandIndex(strokeData);
-    strokeData.stampCounter = 127;
+    strokeData.strokePhaseUnits = 127;
     const band12Mid = (brush as any).computeColorBandIndex(strokeData);
 
     expect(band4Mid).not.toBe(band4Start);

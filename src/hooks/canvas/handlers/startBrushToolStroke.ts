@@ -22,7 +22,7 @@ type BrushEngine = {
     y: number,
     pressure: number,
     rotation: number,
-    options?: { customStamp?: CustomBrushStrokeData }
+    options?: { customStamp?: CustomBrushStrokeData; speedSamplePxPerMs?: number }
   ) => void;
   drawBrush: (
     ctx: CanvasRenderingContext2D,

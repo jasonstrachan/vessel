@@ -37,7 +37,7 @@ type BrushEngine = {
     y: number,
     pressure: number,
     rotation: number,
-    options?: { customStamp?: CustomBrushStrokeData }
+    options?: { customStamp?: CustomBrushStrokeData; speedSamplePxPerMs?: number }
   ) => void;
 };
 
@@ -387,6 +387,7 @@ export const processBatchedStrokes = (
               y: number;
               pressure: number;
               rotation: number;
+              speedSamplePxPerMs?: number;
               customStamp?: CustomBrushStrokeData;
             }> = [];
             const MAX_STAMPS_PER_BATCH = 128;
@@ -444,6 +445,7 @@ export const processBatchedStrokes = (
                     y: sy,
                     pressure: sPressure,
                     rotation: sRotation,
+                    speedSamplePxPerMs: velocityPxPerMs,
                     customStamp: usingCustomStamp ? stampData : undefined
                   });
 
@@ -473,12 +475,19 @@ export const processBatchedStrokes = (
                         c.y,
                         c.pressure,
                         c.rotation,
-                        { customStamp: c.customStamp }
+                        {
+                          customStamp: c.customStamp,
+                          speedSamplePxPerMs: c.speedSamplePxPerMs,
+                        }
                       );
                     } else if (rotationEnabled && c.rotation !== 0) {
-                      deps.brushEngine?.drawColorCycle(ctx, c.x, c.y, c.pressure, c.rotation);
+                      deps.brushEngine?.drawColorCycle(ctx, c.x, c.y, c.pressure, c.rotation, {
+                        speedSamplePxPerMs: c.speedSamplePxPerMs,
+                      });
                     } else {
-                      deps.brushEngine?.drawColorCycle(ctx, c.x, c.y, c.pressure, 0);
+                      deps.brushEngine?.drawColorCycle(ctx, c.x, c.y, c.pressure, 0, {
+                        speedSamplePxPerMs: c.speedSamplePxPerMs,
+                      });
                     }
                   }
                 });

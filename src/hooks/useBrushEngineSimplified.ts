@@ -184,6 +184,7 @@ declare global {
  */
 type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
+  speedSamplePxPerMs?: number;
 };
 
 type ShapeFillOptions = Record<string, unknown>;

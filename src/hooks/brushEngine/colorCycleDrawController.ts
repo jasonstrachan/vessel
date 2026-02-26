@@ -8,6 +8,7 @@ import {
 
 type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
+  speedSamplePxPerMs?: number;
 };
 
 type RenderColorCycleArgs = {
@@ -359,9 +360,39 @@ export const drawColorCycleStroke = ({
       paintY >= 0 && paintY < internalCanvas.height
     ) {
       if (options?.customStamp && typeof colorCycleBrush.paintCustomStamp === 'function') {
-        colorCycleBrush.paintCustomStamp(options.customStamp, paintX, paintY, layerId, pressure, rotation);
+        if (Number.isFinite(options.speedSamplePxPerMs)) {
+          colorCycleBrush.paintCustomStamp(
+            options.customStamp,
+            paintX,
+            paintY,
+            layerId,
+            pressure,
+            rotation,
+            options.speedSamplePxPerMs
+          );
+        } else {
+          colorCycleBrush.paintCustomStamp(
+            options.customStamp,
+            paintX,
+            paintY,
+            layerId,
+            pressure,
+            rotation
+          );
+        }
       } else {
-        colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
+        if (Number.isFinite(options?.speedSamplePxPerMs)) {
+          colorCycleBrush.paint(
+            paintX,
+            paintY,
+            layerId,
+            pressure,
+            rotation,
+            options?.speedSamplePxPerMs
+          );
+        } else {
+          colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
+        }
       }
     }
 
