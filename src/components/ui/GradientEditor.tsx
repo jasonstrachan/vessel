@@ -50,6 +50,94 @@ const normalizeStops = (stops: Array<GradientStop | PresetGradientStop>): Gradie
 
 const clampAlpha = (value: number): number => Math.max(0, Math.min(1, value));
 
+type ParsedColor = { r: number; g: number; b: number; a: number };
+
+const parseHexColor = (value: string): ParsedColor | null => {
+  const normalized = value.trim();
+  if (/^#[0-9A-F]{3}$/i.test(normalized)) {
+    const r = parseInt(normalized[1] + normalized[1], 16);
+    const g = parseInt(normalized[2] + normalized[2], 16);
+    const b = parseInt(normalized[3] + normalized[3], 16);
+    return { r, g, b, a: 1 };
+  }
+
+  if (/^#[0-9A-F]{6}$/i.test(normalized)) {
+    return {
+      r: parseInt(normalized.slice(1, 3), 16),
+      g: parseInt(normalized.slice(3, 5), 16),
+      b: parseInt(normalized.slice(5, 7), 16),
+      a: 1,
+    };
+  }
+
+  if (!/^#[0-9A-F]{8}$/i.test(normalized)) {
+    return null;
+  }
+
+  return {
+    r: parseInt(normalized.slice(1, 3), 16),
+    g: parseInt(normalized.slice(3, 5), 16),
+    b: parseInt(normalized.slice(5, 7), 16),
+    a: parseInt(normalized.slice(7, 9), 16) / 255,
+  };
+};
+
+const parseRgbColor = (value: string): ParsedColor | null => {
+  const normalized = value.trim();
+  const match = normalized.match(/^rgba?\(([^)]+)\)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const parts = match[1].split(',').map((part) => part.trim());
+  if (parts.length < 3) {
+    return null;
+  }
+
+  const parseChannel = (raw: string): number => {
+    if (raw.endsWith('%')) {
+      const pct = Number.parseFloat(raw.slice(0, -1));
+      return Number.isFinite(pct) ? Math.max(0, Math.min(255, (pct / 100) * 255)) : 0;
+    }
+    const value = Number.parseFloat(raw);
+    return Number.isFinite(value) ? Math.max(0, Math.min(255, value)) : 0;
+  };
+
+  const r = parseChannel(parts[0]);
+  const g = parseChannel(parts[1]);
+  const b = parseChannel(parts[2]);
+  const a = parts[3] !== undefined ? clampAlpha(Number.parseFloat(parts[3])) : 1;
+  return { r, g, b, a };
+};
+
+const parseColor = (value: string): ParsedColor | null => {
+  const normalized = value.trim();
+  if (normalized.toLowerCase() === 'transparent') {
+    return { r: 0, g: 0, b: 0, a: 0 };
+  }
+
+  return parseHexColor(normalized) ?? parseRgbColor(normalized);
+};
+
+const CHECKERBOARD_AVG = { r: 239, g: 239, b: 242 };
+
+const toLinear = (channel: number): number => {
+  const srgb = channel / 255;
+  if (srgb <= 0.04045) {
+    return srgb / 12.92;
+  }
+  return ((srgb + 0.055) / 1.055) ** 2.4;
+};
+
+const relativeLuminance = (r: number, g: number, b: number): number =>
+  (0.2126 * toLinear(r)) + (0.7152 * toLinear(g)) + (0.0722 * toLinear(b));
+
+const contrastRatio = (l1: number, l2: number): number => {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
 const getStopFillColor = (stop: GradientStop): string => {
   const colorValue = stop.color ?? '#000000';
   const normalizedColor = colorValue.trim();
@@ -59,14 +147,36 @@ const getStopFillColor = (stop: GradientStop): string => {
     return 'transparent';
   }
 
-  if (/^#[0-9A-F]{6}$/i.test(normalizedColor)) {
-    const r = parseInt(normalizedColor.slice(1, 3), 16);
-    const g = parseInt(normalizedColor.slice(3, 5), 16);
-    const b = parseInt(normalizedColor.slice(5, 7), 16);
+  const parsedHex = parseHexColor(normalizedColor);
+  if (parsedHex) {
+    const { r, g, b } = parsedHex;
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
   return normalizedColor;
+};
+
+const getStopBorderColor = (stop: GradientStop, isSelected: boolean): string => {
+  const parsed = parseColor(stop.color ?? '#000000');
+  if (!parsed) {
+    return isSelected ? 'rgba(0, 0, 0, 1)' : 'rgba(0, 0, 0, 0.82)';
+  }
+
+  const explicitOpacity = clampAlpha(stop.opacity ?? 1);
+  const effectiveAlpha = clampAlpha(parsed.a * explicitOpacity);
+  const bg = CHECKERBOARD_AVG;
+  const blendedR = Math.round((parsed.r * effectiveAlpha) + (bg.r * (1 - effectiveAlpha)));
+  const blendedG = Math.round((parsed.g * effectiveAlpha) + (bg.g * (1 - effectiveAlpha)));
+  const blendedB = Math.round((parsed.b * effectiveAlpha) + (bg.b * (1 - effectiveAlpha)));
+  const swatchL = relativeLuminance(blendedR, blendedG, blendedB);
+  const whiteContrast = contrastRatio(swatchL, 1);
+  const blackContrast = contrastRatio(swatchL, 0);
+  const useWhiteBorder = whiteContrast > blackContrast;
+
+  if (useWhiteBorder) {
+    return isSelected ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.86)';
+  }
+  return isSelected ? 'rgba(0, 0, 0, 1)' : 'rgba(0, 0, 0, 0.82)';
 };
 
 // Load custom gradients from localStorage and merge with defaults
@@ -968,13 +1078,13 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                 }}
               >
                 <div
-                  className="pointer-events-none absolute inset-0 border border-white mix-blend-difference"
+                  className="pointer-events-none absolute inset-0"
                   aria-hidden="true"
-                />
-                <div
-                  className={`pointer-events-none absolute inset-0 ${selectedStop === index ? 'border-white/40' : 'border-black/60'}`}
-                  aria-hidden="true"
-                  style={{ mixBlendMode: 'normal' }}
+                  style={{
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: getStopBorderColor(stop, selectedStop === index),
+                  }}
                 />
               </div>
             </div>

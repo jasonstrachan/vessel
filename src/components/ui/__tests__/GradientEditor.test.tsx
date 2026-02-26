@@ -155,6 +155,24 @@ describe('GradientEditor', () => {
     expect(transparentHandle?.style.opacity).toBe('');
   });
 
+  it('uses adaptive border contrast for swatch boxes', () => {
+    const { container } = render(
+      <GradientEditor
+        stops={[
+          { position: 0, color: '#FFFFFF' },
+          { position: 0.5, color: '#000000' },
+          { position: 1, color: 'transparent' },
+        ]}
+        onChange={jest.fn()}
+      />
+    );
+
+    const borders = Array.from(container.querySelectorAll('.gradient-editor div[style*="border-color"]')) as HTMLDivElement[];
+    expect(borders.length).toBeGreaterThanOrEqual(3);
+    expect(borders.some((node) => node.style.borderColor.includes('0, 0, 0'))).toBe(true);
+    expect(borders.some((node) => node.style.borderColor.includes('255, 255, 255'))).toBe(true);
+  });
+
   it('persists edits made to preset dropdown gradients as overrides', () => {
     const { container } = render(
       <GradientEditor
