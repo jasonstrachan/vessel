@@ -141,7 +141,7 @@ const resolvePaintedBounds = (bounds?: Rect | null, fallback?: Size2D): Rect => 
 // Fit modes share a single sizing basis so contain/cover/fill behave consistently:
 // - By default we respect the full document bounds, but once painted bounds exist we
 //   scale against the visible pixels so AUTO/ANCHOR don't drift from the user's crop.
-// - Anchor never scales; it just positions the raw painted rectangle inside the viewport.
+// - Anchor affects translation only; fit mode remains responsible for scale.
 const getBasisSize = (
   document: Size2D,
   paintedBounds: Rect | null,
@@ -220,11 +220,6 @@ export const computeLayerTransform = (
       scaleY = 1;
       break;
     }
-  }
-
-  if (isAnchor) {
-    scaleX = 1;
-    scaleY = 1;
   }
 
   const renderedWidth = basisWidth * scaleX;

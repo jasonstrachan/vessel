@@ -52,10 +52,100 @@ const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !p
 
 const WEBGL_VIEWPORT_PRESETS = [
   { value: 'fill', label: 'Fill window' },
-  { value: 'fixed', label: 'Design size' }
+  { value: 'fixed', label: 'Fixed canvas' }
 ] as const;
 
 type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
+
+const WEBGL_DESIGN_SCALE_PRESETS = [50, 100, 200, 300, 400] as const;
+
+const clampWebglDesignScalePercent = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return 100;
+  }
+  return Math.max(25, Math.min(800, Math.round(value)));
+};
+
+interface LoopFrameSuggestion {
+  frames: number;
+  success: boolean;
+  duration: number;
+}
+
+const computeBestLoopSuggestion = ({
+  fps,
+  durationSeconds,
+  layers,
+  brushCycleSpeed,
+}: {
+  fps: number;
+  durationSeconds: number;
+  layers: Layer[];
+  brushCycleSpeed: number;
+}): LoopFrameSuggestion => {
+  const safeFps = Math.max(1, Math.floor(fps));
+  const targetFrames = Math.max(1, Math.round(durationSeconds * safeFps));
+  const recolorSpeeds: number[] = layers
+    .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor' && layer.colorCycleData?.recolorSettings)
+    .map((layer) => layer.colorCycleData!.recolorSettings!.animation.speed || 0.1)
+    .filter((speed) => Number.isFinite(speed) && speed > 0);
+  const brushSpeeds: number[] = layers
+    .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor')
+    .map(() => brushCycleSpeed)
+    .filter((speed) => Number.isFinite(speed) && speed > 0);
+  const speeds = [...recolorSpeeds, ...brushSpeeds];
+
+  if (speeds.length === 0) {
+    return { frames: targetFrames, success: false, duration: targetFrames / safeFps };
+  }
+
+  const minFrames = 8;
+  const maxFrames = Math.max(minFrames, Math.round(safeFps * 20));
+  const epsilon = 1e-3;
+
+  for (let frameCount = minFrames; frameCount <= maxFrames; frameCount++) {
+    let exact = true;
+    for (const speed of speeds) {
+      const cycles = (speed * frameCount) / safeFps;
+      const residual = Math.abs(cycles - Math.round(cycles));
+      if (residual >= epsilon) {
+        exact = false;
+        break;
+      }
+    }
+    if (exact) {
+      return { frames: frameCount, success: true, duration: frameCount / safeFps };
+    }
+  }
+
+  const searchRadius = Math.max(50, Math.round(targetFrames * 0.5));
+  const start = Math.max(minFrames, targetFrames - searchRadius);
+  const end = Math.min(maxFrames, targetFrames + searchRadius);
+  let bestFrames = targetFrames;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let frameCount = start; frameCount <= end; frameCount++) {
+    let maxResidual = 0;
+    for (const speed of speeds) {
+      const cycles = (speed * frameCount) / safeFps;
+      const residual = Math.abs(cycles - Math.round(cycles));
+      if (residual > maxResidual) {
+        maxResidual = residual;
+      }
+      if (maxResidual > bestScore) {
+        break;
+      }
+    }
+    const distance = Math.abs(frameCount - targetFrames) / Math.max(1, targetFrames);
+    const score = maxResidual + distance * 1e-3;
+    if (score < bestScore) {
+      bestScore = score;
+      bestFrames = frameCount;
+    }
+  }
+
+  return { frames: bestFrames, success: false, duration: bestFrames / safeFps };
+};
 
 interface CollapsibleSectionProps {
   id: string;
@@ -186,6 +276,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   // Video options
   const [videoFps, setVideoFps] = useState(30);
   const [videoDuration, setVideoDuration] = useState(3);
+  const [videoAutoFrames, setVideoAutoFrames] = useState(true);
   const [videoMime, setVideoMime] = useState<'video/mp4' | 'video/webm'>('video/webm');
   const [videoBitrate, setVideoBitrate] = useState(6000); // kbps
 
@@ -201,6 +292,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
   const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
   const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('fill');
+  const [webglDesignScalePercent, setWebglDesignScalePercent] = useState(100);
   const hasSequentialLayers = useMemo(
     () => hasSequentialExportLayers(layers),
     [layers]
@@ -486,73 +578,61 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   }, [gifDuration, gifFps, gifFrameStep, layers]);
 
   const resolvedWebglViewport = useMemo(() => {
-    const fallbackWidth = project?.width ?? 1024;
-    const fallbackHeight = project?.height ?? 1024;
-    return { designWidth: fallbackWidth, designHeight: fallbackHeight };
-  }, [project?.height, project?.width]);
+    const fallbackWidth = Math.max(1, Math.round(project?.width ?? 1024));
+    const fallbackHeight = Math.max(1, Math.round(project?.height ?? 1024));
+    const scalePercent = clampWebglDesignScalePercent(webglDesignScalePercent);
+
+    if (webglViewportPreset === 'fill') {
+      return {
+        designWidth: fallbackWidth,
+        designHeight: fallbackHeight,
+        scalePercent: 100
+      };
+    }
+
+    const factor = scalePercent / 100;
+    return {
+      designWidth: Math.max(1, Math.round(fallbackWidth * factor)),
+      designHeight: Math.max(1, Math.round(fallbackHeight * factor)),
+      scalePercent
+    };
+  }, [project?.height, project?.width, webglDesignScalePercent, webglViewportPreset]);
 
   const webglFrameSuggestion = useMemo(() => {
     try {
-      const fps = Math.max(1, Math.floor(webglFps));
-      const targetFrames = Math.max(1, Math.round(webglDuration * fps));
       const store = useAppStore.getState();
-      const recolorSpeeds: number[] = layers
-        .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings)
-        .map(l => l.colorCycleData!.recolorSettings!.animation.speed || 0.1)
-        .filter(s => Number.isFinite(s) && s > 0);
-      const brushSpeeds: number[] = layers
-        .filter(l => l.layerType === 'color-cycle' && (l.colorCycleData?.mode !== 'recolor'))
-        .map(() => (store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
-        .filter(s => Number.isFinite(s) && s > 0);
-      const speeds = [...recolorSpeeds, ...brushSpeeds];
-
-      if (speeds.length === 0) {
-        return { frames: targetFrames, success: false, duration: targetFrames / fps };
-      }
-
-      const minFrames = 8;
-      const maxFrames = Math.max(minFrames, Math.round(fps * 20));
-      const EPS = 1e-3;
-
-      for (let f = minFrames; f <= maxFrames; f++) {
-        let ok = true;
-        for (const s of speeds) {
-          const cycles = (s * f) / fps;
-          const residual = Math.abs(cycles - Math.round(cycles));
-          if (residual >= EPS) { ok = false; break; }
-        }
-        if (ok) {
-          return { frames: f, success: true, duration: f / fps };
-        }
-      }
-
-      const searchRadius = Math.max(50, Math.round(targetFrames * 0.5));
-      const start = Math.max(minFrames, targetFrames - searchRadius);
-      const end = Math.min(maxFrames, targetFrames + searchRadius);
-      let best = targetFrames;
-      let bestScore = Number.POSITIVE_INFINITY;
-      for (let f = start; f <= end; f++) {
-        let maxResidual = 0;
-        for (const s of speeds) {
-          const cycles = (s * f) / fps;
-          const residual = Math.abs(cycles - Math.round(cycles));
-          if (residual > maxResidual) maxResidual = residual;
-          if (maxResidual > bestScore) break;
-        }
-        const dist = Math.abs(f - targetFrames) / Math.max(1, targetFrames);
-        const score = maxResidual + dist * 1e-3;
-        if (score < bestScore) {
-          bestScore = score;
-          best = f;
-        }
-      }
-      return { frames: best, success: false, duration: best / fps };
+      return computeBestLoopSuggestion({
+        fps: webglFps,
+        durationSeconds: webglDuration,
+        layers,
+        brushCycleSpeed: store.tools?.brushSettings?.colorCycleSpeed ?? 0.1,
+      });
     } catch {
       const fps = Math.max(1, Math.floor(webglFps));
       const fallbackFrames = Math.max(1, Math.round(webglDuration * fps));
       return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
     }
   }, [layers, webglDuration, webglFps]);
+
+  const videoFrameSuggestion = useMemo(() => {
+    try {
+      const store = useAppStore.getState();
+      return computeBestLoopSuggestion({
+        fps: videoFps,
+        durationSeconds: videoDuration,
+        layers,
+        brushCycleSpeed: store.tools?.brushSettings?.colorCycleSpeed ?? 0.1,
+      });
+    } catch {
+      const fps = Math.max(1, Math.floor(videoFps));
+      const fallbackFrames = Math.max(1, Math.round(videoDuration * fps));
+      return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
+    }
+  }, [layers, videoDuration, videoFps]);
+
+  const videoEffectiveDuration = useMemo(() => (
+    videoAutoFrames ? videoFrameSuggestion.duration : Math.max(1, videoDuration)
+  ), [videoAutoFrames, videoDuration, videoFrameSuggestion.duration]);
 
   const webglTotalFrames = useMemo(() => {
     const fps = Math.max(1, Math.floor(webglFps));
@@ -954,8 +1034,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   layers,
                   layout: project.exportLayout ?? createDefaultExportLayout(),
                   viewport: {
-                    designWidth: project?.width ?? 1024,
-                    designHeight: project?.height ?? 1024,
+                    designWidth: resolvedWebglViewport.designWidth,
+                    designHeight: resolvedWebglViewport.designHeight,
                     mode: (webglViewportPreset === 'fill' ? 'fill' : 'fixed') as 'fill' | 'fixed'
                   },
                   fps: Math.max(1, Math.floor(webglFps)),
@@ -965,6 +1045,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   includeHiddenLayers: webglIncludeHidden,
                   embedCanvasFallback: webglEmbedFallback,
                   minify: webglMinify,
+                  pixelPerfectStack: webglViewportPreset === 'fixed',
                   filenameBase,
                   bundleFormat: webglBundleFormat,
                   gobletVersion: webglGobletVersion,
@@ -984,7 +1065,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               frameProvider,
               options: {
                 fps: videoFps,
-                durationSeconds: videoDuration,
+                durationSeconds: videoEffectiveDuration,
                 mimeType: videoMime,
                 bitrateKbps: videoBitrate
               }
@@ -1003,6 +1084,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       } else {
         if (result.kind === 'gif') {
           setGifPaletteCount(result.paletteSize);
+        }
+        if (result.kind === 'video' && videoMime === 'video/mp4' && !result.mimeType.includes('mp4')) {
+          addNotification({
+            type: 'warning',
+            title: 'Exported as WebM',
+            message: 'This browser does not support MP4 recording with MediaRecorder. Saved as WebM instead.',
+            timestamp: new Date(),
+            duration: 5000
+          });
         }
         downloadBlob(result.blob, result.filename);
       }
@@ -1311,8 +1401,45 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   </div>
                   <p className={`${MODAL_TEXT_SECONDARY} text-xs mt-3`}>
                   Using {resolvedWebglViewport.designWidth} × {resolvedWebglViewport.designHeight} px
+                  {webglViewportPreset === 'fixed' ? ` (${resolvedWebglViewport.scalePercent}%)` : ''}
                   </p>
                 </div>
+                {webglViewportPreset === 'fixed' && (
+                  <div className="space-y-2">
+                    <label className="flex items-center justify-between gap-3">
+                      <span className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Design scale (%)</span>
+                      <Input
+                        type="number"
+                        min={25}
+                        max={800}
+                        step={1}
+                        value={webglDesignScalePercent}
+                        onChange={(event) => {
+                          const parsed = parseInt(event.target.value, 10);
+                          setWebglDesignScalePercent(clampWebglDesignScalePercent(parsed));
+                        }}
+                        className={`${INPUT_OVERRIDE_CLASS} w-24 text-right`}
+                        disabled={isExporting}
+                      />
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {WEBGL_DESIGN_SCALE_PRESETS.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setWebglDesignScalePercent(preset)}
+                          className={`${TOGGLE_BASE_CLASS} ${webglDesignScalePercent === preset ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
+                          disabled={isExporting}
+                        >
+                          {preset}%
+                        </button>
+                      ))}
+                    </div>
+                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                      Pixel-safe tip: use integer multiples (100%, 200%, 300%) for the cleanest pixel edges.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="flex flex-col gap-2">
@@ -1424,6 +1551,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   Diagnostics helpers log Goblet runtime state to the console and expose `vesselGobletSetDiagnostics(true)` at runtime.
                   Disable for production hand-offs.
                 </p>
+                {webglViewportPreset === 'fixed' && (
+                  <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                    Design size automatically uses pixel-perfect stacking (edge-to-edge identity layer placement).
+                  </p>
+                )}
                 <div className="flex flex-col gap-2">
                   <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Packaging</label>
                   <select
@@ -1509,7 +1641,34 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Duration (s)</label>
-                <Input type="number" min={1} max={60} value={videoDuration} onChange={(e) => setVideoDuration(Math.max(1, Math.min(60, parseInt(e.target.value)||1)))} className="w-24 text-right" />
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  step={0.5}
+                  value={videoDuration}
+                  onChange={(e) => setVideoDuration(Math.max(1, Math.min(60, parseFloat(e.target.value) || 1)))}
+                  className="w-24 text-right"
+                  disabled={videoAutoFrames}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
+                  <span className="font-medium">Perfect loop (best guess)</span>
+                  <input
+                    type="checkbox"
+                    className="accent-[#D9D9D9]"
+                    checked={videoAutoFrames}
+                    onChange={(event) => setVideoAutoFrames(event.target.checked)}
+                    disabled={isExporting}
+                  />
+                </label>
+                <span className="text-xs text-[#aaa]">
+                  {videoFrameSuggestion.frames} frames ({videoFrameSuggestion.success ? 'exact' : 'approx'}) at {Math.max(1, Math.floor(videoFps))} FPS
+                </span>
+                <span className="text-xs text-[#aaa]">
+                  Playback duration: {videoEffectiveDuration.toFixed(2)}s
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Format</label>

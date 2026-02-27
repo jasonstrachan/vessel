@@ -43,22 +43,32 @@ describe('computeLayerTransform', () => {
   const documentSize = { width: 100, height: 50 };
   const viewport = { width: 200, height: 200 };
 
-  const expectedAnchorTranslation = (doc: { width: number; height: number }, view: { width: number; height: number }) => ({
-    x: (view.width - doc.width) / 2,
-    y: (view.height - doc.height) / 2,
+  const expectedAnchorTranslation = (
+    rendered: { width: number; height: number },
+    view: { width: number; height: number }
+  ) => ({
+    x: (view.width - rendered.width) / 2,
+    y: (view.height - rendered.height) / 2,
   });
 
-  test('anchor positioning keeps unit scale and centers leftover area for contain', () => {
+  test('anchor positioning applies contain scaling and centers leftover area', () => {
     const transform = computeLayerTransform(documentSize, viewport, { ...anchorAlignment, fit: 'contain' });
 
-    expectClose(transform.scaleX, 1);
-    expectClose(transform.scaleY, 1);
-    const expected = expectedAnchorTranslation(documentSize, viewport);
+    const expectedScale = Math.min(viewport.width / documentSize.width, viewport.height / documentSize.height);
+    expectClose(transform.scaleX, expectedScale);
+    expectClose(transform.scaleY, expectedScale);
+    const expected = expectedAnchorTranslation(
+      {
+        width: documentSize.width * expectedScale,
+        height: documentSize.height * expectedScale
+      },
+      viewport
+    );
     expectClose(transform.translateX, expected.x);
     expectClose(transform.translateY, expected.y);
   });
 
-  test('anchor positioning ignores fit scaling but honors percent offsets', () => {
+  test('anchor positioning honors fit scaling and percent offsets', () => {
     const percentShift: LayerAlignmentSettings = {
       ...anchorAlignment,
       fit: 'cover',
@@ -68,11 +78,14 @@ describe('computeLayerTransform', () => {
     };
 
     const transform = computeLayerTransform(documentSize, viewport, percentShift);
-    expectClose(transform.scaleX, 1);
-    expectClose(transform.scaleY, 1);
+    const expectedScale = Math.max(viewport.width / documentSize.width, viewport.height / documentSize.height);
+    expectClose(transform.scaleX, expectedScale);
+    expectClose(transform.scaleY, expectedScale);
 
-    const leftoverX = viewport.width - documentSize.width;
-    const leftoverY = viewport.height - documentSize.height;
+    const renderedWidth = documentSize.width * expectedScale;
+    const renderedHeight = documentSize.height * expectedScale;
+    const leftoverX = viewport.width - renderedWidth;
+    const leftoverY = viewport.height - renderedHeight;
     expectClose(transform.translateX, leftoverX * 0.75);
     expectClose(transform.translateY, leftoverY * 0.25);
   });
