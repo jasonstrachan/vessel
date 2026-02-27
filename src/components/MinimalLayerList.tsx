@@ -514,7 +514,10 @@ const MinimalLayerList = () => {
     }
 
     const selection = selectedLayerIdsRef.current;
-    const shouldApplyToSelection = selection.includes(layerId) && selection.length > 1;
+    const shouldApplyToSelection =
+      (event.shiftKey || event.metaKey || event.ctrlKey) &&
+      selection.includes(layerId) &&
+      selection.length > 1;
     const layerIdsToUpdate = shouldApplyToSelection ? selection : [layerId];
     const nextVisible = !targetLayer.visible;
 
@@ -687,7 +690,7 @@ const MinimalLayerList = () => {
       <div className="flex-1 overflow-y-auto">
         <div className="py-1">
           {displayedLayerIds.map((layerId, index) => (
-            <React.Fragment key={layerId}>
+            <React.Fragment key={`${layerId}-${index}`}>
               <DropSlot
                 index={index}
                 onDragOverIndex={onDragOverIndex}
