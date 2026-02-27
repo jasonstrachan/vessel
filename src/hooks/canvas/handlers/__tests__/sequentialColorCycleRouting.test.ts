@@ -697,4 +697,99 @@ describe('sequential color-cycle routing', () => {
     expect(extendMaskHealingStroke).not.toHaveBeenCalled();
     expect(deps.scheduleRecompose).not.toHaveBeenCalled();
   });
+
+  it('expands clipping bounds by brush radius to keep edge strokes continuous', () => {
+    createSequentialState();
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.ROUND,
+          size: 20,
+        },
+      },
+    }));
+
+    const drawCtx = document.createElement('canvas').getContext('2d');
+    if (!drawCtx) {
+      throw new Error('2d context unavailable');
+    }
+
+    const clipLineSegment = jest.fn<
+      ReturnType<ProcessBatchedStrokesDeps['clipLineSegment']>,
+      Parameters<ProcessBatchedStrokesDeps['clipLineSegment']>
+    >(() => null);
+    const args: ProcessBatchedStrokesArgs = {
+      strokeBatchRef: {
+        current: [
+          { pos: { x: 2, y: 2 }, pressure: 0.5 },
+          { pos: { x: -6, y: 4 }, pressure: 0.5 },
+        ],
+      },
+      strokeBatchTimerRef: { current: 1 },
+      drawingCtxRef: { current: drawCtx },
+      lastDrawPosRef: { current: { x: 2, y: 2 } },
+      lastDrawTimestampRef: { current: null },
+      brushSamplingPreviewActiveRef: { current: false },
+      autoSamplePointsRef: { current: [] },
+      ccSampledPointsRef: { current: [] },
+      resamplerBrushDataRef: { current: undefined },
+      stampCounterRef: { current: 0 },
+      colorCyclePixelQueueRef: { current: null },
+      colorCycleDistanceRef: { current: 0 },
+      colorCycleLastPosRef: { current: { x: 2, y: 2 } },
+      colorCycleLastRotationRef: { current: 0 },
+      eraserToolRef: { current: null },
+      eraserRoiRef: { current: null },
+    };
+
+    const deps: ProcessBatchedStrokesDeps = {
+      storeRef: { current: useAppStore.getState() },
+      project: { width: 32, height: 32 },
+      brushEngine: {
+        drawBrush: jest.fn(),
+        consumeRecentStamps: jest.fn(() => []),
+        drawColorCycle: jest.fn(),
+      },
+      userBrushEngine: {
+        isUserBrush: () => false,
+        continueStroke: jest.fn(),
+      },
+      drawEraserSegment: jest.fn(),
+      updateAutoSampledGradient: jest.fn(),
+      updateCcSampledGradient: jest.fn(),
+      renderBrushSamplingPreview: jest.fn(),
+      getCCStampTargetCtx: () => null,
+      scheduleRecompose: jest.fn(),
+      extendMaskHealingStroke: jest.fn(),
+      createPixelQueue,
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      resolveActiveCustomBrushData: () => undefined,
+      getColorCycleBrushFlags: () => ({ isAny: false, isCustom: false }),
+      selectEffectiveColorCyclePlaying: () => true,
+      shouldPixelAlignBrush: () => false,
+      alignPointToPixel: (point) => point,
+      clipLineSegment,
+      shouldDrawStamp: () => true,
+      shouldApplyGridSnapPure: () => false,
+      calculateGridSpacing: () => 1,
+      snapToGridPure: (x, y) => ({ x, y }),
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      captureBrushFromCanvas: jest.fn(() => null),
+      isEraserV2: false,
+    };
+
+    processBatchedStrokes(args, deps);
+
+    expect(clipLineSegment).toHaveBeenCalled();
+    expect(clipLineSegment.mock.calls[0]?.[2]).toEqual({
+      x: -12,
+      y: -12,
+      width: 56,
+      height: 56,
+    });
+  });
 });

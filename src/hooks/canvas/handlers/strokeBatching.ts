@@ -180,7 +180,28 @@ export const processBatchedStrokes = (
     return;
   }
 
-  const boundary = { x: 0, y: 0, width: deps.project.width, height: deps.project.height };
+  const resolveActiveStrokeSize = (): number => {
+    const brushSize = Math.max(1, currentState.tools.brushSettings.size ?? currentState.globalBrushSize ?? 1);
+    if (currentTool !== 'eraser') {
+      return brushSize;
+    }
+
+    const eraserSettings = currentState.tools.eraserSettings;
+    if (!eraserSettings) {
+      return brushSize;
+    }
+    if (eraserSettings.linkSizeToBrush) {
+      return brushSize;
+    }
+    return Math.max(1, eraserSettings.size ?? brushSize);
+  };
+  const strokeBoundaryPadding = Math.ceil(resolveActiveStrokeSize() / 2) + 2;
+  const boundary = {
+    x: -strokeBoundaryPadding,
+    y: -strokeBoundaryPadding,
+    width: deps.project.width + strokeBoundaryPadding * 2,
+    height: deps.project.height + strokeBoundaryPadding * 2,
+  };
   const ccProcessFlags = deps.getColorCycleBrushFlags(currentState.tools.brushSettings);
   const shouldAlignStroke = alignPixelStrokes && !ccProcessFlags.isAny;
   const captureSequentialStamps = (
