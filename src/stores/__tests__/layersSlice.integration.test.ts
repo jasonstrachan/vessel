@@ -360,6 +360,35 @@ describe('layers slice integration', () => {
     expect(nextState.layersNeedRecomposition).toBe(false);
   });
 
+  it('updates only the first matching layer when duplicate ids exist', () => {
+    const sharedId = 'duplicate-layer-id';
+    const firstLayer: Layer = {
+      ...createNormalLayerInput('Layer A'),
+      id: sharedId,
+      order: 0,
+    };
+    const secondLayer: Layer = {
+      ...createNormalLayerInput('Layer B'),
+      id: sharedId,
+      order: 1,
+    };
+
+    useAppStore.setState((state) => ({
+      ...state,
+      layers: [firstLayer, secondLayer],
+      activeLayerId: sharedId,
+      selectedLayerIds: [sharedId],
+      layersNeedRecomposition: false,
+    }));
+
+    useAppStore.getState().updateLayer(sharedId, { visible: false });
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers[0]?.visible).toBe(false);
+    expect(nextState.layers[1]?.visible).toBe(true);
+    expect(nextState.layersNeedRecomposition).toBe(true);
+  });
+
   it('creates, renames, and removes a layer group', () => {
     const store = useAppStore.getState();
     const layerA = store.addLayer(createNormalLayerInput('Layer A'));

@@ -2067,8 +2067,15 @@ export const createLayersSlice = (
       console.trace('Stack trace for layer type change');
     }
     
+    let didUpdateMatchingLayer = false;
+    let duplicateIdMatchCount = 0;
     const updatedLayers = state.layers.map(layer => {
       if (layer.id === id) {
+        duplicateIdMatchCount += 1;
+        if (didUpdateMatchingLayer) {
+          return layer;
+        }
+        didUpdateMatchingLayer = true;
         // Start with a shallow copy
         const updatedLayer = { ...layer };
         
@@ -2187,6 +2194,13 @@ export const createLayersSlice = (
       return layer;
     });
 
+    if (duplicateIdMatchCount > 1) {
+      logError('updateLayer detected duplicate layer IDs; only first match was updated', {
+        layerId: id,
+        duplicateIdMatchCount,
+      });
+    }
+
     // Check if visual properties changed that require recomposition
     const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates || 
                                'colorCycleData' in updates || 'layerType' in updates;
@@ -2236,7 +2250,11 @@ export const createLayersSlice = (
         // Remove the project update entirely - only update top-level layers
       };
     });
-    get().markCompositeSegmentsDirtyByLayerIds([id]);
+    if ('visible' in updates) {
+      get().markAllCompositeSegmentsDirty();
+    } else {
+      get().markCompositeSegmentsDirtyByLayerIds([id]);
+    }
   },
   appendSequentialLayerEvent: (layerId, event, metadata) => {
     get().appendSequentialLayerEvents(layerId, [event], metadata);
@@ -2351,7 +2369,7 @@ export const createLayersSlice = (
         layerIds: targetIds,
       },
     });
-    get().markCompositeSegmentsDirtyByLayerIds(targetIds);
+    get().markAllCompositeSegmentsDirty();
   },
   toggleLayersVisibility: (layerIds) => {
     const uniqueIds = Array.from(new Set(layerIds));
@@ -2411,7 +2429,7 @@ export const createLayersSlice = (
         layerIds: targetIds,
       },
     });
-    get().markCompositeSegmentsDirtyByLayerIds(targetIds);
+    get().markAllCompositeSegmentsDirty();
   },
   createLayerGroupFromSelection: (layerIds) => {
     const stateBeforeChange = get();
