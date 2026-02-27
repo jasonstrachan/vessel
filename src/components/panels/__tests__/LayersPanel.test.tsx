@@ -328,6 +328,10 @@ describe('LayersPanel interactions', () => {
       ]),
     );
     render(<LayersPanel />);
+    const rows = getLayerRows();
+    expect(rows[0]?.firstElementChild?.className).toContain('pl-4');
+    expect(rows[1]?.firstElementChild?.className).not.toContain('pl-4');
+    expect(rows[2]?.firstElementChild?.className).toContain('pl-4');
 
     expect(screen.getAllByText('Foreground').length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByTitle('Show group: Foreground')[0] as Element);

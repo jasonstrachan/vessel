@@ -597,7 +597,7 @@ const LayersPanel: React.FC = () => {
       <div className="flex-1 min-h-0 overflow-y-auto">
         {(() => {
           const renderedGroupIds = new Set<string>();
-          return visibleLayers.map(layer => {
+          return visibleLayers.map((layer, index) => {
           const isActive = activeLayerId === layer.id;
           const isSelected = selectedLayerIds.includes(layer.id);
           const isHighlighted = isActive || isSelected;
@@ -640,7 +640,7 @@ const LayersPanel: React.FC = () => {
             : 'hover:text-red-500';
 
           return (
-            <React.Fragment key={layer.id}>
+            <React.Fragment key={`${layer.id}-${layer.order}-${index}`}>
               {shouldRenderGroupHeader && groupId && (
                 <div
                   draggable
@@ -746,7 +746,7 @@ const LayersPanel: React.FC = () => {
                 onDrop={event => handleDrop(event, layer.id)}
                 onDragEnd={handleDragEnd}
               >
-                <div className="flex items-center px-2 py-1.5">
+                <div className={`flex items-center px-2 py-1.5 ${groupId ? 'pl-4' : ''}`}>
                 <button
                   onClick={event => {
                     event.stopPropagation();
