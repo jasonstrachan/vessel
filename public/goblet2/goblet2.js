@@ -4699,7 +4699,7 @@ class VesselGoblet {
           height: paintedRect.height
         },
         frame: viewportFrame,
-        design: designSize,
+        design: isFixed ? undefined : designSize,
         doc: documentSize,
         align
       };
