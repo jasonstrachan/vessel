@@ -153,4 +153,3 @@ describe('ExportModal webgl preflight', () => {
     expect(runExportMock).not.toHaveBeenCalled();
   });
 });
-

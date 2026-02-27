@@ -1,9 +1,20 @@
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
-import type { ExportContainerLayout, Project } from '@/types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import type { ExportContainerLayout, Layer, Project } from '@/types';
 
 const mockBlobUrl = 'blob:tinybrush-test';
 
 beforeAll(() => {
+  if (typeof HTMLCanvasElement !== 'undefined') {
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+      configurable: true,
+      writable: true,
+      value: function toBlob(callback: BlobCallback, type?: string): void {
+        callback(new Blob([''], { type: type ?? 'image/png' }));
+      },
+    });
+  }
+
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
     writable: true,
@@ -94,5 +105,70 @@ describe('exportProjectAsWebGL viewport smoke test', () => {
       designHeight: project.height,
       mode: 'fixed',
     });
+  });
+
+  it('uses scaled identity placement for fixed canvas mode (no crop at 50%)', async () => {
+    const project = createProject();
+    const layerCanvas = document.createElement('canvas');
+    layerCanvas.width = project.width;
+    layerCanvas.height = project.height;
+
+    const layer: Layer = {
+      id: 'layer-1',
+      name: 'Layer 1',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: layerCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+    };
+
+    project.layers = [layer];
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width / 2, designHeight: project.height / 2, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 1,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      pixelPerfectStack: true,
+      filenameBase: 'viewport-fixed-half-scale',
+      bundleFormat: 'json',
+    });
+
+    expect(metadata.viewport).toMatchObject({
+      designWidth: project.width / 2,
+      designHeight: project.height / 2,
+      mode: 'fixed',
+    });
+    expect(metadata.settings.pixelPerfectStack).toBe(true);
+    expect(metadata.layers).toHaveLength(1);
+
+    const placement = metadata.layers[0].layoutPlacement;
+    expect(placement).toBeDefined();
+    if (!placement) {
+      return;
+    }
+
+    expect(placement.frame).toEqual({
+      x: 0,
+      y: 0,
+      width: project.width / 2,
+      height: project.height / 2,
+    });
+    expect(placement.transform.scaleX).toBeCloseTo(0.5, 3);
+    expect(placement.transform.scaleY).toBeCloseTo(0.5, 3);
+    expect(placement.transform.translateX).toBe(0);
+    expect(placement.transform.translateY).toBe(0);
   });
 });

@@ -385,4 +385,137 @@ describe('ExportModal', () => {
     expect(screen.queryByRole('button', { name: /Optimize now/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Revert optimization/i })).not.toBeInTheDocument();
   });
+
+  it('shows a warning when MP4 request falls back to WebM output', async () => {
+    const onClose = jest.fn();
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    try {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: jest.fn(() => 'blob:video'),
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: jest.fn(),
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: jest.fn(),
+      });
+
+      runExportMock.mockResolvedValue({
+        kind: 'video',
+        filename: 'Demo@1x.webm',
+        blob: new Blob(['video'], { type: 'video/webm' }),
+        mimeType: 'video/webm;codecs=vp8',
+      });
+
+      render(<ExportModal isOpen onClose={onClose} />);
+      act(() => {
+        jest.runAllTimers();
+      });
+
+      fireEvent.click(screen.getByText('Video'));
+      const formatSelect = screen.getByDisplayValue('WebM');
+      fireEvent.change(formatSelect, { target: { value: 'video/mp4' } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      });
+
+      await waitFor(() => {
+        expect(runExportMock).toHaveBeenCalled();
+      });
+
+      expect(store.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'warning',
+        title: 'Exported as WebM',
+      }));
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreateObjectURL,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevokeObjectURL,
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: originalAnchorClick,
+      });
+    }
+  });
+
+  it('uses loop-matched video duration when perfect loop is enabled', async () => {
+    (store as any).layers = [{
+      ...store.layers[0],
+      id: 'cc-video',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        mode: 'recolor',
+        recolorSettings: {
+          animation: { speed: 0.5 },
+        },
+      },
+    }] as any;
+
+    runExportMock.mockResolvedValue({
+      kind: 'video',
+      filename: 'Demo@1x.webm',
+      blob: new Blob(['video'], { type: 'video/webm' }),
+      mimeType: 'video/webm;codecs=vp8',
+    });
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    try {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: jest.fn(() => 'blob:video'),
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: jest.fn(),
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: jest.fn(),
+      });
+
+      render(<ExportModal isOpen onClose={jest.fn()} />);
+      act(() => {
+        jest.runAllTimers();
+      });
+
+      fireEvent.click(screen.getByText('Video'));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      });
+
+      await waitFor(() => {
+        expect(runExportMock).toHaveBeenCalled();
+      });
+
+      const request = runExportMock.mock.calls[0]?.[0];
+      expect(request.kind).toBe('video');
+      expect(request.options.durationSeconds).toBeCloseTo(2, 4);
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreateObjectURL,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevokeObjectURL,
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: originalAnchorClick,
+      });
+    }
+  });
 });

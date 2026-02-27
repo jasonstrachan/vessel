@@ -465,6 +465,7 @@ export interface WebGLExportMetadata {
     includeHiddenLayers: boolean;
     embedCanvasFallback: boolean;
     minifyOutput: boolean;
+    pixelPerfectStack: boolean;
     perfectLoop: boolean;
     bundleFormat: WebGLExportBundleFormat;
     htmlTitle: string;
@@ -495,6 +496,7 @@ export interface WebGLExportRequest {
   includeHiddenLayers: boolean;
   embedCanvasFallback: boolean;
   minify: boolean;
+  pixelPerfectStack?: boolean;
   filenameBase: string;
   bundleFormat?: WebGLExportBundleFormat;
   gobletVersion?: 'goblet1' | 'goblet2';
@@ -4035,6 +4037,7 @@ export const exportProjectAsWebGL = async (
       options.project.height
     )
   };
+  const pixelPerfectStack = options.pixelPerfectStack === true;
 
   const metadataLayers: WebGLLayerMetadata[] = [];
   const layoutInputs: LayoutLayerInput[] = [];
@@ -4135,13 +4138,21 @@ export const exportProjectAsWebGL = async (
             ? { x: normalizedAlignment.offsetPercent.x, y: normalizedAlignment.offsetPercent.y }
             : undefined;
 
-    const alignmentPayload: AlignmentExportPayload = {
-      fit: normalizedAlignment.fit as AlignmentExportPayload['fit'],
-      horizontal: normalizedAlignment.horizontal ?? 'center',
-      vertical: normalizedAlignment.vertical ?? 'center',
-      positioning,
-      ...(offsetPercent ? { offsetPercent } : {})
-    };
+    const alignmentPayload: AlignmentExportPayload = pixelPerfectStack
+      ? {
+          fit: 'none',
+          horizontal: 'left',
+          vertical: 'top',
+          positioning: 'auto',
+          offsetPercent: { x: 0, y: 0 }
+        }
+      : {
+          fit: normalizedAlignment.fit as AlignmentExportPayload['fit'],
+          horizontal: normalizedAlignment.horizontal ?? 'center',
+          vertical: normalizedAlignment.vertical ?? 'center',
+          positioning,
+          ...(offsetPercent ? { offsetPercent } : {})
+        };
 
     const layoutAlignment: LayerAlignmentSettings = {
       fit: alignmentPayload.fit,
@@ -4212,6 +4223,43 @@ export const exportProjectAsWebGL = async (
       height: round3(Math.max(1, surfaceBounds.height))
     };
 
+    const stackBoundsPayload = pixelPerfectStack
+      ? {
+          x: 0,
+          y: 0,
+          width: round3(Math.max(1, surfaceSize.width)),
+          height: round3(Math.max(1, surfaceSize.height))
+        }
+      : contentBoundsPayload;
+
+    const metadataDocumentBoundsPx = pixelPerfectStack
+      ? {
+          x: 0,
+          y: 0,
+          width: round3(Math.max(1, options.project.width)),
+          height: round3(Math.max(1, options.project.height))
+        }
+      : {
+          x: round3(documentBoundsPx.x),
+          y: round3(documentBoundsPx.y),
+          width: round3(documentBoundsPx.width),
+          height: round3(documentBoundsPx.height)
+        };
+
+    const metadataDocumentBoundsPercent = pixelPerfectStack
+      ? {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100
+        }
+      : {
+          x: round3(documentBoundsPercent.x),
+          y: round3(documentBoundsPercent.y),
+          width: round3(documentBoundsPercent.width),
+          height: round3(documentBoundsPercent.height)
+        };
+
     const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,
       name: layer.name,
@@ -4223,24 +4271,14 @@ export const exportProjectAsWebGL = async (
         width: Math.max(1, Math.round(surfaceSize.width)),
         height: Math.max(1, Math.round(surfaceSize.height))
       },
-      pixelBoundsPx: contentBoundsPayload,
-      documentBoundsPx: {
-        x: round3(documentBoundsPx.x),
-        y: round3(documentBoundsPx.y),
-        width: round3(documentBoundsPx.width),
-        height: round3(documentBoundsPx.height)
-      },
-      documentBoundsPercent: {
-        x: round3(documentBoundsPercent.x),
-        y: round3(documentBoundsPercent.y),
-        width: round3(documentBoundsPercent.width),
-        height: round3(documentBoundsPercent.height)
-      },
+      pixelBoundsPx: stackBoundsPayload,
+      documentBoundsPx: metadataDocumentBoundsPx,
+      documentBoundsPercent: metadataDocumentBoundsPercent,
       alignment: alignmentPayload,
-      contentBounds: contentBoundsPayload,
+      contentBounds: stackBoundsPayload,
       paintedSize: {
-        width: contentBoundsPayload.width,
-        height: contentBoundsPayload.height
+        width: stackBoundsPayload.width,
+        height: stackBoundsPayload.height
       },
       assets: texture || sequentialFrames
         ? {
@@ -4283,17 +4321,40 @@ export const exportProjectAsWebGL = async (
   }
 
   let placementByLayerId: Map<string, ResolvedLayerLayout> | null = null;
-  try {
-    const resolvedPlacements = resolveContainerLayoutModel(layoutInputs, containerLayout, {
-      width: resolvedViewport.designWidth,
-      height: resolvedViewport.designHeight
-    });
+  if (pixelPerfectStack) {
+    const stackScaleX = resolvedViewport.designWidth / Math.max(1, options.project.width);
+    const stackScaleY = resolvedViewport.designHeight / Math.max(1, options.project.height);
     placementByLayerId = new Map<string, ResolvedLayerLayout>();
-    resolvedPlacements.forEach((placement) => {
-      placementByLayerId!.set(placement.layerId, placement);
+    metadataLayers.forEach((layer) => {
+      placementByLayerId!.set(layer.id, {
+        layerId: layer.id,
+        frame: {
+          x: 0,
+          y: 0,
+          width: resolvedViewport.designWidth,
+          height: resolvedViewport.designHeight
+        },
+        transform: {
+          scaleX: stackScaleX,
+          scaleY: stackScaleY,
+          translateX: 0,
+          translateY: 0
+        }
+      });
     });
-  } catch (error) {
-    gobletDebugWarn('[webglExporter] Failed to resolve container layout', error);
+  } else {
+    try {
+      const resolvedPlacements = resolveContainerLayoutModel(layoutInputs, containerLayout, {
+        width: resolvedViewport.designWidth,
+        height: resolvedViewport.designHeight
+      });
+      placementByLayerId = new Map<string, ResolvedLayerLayout>();
+      resolvedPlacements.forEach((placement) => {
+        placementByLayerId!.set(placement.layerId, placement);
+      });
+    } catch (error) {
+      gobletDebugWarn('[webglExporter] Failed to resolve container layout', error);
+    }
   }
 
   if (placementByLayerId) {
@@ -4378,6 +4439,7 @@ export const exportProjectAsWebGL = async (
       includeHiddenLayers: options.includeHiddenLayers,
       embedCanvasFallback: options.embedCanvasFallback,
       minifyOutput: options.minify,
+      pixelPerfectStack,
       perfectLoop: options.perfectLoop,
       bundleFormat,
       htmlTitle: resolvedHtmlTitle
