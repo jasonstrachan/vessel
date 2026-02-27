@@ -1066,10 +1066,10 @@ export class BrushEngineFacade {
       return null;
     }
 
-    const stops = this.config.brushSettings.colorCycleGradient?.length
-      ? this.config.brushSettings.colorCycleGradient
-      : colorCycle.gradient?.length
-        ? colorCycle.gradient
+    const stops = colorCycle.gradient?.length
+      ? colorCycle.gradient
+      : this.config.brushSettings.colorCycleGradient?.length
+        ? this.config.brushSettings.colorCycleGradient
         : DEFAULT_COLOR_CYCLE_GRADIENT;
     const cycleLength = Math.max(1, Math.min(1024, Math.round(colorCycle.sourceCycleLength || 256)));
     const phaseBucket = ((Math.round(phase * cycleLength) % cycleLength) + cycleLength) % cycleLength;

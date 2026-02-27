@@ -81,4 +81,46 @@ describe('captureColorCycleDataFromLayer', () => {
     expect(Array.from(capture?.phaseMap ?? [])).toEqual([1, 2, 3, 4]);
     expect(capture?.indexMap).toBeUndefined();
   });
+
+  it('captures gradient from active slot palette when defs are present', () => {
+    getLayerColorCycleBrush.mockReturnValue({
+      getLayerSnapshot: () => ({
+        paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer,
+      }),
+    });
+
+    const layer = createLayer();
+    if (!layer.colorCycleData) {
+      throw new Error('Expected colorCycleData');
+    }
+    layer.colorCycleData.gradient = [{ position: 0, color: '#111111' }, { position: 1, color: '#222222' }];
+    layer.colorCycleData.gradientDefs = [{ id: 'g-main', currentSlot: 7 }];
+    layer.colorCycleData.activeGradientId = 'g-main';
+    layer.colorCycleData.paintSlot = 7;
+    layer.colorCycleData.slotPalettes = [
+      {
+        slot: 7,
+        stops: [{ position: 0, color: '#00ff00' }, { position: 1, color: '#00ff00' }],
+      },
+    ];
+
+    const capture = captureColorCycleDataFromLayer({
+      activeLayer: layer,
+      sampleAllLayers: false,
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
+      captureResult: {
+        imageData: new ImageData(new Uint8ClampedArray(2 * 2 * 4), 2, 2),
+        width: 2,
+        height: 2,
+        naturalWidth: 2,
+        naturalHeight: 2,
+        maxDimension: 2,
+      },
+    });
+
+    expect(capture?.gradient).toEqual([
+      { position: 0, color: '#00ff00' },
+      { position: 1, color: '#00ff00' },
+    ]);
+  });
 });

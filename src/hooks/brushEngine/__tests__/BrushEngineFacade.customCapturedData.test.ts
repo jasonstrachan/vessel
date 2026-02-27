@@ -173,4 +173,68 @@ describe('BrushEngineFacade captured custom-brush color cycle', () => {
     expect(r).toBeLessThan(20);
     expect(b).toBeGreaterThan(200);
   });
+
+  it('prefers captured payload gradient over active brush gradient', () => {
+    const imageData = new ImageData(
+      new Uint8ClampedArray([
+        255, 255, 255, 255,
+      ]),
+      1,
+      1
+    );
+
+    const capturedPayload = {
+      schemaVersion: 2 as const,
+      mode: 'captured-data' as const,
+      source: 'color-cycle-layer' as const,
+      sourceCycleLength: 256,
+      mapWidth: 1,
+      mapHeight: 1,
+      phaseMap: new Uint16Array([0]),
+      alphaMask: new Uint8Array([255]),
+      gradient: [
+        { position: 0, color: '#00ff00' },
+        { position: 1, color: '#00ff00' },
+      ],
+    };
+
+    const engine = new BrushEngineFacade({
+      brushSettings: createSettings(),
+    });
+    const pattern = (
+      engine as unknown as {
+        getCapturedDataPattern: (
+          customBrushData: {
+            imageData: ImageData;
+            width: number;
+            height: number;
+            isColorizable: boolean;
+            cacheKey: string;
+            colorCycle: typeof capturedPayload;
+          },
+          phase: number
+        ) => ImageData | null;
+      }
+    ).getCapturedDataPattern(
+      {
+        imageData,
+        width: 1,
+        height: 1,
+        isColorizable: false,
+        cacheKey: 'test-brush-gradient-priority',
+        colorCycle: capturedPayload,
+      },
+      0
+    );
+
+    expect(pattern).not.toBeNull();
+    if (!pattern) {
+      throw new Error('Expected captured-data pattern image');
+    }
+
+    const [r, g, b] = pattern.data;
+    expect(r).toBeLessThan(20);
+    expect(g).toBeGreaterThan(200);
+    expect(b).toBeLessThan(20);
+  });
 });
