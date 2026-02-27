@@ -4539,10 +4539,10 @@ class VesselGoblet {
     const fallbackCssWidth = Math.max(1, Math.round(width / Math.max(dpr, 1)));
     const fallbackCssHeight = Math.max(1, Math.round(height / Math.max(dpr, 1)));
     const cssW = isFixed
-      ? posInt(this.metadata.viewport?.designWidth, fallbackCssWidth)
+      ? fallbackCssWidth
       : width;
     const cssH = isFixed
-      ? posInt(this.metadata.viewport?.designHeight, fallbackCssHeight)
+      ? fallbackCssHeight
       : height;
 
     ctx.save();
@@ -4864,9 +4864,6 @@ class VesselGoblet {
     const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
     const fallbackCssWidth = Math.max(1, Math.round(width / Math.max(dpr, 1)));
     const fallbackCssHeight = Math.max(1, Math.round(height / Math.max(dpr, 1)));
-    const designWidth = posInt(this.metadata?.viewport?.designWidth, fallbackCssWidth);
-    const designHeight = posInt(this.metadata?.viewport?.designHeight, fallbackCssHeight);
-
     diagnostics.log('[VIEWER] updateScale called:', {
       oldScale,
       newScale,
@@ -4878,8 +4875,8 @@ class VesselGoblet {
     this.scale = newScale;
     this.summary.scale = { ...this.scale };
 
-    const cssWidth = isFixed ? designWidth : width;
-    const cssHeight = isFixed ? designHeight : height;
+    const cssWidth = width;
+    const cssHeight = height;
 
     let canvasSizeChanged = false;
     const scaleChanged = oldScale.x !== newScale.x || oldScale.y !== newScale.y;

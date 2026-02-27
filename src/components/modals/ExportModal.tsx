@@ -291,8 +291,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglGobletVersion = webglExportSettings.gobletVersion;
   const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
   const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
-  const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('fill');
-  const [webglDesignScalePercent, setWebglDesignScalePercent] = useState(100);
+  const webglViewportPreset: WebglViewportPreset = webglExportSettings.viewportPreset === 'fixed'
+    ? 'fixed'
+    : 'fill';
+  const webglDesignScalePercent = clampWebglDesignScalePercent(webglExportSettings.designScalePercent ?? 100);
   const hasSequentialLayers = useMemo(
     () => hasSequentialExportLayers(layers),
     [layers]
@@ -1391,7 +1393,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       <button
                         key={preset.value}
                         type="button"
-                        onClick={() => setWebglViewportPreset(preset.value)}
+                        onClick={() => updateWebglExportSettings({ viewportPreset: preset.value })}
                         className={`${TOGGLE_BASE_CLASS} ${webglViewportPreset === preset.value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
                         disabled={isExporting}
                       >
@@ -1416,7 +1418,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                         value={webglDesignScalePercent}
                         onChange={(event) => {
                           const parsed = parseInt(event.target.value, 10);
-                          setWebglDesignScalePercent(clampWebglDesignScalePercent(parsed));
+                          updateWebglExportSettings({
+                            designScalePercent: clampWebglDesignScalePercent(parsed)
+                          });
                         }}
                         className={`${INPUT_OVERRIDE_CLASS} w-24 text-right`}
                         disabled={isExporting}
@@ -1427,7 +1431,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                         <button
                           key={preset}
                           type="button"
-                          onClick={() => setWebglDesignScalePercent(preset)}
+                          onClick={() => updateWebglExportSettings({ designScalePercent: preset })}
                           className={`${TOGGLE_BASE_CLASS} ${webglDesignScalePercent === preset ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
                           disabled={isExporting}
                         >

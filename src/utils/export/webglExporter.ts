@@ -4038,6 +4038,9 @@ export const exportProjectAsWebGL = async (
     )
   };
   const pixelPerfectStack = options.pixelPerfectStack === true;
+  const useIdentityPixelPerfectStack = pixelPerfectStack
+    && resolvedViewport.designWidth === Math.max(1, options.project.width)
+    && resolvedViewport.designHeight === Math.max(1, options.project.height);
 
   const metadataLayers: WebGLLayerMetadata[] = [];
   const layoutInputs: LayoutLayerInput[] = [];
@@ -4138,7 +4141,7 @@ export const exportProjectAsWebGL = async (
             ? { x: normalizedAlignment.offsetPercent.x, y: normalizedAlignment.offsetPercent.y }
             : undefined;
 
-    const alignmentPayload: AlignmentExportPayload = pixelPerfectStack
+    const alignmentPayload: AlignmentExportPayload = useIdentityPixelPerfectStack
       ? {
           fit: 'none',
           horizontal: 'left',
@@ -4223,7 +4226,7 @@ export const exportProjectAsWebGL = async (
       height: round3(Math.max(1, surfaceBounds.height))
     };
 
-    const stackBoundsPayload = pixelPerfectStack
+    const stackBoundsPayload = useIdentityPixelPerfectStack
       ? {
           x: 0,
           y: 0,
@@ -4232,7 +4235,7 @@ export const exportProjectAsWebGL = async (
         }
       : contentBoundsPayload;
 
-    const metadataDocumentBoundsPx = pixelPerfectStack
+    const metadataDocumentBoundsPx = useIdentityPixelPerfectStack
       ? {
           x: 0,
           y: 0,
@@ -4246,7 +4249,7 @@ export const exportProjectAsWebGL = async (
           height: round3(documentBoundsPx.height)
         };
 
-    const metadataDocumentBoundsPercent = pixelPerfectStack
+    const metadataDocumentBoundsPercent = useIdentityPixelPerfectStack
       ? {
           x: 0,
           y: 0,
@@ -4321,7 +4324,7 @@ export const exportProjectAsWebGL = async (
   }
 
   let placementByLayerId: Map<string, ResolvedLayerLayout> | null = null;
-  if (pixelPerfectStack) {
+  if (useIdentityPixelPerfectStack) {
     const stackScaleX = resolvedViewport.designWidth / Math.max(1, options.project.width);
     const stackScaleY = resolvedViewport.designHeight / Math.max(1, options.project.height);
     placementByLayerId = new Map<string, ResolvedLayerLayout>();

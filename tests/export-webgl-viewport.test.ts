@@ -107,7 +107,7 @@ describe('exportProjectAsWebGL viewport smoke test', () => {
     });
   });
 
-  it('uses scaled identity placement for fixed canvas mode (no crop at 50%)', async () => {
+  it('does not force identity-stack metadata for fixed half-scale', async () => {
     const project = createProject();
     const layerCanvas = document.createElement('canvas');
     layerCanvas.width = project.width;
@@ -154,21 +154,14 @@ describe('exportProjectAsWebGL viewport smoke test', () => {
     expect(metadata.settings.pixelPerfectStack).toBe(true);
     expect(metadata.layers).toHaveLength(1);
 
-    const placement = metadata.layers[0].layoutPlacement;
-    expect(placement).toBeDefined();
-    if (!placement) {
-      return;
-    }
-
-    expect(placement.frame).toEqual({
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.alignment.fit).toBe('contain');
+    expect(exportedLayer.alignment.positioning).toBe('auto');
+    expect(exportedLayer.documentBoundsPx).toEqual({
       x: 0,
       y: 0,
-      width: project.width / 2,
-      height: project.height / 2,
+      width: project.width,
+      height: project.height,
     });
-    expect(placement.transform.scaleX).toBeCloseTo(0.5, 3);
-    expect(placement.transform.scaleY).toBeCloseTo(0.5, 3);
-    expect(placement.transform.translateX).toBe(0);
-    expect(placement.transform.translateY).toBe(0);
   });
 });

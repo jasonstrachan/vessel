@@ -606,6 +606,8 @@ export const createProjectSlice =
         // opt-in via explicit env or UI toggle instead of defaulting on in dev.
         enableGobletDiagnostics: process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true',
         htmlTitle: 'Goblet',
+        viewportPreset: 'fill',
+        designScalePercent: 100,
       },
       setProject,
       updateProject,
@@ -627,10 +629,22 @@ export const createProjectSlice =
         const { enableViewerDiagnostics, ...rest } = settings as Partial<WebGLExportSettings> & {
           enableViewerDiagnostics?: boolean;
         };
+        const normalizedDesignScalePercent = Number.isFinite(rest.designScalePercent)
+          ? Math.max(25, Math.min(800, Math.round(rest.designScalePercent as number)))
+          : undefined;
+        const normalizedViewportPreset = rest.viewportPreset === 'fixed' || rest.viewportPreset === 'fill'
+          ? rest.viewportPreset
+          : undefined;
         set((state) => ({
           webglExportSettings: {
             ...state.webglExportSettings,
             ...rest,
+            ...(typeof normalizedDesignScalePercent === 'number'
+              ? { designScalePercent: normalizedDesignScalePercent }
+              : {}),
+            ...(normalizedViewportPreset
+              ? { viewportPreset: normalizedViewportPreset }
+              : {}),
             ...(typeof enableViewerDiagnostics === 'boolean'
               ? { enableGobletDiagnostics: enableViewerDiagnostics }
               : {}),
