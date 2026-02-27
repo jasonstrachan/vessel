@@ -41,7 +41,6 @@ import {
 // Vessel project file format version
 const PROJECT_VERSION = '1.1.0';
 const MAX_PROJECT_ARCHIVE_BYTES = 512 * 1024 * 1024;
-const MAX_PROJECT_MANIFEST_BYTES = 256 * 1024 * 1024;
 const MAX_PROJECT_DIMENSION = 16384;
 const MAX_PROJECT_PIXELS = 64 * 1024 * 1024;
 const MAX_PROJECT_LAYERS = 512;
@@ -261,31 +260,15 @@ async function decodeProjectData(input: ProjectFileData): Promise<string> {
       throw new Error('Project archive is missing project.json');
     }
 
-    const maybeUncompressedSize = (
-      entry as unknown as { _data?: { uncompressedSize?: number } }
-    )._data?.uncompressedSize;
-    if (typeof maybeUncompressedSize === 'number' && maybeUncompressedSize > MAX_PROJECT_MANIFEST_BYTES) {
-      throw new Error('Project manifest is too large to open safely');
-    }
-
     const manifestBytes = await entry.async('uint8array');
-    if (manifestBytes.byteLength > MAX_PROJECT_MANIFEST_BYTES) {
-      throw new Error('Project manifest is too large to open safely');
-    }
     return new TextDecoder().decode(manifestBytes);
   }
 
   if (isGzipBytes(bytes)) {
     const decompressed = gunzipSync(bytes);
-    if (decompressed.byteLength > MAX_PROJECT_MANIFEST_BYTES) {
-      throw new Error('Project manifest is too large to open safely');
-    }
     return new TextDecoder().decode(decompressed);
   }
 
-  if (bytes.byteLength > MAX_PROJECT_MANIFEST_BYTES) {
-    throw new Error('Project manifest is too large to open safely');
-  }
   return new TextDecoder().decode(bytes);
 }
 
