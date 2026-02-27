@@ -61,6 +61,9 @@ const selectSelectionRange = (state: AppState) => ({
 const selectFloatingPaste = (state: AppState) => state.floatingPaste;
 const selectPalette = (state: AppState) => state.palette;
 
+const isDeleteKey = (event: KeyboardEvent): boolean =>
+  event.key === 'Delete' || event.key === 'Backspace';
+
 type VoidHandler = () => void | Promise<void>;
 
 interface UseComprehensiveKeyboardProps {
@@ -274,7 +277,7 @@ export function useComprehensiveKeyboard({
       (event.key === 'Enter' ||
         event.code === 'NumpadEnter' ||
         event.key === 'Escape' ||
-        event.key === 'Delete');
+        isDeleteKey(event));
 
     // Ignore if typing in text-focused inputs or editable elements.
     // Exception: allow floating-paste commit/cancel keys so paste can be finalized
@@ -508,7 +511,7 @@ export function useComprehensiveKeyboard({
     }
 
     // Delete key for deleting selected pixels
-    if (event.key === 'Delete') {
+    if (isDeleteKey(event)) {
       event.preventDefault();
       if (floatingPaste) {
         setFloatingPaste(null);
