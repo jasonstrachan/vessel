@@ -468,6 +468,15 @@ describe('tools slice', () => {
       const store = useAppStore.getState();
       const brushId = 'temp_brush_fallback';
       const imageData = new ImageData(4, 4);
+      const colorCycle = {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        source: 'color-cycle-layer' as const,
+        sourceCycleLength: 256,
+        mapWidth: 4,
+        mapHeight: 4,
+        phaseMap: new Uint16Array(16),
+      };
 
       useAppStore.setState((state) => ({
         ...state,
@@ -487,6 +496,7 @@ describe('tools slice', () => {
               naturalWidth: 4,
               naturalHeight: 4,
               maxDimension: 4,
+              colorCycle,
             },
           },
         },
@@ -500,7 +510,9 @@ describe('tools slice', () => {
       expect(savedBrush?.id).toBe(brushId);
       expect(savedBrush?.imageData.width).toBe(4);
       expect(savedBrush?.thumbnail).toMatch(/^data:image\/png;base64,/);
+      expect(savedBrush?.colorCycle).toEqual(colorCycle);
       expect(nextState.tools.brushSettings.selectedCustomBrush).toBe(brushId);
+      expect(nextState.tools.brushSettings.currentBrushTip?.brushId).toBe(brushId);
     });
 
     it('applies persisted custom-brush color cycle metadata when selecting a custom preset', () => {
@@ -611,6 +623,46 @@ describe('tools slice', () => {
       expect(nextState.tools.brushSettings.currentBrushTip?.brushId).toBe(savedBrush?.id);
     });
 
+    it('preserves custom-brush color cycle metadata when saving brush edits', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx?.fillRect(0, 0, 64, 64);
+
+      const store = useAppStore.getState();
+      const brush: CustomBrush = {
+        id: 'edit-cc-brush',
+        name: 'Edit CC Brush',
+        imageData: new ImageData(16, 16),
+        width: 16,
+        height: 16,
+        createdAt: Date.now(),
+        thumbnail: '',
+        naturalWidth: 16,
+        naturalHeight: 16,
+        maxDimension: 16,
+        colorCycle: {
+          schemaVersion: 2,
+          mode: 'captured-data',
+          source: 'color-cycle-layer',
+          sourceCycleLength: 256,
+          mapWidth: 16,
+          mapHeight: 16,
+          phaseMap: new Uint16Array(256),
+        },
+      };
+
+      store.addCustomBrush(brush);
+      store.startBrushEdit(brush.id, canvas);
+      store.saveBrushEdit(canvas);
+
+      const nextState = useAppStore.getState();
+      const savedBrush = nextState.getCustomBrushById(brush.id);
+      expect(savedBrush?.colorCycle).toEqual(brush.colorCycle);
+      expect(nextState.tools.brushSettings.currentBrushTip?.colorCycle).toEqual(brush.colorCycle);
+    });
+
     it('cancels editing and resets brush selection when cancelBrushEdit runs', () => {
       const canvas = document.createElement('canvas');
       canvas.width = 64;
@@ -646,6 +698,35 @@ describe('tools slice', () => {
     useAppStore.getState().setCurrentTool('brush');
 
     expect(useAppStore.getState().crop).toEqual(defaultCropState);
+  });
+
+  it('clears active custom brush selection when entering the custom capture tool', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          selectedCustomBrush: 'saved-custom-1',
+          currentBrushTip: {
+            imageData: new ImageData(8, 8),
+            brushId: 'saved-custom-1',
+            isColorizable: false,
+            width: 8,
+            height: 8,
+          },
+        },
+      },
+    }));
+
+    useAppStore.getState().setCurrentTool('custom');
+
+    const nextState = useAppStore.getState();
+    expect(nextState.tools.currentTool).toBe('custom');
+    expect(nextState.tools.brushSettings.selectedCustomBrush).toBeNull();
+    expect(nextState.tools.brushSettings.currentBrushTip).toBeUndefined();
   });
 
   it('clears marquee selection when switching away from the selection tool', () => {

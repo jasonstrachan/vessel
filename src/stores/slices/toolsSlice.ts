@@ -1438,6 +1438,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
         if (tool === 'custom') {
           newBrushSettings.currentBrushTip = undefined;
+          newBrushSettings.selectedCustomBrush = null;
         }
 
         let newShapeMode = state.tools.shapeMode;
@@ -2252,6 +2253,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             naturalWidth: brushTipSource.naturalWidth ?? brushTipSource.width,
             naturalHeight: brushTipSource.naturalHeight ?? brushTipSource.height,
             maxDimension: brushTipSource.maxDimension ?? Math.max(brushTipSource.width, brushTipSource.height),
+            colorCycle: brushTipSource.colorCycle,
           }
         : undefined;
 
@@ -2321,7 +2323,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     const brushId = settings.selectedCustomBrush;
-    const fromProject = state.getCustomBrushById(brushId);
+    const fromProject = state.getCustomBrushByIdUnsafe
+      ? state.getCustomBrushByIdUnsafe(brushId)
+      : state.getCustomBrushById(brushId);
     const fromTemporary = state.temporaryCustomBrush && state.temporaryCustomBrush.id === brushId
       ? state.temporaryCustomBrush
       : null;
@@ -2338,16 +2342,27 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const baseImageData = sourceBrush.imageData;
     const adjustedImageData = needsAdjustment
       ? adjustHueLightnessSaturation(baseImageData, hueShift, lightnessAdjust, saturationAdjust)
-      : new ImageData(new Uint8ClampedArray(baseImageData.data), baseImageData.width, baseImageData.height);
+      : baseImageData;
 
-    const nextBrushTip = {
+    const nextBrushTip: NonNullable<BrushSettings['currentBrushTip']> = {
       imageData: adjustedImageData,
       brushId: sourceBrush.id,
       isColorizable: false,
       width: sourceBrush.width,
       height: sourceBrush.height,
       colorCycle: sourceBrush.colorCycle,
-    } as BrushSettings['currentBrushTip'];
+    };
+
+    const currentTip = settings.currentBrushTip;
+    const tipUnchanged =
+      currentTip?.brushId === nextBrushTip.brushId &&
+      currentTip.imageData === nextBrushTip.imageData &&
+      (currentTip.width ?? currentTip.imageData.width) === (nextBrushTip.width ?? nextBrushTip.imageData.width) &&
+      (currentTip.height ?? currentTip.imageData.height) === (nextBrushTip.height ?? nextBrushTip.imageData.height) &&
+      currentTip.colorCycle === nextBrushTip.colorCycle;
+    if (tipUnchanged) {
+      return {};
+    }
 
     try {
       scaledBrushCache.clearForBrush('current-brush-tip');
