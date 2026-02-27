@@ -47,6 +47,57 @@ import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveVelocitySpacingStrength } from '@/utils/velocitySpacing';
 
+type CcCustomStampPerfStats = {
+  sourceHit: number;
+  sourceMiss: number;
+  scaledHit: number;
+  scaledMiss: number;
+  maskHit: number;
+  maskMiss: number;
+  paintCalls: number;
+  paintTotalMs: number;
+  writePixels: number;
+};
+
+type BrushPerfWindow = Window & {
+  __vesselBrushProfileEnabled?: boolean;
+  __vesselBrushProfile?: {
+    ccCustomStamp?: CcCustomStampPerfStats;
+  };
+};
+
+const getBrushProfileNow = (): number =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+
+const getCcCustomStampProfile = (): CcCustomStampPerfStats | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const win = window as BrushPerfWindow;
+  if (!win.__vesselBrushProfileEnabled) {
+    return null;
+  }
+  if (!win.__vesselBrushProfile) {
+    win.__vesselBrushProfile = {};
+  }
+  if (!win.__vesselBrushProfile.ccCustomStamp) {
+    win.__vesselBrushProfile.ccCustomStamp = {
+      sourceHit: 0,
+      sourceMiss: 0,
+      scaledHit: 0,
+      scaledMiss: 0,
+      maskHit: 0,
+      maskMiss: 0,
+      paintCalls: 0,
+      paintTotalMs: 0,
+      writePixels: 0,
+    };
+  }
+  return win.__vesselBrushProfile.ccCustomStamp;
+};
+
 // Stamp dithering has two concepts:
 // 1) Live stamp coverage mask / tiling (what users see during drawing)
 // 2) Optional finalize-only error diffusion pass (expensive / different look)
@@ -980,8 +1031,10 @@ export class ColorCycleBrushCanvas2D {
 
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
+    const profile = getCcCustomStampProfile();
     let source = this.customStampSourceCache.get(stamp.imageData);
     if (!source) {
+      if (profile) profile.sourceMiss += 1;
       source = document.createElement('canvas');
       source.width = stamp.width;
       source.height = stamp.height;
@@ -990,15 +1043,19 @@ export class ColorCycleBrushCanvas2D {
         ctx.putImageData(stamp.imageData, 0, 0);
       }
       this.customStampSourceCache.set(stamp.imageData, source);
+    } else if (profile) {
+      profile.sourceHit += 1;
     }
     return source;
   }
 
   private getScaledStampCanvas(stamp: CustomStampInput, width: number, height: number): HTMLCanvasElement {
+    const profile = getCcCustomStampProfile();
     const baseKey = stamp.cacheKey || `anon:${stamp.imageData.width}x${stamp.imageData.height}`;
     const key = `${baseKey}:${width}x${height}`;
     let cached = this.customStampCanvasCache.get(key);
     if (!cached) {
+      if (profile) profile.scaledMiss += 1;
       const source = this.getSourceCanvasForStamp(stamp);
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -1018,6 +1075,8 @@ export class ColorCycleBrushCanvas2D {
           this.customStampCanvasCache.delete(firstKey);
         }
       }
+    } else if (profile) {
+      profile.scaledHit += 1;
     }
     return cached;
   }
@@ -1049,11 +1108,14 @@ export class ColorCycleBrushCanvas2D {
     targetHeight: number,
     rotation: number
   ): StampMaskCacheEntry | null {
+    const profile = getCcCustomStampProfile();
     const cacheKey = this.getStampMaskCacheKey(stamp, targetWidth, targetHeight, rotation);
     const cached = this.customStampMaskCache.get(cacheKey);
     if (cached) {
+      if (profile) profile.maskHit += 1;
       return cached;
     }
+    if (profile) profile.maskMiss += 1;
 
     const tempCanvas = canvasPool.acquire(targetWidth, targetHeight);
     const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
@@ -1371,6 +1433,9 @@ export class ColorCycleBrushCanvas2D {
     if (!stamp?.imageData) {
       return;
     }
+    const profile = getCcCustomStampProfile();
+    const paintStart = profile ? getBrushProfileNow() : 0;
+    let wrotePixels = 0;
 
     const targetLayerId = layerId || this.activeLayerId || 'default';
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
@@ -1474,8 +1539,10 @@ export class ColorCycleBrushCanvas2D {
           }
           const mapped = ((Math.max(1, sourceIndex) - 1 + phaseOffset) % cycleSpan) + 1;
           animator.setIndex(targetX, targetY, mapped, flowSlot);
+          wrotePixels += 1;
         } else {
           animator.setIndex(targetX, targetY, colorIndex, flowSlot);
+          wrotePixels += 1;
         }
       }
     }
@@ -1502,6 +1569,11 @@ export class ColorCycleBrushCanvas2D {
           this.render(false);
         }
       });
+    }
+    if (profile) {
+      profile.paintCalls += 1;
+      profile.paintTotalMs += getBrushProfileNow() - paintStart;
+      profile.writePixels += wrotePixels;
     }
   }
 

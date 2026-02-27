@@ -7,6 +7,55 @@ import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
 
+type CustomShapePerfStats = {
+  sourceHit: number;
+  sourceMiss: number;
+  scaledHit: number;
+  scaledMiss: number;
+  tintedHit: number;
+  tintedMiss: number;
+  drawCalls: number;
+  drawTotalMs: number;
+};
+
+type BrushPerfWindow = Window & {
+  __vesselBrushProfileEnabled?: boolean;
+  __vesselBrushProfile?: {
+    customShape?: CustomShapePerfStats;
+  };
+};
+
+const getNow = (): number =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+
+const getCustomShapeProfile = (): CustomShapePerfStats | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const win = window as BrushPerfWindow;
+  if (!win.__vesselBrushProfileEnabled) {
+    return null;
+  }
+  if (!win.__vesselBrushProfile) {
+    win.__vesselBrushProfile = {};
+  }
+  if (!win.__vesselBrushProfile.customShape) {
+    win.__vesselBrushProfile.customShape = {
+      sourceHit: 0,
+      sourceMiss: 0,
+      scaledHit: 0,
+      scaledMiss: 0,
+      tintedHit: 0,
+      tintedMiss: 0,
+      drawCalls: 0,
+      drawTotalMs: 0,
+    };
+  }
+  return win.__vesselBrushProfile.customShape;
+};
+
 // Cache for pre-rotated pixel stamps
 const rotatedStampCache = new Map<string, HTMLCanvasElement>();
 
@@ -33,13 +82,21 @@ const getCustomCacheKey = (pattern: ImageData): string | null => {
 };
 
 const getCustomSourceCanvas = (pattern: ImageData, cacheKey: string | null): HTMLCanvasElement => {
+  const profile = getCustomShapeProfile();
   if (cacheKey) {
     const cached = customSourceCacheByKey.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      if (profile) profile.sourceHit += 1;
+      return cached;
+    }
   } else {
     const cached = customSourceCacheByImage.get(pattern);
-    if (cached) return cached;
+    if (cached) {
+      if (profile) profile.sourceHit += 1;
+      return cached;
+    }
   }
+  if (profile) profile.sourceMiss += 1;
 
   const canvas = document.createElement('canvas');
   canvas.width = pattern.width;
@@ -66,10 +123,15 @@ const getCustomScaledCanvas = (
   scaledHeight: number,
   cacheKey: string | null
 ): HTMLCanvasElement => {
+  const profile = getCustomShapeProfile();
   const baseKey = cacheKey || `anon:${pattern.width}x${pattern.height}`;
   const key = `${baseKey}@${scaledWidth}x${scaledHeight}`;
   const cached = customScaledCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    if (profile) profile.scaledHit += 1;
+    return cached;
+  }
+  if (profile) profile.scaledMiss += 1;
 
   const canvas = document.createElement('canvas');
   canvas.width = scaledWidth;
@@ -94,10 +156,15 @@ const getCustomTintedCanvas = (
   cacheKey: string | null,
   fillStyle: string
 ): HTMLCanvasElement => {
+  const profile = getCustomShapeProfile();
   const baseKey = cacheKey || `anon:${pattern.width}x${pattern.height}`;
   const key = `${baseKey}@${scaledWidth}x${scaledHeight}@${fillStyle}`;
   const cached = customTintedCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    if (profile) profile.tintedHit += 1;
+    return cached;
+  }
+  if (profile) profile.tintedMiss += 1;
 
   const canvas = document.createElement('canvas');
   canvas.width = scaledWidth;
@@ -386,6 +453,8 @@ export const drawShape = (
   
   // Handle custom pattern rendering (for custom brushes)
   if (pattern && pattern.width > 0 && pattern.height > 0 && shape === BrushShape.CUSTOM) {
+    const profile = getCustomShapeProfile();
+    const drawStart = profile ? getNow() : 0;
     try {
       const cacheKey = getCustomCacheKey(pattern);
       const sourceCanvas = getCustomSourceCanvas(pattern, cacheKey);
@@ -425,9 +494,17 @@ export const drawShape = (
       }
 
       targetCtx.restore();
+      if (profile) {
+        profile.drawCalls += 1;
+        profile.drawTotalMs += getNow() - drawStart;
+      }
       return;
     } catch {
       // Handle pattern errors silently
+    }
+    if (profile) {
+      profile.drawCalls += 1;
+      profile.drawTotalMs += getNow() - drawStart;
     }
     targetCtx.restore();
     return;
