@@ -175,6 +175,25 @@ describe('projectIO readProjectManifest', () => {
     expect(manifest.project.id).toBe('p1');
   });
 
+  it('does not reject valid zip manifests based on unreliable JSZip size metadata', async () => {
+    const entry = {
+      _data: { uncompressedSize: Number.MAX_SAFE_INTEGER },
+      async: jest.fn().mockResolvedValue(new TextEncoder().encode(asJson)),
+    };
+    const fakeZip = {
+      file: jest.fn().mockReturnValue(entry),
+    };
+    const loadAsyncSpy = jest.spyOn(JSZip, 'loadAsync').mockResolvedValue(fakeZip as unknown as JSZip);
+
+    try {
+      const manifest = await readProjectManifest(new Uint8Array([0x50, 0x4b, 0x03, 0x04]));
+      expect(manifest.project.id).toBe('p1');
+      expect(entry.async).toHaveBeenCalledWith('uint8array');
+    } finally {
+      loadAsyncSpy.mockRestore();
+    }
+  });
+
   it('accepts zipped manifests above 32MB when still within archive safety limits', async () => {
     const zip = new JSZip();
     zip.file('project.json', JSON.stringify({
