@@ -156,6 +156,32 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     });
     keyboard.unmount();
   });
+
+  it('treats Backspace as delete for active selections', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+    const deleteSpy = jest.fn();
+    const originalDelete = useAppStore.getState().deleteSelectedPixels;
+
+    act(() => {
+      useAppStore.setState({
+        selectionStart: { x: 1, y: 1 },
+        selectionEnd: { x: 4, y: 4 },
+        deleteSelectedPixels: deleteSpy,
+      });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Backspace', code: 'Backspace' });
+    });
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useAppStore.setState({ deleteSelectedPixels: originalDelete });
+      useAppStore.getState().clearSelection();
+    });
+    keyboard.unmount();
+  });
 });
 
 describe('useComprehensiveKeyboard – space safety release', () => {
