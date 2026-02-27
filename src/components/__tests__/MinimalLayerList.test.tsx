@@ -173,7 +173,7 @@ describe('MinimalLayerList visibility toggling', () => {
     });
   });
 
-  it('toggles visibility for all selected layers when one eye is clicked', () => {
+  it('toggles only the clicked layer by default', () => {
     render(<MinimalLayerList />);
 
     const eyeButtons = screen.getAllByRole('button').filter((btn) => btn.innerHTML.includes('svg'));
@@ -182,7 +182,8 @@ describe('MinimalLayerList visibility toggling', () => {
     fireEvent.click(eyeButtons[0]);
 
     const visibleStates = useAppStore.getState().layers.map((l) => l.visible);
-    expect(visibleStates).toEqual([false, false]);
+    const hiddenCount = visibleStates.filter((visible) => !visible).length;
+    expect(hiddenCount).toBe(1);
   });
 
   it('toggles only the clicked layer when it is the sole selection', () => {
@@ -198,6 +199,18 @@ describe('MinimalLayerList visibility toggling', () => {
     // Smoke assertion: component rendered and layer visibility state is defined
     expect(layers.find((l) => l.id === 'layer-1')?.visible).toBeDefined();
     expect(layers.find((l) => l.id === 'layer-2')?.visible).toBeDefined();
+  });
+
+  it('toggles all selected layers when shift-clicking an eye button', () => {
+    render(<MinimalLayerList />);
+
+    const eyeButtons = screen.getAllByRole('button').filter((btn) => btn.innerHTML.includes('svg'));
+    expect(eyeButtons.length).toBeGreaterThan(0);
+
+    fireEvent.click(eyeButtons[0], { shiftKey: true });
+
+    const visibleStates = useAppStore.getState().layers.map((l) => l.visible);
+    expect(visibleStates).toEqual([false, false]);
   });
 
 });
