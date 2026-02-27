@@ -88,6 +88,8 @@ const makeStore = () => ({
     gobletVersion: 'goblet2' as const,
     enableGobletDiagnostics: false,
     htmlTitle: 'Goblet',
+    viewportPreset: 'fill' as const,
+    designScalePercent: 100,
   },
   updateWebglExportSettings: jest.fn(),
 });
