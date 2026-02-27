@@ -78,6 +78,72 @@ export interface BrushStrokeParams {
   customBrushData?: CustomBrushStrokeData;
 }
 
+type CapturedPatternPerfStats = {
+  calls: number;
+  totalMs: number;
+  cacheHit: number;
+  cacheMiss: number;
+  tip: number;
+  temp: number;
+  project: number;
+  anon: number;
+};
+
+type BrushPerfWindow = Window & {
+  __vesselBrushProfileEnabled?: boolean;
+  __vesselBrushProfile?: {
+    capturedPattern?: CapturedPatternPerfStats;
+  };
+  __vesselBrushProfileDump?: () => void;
+};
+
+const getNow = (): number =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+
+const resolveSourceBucket = (cacheKey: string | undefined): 'tip' | 'temp' | 'project' | 'anon' => {
+  if (!cacheKey) {
+    return 'anon';
+  }
+  if (cacheKey.startsWith('tip:')) {
+    return 'tip';
+  }
+  if (cacheKey.startsWith('temp:')) {
+    return 'temp';
+  }
+  if (cacheKey.startsWith('project:')) {
+    return 'project';
+  }
+  return 'anon';
+};
+
+const getCapturedPatternProfile = (): CapturedPatternPerfStats | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const win = window as BrushPerfWindow;
+  if (!win.__vesselBrushProfileEnabled) {
+    return null;
+  }
+  if (!win.__vesselBrushProfile) {
+    win.__vesselBrushProfile = {};
+  }
+  if (!win.__vesselBrushProfile.capturedPattern) {
+    win.__vesselBrushProfile.capturedPattern = {
+      calls: 0,
+      totalMs: 0,
+      cacheHit: 0,
+      cacheMiss: 0,
+      tip: 0,
+      temp: 0,
+      project: 0,
+      anon: 0,
+    };
+  }
+  return win.__vesselBrushProfile.capturedPattern;
+};
+
 /**
  * Main brush engine facade that combines all modules
  */
@@ -952,12 +1018,30 @@ export class BrushEngineFacade {
     customBrushData: CustomBrushStrokeData,
     phase: number
   ): ImageData | null {
+    const profile = getCapturedPatternProfile();
+    const profileStart = profile ? getNow() : 0;
+    const bucket = profile ? resolveSourceBucket(customBrushData.cacheKey) : 'anon';
+    const finishProfile = (cacheHit: boolean): void => {
+      if (!profile) {
+        return;
+      }
+      profile.calls += 1;
+      profile.totalMs += getNow() - profileStart;
+      profile[bucket] += 1;
+      if (cacheHit) {
+        profile.cacheHit += 1;
+      } else {
+        profile.cacheMiss += 1;
+      }
+    };
+
     const colorCycle = customBrushData.colorCycle;
     if (
       !colorCycle ||
       colorCycle.schemaVersion !== 2 ||
       colorCycle.mode !== 'captured-data'
     ) {
+      finishProfile(false);
       return null;
     }
 
@@ -965,10 +1049,12 @@ export class BrushEngineFacade {
     const height = colorCycle.mapHeight;
     const pixelCount = width * height;
     if (width <= 0 || height <= 0 || pixelCount <= 0) {
+      finishProfile(false);
       return null;
     }
 
     if (customBrushData.imageData.width !== width || customBrushData.imageData.height !== height) {
+      finishProfile(false);
       return null;
     }
 
@@ -976,6 +1062,7 @@ export class BrushEngineFacade {
       (colorCycle.indexMap && colorCycle.indexMap.length === pixelCount) ||
       (colorCycle.phaseMap && colorCycle.phaseMap.length === pixelCount);
     if (!hasMaps) {
+      finishProfile(false);
       return null;
     }
 
@@ -992,6 +1079,7 @@ export class BrushEngineFacade {
     const key = `${sourceKey}:ccd:${gradientHash}:${cycleLength}:${phaseBucket}:${useAlphaMask ? 1 : 0}`;
     const cached = this.customCapturedPatternCache.get(key);
     if (cached) {
+      finishProfile(true);
       return cached;
     }
 
@@ -1031,6 +1119,7 @@ export class BrushEngineFacade {
     (imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey = key;
     this.customCapturedPatternCache.set(key, imageData);
     this.trimImageDataCache(this.customCapturedPatternCache, BrushEngineFacade.MAX_CAPTURED_PATTERN_CACHE);
+    finishProfile(false);
     return imageData;
   }
 
