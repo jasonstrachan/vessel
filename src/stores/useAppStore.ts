@@ -606,6 +606,7 @@ export interface AppState {
   setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   getCustomBrushById: (brushId: string) => CustomBrush | null;
+  getCustomBrushByIdUnsafe: (brushId: string) => CustomBrush | null;
   listCustomBrushes: () => CustomBrush[];
   ensureCustomBrushHydrated: () => Promise<void>;
   

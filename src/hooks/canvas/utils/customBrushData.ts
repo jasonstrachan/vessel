@@ -23,6 +23,15 @@ export type CustomBrushStoreState = {
     naturalHeight?: number;
     colorCycle?: CustomBrushColorCycleData;
   } | null;
+  getCustomBrushByIdUnsafe?: (id: string) => {
+    id?: string;
+    imageData: ImageData;
+    width: number;
+    height: number;
+    naturalWidth?: number;
+    naturalHeight?: number;
+    colorCycle?: CustomBrushColorCycleData;
+  } | null;
 };
 
 type ImageSignatureCacheEntry = {
@@ -82,6 +91,35 @@ const isCapturedDataMode = (
   colorCycle: CustomBrushColorCycleData | undefined
 ): boolean => colorCycle?.schemaVersion === 2 && colorCycle.mode === 'captured-data';
 
+const applyCustomBrushColorCycleSettings = (
+  colorCycle: CustomBrushColorCycleData | undefined,
+  settings: BrushSettings
+): CustomBrushColorCycleData | undefined => {
+  if (!colorCycle || colorCycle.schemaVersion !== 2) {
+    return colorCycle;
+  }
+
+  const requestedMode = settings.customBrushColorCycleMode;
+  const nextMode =
+    requestedMode === 'tip' || requestedMode === 'captured-data'
+      ? requestedMode
+      : colorCycle.mode;
+  const nextUseAlphaMask =
+    settings.customBrushUseCapturedAlphaMask !== undefined
+      ? settings.customBrushUseCapturedAlphaMask
+      : colorCycle.useAlphaMask;
+
+  if (nextMode === colorCycle.mode && nextUseAlphaMask === colorCycle.useAlphaMask) {
+    return colorCycle;
+  }
+
+  return {
+    ...colorCycle,
+    mode: nextMode,
+    useAlphaMask: nextUseAlphaMask,
+  };
+};
+
 export const resolveActiveCustomBrushData = (
   state: CustomBrushStoreState
 ): CustomBrushStrokeData | undefined => {
@@ -101,6 +139,7 @@ export const resolveActiveCustomBrushData = (
     if (!tipMatchesSelected) {
       // Fall through to selectedCustomBrush resolution below.
     } else {
+      const effectiveColorCycle = applyCustomBrushColorCycleSettings(brushTip.colorCycle, settings);
       const cacheKey = assignBrushCacheKey(
         brushTip.imageData,
         `tip:${brushTip.brushId ?? 'anon'}`
@@ -110,9 +149,9 @@ export const resolveActiveCustomBrushData = (
         width: brushTip.naturalWidth ?? brushTip.width ?? brushTip.imageData.width,
         height: brushTip.naturalHeight ?? brushTip.height ?? brushTip.imageData.height,
         isColorizable:
-          !isCapturedDataMode(brushTip.colorCycle) &&
+          !isCapturedDataMode(effectiveColorCycle) &&
           (brushTip.isColorizable || settings.useSwatchColor || !!settings.customBrushColorCycle),
-        colorCycle: brushTip.colorCycle,
+        colorCycle: effectiveColorCycle,
         cacheKey
       };
     }
@@ -121,6 +160,7 @@ export const resolveActiveCustomBrushData = (
   if (settings.selectedCustomBrush) {
     if (state.temporaryCustomBrush?.id === settings.selectedCustomBrush) {
       const tempBrush = state.temporaryCustomBrush;
+      const effectiveColorCycle = applyCustomBrushColorCycleSettings(tempBrush.colorCycle, settings);
       const cacheKey = assignBrushCacheKey(
         tempBrush.imageData,
         `temp:${tempBrush.id ?? 'anon'}`
@@ -130,15 +170,19 @@ export const resolveActiveCustomBrushData = (
         width: tempBrush.naturalWidth ?? tempBrush.width,
         height: tempBrush.naturalHeight ?? tempBrush.height,
         isColorizable:
-          !isCapturedDataMode(tempBrush.colorCycle) &&
+          !isCapturedDataMode(effectiveColorCycle) &&
           (settings.useSwatchColor || !!settings.customBrushColorCycle),
-        colorCycle: tempBrush.colorCycle,
+        colorCycle: effectiveColorCycle,
         cacheKey
       };
     }
 
-    const saved = state.getCustomBrushById?.(settings.selectedCustomBrush ?? '') ?? null;
+    const saved =
+      state.getCustomBrushByIdUnsafe?.(settings.selectedCustomBrush ?? '') ??
+      state.getCustomBrushById?.(settings.selectedCustomBrush ?? '') ??
+      null;
     if (saved) {
+      const effectiveColorCycle = applyCustomBrushColorCycleSettings(saved.colorCycle, settings);
       const cacheKey = assignBrushCacheKey(
         saved.imageData,
         `project:${saved.id ?? 'anon'}`
@@ -148,9 +192,9 @@ export const resolveActiveCustomBrushData = (
         width: saved.naturalWidth ?? saved.width,
         height: saved.naturalHeight ?? saved.height,
         isColorizable:
-          !isCapturedDataMode(saved.colorCycle) &&
+          !isCapturedDataMode(effectiveColorCycle) &&
           (settings.useSwatchColor || !!settings.customBrushColorCycle),
-        colorCycle: saved.colorCycle,
+        colorCycle: effectiveColorCycle,
         cacheKey
       };
     }

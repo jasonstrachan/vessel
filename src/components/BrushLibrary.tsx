@@ -25,18 +25,13 @@ const BrushLibrary = () => {
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
   const projectCustomBrushes = useAppStore((state) => state.project?.customBrushes ?? []);
-  const customBrushes = React.useMemo(() => {
-    if (projectCustomBrushes.length === 0) {
-      return projectCustomBrushes;
-    }
-    return useAppStore.getState().listCustomBrushes();
-  }, [projectCustomBrushes]);
+  const customBrushes = projectCustomBrushes;
   const defaultCustomBrushId = useAppStore(selectDefaultCustomBrushId);
   const brushSettings = useAppStore(selectBrushSettings);
   const currentTool = useAppStore(selectCurrentTool);
   const brushEditor = useAppStore(selectBrushEditor);
   const temporaryCustomBrush = useAppStore(selectTemporaryCustomBrush);
-  const getCustomBrushById = useAppStore((state) => state.getCustomBrushById);
+  const getCustomBrushByIdUnsafe = useAppStore((state) => state.getCustomBrushByIdUnsafe);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const switchTool = useToolSwitcher();
@@ -192,7 +187,7 @@ const BrushLibrary = () => {
       return temporaryCustomBrush;
     }
 
-    const savedBrush = getCustomBrushById?.(selectedId) ?? null;
+    const savedBrush = getCustomBrushByIdUnsafe?.(selectedId) ?? null;
     if (savedBrush) {
       return savedBrush;
     }
@@ -224,7 +219,7 @@ const BrushLibrary = () => {
     brushSettings.brushShape,
     brushSettings.currentBrushTip,
     brushSettings.selectedCustomBrush,
-    getCustomBrushById,
+    getCustomBrushByIdUnsafe,
     temporaryCustomBrush,
   ]);
   

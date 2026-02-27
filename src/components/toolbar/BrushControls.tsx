@@ -17,7 +17,7 @@ import {
   selectGlobalBrushSize,
   selectShapeMode,
 } from '@/stores/selectors/toolsSelectors';
-import { BrushShape, type BrushSettings, type CustomBrush } from "@/types";
+import { BrushShape, type BrushSettings } from "@/types";
 import CommittedNumberInput from "../ui/CommittedNumberInput";
 import Input from "../ui/Input";
 import CommittedProgressSlider from "../ui/CommittedProgressSlider";
@@ -397,7 +397,7 @@ const BrushControls = () => {
   const resetCcGradientSample = useAppStore((state) => state.resetCcGradientSample);
   const palette = useAppStore((state) => state.palette);
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
-  const getCustomBrushById = useAppStore((state) => state.getCustomBrushById);
+  const getCustomBrushByIdUnsafe = useAppStore((state) => state.getCustomBrushByIdUnsafe);
   const customBrushPercent = brushSettings.customBrushSizePercent ?? 100;
   const shapeMode = useAppStore(selectShapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
@@ -441,19 +441,26 @@ const BrushControls = () => {
     currentTool === 'eraser' ? eraserSettings : brushSettings;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
   const selectedCustomBrushId = activeSettings.selectedCustomBrush;
-  const activeCustomBrush = React.useMemo<CustomBrush | null>(() => {
+  const activeCustomBrushColorCycle = React.useMemo(() => {
     if (!isActiveCustomBrush || !selectedCustomBrushId) {
-      return null;
+      return activeSettings.currentBrushTip?.colorCycle;
+    }
+    if (activeSettings.currentBrushTip?.brushId === selectedCustomBrushId) {
+      return activeSettings.currentBrushTip.colorCycle;
     }
     if (temporaryCustomBrush?.id === selectedCustomBrushId) {
-      return temporaryCustomBrush;
+      return temporaryCustomBrush.colorCycle;
     }
-    return typeof getCustomBrushById === 'function'
-      ? getCustomBrushById(selectedCustomBrushId)
-      : null;
-  }, [getCustomBrushById, isActiveCustomBrush, selectedCustomBrushId, temporaryCustomBrush]);
-  const activeCustomBrushColorCycle =
-    activeCustomBrush?.colorCycle ?? activeSettings.currentBrushTip?.colorCycle;
+    return typeof getCustomBrushByIdUnsafe === 'function'
+      ? getCustomBrushByIdUnsafe(selectedCustomBrushId)?.colorCycle
+      : activeSettings.currentBrushTip?.colorCycle;
+  }, [
+    activeSettings.currentBrushTip,
+    getCustomBrushByIdUnsafe,
+    isActiveCustomBrush,
+    selectedCustomBrushId,
+    temporaryCustomBrush
+  ]);
   const hasCapturedColorCyclePayload = Boolean(
     activeCustomBrushColorCycle?.schemaVersion === 2 &&
     activeCustomBrushColorCycle.mode === 'captured-data' &&

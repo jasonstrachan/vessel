@@ -214,4 +214,58 @@ describe('customBrushPersistence', () => {
     expect(cc.mode).toBe('tip');
     expect(cc.sourceCycleLength).toBe(1);
   });
+
+  it('trims oldest brushes when localStorage quota is exceeded', () => {
+    const brushA: CustomBrush = {
+      id: 'brush-a',
+      name: 'Brush A',
+      imageData: createImageData(1, 1),
+      thumbnail: '',
+      width: 1,
+      height: 1,
+      createdAt: 1,
+      naturalWidth: 1,
+      naturalHeight: 1,
+      maxDimension: 1,
+    };
+    const brushB: CustomBrush = {
+      id: 'brush-b',
+      name: 'Brush B',
+      imageData: createImageData(1, 1),
+      thumbnail: '',
+      width: 1,
+      height: 1,
+      createdAt: 2,
+      naturalWidth: 1,
+      naturalHeight: 1,
+      maxDimension: 1,
+    };
+
+    const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
+    const threshold = 400;
+    const setItemSpy = jest
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation((...args: unknown[]) => {
+        const [key, value] = args as [string, string];
+        if (key === STORAGE_KEY && value.length > threshold) {
+          const error = new DOMException('quota exceeded', 'QuotaExceededError');
+          throw error;
+        }
+        return originalSetItem(key, value);
+      });
+
+    try {
+      saveCustomBrushesToStorage([brushA, brushB], brushA.id);
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      expect(raw).toBeTruthy();
+      const payload = JSON.parse(raw ?? '{}') as {
+        brushes?: Array<{ id: string }>;
+        defaultCustomBrushId?: string | null;
+      };
+      expect(payload.brushes?.map((brush) => brush.id)).toEqual(['brush-b']);
+      expect(payload.defaultCustomBrushId).toBeNull();
+    } finally {
+      setItemSpy.mockRestore();
+    }
+  });
 });

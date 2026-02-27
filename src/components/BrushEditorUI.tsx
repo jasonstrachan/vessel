@@ -31,13 +31,8 @@ const InlineBrushEditor: React.FC = () => {
   const brushEditor = useAppStore(selectBrushEditor);
   const brushSettings = useAppStore(selectBrushSettings);
   const projectCustomBrushes = useAppStore((state) => state.project?.customBrushes ?? []);
-  const customBrushes = React.useMemo(() => {
-    if (projectCustomBrushes.length === 0) {
-      return projectCustomBrushes;
-    }
-    return useAppStore.getState().listCustomBrushes();
-  }, [projectCustomBrushes]);
-  const getCustomBrushById = useAppStore((state) => state.getCustomBrushById);
+  const customBrushes = projectCustomBrushes;
+  const getCustomBrushByIdUnsafe = useAppStore((state) => state.getCustomBrushByIdUnsafe);
   const currentTool = useAppStore(selectCurrentTool);
   const {
     color: brushColor,
@@ -681,7 +676,7 @@ const InlineBrushEditor: React.FC = () => {
     ctx.clearRect(0, 0, bounds.width, bounds.height);
 
     if (brushEditor.editingBrushId && customBrushes.length > 0) {
-      const existingBrush = getCustomBrushById?.(brushEditor.editingBrushId ?? '') ?? null;
+      const existingBrush = getCustomBrushByIdUnsafe?.(brushEditor.editingBrushId ?? '') ?? null;
       if (existingBrush && existingBrush.imageData) {
         setBasePixels(existingBrush.imageData);
         ctx.putImageData(existingBrush.imageData, 0, 0);
@@ -693,7 +688,7 @@ const InlineBrushEditor: React.FC = () => {
       const emptyData = ctx.getImageData(0, 0, bounds.width, bounds.height);
       setBasePixels(emptyData);
     }
-  }, [brushEditor.status, brushEditor.editingBounds, brushEditor.editingBrushId, customBrushes, getCustomBrushById]);
+  }, [brushEditor.status, brushEditor.editingBounds, brushEditor.editingBrushId, customBrushes, getCustomBrushByIdUnsafe]);
 
   useEffect(() => {
     if (!basePixels || !canvasRef.current || isDrawing) {

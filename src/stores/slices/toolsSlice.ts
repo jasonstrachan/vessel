@@ -1414,7 +1414,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
     try {
       set((state) => {
-        const newBrushSettings = { ...state.tools.brushSettings };
+        let newBrushSettings = { ...state.tools.brushSettings };
         const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
         const currentToolSupportsShapes = isShapeCapableTool(state.tools.currentTool);
         const nextToolSupportsShapes = isShapeCapableTool(tool);
@@ -1439,6 +1439,33 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         if (tool === 'custom') {
           newBrushSettings.currentBrushTip = undefined;
           newBrushSettings.selectedCustomBrush = null;
+        }
+
+        let nextGlobalBrushSize: number | undefined;
+        if (
+          state.tools.currentTool === 'custom' &&
+          tool === 'brush' &&
+          !state.tools.brushSettings.selectedCustomBrush
+        ) {
+          const restoredShape = state.tools.lastRegularBrushShape ?? BrushShape.ROUND;
+          const restoredSize = Math.max(
+            1,
+            Math.round(
+              state.tools.brushSettings.lastRegularBrushSize ??
+                state.globalBrushSize ??
+                defaultBrushSettingsForStore.size ??
+                5
+            )
+          );
+          newBrushSettings = {
+            ...newBrushSettings,
+            brushShape: restoredShape,
+            size: restoredSize,
+            customBrushSizePercent: undefined,
+            selectedCustomBrush: null,
+            currentBrushTip: undefined,
+          };
+          nextGlobalBrushSize = restoredSize;
         }
 
         let newShapeMode = state.tools.shapeMode;
@@ -1504,6 +1531,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
         return {
           tools: nextTools,
+          ...(typeof nextGlobalBrushSize === 'number'
+            ? { globalBrushSize: nextGlobalBrushSize }
+            : {}),
         };
       });
     } catch {}
