@@ -399,6 +399,31 @@ const buildAlphaMask = (imageData: ImageData): Uint8Array => {
   return mask;
 };
 
+const resolveLayerCaptureGradient = (
+  layer: Layer
+): Array<{ position: number; color: string }> | undefined => {
+  const colorCycleData = layer.colorCycleData;
+  if (!colorCycleData) {
+    return undefined;
+  }
+
+  const defs = colorCycleData.gradientDefs ?? [];
+  const activeDef = defs.find((entry) => entry.id === colorCycleData.activeGradientId) ?? defs[0];
+  const targetSlot = colorCycleData.paintSlot ?? activeDef?.currentSlot;
+  if (typeof targetSlot === 'number') {
+    const slotStops = colorCycleData.slotPalettes?.find((entry) => entry.slot === targetSlot)?.stops;
+    if (slotStops && slotStops.length > 0) {
+      return slotStops.map((stop) => ({ ...stop }));
+    }
+  }
+
+  if (colorCycleData.gradient && colorCycleData.gradient.length > 0) {
+    return colorCycleData.gradient.map((stop) => ({ ...stop }));
+  }
+
+  return undefined;
+};
+
 export const buildCapturedColorCycleDataFromImage = (
   captureResult: BrushCaptureResult,
   options?: {
@@ -437,7 +462,7 @@ export const captureColorCycleDataFromLayer = (
     return undefined;
   }
 
-  const gradient = activeLayer.colorCycleData?.gradient?.map((stop) => ({ ...stop }));
+  const gradient = resolveLayerCaptureGradient(activeLayer);
   const speed = activeLayer.colorCycleData?.brushSpeed;
   const basePayload = buildCapturedColorCycleDataFromImage(captureResult, {
     gradient,
