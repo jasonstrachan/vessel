@@ -88,6 +88,7 @@ const makeStore = () => ({
     gobletVersion: 'goblet2' as const,
     enableGobletDiagnostics: false,
     htmlTitle: 'Goblet',
+    htmlBackgroundColor: '#000000',
     viewportPreset: 'fill' as const,
     designScalePercent: 100,
   },
@@ -169,11 +170,13 @@ describe('ExportModal', () => {
       jest.runOnlyPendingTimers();
     });
 
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+
     await waitFor(() => {
-      expect(estimateExportMock).toHaveBeenCalled();
+      expect(runExportMock).toHaveBeenCalled();
     });
 
-    const request = estimateExportMock.mock.calls[0]?.[0];
+    const request = runExportMock.mock.calls[0]?.[0];
     const frameProvider = request?.frameProvider;
     expect(frameProvider).toBeDefined();
 
@@ -190,12 +193,7 @@ describe('ExportModal', () => {
     expect(store.setSequentialFrame).toHaveBeenLastCalledWith(2);
   });
 
-  it('shows a sequential export payload warning for high-frame Goblet exports', () => {
-    (store as any).project = {
-      ...store.project,
-      width: 1024,
-      height: 1024,
-    };
+  it('keeps packaging controls available for sequential exports', () => {
     (store as any).layers = [{
       ...store.layers[0],
       id: 'seq-heavy',
@@ -213,99 +211,8 @@ describe('ExportModal', () => {
       jest.runAllTimers();
     });
 
-    expect(screen.getByText(/Current sequential estimate:/i)).toBeInTheDocument();
-    expect(screen.getByText(/Warning: High sequential payload estimate/i)).toBeInTheDocument();
-  });
-
-  it('does not show sequential payload warning for low-frame Goblet exports', () => {
-    (store as any).project = {
-      ...store.project,
-      width: 64,
-      height: 64,
-    };
-    (store as any).layers = [{
-      ...store.layers[0],
-      id: 'seq-light',
-      layerType: 'sequential',
-      sequentialData: {
-        frameCount: 12,
-        fps: 12,
-        durationMs: 1000,
-        events: [],
-      },
-    }] as any;
-
-    render(<ExportModal isOpen onClose={jest.fn()} />);
-    act(() => {
-      jest.runAllTimers();
-    });
-
-    expect(screen.getByText(/Current sequential estimate:/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Warning: High sequential payload estimate/i)).not.toBeInTheDocument();
-  });
-
-  it('updates sequential payload warning label when bundle format changes', () => {
-    (store as any).project = {
-      ...store.project,
-      width: 1024,
-      height: 1024,
-    };
-    (store as any).layers = [{
-      ...store.layers[0],
-      id: 'seq-heavy-format',
-      layerType: 'sequential',
-      sequentialData: {
-        frameCount: 220,
-        fps: 18,
-        durationMs: Math.round((220 * 1000) / 18),
-        events: [],
-      },
-    }] as any;
-    (store as any).webglExportSettings = {
-      ...store.webglExportSettings,
-      bundleFormat: 'single-html',
-      minifyOutput: true,
-    };
-
-    render(<ExportModal isOpen onClose={jest.fn()} />);
-    act(() => {
-      jest.runAllTimers();
-    });
-
-    expect(screen.getByText(/Current sequential estimate: .*single-html, minified/i)).toBeInTheDocument();
-    expect(screen.getByText(/Warning: High sequential payload estimate/i)).toBeInTheDocument();
-  });
-
-  it('shows high-payload preflight warning with zip + minify when estimate is still high', () => {
-    (store as any).project = {
-      ...store.project,
-      width: 1024,
-      height: 1024,
-    };
-    (store as any).layers = [{
-      ...store.layers[0],
-      id: 'seq-heavy-optimized',
-      layerType: 'sequential',
-      sequentialData: {
-        frameCount: 320,
-        fps: 18,
-        durationMs: Math.round((320 * 1000) / 18),
-        events: [],
-      },
-    }] as any;
-    (store as any).webglExportSettings = {
-      ...store.webglExportSettings,
-      bundleFormat: 'zip',
-      minifyOutput: true,
-    };
-
-    render(<ExportModal isOpen onClose={jest.fn()} />);
-    act(() => {
-      jest.runAllTimers();
-    });
-
-    expect(screen.getByText(/Current sequential estimate: .*zip, minified/i)).toBeInTheDocument();
-    expect(screen.getByText(/Warning: High sequential payload estimate/i)).toBeInTheDocument();
+    expect(screen.getByText('Packaging')).toBeInTheDocument();
+    expect(screen.getByText('Goblet runtime')).toBeInTheDocument();
   });
 
   it('updates bundle format from packaging select', () => {

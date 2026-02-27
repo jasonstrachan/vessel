@@ -82,6 +82,7 @@ const makeStore = () => ({
     gobletVersion: 'goblet1' as const,
     enableGobletDiagnostics: true,
     htmlTitle: 'Goblet',
+    htmlBackgroundColor: '#000000',
     viewportPreset: 'fill' as const,
     designScalePercent: 100,
   },

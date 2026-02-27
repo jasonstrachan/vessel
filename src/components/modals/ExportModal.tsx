@@ -12,17 +12,11 @@ import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
 import { LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
 import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
-import { estimateExport, runExport } from '@/utils/export/exportService';
+import { runExport } from '@/utils/export/exportService';
 import type { FrameProvider } from '@/utils/export/types';
 import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
-
-const BUNDLE_FORMAT_DESCRIPTIONS: Record<WebGLExportBundleFormat, string> = {
-  zip: 'Bundles the Goblet viewer shell, runtime, and JSON into a single zip.',
-  'single-html': 'Produces a self-contained Goblet page for instant sharing.',
-  json: 'Downloads only the raw Goblet metadata JSON bundle.'
-};
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
   zip: 'Goblet bundle zip',
@@ -33,11 +27,6 @@ const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
 const GOBLET_VERSION_LABELS: Record<WebGLExportGobletVersion, string> = {
   goblet1: 'Goblet 1 (legacy)',
   goblet2: 'Goblet 2 (GPU-first)'
-};
-
-const GOBLET_VERSION_DESCRIPTIONS: Record<WebGLExportGobletVersion, string> = {
-  goblet1: 'Legacy runtime. Keeps Goblet v1 semantics and CPU-first playback.',
-  goblet2: 'Goblet 2 runtime with per-pixel speed buffers and WebGL2-first playback.'
 };
 
 const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
@@ -65,6 +54,17 @@ const clampWebglDesignScalePercent = (value: number): number => {
   }
   return Math.max(25, Math.min(800, Math.round(value)));
 };
+
+const normalizeWebglHtmlBackgroundColor = (value: string): string => {
+  const trimmed = value.trim();
+  if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  return '#000000';
+};
+
+const hasSequentialExportLayers = (layers: Layer[] | undefined): boolean =>
+  Array.isArray(layers) && layers.some((layer) => layer.layerType === 'sequential' && !!layer.sequentialData);
 
 interface LoopFrameSuggestion {
   frames: number;
@@ -150,7 +150,6 @@ const computeBestLoopSuggestion = ({
 interface CollapsibleSectionProps {
   id: string;
   title: string;
-  summary?: string;
   isOpen: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -160,7 +159,6 @@ interface CollapsibleSectionProps {
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   id,
   title,
-  summary,
   isOpen,
   onToggle,
   children,
@@ -179,9 +177,6 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       >
         <div className="flex-1">
           <span className={`${MODAL_TEXT_PRIMARY} text-base font-semibold block`}>{title}</span>
-          {summary && (
-            <span className={`${MODAL_TEXT_SECONDARY} text-xs mt-1 block`}>{summary}</span>
-          )}
         </div>
         <svg
           className={`w-4 h-4 text-[#9C9C9C] transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
@@ -204,27 +199,6 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     </div>
   );
 };
-
-const formatLabel = (value: string): string => (
-  value.split(/[-_\s]+/).map((part) => (
-    part ? part[0].toUpperCase() + part.slice(1) : ''
-  )).join(' ')
-);
-
-const hasSequentialExportLayers = (layers: Layer[] | undefined): boolean =>
-  Array.isArray(layers) && layers.some((layer) => layer.layerType === 'sequential' && !!layer.sequentialData);
-
-interface SequentialExportRiskSummary {
-  frameBudget: number;
-  estimatedBytes: number;
-  bundleFormat: WebGLExportBundleFormat;
-}
-
-interface WebglPreflightIssue {
-  id: string;
-  severity: 'warning' | 'error';
-  message: string;
-}
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -270,8 +244,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [gifFrameStep, setGifFrameStep] = useState<1 | 2 | 3 | 4>(1); // Capture every Nth frame
   const [gifMaxColors, setGifMaxColors] = useState<4 | 8 | 16 | 32 | 64 | 128 | 256>(128);
   const [gifAutoColors, setGifAutoColors] = useState(true);
-  // Live readout of palette size used during export (informational)
-  const [gifPaletteCount, setGifPaletteCount] = useState<number | null>(null);
 
   // Video options
   const [videoFps, setVideoFps] = useState(30);
@@ -291,40 +263,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglGobletVersion = webglExportSettings.gobletVersion;
   const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
   const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
+  const webglHtmlBackgroundColor = normalizeWebglHtmlBackgroundColor(webglExportSettings.htmlBackgroundColor ?? '#000000');
   const webglViewportPreset: WebglViewportPreset = webglExportSettings.viewportPreset === 'fixed'
     ? 'fixed'
     : 'fill';
   const webglDesignScalePercent = clampWebglDesignScalePercent(webglExportSettings.designScalePercent ?? 100);
-  const hasSequentialLayers = useMemo(
-    () => hasSequentialExportLayers(layers),
-    [layers]
-  );
-  const sequentialExportRisk = useMemo<SequentialExportRiskSummary | null>(() => {
-    if (!hasSequentialLayers) {
-      return null;
-    }
-
-    const frameBudget = layers.reduce((sum, layer) => {
-      if (layer.layerType !== 'sequential' || !layer.sequentialData) {
-        return sum;
-      }
-      const frames = Math.max(1, Math.round(layer.sequentialData.frameCount || 1));
-      return sum + frames;
-    }, 0);
-    const width = Math.max(1, Math.round(project?.width ?? 1));
-    const height = Math.max(1, Math.round(project?.height ?? 1));
-    const rawBytes = frameBudget * width * height * 4;
-    const textureCompressionRatio = webglMinify ? 0.16 : 0.19;
-    const formatMultiplier = webglBundleFormat === 'single-html'
-      ? 1.2
-      : (webglBundleFormat === 'zip' ? 0.72 : 1);
-    const estimatedBytes = Math.round(rawBytes * textureCompressionRatio * formatMultiplier);
-    return {
-      frameBudget,
-      estimatedBytes,
-      bundleFormat: webglBundleFormat,
-    };
-  }, [hasSequentialLayers, layers, project?.height, project?.width, webglBundleFormat, webglMinify]);
 
   const applyGoblet2SingleHtmlProductionPreset = useCallback(() => {
     updateWebglExportSettings({
@@ -338,107 +281,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     });
   }, [updateWebglExportSettings, webglHtmlTitle]);
 
-  const webglPreflightIssues = useMemo<WebglPreflightIssue[]>(() => {
-    const issues: WebglPreflightIssue[] = [];
+  const webglPreflightError = useMemo<string | null>(() => {
     const visibleLayers = layers.filter((layer) => layer.visible !== false);
 
     if (layers.length === 0) {
-      issues.push({
-        id: 'no-layers',
-        severity: 'error',
-        message: 'No layers available to export.',
-      });
+      return 'No layers available to export.';
     }
 
     if (!webglIncludeHidden && visibleLayers.length === 0) {
-      issues.push({
-        id: 'no-visible-layers',
-        severity: 'error',
-        message: 'No visible layers. Enable hidden layers or unhide at least one layer.',
-      });
+      return 'No visible layers. Enable hidden layers or unhide at least one layer.';
     }
-
-    if (webglGobletVersion !== 'goblet2') {
-      issues.push({
-        id: 'runtime-version',
-        severity: 'warning',
-        message: 'Goblet 2 is recommended for best color-cycle fidelity and performance.',
-      });
-    }
-
-    if (webglBundleFormat !== 'single-html') {
-      issues.push({
-        id: 'bundle-format',
-        severity: 'warning',
-        message: 'Single HTML is recommended for your sharing/export workflow.',
-      });
-    }
-
-    if (!webglMinify) {
-      issues.push({
-        id: 'minify-off',
-        severity: 'warning',
-        message: 'Minify is off; output size will be larger.',
-      });
-    }
-
-    if (webglEnableDiagnostics) {
-      issues.push({
-        id: 'diagnostics-on',
-        severity: 'warning',
-        message: 'Diagnostics helpers are enabled; disable for production hand-offs.',
-      });
-    }
-
-    if (webglEmbedFallback) {
-      issues.push({
-        id: 'fallback-on',
-        severity: 'warning',
-        message: 'Canvas2D fallback is enabled; this increases bundle size.',
-      });
-    }
-
-    if (webglIncludeHidden) {
-      issues.push({
-        id: 'hidden-on',
-        severity: 'warning',
-        message: 'Including hidden layers can significantly increase bundle size.',
-      });
-    }
-
-    if (sequentialExportRisk && sequentialExportRisk.estimatedBytes > 64 * 1024 * 1024) {
-      issues.push({
-        id: 'sequential-heavy',
-        severity: 'warning',
-        message: `High sequential payload estimate (${(sequentialExportRisk.estimatedBytes / (1024 * 1024)).toFixed(1)} MB).`,
-      });
-    }
-
-    return issues;
-  }, [
-    layers,
-    sequentialExportRisk,
-    webglBundleFormat,
-    webglEmbedFallback,
-    webglEnableDiagnostics,
-    webglGobletVersion,
-    webglIncludeHidden,
-    webglMinify,
-  ]);
-
-  const webglPreflightErrors = useMemo(
-    () => webglPreflightIssues.filter((issue) => issue.severity === 'error'),
-    [webglPreflightIssues]
-  );
+    return null;
+  }, [layers, webglIncludeHidden]);
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const exportAbortRef = useRef<AbortController | null>(null);
-  // Estimation (pre-export)
-  const [isEstimating, setIsEstimating] = useState(false);
-  const [gifEstimatedPalette, setGifEstimatedPalette] = useState<number | null>(null);
-  const [gifEstimatedSize, setGifEstimatedSize] = useState<number | null>(null);
-  const estimateAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -649,42 +507,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   ), [webglAutoFrames, webglDuration, webglFrameSuggestion.duration]);
 
   const orderedLayers = useMemo(() => layers.slice().reverse(), [layers]);
-
-  const layerAlignmentSummary = useMemo(() => orderedLayers.map(layer => ({
-    id: layer.id,
-    name: layer.name,
-    visible: layer.visible,
-    fit: layer.alignment.fit,
-    horizontal: layer.alignment.horizontal,
-    vertical: layer.alignment.vertical,
-    offset: {
-      x: layer.alignment.offsetPx?.x ?? 0,
-      y: layer.alignment.offsetPx?.y ?? 0
-    },
-    isActive: layer.id === activeLayerId,
-    kind: layer.layerType
-  })), [activeLayerId, orderedLayers]);
-
-  const activeLayerSummary = useMemo(() => {
-    if (layerAlignmentSummary.length === 0) {
-      return 'No layers available';
-    }
-    const activeLayer = layerAlignmentSummary.find((layer) => layer.isActive);
-    if (!activeLayer) {
-      return 'Select a layer to adjust alignment';
-    }
-    const alignment = [
-      formatLabel(activeLayer.fit),
-      `${formatLabel(activeLayer.horizontal)} / ${formatLabel(activeLayer.vertical)}`
-    ];
-    if (activeLayer.offset.x || activeLayer.offset.y) {
-      alignment.push(`Offset ${activeLayer.offset.x}, ${activeLayer.offset.y}`);
-    }
-    if (!activeLayer.visible) {
-      alignment.push('Hidden');
-    }
-    return alignment.join(' • ');
-  }, [layerAlignmentSummary]);
 
   const getColorCycleGradient = useCallback((layer: Layer) => {
     const gradient = layer.colorCycleData?.gradient ?? layer.colorCycleData?.recolorSettings?.gradient;
@@ -906,66 +728,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
   }), [compositeLayersToCanvas, project?.height, project?.width]);
 
-  // Estimate palette size and approximate file size before export
-  useEffect(() => {
-    if (!isOpen || exportKind !== 'gif') return;
-    if (isExporting) return;
-    setIsEstimating(true);
-    setGifEstimatedPalette(null);
-    setGifEstimatedSize(null);
-
-    const handle = setTimeout(async () => {
-      const controller = new AbortController();
-      estimateAbortRef.current = controller;
-      try {
-        const result = await estimateExport({
-          kind: 'gif',
-          scale,
-          frameProvider,
-          options: {
-            fps: gifFps,
-            durationSeconds: gifDuration,
-            repeat: gifRepeat,
-            autoFrames: gifAutoFrames,
-            suggestedTotalFrames: autoFrameSuggestion.frames,
-            frameStep: gifFrameStep,
-            ditherMethod: gifDitherMethod,
-            ditherStrength: gifDitherStrength,
-            maxColors: gifMaxColors,
-            autoColors: gifAutoColors,
-          }
-        }, controller.signal);
-        if (controller.signal.aborted) return;
-        setGifEstimatedPalette(result.paletteSize);
-        setGifEstimatedSize(result.estimatedBytes);
-      } catch {
-        // ignore
-      } finally {
-        if (estimateAbortRef.current === controller) {
-          setIsEstimating(false);
-        }
-      }
-    }, 250);
-
-    return () => {
-      clearTimeout(handle);
-      estimateAbortRef.current?.abort();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, exportKind, gifFps, gifDuration, gifRepeat, gifAutoFrames, gifDitherMethod, gifDitherStrength, gifFrameStep, gifMaxColors, gifAutoColors, scale, project?.width, project?.height, autoFrameSuggestion.frames]);
-
-  const formatBytes = (bytes: number): string => {
-    if (!Number.isFinite(bytes) || bytes < 0) return '—';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let v = bytes;
-    let u = 0;
-    while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
-    return `${v.toFixed(u === 0 ? 0 : v < 10 ? 2 : 1)} ${units[u]}`;
-  };
-
-  const formatMegabytes = (bytes: number): string =>
-    `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -979,11 +741,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const handleExport = async () => {
     if (!project) return;
-    if (exportKind === 'webgl' && webglPreflightErrors.length > 0) {
+    if (exportKind === 'webgl' && webglPreflightError) {
       addNotification({
         type: 'error',
         title: 'Export blocked by preflight',
-        message: webglPreflightErrors[0].message,
+        message: webglPreflightError,
         timestamp: new Date(),
         duration: 5000
       });
@@ -991,7 +753,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
     setIsExporting(true);
     setProgress(0);
-    setGifPaletteCount(null);
     const controller = new AbortController();
     exportAbortRef.current = controller;
     try {
@@ -1053,11 +814,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   gobletVersion: webglGobletVersion,
                   enableGobletDiagnostics: webglEnableDiagnostics,
                   compositeLayersToCanvas,
-                  htmlTitle: webglHtmlTitle
+                  htmlTitle: webglHtmlTitle,
+                  htmlBackgroundColor: webglHtmlBackgroundColor
                 },
                 bundleFormat: webglBundleFormat,
                 gobletVersion: webglGobletVersion,
-                htmlTitle: webglHtmlTitle
+                htmlTitle: webglHtmlTitle,
+                htmlBackgroundColor: webglHtmlBackgroundColor
               }
             }
             : {
@@ -1084,9 +847,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           duration: 5000
         });
       } else {
-        if (result.kind === 'gif') {
-          setGifPaletteCount(result.paletteSize);
-        }
         if (result.kind === 'video' && videoMime === 'video/mp4' && !result.mimeType.includes('mp4')) {
           addNotification({
             type: 'warning',
@@ -1100,7 +860,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }
       onClose();
     } catch (e) {
-      alert(`Export failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      addNotification({
+        type: 'error',
+        title: 'Export failed',
+        message: e instanceof Error ? e.message : 'Unknown error',
+        timestamp: new Date(),
+        duration: 5000
+      });
     } finally {
       setIsExporting(false);
       setProgress(0);
@@ -1296,15 +1062,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   <option value={256}>256</option>
                 </select>
               </div>
-              {/* Estimates */}
-              <div className="text-xs text-[#aaa] flex flex-col gap-1">
-                <div>
-                  Palette (est): {isEstimating ? 'estimating…' : (gifEstimatedPalette ?? '—')} colors
-                </div>
-                <div>
-                  Est. size: {gifEstimatedSize !== null ? formatBytes(gifEstimatedSize) : (isEstimating ? 'estimating…' : '—')}
-                </div>
-              </div>
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Frame Step</label>
                 <select
@@ -1318,16 +1075,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   <option value={4}>4</option>
                 </select>
               </div>
-              {gifAutoFrames && (
-                <div className="text-xs text-[#aaa] flex flex-col gap-1">
-                  <div>Frames: {autoFrameSuggestion.frames} {autoFrameSuggestion.success ? '(perfect)' : '(closest)'} · FPS: {Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)))}</div>
-                  <div>Resulting duration: {autoFrameSuggestion.duration.toFixed(2)}s</div>
-                </div>
-              )}
-              {gifPaletteCount !== null && (
-                <div className="text-xs text-[#aaa]">Palette: {gifPaletteCount} colors</div>
-              )}
-              <div className="text-xs text-[#aaa]">Tip: Lower FPS or increase Frame Step to reduce frames. Fewer palette colors and disabling dithering can significantly shrink file size. For long/high-res animations, prefer Video.</div>
             </div>
           )}
 
@@ -1336,7 +1083,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <CollapsibleSection
                 id="export-layer-alignment"
                 title="Layer alignment"
-                summary={activeLayerSummary}
                 isOpen={layerAlignmentOpen}
                 onToggle={() => setLayerAlignmentOpen((prev) => !prev)}
                 contentClassName="space-y-4"
@@ -1401,10 +1147,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       </button>
                     ))}
                   </div>
-                  <p className={`${MODAL_TEXT_SECONDARY} text-xs mt-3`}>
-                  Using {resolvedWebglViewport.designWidth} × {resolvedWebglViewport.designHeight} px
-                  {webglViewportPreset === 'fixed' ? ` (${resolvedWebglViewport.scalePercent}%)` : ''}
-                  </p>
                 </div>
                 {webglViewportPreset === 'fixed' && (
                   <div className="space-y-2">
@@ -1439,9 +1181,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                         </button>
                       ))}
                     </div>
-                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                      Pixel-safe tip: use integer multiples (100%, 200%, 300%) for the cleanest pixel edges.
-                    </p>
                   </div>
                 )}
 
@@ -1483,14 +1222,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       disabled={isExporting}
                     />
                   </label>
-                  <span className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                    {webglAutoFrames
-                      ? `${webglFrameSuggestion.frames} frames (${webglFrameSuggestion.success ? 'exact' : 'approx'})`
-                      : `${webglTotalFrames} frames`}
-                  </span>
-                  <span className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                    Playback duration: {webglEffectiveDuration.toFixed(2)}s
-                  </span>
                 </div>
               </div>
 
@@ -1506,9 +1237,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     Apply Goblet2 Single-HTML (Production)
                   </button>
                 </div>
-                <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                  Keeps player output unchanged; only export settings are adjusted.
-                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
                     <span>Include hidden layers</span>
@@ -1551,15 +1279,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     />
                   </label>
                 </div>
-                <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                  Diagnostics helpers log Goblet runtime state to the console and expose `vesselGobletSetDiagnostics(true)` at runtime.
-                  Disable for production hand-offs.
-                </p>
-                {webglViewportPreset === 'fixed' && (
-                  <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                    Design size automatically uses pixel-perfect stacking (edge-to-edge identity layer placement).
-                  </p>
-                )}
                 <div className="flex flex-col gap-2">
                   <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Packaging</label>
                   <select
@@ -1572,14 +1291,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     <option value="single-html">Single Goblet HTML (self-contained)</option>
                     <option value="json">Goblet JSON only</option>
                   </select>
-                  <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                    {BUNDLE_FORMAT_DESCRIPTIONS[webglBundleFormat]}
-                  </p>
-                  {hasSequentialLayers && sequentialExportRisk && (
-                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                      Current sequential estimate: {formatMegabytes(sequentialExportRisk.estimatedBytes)} ({sequentialExportRisk.bundleFormat}, {webglMinify ? 'minified' : 'not minified'}).
-                    </p>
-                  )}
                   <div className="flex flex-col gap-2 pt-1">
                     <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Goblet runtime</label>
                     <select
@@ -1591,9 +1302,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       <option value="goblet1">{GOBLET_VERSION_LABELS.goblet1}</option>
                       <option value="goblet2">{GOBLET_VERSION_LABELS.goblet2}</option>
                     </select>
-                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                      {GOBLET_VERSION_DESCRIPTIONS[webglGobletVersion]}
-                    </p>
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`} htmlFor="goblet-html-title">
@@ -1609,28 +1317,39 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       className={INPUT_OVERRIDE_CLASS}
                       disabled={isExporting}
                     />
-                    <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                      Used as the document title for Goblet HTML exports{webglBundleFormat === 'json' ? ' (JSON-only downloads ignore this value).' : '.'}
-                    </p>
                   </div>
-                </div>
-                <div className="flex flex-col gap-2 pt-1">
-                  <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Preflight</label>
-                  {webglPreflightIssues.length === 0 ? (
-                    <p className="text-xs text-[#8BD9A2]">No issues detected.</p>
-                  ) : (
-                    <div className="space-y-1">
-                      {webglPreflightIssues.map((issue) => (
-                        <p
-                          key={issue.id}
-                          className={`text-xs ${issue.severity === 'error' ? 'text-[#F28B82]' : 'text-[#DDB892]'}`}
-                        >
-                          {issue.severity === 'error' ? 'Error: ' : 'Warning: '}
-                          {issue.message}
-                        </p>
-                      ))}
+                  <div className="flex flex-col gap-2 pt-1">
+                    <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Background colors</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <div className="flex items-center justify-between gap-3 rounded border border-[#343434] bg-[#1F1F1F] px-3 py-2">
+                        <span className={MODAL_TEXT_SECONDARY}>Artwork</span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-5 w-5 border border-[#555]"
+                            style={{
+                              background: project?.backgroundColor === 'transparent'
+                                ? 'repeating-conic-gradient(#666 0% 25%, #333 0% 50%) 50% / 8px 8px'
+                                : (project?.backgroundColor || 'transparent')
+                            }}
+                            aria-hidden="true"
+                          />
+                        </div>
+                      </div>
+                      <label className="flex items-center justify-between gap-3 rounded border border-[#343434] bg-[#1F1F1F] px-3 py-2">
+                        <span className={MODAL_TEXT_SECONDARY}>Index shell</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={webglHtmlBackgroundColor}
+                            onChange={(event) => updateWebglExportSettings({ htmlBackgroundColor: event.target.value })}
+                            className="h-6 w-8 cursor-pointer border border-[#555] bg-transparent p-0"
+                            disabled={isExporting}
+                            aria-label="Goblet HTML shell background color"
+                          />
+                        </div>
+                      </label>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1667,12 +1386,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     disabled={isExporting}
                   />
                 </label>
-                <span className="text-xs text-[#aaa]">
-                  {videoFrameSuggestion.frames} frames ({videoFrameSuggestion.success ? 'exact' : 'approx'}) at {Math.max(1, Math.floor(videoFps))} FPS
-                </span>
-                <span className="text-xs text-[#aaa]">
-                  Playback duration: {videoEffectiveDuration.toFixed(2)}s
-                </span>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Format</label>
@@ -1689,7 +1402,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 <label className="text-base text-[#888]">Bitrate (kbps)</label>
                 <Input type="number" min={1000} max={20000} value={videoBitrate} onChange={(e) => setVideoBitrate(Math.max(1000, Math.min(20000, parseInt(e.target.value)||6000)))} className="w-24 text-right" />
               </div>
-              <div className="text-xs text-[#aaa]">Note: Many browsers only support WebM in MediaRecorder. MP4 will fallback to WebM if unsupported.</div>
             </div>
           )}
 

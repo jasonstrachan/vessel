@@ -4648,7 +4648,8 @@ class VesselGoblet {
       const shouldPreferDocumentRect = Boolean(
         paintedRectFromDocument
         && (
-          (isColorCycleLayer && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
+          isFixed
+          || (isColorCycleLayer && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
           || (entry.layer.type === 'sequential' && tinyContentBounds)
         )
       );
@@ -4706,7 +4707,23 @@ class VesselGoblet {
 
       // log removed
 
-      const placement = computePlacement(basis);
+      const directFixedPlacement = isFixed && entry.layer.documentBoundsPx
+        ? (() => {
+            const docRect = entry.layer.documentBoundsPx;
+            const scaleX = viewportSize.width / Math.max(1, documentSize.width);
+            const scaleY = viewportSize.height / Math.max(1, documentSize.height);
+            return {
+              dest: {
+                x: Math.round(toNum(docRect.x, 0) * scaleX),
+                y: Math.round(toNum(docRect.y, 0) * scaleY),
+                width: Math.max(1, Math.round(fitPositive(docRect.width, 1) * scaleX)),
+                height: Math.max(1, Math.round(fitPositive(docRect.height, 1) * scaleY))
+              }
+            };
+          })()
+        : null;
+
+      const placement = directFixedPlacement ?? computePlacement(basis);
 
       const units = isFixed ? 'backing' : 'css';
       const destForLog = (() => {
@@ -4749,7 +4766,7 @@ class VesselGoblet {
           isFixed,
           dpr,
           paintedRect,
-          fit: align.fit
+          fit: directFixedPlacement ? 'none' : align.fit
         }
       );
 

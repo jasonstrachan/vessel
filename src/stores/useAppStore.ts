@@ -269,6 +269,7 @@ import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
+import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglExportSettingsStorage';
 import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
@@ -1056,8 +1057,60 @@ const subscribeToGlobalBrushPersistence = (): void => {
   }
 };
 
+const hydrateWebglExportSettings = (): void => {
+  const payload = loadWebglExportSettings();
+  if (!payload) {
+    return;
+  }
+  useAppStore.getState().updateWebglExportSettings(payload);
+};
+
+const subscribeToWebglExportSettingsPersistence = (): void => {
+  let pendingPayload: WebGLExportSettings | null = null;
+  let debounceHandle: number | null = null;
+
+  const flushPending = () => {
+    if (!pendingPayload) {
+      return;
+    }
+    const payload = pendingPayload;
+    pendingPayload = null;
+    debounceHandle = null;
+    saveWebglExportSettings(payload);
+  };
+
+  const scheduleSave = (payload: WebGLExportSettings) => {
+    pendingPayload = payload;
+    if (typeof window === 'undefined') {
+      flushPending();
+      return;
+    }
+    if (debounceHandle !== null) {
+      window.clearTimeout(debounceHandle);
+    }
+    debounceHandle = window.setTimeout(flushPending, 250);
+  };
+
+  storeSubscribeWithSelector(
+    (state) => state.webglExportSettings,
+    (next, prev) => {
+      if (next === prev) {
+        return;
+      }
+      scheduleSave(next);
+    }
+  );
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushPending);
+    window.addEventListener('pagehide', flushPending);
+  }
+};
+
 hydrateGlobalBrushSettings();
 subscribeToGlobalBrushPersistence();
+hydrateWebglExportSettings();
+subscribeToWebglExportSettingsPersistence();
 
 // DEBUG ONLY
 (() => {
