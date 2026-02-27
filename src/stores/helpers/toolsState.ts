@@ -104,7 +104,9 @@ export const resolveCustomBrushDimensions = (
     return maxDimension > 0 ? { width, height, maxDimension } : null;
   }
 
-  const projectBrush = state.getCustomBrushById(selectedId);
+  const projectBrush = state.getCustomBrushByIdUnsafe
+    ? state.getCustomBrushByIdUnsafe(selectedId)
+    : state.getCustomBrushById(selectedId);
   if (projectBrush) {
     const { width, height } = projectBrush;
     const naturalWidth = projectBrush.naturalWidth ?? width;

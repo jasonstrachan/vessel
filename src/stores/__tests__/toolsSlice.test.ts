@@ -700,6 +700,36 @@ describe('tools slice', () => {
     expect(useAppStore.getState().crop).toEqual(defaultCropState);
   });
 
+  it('restores regular brush size when switching from custom tool to brush without an active custom brush', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      globalBrushSize: 100,
+      tools: {
+        ...state.tools,
+        currentTool: 'custom',
+        lastRegularBrushShape: BrushShape.ROUND,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          size: 100,
+          customBrushSizePercent: 100,
+          selectedCustomBrush: null,
+          lastRegularBrushSize: 12,
+          currentBrushTip: undefined,
+        },
+      },
+    }));
+
+    useAppStore.getState().setCurrentTool('brush');
+
+    const nextState = useAppStore.getState();
+    expect(nextState.tools.currentTool).toBe('brush');
+    expect(nextState.tools.brushSettings.brushShape).toBe(BrushShape.ROUND);
+    expect(nextState.tools.brushSettings.size).toBe(12);
+    expect(nextState.tools.brushSettings.customBrushSizePercent).toBeUndefined();
+    expect(nextState.globalBrushSize).toBe(12);
+  });
+
   it('clears active custom brush selection when entering the custom capture tool', () => {
     useAppStore.setState((state) => ({
       ...state,

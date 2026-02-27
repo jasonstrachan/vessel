@@ -115,6 +115,7 @@ const resolveBrushForSaving = (state: AppState, customBrushId: string): CustomBr
       naturalWidth,
       naturalHeight,
       maxDimension: brushTip.maxDimension ?? Math.max(naturalWidth, naturalHeight),
+      colorCycle: brushTip.colorCycle,
     };
   }
 
@@ -147,6 +148,7 @@ export interface ProjectSlice {
   setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   getCustomBrushById: (brushId: string) => CustomBrush | null;
+  getCustomBrushByIdUnsafe: (brushId: string) => CustomBrush | null;
   listCustomBrushes: () => CustomBrush[];
   setProjectDimensions: (width: number, height: number) => void;
   resizeProjectCanvas: (width: number, height: number) => Promise<void>;
@@ -473,15 +475,17 @@ export const createProjectSlice =
             ? tempBrush.thumbnail
             : generateThumbnailFromImageData(finalImageData);
 
+        const savedBrush: CustomBrush = {
+          ...tempBrush,
+          imageData: finalImageData,
+          thumbnail: finalThumbnail,
+        };
+
         const updatedProject: Project = {
           ...state.project,
           customBrushes: [
             ...state.project.customBrushes,
-            {
-              ...tempBrush,
-              imageData: finalImageData,
-              thumbnail: finalThumbnail,
-            },
+            savedBrush,
           ],
           updatedAt: new Date(),
         };
@@ -499,7 +503,17 @@ export const createProjectSlice =
               ...state.tools.brushSettings,
               brushShape: BrushShape.CUSTOM,
               selectedCustomBrush: tempBrush.id,
-              currentBrushTip: undefined,
+              currentBrushTip: {
+                imageData: savedBrush.imageData,
+                brushId: savedBrush.id,
+                isColorizable: false,
+                width: savedBrush.width,
+                height: savedBrush.height,
+                naturalWidth: savedBrush.naturalWidth ?? savedBrush.width,
+                naturalHeight: savedBrush.naturalHeight ?? savedBrush.height,
+                maxDimension: savedBrush.maxDimension ?? Math.max(savedBrush.width, savedBrush.height),
+                colorCycle: savedBrush.colorCycle,
+              },
               useSwatchColor: false,
               hueShift: 0,
               lightnessAdjust: 0,
@@ -543,6 +557,17 @@ export const createProjectSlice =
 
       const found = state.project.customBrushes.find((brush) => brush.id === brushId);
       return found ? cloneBrush(found) : null;
+    };
+
+    const getCustomBrushByIdUnsafe = (brushId: string): CustomBrush | null => {
+      if (!brushId) {
+        return null;
+      }
+      const state = get();
+      if (!state.project) {
+        return null;
+      }
+      return state.project.customBrushes.find((brush) => brush.id === brushId) ?? null;
     };
 
     const listCustomBrushes = (): CustomBrush[] => {
@@ -623,6 +648,7 @@ export const createProjectSlice =
       setDefaultCustomBrush,
       saveCustomBrushAsPreset,
       getCustomBrushById,
+      getCustomBrushByIdUnsafe,
       listCustomBrushes,
       setProjectDimensions,
       resizeProjectCanvas,
