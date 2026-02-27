@@ -2706,12 +2706,12 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
 
-    // Fallback: if the pointer was pressed outside the canvas and enters while the primary
-    // button is still held, bootstrap a stroke so drawing begins immediately.
+    // If the pointer starts outside and enters the canvas while primary button is held,
+    // bootstrap a normal stroke on entry.
     if (
       !interaction.state.isDrawing &&
       !isBusyRef.current &&
-      (event.buttons & 1) === 1 && // primary button held
+      (event.buttons & 1) === 1 &&
       !isMouseDownRef.current &&
       !suppressBootstrapUntilPointerUpRef.current &&
       !pan.panState.isPanning &&
@@ -2719,7 +2719,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       !tools.shapeMode &&
       (tools.currentTool === 'brush' || tools.currentTool === 'eraser')
     ) {
-      // Recompute pressure similarly to pointerdown
       const pressure = normalizePointerPressure({
         rawPressure: event.pressure,
         pointerType: event.pointerType,
@@ -2736,12 +2735,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         normalizedPressure: pressure,
       });
 
-      // Respect layer/brush compatibility
       if (tools.currentTool !== 'eraser') {
         const compat = checkLayerBrushCompatibility();
         if (!compat.ok) {
           deps.feedback?.(compat.message);
-          // Do not start stroke; let cursor keep updating
         } else {
           const brushPresetId = getDynamicDeps().currentBrushPresetId;
           const activeLayerId = getDynamicDeps().activeLayerId ?? null;
@@ -2765,10 +2762,9 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           compositeCanvasDirtyRef.current = true;
           interaction.dispatch({ type: 'DRAWING_START', pressure });
           drawingHandlers.startDrawing(worldPos, pressure);
-          return; // Stroke started; ignore the rest of this move handler
+          return;
         }
       } else {
-        // Eraser is always allowed on any layer
         const brushPresetId = getDynamicDeps().currentBrushPresetId;
         const activeLayerId = getDynamicDeps().activeLayerId ?? null;
         strokeStartWorldPosRef.current = worldPos;
