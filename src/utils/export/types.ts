@@ -68,6 +68,7 @@ export interface WebglExportOptions {
   bundleFormat: WebGLExportBundleFormat;
   gobletVersion: WebGLExportGobletVersion;
   htmlTitle: string;
+  htmlBackgroundColor?: string;
 }
 
 export interface PngExportRequest {

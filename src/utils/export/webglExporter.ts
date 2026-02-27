@@ -265,6 +265,7 @@ const PROPERTY_MINIFY_MAP = {
   embedCanvasFallback: 'ecf',
   minifyOutput: 'mo',
   htmlTitle: 'htl',
+  htmlBackgroundColor: 'hbc',
   perfectLoop: 'plp',
   fps: 'fps',
   totalFrames: 'tfm',
@@ -469,6 +470,7 @@ export interface WebGLExportMetadata {
     perfectLoop: boolean;
     bundleFormat: WebGLExportBundleFormat;
     htmlTitle: string;
+    htmlBackgroundColor: string;
   };
   layers: WebGLLayerMetadata[];
   gradients?: SerializedGradientStops[];
@@ -504,6 +506,7 @@ export interface WebGLExportRequest {
   assetPrefix?: string;
   compositeLayersToCanvas?: (targetCanvas: HTMLCanvasElement) => void;
   htmlTitle?: string;
+  htmlBackgroundColor?: string;
 }
 
 const isHTMLCanvas = (canvas: unknown): canvas is HTMLCanvasElement => {
@@ -3418,6 +3421,7 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
 };
 
 const DEFAULT_HTML_TITLE = 'Goblet';
+const DEFAULT_HTML_BACKGROUND_COLOR = '#000000';
 const GOBLET2_FORMAT = 'vessel-goblet2' as const;
 const GOBLET2_SCHEMA_VERSION = 2;
 
@@ -3430,6 +3434,17 @@ const sanitizeHtmlTitle = (value: unknown): string => {
     return DEFAULT_HTML_TITLE;
   }
   return trimmed.slice(0, 120);
+};
+
+const sanitizeHtmlBackgroundColor = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return DEFAULT_HTML_BACKGROUND_COLOR;
+  }
+  const trimmed = value.trim();
+  if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  return DEFAULT_HTML_BACKGROUND_COLOR;
 };
 
 const escapeHtmlEntities = (value: string): string => {
@@ -3452,6 +3467,17 @@ const applyHtmlTitleToTemplate = (html: string, title: string): string => {
     return `${html.slice(0, headClose)}<title>${escapedTitle}</title>${html.slice(headClose)}`;
   }
   return `<title>${escapedTitle}</title>${html}`;
+};
+
+const applyHtmlBackgroundColorToTemplate = (html: string, color: string): string => {
+  const bodyPattern = /(body\s*\{[\s\S]*?\bbackground:\s*)[^;]+;/i;
+  const withBodyBackground = bodyPattern.test(html)
+    ? html.replace(bodyPattern, `$1${color};`)
+    : html;
+  const canvasPattern = /(canvas\s*\{[\s\S]*?\bbackground:\s*)[^;]+;/i;
+  return canvasPattern.test(withBodyBackground)
+    ? withBodyBackground.replace(canvasPattern, `$1${color};`)
+    : withBodyBackground;
 };
 
 const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\$&');
@@ -3986,6 +4012,7 @@ export const exportProjectAsWebGL = async (
 
   try {
     const resolvedHtmlTitle = sanitizeHtmlTitle(options.htmlTitle ?? DEFAULT_HTML_TITLE);
+    const resolvedHtmlBackgroundColor = sanitizeHtmlBackgroundColor(options.htmlBackgroundColor ?? DEFAULT_HTML_BACKGROUND_COLOR);
     const gobletVersion = options.gobletVersion === 'goblet1' ? 'goblet1' : 'goblet2';
     const gobletFormat: WebGLExportMetadata['format'] = gobletVersion === 'goblet2'
       ? GOBLET2_FORMAT
@@ -4445,7 +4472,8 @@ export const exportProjectAsWebGL = async (
       pixelPerfectStack,
       perfectLoop: options.perfectLoop,
       bundleFormat,
-      htmlTitle: resolvedHtmlTitle
+      htmlTitle: resolvedHtmlTitle,
+      htmlBackgroundColor: resolvedHtmlBackgroundColor
     },
     layers: metadataLayers
   };
@@ -4502,7 +4530,10 @@ export const exportProjectAsWebGL = async (
     const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
       throw new Error(`[webglExporter] Failed to load Goblet template: ${message}`);
   }
-  const indexHtmlWithTitle = applyHtmlTitleToTemplate(indexHtml, resolvedHtmlTitle);
+  const indexHtmlWithPresentation = applyHtmlBackgroundColorToTemplate(
+    applyHtmlTitleToTemplate(indexHtml, resolvedHtmlTitle),
+    resolvedHtmlBackgroundColor
+  );
 
   let baseRuntimeAssetsPromise: Promise<[string, string, string, string]> | null = null;
   const ensureBaseRuntimeAssets = () => {
@@ -4530,7 +4561,7 @@ export const exportProjectAsWebGL = async (
     const bundledRuntime = await loadBundledRuntime();
     if (bundledRuntime) {
       const singleFileHtml = createSingleFileGobletHtmlFromBundledRuntime(
-        indexHtmlWithTitle,
+        indexHtmlWithPresentation,
         bundledRuntime,
         gobletRuntimeModulePath,
         json,
@@ -4554,7 +4585,7 @@ export const exportProjectAsWebGL = async (
     }
 
     const singleFileHtml = createSingleFileGobletHtml(
-      indexHtmlWithTitle,
+      indexHtmlWithPresentation,
       gobletJs,
       gobletRuntimeModulePath,
       alignJs,
@@ -4583,7 +4614,7 @@ export const exportProjectAsWebGL = async (
 
     const JSZip = await loadJSZip();
     const zip = new JSZip();
-    zip.file('index.html', createZipGobletHtml(indexHtmlWithTitle, jsonFilename, json, diagnosticsEnabled));
+    zip.file('index.html', createZipGobletHtml(indexHtmlWithPresentation, jsonFilename, json, diagnosticsEnabled));
     zip.file(gobletRuntimeAsset, gobletJs);
     zip.file('alignFitResolver.js', alignJs);
     zip.file('num.js', numJs);

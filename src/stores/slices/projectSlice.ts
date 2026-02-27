@@ -606,6 +606,7 @@ export const createProjectSlice =
         // opt-in via explicit env or UI toggle instead of defaulting on in dev.
         enableGobletDiagnostics: process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true',
         htmlTitle: 'Goblet',
+        htmlBackgroundColor: '#000000',
         viewportPreset: 'fill',
         designScalePercent: 100,
       },
@@ -635,6 +636,10 @@ export const createProjectSlice =
         const normalizedViewportPreset = rest.viewportPreset === 'fixed' || rest.viewportPreset === 'fill'
           ? rest.viewportPreset
           : undefined;
+        const normalizedHtmlBackgroundColor = typeof rest.htmlBackgroundColor === 'string'
+          && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(rest.htmlBackgroundColor.trim())
+          ? rest.htmlBackgroundColor.trim().toLowerCase()
+          : undefined;
         set((state) => ({
           webglExportSettings: {
             ...state.webglExportSettings,
@@ -644,6 +649,9 @@ export const createProjectSlice =
               : {}),
             ...(normalizedViewportPreset
               ? { viewportPreset: normalizedViewportPreset }
+              : {}),
+            ...(normalizedHtmlBackgroundColor
+              ? { htmlBackgroundColor: normalizedHtmlBackgroundColor }
               : {}),
             ...(typeof enableViewerDiagnostics === 'boolean'
               ? { enableGobletDiagnostics: enableViewerDiagnostics }

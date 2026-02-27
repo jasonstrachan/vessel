@@ -77,6 +77,7 @@ export interface WebGLExportSettings {
   gobletVersion: WebGLExportGobletVersion;
   enableGobletDiagnostics: boolean;
   htmlTitle: string;
+  htmlBackgroundColor: string;
   viewportPreset: 'fill' | 'fixed';
   designScalePercent: number;
 }
