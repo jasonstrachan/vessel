@@ -51,19 +51,25 @@ export class CrashRecoveryService {
     try {
       // Restore the project to the store
       store.setProject(recoveryData.project);
-      
-      // Update layers and canvas state
-      useAppStore.setState({
-        layers: recoveryData.layers,
-        activeLayerId: recoveryData.layers[0]?.id || null,
-        canvas: {
-          ...store.canvas,
-          canvasWidth: recoveryData.project.width,
-          canvasHeight: recoveryData.project.height,
-          // Restore view state if available
-          zoom: recoveryData.project.viewState?.zoom || store.canvas.zoom
-        }
-      });
+
+      // Route through store actions so layer normalization/sanitization runs.
+      store.setLayers(recoveryData.layers);
+      const recoveredLayers = useAppStore.getState().layers;
+      const nextActiveLayerId = recoveredLayers[0]?.id ?? null;
+      if (nextActiveLayerId) {
+        store.setActiveLayer(nextActiveLayerId);
+      }
+      store.setSelectedLayerIds(nextActiveLayerId ? [nextActiveLayerId] : []);
+
+      store.setCanvasDimensions(recoveryData.project.width, recoveryData.project.height);
+      if (recoveryData.project.viewState?.zoom) {
+        useAppStore.setState((state) => ({
+          canvas: {
+            ...state.canvas,
+            zoom: recoveryData.project.viewState?.zoom ?? state.canvas.zoom,
+          },
+        }));
+      }
       store.setLayersNeedRecomposition(true);
 
       // Clear the dirty state since we just recovered
