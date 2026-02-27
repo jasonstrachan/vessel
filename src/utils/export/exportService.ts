@@ -70,16 +70,25 @@ const createRenderTargets = (frameProvider: FrameProvider, scale: number) => {
   return { base, scaled, ctx, scaledWidth, scaledHeight, isScaled: true };
 };
 
+const drawScaledFrame = (
+  targets: ReturnType<typeof createRenderTargets>,
+  usePixelPerfectScaling = true
+) => {
+  if (!targets.isScaled) {
+    return;
+  }
+  targets.ctx.clearRect(0, 0, targets.scaledWidth, targets.scaledHeight);
+  targets.ctx.imageSmoothingEnabled = !usePixelPerfectScaling;
+  targets.ctx.imageSmoothingQuality = usePixelPerfectScaling ? 'low' : 'high';
+  targets.ctx.drawImage(targets.base, 0, 0, targets.scaledWidth, targets.scaledHeight);
+};
+
 const renderFrameToScaled = (
   frameProvider: FrameProvider,
   targets: ReturnType<typeof createRenderTargets>
 ): ImageData => {
   frameProvider.compositeToCanvas(targets.base);
-  if (targets.isScaled) {
-    targets.ctx.imageSmoothingEnabled = true;
-    targets.ctx.imageSmoothingQuality = 'high';
-    targets.ctx.drawImage(targets.base, 0, 0, targets.scaledWidth, targets.scaledHeight);
-  }
+  drawScaledFrame(targets, true);
   return targets.ctx.getImageData(0, 0, targets.scaledWidth, targets.scaledHeight);
 };
 
@@ -230,9 +239,7 @@ const runPngExport = async (request: PngExportRequest): Promise<ExportResult> =>
 
   let finalCanvas = targets.scaled;
   if (targets.isScaled) {
-    targets.ctx.imageSmoothingEnabled = true;
-    targets.ctx.imageSmoothingQuality = 'high';
-    targets.ctx.drawImage(targets.base, 0, 0, targets.scaledWidth, targets.scaledHeight);
+    drawScaledFrame(targets, true);
   }
 
   if (options.includeBackground && options.backgroundColor && options.backgroundColor !== 'transparent') {
@@ -360,32 +367,68 @@ const runVideoExport = async (
 ): Promise<ExportResult> => {
   const { frameProvider, scale, filenameBase, options } = request;
   const targets = createRenderTargets(frameProvider, scale);
-  const mimeCandidates = [
-    `${options.mimeType};codecs=avc1.42E01E`,
-    options.mimeType,
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm'
-  ];
-
   const mediaRecorderCtor = (window as typeof window & { MediaRecorder?: typeof MediaRecorder }).MediaRecorder;
-  let mime: string | undefined;
-  for (const t of mimeCandidates) {
-    if (mediaRecorderCtor && typeof mediaRecorderCtor.isTypeSupported === 'function' && mediaRecorderCtor.isTypeSupported(t)) {
-      mime = t;
-      break;
-    }
+  if (!mediaRecorderCtor) {
+    throw new Error('MediaRecorder is not supported in this browser');
   }
-  if (!mime) mime = 'video/webm;codecs=vp8';
+
+  const mimeCandidates = options.mimeType === 'video/mp4'
+    ? [
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm'
+    ]
+    : [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4'
+    ];
+
+  const resolveSupportedMime = (candidates: string[]): string | null => {
+    for (const candidate of candidates) {
+      if (
+        typeof mediaRecorderCtor.isTypeSupported === 'function'
+        && mediaRecorderCtor.isTypeSupported(candidate)
+      ) {
+        return candidate;
+      }
+    }
+    return null;
+  };
+
+  const supportedMime = resolveSupportedMime(mimeCandidates) ?? 'video/webm;codecs=vp8';
 
   const stream = typeof targets.scaled.captureStream === 'function' ? targets.scaled.captureStream(options.fps) : null;
   if (!stream) throw new Error('Canvas captureStream not supported');
+  const stopCaptureTracks = () => {
+    if (!stream || typeof stream.getTracks !== 'function') {
+      return;
+    }
+    for (const track of stream.getTracks()) {
+      if (track && typeof track.stop === 'function') {
+        track.stop();
+      }
+    }
+  };
 
   const chunks: BlobPart[] = [];
-  const recorder = new MediaRecorder(stream, {
-    mimeType: mime,
-    videoBitsPerSecond: Math.max(1000, options.bitrateKbps * 1000),
-  } as MediaRecorderOptions);
+  let recorder: MediaRecorder;
+  try {
+    recorder = new MediaRecorder(stream, {
+      mimeType: supportedMime,
+      videoBitsPerSecond: Math.max(1000, options.bitrateKbps * 1000),
+    } as MediaRecorderOptions);
+  } catch {
+    // Last-resort fallback for engines that misreport support.
+    recorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp8',
+      videoBitsPerSecond: Math.max(1000, options.bitrateKbps * 1000),
+    } as MediaRecorderOptions);
+  }
 
   recorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -399,46 +442,55 @@ const runVideoExport = async (
     useAbsolutePhase: false
   });
 
-  await new Promise<void>((resolve) => {
-    recorder.onstop = () => resolve();
-    recorder.start();
-    let frame = 0;
-    const interval = Math.max(0, Math.floor(1000 / options.fps));
-    const tick = () => {
-      if (signal.aborted || frame >= totalFrames) {
-        recorder.stop();
-        return;
-      }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      recorder.onstop = () => resolve();
+      recorder.onerror = () => reject(new Error('Video export failed: recorder error'));
+      recorder.start();
+      let frame = 0;
+      const interval = Math.max(0, Math.floor(1000 / options.fps));
+      const tick = () => {
+        if (signal.aborted || frame >= totalFrames) {
+          recorder.stop();
+          return;
+        }
 
-      animationSession?.stepFrame({
-        frameIndex: frame,
-        totalFrames,
-        useAbsolutePhase: false
-      });
-      frameProvider.compositeToCanvas(targets.base);
-      if (targets.isScaled) {
-        targets.ctx.imageSmoothingEnabled = true;
-        targets.ctx.imageSmoothingQuality = 'high';
-        targets.ctx.drawImage(targets.base, 0, 0, targets.scaledWidth, targets.scaledHeight);
-      }
+        animationSession?.stepFrame({
+          frameIndex: frame,
+          totalFrames,
+          useAbsolutePhase: false
+        });
+        frameProvider.compositeToCanvas(targets.base);
+        drawScaledFrame(targets, true);
 
-      frame += 1;
-      onProgress({ phase: 'encode', percent: Math.round((frame / totalFrames) * 100) });
-      setTimeout(tick, interval);
+        frame += 1;
+        onProgress({ phase: 'encode', percent: Math.round((frame / totalFrames) * 100) });
+        setTimeout(tick, interval);
+      };
+      setTimeout(tick, 0);
+    });
+
+    if (chunks.length === 0) {
+      throw new Error('Video export failed: recorder produced no frames');
+    }
+
+    const outputMime = recorder.mimeType || supportedMime || 'video/webm';
+    const blob = new Blob(chunks, { type: outputMime });
+    if (blob.size === 0) {
+      throw new Error('Video export failed: empty output file');
+    }
+
+    const ext = outputMime.includes('mp4') ? 'mp4' : 'webm';
+    return {
+      kind: 'video',
+      filename: `${filenameBase}@${scale}x.${ext}`,
+      blob,
+      mimeType: outputMime,
     };
-    setTimeout(tick, 0);
-  });
-
-  animationSession?.finish?.();
-
-  const blob = new Blob(chunks, { type: recorder.mimeType });
-  const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
-  return {
-    kind: 'video',
-    filename: `${filenameBase}@${scale}x.${ext}`,
-    blob,
-    mimeType: recorder.mimeType,
-  };
+  } finally {
+    animationSession?.finish?.();
+    stopCaptureTracks();
+  }
 };
 
 const runWebglExport = async (request: WebglExportRequest): Promise<ExportResult> => {
