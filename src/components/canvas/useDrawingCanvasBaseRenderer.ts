@@ -320,6 +320,11 @@ export const useDrawingCanvasBaseRenderer = ({
         overlayActive: Boolean(overlayActive),
         isDrawing,
         colorCycleManager: colorCycleManagerRef.current,
+        selectionStart,
+        selectionEnd,
+        selectionMask,
+        selectionMaskBounds,
+        selectionVectorPath,
       });
 
       if (floatingPaste && floatingPaste.imageData) {

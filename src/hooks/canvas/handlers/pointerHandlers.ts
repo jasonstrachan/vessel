@@ -151,6 +151,7 @@ import type {
 import { BrushShape, type BrushSettings } from '../../../types';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
+import { floodSelect } from '@/utils/floodSelect';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
 import {
   generateContourLines,
@@ -2176,7 +2177,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Cursor rule: shapes use crosshair; stroke brushes use brush-size cursor when allowed
     applyToolCursor({
       isColorPicker: false,
-      useCrosshair: shouldRouteToShapeHandler || tools.shapeMode,
+      useCrosshair:
+        shouldRouteToShapeHandler ||
+        tools.shapeMode ||
+        tools.currentTool === 'magic-wand',
     });
 
     if (shouldRouteToShapeHandler) {
@@ -2296,6 +2300,65 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     
     // Handle left click
     if (event.button === 0) {
+      // Handle magic wand tool
+      if (tools.currentTool === 'magic-wand') {
+        const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+        if (!activeLayer) return;
+
+        const canvasWidth = project?.width || 1920;
+        const canvasHeight = project?.height || 1080;
+
+        let currentImageData: ImageData | null = null;
+
+        if (activeLayer.framebuffer) {
+          const fb = activeLayer.framebuffer;
+          if (fb.width !== canvasWidth || fb.height !== canvasHeight) {
+            fb.width = canvasWidth;
+            fb.height = canvasHeight;
+          }
+
+          const ctx = fb.getContext('2d', { willReadFrequently: true });
+          if (ctx && 'getImageData' in ctx) {
+            currentImageData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+          }
+        }
+
+        if (!currentImageData && activeLayer.imageData) {
+          currentImageData = activeLayer.imageData;
+        }
+
+        if (!currentImageData) {
+          clearSelection();
+          return;
+        }
+
+        const selection = floodSelect(
+          currentImageData,
+          Math.floor(worldPos.x),
+          Math.floor(worldPos.y),
+          {
+            threshold: tools.wandSettings.threshold,
+            contiguous: tools.wandSettings.contiguous,
+          }
+        );
+
+        if (!selection || !activeLayerId) {
+          clearSelection();
+          return;
+        }
+
+        const { bounds, mask } = selection;
+        useAppStore.setState({
+          selectionStart: { x: bounds.x, y: bounds.y },
+          selectionEnd: { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+          selectionVectorPath: null,
+          selectionMask: mask,
+          selectionMaskBounds: bounds,
+          selectionMaskLayerId: activeLayerId,
+        });
+        return;
+      }
+
       // Handle fill tool
       if (tools.currentTool === 'fill') {
         // Block fill on CC layers
@@ -2867,7 +2930,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     if (interaction.state.isDrawing) {
       applyToolCursor({
         isColorPicker: false,
-        useCrosshair: shouldRouteToShapeHandler || tools.shapeMode,
+        useCrosshair:
+          shouldRouteToShapeHandler ||
+          tools.shapeMode ||
+          tools.currentTool === 'magic-wand',
       });
     }
 

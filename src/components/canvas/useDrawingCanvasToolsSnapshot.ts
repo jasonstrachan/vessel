@@ -11,6 +11,10 @@ interface UseDrawingCanvasToolsSnapshotOptions {
     contiguous: boolean;
     eraseInstead: boolean;
   };
+  wandSettings: {
+    threshold: number;
+    contiguous: boolean;
+  };
   eraserSettings: AppState['tools']['eraserSettings'];
   shapeMode: boolean;
   customBrushCapture: AppState['tools']['customBrushCapture'];
@@ -21,6 +25,7 @@ export const useDrawingCanvasToolsSnapshot = ({
   selectionMode,
   brushSettings,
   fillSettings,
+  wandSettings,
   eraserSettings,
   shapeMode,
   customBrushCapture,
@@ -31,10 +36,11 @@ export const useDrawingCanvasToolsSnapshot = ({
       selectionMode,
       brushSettings,
       fillSettings,
+      wandSettings,
       eraserSettings,
       shapeMode,
       customBrushCapture,
     }),
-    [brushSettings, currentTool, customBrushCapture, eraserSettings, fillSettings, selectionMode, shapeMode]
+    [brushSettings, currentTool, customBrushCapture, eraserSettings, fillSettings, selectionMode, shapeMode, wandSettings]
   );
 };

@@ -355,6 +355,15 @@ export function useComprehensiveKeyboard({
       }
     }
 
+    // Tool switching - W for magic wand tool
+    if (event.key === 'w' || event.key === 'W') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        await switchTool('magic-wand');
+        return;
+      }
+    }
+
     // Tool switching - B for brush tool
     if (event.key === 'b' || event.key === 'B') {
       if (!event.ctrlKey && !event.metaKey) {

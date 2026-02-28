@@ -69,6 +69,19 @@ describe('LeftToolbar accessibility', () => {
     });
   });
 
+  it('renders and switches to magic wand via toolbar button', async () => {
+    render(<LeftToolbar />);
+
+    const wandButton = screen.getByRole('button', { name: /magic wand \(w\)/i });
+    expect(wandButton).toHaveAttribute('data-shortcut', 'W');
+
+    fireEvent.click(wandButton);
+
+    await waitFor(() => {
+      expect(mockSwitchTool).toHaveBeenCalledWith('magic-wand');
+    });
+  });
+
   it('routes save actions through the store API for accessibility buttons', async () => {
     render(<LeftToolbar />);
 

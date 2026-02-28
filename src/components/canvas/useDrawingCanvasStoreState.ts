@@ -25,6 +25,7 @@ export const useDrawingCanvasStoreState = () => {
       selectionMode: state.tools.selectionMode,
       brushSettings: state.tools.brushSettings,
       fillSettings: state.tools.fillSettings,
+      wandSettings: state.tools.wandSettings,
       eraserSettings: state.tools.eraserSettings,
       shapeMode: state.tools.shapeMode,
       customBrushCapture: state.tools.customBrushCapture,

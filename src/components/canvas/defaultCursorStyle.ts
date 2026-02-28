@@ -1,6 +1,6 @@
 import { BrushShape, type Tool } from '@/types';
 
-const CROSSHAIR_TOOLS = new Set<Tool>(['fill', 'crop', 'recolor', 'selection', 'custom']);
+const CROSSHAIR_TOOLS = new Set<Tool>(['fill', 'magic-wand', 'crop', 'recolor', 'selection', 'custom']);
 
 export const resolveDefaultCursorStyle = ({
   currentTool,
