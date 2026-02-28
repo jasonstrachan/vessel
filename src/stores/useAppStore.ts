@@ -468,6 +468,7 @@ export interface AppState {
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
+  setWandSettings: (settings: Partial<ToolState['wandSettings']>) => void;
   setCcGradientSource: (source: ToolState['ccGradientSource']) => void;
   setShapeMode: (enabled: boolean) => void;
   setCustomBrushSampleAllLayers: (sampleAllLayers: boolean) => void;

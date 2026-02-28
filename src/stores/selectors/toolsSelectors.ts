@@ -7,6 +7,8 @@ export const selectPressureSettings = (state: AppState) => state.pressureSetting
 export const selectGlobalBrushSize = (state: AppState) => state.globalBrushSize;
 export const selectFillSettings = (state: AppState): ToolState['fillSettings'] =>
   state.tools.fillSettings;
+export const selectWandSettings = (state: AppState): ToolState['wandSettings'] =>
+  state.tools.wandSettings;
 export const selectCurrentTool = (state: AppState) => state.tools.currentTool;
 export const selectPreviousTool = (state: AppState) => state.tools.previousTool;
 export const selectShapeMode = (state: AppState) => state.tools.shapeMode;

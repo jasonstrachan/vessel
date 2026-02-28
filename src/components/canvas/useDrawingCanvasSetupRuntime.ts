@@ -12,6 +12,7 @@ interface UseDrawingCanvasSetupRuntimeOptions {
     | 'selectionMode'
     | 'brushSettings'
     | 'fillSettings'
+    | 'wandSettings'
     | 'eraserSettings'
     | 'shapeMode'
     | 'customBrushCapture'

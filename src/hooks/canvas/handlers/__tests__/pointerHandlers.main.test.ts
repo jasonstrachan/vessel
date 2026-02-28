@@ -67,6 +67,7 @@ const baseDynamic: EventHandlerDynamicDeps = {
       contourSpacing: 5,
     } as any,
     fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
+    wandSettings: { threshold: 0, contiguous: true },
     eraserSettings: {},
     shapeMode: false,
     customBrushCapture: { freehandPath: null } as any,
@@ -625,6 +626,85 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.clearSelection).toHaveBeenCalled();
     expect(deps.isMouseDownRef.current).toBe(false);
+  });
+
+  it('creates contiguous magic wand selection mask', () => {
+    const imageData = new ImageData(3, 1);
+    const px = imageData.data;
+    // red, blue, red
+    px.set([255, 0, 0, 255], 0);
+    px.set([0, 0, 255, 255], 4);
+    px.set([255, 0, 0, 255], 8);
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'magic-wand',
+        wandSettings: { threshold: 0, contiguous: true },
+      } as any,
+      layers: [{ id: 'layer-1', imageData, layerType: 'raster' } as any],
+      activeLayerId: 'layer-1',
+      project: { ...mockProject, width: 3, height: 1 },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0 }));
+
+    const state = useAppStore.getState();
+    expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    expect(state.selectionMask?.data[3]).toBe(255);
+
+    useAppStore.setState({
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+  });
+
+  it('creates non-contiguous magic wand selection mask', () => {
+    const imageData = new ImageData(3, 1);
+    const px = imageData.data;
+    // red, blue, red
+    px.set([255, 0, 0, 255], 0);
+    px.set([0, 0, 255, 255], 4);
+    px.set([255, 0, 0, 255], 8);
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'magic-wand',
+        wandSettings: { threshold: 0, contiguous: false },
+      } as any,
+      layers: [{ id: 'layer-1', imageData, layerType: 'raster' } as any],
+      activeLayerId: 'layer-1',
+      project: { ...mockProject, width: 3, height: 1 },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0 }));
+
+    const state = useAppStore.getState();
+    expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 3, height: 1 });
+    const mask = state.selectionMask;
+    expect(mask).toBeTruthy();
+    if (!mask) {
+      return;
+    }
+    expect(mask.data[3]).toBe(255);
+    expect(mask.data[7]).toBe(0);
+    expect(mask.data[11]).toBe(255);
+
+    useAppStore.setState({
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
   });
 
   it('allows dither gradient shape start outside canvas', () => {

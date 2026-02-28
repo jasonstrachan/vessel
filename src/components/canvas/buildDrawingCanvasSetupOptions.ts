@@ -8,6 +8,7 @@ interface BuildDrawingCanvasSetupOptionsArgs {
     | 'selectionMode'
     | 'brushSettings'
     | 'fillSettings'
+    | 'wandSettings'
     | 'eraserSettings'
     | 'shapeMode'
     | 'customBrushCapture'

@@ -213,6 +213,24 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.selectionMode).toBe('click-line');
   });
 
+  it('initializes magic wand settings with expected defaults', () => {
+    const state = useAppStore.getState();
+    expect(state.tools.wandSettings).toEqual({
+      threshold: 0,
+      contiguous: true,
+    });
+  });
+
+  it('updates magic wand settings', () => {
+    const store = useAppStore.getState();
+    store.setWandSettings({ threshold: 24, contiguous: false });
+
+    expect(useAppStore.getState().tools.wandSettings).toEqual({
+      threshold: 24,
+      contiguous: false,
+    });
+  });
+
   it('reuses stored gradients when switching to color cycle presets', () => {
     const store = useAppStore.getState();
     const gradientStops = [

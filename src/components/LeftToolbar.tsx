@@ -11,6 +11,7 @@ const toolShortcuts: Partial<Record<Tool, { aria: string; display: string }>> = 
   selection: { aria: 'KeyM', display: 'M' },
   'color-picker': { aria: 'KeyP', display: 'Hold P' },
   fill: { aria: 'KeyF', display: 'F' },
+  'magic-wand': { aria: 'KeyW', display: 'W' },
   save: { aria: 'Control+KeyS Meta+KeyS', display: 'Ctrl/Cmd+S' },
   load: { aria: 'Control+KeyO Meta+KeyO', display: 'Ctrl/Cmd+O' },
 };
@@ -41,6 +42,7 @@ const LeftToolbar = () => {
       { id: 'eyedropper' as Tool, label: 'Eyedropper', abbr: 'Ey' },
       { id: 'color-picker' as Tool, label: 'Color Picker', abbr: 'Cp' },
       { id: 'fill' as Tool, label: 'Fill', abbr: 'Fl' },
+      { id: 'magic-wand' as Tool, label: 'Magic Wand', abbr: 'Mw' },
       { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
       { id: 'crop' as Tool, label: 'Crop', abbr: 'Cr' },
     ],

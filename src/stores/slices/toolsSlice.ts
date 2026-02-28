@@ -111,6 +111,10 @@ export const createDefaultToolState = (): ToolState => ({
     contiguous: true,
     eraseInstead: false,
   },
+  wandSettings: {
+    threshold: 0,
+    contiguous: true,
+  },
   shapeMode: false,
   customBrushCapture: {
     sampleAllLayers: false,
@@ -298,6 +302,7 @@ export interface ToolsSlice {
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
+  setWandSettings: (settings: Partial<ToolState['wandSettings']>) => void;
   setCcGradientSource: (source: ToolState['ccGradientSource']) => void;
   setCcGradientSampleCount: (count: number) => void;
   resetCcGradientSample: () => void;
@@ -1242,6 +1247,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       ...state.tools,
       fillSettings: { ...state.tools.fillSettings, ...settings }
     }
+  })),
+  setWandSettings: (settings) => set((state) => ({
+    tools: {
+      ...state.tools,
+      wandSettings: { ...state.tools.wandSettings, ...settings },
+    },
   })),
   setCcGradientSource: (source) => {
     const nextSource = source ?? 'manual';

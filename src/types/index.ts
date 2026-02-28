@@ -615,6 +615,10 @@ export interface ToolState {
     contiguous: boolean;
     eraseInstead: boolean;
   };
+  wandSettings: {
+    threshold: number;
+    contiguous: boolean;
+  };
   shapeMode: boolean; // When true, draws closed polygon shapes with current brush
   customBrushCapture: {
     /** When true, capture pixels from the composited canvas (all visible layers). */
@@ -1075,7 +1079,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'crop' | 'selection' | 'eyedropper' | 'color-picker' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor' | 'color-adjust';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'magic-wand' | 'crop' | 'selection' | 'eyedropper' | 'color-picker' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor' | 'color-adjust';
 
 export interface ColorAdjustParams {
   hue: number;        // -180 to 180 degrees

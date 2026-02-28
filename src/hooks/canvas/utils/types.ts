@@ -47,6 +47,10 @@ export interface ToolsState {
     contiguous: boolean;
     eraseInstead: boolean;
   };
+  wandSettings: {
+    threshold: number;
+    contiguous: boolean;
+  };
   eraserSettings?: {
     opacity?: number;
   };

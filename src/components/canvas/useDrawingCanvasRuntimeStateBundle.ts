@@ -22,6 +22,7 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
       selectionMode: storeState.selectionMode,
       brushSettings: storeState.brushSettings,
       fillSettings: storeState.fillSettings,
+      wandSettings: storeState.wandSettings,
       eraserSettings: storeState.eraserSettings,
       shapeMode: storeState.shapeMode,
       customBrushCapture: storeState.customBrushCapture,

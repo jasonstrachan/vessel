@@ -1,4 +1,5 @@
 import type { Layer } from '@/types';
+import { getSelectionMaskContourPath } from '@/utils/selectionMaskContourPath';
 
 interface VisibleRect {
   x: number;
@@ -20,6 +21,14 @@ interface DrawCanvasOverlayLayerOptions {
   overlayActive: boolean;
   isDrawing?: boolean;
   colorCycleManager: ColorCycleManagerLike | null;
+  selectionStart?: { x: number; y: number } | null;
+  selectionEnd?: { x: number; y: number } | null;
+  selectionMask?: ImageData | null;
+  selectionMaskBounds?: { x: number; y: number; width: number; height: number } | null;
+  selectionVectorPath?: {
+    mode: 'freehand' | 'click-line';
+    points: Array<{ x: number; y: number }>;
+  } | null;
 }
 
 export const drawCanvasOverlayLayer = ({
@@ -31,6 +40,11 @@ export const drawCanvasOverlayLayer = ({
   overlayActive,
   isDrawing,
   colorCycleManager,
+  selectionStart = null,
+  selectionEnd = null,
+  selectionMask = null,
+  selectionMaskBounds = null,
+  selectionVectorPath = null,
 }: DrawCanvasOverlayLayerOptions): void => {
   if (!overlayActive || !overlayCanvasElement || !visibleRect) {
     return;
@@ -66,6 +80,37 @@ export const drawCanvasOverlayLayer = ({
   } else {
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+  }
+
+  if (selectionMask && selectionMaskBounds) {
+    const hasVectorPath = Boolean(selectionVectorPath && selectionVectorPath.points.length >= 2);
+    if (hasVectorPath) {
+      const path = new Path2D();
+      const points = selectionVectorPath!.points;
+      path.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) {
+        path.lineTo(points[i].x, points[i].y);
+      }
+      if (points.length > 2) {
+        path.closePath();
+      }
+      ctx.clip(path);
+    } else {
+      const contourPath = getSelectionMaskContourPath(selectionMask);
+      ctx.translate(selectionMaskBounds.x, selectionMaskBounds.y);
+      ctx.clip(contourPath);
+      ctx.translate(-selectionMaskBounds.x, -selectionMaskBounds.y);
+    }
+  } else if (selectionStart && selectionEnd) {
+    const x = Math.min(selectionStart.x, selectionEnd.x);
+    const y = Math.min(selectionStart.y, selectionEnd.y);
+    const width = Math.abs(selectionEnd.x - selectionStart.x);
+    const height = Math.abs(selectionEnd.y - selectionStart.y);
+    if (width > 0 && height > 0) {
+      const rectPath = new Path2D();
+      rectPath.rect(x, y, width, height);
+      ctx.clip(rectPath);
+    }
   }
 
   ctx.drawImage(overlayCanvasElement, x, y, width, height, x, y, width, height);
