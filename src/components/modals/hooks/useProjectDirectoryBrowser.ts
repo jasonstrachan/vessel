@@ -159,10 +159,17 @@ const compareEntries = (a: DirectoryProjectEntry, b: DirectoryProjectEntry) => {
   const bStartsWithDigit = /^\d/.test(b.name.trimStart());
 
   if (aStartsWithDigit !== bStartsWithDigit) {
-    return aStartsWithDigit ? -1 : 1;
+    return aStartsWithDigit ? 1 : -1;
   }
 
-  return FILE_NAME_COLLATOR.compare(a.name, b.name);
+  const aNameWithoutExtension = a.name.replace(/\.[^/.]+$/, '');
+  const bNameWithoutExtension = b.name.replace(/\.[^/.]+$/, '');
+  const byStemName = FILE_NAME_COLLATOR.compare(bNameWithoutExtension, aNameWithoutExtension);
+  if (byStemName !== 0) {
+    return byStemName;
+  }
+
+  return FILE_NAME_COLLATOR.compare(b.name, a.name);
 };
 
 export const sortDirectoryProjectEntries = (entries: DirectoryProjectEntry[]): DirectoryProjectEntry[] => {
@@ -266,12 +273,12 @@ export function useProjectDirectoryBrowser({
             if (scanVersion !== scanVersionRef.current) {
               return prev;
             }
-            const existing = prev[index];
-            if (!existing || existing.name !== entry.name) {
+            const existingIndex = prev.findIndex((candidate) => candidate.name === entry.name);
+            if (existingIndex < 0) {
               return prev;
             }
             const next = [...prev];
-            next.splice(index, 1);
+            next.splice(existingIndex, 1);
             directoryEntriesRef.current = next;
             lastDirectoryEntries = next;
             return next;
@@ -283,15 +290,20 @@ export function useProjectDirectoryBrowser({
           if (scanVersion !== scanVersionRef.current) {
             return prev;
           }
-          const existing = prev[index];
-          if (!existing || existing.name !== entry.name || existing.lastModified === file.lastModified) {
+          const existingIndex = prev.findIndex((candidate) => candidate.name === entry.name);
+          if (existingIndex < 0) {
+            return prev;
+          }
+          const existing = prev[existingIndex];
+          if (!existing || existing.lastModified === file.lastModified) {
             return prev;
           }
           const next = [...prev];
-          next[index] = { ...existing, lastModified: file.lastModified };
-          directoryEntriesRef.current = next;
-          lastDirectoryEntries = next;
-          return next;
+          next[existingIndex] = { ...existing, lastModified: file.lastModified };
+          const sorted = sortDirectoryProjectEntries(next);
+          directoryEntriesRef.current = sorted;
+          lastDirectoryEntries = sorted;
+          return sorted;
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {

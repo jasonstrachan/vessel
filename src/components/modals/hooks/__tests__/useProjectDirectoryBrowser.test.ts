@@ -7,23 +7,35 @@ const createEntry = (name: string): DirectoryProjectEntry => ({
 });
 
 describe('sortDirectoryProjectEntries', () => {
-  it('places number-prefixed files at the top in natural alphanumeric order', () => {
+  it('sorts reverse alphanumeric with dotted numeric names in expected order', () => {
     const sorted = sortDirectoryProjectEntries([
-      createEntry('Project 2.vessel'),
-      createEntry('10-intro.vessel'),
-      createEntry('2-intro.vessel'),
-      createEntry('Alpha.vessel'),
-      createEntry('1-intro.vessel'),
-      createEntry('beta.vessel'),
+      createEntry('7.vessel'),
+      createEntry('7.1.vessel'),
+      createEntry('7.2.vessel'),
+      createEntry('6.9.vessel'),
     ]);
 
     expect(sorted.map((entry) => entry.name)).toEqual([
-      '1-intro.vessel',
-      '2-intro.vessel',
-      '10-intro.vessel',
+      '7.2.vessel',
+      '7.1.vessel',
+      '7.vessel',
+      '6.9.vessel',
+    ]);
+  });
+
+  it('keeps number-prefixed names below letter-prefixed names', () => {
+    const sorted = sortDirectoryProjectEntries([
+      createEntry('7.vessel'),
+      createEntry('7.1.vessel'),
+      createEntry('7.2.vessel'),
+      createEntry('Alpha.vessel'),
+    ]);
+
+    expect(sorted.map((entry) => entry.name)).toEqual([
       'Alpha.vessel',
-      'beta.vessel',
-      'Project 2.vessel',
+      '7.2.vessel',
+      '7.1.vessel',
+      '7.vessel',
     ]);
   });
 });
