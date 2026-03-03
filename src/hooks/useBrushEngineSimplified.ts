@@ -1104,6 +1104,8 @@ export const useBrushEngineSimplified = () => {
     colorCycleBandSpacingPx: tools.brushSettings.colorCycleBandSpacingPx,
     spacing: tools.brushSettings.spacing,
     lostEdge: tools.brushSettings.lostEdge,
+    ditherBackgroundFill: tools.brushSettings.ditherBackgroundFill,
+    ditherGradBgFill: tools.brushSettings.ditherGradBgFill,
   }), [
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.gradientBands,
@@ -1111,6 +1113,8 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.colorCycleBandSpacingPx,
     tools.brushSettings.spacing,
     tools.brushSettings.lostEdge,
+    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings.ditherGradBgFill,
   ]);
 
   /**

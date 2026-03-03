@@ -35,6 +35,8 @@ type SharedArgs = {
     | 'colorCycleBandSpacingPx'
     | 'spacing'
     | 'lostEdge'
+    | 'ditherBackgroundFill'
+    | 'ditherGradBgFill'
   >;
   defaultBandSpacing: number;
   clampColorCycleBandSpacing: (value?: number) => number;
@@ -87,10 +89,11 @@ const resolveFillSettings = ({
       : brushSettings.spacing ?? defaultBandSpacing
   );
   const ditherLevels = wantDither
-    ? Math.max(2, Math.min(16, Math.round(brushSettings.gradientBands ?? 16)))
+    ? Math.max(1, Math.min(16, Math.round(brushSettings.gradientBands ?? 16)))
     : undefined;
+  const ditherBackgroundFill = brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill;
 
-  return { ccGradientMode, wantDither, bands, spacing, ditherLevels };
+  return { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill };
 };
 
 export const fillColorCycleLinear = async ({
@@ -124,7 +127,7 @@ export const fillColorCycleLinear = async ({
     });
 
     const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-    const { ccGradientMode, wantDither, bands, spacing, ditherLevels } = resolveFillSettings({
+    const { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill } = resolveFillSettings({
       isCCGradientActiveLayer,
       brushSettings,
       defaultBandSpacing,
@@ -151,6 +154,7 @@ export const fillColorCycleLinear = async ({
           ccGradient: ccGradientMode,
           ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
+          ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
         },
@@ -190,7 +194,7 @@ export const fillColorCycleConcentric = async ({
       flushGradientApply,
     });
 
-    const { ccGradientMode, wantDither, bands, ditherLevels } = resolveFillSettings({
+    const { ccGradientMode, wantDither, bands, ditherLevels, ditherBackgroundFill } = resolveFillSettings({
       isCCGradientActiveLayer,
       brushSettings,
       defaultBandSpacing,
@@ -218,6 +222,7 @@ export const fillColorCycleConcentric = async ({
           ccGradient: ccGradientMode,
           ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
+          ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
         },

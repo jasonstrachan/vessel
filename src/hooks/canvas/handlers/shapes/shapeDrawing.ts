@@ -916,7 +916,9 @@ export const finalizeShapeDrawing = async (
               deps.latestShapePixelSizeRef.current = pixelSize;
               ditherPixelSize = pixelSize;
             }
-            const keepOverlayAfter = Boolean(activeSettings.ditherEnabled);
+            const keepOverlayAfter =
+              Boolean(activeSettings.ditherEnabled) &&
+              Math.max(1, Math.round(activeSettings.gradientBands ?? 16)) > 1;
             const sampleRestore = activeLayer
               ? applyCcSampleForShape({
                   shapePoints: shapePointsSnapshot,
@@ -1097,7 +1099,9 @@ export const finalizeShapeDrawing = async (
                   deps.latestShapePixelSizeRef.current = pixelSize;
                   ditherPixelSize = pixelSize;
                 }
-                const keepOverlayAfter = Boolean(liveBrushSettings.ditherEnabled);
+                const keepOverlayAfter =
+                  Boolean(liveBrushSettings.ditherEnabled) &&
+                  Math.max(1, Math.round(liveBrushSettings.gradientBands ?? 16)) > 1;
                 const sampleRestore = activeLayer
                   ? applyCcSampleForShape({
                       shapePoints: shapePointsSnapshot,

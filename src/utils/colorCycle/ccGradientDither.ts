@@ -19,6 +19,7 @@ export type CcGradientDitherOptions = {
   baseOffset: number;
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
+  fillBackground?: boolean;
   sampleNormalized: (x: number, y: number) => number;
   writeIndex: (x: number, y: number, index: number) => void;
   logSetIndexSample?: (x: number, y: number) => void;
@@ -38,6 +39,17 @@ const indexFromNormalized = (pos: number, baseOffset: number): number => {
   const raw = Math.round(pos * 254);
   const shifted = (raw + baseOffset) % 255;
   return Math.max(1, Math.min(255, shifted + 1));
+};
+
+const levelToCyclePos = (level: number, levels: number): number => {
+  const safeLevels = Math.max(1, levels | 0);
+  if (safeLevels <= 1) {
+    return 0;
+  }
+  const clampedLevel = Math.max(0, Math.min(safeLevels - 1, level | 0));
+  // Color-cycle gradients are periodic, so avoid sampling the duplicated 1.0 endpoint.
+  // This keeps low slice counts (especially 2) from collapsing to a single color.
+  return clampedLevel / safeLevels;
 };
 
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
@@ -222,13 +234,14 @@ export const fillCcGradientDither = async ({
   baseOffset,
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
+  fillBackground = true,
   sampleNormalized,
   writeIndex,
   logSetIndexSample,
   yieldIfNeeded,
 }: CcGradientDitherOptions): Promise<void> => {
-  const clampedLevels = Math.max(2, Math.min(255, Math.floor(levels)));
-  const cellSize = clampedLevels <= 2 ? 1 : Math.max(1, Math.floor(pixelSize));
+  const clampedLevels = Math.max(1, Math.min(255, Math.floor(levels)));
+  const cellSize = Math.max(1, Math.floor(pixelSize));
   const bboxWidth = Math.max(1, maxX - minX + 1);
   const bboxHeight = Math.max(1, maxY - minY + 1);
   const gridW = Math.max(1, Math.ceil(bboxWidth / cellSize));
@@ -315,7 +328,76 @@ export const fillCcGradientDither = async ({
     }
   }
 
-  if (algorithm === 'sierra-lite') {
+  if (clampedLevels === 1) {
+    const lowIndex = indexFromNormalized(0, baseOffset);
+    const highIndex = indexFromNormalized(0.5, baseOffset);
+    const phaseX = Math.floor(minX / Math.max(1, cellSize));
+    const phaseY = Math.floor(minY / Math.max(1, cellSize));
+    const tone = 0.5;
+    if (algorithm in ERROR_DIFFUSION_KERNELS) {
+      const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
+      const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
+      const errBuf = new Float32Array(gridW * gridH);
+      const jitterScale = profile.jitterBase * 0.25;
+
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const activeRow = activeCellsByRow[cy];
+        if (!activeRow.length) continue;
+
+        const useSerpentine = kernel.serpentine !== false;
+        const leftToRight = useSerpentine ? (cy & 1) === 0 : true;
+        const start = leftToRight ? 0 : activeRow.length - 1;
+        const end = leftToRight ? activeRow.length : -1;
+        const step = leftToRight ? 1 : -1;
+
+        for (let i = start; i !== end; i += step) {
+          const cx = activeRow[i];
+          const cellIdx = cy * gridW + cx;
+          let value = tone + (errBuf[cellIdx] || 0);
+          if (jitterScale > 0) {
+            value += (noiseAt(cx, cy) - 0.5) * jitterScale;
+          }
+          value = clamp01(value);
+
+          const usePrimary = value >= profile.threshold;
+          const out = usePrimary ? highIndex : (fillBackground ? lowIndex : 0);
+          cellIndices[cellIdx] = out;
+
+          const quant = usePrimary ? 1 : 0;
+          const err = value - quant;
+          if (err !== 0) {
+            const norm = 1 / Math.max(1, kernel.divisor);
+            for (let k = 0; k < kernel.taps.length; k += 1) {
+              const tap = kernel.taps[k];
+              const nx = cx + (leftToRight ? tap.dx : -tap.dx);
+              const ny = cy + tap.dy;
+              if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+              const nIdx = ny * gridW + nx;
+              if (!activeMask[nIdx]) continue;
+              errBuf[nIdx] += err * tap.weight * norm;
+            }
+          }
+        }
+      }
+    } else {
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const activeRow = activeCellsByRow[cy];
+        if (!activeRow.length) continue;
+        const rowOffset = cy * gridW;
+        for (let i = 0; i < activeRow.length; i += 1) {
+          const cx = activeRow[i];
+          const threshold = resolveOrderedThreshold(
+            algorithm,
+            patternStyle,
+            cx + phaseX,
+            cy + phaseY
+          );
+          const usePrimary = tone >= threshold;
+          cellIndices[rowOffset + cx] = usePrimary ? highIndex : (fillBackground ? lowIndex : 0);
+        }
+      }
+    }
+  } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);
     for (let cy = 0; cy < gridH; cy += 1) {
@@ -360,7 +442,7 @@ export const fillCcGradientDither = async ({
         errNext[cx] += err * 0.25;
 
         const level = chooseUpper ? lower + 1 : lower;
-        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        const pos = levelToCyclePos(level, clampedLevels);
         cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
       }
     }
@@ -409,7 +491,7 @@ export const fillCcGradientDither = async ({
           }
         }
 
-        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        const pos = levelToCyclePos(level, clampedLevels);
         cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
       }
     }
@@ -433,7 +515,7 @@ export const fillCcGradientDither = async ({
         );
         const chooseUpper = lower < clampedLevels - 1 && frac >= threshold;
         const level = chooseUpper ? lower + 1 : lower;
-        const pos = clampedLevels > 1 ? level / (clampedLevels - 1) : 0;
+        const pos = levelToCyclePos(level, clampedLevels);
         cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
       }
     }
@@ -458,7 +540,22 @@ export const fillCcGradientDither = async ({
       for (let cx = startCell; cx <= endCell; cx += 1) {
         if (cx < 0 || cx >= gridW) continue;
         const index = cellIndices[rowOffset + cx];
-        if (index <= 0) continue;
+        if (index <= 0) {
+          if (!fillBackground) {
+            const cellX = minX + cx * cellSize;
+            const cellXEnd = Math.min(endX, cellX + cellSize - 1);
+            const fillStart = Math.max(startX, cellX);
+            if (fillStart <= cellXEnd) {
+              for (let x = fillStart; x <= cellXEnd; x += 1) {
+                if (logSetIndexSample) {
+                  logSetIndexSample(x, y);
+                }
+                writeIndex(x, y, 0);
+              }
+            }
+          }
+          continue;
+        }
 
         const cellX = minX + cx * cellSize;
         const cellXEnd = Math.min(endX, cellX + cellSize - 1);

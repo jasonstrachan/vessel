@@ -1647,34 +1647,52 @@ const BrushControls = () => {
 
         {/* Fill Mode Tabs - only for Color Cycle Shape, not for Color Cycle Stroke */}
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
-          <DitherControls
-            settings={activeSettings}
-            onChange={setActiveSettings}
-            canToggle
-            forceOn={Boolean(capability.forceDither)}
-            isDitherPreset={isDitherPreset}
-            hideLostEdge
-            afterPresRes={
-              isColorCycleGradientPreset ? (
-                <div className="flex items-center gap-2 mt-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Colors
-                  </label>
-                  <ProgressSlider
-                    value={activeSettings.gradientBands ?? 16}
-                    min={2}
-                    max={16}
-                    step={1}
-                    onChange={(value) =>
-                      setActiveSettings({ gradientBands: Math.max(2, Math.round(value)) })
-                    }
-                    aria-label="Dither Colors"
-                    className="flex-1"
-                  />
-                </div>
-              ) : null
-            }
-          />
+          <>
+            <DitherControls
+              settings={activeSettings}
+              onChange={setActiveSettings}
+              canToggle
+              forceOn={Boolean(capability.forceDither)}
+              isDitherPreset={isDitherPreset}
+              hideLostEdge
+              afterPresRes={
+                isColorCycleGradientPreset ? (
+                  <div className="flex items-center gap-2 mt-2">
+                    <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                      Colors
+                    </label>
+                    <ProgressSlider
+                      value={activeSettings.gradientBands ?? 16}
+                      min={1}
+                      max={16}
+                      step={1}
+                      onChange={(value) =>
+                        setActiveSettings({ gradientBands: Math.max(1, Math.round(value)) })
+                      }
+                      aria-label="Dither Colors"
+                      className="flex-1"
+                    />
+                  </div>
+                ) : null
+              }
+            />
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label
+                  className={CONTROL_LABEL_CLASS}
+                  style={CONTROL_LABEL_STYLE}
+                  title="Keep a solid fill behind CC dither pattern"
+                >
+                  BG Fill
+                </label>
+                <CustomSwitch
+                  checked={(activeSettings.ditherGradBgFill ?? activeSettings.ditherBackgroundFill) !== false}
+                  onChange={(checked) => setActiveSettings({ ditherGradBgFill: checked })}
+                  aria-label="CC Gradient Background Fill"
+                />
+              </div>
+            </div>
+          </>
         )}
 
         {/* Animation + banding */}

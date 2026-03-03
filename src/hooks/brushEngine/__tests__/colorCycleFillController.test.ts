@@ -35,6 +35,8 @@ describe('colorCycleFillController', () => {
         colorCycleBandSpacingPx: 10,
         spacing: 6,
         lostEdge: 4,
+        ditherBackgroundFill: true,
+        ditherGradBgFill: true,
       },
       defaultBandSpacing: 12,
       clampColorCycleBandSpacing: (value) => value ?? 12,
@@ -46,6 +48,40 @@ describe('colorCycleFillController', () => {
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({ mode: 'linear', layerId: 'layer-1' }));
     expect(brush.endStroke).toHaveBeenCalledWith('layer-1');
     expect(renderBrushToLayerCanvas).toHaveBeenCalledWith(brush, 'layer-1');
+  });
+
+  it('allows 1 dither color level for cc-gradient fills', async () => {
+    const brush = createBrush();
+
+    await fillColorCycleLinear({
+      vertices: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+      direction: { x: 1, y: 0 },
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      activeLayerId: 'layer-1',
+      isCCGradientActiveLayer: true,
+      brushSettings: {
+        ditherEnabled: true,
+        gradientBands: 1,
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        colorCycleBandSpacingPx: 10,
+        spacing: 6,
+        lostEdge: 0,
+        ditherBackgroundFill: true,
+        ditherGradBgFill: false,
+      },
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (value) => value ?? 12,
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderBrushToLayerCanvas: jest.fn(),
+    });
+
+    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherLevels: 1,
+        ditherBackgroundFill: false,
+      }),
+    }));
   });
 
   it('dispatches concentric fill payload and renders layer', async () => {
@@ -65,6 +101,8 @@ describe('colorCycleFillController', () => {
         colorCycleBandSpacingPx: 9,
         spacing: 7,
         lostEdge: 0,
+        ditherBackgroundFill: true,
+        ditherGradBgFill: true,
       },
       defaultBandSpacing: 12,
       clampColorCycleBandSpacing: (value) => value ?? 12,

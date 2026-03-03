@@ -3013,7 +3013,10 @@ export const createShapeToolHandler = (
                           basePixelSize)
                         : basePixelSize;
                       const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
-                      const levels = Math.max(2, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+                      const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+                      const fillAlgorithm = brushNow.ditherAlgorithm ?? 'sierra-lite';
+                      const fillPatternStyle = brushNow.patternStyle ?? 'dots';
+                      const fillBackground = (brushNow.ditherGradBgFill ?? brushNow.ditherBackgroundFill) !== false;
                       const tempCanvas = canvasPool.acquire(w, h);
                       const tempCtx = tempCanvas.getContext(
                         '2d',
@@ -3041,6 +3044,9 @@ export const createShapeToolHandler = (
                               pixelSize,
                               levels,
                               baseOffset: 0,
+                              algorithm: fillAlgorithm,
+                              patternStyle: fillPatternStyle,
+                              fillBackground,
                               sampleNormalized: (x, y) => {
                                 const proj = x * axis.dir.x + y * axis.dir.y;
                                 return (proj - minProj) / projRange;
