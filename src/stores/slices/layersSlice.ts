@@ -1218,7 +1218,7 @@ export const createLayersSlice = (
       }
       if (result.missingDefLayers && result.missingDefLayers.length > 0) {
         if (process.env.NODE_ENV !== 'production') {
-          console.error('[CC] Slot GC aborted due to missing defs', {
+          logError('[CC] Slot GC aborted due to missing defs', {
             reason,
             missingDefLayers: result.missingDefLayers,
           });
@@ -1733,7 +1733,7 @@ export const createLayersSlice = (
         );
         
         if (!success) {
-          console.error('Failed to initialize ColorCycleBrush for new layer:', newLayerId);
+          logError('Failed to initialize ColorCycleBrush for new layer', { layerId: newLayerId });
         } else {
           // Pre-create the animator to avoid lag on first paint
           const brush = colorCycleBrushManager.getBrush(newLayerId);
@@ -1754,14 +1754,14 @@ export const createLayersSlice = (
         const updated = updatedLayers.find(l => l.id === original.id);
         if (!updated) {
           // Should never happen; log once for diagnostics without throwing
-          console.error('🔴🔴🔴 LAYER MISSING AFTER ADD_LAYER (by id lookup):', {
+          logError('Layer missing after addLayer id lookup', {
             layerId: original.id.substring(0, 20),
             originalType: original.type
           });
           return;
         }
         if (original.type !== updated.layerType) {
-          console.error('🔴🔴🔴 LAYER TYPE MUTATION IN ADD_LAYER:', {
+          logError('Layer type mutation detected in addLayer', {
             layerId: original.id.substring(0, 20),
             originalType: original.type,
             newType: updated.layerType,
@@ -1770,16 +1770,6 @@ export const createLayersSlice = (
           });
         }
       });
-      
-      /* console.log('🔵 ADD LAYER RESULT:', {
-        totalLayers: updatedLayers.length,
-        layers: updatedLayers.map(l => ({
-          id: l.id.substring(0, 20),
-          type: l.layerType,
-          hasCC: !!l.colorCycleData,
-          hasGradient: Boolean(resolveActiveGradientStops(l.colorCycleData)?.length)
-        }))
-      }); */
       
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
 
@@ -2015,29 +2005,16 @@ export const createLayersSlice = (
       clearSequentialLayerRendererLayer(id);
     }
     set((state) => {
-    const logCC =
-      process.env.NODE_ENV !== 'production' &&
-      (() => {
-        try {
-          return Boolean((globalThis as { __TB_DEBUG?: { logCC?: boolean } }).__TB_DEBUG?.logCC);
-        } catch {
-          return false;
-        }
-      })();
-
-    if (logCC) {
-      console.log('[layersSlice] updateLayer args', { layerId: id, options });
-    }
     const skipColorCycleSync = options?.skipColorCycleSync ?? false;
     const originalLayer = state.layers.find(l => l.id === id);
     
     // CRITICAL: Detect when a color-cycle layer is being changed to normal
     if (originalLayer?.layerType === 'color-cycle' && 
         updates.layerType === 'normal') {
-      console.error('🔴🔴🔴 LAYER TYPE CORRUPTION DETECTED');
-      console.error('Stack trace:', new Error().stack);
-      console.error('Layer being corrupted:', id);
-      console.error('Update that caused it:', updates);
+      logError('Blocked color-cycle layer type downgrade in updateLayer', {
+        layerId: id,
+        updates,
+      });
       // Only break into debugger when explicitly opted-in
       const debugWindow = getVesselWindow();
       if (debugWindow?.__TB_DEBUG?.breakOnLayerErrors) {
@@ -2049,9 +2026,9 @@ export const createLayersSlice = (
     if (originalLayer?.colorCycleData && 
         'colorCycleData' in updates && 
         !updates.colorCycleData) {
-      console.error('🔴🔴🔴 COLOR CYCLE DATA BEING CLEARED');
-      console.error('Stack trace:', new Error().stack);
-      console.error('Layer:', id);
+      logError('Blocked colorCycleData clear in updateLayer', {
+        layerId: id,
+      });
       // Only break into debugger when explicitly opted-in
       const debugWindow = getVesselWindow();
       if (debugWindow?.__TB_DEBUG?.breakOnLayerErrors) {
@@ -2063,8 +2040,10 @@ export const createLayersSlice = (
     // DEBUG: Log any layerType changes from color-cycle
     if (originalLayer && originalLayer.layerType === 'color-cycle' && 
         ('layerType' in updates && updates.layerType !== 'color-cycle')) {
-      console.error('🔴 CRITICAL WARNING: Changing color-cycle layer to:', updates.layerType, 'for layer:', id.substring(0, 20));
-      console.trace('Stack trace for layer type change');
+      logError('Attempted to change color-cycle layer type', {
+        layerId: id.substring(0, 20),
+        attemptedLayerType: updates.layerType,
+      });
     }
     
     let didUpdateMatchingLayer = false;
@@ -2081,22 +2060,10 @@ export const createLayersSlice = (
         
         // Special handling for colorCycleData updates
         if ('colorCycleData' in updates) {
-          if (logCC) {
-            console.log('[layersSlice] updateLayer colorCycleData', {
-              layerId: id.substring(0, 24),
-              hasCanvas: Boolean(updates.colorCycleData?.canvas),
-              hasCanvasImageData: Boolean(updates.colorCycleData?.canvasImageData),
-              hasEraseMask: Boolean(updates.colorCycleData?.eraseMask),
-              hasBrushState: Boolean(updates.colorCycleData?.brushState),
-              isAnimating: updates.colorCycleData?.isAnimating,
-              skipColorCycleSync,
-              stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
-            });
-          }
           if (updates.colorCycleData) {
             // CRITICAL: Only allow colorCycleData updates on color-cycle layers
             if (layer.layerType !== 'color-cycle') {
-              console.error('🚨 BLOCKED: Attempted to add colorCycleData to normal layer!', {
+              logError('Blocked colorCycleData update on normal layer', {
                 layerId: layer.id?.substring(0, 20),
                 layerType: layer.layerType
               });
@@ -2148,7 +2115,7 @@ export const createLayersSlice = (
             }
           } else {
             // FORBIDDEN: CC layers cannot be converted to normal layers!
-            console.error('🚨🚨🚨 BLOCKED: Attempted to convert CC layer to normal!', {
+            logError('Blocked attempt to convert color-cycle layer to normal via colorCycleData clear', {
               layerId: layer.id?.substring(0, 20),
               originalType: layer.layerType,
               attemptedConversion: 'CC -> Normal - BLOCKED!'
@@ -2175,7 +2142,7 @@ export const createLayersSlice = (
         
         // FORBIDDEN: Never allow conversion from CC to normal!
         if (updates.layerType === 'normal' && layer.layerType === 'color-cycle') {
-          console.error('🚨🚨🚨 BLOCKED: Direct conversion CC -> Normal!', {
+          logError('Blocked direct CC -> normal conversion', {
             layerId: layer.id?.substring(0, 20),
             originalType: layer.layerType,
             attemptedType: updates.layerType,
@@ -2226,12 +2193,6 @@ export const createLayersSlice = (
 
       try {
         const syncedLayer = syncedLayers.find(layer => layer.id === id);
-        if (syncedLayer?.layerType === 'color-cycle' && logCC) {
-          console.log('[layersSlice] shouldSyncCC', {
-            layerId: id,
-            skip: options?.skipColorCycleSync ?? false,
-          });
-        }
         if (
           syncedLayer?.layerType === 'color-cycle' &&
           syncedLayer.colorCycleData &&
@@ -2942,27 +2903,9 @@ export const createLayersSlice = (
     }
     // quiet
     
-    /* console.log('🟢 SET ACTIVE LAYER DEBUG:', {
-      newActiveId: id?.substring(0, 20),
-      oldActiveId: state.activeLayerId?.substring(0, 20),
-      targetLayerType: layer?.layerType,
-      targetHasCC: !!layer?.colorCycleData,
-      allLayersBefore: state.layers.map(l => ({
-        id: l.id.substring(0, 20),
-        type: l.layerType,
-        hasCC: !!l.colorCycleData,
-        hasGradient: Boolean(resolveActiveGradientStops(l.colorCycleData)?.length)
-      }))
-    }); */
-    
     // When switching away from a color-cycle layer, mark it as inactive
     const currentActiveLayer = state.layers.find(l => l.id === state.activeLayerId);
     if (currentActiveLayer?.layerType === 'color-cycle' && currentActiveLayer.id !== id) {
-      /* console.log('🟠 SWITCHING AWAY FROM CC LAYER:', {
-        fromLayerId: currentActiveLayer.id.substring(0, 20),
-        toLayerId: id?.substring(0, 20)
-      }); */
-      
       try {
         // Mark the old layer's brush as inactive
         if (colorCycleBrushManager) {
@@ -2993,12 +2936,6 @@ export const createLayersSlice = (
     })();
 
     if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
-      /* console.log('🟣 SWITCHING TO CC LAYER:', {
-        layerId: id.substring(0, 20),
-        hasGradient: Boolean(resolveActiveGradientStops(layer.colorCycleData)?.length),
-        gradientLength: resolveActiveGradientStops(layer.colorCycleData)?.length ?? 0
-      }); */
-      
       // Validate and reinitialize if needed
       if (!colorCycleBrushManager.validateColorCycleBrush(id)) {
         
@@ -3013,13 +2950,13 @@ export const createLayersSlice = (
           undefined
         );
         } catch (e) {
-          console.error('Error re-initializing CC brush on setActiveLayer:', e);
+          logError('Error re-initializing color cycle brush on setActiveLayer', e);
         }
         // quiet
       }
       
       // Mark as active
-      try { colorCycleBrushManager.setActiveState(id, true); } catch (e) { console.error('CC setActiveState error:', e); }
+      try { colorCycleBrushManager.setActiveState(id, true); } catch (e) { logError('Color cycle setActiveState error', e); }
       
       // Ensure brush tracks the active layer before runtime sync
       try {
@@ -3089,17 +3026,7 @@ export const createLayersSlice = (
       } catch (error) {
         logError('[setActiveLayer] Failed to sync CC runtime', error);
       }
-      
-      /* console.log('🟢 SET ACTIVE LAYER RESULT (CC):', {
-        activeLayerId: result.activeLayerId.substring(0, 20),
-        gradientSet: !!result.tools.brushSettings.colorCycleGradient,
-        allLayersAfter: state.layers.map(l => ({
-          id: l.id.substring(0, 20),
-          type: l.layerType,
-          hasCC: !!l.colorCycleData
-        }))
-      }); */
-      
+
       return result;
     }
     
@@ -3136,17 +3063,7 @@ export const createLayersSlice = (
       tools: nextTools
       // DO NOT return layers unless we're actually changing them
     };
-    
-    /* console.log('🟢 SET ACTIVE LAYER RESULT (NORMAL):', {
-      activeLayerId: id?.substring(0, 20),
-      allLayersAfter: state.layers.map(l => ({
-        id: l.id.substring(0, 20),
-        type: l.layerType,
-        hasCC: !!l.colorCycleData
-      })),
-      returnedLayers: 'layers' in result
-    }); */
-    
+
     // Debug checks removed - the race condition has been fixed
     
     return result;
@@ -3375,13 +3292,13 @@ export const createLayersSlice = (
     try {
       const layer = state.layers.find(l => l.id === layerId);
       if (!layer) {
-        console.error('[Store] Layer not found:', layerId);
+        logError('[Store] Layer not found', { layerId });
         return {};
       }
       
       // CRITICAL: Only allow initialization for color-cycle layers
       if (layer.layerType !== 'color-cycle') {
-        console.error('🚨 BLOCKED: Attempted to init color cycle for non-CC layer!', {
+        logError('Blocked initColorCycleForLayer for non-color-cycle layer', {
           layerId: layerId.substring(0, 20),
           layerType: layer.layerType
         });
@@ -3507,7 +3424,7 @@ export const createLayersSlice = (
       const colorCycleBrush = colorCycleBrushManager.createBrush(layerId, safeWidth, safeHeight, gradientArray);
       
       if (!colorCycleBrush) {
-        console.error('[Store] Failed to create color cycle brush');
+        logError('[Store] Failed to create color cycle brush', { layerId });
         return {};
       }
 
@@ -3612,7 +3529,7 @@ export const createLayersSlice = (
       // Remove the project update entirely - only update top-level layers
     };
     } catch (error) {
-      console.error('[Store] Error initializing color cycle:', error);
+      logError('[Store] Error initializing color cycle', error);
       return {}; // Return empty partial state on error
     }
     });
@@ -4318,7 +4235,7 @@ export const createLayersSlice = (
           };
 
           if (updatedLayer.layerType !== layer.layerType) {
-            console.error('🚨 LAYER TYPE CORRUPTION IN CAPTURE!', {
+            logError('Layer type corruption detected in captureCanvasToActiveLayer', {
               layerId: layer.id?.substring(0, 20),
               originalType: layer.layerType,
               corruptedType: updatedLayer.layerType,
@@ -4411,7 +4328,7 @@ export const createLayersSlice = (
 
       get().setLayersNeedRecomposition(true);
     } catch (error) {
-      console.error('Capture to specific layer failed with error:', error);
+      logError('Capture to specific layer failed', error);
     }
   },
 

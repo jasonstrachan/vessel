@@ -3,6 +3,7 @@ import { BrushShape, type CustomBrush, type Layer, type Project } from '@/types'
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import { exportProjectAsPNG, saveProjectToFile } from '@/utils/projectIO';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
 jest.mock('@/utils/projectIO', () => ({
   __esModule: true as const,
@@ -18,6 +19,11 @@ jest.mock('@/utils/fileBackupService', () => ({
     setFileHandle: jest.fn(),
     ensureFileWritePermission: jest.fn().mockResolvedValue(true),
   },
+}));
+
+jest.mock('@/utils/toolFlushRegistry', () => ({
+  __esModule: true as const,
+  flushPendingToolWork: jest.fn().mockResolvedValue(undefined),
 }));
 
 const mockBrush = {
@@ -148,7 +154,7 @@ describe('project slice lifecycle flows', () => {
     }));
   });
 
-  it('captures the active layer before saving and records saved file metadata', async () => {
+  it('flushes pending tool work before saving and records saved file metadata', async () => {
     const captureSpy = useAppStore.getState()
       .captureCanvasToActiveLayer as jest.MockedFunction<AppState['captureCanvasToActiveLayer']>;
     const notifySpy = useAppStore.getState().addNotification as jest.Mock;
@@ -163,7 +169,8 @@ describe('project slice lifecycle flows', () => {
 
     await useAppStore.getState().saveProject('poster.vessel');
 
-    expect(captureSpy).toHaveBeenCalledTimes(1);
+    expect(flushPendingToolWork).toHaveBeenCalledTimes(1);
+    expect(captureSpy).not.toHaveBeenCalled();
     expect(saveProjectToFile).toHaveBeenCalledTimes(1);
     const [projectPayload, preferredName, layersArg] = (saveProjectToFile as jest.Mock).mock.calls[0];
     expect(preferredName).toBe('poster.vessel');
@@ -182,6 +189,64 @@ describe('project slice lifecycle flows', () => {
     expect(notifySpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', title: 'Project Saved' })
     );
+  });
+
+  it('does not merge composite canvas pixels into the active layer while saving', async () => {
+    const layer = makeLayer('layer-save-guard', {
+      imageData: new ImageData(new Uint8ClampedArray([12, 34, 56, 255]), 1, 1),
+    });
+    const project: Project = {
+      id: 'project-save-guard',
+      name: 'Save Guard',
+      width: 1,
+      height: 1,
+      layers: [layer],
+      backgroundColor: '#000000',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ffffff',
+        backgroundColor: '#000000',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    const compositeCanvas = document.createElement('canvas');
+    compositeCanvas.width = 1;
+    compositeCanvas.height = 1;
+    const compositeCtx = compositeCanvas.getContext('2d');
+    compositeCtx?.putImageData(
+      new ImageData(new Uint8ClampedArray([200, 10, 10, 255]), 1, 1),
+      0,
+      0
+    );
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectedLayerIds: [layer.id],
+      currentOffscreenCanvas: compositeCanvas,
+    });
+
+    (saveProjectToFile as jest.Mock).mockResolvedValue({
+      fileName: 'save-guard.vessel',
+      fileHandle: null,
+    });
+
+    await useAppStore.getState().saveProject('save-guard.vessel');
+
+    const savedState = useAppStore.getState();
+    const savedLayer = savedState.layers.find((entry) => entry.id === layer.id);
+    expect(savedLayer?.imageData?.data[0]).toBe(12);
+    expect(savedLayer?.imageData?.data[1]).toBe(34);
+    expect(savedLayer?.imageData?.data[2]).toBe(56);
+    expect(savedLayer?.imageData?.data[3]).toBe(255);
+    expect(savedLayer?.imageData?.data[0]).not.toBe(200);
   });
 
   it('forces a save dialog when requested even if a file handle exists', async () => {

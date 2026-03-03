@@ -692,8 +692,6 @@ export const useAppStore = createVesselStore<AppState>(
         persistCustomBrushes,
         getLastCustomBrushSnapshot,
         syncPercentOffsetsFromPixels,
-        captureCanvasToActiveLayer: (canvas, roi, options) =>
-          get().captureCanvasToActiveLayer(canvas, roi, options),
       })(set, get, store);
 
       // Expose store globally for debugging and test utilities
