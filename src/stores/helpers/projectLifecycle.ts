@@ -27,6 +27,7 @@ import { logError } from '@/utils/debug';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { devLog } from '@/utils/devLog';
 import { updateToolsWithPalette } from './paletteState';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -46,7 +47,6 @@ type CustomBrushSnapshot = {
 } | null;
 
 type SyncPercentOffsetsFn = (layers: Layer[], project: Project | null) => Layer[];
-type CaptureROI = import('../useAppStore').CaptureROI;
 
 export interface ProjectLifecycleOptions {
   set: StoreSet;
@@ -55,11 +55,6 @@ export interface ProjectLifecycleOptions {
   persistCustomBrushes: () => void;
   getLastCustomBrushSnapshot: () => CustomBrushSnapshot;
   syncPercentOffsetsFromPixels: SyncPercentOffsetsFn;
-  captureCanvasToActiveLayer: (
-    sourceCanvas?: HTMLCanvasElement,
-    roi?: CaptureROI,
-    options?: { mode?: 'alpha' | 'replace' }
-  ) => Promise<void>;
 }
 
 const resolveDefaultCustomBrushId = (
@@ -83,7 +78,6 @@ export const createProjectLifecycle = ({
   persistCustomBrushes,
   getLastCustomBrushSnapshot,
   syncPercentOffsetsFromPixels,
-  captureCanvasToActiveLayer,
 }: ProjectLifecycleOptions) => {
   const autosaveLog = devLog.scope('AUTOSAVE');
   const setProject = (project: Project): void => {
@@ -179,14 +173,6 @@ export const createProjectLifecycle = ({
 
     const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers);
     const finalLayers = layersWithRestoredColorCycles ?? loadedProject.layers;
-    console.log(
-      '🔵 LOAD PROJECT - Final layers being set:',
-      finalLayers.map((layer) => ({
-        id: layer.id?.substring(0, 20),
-        type: layer.layerType,
-        hasColorCycleData: Boolean(layer.colorCycleData),
-      }))
-    );
 
     const normalizedProject = normalizeProject(loadedProject);
     const normalizedPalette = normalizedProject.palette ?? createDefaultPalette();
@@ -372,10 +358,7 @@ export const createProjectLifecycle = ({
     }
 
     try {
-      const captureSource = state.currentOffscreenCanvas ?? undefined;
-      if (captureSource) {
-        await captureCanvasToActiveLayer(captureSource);
-      }
+      await flushPendingToolWork();
 
       const freshState = get();
       const requestOptions =
