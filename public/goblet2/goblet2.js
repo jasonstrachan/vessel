@@ -2167,8 +2167,11 @@ const fillPixelsFromIndices = (indices, lut, outPixels32, alpha, options = {}) =
       }
       const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
       const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
-      const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const color = lut[capped] >>> 0;
+      const rgb = color & 0x00ffffff;
+      const lutA = (color >>> 24) & 0xff;
+      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -2207,8 +2210,11 @@ const fillPixelsFromIndicesWithGradientIds = (indices, gradientIds, lutsBySlot, 
       const slot = gradientIds ? (gradientIds[i] ?? 0) : 0;
       const lut = lutsBySlot?.get(slot) ?? fallbackLut;
       const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
-      const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const color = lut[capped] >>> 0;
+      const rgb = color & 0x00ffffff;
+      const lutA = (color >>> 24) & 0xff;
+      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -2522,7 +2528,8 @@ class BrushWebGLRenderer {
         float modded = mod(base + shift + float(u_paletteSize) * 4.0, float(u_paletteSize));
         int row = int(min(slot, uint(u_slotCount - 1)));
         vec2 paletteUV = (vec2(modded + 0.5, float(row) + 0.5) / vec2(float(u_paletteSize), float(u_slotCount)));
-        vec3 color = texture(u_palette, paletteUV).rgb;
+        vec4 paletteColor = texture(u_palette, paletteUV);
+        vec3 color = paletteColor.rgb;
         float alpha = 1.0;
         vec2 sampleUV = vec2(v_uv.x, 1.0 - v_uv.y);
         if (u_opaqueIndices) {
@@ -2530,6 +2537,7 @@ class BrushWebGLRenderer {
         } else if (u_hasAlpha) {
           alpha = texture(u_alpha, sampleUV).a;
         }
+        alpha *= paletteColor.a;
         if (u_hasMask) {
           alpha *= 1.0 - texture(u_mask, sampleUV).r;
         }
@@ -3006,8 +3014,11 @@ const fillPixelsFromIndicesWithSpeedAndFlow = (
     }
     const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
     if (useAlpha) {
-      const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const color = lut[capped] >>> 0;
+      const rgb = color & 0x00ffffff;
+      const lutA = (color >>> 24) & 0xff;
+      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     } else {
       outPixels32[i] = lut[capped];
@@ -3068,8 +3079,11 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
     }
 
     if (useAlpha) {
-      const rgb = lut[lutIndex] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const color = lut[lutIndex] >>> 0;
+      const rgb = color & 0x00ffffff;
+      const lutA = (color >>> 24) & 0xff;
+      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     } else {
       outPixels32[i] = lut[lutIndex];
