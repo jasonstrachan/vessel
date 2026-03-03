@@ -2,8 +2,10 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const isProd = process.env.NODE_ENV === 'production'
+const distDir = process.env.NEXT_DIST_DIR || '.next';
 
 const nextConfig: NextConfig = {
+  distDir,
   // Only use static export and GitHub Pages config in production
   ...(isProd && {
     output: 'export',
@@ -34,6 +36,7 @@ const nextConfig: NextConfig = {
           '**/node_modules',
           '**/.git',
           '**/.next',
+          '**/.next-build',
           '**/dist',
           '**/build',
           '**/.turbo',
