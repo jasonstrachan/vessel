@@ -26,6 +26,7 @@ import { setActiveHistoryDocument } from '@/history/historyService';
 import { logError } from '@/utils/debug';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { devLog } from '@/utils/devLog';
+import { backgroundStorageService } from '@/utils/backgroundStorage';
 import { updateToolsWithPalette } from './paletteState';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
@@ -445,6 +446,7 @@ export const createProjectLifecycle = ({
         await fileBackupService.ensureFileWritePermission(nextFileHandle);
       }
 
+      const savedAt = new Date();
       set((current) => ({
         paletteDirty: false,
         projectFilename: savedFileName ?? null,
@@ -452,6 +454,7 @@ export const createProjectLifecycle = ({
         autosave: nextFileHandle
           ? {
               ...current.autosave,
+              lastSaveTime: savedAt,
               fileBackup: {
                 ...current.autosave.fileBackup,
                 enabled: true,
@@ -461,8 +464,15 @@ export const createProjectLifecycle = ({
                 backupPath: savedFileName ?? current.projectFilename ?? current.autosave.fileBackup.backupPath,
               },
             }
-          : current.autosave,
+          : {
+              ...current.autosave,
+              lastSaveTime: savedAt,
+            },
       }));
+      state.clearDirtyState();
+      void backgroundStorageService
+        .updateSession(freshState.project!.id, false)
+        .catch(() => undefined);
 
       state.addNotification({
         type: 'success',

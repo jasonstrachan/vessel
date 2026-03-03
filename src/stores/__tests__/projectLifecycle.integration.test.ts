@@ -3,6 +3,7 @@ import { BrushShape, type CustomBrush, type Layer, type Project } from '@/types'
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import { exportProjectAsPNG, saveProjectToFile } from '@/utils/projectIO';
+import { backgroundStorageService } from '@/utils/backgroundStorage';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
 jest.mock('@/utils/projectIO', () => ({
@@ -24,6 +25,13 @@ jest.mock('@/utils/fileBackupService', () => ({
 jest.mock('@/utils/toolFlushRegistry', () => ({
   __esModule: true as const,
   flushPendingToolWork: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('@/utils/backgroundStorage', () => ({
+  __esModule: true as const,
+  backgroundStorageService: {
+    updateSession: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 const mockBrush = {
@@ -167,6 +175,12 @@ describe('project slice lifecycle flows', () => {
     captureSpy.mockClear();
     notifySpy.mockClear();
     useAppStore.setState({ currentOffscreenCanvas: document.createElement('canvas') });
+    useAppStore.setState((state) => ({
+      autosave: {
+        ...state.autosave,
+        hasUnsavedChanges: true,
+      },
+    }));
 
     (saveProjectToFile as jest.Mock).mockResolvedValue({
       fileName: 'poster.vessel',
@@ -192,6 +206,11 @@ describe('project slice lifecycle flows', () => {
       backupPath: 'poster.vessel',
       lastBackupTime: null,
     });
+    expect(useAppStore.getState().autosave.hasUnsavedChanges).toBe(false);
+    expect(backgroundStorageService.updateSession).toHaveBeenCalledWith(
+      expect.any(String),
+      false
+    );
     expect(notifySpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', title: 'Project Saved' })
     );
