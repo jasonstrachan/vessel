@@ -26,7 +26,7 @@ const storagePath = env.LOCALSTORAGE_FILE_PATH || '/tmp/vessel-localstorage';
 env.NODE_OPTIONS = [baseOptions, `${LOCALSTORAGE_FLAG}=${storagePath}`]
   .filter(Boolean)
   .join(' ');
-env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next-build';
+env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next';
 
 const child = spawn('next', ['build'], {
   stdio: 'inherit',
