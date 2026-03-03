@@ -252,6 +252,27 @@ describe('tools slice', () => {
     expect(nextGradient).toEqual(gradientStops);
   });
 
+  it('treats color-cycle opacity-only gradient edits as distinct changes', () => {
+    const store = useAppStore.getState();
+    const baseStops = [
+      { position: 0, color: '#ff0000', opacity: 1 },
+      { position: 1, color: '#00ff00', opacity: 1 },
+    ];
+    const opacityEditedStops = [
+      { position: 0, color: '#ff0000', opacity: 1 },
+      { position: 1, color: '#00ff00', opacity: 0.25 },
+    ];
+
+    store.setBrushSettings({ colorCycleGradient: baseStops });
+    const versionBefore = useAppStore.getState().tools.brushSettings.colorCycleGradientVersion ?? 0;
+
+    store.setBrushSettings({ colorCycleGradient: opacityEditedStops });
+
+    const state = useAppStore.getState().tools.brushSettings;
+    expect(state.colorCycleGradient).toEqual(opacityEditedStops);
+    expect((state.colorCycleGradientVersion ?? 0)).toBeGreaterThan(versionBefore);
+  });
+
   it('prefers active color-cycle layer gradient when switching to a color-cycle preset', () => {
     const store = useAppStore.getState();
     const layerStops = [

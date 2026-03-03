@@ -318,8 +318,8 @@ const cloneCanvasLike = <T extends HTMLCanvasElement | OffscreenCanvas | undefin
 };
 
 const cloneGradientStops = (
-  stops?: Array<{ position: number; color: string }> | null
-): Array<{ position: number; color: string }> | undefined => {
+  stops?: Array<{ position: number; color: string; opacity?: number }> | null
+): Array<{ position: number; color: string; opacity?: number }> | undefined => {
   if (!stops) {
     return undefined;
   }
@@ -327,8 +327,8 @@ const cloneGradientStops = (
 };
 
 const areGradientStopsEqual = (
-  left?: Array<{ position: number; color: string }> | null,
-  right?: Array<{ position: number; color: string }> | null
+  left?: Array<{ position: number; color: string; opacity?: number }> | null,
+  right?: Array<{ position: number; color: string; opacity?: number }> | null
 ): boolean => {
   if (left === right) {
     return true;
@@ -339,7 +339,11 @@ const areGradientStopsEqual = (
   for (let index = 0; index < left.length; index += 1) {
     const leftStop = left[index];
     const rightStop = right[index];
-    if (leftStop.position !== rightStop.position || leftStop.color !== rightStop.color) {
+    if (
+      leftStop.position !== rightStop.position ||
+      leftStop.color !== rightStop.color ||
+      Number(leftStop.opacity ?? 1) !== Number(rightStop.opacity ?? 1)
+    ) {
       return false;
     }
   }
@@ -379,7 +383,7 @@ const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Part
   return Object.fromEntries(entries) as Partial<T>;
 };
 
-type GradientStop = { position: number; color: string };
+type GradientStop = { position: number; color: string; opacity?: number };
 type ColorCycleGradient = { id: string; slot: number; stops: GradientStop[] };
 type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
 type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };

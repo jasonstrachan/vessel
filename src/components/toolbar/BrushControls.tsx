@@ -230,7 +230,7 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
 };
 
 type SampledGradientPreviewProps = {
-  stops: Array<{ position: number; color: string }>;
+  stops: Array<{ position: number; color: string; opacity?: number }>;
   speed: number;
   flowMode?: 'forward' | 'reverse' | 'pingpong' | 'bounce' | 'backward';
   isPaused: boolean;
@@ -1038,7 +1038,7 @@ const BrushControls = () => {
   const gradientFrameRef = React.useRef<number | null>(null);
   const gradientForkRef = React.useRef(false);
   const gradientDirtyRef = React.useRef(false);
-  const pendingGradientRef = React.useRef<Array<{ position: number; color: string }>>(
+  const pendingGradientRef = React.useRef<Array<{ position: number; color: string; opacity?: number }>>(
     brushSettings.colorCycleGradient
       ? brushSettings.colorCycleGradient.map(stop => ({ ...stop }))
       : DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }))
@@ -1069,7 +1069,7 @@ const BrushControls = () => {
   }, [flushPendingGradient]);
 
   const scheduleGradientFlush = React.useCallback(
-    (stops: Array<{ position: number; color: string }>, immediate = false) => {
+    (stops: Array<{ position: number; color: string; opacity?: number }>, immediate = false) => {
       pendingGradientRef.current = stops.map(stop => ({ ...stop }));
       gradientDirtyRef.current = true;
       if (gradientDebounceTimerRef.current) {

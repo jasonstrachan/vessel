@@ -890,15 +890,17 @@ export class BrushEngineFacade {
     return this.mosaicState;
   }
 
-  private hashGradient(stops?: Array<{ position: number; color: string }>): string {
+  private hashGradient(stops?: Array<{ position: number; color: string; opacity?: number }>): string {
     if (!stops || stops.length === 0) {
       return 'none';
     }
-    return stops.map(stop => `${stop.position}:${stop.color}`).join('|');
+    return stops
+      .map(stop => `${stop.position}:${stop.color}:${Number.isFinite(stop.opacity) ? stop.opacity : 1}`)
+      .join('|');
   }
 
   private sampleGradientColor(
-    stops: Array<{ position: number; color: string }>,
+    stops: Array<{ position: number; color: string; opacity?: number }>,
     position: number
   ): string {
     if (!stops.length) {
@@ -986,7 +988,7 @@ export class BrushEngineFacade {
   }
 
   private getGradientPalette(
-    stops: Array<{ position: number; color: string }>,
+    stops: Array<{ position: number; color: string; opacity?: number }>,
     cycleLength: number
   ): Uint8ClampedArray {
     const gradientHash = this.hashGradient(stops);

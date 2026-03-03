@@ -4,7 +4,7 @@ import type { Layer } from '@/types';
 import { requestGradientApply } from './ccGradientApplyScheduler';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
-export type GradientStop = { position: number; color: string };
+export type GradientStop = { position: number; color: string; opacity?: number };
 
 type GradientDef = { id: string; name?: string; currentSlot: number };
 
@@ -17,7 +17,7 @@ const EDITOR_SLOT = 255;
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
 const cloneStops = (stops: GradientStop[]): GradientStop[] =>
-  stops.map((stop) => ({ position: stop.position, color: stop.color }));
+  stops.map((stop) => ({ position: stop.position, color: stop.color, opacity: stop.opacity }));
 
 const collectUsedSlots = (defs: GradientDef[], palettes: SlotPalette[]): Set<number> => {
   const used = new Set<number>();

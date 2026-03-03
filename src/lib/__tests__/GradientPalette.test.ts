@@ -92,6 +92,22 @@ describe('GradientPalette', () => {
       expect(end.g).toBe(0);
       expect(end.b).toBe(255);
     });
+
+    it('applies per-stop opacity when interpolating alpha', () => {
+      palette.updateFromGradient([
+        { position: 0, color: '#ff0000', opacity: 1 },
+        { position: 1, color: '#ff0000', opacity: 0 },
+      ]);
+
+      const start = palette.getColor(0);
+      const middle = palette.getColor(127);
+      const end = palette.getColor(255);
+
+      expect(start.a).toBe(255);
+      expect(middle.a).toBeGreaterThan(90);
+      expect(middle.a).toBeLessThan(170);
+      expect(end.a).toBe(0);
+    });
     
     it('should auto-add stops at 0 and 1 if missing', () => {
       palette.updateFromGradient([

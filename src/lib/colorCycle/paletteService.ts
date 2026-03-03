@@ -104,6 +104,7 @@ function buildKey(stops: GradientStop[], size: number): string {
   const canonical = stops.map((stop) => ({
     p: Number(stop.position.toFixed(6)),
     c: normalizeColor(stop.color),
+    o: Number.isFinite(stop.opacity) ? Number(stop.opacity).toFixed(6) : '1.000000',
   }));
   return JSON.stringify({ size, stops: canonical });
 }
