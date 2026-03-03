@@ -153,6 +153,7 @@ class AutosaveService {
     }
 
     this.inProgress = true;
+    store.setSaveStatus('saving', 'autosave', 'Autosaving...');
 
     try {
       autosaveLog.debug('Autosave capture setup', {
@@ -278,15 +279,17 @@ class AutosaveService {
       }));
       useAppStore.setState({ paletteDirty: false });
       void backgroundStorageService.updateSession(freshState.project.id, false).catch(() => undefined);
+      freshState.setSaveStatus('saved', 'autosave', 'Autosave complete');
       
       // Project "${freshState.project.name}" saved to background storage
     } catch (error) {
       autosaveLog.error('Background autosave failed.', error);
+      const latestState = useAppStore.getState();
+      latestState.setSaveStatus('error', 'autosave', 'Autosave issue');
 
       // Only show notification for critical failures, not for every autosave issue
       // This keeps autosave truly silent unless there's a real problem
-      const store = useAppStore.getState();
-      store.addNotification({
+      latestState.addNotification({
         type: 'warning',
         title: 'Autosave Issue',
         message: 'Background autosave encountered an issue. Your work is still safe.',

@@ -358,6 +358,7 @@ export const createProjectLifecycle = ({
     }
 
     try {
+      state.setSaveStatus('saving', 'manual', 'Saving project...');
       await flushPendingToolWork();
 
       const freshState = get();
@@ -469,10 +470,13 @@ export const createProjectLifecycle = ({
         message: `${savedFileName || state.project.name} has been saved successfully`,
         timestamp: new Date(),
       });
+      state.setSaveStatus('saved', 'manual', 'Project saved');
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
+        state.clearSaveStatus();
         return;
       }
+      state.setSaveStatus('error', 'manual', 'Save failed');
       state.addNotification({
         type: 'error',
         title: 'Save Failed',

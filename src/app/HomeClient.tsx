@@ -11,6 +11,7 @@ import BrushSettingsPanel from '@/components/panels/BrushSettingsPanel';
 import DrawingCanvas from '@/components/canvas/DrawingCanvas';
 import ConsoleSilencer from '@/components/dev/ConsoleSilencer';
 import FeedbackStrip from '@/components/FeedbackStrip';
+import SaveStatusStrip from '@/components/SaveStatusStrip';
 import FPSMeter from '@/components/dev/FPSMeter';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 
@@ -53,6 +54,13 @@ export default function Home() {
   const layers = useAppStore(selectLayers);
   const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
   const autosaveIntervalMinutes = useAppStore((state) => state.autosave.interval);
+  const saveStatus = useAppStore((state) => state.autosave.saveStatus ?? {
+    phase: 'idle' as const,
+    source: null,
+    message: null,
+    updatedAt: null,
+  });
+  const clearSaveStatus = useAppStore((state) => state.clearSaveStatus);
   
   // Feedback strip state
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -151,6 +159,28 @@ export default function Home() {
     }
   }, [autosaveIntervalMinutes, isAutosaveEnabled]);
 
+  useEffect(() => {
+    if (saveStatus.phase !== 'saved') {
+      return;
+    }
+
+    const savedAt = saveStatus.updatedAt?.getTime() ?? Date.now();
+    const timer = setTimeout(() => {
+      const latest = useAppStore.getState().autosave.saveStatus ?? {
+        phase: 'idle' as const,
+        source: null,
+        message: null,
+        updatedAt: null,
+      };
+      const latestSavedAt = latest.updatedAt?.getTime() ?? 0;
+      if (latest.phase === 'saved' && latestSavedAt === savedAt) {
+        clearSaveStatus();
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [clearSaveStatus, saveStatus.phase, saveStatus.updatedAt]);
+
   // Save/Open keyboard shortcuts are centralized in useComprehensiveKeyboard
 
   return (
@@ -175,6 +205,7 @@ export default function Home() {
             onClose={() => setFeedbackMessage(null)}
           />
         )}
+        <SaveStatusStrip phase={saveStatus.phase} message={saveStatus.message} />
       </div>
 
       {/* Layers / Alignment Column */}

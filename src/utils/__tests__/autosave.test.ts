@@ -19,6 +19,12 @@ jest.mock('@/stores/useAppStore', () => {
       interval: 2,
       lastDirtyReason: null,
       lastDirtyAt: null,
+      saveStatus: {
+        phase: 'idle',
+        source: null,
+        message: null,
+        updatedAt: null,
+      },
       fileBackup: {
         enabled: false,
         mode: 'single-file',
@@ -88,6 +94,12 @@ const createStoreStub = () => ({
     interval: 2,
     lastDirtyReason: null,
     lastDirtyAt: null,
+    saveStatus: {
+      phase: 'idle' as const,
+      source: null,
+      message: null,
+      updatedAt: null,
+    },
     fileBackup: {
       enabled: false,
       mode: 'single-file' as const,
@@ -116,6 +128,7 @@ const createStoreStub = () => ({
   compositeLayersToCanvas: jest.fn(),
   captureCanvasToActiveLayer: jest.fn().mockResolvedValue(undefined),
   clearDirtyState: jest.fn(),
+  setSaveStatus: jest.fn(),
   markAutosaveDirty: jest.fn(),
   updateFileBackupTime: jest.fn(),
   addNotification: jest.fn(),
