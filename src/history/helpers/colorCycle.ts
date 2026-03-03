@@ -1,8 +1,53 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { useAppStore } from '@/stores/useAppStore';
 import { timeSync } from '@/utils/perf/ccPerfProbe';
 import type { ColorCycleBrushImplementation } from '@/stores/colorCycleBrushManager';
 
-export type ColorCycleSerializedState = ReturnType<ColorCycleBrushImplementation['serialize']> | null;
+type BaseColorCycleSerializedState = ReturnType<ColorCycleBrushImplementation['serialize']>;
+type BaseColorCycleSerializedLayer = NonNullable<BaseColorCycleSerializedState['layers']>[number];
+
+export type ColorCycleEraseMaskSnapshot = {
+  width: number;
+  height: number;
+  alpha: Uint8ClampedArray;
+  version: number;
+};
+
+export type ColorCycleSerializedLayerState = BaseColorCycleSerializedLayer & {
+  eraseMaskSnapshot?: ColorCycleEraseMaskSnapshot;
+};
+
+export type ColorCycleSerializedState = (Omit<BaseColorCycleSerializedState, 'layers'> & {
+  layers: ColorCycleSerializedLayerState[];
+}) | null;
+
+const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot | undefined => {
+  const layer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+  const mask = layer?.layerType === 'color-cycle' ? layer.colorCycleData?.eraseMask : null;
+  if (!mask) {
+    return undefined;
+  }
+  const ctx = mask.getContext('2d', { willReadFrequently: true });
+  if (!ctx || mask.width <= 0 || mask.height <= 0) {
+    return undefined;
+  }
+
+  try {
+    const image = ctx.getImageData(0, 0, mask.width, mask.height);
+    const alpha = new Uint8ClampedArray(mask.width * mask.height);
+    for (let src = 3, dst = 0; src < image.data.length; src += 4, dst += 1) {
+      alpha[dst] = image.data[src] ?? 0;
+    }
+    return {
+      width: mask.width,
+      height: mask.height,
+      alpha,
+      version: layer?.colorCycleData?.eraseMaskVersion ?? 0,
+    };
+  } catch {
+    return undefined;
+  }
+};
 
 export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializedState =>
   timeSync('captureColorCycleBrushState', () => {
@@ -69,6 +114,7 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                       gradientDefIdBuffer: layer.strokeData.gradientDefIdBuffer?.slice(0),
                     }
                   : undefined,
+                eraseMaskSnapshot: captureEraseMaskSnapshot(layer.layerId),
               })) ?? [],
           }
         : null;
