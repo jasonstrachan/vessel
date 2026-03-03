@@ -1112,10 +1112,32 @@ const subscribeToWebglExportSettingsPersistence = (): void => {
   }
 };
 
+const subscribeToSaveInFlightUnloadGuard = (): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+    const saveStatus = useAppStore.getState().autosave.saveStatus;
+    const isManualSaveInFlight =
+      saveStatus?.phase === 'saving' && saveStatus?.source === 'manual';
+
+    if (!isManualSaveInFlight) {
+      return;
+    }
+
+    event.preventDefault();
+    event.returnValue = '';
+  };
+
+  window.addEventListener('beforeunload', handleBeforeUnload);
+};
+
 hydrateGlobalBrushSettings();
 subscribeToGlobalBrushPersistence();
 hydrateWebglExportSettings();
 subscribeToWebglExportSettingsPersistence();
+subscribeToSaveInFlightUnloadGuard();
 
 // DEBUG ONLY
 (() => {
