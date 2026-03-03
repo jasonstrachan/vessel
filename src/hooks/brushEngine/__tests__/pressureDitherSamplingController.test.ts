@@ -37,5 +37,20 @@ describe('pressureDitherSamplingController', () => {
 
     expect(size).toBe(3);
   });
-});
 
+  it('keeps stable pressure latched near pen lift', () => {
+    const statsRef = {
+      current: { last: 0.9, stable: 0.9, lastTime: 100 },
+    };
+
+    updateStrokePresResPressure({
+      pressure: 0.1,
+      now: 116,
+      statsRef,
+      holdOnZeroMs: 120,
+    });
+
+    expect(statsRef.current.last).toBe(0.1);
+    expect(statsRef.current.stable).toBe(0.9);
+  });
+});

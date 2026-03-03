@@ -3,6 +3,8 @@ export const PRESSURE_RESOLUTION_MAX_PX = 64;
 export const PRESSURE_RESOLUTION_EASING_EXPONENT = 1.5;
 export const PRESSURE_RESOLUTION_HYSTERESIS = 0.15;
 export const PRESSURE_RESOLUTION_TIME_CONSTANT_MS = 100;
+export const PRESSURE_RESOLUTION_LIFT_THRESHOLD = 0.16;
+export const PRESSURE_RESOLUTION_RELEASE_TIME_CONSTANT_MS = 300;
 
 export type PressureResolutionState = {
   smoothed: number;
@@ -63,10 +65,17 @@ export const computePressureResolution = (
         : Date.now();
   const dt = state.lastTime ? Math.max(1, timestamp - state.lastTime) : 16;
   state.lastTime = timestamp;
+  const isPenLiftZone = p <= PRESSURE_RESOLUTION_LIFT_THRESHOLD;
 
   if (targetFloat < state.smoothed) {
-    // Drop immediately when pressure decreases so resolution doesn't linger at large sizes.
-    state.smoothed = targetFloat;
+    if (isPenLiftZone) {
+      // On pen lift, decay smoothly so large pixel sizes don't collapse in one frame.
+      const releaseAlpha = 1 - Math.exp(-dt / PRESSURE_RESOLUTION_RELEASE_TIME_CONSTANT_MS);
+      state.smoothed = state.smoothed + (targetFloat - state.smoothed) * releaseAlpha;
+    } else {
+      // Keep normal pressure decreases immediate and responsive while drawing.
+      state.smoothed = targetFloat;
+    }
   } else {
     const alpha = 1 - Math.exp(-dt / PRESSURE_RESOLUTION_TIME_CONSTANT_MS);
     state.smoothed = state.smoothed + (targetFloat - state.smoothed) * alpha;
@@ -76,8 +85,14 @@ export const computePressureResolution = (
   const delta = desired - state.output;
 
   if (delta < 0) {
-    // Allow immediate decreases to prevent resolution from "sticking" at large sizes.
-    state.output = desired;
+    if (isPenLiftZone) {
+      // Mirror the release-tail behavior in output to avoid abrupt visible collapse.
+      const releaseAlpha = 1 - Math.exp(-dt / PRESSURE_RESOLUTION_RELEASE_TIME_CONSTANT_MS);
+      state.output = state.output + delta * releaseAlpha;
+    } else {
+      // Preserve responsiveness for non-lift pressure decreases.
+      state.output = desired;
+    }
   } else if (Math.abs(delta) >= PRESSURE_RESOLUTION_HYSTERESIS) {
     state.output = desired;
   }

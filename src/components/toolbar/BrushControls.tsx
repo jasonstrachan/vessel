@@ -1754,7 +1754,7 @@ const BrushControls = () => {
                   <NonCcSlider
                     value={activeSettings.colorCycleStampDitherPixelSize ?? 1}
                     min={1}
-                    max={32}
+                    max={64}
                     step={1}
                     onChange={(value) =>
                       setActiveSettings({

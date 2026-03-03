@@ -2,6 +2,7 @@ import {
   computePressureResolution,
   createPressureResolutionState,
   PRESSURE_RESOLUTION_HYSTERESIS,
+  PRESSURE_RESOLUTION_LIFT_THRESHOLD,
   PRESSURE_RESOLUTION_MAX_PX,
   PRESSURE_RESOLUTION_MIN_PX,
   PRESSURE_RESOLUTION_TIME_CONSTANT_MS,
@@ -84,6 +85,16 @@ describe('computePressureResolution smoothing', () => {
     const result = computePressureResolution(slider, pressure, true, state, 0);
 
     expect(result).toBeLessThanOrEqual(lowerTarget);
+  });
+
+  it('does not collapse immediately near pen lift', () => {
+    const state = createPressureResolutionState(12);
+    const nearLiftPressure = PRESSURE_RESOLUTION_LIFT_THRESHOLD * 0.25;
+
+    const result = computePressureResolution(slider, nearLiftPressure, true, state, 16);
+
+    expect(result).toBeGreaterThan(PRESSURE_RESOLUTION_MIN_PX + 1);
+    expect(result).toBeLessThan(12);
   });
 
   it('uses explicit maxResolution when pressure-linked', () => {
