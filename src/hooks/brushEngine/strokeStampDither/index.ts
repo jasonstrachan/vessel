@@ -2,7 +2,11 @@ import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { BAYER_8x8_MATRIX, BLUE_NOISE_16x16, VOID_CLUSTER_8x8 } from '@/utils/ditherAlgorithms';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
-import { computePressureResolution, createPressureResolutionState } from '@/utils/pressureResolution';
+import {
+  computePressureResolution,
+  createPressureResolutionState,
+  PRESSURE_RESOLUTION_MAX_PX,
+} from '@/utils/pressureResolution';
 
 export type StampDitherAlgorithm =
   | 'floyd-steinberg'
@@ -1014,7 +1018,7 @@ export const applyStampDitherStamp = (args: {
       true,
       pressureState,
       undefined,
-      Math.max(1, baseTileScale * 4)
+      PRESSURE_RESOLUTION_MAX_PX
     );
     tileScale = Math.max(1, Math.round(computed));
     if (state.stampSeqMeta?.length) {

@@ -279,4 +279,45 @@ describe('strokeStampDither', () => {
 
     expect(state.stampDitherStrokeScale).toBeGreaterThanOrEqual(firstScale);
   });
+
+  it('caps pressure-linked tile scale to standardized max resolution', () => {
+    const width = 16;
+    const height = 16;
+    const animator = buildAnimator(width, height);
+    const state = {
+      paintBuffer: new Uint8Array(width * height),
+      gradientIdBuffer: new Uint8Array(width * height),
+      speedBuffer: new Uint8Array(width * height),
+      stampDitherStrokeScale: 1,
+    };
+    const config = {
+      algorithm: 'sierra-lite' as const,
+      pixelSize: 32,
+      patternStyle: 'dots' as const,
+      bgFill: true,
+      pressureLinked: true,
+      seed: 7,
+    };
+    const runtime = stampDither.createStampDitherRuntime();
+
+    stampDither.applyStampDitherStamp({
+      animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+      state,
+      config,
+      runtime,
+      stampShape: 'round',
+      x: 6,
+      y: 6,
+      pressure: 1,
+      pressureSize: 4,
+      primaryIndex: 5,
+      flowSlot: 1,
+      cycleSpeed: 1,
+      width,
+      height,
+      isAnimating: false,
+    });
+
+    expect(state.stampDitherStrokeScale).toBeLessThanOrEqual(64);
+  });
 });

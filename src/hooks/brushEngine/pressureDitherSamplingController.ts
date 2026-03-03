@@ -5,6 +5,7 @@ type StrokePresResPressureState = {
   stable: number;
   lastTime: number;
 };
+const STROKE_PRES_RES_LIFT_THRESHOLD = 0.16;
 
 export const updateStrokePresResPressure = ({
   pressure,
@@ -27,8 +28,12 @@ export const updateStrokePresResPressure = ({
   if (p > 0) {
     if (stats.stable <= 0) {
       stats.stable = p;
+    } else if (p <= STROKE_PRES_RES_LIFT_THRESHOLD) {
+      // Near pen-lift, keep the stable pressure latched to avoid abrupt pres-res collapse.
+      stats.last = p;
+      return;
     } else {
-      const alpha = p < stats.stable ? 0.8 : 0.45;
+      const alpha = p < stats.stable ? 0.6 : 0.45;
       stats.stable = stats.stable + (p - stats.stable) * alpha;
     }
     stats.last = p;
@@ -93,4 +98,3 @@ export const getStrokeDitherPixelSize = ({
   }
   return size;
 };
-

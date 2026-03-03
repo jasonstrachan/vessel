@@ -416,7 +416,7 @@ export const useBrushEngineSimplified = () => {
   const PRESSURE_DITHER_MIN_INTERVAL_MS = 30; // ~33 FPS throttle
   const PRESSURE_DITHER_MIN_DELTA_RES = 0.75; // px; revert to previous threshold
   const PRES_RES_FALLBACK_PRESSURE = 0.01;
-  const PRES_RES_HOLD_ON_ZERO_MS = 40;
+  const PRES_RES_HOLD_ON_ZERO_MS = 120;
   const presResLastLogAtRef = useRef(0);
   const presResLastLoggedPixelSizeRef = useRef<number | null>(null);
   const brushSizeDeferredHandleRef = useRef<IdleHandle>(null);
