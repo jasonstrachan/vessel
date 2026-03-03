@@ -6,6 +6,7 @@ type StrokePresResPressureState = {
   lastTime: number;
 };
 const STROKE_PRES_RES_LIFT_THRESHOLD = 0.16;
+const STROKE_PRES_RES_LOW_PRESSURE_DECAY_MS = 140;
 
 export const updateStrokePresResPressure = ({
   pressure,
@@ -29,9 +30,11 @@ export const updateStrokePresResPressure = ({
     if (stats.stable <= 0) {
       stats.stable = p;
     } else if (p <= STROKE_PRES_RES_LIFT_THRESHOLD) {
-      // Near pen-lift, keep the stable pressure latched to avoid abrupt pres-res collapse.
-      stats.last = p;
-      return;
+      // Near pen-lift, decay smoothly toward the live pressure so pres-res can still return to 1px.
+      const dt = elapsed > 0 ? elapsed : 16;
+      const decayWindowMs = Math.max(STROKE_PRES_RES_LOW_PRESSURE_DECAY_MS, holdOnZeroMs);
+      const alpha = 1 - Math.exp(-dt / decayWindowMs);
+      stats.stable = stats.stable + (p - stats.stable) * alpha;
     } else {
       const alpha = p < stats.stable ? 0.6 : 0.45;
       stats.stable = stats.stable + (p - stats.stable) * alpha;
@@ -44,6 +47,7 @@ export const updateStrokePresResPressure = ({
     return;
   }
 
+  stats.stable = 0;
   stats.last = 0;
 };
 
