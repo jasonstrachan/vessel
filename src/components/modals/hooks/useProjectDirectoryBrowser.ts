@@ -155,7 +155,18 @@ const readStoredDirectoryEntryName = (): string | null => {
 };
 
 const compareEntries = (a: DirectoryProjectEntry, b: DirectoryProjectEntry) => {
+  const aStartsWithDigit = /^\d/.test(a.name.trimStart());
+  const bStartsWithDigit = /^\d/.test(b.name.trimStart());
+
+  if (aStartsWithDigit !== bStartsWithDigit) {
+    return aStartsWithDigit ? -1 : 1;
+  }
+
   return FILE_NAME_COLLATOR.compare(a.name, b.name);
+};
+
+export const sortDirectoryProjectEntries = (entries: DirectoryProjectEntry[]): DirectoryProjectEntry[] => {
+  return [...entries].sort(compareEntries);
 };
 
 const yieldToBrowser = async () => {
@@ -329,34 +340,34 @@ export function useProjectDirectoryBrowser({
         return;
       }
 
-      nextEntries.sort(compareEntries);
-      directoryEntriesRef.current = nextEntries;
-      setDirectoryEntries(nextEntries);
+      const sortedEntries = sortDirectoryProjectEntries(nextEntries);
+      directoryEntriesRef.current = sortedEntries;
+      setDirectoryEntries(sortedEntries);
       setDirectoryHandle(handle);
       lastDirectoryHandle = handle;
-      lastDirectoryEntries = nextEntries;
+      lastDirectoryEntries = sortedEntries;
 
-      if (nextEntries.length === 0) {
+      if (sortedEntries.length === 0) {
         setDirectoryError('No Vessel project files found in this folder.');
         setSelectedEntryIndexByName(null);
       } else {
         setDirectoryError(null);
         const storedEntryName = lastSelectedEntryName ?? readStoredDirectoryEntryName();
         const hasStoredEntry = storedEntryName
-          ? nextEntries.some((entry) => entry.name === storedEntryName)
+          ? sortedEntries.some((entry) => entry.name === storedEntryName)
           : false;
         if (hasStoredEntry && storedEntryName) {
           setSelectedEntryIndexByName(storedEntryName);
         } else {
-          setSelectedEntryIndexByName(nextEntries[0]?.name ?? null);
+          setSelectedEntryIndexByName(sortedEntries[0]?.name ?? null);
         }
 
         const abortController = new AbortController();
         timestampAbortRef.current = abortController;
         void hydrateEntryTimestamps(
           scanVersion,
-          nextEntries,
-          storedEntryName ?? nextEntries[0]?.name ?? null,
+          sortedEntries,
+          storedEntryName ?? sortedEntries[0]?.name ?? null,
           abortController.signal,
         );
       }
