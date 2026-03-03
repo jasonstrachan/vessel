@@ -677,6 +677,12 @@ export interface AppState {
   markAutosaveDirty: (reason: AutosaveDirtyReason) => void;
   updateFileBackupTime: () => void;
   setAutosaveInterval: (interval: number) => void;
+  setSaveStatus: (
+    phase: NonNullable<AutosaveState['saveStatus']>['phase'],
+    source: NonNullable<AutosaveState['saveStatus']>['source'],
+    message: string
+  ) => void;
+  clearSaveStatus: () => void;
   setHistorySize: (size: number) => void;
 }
 

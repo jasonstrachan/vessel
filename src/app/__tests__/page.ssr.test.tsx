@@ -145,6 +145,12 @@ function createMockStore() {
       interval: 5,
       lastDirtyReason: null,
       lastDirtyAt: null,
+      saveStatus: {
+        phase: 'idle' as 'idle' | 'saving' | 'saved' | 'error',
+        source: null as 'manual' | 'autosave' | null,
+        message: null as string | null,
+        updatedAt: null as Date | null,
+      },
       fileBackup: {
         enabled: false,
         mode: 'single-file' as const,
@@ -157,6 +163,7 @@ function createMockStore() {
     canvas: { showRulers: false, showFPSMeter: true },
     setAutosaveEnabled: jest.fn(),
     setAutosaveInterval: jest.fn(),
+    clearSaveStatus: jest.fn(),
     toggleRulers: jest.fn(),
     setShowFPSMeter: jest.fn((visible: boolean) => {
       store.canvas.showFPSMeter = visible;
@@ -227,6 +234,19 @@ describe('Home page client rendering', () => {
   it('renders FPS meter after settings hydration when enabled', () => {
     render(<Home />);
     expect(screen.getByTestId('fps-meter')).toBeInTheDocument();
+  });
+
+  it('renders save status strip while saving', () => {
+    mockStore.autosave.saveStatus = {
+      phase: 'saving',
+      source: 'manual',
+      message: 'Saving project...',
+      updatedAt: new Date('2026-03-03T12:00:00.000Z'),
+    };
+
+    render(<Home />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Saving project...');
   });
 
   it('applies persisted FPS visibility preference from settings', () => {

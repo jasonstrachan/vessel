@@ -4,6 +4,7 @@ import historyManager from '@/history/historyService';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
 
 type AppState = import('../useAppStore').AppState;
+type SaveStatus = NonNullable<AutosaveState['saveStatus']>;
 
 export interface AutosaveSlice {
   autosave: AutosaveState;
@@ -17,6 +18,12 @@ export interface AutosaveSlice {
   updateFileBackupTime: () => void;
   setAutosaveInterval: (interval: number) => void;
   setHistorySize: (size: number) => void;
+  setSaveStatus: (
+    phase: SaveStatus['phase'],
+    source: SaveStatus['source'],
+    message: string
+  ) => void;
+  clearSaveStatus: () => void;
 }
 
 const defaultAutosaveState: AutosaveState = {
@@ -34,6 +41,12 @@ const defaultAutosaveState: AutosaveState = {
     directoryHandle: null,
     backupPath: null,
     lastBackupTime: null,
+  },
+  saveStatus: {
+    phase: 'idle',
+    source: null,
+    message: null,
+    updatedAt: null,
   },
 };
 
@@ -129,6 +142,32 @@ export const createAutosaveSlice: StateCreator<AppState, [], [], AutosaveSlice> 
   setAutosaveInterval: (interval) =>
     set((state) => ({
       autosave: { ...state.autosave, interval },
+    })),
+
+  setSaveStatus: (phase, source, message) =>
+    set((state) => ({
+      autosave: {
+        ...state.autosave,
+        saveStatus: {
+          phase,
+          source,
+          message,
+          updatedAt: new Date(),
+        },
+      },
+    })),
+
+  clearSaveStatus: () =>
+    set((state) => ({
+      autosave: {
+        ...state.autosave,
+        saveStatus: {
+          phase: 'idle',
+          source: null,
+          message: null,
+          updatedAt: new Date(),
+        },
+      },
     })),
 
   setHistorySize: (size) => {

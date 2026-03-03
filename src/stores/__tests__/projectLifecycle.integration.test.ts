@@ -142,6 +142,12 @@ describe('project slice lifecycle flows', () => {
         lastSaveTime: null,
         lastDirtyReason: null,
         lastDirtyAt: null,
+        saveStatus: {
+          phase: 'idle',
+          source: null,
+          message: null,
+          updatedAt: null,
+        },
         fileBackup: {
           enabled: false,
           mode: 'single-file',

@@ -724,6 +724,12 @@ export interface AutosaveState {
     backupPath: string | null;
     lastBackupTime: Date | null;
   };
+  saveStatus?: {
+    phase: 'idle' | 'saving' | 'saved' | 'error';
+    source: 'manual' | 'autosave' | null;
+    message: string | null;
+    updatedAt: Date | null;
+  };
 }
 
 export interface DerivedState {
