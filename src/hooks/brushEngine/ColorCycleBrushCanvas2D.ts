@@ -6098,7 +6098,7 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Update gradient (async version for compatibility with tests)
    */
-  async updateGradient(gradient: Array<{ position: number; color: string }>): Promise<void> {
+  async updateGradient(gradient: Array<{ position: number; color: string; opacity?: number }>): Promise<void> {
     const layerId = this.activeLayerId ?? 'default';
     this.setLayerId(layerId);
     this.setActiveLayer(layerId);

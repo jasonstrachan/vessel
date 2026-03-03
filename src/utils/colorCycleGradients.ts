@@ -34,7 +34,7 @@ export const isFgPending = (layerId: string): boolean =>
 /**
  * Get the current shared gradient for color cycle brushes
  */
-export function getSharedColorCycleGradient(): Array<{ position: number; color: string }> {
+export function getSharedColorCycleGradient(): Array<{ position: number; color: string; opacity?: number }> {
   const state = useAppStore.getState();
   const brushSettings = state.tools.brushSettings;
   return brushSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
@@ -44,8 +44,8 @@ export function getSharedColorCycleGradient(): Array<{ position: number; color: 
  * Set the shared gradient for both color cycle brushes
  */
 
-const cloneStops = (stops: Array<{ position: number; color: string }>) =>
-  stops.map(stop => ({ position: stop.position, color: stop.color }));
+const cloneStops = (stops: Array<{ position: number; color: string; opacity?: number }>) =>
+  stops.map(stop => ({ position: stop.position, color: stop.color, opacity: stop.opacity }));
 
 const normalizeEditorSlot = (slot: number): number =>
   slot & FLOW_SLOT_MASK;
@@ -110,7 +110,7 @@ const runProjectSlotRebuild = (layerId: string) => {
 
 type ForegroundSlotResult = {
   slot: number;
-  stops: Array<{ position: number; color: string }>;
+  stops: Array<{ position: number; color: string; opacity?: number }>;
 };
 
 export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotResult | null => {
@@ -249,7 +249,7 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
 };
 
 const applyColorCycleGradientEdit = (
-  gradient: Array<{ position: number; color: string }>,
+  gradient: Array<{ position: number; color: string; opacity?: number }>,
   layerId?: string,
   options?: { fork?: boolean; allowForegroundOverride?: boolean; skipRender?: boolean }
 ): void => {
@@ -268,9 +268,9 @@ const applyColorCycleGradientEdit = (
 
 export const allocateSlotForNewShapeFill = (
   layerId: string,
-  stops: Array<{ position: number; color: string }>,
+  stops: Array<{ position: number; color: string; opacity?: number }>,
   options?: { setActive?: boolean }
-): { slot: number; stops: Array<{ position: number; color: string }> } | null => {
+): { slot: number; stops: Array<{ position: number; color: string; opacity?: number }> } | null => {
   const state = useAppStore.getState();
   const layer = state.layers.find(l => l.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle') {
@@ -356,7 +356,7 @@ export const allocateSlotForNewShapeFill = (
  * Update a color-cycle layer's gradient without mutating global brush settings.
  */
 export function setLayerColorCycleGradient(
-  gradient: Array<{ position: number; color: string }>,
+  gradient: Array<{ position: number; color: string; opacity?: number }>,
   layerId?: string,
   options?: { fork?: boolean; allowForegroundOverride?: boolean; skipRender?: boolean }
 ): void {
@@ -372,7 +372,7 @@ export function setLayerColorCycleGradient(
  * Editing in the UI forks the active gradient once, then updates the fork in place.
  */
 export function setSharedColorCycleGradient(
-  gradient: Array<{ position: number; color: string }>,
+  gradient: Array<{ position: number; color: string; opacity?: number }>,
   options?: { fork?: boolean }
 ): void {
   const state = useAppStore.getState();
@@ -591,7 +591,7 @@ export const buildForegroundDerivedGradientSpec = (params: {
   };
 };
 
-export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<{ position: number; color: string }> => {
+export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<{ position: number; color: string; opacity?: number }> => {
   const parsed = parseCssColor(spec.baseColor, { r: 255, g: 255, b: 255, a: 255 });
   const [baseH, baseS, baseL] = rgbToHsl(parsed.r, parsed.g, parsed.b);
   const bands = Math.max(2, Math.round(spec.bands));
@@ -631,7 +631,7 @@ export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<
   const derivedColor = opacity >= 1
     ? rgbToHex(derivedR, derivedG, derivedB)
     : `rgba(${derivedR}, ${derivedG}, ${derivedB}, ${opacity})`;
-  const stops: Array<{ position: number; color: string }> = [];
+  const stops: Array<{ position: number; color: string; opacity?: number }> = [];
 
   for (let i = 0; i < bands; i += 1) {
     const t = bands === 1 ? 0 : i / (bands - 1);

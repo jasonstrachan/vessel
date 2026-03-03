@@ -181,7 +181,8 @@ export const gradientsEqual = (a?: GradientStops, b?: GradientStops): boolean =>
     }
     if (
       (lhs.color ?? '') !== (rhs.color ?? '') ||
-      Number(lhs.position ?? 0) !== Number(rhs.position ?? 0)
+      Number(lhs.position ?? 0) !== Number(rhs.position ?? 0) ||
+      Number(lhs.opacity ?? 1) !== Number(rhs.opacity ?? 1)
     ) {
       return false;
     }

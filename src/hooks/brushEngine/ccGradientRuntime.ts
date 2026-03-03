@@ -3,7 +3,7 @@ import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
-export type GradientStop = { position: number; color: string };
+export type GradientStop = { position: number; color: string; opacity?: number };
 export type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
 export type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
 
@@ -34,7 +34,7 @@ const normalizePaintSlot = (slot: number): number => {
 };
 
 const cloneStops = (stops: GradientStop[]): GradientStop[] =>
-  stops.map((stop) => ({ position: stop.position, color: stop.color }));
+  stops.map((stop) => ({ position: stop.position, color: stop.color, opacity: stop.opacity }));
 
 let activeMarkSessionGetter: ((layerId: string) => MarkGradientSession | null) | null = null;
 let activeMarkSessionLoad: Promise<void> | null = null;
@@ -68,7 +68,9 @@ const resolveActiveMarkGradientSession = (layerId: string): MarkGradientSession 
 };
 
 export const signatureForStops = (stops: GradientStop[]): string =>
-  stops.map((stop) => `${stop.position}:${stop.color}`).join('|');
+  stops
+    .map((stop) => `${stop.position}:${stop.color}:${Number.isFinite(stop.opacity) ? stop.opacity : 1}`)
+    .join('|');
 
 const resolveFallbackStops = (layer: Layer | undefined, brushSettings: BrushSettings): GradientStop[] => {
   return (

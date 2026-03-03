@@ -135,14 +135,15 @@ export class PaletteController {
     return stops
       .map((stop) => {
         const pos = Number.isFinite(stop.position) ? stop.position.toFixed(6) : 'NaN';
+        const opacity = Number.isFinite(stop.opacity) ? Number(stop.opacity).toFixed(6) : '1.000000';
         if (typeof stop.color === 'string') {
-          return `${pos}:${stop.color}`;
+          return `${pos}:${stop.color}:${opacity}`;
         }
         if (stop.color && typeof stop.color === 'object') {
           const { r = 0, g = 0, b = 0 } = stop.color as { r?: number; g?: number; b?: number };
-          return `${pos}:${Math.round(r)}-${Math.round(g)}-${Math.round(b)}`;
+          return `${pos}:${Math.round(r)}-${Math.round(g)}-${Math.round(b)}:${opacity}`;
         }
-        return `${pos}:?`;
+        return `${pos}:?:${opacity}`;
       })
       .join('|');
   }

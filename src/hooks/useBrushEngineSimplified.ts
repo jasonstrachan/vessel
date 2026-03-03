@@ -1776,7 +1776,7 @@ export const useBrushEngineSimplified = () => {
     },
     
     // These need fresh ref access, define inline:
-    updateColorCycleGradient: (stops: Array<{ position: number; color: string }>) => {
+    updateColorCycleGradient: (stops: Array<{ position: number; color: string; opacity?: number }>) => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (!colorCycleBrush || !activeLayerId) {
         return;

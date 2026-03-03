@@ -2,7 +2,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 
-export type GradientStop = { position: number; color: string };
+export type GradientStop = { position: number; color: string; opacity?: number };
 export type ForegroundGradientParams = {
   fgColorHex?: string;
   fgLightness?: number;
@@ -27,7 +27,7 @@ export const DEFAULT_CC_GRADIENT: GradientStop[] = [
 const EDITOR_SLOT = 255;
 
 export const cloneStops = (stops: GradientStop[]): GradientStop[] =>
-  stops.map((stop) => ({ position: stop.position, color: stop.color }));
+  stops.map((stop) => ({ position: stop.position, color: stop.color, opacity: stop.opacity }));
 
 const normalizeSlot = (slot: number): number => slot & FLOW_SLOT_MASK;
 

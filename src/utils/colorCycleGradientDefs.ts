@@ -10,7 +10,7 @@ import {
   buildDefaultReservedSlots,
 } from '@/utils/colorCycleSlotGC';
 
-export type StoredStop = { position: number; color: string };
+export type StoredStop = { position: number; color: string; opacity?: number };
 
 export type GradientDefSource = 'manual' | 'fg' | 'sampled';
 

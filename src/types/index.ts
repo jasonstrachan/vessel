@@ -244,7 +244,7 @@ export interface SequentialBrushSnapshot {
   mosaicDitherEnabled?: boolean;
   mosaicSegmentJitter?: number;
   mosaicSeed?: number;
-  colorCycleGradient?: Array<{ position: number; color: string }>;
+  colorCycleGradient?: Array<{ position: number; color: string; opacity?: number }>;
 }
 
 export interface SequentialStrokeEvent {
@@ -959,7 +959,7 @@ export interface BrushSettings {
   // Color cycle brush settings
   colorCycleSpeed?: number; // 0-2.64 (brush animation speed)
   colorCycleLayerSpeedScale?: number; // Global playback multiplier for CC brush-mode layers
-  colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
+  colorCycleGradient?: Array<{ position: number; color: string; opacity?: number }>; // Gradient stops
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular'; // Fill mode for Color Cycle Shape

@@ -7,7 +7,8 @@ import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
 export interface GradientStop {
   position: number; // 0.0 to 1.0
-  color: string | { r: number; g: number; b: number };    // CSS color string or RGB object
+  color: string | { r: number; g: number; b: number }; // CSS color string or RGB object
+  opacity?: number; // Optional extra alpha multiplier (0..1)
 }
 
 export interface RGBA {
@@ -97,6 +98,21 @@ export class GradientPalette {
       a: Math.round(color1.a + (color2.a - color1.a) * t)
     };
   }
+
+  private applyStopOpacity(color: RGBA, stopOpacity?: number): RGBA {
+    const alpha = Number.isFinite(stopOpacity as number)
+      ? Math.max(0, Math.min(1, Number(stopOpacity)))
+      : 1;
+    if (alpha === 1) {
+      return color;
+    }
+    return {
+      r: color.r,
+      g: color.g,
+      b: color.b,
+      a: Math.round(color.a * alpha),
+    };
+  }
   
   /**
    * Update palette from gradient stops
@@ -157,12 +173,12 @@ export class GradientPalette {
     }
     
     // Parse colors
-    const leftColor = this.parseColor(leftStop.color);
-    const rightColor = this.parseColor(rightStop.color);
+    const leftColor = this.applyStopOpacity(this.parseColor(leftStop.color), leftStop.opacity);
+    const rightColor = this.applyStopOpacity(this.parseColor(rightStop.color), rightStop.opacity);
     
     // Calculate interpolation factor
     if (leftStop.position === rightStop.position) {
-      return leftColor;
+      return this.applyStopOpacity(leftColor, leftStop.opacity);
     }
     
     const t = (position - leftStop.position) / (rightStop.position - leftStop.position);
@@ -226,10 +242,10 @@ export class GradientPalette {
     }
     
     return {
-      r: this.colors[idx] || 0,
-      g: this.colors[idx + 1] || 0,
-      b: this.colors[idx + 2] || 0,
-      a: this.colors[idx + 3] || 255
+      r: this.colors[idx] ?? 0,
+      g: this.colors[idx + 1] ?? 0,
+      b: this.colors[idx + 2] ?? 0,
+      a: this.colors[idx + 3] ?? 255
     };
   }
   
