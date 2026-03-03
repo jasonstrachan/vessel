@@ -25,12 +25,19 @@ Welcome to the documentation hub for Vessel.
 - Test helpers and conventions
 - Manual feature QA checklists (including custom brush + color cycle workflow)
 
+### 🎛️ color-cycle-compatibility-contract.md
+**Vessel <-> Goblet CC parity contract**
+- Shared payload semantics (alpha, speed modes, gradients, buffers)
+- Runtime defaults and fallback rules
+- Golden fixture and parity-test requirements
+
 ## Quick Navigation
 
 - For **architecture and features**: read `project.md`
 - For **current priorities**: check `roadmap.md` and `todo.md`
 - For **deployment issues**: see `issues.md`
 - For **custom brush color cycle QA**: see `testing/custom-brush-color-cycle-qa.md`
+- For **CC runtime parity rules**: see `color-cycle-compatibility-contract.md`
 
 ## Documentation Standards
 

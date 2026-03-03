@@ -114,7 +114,18 @@ const buildRuntimeSource = (dir, runtimeFile) => {
 const require = createRequire(import.meta.url);
 const terser = require('next/dist/compiled/terser');
 
-const buildInlineRuntime = async ({ dir, runtimeFile, outputFile, label }) => {
+const parseArgs = () => {
+  const args = process.argv.slice(2);
+  const check = args.includes('--check');
+  const targetArg = args.find((arg) => arg.startsWith('--target='));
+  const target = targetArg ? targetArg.slice('--target='.length) : 'all';
+  if (!['all', 'goblet', 'goblet2'].includes(target)) {
+    throw new Error(`Unsupported --target value: "${target}". Use all|goblet|goblet2.`);
+  }
+  return { check, target };
+};
+
+const buildInlineRuntime = async ({ dir, runtimeFile, outputFile, label, check }) => {
   const runtimeSource = buildRuntimeSource(dir, runtimeFile);
   let minifyResult;
   try {
@@ -150,27 +161,43 @@ const buildInlineRuntime = async ({ dir, runtimeFile, outputFile, label }) => {
   const previous = fs.existsSync(outputFile) ? fs.readFileSync(outputFile, 'utf8') : null;
   if (previous === output) {
     console.log(`${label} inline runtime already up to date.`);
-  } else {
-    fs.writeFileSync(outputFile, output);
-    console.log(`Wrote ${path.relative(projectRoot, outputFile)}`);
+    return;
+  }
+
+  if (check) {
+    throw new Error(
+      `${path.relative(projectRoot, outputFile)} is out of date. Run: npm run build:goblet-inline`
+    );
+  }
+
+  fs.writeFileSync(outputFile, output);
+  console.log(`Wrote ${path.relative(projectRoot, outputFile)}`);
+};
+
+const main = async () => {
+  const { check, target } = parseArgs();
+  const gobletDir = path.resolve(projectRoot, 'public/goblet');
+  const goblet2Dir = path.resolve(projectRoot, 'public/goblet2');
+
+  if (target === 'all' || target === 'goblet') {
+    await buildInlineRuntime({
+      dir: gobletDir,
+      runtimeFile: 'goblet.js',
+      outputFile: path.resolve(gobletDir, 'goblet-inline.js'),
+      label: 'Goblet',
+      check
+    });
+  }
+
+  if ((target === 'all' || target === 'goblet2') && fs.existsSync(goblet2Dir)) {
+    await buildInlineRuntime({
+      dir: goblet2Dir,
+      runtimeFile: 'goblet2.js',
+      outputFile: path.resolve(goblet2Dir, 'goblet2-inline.js'),
+      label: 'Goblet2',
+      check
+    });
   }
 };
 
-const gobletDir = path.resolve(projectRoot, 'public/goblet');
-const goblet2Dir = path.resolve(projectRoot, 'public/goblet2');
-
-await buildInlineRuntime({
-  dir: gobletDir,
-  runtimeFile: 'goblet.js',
-  outputFile: path.resolve(gobletDir, 'goblet-inline.js'),
-  label: 'Goblet'
-});
-
-if (fs.existsSync(goblet2Dir)) {
-  await buildInlineRuntime({
-    dir: goblet2Dir,
-    runtimeFile: 'goblet2.js',
-    outputFile: path.resolve(goblet2Dir, 'goblet2-inline.js'),
-    label: 'Goblet2'
-  });
-}
+await main();

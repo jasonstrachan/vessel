@@ -55,6 +55,9 @@ jobs:
             audit-full-summary.md
           if-no-files-found: ignore
 
+      - name: Verify goblet2 inline runtime is up to date
+        run: npm run verify:goblet2-inline
+
       - name: Run lint
         run: npm run lint
 
