@@ -131,6 +131,7 @@ type FillOptions = {
   ditherLevels?: number;
   ccGradient?: boolean;
   ditherPixelSize?: number;
+  ditherBackgroundFill?: boolean;
   roi?: { x: number; y: number; width: number; height: number };
   spacing?: number;
   lostEdge?: number;
@@ -2180,7 +2181,9 @@ export class ColorCycleBrushCanvas2D {
     const map = new Map<string, number>();
     const n = Math.max(2, Math.floor(numColors));
     for (let i = 0; i < n; i++) {
-      const pos = n === 1 ? 0 : i / (n - 1);
+      // Color-cycle gradients are periodic. Sample [0, 1) so low counts
+      // (e.g. 2 slices) do not hit duplicated 0/1 endpoints.
+      const pos = i / n;
       const rgb = this.colorAtPosition(pos);
       const hex = this.rgbToHex(rgb);
       colors.push(hex);
@@ -2872,7 +2875,7 @@ export class ColorCycleBrushCanvas2D {
       ? Math.max(0, Math.min(100, Math.round(options?.lostEdge as number)))
       : 0;
     const ditherLevels = Number.isFinite(options?.ditherLevels)
-      ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
+      ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
     const baseOffset = this.stampCounter % 255;
     if (logCcFill) {
@@ -3061,6 +3064,7 @@ export class ColorCycleBrushCanvas2D {
           baseOffset,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
+          fillBackground: options?.ditherBackgroundFill !== false,
           sampleNormalized: (x, y) => {
             const proj = (x - centerX) * dirX + (y - centerY) * dirY;
             return clamp01((proj - paddedMinProjection) / safeProjectionRange);
@@ -3759,7 +3763,7 @@ export class ColorCycleBrushCanvas2D {
       ? Math.max(0, Math.min(100, Math.round(options?.lostEdge as number)))
       : 0;
     const ditherLevels = Number.isFinite(options?.ditherLevels)
-      ? Math.max(2, Math.min(254, Math.floor(options?.ditherLevels as number)))
+      ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
     const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
@@ -3953,6 +3957,7 @@ export class ColorCycleBrushCanvas2D {
           baseOffset,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
+          fillBackground: options?.ditherBackgroundFill !== false,
           sampleNormalized: (x, y) => {
             let minDistSq = Infinity;
             for (let k = 0; k < edges.length; k += 1) {
