@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/useAppStore';
+import type { Layer } from '@/types';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
@@ -217,15 +218,28 @@ export function dumpLayerFlags() {
     return;
   }
   const state = useAppStore.getState();
-  const rows = state.layers.map(layer => ({
-    id: layer.id.slice(-6),
-    name: layer.name,
-    type: layer.layerType,
-    mode: layer.colorCycleData?.mode,
-    visible: layer.visible,
-    isAnimating: layer.colorCycleData?.isAnimating ?? null,
-    recolorPlaying: layer.colorCycleData?.recolorSettings?.animation?.isPlaying ?? null
-  }));
+  const desiredPlaying = state.colorCyclePlayback?.desiredPlaying ?? false;
+  const suspendDepth = state.colorCyclePlayback?.suspendDepth ?? 0;
+  const effectivePlaying = desiredPlaying && suspendDepth === 0;
+
+  const rows = state.layers.map((layer) => {
+    const reason = resolveLayerAnimationReason(layer, {
+      desiredPlaying,
+      suspendDepth,
+      effectivePlaying
+    });
+    return {
+      id: layer.id.slice(-6),
+      name: layer.name,
+      type: layer.layerType,
+      mode: layer.colorCycleData?.mode,
+      visible: layer.visible,
+      isAnimating: layer.colorCycleData?.isAnimating ?? null,
+      recolorPlaying: layer.colorCycleData?.recolorSettings?.animation?.isPlaying ?? null,
+      status: reason.status,
+      reason: reason.reason
+    };
+  });
 
   try {
     resolveConsole().table(rows);
@@ -233,6 +247,70 @@ export function dumpLayerFlags() {
     resolveConsole().log(rows);
   }
 }
+
+type LayerPlaybackState = {
+  desiredPlaying: boolean;
+  suspendDepth: number;
+  effectivePlaying: boolean;
+};
+
+type LayerAnimationReason = {
+  status: 'animating' | 'static';
+  reason: string;
+};
+
+const resolveLayerAnimationReason = (
+  layer: Layer,
+  playback: LayerPlaybackState
+): LayerAnimationReason => {
+  if (layer.layerType !== 'color-cycle') {
+    return { status: 'static', reason: 'not-color-cycle' };
+  }
+
+  if (layer.visible === false) {
+    return { status: 'static', reason: 'layer-hidden' };
+  }
+
+  const data = layer.colorCycleData;
+  if (!data) {
+    return { status: 'static', reason: 'missing-colorCycleData' };
+  }
+
+  if (data.mode === 'recolor') {
+    const recolorPlaying = data.recolorSettings?.animation?.isPlaying === true;
+    if (!recolorPlaying) {
+      return { status: 'static', reason: 'recolor-animation-off' };
+    }
+    if (!playback.effectivePlaying) {
+      if (playback.suspendDepth > 0) {
+        return { status: 'static', reason: 'global-suspended' };
+      }
+      if (!playback.desiredPlaying) {
+        return { status: 'static', reason: 'global-paused' };
+      }
+      return { status: 'static', reason: 'global-not-effective' };
+    }
+    return { status: 'animating', reason: 'recolor-playing' };
+  }
+
+  if (data.isAnimating === false) {
+    return { status: 'static', reason: 'layer-isAnimating-false' };
+  }
+
+  if (playback.suspendDepth > 0) {
+    return { status: 'static', reason: 'global-suspended' };
+  }
+
+  if (!playback.desiredPlaying) {
+    return { status: 'static', reason: 'global-paused' };
+  }
+
+  if (!playback.effectivePlaying) {
+    return { status: 'static', reason: 'global-not-effective' };
+  }
+
+  return { status: 'animating', reason: 'brush-playing' };
+};
 
 export function ccAssert(condition: boolean, message: string, info?: unknown) {
   if (condition) {

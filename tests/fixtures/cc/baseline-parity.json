@@ -1,0 +1,41 @@
+{
+  "id": "baseline-parity",
+  "description": "Baseline mixed slot/speed case with transparent pixels.",
+  "width": 4,
+  "height": 2,
+  "timeSeconds": 0.37,
+  "legacyOffset01": 0.2,
+  "speedMin": 0,
+  "speedMax": 2.64,
+  "paletteSize": 8,
+  "thresholds": {
+    "maxChannelDelta": 0,
+    "maxAlphaDelta": 0,
+    "maxMismatchedPixels": 0
+  },
+  "brushState": {
+    "indexBuffer": [1, 2, 3, 0, 4, 5, 6, 1],
+    "gradientIdBuffer": [0, 0, 1, 1, 0, 1, 63, 0],
+    "speedBuffer": [255, 0, 128, 0, 32, 220, 0, 255],
+    "gradientStops": [
+      { "position": 0, "color": "#000000" },
+      { "position": 1, "color": "#ffffff" }
+    ]
+  },
+  "slotPalettes": [
+    {
+      "slot": 0,
+      "stops": [
+        { "position": 0, "color": "#ff0000" },
+        { "position": 1, "color": "#0000ff" }
+      ]
+    },
+    {
+      "slot": 1,
+      "stops": [
+        { "position": 0, "color": "#00ff00" },
+        { "position": 1, "color": "#ff00ff" }
+      ]
+    }
+  ]
+}

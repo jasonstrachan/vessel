@@ -1,0 +1,48 @@
+{
+  "id": "failing-json-case",
+  "description": "Regression fixture for static-vs-animating pixels with sparse slot palettes and out-of-range slot ids.",
+  "width": 5,
+  "height": 2,
+  "timeSeconds": 1.125,
+  "legacyOffset01": 0.625,
+  "speedMin": 0.1,
+  "speedMax": 0.5,
+  "paletteSize": 16,
+  "thresholds": {
+    "maxChannelDelta": 0,
+    "maxAlphaDelta": 0,
+    "maxMismatchedPixels": 0
+  },
+  "brushState": {
+    "indexBuffer": [1, 2, 0, 8, 9, 3, 4, 5, 6, 7],
+    "gradientIdBuffer": [0, 2, 2, 255, 7, 0, 1, 2, 200, 15],
+    "speedBuffer": [0, 0, 0, 255, 1, 200, 0, 120, 0, 254],
+    "gradientStops": [
+      { "position": 0, "color": "#111111" },
+      { "position": 1, "color": "#eeeeee" }
+    ]
+  },
+  "slotPalettes": [
+    {
+      "slot": 0,
+      "stops": [
+        { "position": 0, "color": "#ffcc00" },
+        { "position": 1, "color": "#3300ff" }
+      ]
+    },
+    {
+      "slot": 1,
+      "stops": [
+        { "position": 0, "color": "#00ffff" },
+        { "position": 1, "color": "#003333" }
+      ]
+    },
+    {
+      "slot": 2,
+      "stops": [
+        { "position": 0, "color": "#ffffff" },
+        { "position": 1, "color": "#000000" }
+      ]
+    }
+  ]
+}

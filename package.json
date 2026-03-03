@@ -13,6 +13,7 @@
     "build": "node scripts/next-build.mjs",
     "build:github": "npm run build && touch out/.nojekyll",
     "build:goblet-inline": "node scripts/build-goblet-runtime.mjs",
+    "verify:goblet2-inline": "node scripts/build-goblet-runtime.mjs --check --target=goblet2",
     "build:align-fit": "node scripts/build-align-fit.mjs",
     "prebuild:github": "npm run cache:clear && npm run build:align-fit && npm run build:goblet-inline",
     "start": "next start",

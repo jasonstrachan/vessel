@@ -5,6 +5,7 @@ const __DEV__ = typeof process !== 'undefined' && process.env && process.env.NOD
   : true;
 
 let ccDebugOn = () => false;
+let ccLayerDebugOn = () => false;
 let ccLog = () => {};
 let ccWarn = () => {};
 let ccSample = () => null;
@@ -30,6 +31,23 @@ if (__DEV__) {
     }
   };
 
+  ccLayerDebugOn = () => {
+    if (!ccDebugOn()) {
+      return false;
+    }
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    if (window.__CC_LAYER_DEBUG__ === true) {
+      return true;
+    }
+    try {
+      return window.localStorage.getItem('ccLayerDebug') === '1';
+    } catch {
+      return false;
+    }
+  };
+
   ccWarn = (...args) => {
     if (ccDebugOn()) {
       console.warn('[CC]', ...args);
@@ -52,6 +70,7 @@ if (__DEV__) {
     window.ccWarn = ccWarn;
   }
   // enable:   localStorage.setItem('ccDebug','1'); window.__CC_DEBUG__ = true;
+  // layers:   localStorage.setItem('ccLayerDebug','1'); window.__CC_LAYER_DEBUG__ = true;
   // disable:  localStorage.removeItem('ccDebug'); window.__CC_DEBUG__ = false;
 }
 
@@ -4382,6 +4401,7 @@ class VesselGoblet {
     this.dynamicPlayers = [];
     this.rafId = null;
     this.lastTimestamp = 0;
+    this.lastCcReasonLogAt = 0;
     this.destroyed = false;
 
     this.summary = {
@@ -4392,6 +4412,126 @@ class VesselGoblet {
     };
 
     this.handleAnimationFrame = this.handleAnimationFrame.bind(this);
+  }
+
+  getLayerAnimationReasonRow(entry) {
+    const layer = entry.layer;
+    const isColorCycleLayer = Boolean(layer?.colorCycle)
+      || layer?.type === 'color-cycle'
+      || layer?.layerType === 'color-cycle';
+
+    if (!isColorCycleLayer) {
+      return {
+        id: layer?.id ?? null,
+        name: layer?.name ?? null,
+        mode: null,
+        visible: layer?.visible !== false,
+        status: 'static',
+        reason: 'not-color-cycle'
+      };
+    }
+
+    const player = entry.player;
+    const mode = player?.mode ?? layer?.colorCycle?.mode ?? 'brush';
+
+    if (layer?.visible === false) {
+      return {
+        id: layer?.id ?? null,
+        name: layer?.name ?? null,
+        mode,
+        visible: false,
+        status: 'static',
+        reason: 'layer-hidden'
+      };
+    }
+
+    if (!player) {
+      return {
+        id: layer?.id ?? null,
+        name: layer?.name ?? null,
+        mode,
+        visible: true,
+        status: 'static',
+        reason: 'missing-cc-player'
+      };
+    }
+
+    if (player.isAnimating === false) {
+      return {
+        id: layer?.id ?? null,
+        name: layer?.name ?? null,
+        mode,
+        visible: true,
+        status: 'static',
+        reason: 'layer-isAnimating-false'
+      };
+    }
+
+    if (mode === 'brush' && player.speedMode === 'buffer' && player.hasNonZeroSpeedBuffer === false) {
+      return {
+        id: layer?.id ?? null,
+        name: layer?.name ?? null,
+        mode,
+        visible: true,
+        status: 'static',
+        reason: 'speedBuffer-all-zero'
+      };
+    }
+
+    if (mode === 'recolor' && !(player.cycleColors > 0)) {
+      return {
+        id: layer?.id ?? null,
+        name: layer?.name ?? null,
+        mode,
+        visible: true,
+        status: 'static',
+        reason: 'recolor-cycle-colors-empty'
+      };
+    }
+
+    if (typeof player.hasAnimation === 'function' && !player.hasAnimation()) {
+      return {
+        id: layer?.id ?? null,
+        name: layer?.name ?? null,
+        mode,
+        visible: true,
+        status: 'static',
+        reason: 'hasAnimation=false'
+      };
+    }
+
+    return {
+      id: layer?.id ?? null,
+      name: layer?.name ?? null,
+      mode,
+      visible: true,
+      status: 'animating',
+      reason: mode === 'recolor' ? 'recolor-playing' : 'brush-playing'
+    };
+  }
+
+  logLayerAnimationReasons(entries) {
+    if (!__DEV__ || !ccLayerDebugOn()) {
+      return;
+    }
+    const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
+    if (now - this.lastCcReasonLogAt < 400) {
+      return;
+    }
+    this.lastCcReasonLogAt = now;
+    const rows = entries.map((entry) => this.getLayerAnimationReasonRow(entry));
+    if (rows.length === 0) {
+      return;
+    }
+    try {
+      console.groupCollapsed('[CC] Goblet layer animation reasons');
+      console.table(rows);
+      console.groupEnd();
+    } catch {
+      console.log('[CC] Goblet layer animation reasons', rows);
+    }
   }
 
   setSourceMetadata(metadata) {
@@ -4589,6 +4729,7 @@ class VesselGoblet {
       hasSource: Boolean(entry.source || entry.player || entry.sequentialPlayer),
       visible: entry.layer.visible
     })));
+    this.logLayerAnimationReasons(sorted);
 
     const viewportSize = { width: cssW, height: cssH };
     const documentSize = {
