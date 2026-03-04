@@ -916,9 +916,9 @@ export const finalizeShapeDrawing = async (
               deps.latestShapePixelSizeRef.current = pixelSize;
               ditherPixelSize = pixelSize;
             }
-            const keepOverlayAfter =
-              Boolean(activeSettings.ditherEnabled) &&
-              Math.max(1, Math.round(activeSettings.gradientBands ?? 16)) > 1;
+            // Keep the last preview frame during CC finalize to avoid a visible
+            // disappear/reappear flash while the committed layer frame catches up.
+            const keepOverlayAfter = true;
             const sampleRestore = activeLayer
               ? applyCcSampleForShape({
                   shapePoints: shapePointsSnapshot,
@@ -1099,9 +1099,8 @@ export const finalizeShapeDrawing = async (
                   deps.latestShapePixelSizeRef.current = pixelSize;
                   ditherPixelSize = pixelSize;
                 }
-                const keepOverlayAfter =
-                  Boolean(liveBrushSettings.ditherEnabled) &&
-                  Math.max(1, Math.round(liveBrushSettings.gradientBands ?? 16)) > 1;
+                // Keep overlay through finalize to prevent one-frame flash.
+                const keepOverlayAfter = true;
                 const sampleRestore = activeLayer
                   ? applyCcSampleForShape({
                       shapePoints: shapePointsSnapshot,
@@ -1164,14 +1163,19 @@ export const finalizeShapeDrawing = async (
             }
           }
 
-          deps.drawingCanvasHasContent.current = false;
+          const shouldClearOverlayImmediately = !handledColorCycleShape;
+          if (shouldClearOverlayImmediately) {
+            deps.drawingCanvasHasContent.current = false;
+          }
         }
 
         const shapePointsSnapshotForRaster = [...args.refs.shapePointsRef.current];
 
         if (!args.refs.isSelectingDirectionRef.current) {
           args.refs.shapePointsRef.current = [];
-          deps.triggerSimpleShapePreview();
+          if (!handledColorCycleShape) {
+            deps.triggerSimpleShapePreview();
+          }
           args.refs.isDrawingShapeRef.current = false;
           deps.resetShapeDragRefs();
         }
