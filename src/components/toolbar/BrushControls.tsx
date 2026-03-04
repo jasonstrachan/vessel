@@ -1654,8 +1654,9 @@ const BrushControls = () => {
               canToggle
               forceOn={Boolean(capability.forceDither)}
               isDitherPreset={isDitherPreset}
+              showPxlEdgeToggle={isColorCycleGradientPreset}
               hideLostEdge
-              afterPresRes={
+              beforeResolution={
                 isColorCycleGradientPreset ? (
                   <div className="flex items-center gap-2 mt-2">
                     <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
@@ -2728,6 +2729,7 @@ const BrushControls = () => {
             canToggle
             forceOn={Boolean(capability.forceDither)}
             isDitherPreset={isDitherPreset}
+            showPxlEdgeToggle={isDitherShapePreset}
             afterPresRes={
               <PigmentLiftControls
                 settings={activeSettings}
@@ -2998,6 +3000,7 @@ const BrushControls = () => {
             canToggle
             forceOn={Boolean(capability.forceDither)}
             isDitherPreset={isDitherPreset}
+            showPxlEdgeToggle={isDitherShapePreset}
             afterPresRes={
               <PigmentLiftControls
                 settings={activeSettings}
@@ -3205,6 +3208,7 @@ const BrushControls = () => {
             canToggle
             forceOn={Boolean(capability.forceDither)}
             isDitherPreset={isDitherPreset}
+            showPxlEdgeToggle={isDitherShapePreset}
             afterPresRes={
               <PigmentLiftControls
                 settings={activeSettings}
@@ -3251,6 +3255,42 @@ const BrushControls = () => {
             canToggle={false}
             forceOn
             hideToggle
+            beforeResolution={
+              <>
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                    Colors
+                  </label>
+                  <NonCcSlider
+                    value={currentStops.length}
+                    min={2}
+                    max={6}
+                    step={1}
+                    onChange={handleStopCountChange}
+                    aria-label="Dither Gradient Colors"
+                    className="flex-1"
+                  />
+                </div>
+
+                <div className="flex items-start gap-2 mt-2">
+                  <div className="w-16" />
+                  <div className="flex flex-wrap gap-3 flex-1">
+                    {currentStops.map((stop, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="text-xs text-[#D9D9D9] w-4 text-right">{idx + 1}</span>
+                        <Input
+                          type="color"
+                          value={stop}
+                          aria-label={`Dither gradient color ${idx + 1}`}
+                          onChange={(e) => handleStopColorChange(idx, e.target.value)}
+                          className="w-10 h-10 p-0 border border-[#4a4a4a] rounded"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            }
             afterResolution={
               <>
                 <div className="flex items-center gap-2 mt-2">
@@ -3312,39 +3352,6 @@ const BrushControls = () => {
                       });
                     }}
                   />
-                </div>
-
-                <div className="flex items-center gap-2 mt-2">
-                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                    Colors
-                  </label>
-                  <NonCcSlider
-                    value={currentStops.length}
-                    min={2}
-                    max={6}
-                    step={1}
-                    onChange={handleStopCountChange}
-                    aria-label="Dither Gradient Colors"
-                    className="flex-1"
-                  />
-                </div>
-
-                <div className="flex items-start gap-2 mt-2">
-                  <div className="w-16" />
-                  <div className="flex flex-wrap gap-3 flex-1">
-                    {currentStops.map((stop, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <span className="text-xs text-[#D9D9D9] w-4 text-right">{idx + 1}</span>
-                        <Input
-                          type="color"
-                          value={stop}
-                          aria-label={`Dither gradient color ${idx + 1}`}
-                          onChange={(e) => handleStopColorChange(idx, e.target.value)}
-                          className="w-10 h-10 p-0 border border-[#4a4a4a] rounded"
-                        />
-                      </div>
-                    ))}
-                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 mt-2">
@@ -3825,6 +3832,7 @@ const BrushControls = () => {
           forceOn={Boolean(capability.forceDither)}
           hideToggle={Boolean(capability.forceDither)}
           isDitherPreset={isDitherPreset}
+          showPxlEdgeToggle={isDitherShapePreset}
           hideLostEdge={!isDitherPreset}
           afterPresRes={
             <PigmentLiftControls
