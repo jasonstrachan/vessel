@@ -1,6 +1,5 @@
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { Layer } from '@/types';
-import type { MaskManager } from '@/layers/MaskManager';
 import { useDrawingCanvasBrushManagerInit } from './useDrawingCanvasBrushManagerInit';
 import { useDrawingCanvasColorCycleSegmentRefresh } from './useDrawingCanvasColorCycleSegmentRefresh';
 import { useDrawingCanvasColorCycleWorkerInit } from './useDrawingCanvasColorCycleWorkerInit';
@@ -22,7 +21,6 @@ export interface UseDrawingCanvasVisualSetupBridgeOptions {
   layerMapRef: React.MutableRefObject<Map<string, Layer>>;
   compositeSegmentsRef: React.MutableRefObject<CompositeSegment[]>;
   pendingColorCycleRefreshRef: React.MutableRefObject<boolean>;
-  maskManager: MaskManager;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   mousePositionRef: React.MutableRefObject<{ x: number; y: number }>;
   activeCanvasShape: PointerInsideOptions['activeCanvasShape'];
@@ -44,7 +42,6 @@ export const useDrawingCanvasVisualSetupBridge = ({
   layerMapRef,
   compositeSegmentsRef,
   pendingColorCycleRefreshRef,
-  maskManager,
   canvasRef,
   mousePositionRef,
   activeCanvasShape,
@@ -73,7 +70,6 @@ export const useDrawingCanvasVisualSetupBridge = ({
     compositeSegmentsRef,
     pendingColorCycleRefreshRef,
     colorCycleBrushManagerRef,
-    maskManager,
   });
 
   const isPointerInsideCanvas = useDrawingCanvasPointerInside({

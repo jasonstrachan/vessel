@@ -54,14 +54,17 @@ describe('renderAllColorCycleLayers throttling', () => {
 
     const nowSpy = jest.spyOn(performance, 'now');
     nowSpy.mockReturnValueOnce(1000);
+    nowSpy.mockReturnValueOnce(1001);
     renderAllColorCycleLayers(deps);
     nowSpy.mockReturnValueOnce(1010);
+    nowSpy.mockReturnValueOnce(1011);
     renderAllColorCycleLayers(deps);
-    nowSpy.mockReturnValueOnce(1060);
+    nowSpy.mockReturnValueOnce(1200);
+    nowSpy.mockReturnValueOnce(1201);
     renderAllColorCycleLayers(deps);
 
     expect(updateAnimation).toHaveBeenCalledTimes(2);
-    expect(renderDirectToCanvas).toHaveBeenCalledTimes(3);
+    expect(renderDirectToCanvas).toHaveBeenCalledTimes(2);
   });
 
   it('does not throttle the active animating layer', () => {

@@ -104,7 +104,7 @@ describe('colorCyclePlayback shared runtime integration', () => {
 
     runtimeConsumer?.(50);
     expect(renderAllColorCycleLayers).toHaveBeenCalledTimes(2);
-    expect(dispatchGlobalAnimationFrameUpdate).toHaveBeenCalledTimes(1);
+    expect(dispatchGlobalAnimationFrameUpdate).toHaveBeenCalledTimes(0);
 
     stopContinuousColorCycleAnimationCore('toolbar', {
       cancelDeferredOverlayRender: jest.fn(),

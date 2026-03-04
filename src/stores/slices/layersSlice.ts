@@ -1805,6 +1805,7 @@ export const createLayersSlice = (
       actionType: 'layer-add',
       description: 'Add layer',
       activeLayerId: newLayerId,
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -1926,6 +1927,7 @@ export const createLayersSlice = (
       actionType: 'layer-duplicate',
       description: 'Duplicate layer',
       activeLayerId: newLayerId,
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -1985,6 +1987,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterRemove, {
       actionType: 'layer-remove',
       description: 'Remove layer',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -2322,6 +2325,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
       actionType: 'layers',
       description: visible ? 'Show selected layers' : 'Hide selected layers',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -2382,6 +2386,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
       actionType: 'layers',
       description: 'Toggle selected layers visibility',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -2436,6 +2441,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
       actionType: 'layers',
       description: 'Create layer group',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -2494,6 +2500,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
       actionType: 'layers',
       description: 'Remove layer group',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -2537,6 +2544,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
       actionType: 'layers',
       description: 'Rename layer group',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -2630,6 +2638,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
       actionType: 'layers',
       description: visible ? 'Show layer group' : 'Hide layer group',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -2870,6 +2879,7 @@ export const createLayersSlice = (
       actionType: 'layer-merge',
       description: 'Merge layers',
       activeLayerId: mergedLayerId,
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -3198,6 +3208,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterReorder, {
       actionType: 'layer-reorder',
       description: 'Reorder layers',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({
@@ -3278,6 +3289,7 @@ export const createLayersSlice = (
     const afterSnapshot = captureLayerStructureSnapshot(stateAfterReorder, {
       actionType: 'layer-reorder',
       description: 'Reorder layer block',
+      previousSnapshot: beforeSnapshot,
     });
 
     commitLayerStructureHistory({

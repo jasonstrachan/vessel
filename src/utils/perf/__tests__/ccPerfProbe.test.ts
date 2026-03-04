@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   CC_PERF,
+  getPerfSnapshot,
   recordColorCycleFillPerf,
+  recordColorCycleLayerRenderPerf,
+  recordCanvasDrawPerf,
+  resetPerfCounters,
   timeSync,
   timeAsync,
   wrapAppHotspots,
@@ -22,6 +26,28 @@ describe('ccPerfProbe utilities', () => {
     recordColorCycleFillPerf({ path: 'cpu', mode: 'concentric', durationMs: 12 });
     expect(CC_PERF.counters.ccFillCpuCount).toBe(1);
     expect(CC_PERF.counters.ccFillCpuMs).toBe(12);
+  });
+
+  it('records render and draw perf snapshots', () => {
+    recordColorCycleLayerRenderPerf({
+      durationMs: 6,
+      visibleLayerCount: 3,
+      onlyActiveLayer: false,
+    });
+    recordColorCycleLayerRenderPerf({
+      durationMs: 4,
+      visibleLayerCount: 1,
+      onlyActiveLayer: true,
+    });
+    recordCanvasDrawPerf({ durationMs: 5, reason: 'main' });
+
+    const snapshot = getPerfSnapshot();
+    expect(snapshot.ccLayerRenderTicks).toBe(2);
+    expect(snapshot.ccLayerRenderMs).toBe(10);
+    expect(snapshot.ccLayerRenderAvgMs).toBe(5);
+    expect(snapshot.ccLayerRenderAvgVisibleLayers).toBe(2);
+    expect(snapshot.canvasDrawCalls).toBe(1);
+    expect(snapshot.canvasDrawAvgMs).toBe(5);
   });
 
   it('wraps commit/capture and accumulates timings', async () => {
@@ -66,5 +92,17 @@ describe('ccPerfProbe utilities', () => {
     enableCCPerfProbe({}, { verbose: true });
     expect(CC_PERF.verbose).toBe(true);
     expect((window as any).setCCPerfVerbose).toBeInstanceOf(Function);
+    expect((window as any).vesselCCPerf).toBeDefined();
+    expect((window as any).vesselCCPerf.snapshot).toBeInstanceOf(Function);
+    expect((window as any).vesselCCPerf.reset).toBeInstanceOf(Function);
+    expect((window as any).vesselCCPerf.print).toBeInstanceOf(Function);
+  });
+
+  it('resets all counters', () => {
+    recordCanvasDrawPerf({ durationMs: 2, reason: 'main' });
+    expect(CC_PERF.counters.canvasDrawCalls).toBe(1);
+    resetPerfCounters();
+    expect(CC_PERF.counters.canvasDrawCalls).toBe(0);
+    expect(CC_PERF.counters.ccFillCpuCount).toBe(0);
   });
 });

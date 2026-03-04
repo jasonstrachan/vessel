@@ -531,6 +531,19 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(derived).toBe(18);
   });
 
+  it('accepts gradientBands=1 without warning spam', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    brush.setGradientBands(1);
+    const derived = (brush as any).deriveBandCountFromDistance(320, 8);
+
+    expect(derived).toBe(2);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('maps stroke band indices using gradientBands', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);

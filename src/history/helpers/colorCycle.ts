@@ -21,12 +21,36 @@ export type ColorCycleSerializedState = (Omit<BaseColorCycleSerializedState, 'la
   layers: ColorCycleSerializedLayerState[];
 }) | null;
 
+type EraseMaskSnapshotCacheEntry = {
+  mask: HTMLCanvasElement;
+  width: number;
+  height: number;
+  version: number;
+  snapshot: ColorCycleEraseMaskSnapshot;
+};
+
+const eraseMaskSnapshotCacheByLayerId = new Map<string, EraseMaskSnapshotCacheEntry>();
+
 const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot | undefined => {
   const layer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
   const mask = layer?.layerType === 'color-cycle' ? layer.colorCycleData?.eraseMask : null;
+  const version = layer?.colorCycleData?.eraseMaskVersion ?? 0;
   if (!mask) {
+    eraseMaskSnapshotCacheByLayerId.delete(layerId);
     return undefined;
   }
+
+  const cached = eraseMaskSnapshotCacheByLayerId.get(layerId);
+  if (
+    cached &&
+    cached.mask === mask &&
+    cached.width === mask.width &&
+    cached.height === mask.height &&
+    cached.version === version
+  ) {
+    return cached.snapshot;
+  }
+
   const ctx = mask.getContext('2d', { willReadFrequently: true });
   if (!ctx || mask.width <= 0 || mask.height <= 0) {
     return undefined;
@@ -38,12 +62,20 @@ const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot 
     for (let src = 3, dst = 0; src < image.data.length; src += 4, dst += 1) {
       alpha[dst] = image.data[src] ?? 0;
     }
-    return {
+    const snapshot: ColorCycleEraseMaskSnapshot = {
       width: mask.width,
       height: mask.height,
       alpha,
-      version: layer?.colorCycleData?.eraseMaskVersion ?? 0,
+      version,
     };
+    eraseMaskSnapshotCacheByLayerId.set(layerId, {
+      mask,
+      width: mask.width,
+      height: mask.height,
+      version,
+      snapshot,
+    });
+    return snapshot;
   } catch {
     return undefined;
   }

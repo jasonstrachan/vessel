@@ -3,7 +3,6 @@ import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import type { Layer } from '@/types';
-import type { MaskManager } from '@/layers/MaskManager';
 
 interface UseDrawingCanvasColorCycleSegmentRefreshOptions {
   layers: Layer[];
@@ -13,7 +12,6 @@ interface UseDrawingCanvasColorCycleSegmentRefreshOptions {
   compositeSegmentsRef: MutableRefObject<CompositeSegment[]>;
   pendingColorCycleRefreshRef: MutableRefObject<boolean>;
   colorCycleBrushManagerRef: MutableRefObject<ColorCycleBrushManager | null>;
-  maskManager: MaskManager;
 }
 
 export const useDrawingCanvasColorCycleSegmentRefresh = ({
@@ -24,7 +22,6 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
   compositeSegmentsRef,
   pendingColorCycleRefreshRef,
   colorCycleBrushManagerRef,
-  maskManager,
 }: UseDrawingCanvasColorCycleSegmentRefreshOptions) => {
   useEffect(() => {
     const map = new Map<string, Layer>();
@@ -82,15 +79,8 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
         brush.updateAnimation?.();
       }
       brush.renderDirectToCanvas?.(layerCanvas, segment.layerId);
-      const layerCanvasCtx = layerCanvas.getContext(
-        '2d',
-        { willReadFrequently: true } as CanvasRenderingContext2DSettings
-      );
-      if (layerCanvasCtx) {
-        maskManager.applyMaskToCanvas(layer.id, layerCanvasCtx);
-      }
     });
-  }, [colorCycleBrushManagerRef, compositeSegmentsRef, layerMapRef, maskManager]);
+  }, [colorCycleBrushManagerRef, compositeSegmentsRef, layerMapRef]);
 
   useEffect(() => {
     if (pendingColorCycleRefreshRef.current) {

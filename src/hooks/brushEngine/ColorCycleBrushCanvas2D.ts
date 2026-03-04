@@ -254,6 +254,7 @@ interface ColorCycleBrushCanvasState {
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
+  pxlEdgeEnabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -280,6 +281,7 @@ interface ColorCycleBrushCanvasSerialized {
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
+  pxlEdgeEnabled?: boolean;
 }
 
 interface StampMaskCacheEntry {
@@ -366,6 +368,7 @@ export class ColorCycleBrushCanvas2D {
   private ditherEnabled: boolean = false; // Sierra Lite dithering for shape fills
   private ditherStrength: number = 1.0; // 0..1 scaling for error diffusion
   private ditherPixelSize: number = 1; // coarse cell size for dithering (>=1)
+  private pxlEdgeEnabled: boolean = false;
   private perceptualDither: boolean = false; // Use color-space dithering then map to indices
   private currentGradientStops: GradientStop[] = [
     { position: 0, color: '#000000' },
@@ -1750,8 +1753,7 @@ export class ColorCycleBrushCanvas2D {
     const id = layerId || this.activeLayerId || 'default';
     return this.activeGradientSlots.get(id) ?? 0;
   }
-  
-  
+
   /**
    * Clear paint buffer for a layer (used for shape mode)
    */
@@ -3065,6 +3067,7 @@ export class ColorCycleBrushCanvas2D {
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
           fillBackground: options?.ditherBackgroundFill !== false,
+          pxlEdge: this.pxlEdgeEnabled,
           sampleNormalized: (x, y) => {
             const proj = (x - centerX) * dirX + (y - centerY) * dirY;
             return clamp01((proj - paddedMinProjection) / safeProjectionRange);
@@ -3135,7 +3138,13 @@ export class ColorCycleBrushCanvas2D {
           ints.sort((a, b) => a - b);
           const row: [number, number][] = [];
           for (let i = 0; i < ints.length - 1; i += 2) {
-            row.push([Math.floor(ints[i]), Math.ceil(ints[i + 1])]);
+            const startX = Math.floor(ints[i]);
+            const endX = this.pxlEdgeEnabled
+              ? Math.ceil(ints[i + 1]) - 1
+              : Math.ceil(ints[i + 1]);
+            if (endX >= startX) {
+              row.push([startX, endX]);
+            }
           }
           spans.push(row);
         }
@@ -3383,7 +3392,12 @@ export class ColorCycleBrushCanvas2D {
         if (endFloat <= startFloat) continue;
 
         const startX = Math.floor(startFloat);
-        const endX = Math.ceil(endFloat);
+        const endX = this.pxlEdgeEnabled
+          ? Math.ceil(endFloat) - 1
+          : Math.ceil(endFloat);
+        if (endX < startX) {
+          continue;
+        }
 
         const quantizeCoord = (value: number, base: number, limit: number) => {
           const local = value - base;
@@ -3958,6 +3972,7 @@ export class ColorCycleBrushCanvas2D {
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
           fillBackground: options?.ditherBackgroundFill !== false,
+          pxlEdge: this.pxlEdgeEnabled,
           sampleNormalized: (x, y) => {
             let minDistSq = Infinity;
             for (let k = 0; k < edges.length; k += 1) {
@@ -4031,7 +4046,13 @@ export class ColorCycleBrushCanvas2D {
             ints.sort((a, b) => a - b);
             const row: [number, number][] = [];
             for (let i = 0; i < ints.length - 1; i += 2) {
-              row.push([Math.floor(ints[i]), Math.ceil(ints[i + 1])]);
+              const startX = Math.floor(ints[i]);
+              const endX = this.pxlEdgeEnabled
+                ? Math.ceil(ints[i + 1]) - 1
+                : Math.ceil(ints[i + 1]);
+              if (endX >= startX) {
+                row.push([startX, endX]);
+              }
             }
             spans2.push(row);
           }
@@ -4831,11 +4852,11 @@ export class ColorCycleBrushCanvas2D {
    * Controls how many distinct color zones appear in shapes
    */
   setGradientBands(bands: number) {
-    if (!Number.isFinite(bands) || bands < 2 || bands > 254) {
+    if (!Number.isFinite(bands) || bands < 1) {
       console.warn(`Invalid gradient bands: ${bands}, using default`);
       return;
     }
-    this.gradientBands = Math.floor(bands);
+    this.gradientBands = Math.max(1, Math.min(254, Math.floor(bands)));
   }
   
   /**
@@ -4935,6 +4956,11 @@ export class ColorCycleBrushCanvas2D {
   /** Set coarse pixel size for dithering cells (>=1). */
   setDitherPixelSize(size: number) {
     this.ditherPixelSize = Math.max(1, Math.floor(size));
+  }
+
+  /** Keep scanline fills aligned to whole edge pixels. */
+  setPxlEdgeEnabled(enabled: boolean) {
+    this.pxlEdgeEnabled = !!enabled;
   }
   
   /** Toggle stamp-level dithering for Color Cycle strokes. */
@@ -5314,6 +5340,9 @@ export class ColorCycleBrushCanvas2D {
       if (typeof state.stampDitherPressureLinked === 'boolean') {
         this.setStampDitherPressureLinked(state.stampDitherPressureLinked);
       }
+      if (typeof state.pxlEdgeEnabled === 'boolean') {
+        this.setPxlEdgeEnabled(state.pxlEdgeEnabled);
+      }
       
       if (layerSnapshots && !asHistory) {
         const clearForLayer = (layerId: string) => {
@@ -5579,7 +5608,8 @@ export class ColorCycleBrushCanvas2D {
       stampDitherPatternStyle: this.stampDitherPatternStyle,
       stampDitherBgFill: this.stampDitherBgFill,
       stampDitherClears: !this.stampDitherBgFill,
-      stampDitherPressureLinked: this.stampDitherPressureLinked
+      stampDitherPressureLinked: this.stampDitherPressureLinked,
+      pxlEdgeEnabled: this.pxlEdgeEnabled
     };
   }
   
@@ -5621,6 +5651,9 @@ export class ColorCycleBrushCanvas2D {
       instance.setStampDitherBgFill(data.stampDitherBgFill);
     } else if (typeof data.stampDitherClears === 'boolean') {
       instance.setStampDitherClears(data.stampDitherClears);
+    }
+    if (typeof data.pxlEdgeEnabled === 'boolean') {
+      instance.setPxlEdgeEnabled(data.pxlEdgeEnabled);
     }
 
     data.layers?.forEach((layer) => {
