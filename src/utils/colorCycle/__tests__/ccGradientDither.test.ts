@@ -196,4 +196,124 @@ describe('fillCcGradientDither', () => {
     });
     expect(writesBgOff.some((value) => value === 0)).toBe(true);
   });
+
+  it('fills whole dither cells at polygon edges when pxlEdge is enabled', async () => {
+    const width = 4;
+    const height = 4;
+    const tri = [
+      { x: 0, y: 0 },
+      { x: 3, y: 0 },
+      { x: 0, y: 3 },
+    ];
+
+    const run = async (pxlEdge: boolean) => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: tri,
+        minX: 0,
+        minY: 0,
+        maxX: 3,
+        maxY: 3,
+        pixelSize: 2,
+        levels: 2,
+        baseOffset: 0,
+        algorithm: 'sierra-lite',
+        fillBackground: true,
+        pxlEdge,
+        sampleNormalized: () => 0.7,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return out;
+    };
+
+    const defaultOut = await run(false);
+    const pxlEdgeOut = await run(true);
+
+    const countNonZero = (data: Uint8Array) => {
+      let count = 0;
+      for (let i = 0; i < data.length; i += 1) {
+        if (data[i] !== 0) {
+          count += 1;
+        }
+      }
+      return count;
+    };
+
+    expect(countNonZero(pxlEdgeOut)).toBeGreaterThan(countNonZero(defaultOut));
+  });
+
+  it('does not issue full-cell clear writes in pxlEdge mode when BG fill is off', async () => {
+    const writes: number[] = [];
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 0, y: 3 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: 3,
+      maxY: 3,
+      pixelSize: 2,
+      levels: 1,
+      baseOffset: 0,
+      algorithm: 'pattern',
+      patternStyle: 'dots',
+      fillBackground: false,
+      pxlEdge: true,
+      sampleNormalized: () => 0.5,
+      writeIndex: (_x, _y, index) => {
+        writes.push(index);
+      },
+    });
+
+    expect(writes.some((value) => value === 0)).toBe(false);
+  });
+
+  it('preserves prior pixels outside new shape writes in pxlEdge mode with BG fill off', async () => {
+    const width = 4;
+    const height = 4;
+    const priorValue = 77;
+    const out = new Uint8Array(width * height);
+    out.fill(priorValue);
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 0, y: 3 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: 3,
+      maxY: 3,
+      pixelSize: 2,
+      levels: 1,
+      baseOffset: 0,
+      algorithm: 'pattern',
+      patternStyle: 'dots',
+      fillBackground: false,
+      pxlEdge: true,
+      sampleNormalized: () => 0.5,
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+    });
+
+    let unchanged = 0;
+    let changed = 0;
+    let wroteZero = false;
+    for (let i = 0; i < out.length; i += 1) {
+      const value = out[i];
+      if (value === priorValue) unchanged += 1;
+      if (value !== priorValue) changed += 1;
+      if (value === 0) wroteZero = true;
+    }
+
+    expect(unchanged).toBeGreaterThan(0);
+    expect(changed).toBeGreaterThan(0);
+    expect(wroteZero).toBe(false);
+  });
 });
