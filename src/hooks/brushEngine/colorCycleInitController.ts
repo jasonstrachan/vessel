@@ -22,6 +22,7 @@ type BrushLike = {
   setBandSpacing: (spacing: number) => void;
   setDitherEnabled: (enabled: boolean) => void;
   setDitherPixelSize: (pixelSize: number) => void;
+  setPxlEdgeEnabled?: (enabled: boolean) => void;
   setStampDitherEnabled: (enabled: boolean) => void;
   setPressureEnabled: (enabled: boolean) => void;
   setMinPressure: (value: number) => void;
@@ -148,6 +149,9 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
       }
       if (typeof colorCycleBrush.setDitherStrength === 'function') {
         colorCycleBrush.setDitherStrength(enable ? 1 : 0);
+      }
+      if (typeof colorCycleBrush.setPxlEdgeEnabled === 'function') {
+        colorCycleBrush.setPxlEdgeEnabled(!!brushSettings.pxlEdge);
       }
       colorCycleBrush.setStampDitherEnabled(!isCCGradientActiveLayer && !!brushSettings.colorCycleStampDitherEnabled);
     } catch (error) {

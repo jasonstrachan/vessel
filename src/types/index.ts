@@ -861,6 +861,8 @@ export interface BrushSettings {
   pigmentLiftNoise?: number;
   // Lost Edge: apply Sierra Lite dither to break up stroke boundaries
   lostEdge?: number; // 0-100: 0 = off, 100 = strongest edge breakup
+  /** Keep shape edges aligned to full pixel cells (avoid partially chopped edge pixels). */
+  pxlEdge?: boolean;
   // Stroke/shape thickness hint (used by certain shape/erosion routines)
   thickness?: number;
   // Color Cycle stamp dithering

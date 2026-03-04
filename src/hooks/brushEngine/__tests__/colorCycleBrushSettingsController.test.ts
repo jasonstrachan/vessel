@@ -13,6 +13,7 @@ const makeBrush = () => ({
   setBandSpacing: jest.fn(),
   setDitherEnabled: jest.fn(),
   setDitherStrength: jest.fn(),
+  setPxlEdgeEnabled: jest.fn(),
   setStampDitherEnabled: jest.fn(),
   setStampDitherAlgorithm: jest.fn(),
   setStampDitherPatternStyle: jest.fn(),
@@ -74,10 +75,12 @@ describe('colorCycleBrushSettingsController', () => {
       stampDitherPressureLinked: true,
       stampDitherBgFill: undefined,
       stampDitherClears: true,
+      pxlEdge: true,
     });
 
     expect(brush.setDitherEnabled).toHaveBeenCalledWith(true);
     expect(brush.setDitherStrength).toHaveBeenCalledWith(1);
+    expect(brush.setPxlEdgeEnabled).toHaveBeenCalledWith(true);
     expect(brush.setStampDitherEnabled).toHaveBeenCalledWith(false);
     expect(brush.setStampDitherBgFill).toHaveBeenCalledWith(false);
   });

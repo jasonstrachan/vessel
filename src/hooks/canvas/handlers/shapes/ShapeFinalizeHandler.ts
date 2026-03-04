@@ -604,6 +604,9 @@ export const finalizeRasterShapeFill = ({
   logError: (message: string, error?: unknown) => void;
   ccDebug?: { on?: boolean; verbose?: boolean };
 }): void => {
+  const latestBrushSettings = storeRef.current.tools.brushSettings;
+  const effectiveBrushColor = latestBrushSettings.color ?? liveBrushSettings.color ?? '#000000';
+
   drawCtx.globalAlpha = 1.0;
   drawCtx.globalCompositeOperation = 'source-over';
 
@@ -711,7 +714,7 @@ export const finalizeRasterShapeFill = ({
 
         if (isColorizable) {
           tipCtx.globalCompositeOperation = 'source-atop';
-          tipCtx.fillStyle = liveBrushSettings.color;
+          tipCtx.fillStyle = effectiveBrushColor;
           tipCtx.fillRect(0, 0, tipCanvas.width, tipCanvas.height);
         }
 
@@ -738,20 +741,20 @@ export const finalizeRasterShapeFill = ({
           drawCtx.imageSmoothingEnabled = false;
           drawCtx.fillStyle = pattern;
         } else {
-          drawCtx.fillStyle = liveBrushSettings.color;
+          drawCtx.fillStyle = effectiveBrushColor;
         }
 
         tipCanvas.width = 1;
         tipCanvas.height = 1;
         tipCtx.clearRect(0, 0, 1, 1);
       } else {
-        drawCtx.fillStyle = liveBrushSettings.color;
+        drawCtx.fillStyle = effectiveBrushColor;
       }
     } else {
-      drawCtx.fillStyle = liveBrushSettings.color;
+      drawCtx.fillStyle = effectiveBrushColor;
     }
   } else {
-    drawCtx.fillStyle = liveBrushSettings.color;
+    drawCtx.fillStyle = effectiveBrushColor;
   }
 
   const isDitherGradientShape = liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT;
@@ -874,6 +877,11 @@ export const finalizeRasterShapeFill = ({
 
         const originalFillResolution = state.tools.brushSettings.fillResolution;
         const originalLinked = state.tools.brushSettings.pressureLinkedFillResolution;
+        const settingsForDither: BrushSettings = {
+          ...state.tools.brushSettings,
+          fillResolution: forcedPixelSize,
+          pressureLinkedFillResolution: false,
+        };
 
         if (ccDebug?.on && ccDebug?.verbose) {
           console.log('[dither-shape-finalize]', {
@@ -899,10 +907,10 @@ export const finalizeRasterShapeFill = ({
             },
             undefined,
             {
-              mergeExisting: liveBrushSettings.ditherBackgroundFill !== false,
+              mergeExisting: settingsForDither.ditherBackgroundFill !== false,
               overridePressure: effectivePressure,
               overridePixelSize: forcedPixelSize,
-              settingsOverride: liveBrushSettings
+              settingsOverride: settingsForDither
             }
           );
         } finally {

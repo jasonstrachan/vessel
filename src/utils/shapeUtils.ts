@@ -28,7 +28,8 @@ export function createShapePath(points: ShapePoint[]): Path2D {
 function fillPolygonPixelPerfect(
   ctx: CanvasRenderingContext2D,
   points: ShapePoint[],
-  color: string
+  color: string,
+  useWholeEdgePixels: boolean = false
 ): void {
   if (points.length < 3) return;
 
@@ -77,7 +78,12 @@ function fillPolygonPixelPerfect(
     for (let i = 0; i < intersections.length; i += 2) {
       if (i + 1 < intersections.length) {
         const startX = Math.floor(intersections[i]);
-        const endX = Math.floor(intersections[i + 1]);
+        const endX = useWholeEdgePixels
+          ? Math.ceil(intersections[i + 1]) - 1
+          : Math.floor(intersections[i + 1]);
+        if (endX < startX) {
+          continue;
+        }
         
         for (let x = startX; x <= endX; x++) {
           ctx.fillRect(x, y, 1, 1);
@@ -102,7 +108,8 @@ export function renderShape(
   saturationAdjust?: number,
   brushShape?: BrushShape,
   antiAliasing?: boolean,
-  points?: ShapePoint[]
+  points?: ShapePoint[],
+  pxlEdge?: boolean
 ): void {
   ctx.save();
 
@@ -119,7 +126,7 @@ export function renderShape(
   // For pixel brushes, use pixel-perfect fill if we have the points
   if (shouldUsePixelPerfect && points && points.length >= 3 && !customBrush) {
     // Use pixel-perfect scanline fill for hard edges
-    fillPolygonPixelPerfect(ctx, points, color);
+    fillPolygonPixelPerfect(ctx, points, color, Boolean(pxlEdge));
   } else if (customBrush && !useSwatchColor) {
     // Fill with tiled custom brush pattern
     const patternCanvas = document.createElement('canvas');
@@ -177,12 +184,26 @@ export function renderShapePreview(
   saturationAdjust?: number,
   brushShape?: BrushShape,
   antiAliasing?: boolean,
-  points?: ShapePoint[]
+  points?: ShapePoint[],
+  pxlEdge?: boolean
 ): void {
   ctx.save();
   ctx.globalAlpha = brushOpacity * 0.7; // Slightly more transparent for preview, but respect brush opacity
   
-  renderShape(ctx, path, color, customBrush, useSwatchColor, hueShift, lightnessAdjust, saturationAdjust, brushShape, antiAliasing, points);
+  renderShape(
+    ctx,
+    path,
+    color,
+    customBrush,
+    useSwatchColor,
+    hueShift,
+    lightnessAdjust,
+    saturationAdjust,
+    brushShape,
+    antiAliasing,
+    points,
+    pxlEdge
+  );
   
   ctx.restore();
 }

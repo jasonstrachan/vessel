@@ -90,5 +90,40 @@ describe('shapeUtils', () => {
       expect(fills.length).toBeGreaterThan(0);
       expect(ctx.imageSmoothingEnabled).toBe(false);
     });
+
+    it('uses whole edge pixel spans when pxlEdge is enabled', async () => {
+      const { renderShape } = await import('../shapeUtils');
+      const defaultFills: Array<{ x: number; y: number }> = [];
+      const pxlEdgeFills: Array<{ x: number; y: number }> = [];
+      const baseCtx = {
+        save: jest.fn(),
+        restore: jest.fn(),
+        fillStyle: '',
+        imageSmoothingEnabled: true,
+        fill: jest.fn(),
+      } as unknown as CanvasRenderingContext2D;
+
+      const ctxDefault = {
+        ...baseCtx,
+        fillRect: (x: number, y: number) => defaultFills.push({ x, y }),
+      } as unknown as CanvasRenderingContext2D;
+      const ctxPxlEdge = {
+        ...baseCtx,
+        fillRect: (x: number, y: number) => pxlEdgeFills.push({ x, y }),
+      } as unknown as CanvasRenderingContext2D;
+
+      const path = {} as Path2D;
+      const square: ShapePoint[] = [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 2, y: 2 },
+        { x: 0, y: 2 },
+      ];
+
+      renderShape(ctxDefault, path, '#ff0000', undefined, false, undefined, undefined, undefined, 'pixel-round' as any, false, square, false);
+      renderShape(ctxPxlEdge, path, '#ff0000', undefined, false, undefined, undefined, undefined, 'pixel-round' as any, false, square, true);
+
+      expect(defaultFills.length).toBeGreaterThan(pxlEdgeFills.length);
+    });
   });
 });

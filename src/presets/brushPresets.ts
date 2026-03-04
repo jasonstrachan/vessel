@@ -78,6 +78,7 @@ export const pixelBrushSettings: BrushSettings = {
   ditherGradBgFill: true,
   ditherGradSampleEnabled: false,
   lostEdge: 0,
+  pxlEdge: false,
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherBgFill: true,
@@ -185,6 +186,7 @@ export const defaultBrushSettings: BrushSettings = {
   pigmentLiftFeather: 1,
   pigmentLiftNoise: 0.35,
   lostEdge: 0,
+  pxlEdge: false,
   colorCycleStampDitherEnabled: false,
   colorCycleStampDitherPixelSize: 1,
   colorCycleStampDitherBgFill: true,
@@ -840,7 +842,8 @@ export const colorCycleGradientBrushPreset: BrushPreset = {
     shapeEnabled: true,
     ditherEnabled: true,
     ditherAlgorithm: 'bayer',
-    fillResolution: 6
+    fillResolution: 6,
+    pxlEdge: true,
   }
 };
 
@@ -1207,6 +1210,7 @@ export const shapeDitherPreset: BrushPreset = {
     ditherPhaseJitter: 0,
     ditherStrokeTipShape: 'round',
     lostEdge: 0,
+    pxlEdge: true,
     shapeEnabled: true,
     pressureLinkedFillResolution: true,
     fillResolution: 28

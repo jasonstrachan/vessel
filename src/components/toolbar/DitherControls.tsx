@@ -14,10 +14,12 @@ type Props = {
   hideToggle?: boolean; // hides the switch entirely; useful when always-on
   compact?: boolean;
   isDitherPreset?: boolean;
+  beforeResolution?: React.ReactNode; // rendered directly before the Resolution slider
   afterPresRes?: React.ReactNode; // rendered directly after PresRes toggle
   afterResolution?: React.ReactNode; // rendered directly after the Resolution slider
   hideLostEdge?: boolean; // suppress the Lostedge slider (useful when shown elsewhere)
   hideResolution?: boolean; // hide the resolution slider (for shape-specific UIs)
+  showPxlEdgeToggle?: boolean;
 };
 
 export const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label: string }[] = [
@@ -55,10 +57,12 @@ export const DitherControls: React.FC<Props> = ({
   hideToggle = false,
   compact = false,
   isDitherPreset = false,
+  beforeResolution,
   afterPresRes,
   afterResolution,
   hideLostEdge = false,
-  hideResolution = false
+  hideResolution = false,
+  showPxlEdgeToggle = false
 }) => {
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
@@ -109,6 +113,8 @@ export const DitherControls: React.FC<Props> = ({
               />
             </div>
           )}
+
+          {beforeResolution ? <div className="mt-2">{beforeResolution}</div> : null}
 
           {!hideResolution && (
             <div className="flex items-center gap-2 mt-2">
@@ -164,6 +170,23 @@ export const DitherControls: React.FC<Props> = ({
                 }
                 aria-label="Lost Edge"
                 className="flex-1"
+              />
+            </div>
+          )}
+
+          {showPxlEdgeToggle && (
+            <div className="flex items-center gap-2 mt-1">
+              <label
+                className={labelWidth}
+                style={labelStyle}
+                title="Keep whole pixels at shape edges (no chopped partial edge pixels)"
+              >
+                Pxl Edge
+              </label>
+              <CustomSwitch
+                checked={Boolean(settings.pxlEdge)}
+                onChange={(checked) => onChange({ pxlEdge: checked })}
+                aria-label="Pixel Edge"
               />
             </div>
           )}
