@@ -1636,6 +1636,7 @@ export const useBrushEngineSimplified = () => {
       stampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
       stampDitherBgFill: tools.brushSettings.colorCycleStampDitherBgFill,
       stampDitherClears: tools.brushSettings.colorCycleStampDitherClears,
+      pxlEdge: tools.brushSettings.pxlEdge,
     });
   }, [
     isCCGradientActiveLayer,
@@ -1644,6 +1645,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.colorCycleStampDitherBgFill,
     tools.brushSettings.colorCycleStampDitherClears,
     tools.brushSettings.colorCycleStampDitherPressureLinked,
+    tools.brushSettings.pxlEdge,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
     activeLayerId,

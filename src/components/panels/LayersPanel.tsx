@@ -9,7 +9,7 @@ import {
   selectLayerGroups,
   selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
-import { BrushShape, Layer } from '@/types';
+import { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
 import ProgressSlider from '@/components/ui/ProgressSlider';
@@ -91,7 +91,9 @@ const LayersPanel: React.FC = () => {
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
   const setReferenceLayer = useAppStore((state) => state.setReferenceLayer);
   const referenceLayerId = useAppStore((state) => state.referenceLayerId);
-  const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const brushPresets = useAppStore((state) => state.brushPresets);
+  const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
+  const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const mergeLayers = useAppStore((state) => state.mergeLayers);
   const createLayerGroupFromSelection = useAppStore((state) => state.createLayerGroupFromSelection);
   const removeLayerGroup = useAppStore((state) => state.removeLayerGroup);
@@ -258,14 +260,38 @@ const LayersPanel: React.FC = () => {
         initColorCycleForLayer(newLayerId, store.project.width, store.project.height);
       }
 
-      setBrushSettings({ brushShape: BrushShape.COLOR_CYCLE });
+      const currentPresetId = currentBrushPreset?.id ?? null;
+      const isCurrentCcPreset =
+        currentPresetId === 'color-cycle-gradient' ||
+        currentPresetId === 'color-cycle-stroke' ||
+        currentPresetId === 'color-cycle-shape' ||
+        currentPresetId === 'color-cycle-triangle';
+      const targetPresetId = isCurrentCcPreset ? currentPresetId : 'color-cycle-gradient';
+      const targetPreset =
+        brushPresets.find((preset) => preset.id === targetPresetId) ??
+        brushPresets.find((preset) => preset.id === 'color-cycle-gradient') ??
+        brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+      if (targetPreset) {
+        setBrushPreset(targetPreset, true);
+      }
 
       if (!activeLayerId) {
         setActiveLayer(newLayerId);
         setSelectedLayerIds([newLayerId]);
       }
     }
-  }, [activeLayerId, addLayer, initColorCycleForLayer, insertionGroupId, layers, setActiveLayer, setBrushSettings, setSelectedLayerIds]);
+  }, [
+    activeLayerId,
+    addLayer,
+    brushPresets,
+    currentBrushPreset,
+    initColorCycleForLayer,
+    insertionGroupId,
+    layers,
+    setActiveLayer,
+    setBrushPreset,
+    setSelectedLayerIds,
+  ]);
 
   const handleAddSequentialLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');

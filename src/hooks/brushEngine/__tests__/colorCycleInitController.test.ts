@@ -39,6 +39,7 @@ const makeBrush = () => ({
   setBandSpacing: jest.fn(),
   setDitherEnabled: jest.fn(),
   setDitherPixelSize: jest.fn(),
+  setPxlEdgeEnabled: jest.fn(),
   setStampDitherEnabled: jest.fn(),
   setPressureEnabled: jest.fn(),
   setMinPressure: jest.fn(),
@@ -90,6 +91,7 @@ describe('colorCycleInitController', () => {
         gradientBands: 16,
         ditherEnabled: true,
         fillResolution: 3,
+        pxlEdge: true,
       } as BrushSettings,
       isCCGradientActiveLayer: true,
       defaultBandSpacing: 12,
@@ -115,6 +117,7 @@ describe('colorCycleInitController', () => {
     expect(brush.setGradientBands).toHaveBeenCalledWith(16);
     expect(brush.setDitherEnabled).toHaveBeenCalledWith(true);
     expect(brush.setDitherPixelSize).toHaveBeenCalledWith(3);
+    expect(brush.setPxlEdgeEnabled).toHaveBeenCalledWith(true);
     expect(brush.setPressureEnabled).toHaveBeenCalledWith(true);
     expect(brush.setMinPressure).toHaveBeenCalledWith(80);
     expect(brush.setMaxPressure).toHaveBeenCalledWith(120);

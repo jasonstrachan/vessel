@@ -3,6 +3,7 @@ import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 
 type SettingsBrush = ColorCycleBrushImplementation & {
   setDitherStrength?: (value: number) => void;
+  setPxlEdgeEnabled?: (enabled: boolean) => void;
   setStampDitherAlgorithm?: (algorithm?: BrushSettings['ditherAlgorithm']) => void;
   setStampDitherPatternStyle?: (style?: BrushSettings['patternStyle']) => void;
   setStampDitherPressureLinked?: (enabled: boolean) => void;
@@ -103,6 +104,7 @@ export const updateColorCycleDitherSettings = ({
   stampDitherPressureLinked,
   stampDitherBgFill,
   stampDitherClears,
+  pxlEdge,
 }: {
   brush: ColorCycleBrushImplementation | null;
   isCCGradientActiveLayer: boolean;
@@ -113,6 +115,7 @@ export const updateColorCycleDitherSettings = ({
   stampDitherPressureLinked?: boolean;
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
+  pxlEdge?: boolean;
 }): void => {
   if (!brush) {
     return;
@@ -147,6 +150,9 @@ export const updateColorCycleDitherSettings = ({
       instance.setStampDitherBgFill(resolvedBgFill);
     } else if (typeof instance.setStampDitherClears === 'function') {
       instance.setStampDitherClears(!resolvedBgFill);
+    }
+    if (typeof instance.setPxlEdgeEnabled === 'function') {
+      instance.setPxlEdgeEnabled(!!pxlEdge);
     }
   } catch {
     // Non-fatal for older brush versions.

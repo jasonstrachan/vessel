@@ -292,6 +292,9 @@ const MinimalLayerList = () => {
   const removeLayer = useAppStore((state) => state.removeLayer);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
+  const brushPresets = useAppStore((state) => state.brushPresets);
+  const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
+  const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const canDeleteLayer = displayedLayerIds.length > 1;
   const selectedLayerIdSet = useMemo(() => new Set(selectedLayerIds), [selectedLayerIds]);
   const layerById = useMemo(() => {
@@ -402,7 +405,20 @@ const MinimalLayerList = () => {
       }
 
       setActiveLayer(newLayerId);
-      setBrushSettings({ brushShape: BrushShape.COLOR_CYCLE });
+      const currentPresetId = currentBrushPreset?.id ?? null;
+      const isCurrentCcPreset =
+        currentPresetId === 'color-cycle-gradient' ||
+        currentPresetId === 'color-cycle-stroke' ||
+        currentPresetId === 'color-cycle-shape' ||
+        currentPresetId === 'color-cycle-triangle';
+      const targetPresetId = isCurrentCcPreset ? currentPresetId : 'color-cycle-gradient';
+      const targetPreset =
+        brushPresets.find((preset) => preset.id === targetPresetId) ??
+        brushPresets.find((preset) => preset.id === 'color-cycle-gradient') ??
+        brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+      if (targetPreset) {
+        setBrushPreset(targetPreset, true);
+      }
       // quiet
     }
     // quiet

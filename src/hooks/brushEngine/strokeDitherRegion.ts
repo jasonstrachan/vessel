@@ -14,6 +14,53 @@ export type StrokeDitherRegionOptions = {
 
 type ReusableCanvas2D = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D };
 
+const promoteWholePixelCellsForDitherEdges = (imageData: ImageData, pixelSize: number): void => {
+  const size = Math.max(1, Math.floor(pixelSize));
+  if (size <= 1) {
+    return;
+  }
+
+  const { data, width, height } = imageData;
+
+  for (let by = 0; by < height; by += size) {
+    const endY = Math.min(height, by + size);
+    for (let bx = 0; bx < width; bx += size) {
+      const endX = Math.min(width, bx + size);
+      let bestA = 0;
+      let bestR = 0;
+      let bestG = 0;
+      let bestB = 0;
+
+      for (let y = by; y < endY; y += 1) {
+        for (let x = bx; x < endX; x += 1) {
+          const idx = (y * width + x) * 4;
+          const alpha = data[idx + 3];
+          if (alpha > bestA) {
+            bestA = alpha;
+            bestR = data[idx];
+            bestG = data[idx + 1];
+            bestB = data[idx + 2];
+          }
+        }
+      }
+
+      if (bestA === 0) {
+        continue;
+      }
+
+      for (let y = by; y < endY; y += 1) {
+        for (let x = bx; x < endX; x += 1) {
+          const idx = (y * width + x) * 4;
+          data[idx] = bestR;
+          data[idx + 1] = bestG;
+          data[idx + 2] = bestB;
+          data[idx + 3] = bestA;
+        }
+      }
+    }
+  }
+};
+
 export const ditherRegionWithCurrentPressure = ({
   ctx,
   region,
@@ -142,6 +189,10 @@ export const ditherRegionWithCurrentPressure = ({
       height,
       settings.lostEdge
     );
+  }
+
+  if (settings.pxlEdge && pixelSize > 1) {
+    promoteWholePixelCellsForDitherEdges(src, pixelSize);
   }
 
   const phaseOffset = !fillBackground
@@ -273,4 +324,8 @@ export const ditherRegionWithCurrentPressure = ({
   } finally {
     ctx.imageSmoothingEnabled = previousSmoothing;
   }
+};
+
+export const __TESTING__ = {
+  promoteWholePixelCellsForDitherEdges,
 };

@@ -177,4 +177,24 @@ describe('DitherControls wiring', () => {
     fireEvent.change(slider, { target: { value: '25' } });
     expect(onChange).toHaveBeenCalledWith({ lostEdge: 25 });
   });
+
+  it('shows and wires the pxl edge toggle when enabled for this control set', () => {
+    const onChange = jest.fn();
+    render(
+      <DitherControls
+        settings={{ ...baseSettings, pxlEdge: false }}
+        onChange={onChange}
+        forceOn
+        hideToggle
+        showPxlEdgeToggle
+      />
+    );
+
+    const toggle = screen.getByLabelText('Pixel Edge') as HTMLInputElement;
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.checked).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith({ pxlEdge: true });
+  });
 });

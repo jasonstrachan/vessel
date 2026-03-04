@@ -20,8 +20,17 @@ jest.mock('../../ui/CustomSwitch', () => ({
 
 jest.mock('../DitherControls', () => ({
   __esModule: true,
-  default: ({ afterResolution }: { afterResolution?: React.ReactNode }) => (
-    <div>{afterResolution}</div>
+  default: ({
+    beforeResolution,
+    afterResolution,
+  }: {
+    beforeResolution?: React.ReactNode;
+    afterResolution?: React.ReactNode;
+  }) => (
+    <div>
+      {beforeResolution}
+      {afterResolution}
+    </div>
   ),
 }));
 

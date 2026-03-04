@@ -20,6 +20,7 @@ export type CcGradientDitherOptions = {
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
   fillBackground?: boolean;
+  pxlEdge?: boolean;
   sampleNormalized: (x: number, y: number) => number;
   writeIndex: (x: number, y: number, index: number) => void;
   logSetIndexSample?: (x: number, y: number) => void;
@@ -235,6 +236,7 @@ export const fillCcGradientDither = async ({
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
   fillBackground = true,
+  pxlEdge = false,
   sampleNormalized,
   writeIndex,
   logSetIndexSample,
@@ -242,6 +244,7 @@ export const fillCcGradientDither = async ({
 }: CcGradientDitherOptions): Promise<void> => {
   const clampedLevels = Math.max(1, Math.min(255, Math.floor(levels)));
   const cellSize = Math.max(1, Math.floor(pixelSize));
+  const useWholeEdgeCells = Boolean(pxlEdge && cellSize > 1);
   const bboxWidth = Math.max(1, maxX - minX + 1);
   const bboxHeight = Math.max(1, maxY - minY + 1);
   const gridW = Math.max(1, Math.ceil(bboxWidth / cellSize));
@@ -276,7 +279,13 @@ export const fillCcGradientDither = async ({
       const startFloat = intersections[i];
       const endFloat = intersections[i + 1];
       if (endFloat <= startFloat) continue;
-      rowSpans[row].push([Math.floor(startFloat), Math.ceil(endFloat)]);
+      const startX = Math.floor(startFloat);
+      const endX = useWholeEdgeCells
+        ? Math.ceil(endFloat) - 1
+        : Math.ceil(endFloat);
+      if (endX >= startX) {
+        rowSpans[row].push([startX, endX]);
+      }
     }
   }
 
@@ -519,6 +528,44 @@ export const fillCcGradientDither = async ({
         cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
       }
     }
+  }
+
+  if (useWholeEdgeCells) {
+    for (let cy = 0; cy < gridH; cy += 1) {
+      const activeRow = activeCellsByRow[cy];
+      if (!activeRow.length) {
+        continue;
+      }
+      const rowOffset = cy * gridW;
+      const yStart = minY + cy * cellSize;
+      const yEnd = Math.min(maxY, yStart + cellSize - 1);
+      for (let y = yStart; y <= yEnd; y += 1) {
+        if (yieldIfNeeded) {
+          await yieldIfNeeded(y - minY);
+        }
+        for (let i = 0; i < activeRow.length; i += 1) {
+          const cx = activeRow[i];
+          if (cx < 0 || cx >= gridW) continue;
+          const index = cellIndices[rowOffset + cx];
+          const cellX = minX + cx * cellSize;
+          const cellXEnd = Math.min(maxX, cellX + cellSize - 1);
+
+          if (index <= 0 && !fillBackground) {
+            // In whole-cell edge mode, avoid clearing previous painted cells when BG fill is off.
+            // This preserves prior CC shapes and only expands newly painted pixels to full cells.
+            continue;
+          }
+
+          for (let x = cellX; x <= cellXEnd; x += 1) {
+            if (logSetIndexSample) {
+              logSetIndexSample(x, y);
+            }
+            writeIndex(x, y, index);
+          }
+        }
+      }
+    }
+    return;
   }
 
   for (let row = 0; row < bboxHeight; row += 1) {
