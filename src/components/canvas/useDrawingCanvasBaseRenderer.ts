@@ -374,6 +374,8 @@ export const useDrawingCanvasBaseRenderer = ({
 
       drawSelectionLayer({
         ctx,
+        projectWidth: project.width,
+        projectHeight: project.height,
         scale,
         offsetX,
         offsetY,

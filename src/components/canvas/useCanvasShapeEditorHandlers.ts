@@ -21,7 +21,7 @@ interface UseCanvasShapeEditorHandlersOptions {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   canvasShapeEditRef: MutableRefObject<CanvasShapeEditState>;
   freehandPointsRef: MutableRefObject<ShapePoint[]>;
-  getWorldPointFromPointerEvent: (event: React.PointerEvent<HTMLCanvasElement>) => ShapePoint | null;
+  getWorldPointFromPointerEvent: (event: React.PointerEvent<Element>) => ShapePoint | null;
   clampPointToCanvasBounds: (point: ShapePoint) => ShapePoint;
   updateCanvasShapeDraft: (shape: CanvasShapeDraft | null) => void;
 }
@@ -37,7 +37,7 @@ export const useCanvasShapeEditorHandlers = ({
   updateCanvasShapeDraft,
 }: UseCanvasShapeEditorHandlersOptions) => {
   const handleCanvasShapePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    (event: React.PointerEvent<Element>) => {
       if (!canvasShapeEditor.active || !canvasShapeEditor.tool || !canvasBounds) {
         return;
       }
@@ -79,7 +79,7 @@ export const useCanvasShapeEditorHandlers = ({
   );
 
   const handleCanvasShapePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    (event: React.PointerEvent<Element>) => {
       if (!canvasShapeEditor.active || !canvasShapeEditor.tool || !canvasBounds) {
         return;
       }
@@ -126,7 +126,7 @@ export const useCanvasShapeEditorHandlers = ({
   );
 
   const handleCanvasShapePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    (event: React.PointerEvent<Element>) => {
       if (!canvasShapeEditor.active || !canvasShapeEditor.tool || !canvasBounds) {
         return;
       }

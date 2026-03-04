@@ -8,12 +8,12 @@ export interface DrawingCanvasViewportProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   overlayCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   onBlur: (event: React.FocusEvent) => void;
-  onPointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  onPointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  onPointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => void;
+  onPointerDown: (event: React.PointerEvent<Element>) => void;
+  onPointerUp: (event: React.PointerEvent<Element>) => void;
+  onPointerMove: (event: React.PointerEvent<Element>) => void;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
-  onPointerCancel: (event: React.PointerEvent<HTMLCanvasElement>) => void;
+  onPointerCancel: (event: React.PointerEvent<Element>) => void;
   canvasStyle: React.CSSProperties;
   overlayCanvasStyle: React.CSSProperties;
   cursorStyle: string;
@@ -71,15 +71,15 @@ export const DrawingCanvasViewport = ({
     role="region"
     aria-label="Drawing canvas workspace"
     onBlur={onBlur}
+    onPointerDown={onPointerDown}
+    onPointerUp={onPointerUp}
+    onPointerMove={onPointerMove}
+    onPointerEnter={onPointerEnter}
+    onPointerLeave={onPointerLeave}
+    onPointerCancel={onPointerCancel}
   >
     <canvas
       ref={canvasRef}
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      onPointerMove={onPointerMove}
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-      onPointerCancel={onPointerCancel}
       onContextMenu={(event) => event.preventDefault()}
       tabIndex={-1}
       aria-label="Drawing surface"

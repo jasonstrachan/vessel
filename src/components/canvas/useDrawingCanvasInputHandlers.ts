@@ -104,6 +104,9 @@ export const useDrawingCanvasInputHandlers = ({
 
   const pointerHandlers = useDrawingCanvasPointerHandlers({
     ...pointerOptions,
+    allowPointerDownOutsideCanvasShape:
+      eventHandlerArgs.tools.currentTool === 'selection' &&
+      (eventHandlerArgs.tools.selectionMode ?? 'marquee') === 'marquee',
     basePointerDown,
     basePointerMove,
     basePointerUp,

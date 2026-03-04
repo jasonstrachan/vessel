@@ -263,12 +263,12 @@ export interface EventHandlerDependencies {
 export type HandlerDeps = EventHandlerDependencies;
 
 export interface PointerHandlers {
-  handlePointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  handlePointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  handlePointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => void;
+  handlePointerDown: (event: React.PointerEvent<Element>) => void;
+  handlePointerMove: (event: React.PointerEvent<Element>) => void;
+  handlePointerUp: (event: React.PointerEvent<Element>) => void;
   handlePointerEnter: () => void;
   handlePointerLeave: () => void;
-  handlePointerCancel: (event: React.PointerEvent<HTMLCanvasElement>) => void;
+  handlePointerCancel: (event: React.PointerEvent<Element>) => void;
 }
 
 export interface KeyboardHandlers {
