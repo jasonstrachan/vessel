@@ -34,19 +34,31 @@ export const useDrawingCanvasRedrawEffects = ({
   }, [selectionStart, selectionEnd, setNeedsRedraw, hadSelectionRef]);
 
   useEffect(() => {
-    const handleColorCycleFrame = () => {
-      refreshColorCycleSegments();
+    const requestRedraw = () => {
       setNeedsRedraw((prev) => prev + 1);
     };
 
-    window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
-    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrame);
-    window.addEventListener('vessel:animationFrameUpdate', handleColorCycleFrame);
+    const handleColorCycleFrameReady = () => {
+      refreshColorCycleSegments();
+      requestRedraw();
+    };
+
+    const handleColorCycleFrameUpdate = () => {
+      requestRedraw();
+    };
+
+    const handleAnimationFrameUpdate = () => {
+      requestRedraw();
+    };
+
+    window.addEventListener('colorCycleFrameReady', handleColorCycleFrameReady);
+    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
+    window.addEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
 
     return () => {
-      window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
-      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrame);
-      window.removeEventListener('vessel:animationFrameUpdate', handleColorCycleFrame);
+      window.removeEventListener('colorCycleFrameReady', handleColorCycleFrameReady);
+      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
+      window.removeEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
     };
   }, [refreshColorCycleSegments, setNeedsRedraw]);
 

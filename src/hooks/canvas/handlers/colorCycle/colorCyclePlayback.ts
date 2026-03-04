@@ -1,7 +1,6 @@
 import type React from 'react';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import {
-  dispatchGlobalAnimationFrameUpdate,
   getSharedAnimationRuntime,
 } from '@/hooks/canvas/handlers/animation/animationRuntime';
 import type { AppState, CCReason } from '@/stores/useAppStore';
@@ -555,7 +554,6 @@ export const startContinuousColorCycleAnimationCore = (
       try {
         window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
       } catch {}
-      dispatchGlobalAnimationFrameUpdate();
 
       lastRenderTime = timestamp;
     });

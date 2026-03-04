@@ -12,7 +12,6 @@ interface BuildDrawingCanvasVisualSetupOptionsArgs {
     | 'layerMapRef'
     | 'compositeSegmentsRef'
     | 'pendingColorCycleRefreshRef'
-    | 'maskManager'
   >;
   pointer: Pick<
     UseDrawingCanvasVisualSetupBridgeOptions,

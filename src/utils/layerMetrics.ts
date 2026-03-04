@@ -248,9 +248,7 @@ export const computeLayerPercentOffset = (
     }
   }
 
-  const metrics = computeLayerContentMetrics(layer, project, {
-    lockColorCycleSurfaceBounds: false
-  });
+  const metrics = computeLayerContentMetrics(layer, project);
   const layerBounds = (layer as { bounds?: LegacyLayerBounds | null }).bounds;
   const frame = (layer as { frame?: { x?: number; y?: number } }).frame;
 

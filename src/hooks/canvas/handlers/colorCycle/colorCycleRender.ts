@@ -2,10 +2,14 @@ import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { NON_ACTIVE_COLOR_CYCLE_FPS } from '@/constants/colorCycle';
+import { recordColorCycleLayerRenderPerf } from '@/utils/perf/ccPerfProbe';
 
 export type ColorCycleBrush = ColorCycleBrushImplementation;
 const NON_ACTIVE_COLOR_CYCLE_FRAME_MS = 1000 / NON_ACTIVE_COLOR_CYCLE_FPS;
 const nonActiveLayerAnimationUpdateAt = new Map<string, number>();
+const lastRenderedLayerVersionById = new Map<string, number>();
+const lastBoundCanvasByLayerId = new Map<string, HTMLCanvasElement>();
+const cached2DContextByCanvas = new WeakMap<HTMLCanvasElement, CanvasRenderingContext2D | null>();
 
 const shouldAdvanceColorCycleAnimation = (
   layerId: string,
@@ -46,9 +50,14 @@ export const renderAllColorCycleLayers = (
   targetCtx?: CanvasRenderingContext2D,
   onlyActiveLayer: boolean = false
 ): boolean => {
-  const { storeRef, maskManager, renderAllCCLogTSRef, ccLog } = deps;
+  const { storeRef, renderAllCCLogTSRef, ccLog } = deps;
   const currentState = storeRef.current;
   let hasRendered = false;
+  let visibleLayerCount = 0;
+  const renderStartMs =
+    typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : null;
 
   const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
   if (now - renderAllCCLogTSRef.current > 1000) {
@@ -62,12 +71,14 @@ export const renderAllColorCycleLayers = (
     renderAllCCLogTSRef.current = now;
   }
 
+  const colorCycleBrushManager = deps.getColorCycleBrushManager();
+
   currentState.layers.forEach(layer => {
     if (onlyActiveLayer && layer.id !== currentState.activeLayerId) {
       return;
     }
     if (layer.visible && layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
-      const colorCycleBrushManager = deps.getColorCycleBrushManager();
+      visibleLayerCount += 1;
       const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
       if (!colorCycleBrush) return;
 
@@ -77,17 +88,34 @@ export const renderAllColorCycleLayers = (
       }
 
       const isActiveLayer = layer.id === currentState.activeLayerId;
-      if (shouldAdvanceColorCycleAnimation(layer.id, isActiveLayer, Boolean(layer.colorCycleData.isAnimating), now)) {
+      const isAnimating = Boolean(layer.colorCycleData.isAnimating);
+      const shouldAdvanceAnimation = shouldAdvanceColorCycleAnimation(
+        layer.id,
+        isActiveLayer,
+        isAnimating,
+        now
+      );
+      if (shouldAdvanceAnimation) {
         colorCycleBrush.updateAnimation?.();
       }
 
-      if (liveCanvas.isConnected) {
+      if (liveCanvas.isConnected && lastBoundCanvasByLayerId.get(layer.id) !== liveCanvas) {
         deps.bindBrushToCanvas(colorCycleBrush, liveCanvas);
+        lastBoundCanvasByLayerId.set(layer.id, liveCanvas);
       }
-      colorCycleBrush.renderDirectToCanvas?.(liveCanvas, layer.id);
-      const maskCtx = liveCanvas.getContext('2d', { willReadFrequently: true });
-      if (maskCtx) {
-        maskManager.applyMaskToCanvas(layer.id, maskCtx);
+      const layerVersion = layer.version ?? 0;
+      const didLayerVersionChange = lastRenderedLayerVersionById.get(layer.id) !== layerVersion;
+      const shouldRenderFrame =
+        shouldAdvanceAnimation ||
+        didLayerVersionChange ||
+        !lastRenderedLayerVersionById.has(layer.id);
+
+      if (shouldRenderFrame) {
+        colorCycleBrush.renderDirectToCanvas?.(liveCanvas, layer.id);
+        if (!cached2DContextByCanvas.has(liveCanvas)) {
+          cached2DContextByCanvas.set(liveCanvas, liveCanvas.getContext('2d'));
+        }
+        lastRenderedLayerVersionById.set(layer.id, layerVersion);
       }
       hasRendered = true;
 
@@ -102,6 +130,14 @@ export const renderAllColorCycleLayers = (
       }
     }
   });
+
+  if (renderStartMs !== null && typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    recordColorCycleLayerRenderPerf({
+      durationMs: Math.max(0, performance.now() - renderStartMs),
+      visibleLayerCount,
+      onlyActiveLayer,
+    });
+  }
 
   return hasRendered;
 };

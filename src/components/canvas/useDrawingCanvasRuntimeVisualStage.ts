@@ -21,7 +21,6 @@ export const useDrawingCanvasRuntimeVisualStage = ({
       layerMapRef: state.layerMapRef,
       compositeSegmentsRef: state.compositeSegmentsRef,
       pendingColorCycleRefreshRef: state.pendingColorCycleRefreshRef,
-      maskManager: state.maskManager,
     },
     pointer: {
       canvasRef: state.canvasRef,

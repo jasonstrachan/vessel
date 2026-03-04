@@ -3,6 +3,7 @@ type AnyFn = (...args: unknown[]) => unknown;
 export const CC_PERF = {
   on: true,
   verbose: false,
+  captureReadbackSources: false,
   counters: {
     getImageDataCalls: 0,
     getImageDataMp: 0,
@@ -16,8 +17,21 @@ export const CC_PERF = {
     ccFillCpuCount: 0,
     ccFillWorkerMs: 0,
     ccFillWorkerCount: 0,
+    ccLayerRenderMs: 0,
+    ccLayerRenderTicks: 0,
+    ccLayerRenderVisibleLayers: 0,
+    canvasDrawMs: 0,
+    canvasDrawCalls: 0,
   },
 };
+
+type ReadbackSourceStats = {
+  calls: number;
+  ms: number;
+  mp: number;
+};
+
+const getImageDataSourceStats = new Map<string, ReadbackSourceStats>();
 
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'production') {
   CC_PERF.on = false;
@@ -70,6 +84,60 @@ function perfWarn(...args: Parameters<typeof console.warn>) {
   }
 }
 
+function resolveReadbackSourceFromStack(stack: string): string {
+  const lines = stack.split('\n').map((line) => line.trim());
+  const helperPaths = [
+    '/src/utils/perf/ccPerfProbe.ts',
+    '/src/utils/canvas/canvasImage.ts',
+  ];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (
+      !line ||
+      line.includes('ccPerfProbe') ||
+      line.includes('wrapMethod') ||
+      line.includes('wrappedMethod')
+    ) {
+      continue;
+    }
+    if (line.includes('node_modules')) {
+      continue;
+    }
+    if (helperPaths.some((path) => line.includes(path))) {
+      continue;
+    }
+    const srcIndex = line.indexOf('/src/');
+    if (srcIndex >= 0) {
+      return line.slice(srcIndex);
+    }
+    if (line.startsWith('at ')) {
+      return line.replace(/^at\s+/, '');
+    }
+  }
+  return 'unknown';
+}
+
+function recordReadbackSource(dt: number, mp: number): void {
+  if (!CC_PERF.captureReadbackSources) {
+    return;
+  }
+  let source = 'unknown';
+  try {
+    const stack = new Error().stack;
+    if (typeof stack === 'string') {
+      source = resolveReadbackSourceFromStack(stack);
+    }
+  } catch {
+    source = 'unknown';
+  }
+
+  const previous = getImageDataSourceStats.get(source) ?? { calls: 0, ms: 0, mp: 0 };
+  previous.calls += 1;
+  previous.ms += dt;
+  previous.mp += mp;
+  getImageDataSourceStats.set(source, previous);
+}
+
 type FillPath = 'gpu' | 'cpu' | 'worker';
 type FillMode = 'concentric' | 'linear';
 
@@ -99,6 +167,78 @@ export function recordColorCycleFillPerf(meta: {
     area: meta.area,
     verts: meta.vertices,
   });
+}
+
+export function recordColorCycleLayerRenderPerf(meta: {
+  durationMs: number;
+  visibleLayerCount: number;
+  onlyActiveLayer: boolean;
+}) {
+  if (!CC_PERF.on) {
+    return;
+  }
+  CC_PERF.counters.ccLayerRenderMs += meta.durationMs;
+  CC_PERF.counters.ccLayerRenderTicks += 1;
+  CC_PERF.counters.ccLayerRenderVisibleLayers += meta.visibleLayerCount;
+  perfLog('[perf] cc-layer-render', {
+    ms: meta.durationMs.toFixed(2),
+    visibleLayerCount: meta.visibleLayerCount,
+    onlyActiveLayer: meta.onlyActiveLayer,
+  });
+}
+
+export function recordCanvasDrawPerf(meta: {
+  durationMs: number;
+  reason: 'main' | 'overlay-animation';
+}) {
+  if (!CC_PERF.on) {
+    return;
+  }
+  CC_PERF.counters.canvasDrawMs += meta.durationMs;
+  CC_PERF.counters.canvasDrawCalls += 1;
+  perfLog('[perf] canvas-draw', {
+    ms: meta.durationMs.toFixed(2),
+    reason: meta.reason,
+  });
+}
+
+export function resetPerfCounters() {
+  Object.keys(CC_PERF.counters).forEach((key) => {
+    const typedKey = key as keyof typeof CC_PERF.counters;
+    CC_PERF.counters[typedKey] = 0;
+  });
+  getImageDataSourceStats.clear();
+}
+
+export function getPerfSnapshot() {
+  const c = CC_PERF.counters;
+  const ccLayerRenderAvgMs = c.ccLayerRenderTicks > 0
+    ? c.ccLayerRenderMs / c.ccLayerRenderTicks
+    : 0;
+  const ccLayerRenderAvgVisibleLayers = c.ccLayerRenderTicks > 0
+    ? c.ccLayerRenderVisibleLayers / c.ccLayerRenderTicks
+    : 0;
+  const canvasDrawAvgMs = c.canvasDrawCalls > 0 ? c.canvasDrawMs / c.canvasDrawCalls : 0;
+
+  return {
+    ...c,
+    ccLayerRenderAvgMs,
+    ccLayerRenderAvgVisibleLayers,
+    canvasDrawAvgMs,
+    readbackSourceCaptureEnabled: CC_PERF.captureReadbackSources,
+  };
+}
+
+export function getTopReadbackSources(limit: number = 10) {
+  const rows = Array.from(getImageDataSourceStats.entries()).map(([source, stats]) => ({
+    source,
+    calls: stats.calls,
+    ms: Number(stats.ms.toFixed(2)),
+    mp: Number(stats.mp.toFixed(3)),
+    avgMs: Number((stats.ms / Math.max(1, stats.calls)).toFixed(3)),
+  }));
+  rows.sort((a, b) => b.ms - a.ms);
+  return rows.slice(0, Math.max(1, limit));
 }
 
 export function perfMark(name: string) {
@@ -237,6 +377,7 @@ export function wrapCanvasReadbacks() {
         CC_PERF.counters.getImageDataCalls += 1;
         CC_PERF.counters.getImageDataMp += mp;
         CC_PERF.counters.getImageDataMs += dt;
+        recordReadbackSource(dt, mp);
         perfLog('[perf] getImageData', {
           x,
           y,
@@ -310,18 +451,27 @@ export function wrapAppHotspots(opts: {
 }
 
 export function printPerfSummary() {
-  const c = CC_PERF.counters;
+  const snapshot = getPerfSnapshot();
   console.table({
-    getImageDataCalls: c.getImageDataCalls,
-    getImageDataMP_total: c.getImageDataMp.toFixed(2),
-    getImageDataMs_total: c.getImageDataMs.toFixed(1),
-    serializeMs_total: c.serializeMs.toFixed(1),
-    commits: c.commits,
-    commitMs_total: c.commitMs.toFixed(1),
-    ccFillGpu: `${c.ccFillGpuCount} / ${c.ccFillGpuMs.toFixed(1)}ms`,
-    ccFillCpu: `${c.ccFillCpuCount} / ${c.ccFillCpuMs.toFixed(1)}ms`,
-    ccFillWorker: `${c.ccFillWorkerCount} / ${c.ccFillWorkerMs.toFixed(1)}ms`,
+    getImageDataCalls: snapshot.getImageDataCalls,
+    getImageDataMP_total: snapshot.getImageDataMp.toFixed(2),
+    getImageDataMs_total: snapshot.getImageDataMs.toFixed(1),
+    serializeMs_total: snapshot.serializeMs.toFixed(1),
+    commits: snapshot.commits,
+    commitMs_total: snapshot.commitMs.toFixed(1),
+    ccFillGpu: `${snapshot.ccFillGpuCount} / ${snapshot.ccFillGpuMs.toFixed(1)}ms`,
+    ccFillCpu: `${snapshot.ccFillCpuCount} / ${snapshot.ccFillCpuMs.toFixed(1)}ms`,
+    ccFillWorker: `${snapshot.ccFillWorkerCount} / ${snapshot.ccFillWorkerMs.toFixed(1)}ms`,
+    ccLayerRender: `${snapshot.ccLayerRenderTicks} / ${snapshot.ccLayerRenderMs.toFixed(1)}ms total`,
+    ccLayerRenderAvgMs: snapshot.ccLayerRenderAvgMs.toFixed(2),
+    ccLayerRenderAvgVisibleLayers: snapshot.ccLayerRenderAvgVisibleLayers.toFixed(2),
+    canvasDraw: `${snapshot.canvasDrawCalls} / ${snapshot.canvasDrawMs.toFixed(1)}ms total`,
+    canvasDrawAvgMs: snapshot.canvasDrawAvgMs.toFixed(2),
+    readbackSourceCaptureEnabled: snapshot.readbackSourceCaptureEnabled ? 'yes' : 'no',
   });
+  if (CC_PERF.captureReadbackSources) {
+    console.table(getTopReadbackSources(10));
+  }
 }
 
 export function enableCCPerfProbe<
@@ -338,9 +488,28 @@ export function enableCCPerfProbe<
   }
   CC_PERF.verbose = resolveVerboseFlag(options?.verbose);
   if (typeof window !== 'undefined') {
-    (window as typeof window & { setCCPerfVerbose?: (value: boolean) => void }).setCCPerfVerbose = value => {
+    const scope = window as typeof window & {
+      setCCPerfVerbose?: (value: boolean) => void;
+      vesselCCPerf?: {
+        snapshot: typeof getPerfSnapshot;
+        reset: typeof resetPerfCounters;
+        print: typeof printPerfSummary;
+        topReadbacks: typeof getTopReadbackSources;
+        setReadbackSourceCapture: (value: boolean) => void;
+      };
+    };
+    scope.setCCPerfVerbose = value => {
       CC_PERF.verbose = value;
       persistVerboseFlag(value);
+    };
+    scope.vesselCCPerf = {
+      snapshot: getPerfSnapshot,
+      reset: resetPerfCounters,
+      print: printPerfSummary,
+      topReadbacks: getTopReadbackSources,
+      setReadbackSourceCapture: (value: boolean) => {
+        CC_PERF.captureReadbackSources = value;
+      },
     };
   }
   enableLongTaskObserver();

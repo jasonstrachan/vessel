@@ -24,6 +24,11 @@ type StoreSet = StoreApi<AppState>['setState'];
 type StoreGet = StoreApi<AppState>['getState'];
 
 const NON_COMPOSITE_DELTA_TAGS = new Set<string>(['selection-bounds', 'view-state']);
+const SINGLE_ACTIVE_LAYER_HISTORY_ACTIONS = new Set<CanvasSnapshot['actionType']>([
+  'brush',
+  'eraser',
+  'fill',
+]);
 
 export const entryRequiresComposite = (entry: HistoryEntry | null): boolean => {
   if (!entry) {
@@ -71,6 +76,17 @@ const cloneLayerForHistory = (
     contextOptions = { willReadFrequently: true },
   }: CloneLayerForHistoryOptions
 ): LayerHistorySnapshot => {
+  const shouldReusePreviousLayerSnapshot =
+    previousLayersById &&
+    layer.id !== activeLayerId &&
+    SINGLE_ACTIVE_LAYER_HISTORY_ACTIONS.has(actionType);
+  if (shouldReusePreviousLayerSnapshot) {
+    const previousLayer = previousLayersById.get(layer.id) as LayerHistorySnapshot | Layer | undefined;
+    if (previousLayer && 'alignment' in previousLayer) {
+      return previousLayer as LayerHistorySnapshot;
+    }
+  }
+
   if (
     isColorCycleTarget &&
     isColorCycleAction &&
@@ -92,7 +108,7 @@ const cloneLayerForHistory = (
 
   const { colorCycleData: existingColorCycleData, ...layerWithoutCC } = layer;
   const framebufferImageData =
-    !clonedImageData && layerWithoutCC.framebuffer
+    !clonedImageData && layerWithoutCC.framebuffer && layer.layerType !== 'color-cycle'
       ? captureCanvasImageData(layerWithoutCC.framebuffer)
       : undefined;
   const layerCopy: LayerHistorySnapshot = {
