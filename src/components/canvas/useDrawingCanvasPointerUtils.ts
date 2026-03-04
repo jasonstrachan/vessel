@@ -50,7 +50,7 @@ export const useDrawingCanvasPointerUtils = ({
   );
 
   const getWorldPointFromPointerEvent = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>): ShapePoint | null => {
+    (event: React.PointerEvent<Element>): ShapePoint | null => {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return null;
       const localX = event.clientX - rect.left;

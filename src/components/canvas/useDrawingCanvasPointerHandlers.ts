@@ -4,23 +4,25 @@ import type { ShapePoint } from '@/types';
 
 interface UseDrawingCanvasPointerHandlersOptions {
   canvasShapeEditorActive: boolean;
+  allowPointerDownOutsideCanvasShape?: boolean;
   isSpacePressedRef: React.MutableRefObject<boolean>;
-  getWorldPointFromPointerEvent: (event: React.PointerEvent<HTMLCanvasElement>) => ShapePoint | null;
+  getWorldPointFromPointerEvent: (event: React.PointerEvent<Element>) => ShapePoint | null;
   isWorldPointInsideCanvasShape: (point: ShapePoint) => boolean;
-  handleCanvasShapePointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  handleCanvasShapePointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  handleCanvasShapePointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => void;
+  handleCanvasShapePointerDown: (event: React.PointerEvent<Element>) => void;
+  handleCanvasShapePointerMove: (event: React.PointerEvent<Element>) => void;
+  handleCanvasShapePointerUp: (event: React.PointerEvent<Element>) => void;
   cancelCanvasShapePointer: () => void;
-  basePointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  basePointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => void;
-  basePointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => void;
+  basePointerDown: (event: React.PointerEvent<Element>) => void;
+  basePointerMove: (event: React.PointerEvent<Element>) => void;
+  basePointerUp: (event: React.PointerEvent<Element>) => void;
   basePointerEnter: () => void;
   basePointerLeave: () => void;
-  basePointerCancel: (event: React.PointerEvent<HTMLCanvasElement>) => void;
+  basePointerCancel: (event: React.PointerEvent<Element>) => void;
 }
 
 export const useDrawingCanvasPointerHandlers = ({
   canvasShapeEditorActive,
+  allowPointerDownOutsideCanvasShape = false,
   isSpacePressedRef,
   getWorldPointFromPointerEvent,
   isWorldPointInsideCanvasShape,
@@ -36,19 +38,27 @@ export const useDrawingCanvasPointerHandlers = ({
   basePointerCancel,
 }: UseDrawingCanvasPointerHandlersOptions) => {
   const shouldBlockPointerDownForShape = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>): boolean => {
+    (event: React.PointerEvent<Element>): boolean => {
       if (isSpacePressedRef.current) {
+        return false;
+      }
+      if (allowPointerDownOutsideCanvasShape) {
         return false;
       }
       const world = getWorldPointFromPointerEvent(event);
       if (!world) return false;
       return !isWorldPointInsideCanvasShape(world);
     },
-    [getWorldPointFromPointerEvent, isSpacePressedRef, isWorldPointInsideCanvasShape]
+    [
+      allowPointerDownOutsideCanvasShape,
+      getWorldPointFromPointerEvent,
+      isSpacePressedRef,
+      isWorldPointInsideCanvasShape,
+    ]
   );
 
   const handlePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    (event: React.PointerEvent<Element>) => {
       if (canvasShapeEditorActive && !isSpacePressedRef.current) {
         handleCanvasShapePointerDown(event);
         return;
@@ -68,7 +78,7 @@ export const useDrawingCanvasPointerHandlers = ({
   );
 
   const handlePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    (event: React.PointerEvent<Element>) => {
       if (canvasShapeEditorActive && !isSpacePressedRef.current) {
         handleCanvasShapePointerMove(event);
         return;
@@ -79,7 +89,7 @@ export const useDrawingCanvasPointerHandlers = ({
   );
 
   const handlePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    (event: React.PointerEvent<Element>) => {
       if (canvasShapeEditorActive && !isSpacePressedRef.current) {
         handleCanvasShapePointerUp(event);
         return;
@@ -104,7 +114,7 @@ export const useDrawingCanvasPointerHandlers = ({
   }, [basePointerLeave, canvasShapeEditorActive, isSpacePressedRef]);
 
   const handlePointerCancel = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+    (event: React.PointerEvent<Element>) => {
       if (canvasShapeEditorActive && !isSpacePressedRef.current) {
         cancelCanvasShapePointer();
         return;

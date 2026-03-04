@@ -56,7 +56,7 @@ export type SelectionHandlers = {
     worldPos: Point;
   }) => boolean;
   handleSelectionPointerUp: (args: {
-    event: React.PointerEvent<HTMLCanvasElement>;
+    event: React.PointerEvent<Element>;
     mousePos: Point;
     pan: { screenToWorld: (x: number, y: number, scale: number) => Point };
     dynamic: SelectionDynamicDeps;
@@ -520,7 +520,7 @@ export const createSelectionHandlers = (
     pan,
     dynamic,
   }: {
-    event: React.PointerEvent<HTMLCanvasElement>;
+    event: React.PointerEvent<Element>;
     mousePos: Point;
     pan: { screenToWorld: (x: number, y: number, scale: number) => Point };
     dynamic: SelectionDynamicDeps;

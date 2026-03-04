@@ -730,6 +730,27 @@ describe('pointerHandlers main flows', () => {
     store.setBrushSettings({ brushShape: originalShape });
   });
 
+  it('allows marquee selection start outside canvas', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        selectionMode: 'marquee',
+      },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: -8, clientY: -12 }));
+
+    expect(deps.setSelectionBounds).toHaveBeenCalledWith(
+      { x: -8, y: -12 },
+      { x: -8, y: -12 }
+    );
+    expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'SELECTION_START' });
+    expect(deps.isMouseDownRef.current).toBe(true);
+  });
+
   it('updates pan offsets while panning on move', () => {
     const { deps } = createDeps();
     deps.isMouseDownRef.current = true;

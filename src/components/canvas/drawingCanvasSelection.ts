@@ -7,6 +7,8 @@ type SelectionMaskBounds = { x: number; y: number; width: number; height: number
 
 interface DrawSelectionLayerOptions {
   ctx: CanvasRenderingContext2D;
+  projectWidth: number;
+  projectHeight: number;
   scale: number;
   offsetX: number;
   offsetY: number;
@@ -27,6 +29,8 @@ interface DrawSelectionLayerOptions {
 
 export const drawSelectionLayer = ({
   ctx,
+  projectWidth,
+  projectHeight,
   scale,
   offsetX,
   offsetY,
@@ -51,6 +55,10 @@ export const drawSelectionLayer = ({
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(scale, scale);
+  // Keep marquee rendering constrained to the drawable project surface.
+  ctx.beginPath();
+  ctx.rect(0, 0, projectWidth, projectHeight);
+  ctx.clip();
   if (activeCanvasShape) {
     applyCanvasShapeClip(ctx, activeCanvasShape);
   }
@@ -59,15 +67,23 @@ export const drawSelectionLayer = ({
   const end = selectionEnd || null;
 
   if (start && end && !hasMask) {
-    const x = Math.min(start.x, end.x);
-    const y = Math.min(start.y, end.y);
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
-    strokeMarqueeRect(ctx, x, y, width, height, {
-      scale,
-      marchingAntsOffset,
-      animated: true,
-    });
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
+    const x = Math.max(0, Math.min(projectWidth, minX));
+    const y = Math.max(0, Math.min(projectHeight, minY));
+    const right = Math.max(0, Math.min(projectWidth, maxX));
+    const bottom = Math.max(0, Math.min(projectHeight, maxY));
+    const width = right - x;
+    const height = bottom - y;
+    if (width > 0 && height > 0) {
+      strokeMarqueeRect(ctx, x, y, width, height, {
+        scale,
+        marchingAntsOffset,
+        animated: true,
+      });
+    }
   }
 
   if (selectionMask && selectionMaskBounds) {

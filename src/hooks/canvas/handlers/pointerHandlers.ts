@@ -1784,7 +1784,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     getDynamicDeps
   );
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerDown = (event: React.PointerEvent<Element>) => {
     suppressBootstrapUntilPointerUpRef.current = false;
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
@@ -1812,8 +1812,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       );
       updateAlignedMousePosition(worldPosAligned, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
       event.preventDefault();
-      (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
-      if (adjustShouldRoute && shapeHandler.handlePointerDown(event)) {
+      withPointerCaptureTarget(event).setPointerCapture?.(event.pointerId);
+      if (adjustShouldRoute && shapeHandler.handlePointerDown(event as React.PointerEvent<HTMLCanvasElement>)) {
         return;
       }
       return;
@@ -1857,7 +1857,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // On synthesized starts (e.g., when we trigger from pointermove after entering),
     // setPointerCapture may throw because no prior pointerdown occurred; guard it.
     try {
-      (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
+      withPointerCaptureTarget(event).setPointerCapture?.(event.pointerId);
     } catch {
       // best effort; continue without capture
     }
@@ -1947,14 +1947,19 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
 
     // If press starts outside the project, leave mouse-down false so move can bootstrap later.
-    // Exception: allow Dither Gradient shapes to start outside the canvas to position gradients freely.
+    // Exceptions:
+    // - Dither Gradient shapes can start outside to position gradients freely.
+    // - Marquee selection can start outside so users can drag into the canvas.
     const allowOobShapeStart = tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
-    if (
+    const allowOobMarqueeStart = tools.currentTool === 'selection' &&
+      (tools.selectionMode ?? 'marquee') === 'marquee';
+    const allowOutOfBoundsPointerDown = allowOobShapeStart || allowOobMarqueeStart;
+    const isPointerOutOfProject = Boolean(
       project &&
       (worldPos.x < 0 || worldPos.x > project.width ||
-       worldPos.y < 0 || worldPos.y > project.height) &&
-      !allowOobShapeStart
-    ) {
+       worldPos.y < 0 || worldPos.y > project.height)
+    );
+    if (isPointerOutOfProject && !allowOutOfBoundsPointerDown) {
       isMouseDownRef.current = false;
       return;
     }
@@ -2084,8 +2089,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           cancelFloatingPaste();
         });
         isMouseDownRef.current = false;
-        if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
-          (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+        if (withPointerCaptureTarget(event).hasPointerCapture?.(event.pointerId)) {
+          withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
         }
         applyToolCursor({ isColorPicker: false, useCrosshair: false });
         updateBrushCursorVisibility();
@@ -2184,23 +2189,22 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     });
 
     if (shouldRouteToShapeHandler) {
-      const rewriteHandled = shapeHandler.handlePointerDown(event);
+      const rewriteHandled = shapeHandler.handlePointerDown(event as React.PointerEvent<HTMLCanvasElement>);
       if (rewriteHandled) {
         const polygonState = getDynamicDeps().polygonGradientState;
         if (polygonState.drawingState === 'idle') {
           isMouseDownRef.current = false;
-          if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
-            (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+          if (withPointerCaptureTarget(event).hasPointerCapture?.(event.pointerId)) {
+            withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
           }
         }
         return;
       }
     }
 
-    // --- PROPER FIX: Block clicks outside canvas bounds ---
-    if (project) {
-      if (worldPos.x < 0 || worldPos.x > project.width || 
-          worldPos.y < 0 || worldPos.y > project.height) {
+    // Block clicks outside canvas bounds unless a tool explicitly supports out-of-bounds start.
+    if (isPointerOutOfProject) {
+      if (!allowOutOfBoundsPointerDown) {
         return; // Don't start any action if click is out of bounds
       }
     }
@@ -2731,8 +2735,8 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
   // RAF aggregator for pointermove to ensure at most one heavy processing per frame
   let scheduledMoveRAF: number | null = null;
-  let lastMoveEvent: React.PointerEvent<HTMLCanvasElement> | null = null;
-  const processPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  let lastMoveEvent: React.PointerEvent<Element> | null = null;
+  const processPointerMove = (event: React.PointerEvent<Element>) => {
     const {
       canvas,
       tools,
@@ -2900,7 +2904,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
 
     // Check if we're in hatch adjustment mode
-    if (shouldRouteToShapeHandler && shapeHandler.handlePointerMove(event)) {
+    if (shouldRouteToShapeHandler && shapeHandler.handlePointerMove(event as React.PointerEvent<HTMLCanvasElement>)) {
       return;
     }
 
@@ -3604,7 +3608,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
   };
 
-  const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerUp = (event: React.PointerEvent<Element>) => {
     suppressBootstrapUntilPointerUpRef.current = false;
     const {
       canvas,
@@ -3642,7 +3646,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // quiet
     
     // Release pointer capture
-    (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+    withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
 
     pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
     
@@ -3674,7 +3678,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     if (adjustSessionActive) {
       const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
-      if (adjustShouldRoute && shapeHandler.handlePointerUp(event)) {
+      if (adjustShouldRoute && shapeHandler.handlePointerUp(event as React.PointerEvent<HTMLCanvasElement>)) {
         return;
       }
       return;
@@ -3736,7 +3740,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       tools.currentTool === 'brush' &&
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
 
-    if (shouldRouteToShapeHandler && shapeHandler.handlePointerUp(event)) {
+    if (shouldRouteToShapeHandler && shapeHandler.handlePointerUp(event as React.PointerEvent<HTMLCanvasElement>)) {
       return;
     }
 
@@ -3975,7 +3979,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     updateBrushCursorVisibility();
   };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (event: React.PointerEvent<Element>) => {
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
       polygonGradientStateGuard != null &&
@@ -4000,7 +4004,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         shouldPixelAlignCursor(tools.brushSettings)
       );
       updateAlignedMousePosition(worldPos, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
-      if (adjustShouldRoute && shapeHandler.handlePointerMove(event)) {
+      if (adjustShouldRoute && shapeHandler.handlePointerMove(event as React.PointerEvent<HTMLCanvasElement>)) {
         return;
       }
       return;
@@ -4066,7 +4070,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
   };
 
-  const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerCancel = (event: React.PointerEvent<Element>) => {
     suppressBootstrapUntilPointerUpRef.current = false;
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
@@ -4075,7 +4079,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       store.setSequentialPointerDown(false);
     }
     flushBufferedSequentialEvents({ state: store });
-    (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+    withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
 
     drawingHandlers.endStrokeSession(Date.now());
     drawingHandlers.clearStrokeSession();
@@ -4124,3 +4128,17 @@ export const __TESTING__ = {
   isAdvancedShapeBrush,
   computeOpposingAxis,
 };
+const withPointerCaptureTarget = (
+  event: React.PointerEvent<Element>
+): (Element & {
+  setPointerCapture?: (pointerId: number) => void;
+  releasePointerCapture?: (pointerId: number) => void;
+  hasPointerCapture?: (pointerId: number) => boolean;
+}) =>
+  ((event.currentTarget ??
+    event.target ??
+    ({} as Element)) as Element & {
+    setPointerCapture?: (pointerId: number) => void;
+    releasePointerCapture?: (pointerId: number) => void;
+    hasPointerCapture?: (pointerId: number) => boolean;
+  });
