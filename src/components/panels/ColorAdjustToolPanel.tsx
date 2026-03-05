@@ -39,7 +39,21 @@ const ColorAdjustToolPanel: React.FC = () => {
       return false;
     }
     const layer = state.layers.find((l) => l.id === state.activeLayerId);
-    return Boolean(layer && layer.layerType === 'normal' && layer.imageData);
+    if (!layer) {
+      return false;
+    }
+    if (layer.layerType === 'normal') {
+      return Boolean(layer.imageData);
+    }
+    if (layer.layerType === 'color-cycle') {
+      return Boolean(
+        (layer.colorCycleData?.recolorSettings?.gradient?.length ?? 0) > 0 ||
+        (layer.colorCycleData?.gradient?.length ?? 0) > 0 ||
+        (layer.colorCycleData?.slotPalettes?.some((entry) => entry.stops.length > 0) ?? false) ||
+        (layer.colorCycleData?.gradientDefStore?.some((entry) => entry.stops.length > 0) ?? false)
+      );
+    }
+    return false;
   });
   const layerName = useAppStore((state) => {
     if (!state.activeLayerId) {
@@ -94,7 +108,9 @@ const ColorAdjustToolPanel: React.FC = () => {
     );
   }, [session.params]);
 
-  const scopeLabel = session.selectionBounds ? 'Selection' : 'Layer';
+  const scopeLabel = session.targetLayerType === 'color-cycle'
+    ? 'Gradient'
+    : (session.selectionBounds ? 'Selection' : 'Layer');
 
   useEffect(() => {
     if (!session.active && hasValidLayer) {
@@ -105,7 +121,7 @@ const ColorAdjustToolPanel: React.FC = () => {
   if (!hasValidLayer) {
     return (
       <div className="bg-[#1A1A1A] border-t border-[#404040] px-4 py-6 text-sm text-[#9C9C9C]">
-        Select a raster layer to adjust its colors.
+        Select a raster or color-cycle layer to adjust its colors.
       </div>
     );
   }

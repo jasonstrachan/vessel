@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, Rectangle } from '@/types';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 
 const DEFAULT_ALIGNMENT = {
   fit: 'none',
@@ -28,6 +29,90 @@ const createLayer = (id: string, imageData: ImageData): Layer => {
     framebuffer,
     alignment: DEFAULT_ALIGNMENT,
     colorCycleData: undefined,
+  };
+};
+
+const createColorCycleLayer = (
+  id: string,
+  gradient: Array<{ position: number; color: string }>
+): Layer => {
+  const framebuffer = document.createElement('canvas');
+  framebuffer.width = 2;
+  framebuffer.height = 1;
+
+  return {
+    id,
+    name: 'CC Layer',
+    order: 0,
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    layerType: 'color-cycle',
+    imageData: new ImageData(2, 1),
+    framebuffer,
+    alignment: DEFAULT_ALIGNMENT,
+    colorCycleData: {
+      mode: 'brush',
+      gradient: gradient.map((stop) => ({ ...stop })),
+      gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+      slotPalettes: [{ slot: 0, stops: gradient.map((stop) => ({ ...stop })) }],
+      activeGradientId: 'g0',
+      paintSlot: 0,
+    },
+  };
+};
+
+const createColorCycleLayerWithSlotsOnly = (
+  id: string,
+  slotStops: Array<{ position: number; color: string }>
+): Layer => {
+  const layer = createColorCycleLayer(id, slotStops);
+  return {
+    ...layer,
+    colorCycleData: {
+      ...layer.colorCycleData,
+      gradient: undefined,
+    },
+  };
+};
+
+const createColorCycleRecolorLayerWithDefStore = (
+  id: string,
+  gradientStops: Array<{ position: number; color: string }>
+): Layer => {
+  const layer = createColorCycleLayer(id, gradientStops);
+  return {
+    ...layer,
+    colorCycleData: {
+      ...layer.colorCycleData,
+      mode: 'recolor',
+      gradient: undefined,
+      gradientDefStore: [{
+        id: 1,
+        kind: 'linear',
+        stops: gradientStops.map((stop) => ({ ...stop })),
+        hash: 'test-gradient-def',
+        source: 'manual',
+        createdAtMs: 0,
+        slot: 0,
+      }],
+      recolorSettings: {
+        quantizationMode: 'rgb332',
+        ditherMode: 'off',
+        animation: {
+          speed: 1,
+          fps: 30,
+          ticksPerFrame: 1,
+          isPlaying: true,
+          currentTick: 0,
+          flowDirection: 'forward',
+        },
+        cycleColors: 16,
+        gradient: gradientStops.map((stop) => ({ ...stop })),
+        currentLOD: 'full',
+      },
+    },
   };
 };
 
@@ -78,6 +163,8 @@ const resetStore = () => {
         blue: 0,
       },
       originalImageData: null,
+      originalColorCycleGradient: null,
+      targetLayerType: null,
       selectionBounds: null,
       targetLayerId: null,
     },
@@ -165,5 +252,92 @@ describe('colorAdjustSlice preview performance path', () => {
 
     expect(firstRef).toBe(secondRef);
     expect(pixelAt(secondRef, 0, 0)[0]).toBe(51);
+  });
+
+  it('adjusts gradient colors for color-cycle brush layers', () => {
+    const layer = createColorCycleLayer('cc-layer', [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#101010' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ red: 100 });
+    store.previewColorAdjust();
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const updatedGradient = updatedLayer?.colorCycleData?.gradient ?? [];
+
+    expect(updatedGradient.length).toBe(2);
+    const firstColor = parseCssColor(updatedGradient[0]?.color ?? '#000000');
+    const secondColor = parseCssColor(updatedGradient[1]?.color ?? '#000000');
+    expect(firstColor.r).toBe(255);
+    expect(secondColor.r).toBe(255);
+  });
+
+  it('adjusts slot palettes for color-cycle layers that only persist slot palettes', () => {
+    const layer = createColorCycleLayerWithSlotsOnly('cc-layer-slots', [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#101010' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ red: 100 });
+    store.previewColorAdjust();
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const slotStops = updatedLayer?.colorCycleData?.slotPalettes?.[0]?.stops ?? [];
+    expect(slotStops.length).toBe(2);
+    const firstColor = parseCssColor(slotStops[0]?.color ?? '#000000');
+    expect(firstColor.r).toBe(255);
+  });
+
+  it('adjusts recolor gradients and gradient def store without changing slot count', () => {
+    const layer = createColorCycleRecolorLayerWithDefStore('cc-layer-recolor', [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#101010' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    const originalSlotCount = layer.colorCycleData?.slotPalettes?.length ?? 0;
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ red: 100 });
+    store.previewColorAdjust();
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const updatedSlotCount = updatedLayer?.colorCycleData?.slotPalettes?.length ?? 0;
+    const recolorStops = updatedLayer?.colorCycleData?.recolorSettings?.gradient ?? [];
+    const defStoreStops = updatedLayer?.colorCycleData?.gradientDefStore?.[0]?.stops ?? [];
+
+    expect(updatedSlotCount).toBe(originalSlotCount);
+    expect(recolorStops.length).toBe(2);
+    expect(defStoreStops.length).toBe(2);
+    expect(parseCssColor(recolorStops[0]?.color ?? '#000000').r).toBe(255);
+    expect(parseCssColor(defStoreStops[0]?.color ?? '#000000').r).toBe(255);
+  });
+
+  it('restores original color-cycle gradients on cancel', () => {
+    const layer = createColorCycleLayer('cc-layer-cancel', [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#101010' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ red: 100 });
+    store.previewColorAdjust();
+    store.cancelColorAdjust();
+
+    const restoredLayer = useAppStore.getState().layers[0];
+    const restoredGradient = restoredLayer?.colorCycleData?.gradient ?? [];
+    const restoredSlotStops = restoredLayer?.colorCycleData?.slotPalettes?.[0]?.stops ?? [];
+
+    expect(parseCssColor(restoredGradient[0]?.color ?? '#ffffff').r).toBe(0);
+    expect(parseCssColor(restoredSlotStops[0]?.color ?? '#ffffff').r).toBe(0);
   });
 });

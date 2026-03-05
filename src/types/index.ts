@@ -1103,6 +1103,8 @@ export interface ColorAdjustState {
   active: boolean;
   params: ColorAdjustParams;
   originalImageData: ImageData | null;
+  originalColorCycleGradient?: Array<{ position: number; color: string }> | null;
+  targetLayerType?: Layer['layerType'] | null;
   selectionBounds: Rectangle | null;
   targetLayerId: string | null;
 }
