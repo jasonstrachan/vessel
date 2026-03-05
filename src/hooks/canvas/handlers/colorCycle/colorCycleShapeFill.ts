@@ -8,6 +8,26 @@ import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSes
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
+type SnapshotCapableBrush = ColorCycleBrush & {
+  getLayerSnapshot?: (layerId: string) => {
+    paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    hasContent: boolean;
+    strokeCounter: number;
+  } | null;
+  applyLayerSnapshot?: (layerId: string, snapshot: {
+    paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    hasContent: boolean;
+    strokeCounter: number;
+  }) => void;
+};
 
 export type ColorCycleShapeFillDeps = {
   brushEngine: BrushEngine;
@@ -18,6 +38,165 @@ export type ColorCycleShapeFillDeps = {
   ccLog: (label: string, payload?: Record<string, unknown>) => void;
   scheduleDeferredColorCycleSaveWithState: (args: DeferredSaveWithStateArgs) => Promise<void>;
   logError: (message: string, error?: unknown) => void;
+};
+
+const snapshotTransparencyLockMask = (
+  layerId: string,
+  sourceCanvas: HTMLCanvasElement
+): HTMLCanvasElement | null => {
+  const state = useAppStore.getState();
+  const layer = state.layers.find((candidate) => candidate.id === layerId);
+  if (!layer || layer.transparencyLocked !== true) {
+    return null;
+  }
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = sourceCanvas.width;
+  maskCanvas.height = sourceCanvas.height;
+  const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+  if (!maskCtx) {
+    return null;
+  }
+  maskCtx.drawImage(sourceCanvas, 0, 0);
+  return maskCanvas;
+};
+
+const isLayerTransparencyLocked = (layerId: string): boolean => {
+  const state = useAppStore.getState();
+  const layer = state.layers.find((candidate) => candidate.id === layerId);
+  return layer?.transparencyLocked === true;
+};
+
+const snapshotTransparencyLockPaintMask = ({
+  brush,
+  layerId,
+}: {
+  brush: SnapshotCapableBrush | null | undefined;
+  layerId: string;
+}): Uint8Array | null => {
+  if (!brush || typeof brush.getLayerSnapshot !== 'function' || !isLayerTransparencyLocked(layerId)) {
+    return null;
+  }
+  const snapshot = brush.getLayerSnapshot(layerId);
+  if (!snapshot?.paintBuffer) {
+    return null;
+  }
+  return new Uint8Array(snapshot.paintBuffer).slice();
+};
+
+const applyCanvasAlphaMask = (
+  targetCanvas: HTMLCanvasElement,
+  maskCanvas: HTMLCanvasElement | null
+): void => {
+  if (!maskCanvas) {
+    return;
+  }
+  const targetCtx = targetCanvas.getContext('2d', { willReadFrequently: true });
+  if (!targetCtx) {
+    return;
+  }
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = 'destination-in';
+  targetCtx.drawImage(maskCanvas, 0, 0);
+  targetCtx.restore();
+};
+
+const applyTransparencyLockToBrushSnapshot = ({
+  brush,
+  layerId,
+  maskCanvas,
+  preFillPaintMask,
+}: {
+  brush: SnapshotCapableBrush | null | undefined;
+  layerId: string;
+  maskCanvas: HTMLCanvasElement | null;
+  preFillPaintMask?: Uint8Array | null;
+}): boolean => {
+  if (!brush || typeof brush.getLayerSnapshot !== 'function' || typeof brush.applyLayerSnapshot !== 'function') {
+    return false;
+  }
+  if (!preFillPaintMask && !maskCanvas) {
+    return false;
+  }
+
+  const snapshot = brush.getLayerSnapshot(layerId);
+  if (!snapshot) {
+    return false;
+  }
+
+  const paint = new Uint8Array(snapshot.paintBuffer);
+  const gid = snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null;
+  const gdef = snapshot.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null;
+  const spd = snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null;
+  const flow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
+  const paintMask =
+    preFillPaintMask && preFillPaintMask.length === paint.length
+      ? preFillPaintMask
+      : null;
+  let maskAlpha: Uint8ClampedArray | null = null;
+  if (!paintMask) {
+    if (!maskCanvas) {
+      return false;
+    }
+    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+    if (!maskCtx) {
+      return false;
+    }
+    maskAlpha = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+  }
+  const pixelCount = paintMask
+    ? Math.min(paint.length, paintMask.length)
+    : Math.min(paint.length, Math.floor((maskAlpha?.length ?? 0) / 4));
+  let changed = false;
+  let hasContent = false;
+
+  for (let i = 0; i < pixelCount; i += 1) {
+    const isLockedOut = paintMask ? paintMask[i] === 0 : (maskAlpha?.[i * 4 + 3] ?? 0) === 0;
+    if (isLockedOut) {
+      if (paint[i] !== 0) {
+        paint[i] = 0;
+        changed = true;
+      }
+      if (gid && gid[i] !== 0) {
+        gid[i] = 0;
+        changed = true;
+      }
+      if (gdef && gdef[i] !== 0) {
+        gdef[i] = 0;
+        changed = true;
+      }
+      if (spd && spd[i] !== 0) {
+        spd[i] = 0;
+        changed = true;
+      }
+      if (flow && flow[i] !== 0) {
+        flow[i] = 0;
+        changed = true;
+      }
+      continue;
+    }
+    if (paint[i] !== 0) {
+      hasContent = true;
+    }
+  }
+
+  if (!changed) {
+    return false;
+  }
+
+  brush.applyLayerSnapshot(layerId, {
+    paintBuffer: paint.buffer,
+    gradientIdBuffer: gid?.buffer,
+    gradientDefIdBuffer: gdef?.buffer,
+    speedBuffer: spd?.buffer,
+    flowBuffer: flow?.buffer,
+    hasContent,
+    strokeCounter: snapshot.strokeCounter,
+  });
+  return true;
 };
 
 export const computeFallbackLinearDirection = (
@@ -82,6 +261,14 @@ export const finalizeColorCycleShapeFillLinear = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
+    const initialBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId) as SnapshotCapableBrush | null;
+    const preFillPaintMask = snapshotTransparencyLockPaintMask({
+      brush: initialBrush,
+      layerId: args.activeLayerId,
+    });
+    const lockMaskCanvas = preFillPaintMask
+      ? null
+      : snapshotTransparencyLockMask(args.activeLayerId, args.activeLayerCanvas);
     await deps.timeAsync('cc:shape:fill(linear)', async () => {
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
@@ -123,7 +310,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       deps.brushEngine.updateColorCycleTexture();
     });
 
-    const colorCycleBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+    const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
       if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
@@ -197,6 +384,20 @@ export const finalizeColorCycleShapeFillLinear = async (
       }
     } catch {}
 
+    const maskedBrushData = applyTransparencyLockToBrushSnapshot({
+      brush: colorCycleBrush as SnapshotCapableBrush | null,
+      layerId: args.activeLayerId,
+      maskCanvas: lockMaskCanvas,
+      preFillPaintMask,
+    });
+    if (maskedBrushData) {
+      deps.timeSync('cc:shape:render(masked)', () => {
+        colorCycleBrush?.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
+      });
+    } else {
+      applyCanvasAlphaMask(args.activeLayerCanvas, lockMaskCanvas);
+    }
+
     try {
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
       deps.ccLog('shape: frameUpdate dispatched', { mode: 'linear' });
@@ -247,6 +448,14 @@ export const finalizeColorCycleShapeFillConcentric = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
+    const initialBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId) as SnapshotCapableBrush | null;
+    const preFillPaintMask = snapshotTransparencyLockPaintMask({
+      brush: initialBrush,
+      layerId: args.activeLayerId,
+    });
+    const lockMaskCanvas = preFillPaintMask
+      ? null
+      : snapshotTransparencyLockMask(args.activeLayerId, args.activeLayerCanvas);
     await deps.timeAsync('cc:shape:fill(concentric)', async () => {
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
@@ -288,7 +497,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       deps.brushEngine.updateColorCycleTexture();
     });
 
-    const colorCycleBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+    const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
       if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
@@ -350,6 +559,20 @@ export const finalizeColorCycleShapeFillConcentric = async (
         } catch {}
       }
     } catch {}
+
+    const maskedBrushData = applyTransparencyLockToBrushSnapshot({
+      brush: colorCycleBrush as SnapshotCapableBrush | null,
+      layerId: args.activeLayerId,
+      maskCanvas: lockMaskCanvas,
+      preFillPaintMask,
+    });
+    if (maskedBrushData) {
+      deps.timeSync('cc:shape:render(masked)', () => {
+        colorCycleBrush?.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
+      });
+    } else {
+      applyCanvasAlphaMask(args.activeLayerCanvas, lockMaskCanvas);
+    }
 
     try {
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));

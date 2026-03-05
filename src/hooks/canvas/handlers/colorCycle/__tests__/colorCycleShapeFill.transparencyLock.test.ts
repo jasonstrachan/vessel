@@ -1,0 +1,111 @@
+import { useAppStore } from '@/stores/useAppStore';
+import { finalizeColorCycleShapeFillLinear } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
+
+describe('colorCycleShapeFill transparency lock', () => {
+  it('masks CC shape finalize output to pre-existing alpha when transparency is locked', async () => {
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: true,
+          colorCycleData: {},
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+    ctx.clearRect(0, 0, 2, 1);
+    ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+    ctx.fillRect(0, 0, 1, 1);
+
+    const brushEngine = {
+      resetColorCycle: jest.fn(),
+      fillCcGradientLinear: jest.fn(async () => {
+        const drawCtx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+        drawCtx.fillStyle = 'rgba(255, 0, 0, 1)';
+        drawCtx.fillRect(0, 0, 2, 1);
+      }),
+      updateColorCycleTexture: jest.fn(),
+    };
+    const applyLayerSnapshot = jest.fn();
+    const getLayerSnapshot = jest.fn()
+      .mockReturnValueOnce({
+        paintBuffer: new Uint8Array([1, 0]).buffer,
+        gradientIdBuffer: new Uint8Array([2, 0]).buffer,
+        gradientDefIdBuffer: new Uint16Array([3, 0]).buffer,
+        speedBuffer: new Uint8Array([4, 0]).buffer,
+        flowBuffer: new Uint8Array([5, 0]).buffer,
+        hasContent: true,
+        strokeCounter: 9,
+      })
+      .mockReturnValue({
+        paintBuffer: new Uint8Array([1, 1]).buffer,
+        gradientIdBuffer: new Uint8Array([2, 2]).buffer,
+        gradientDefIdBuffer: new Uint16Array([3, 3]).buffer,
+        speedBuffer: new Uint8Array([4, 4]).buffer,
+        flowBuffer: new Uint8Array([5, 5]).buffer,
+        hasContent: true,
+        strokeCounter: 9,
+      });
+    const renderDirectToCanvas = jest.fn();
+    const ccBrush = {
+      getLayerSnapshot,
+      applyLayerSnapshot,
+      renderDirectToCanvas,
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session: null,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => ccBrush as never }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(getLayerSnapshot).toHaveBeenCalledWith('layer-1');
+    expect(applyLayerSnapshot).toHaveBeenCalled();
+    const appliedSnapshot = applyLayerSnapshot.mock.calls[0][1];
+    expect(new Uint8Array(appliedSnapshot.paintBuffer)[1]).toBe(0);
+    expect(new Uint8Array(appliedSnapshot.gradientIdBuffer)[1]).toBe(0);
+    expect(new Uint16Array(appliedSnapshot.gradientDefIdBuffer)[1]).toBe(0);
+    expect(new Uint8Array(appliedSnapshot.speedBuffer)[1]).toBe(0);
+    expect(new Uint8Array(appliedSnapshot.flowBuffer)[1]).toBe(0);
+    expect(renderDirectToCanvas).toHaveBeenCalled();
+
+    getStateSpy.mockRestore();
+  });
+});

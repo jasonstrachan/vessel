@@ -138,6 +138,67 @@ export const applyPolygonLostEdgeErosion = ({
   }
 };
 
+export const applyTransparencyLockMaskToContext = ({
+  targetCtx,
+  layer,
+  fallbackMaskImage = null,
+}: {
+  targetCtx: CanvasRenderingContext2D;
+  layer: AppState['layers'][number];
+  fallbackMaskImage?: ImageData | null;
+}): void => {
+  if (layer.transparencyLocked !== true) {
+    return;
+  }
+
+  const targetWidth = targetCtx.canvas.width | 0;
+  const targetHeight = targetCtx.canvas.height | 0;
+  if (!targetWidth || !targetHeight) {
+    return;
+  }
+
+  let hasMaskSource = false;
+  const maskImage = layer.imageData ?? fallbackMaskImage;
+
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = 'destination-in';
+
+  const framebuffer = layer.framebuffer;
+  if (framebuffer && framebuffer.width > 0 && framebuffer.height > 0) {
+    try {
+      targetCtx.drawImage(framebuffer as CanvasImageSource, 0, 0, targetWidth, targetHeight);
+      hasMaskSource = true;
+    } catch {
+      // Fallback to image-data mask below.
+    }
+  }
+
+  if (!hasMaskSource && maskImage) {
+    const maskCanvas = canvasPool.acquire(maskImage.width, maskImage.height);
+    try {
+      const maskCtx = maskCanvas.getContext(
+        '2d',
+        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+      );
+      if (maskCtx) {
+        maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+        maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        maskCtx.putImageData(maskImage, 0, 0);
+        targetCtx.drawImage(maskCanvas, 0, 0, targetWidth, targetHeight);
+        hasMaskSource = true;
+      }
+    } finally {
+      canvasPool.release(maskCanvas);
+    }
+  }
+
+  targetCtx.restore();
+
+  if (!hasMaskSource) {
+    targetCtx.clearRect(0, 0, targetWidth, targetHeight);
+  }
+};
+
 export const commitRasterShapeFill = async ({
   shapePoints,
   shapeBeforeSnapshot,
@@ -604,6 +665,9 @@ export const finalizeRasterShapeFill = ({
   logError: (message: string, error?: unknown) => void;
   ccDebug?: { on?: boolean; verbose?: boolean };
 }): void => {
+  const activeLayer = storeRef.current.layers.find(
+    (layer) => layer.id === storeRef.current.activeLayerId
+  );
   const latestBrushSettings = storeRef.current.tools.brushSettings;
   const effectiveBrushColor = latestBrushSettings.color ?? liveBrushSettings.color ?? '#000000';
 
@@ -980,5 +1044,13 @@ export const finalizeRasterShapeFill = ({
         drawCtx.restore();
       }
     }
+  }
+
+  if (activeLayer && activeLayer.layerType !== 'color-cycle') {
+    applyTransparencyLockMaskToContext({
+      targetCtx: drawCtx,
+      layer: activeLayer,
+      fallbackMaskImage: activeLayer.imageData ?? null,
+    });
   }
 };
