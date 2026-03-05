@@ -151,11 +151,25 @@ export const COLOR_CYCLE_PRESET_IDS = [
   'color-cycle-gradient'
 ] as const;
 
+export const REGULAR_PIXEL_PRESET_IDS = [
+  'pixel-square',
+  'pixel-round',
+  'dither-stroke',
+] as const;
+
 export const isColorCyclePresetId = (
   id: string
 ): id is (typeof COLOR_CYCLE_PRESET_IDS)[number] => {
   return COLOR_CYCLE_PRESET_IDS.includes(
     id as (typeof COLOR_CYCLE_PRESET_IDS)[number]
+  );
+};
+
+export const isRegularPixelPresetId = (
+  id: string
+): id is (typeof REGULAR_PIXEL_PRESET_IDS)[number] => {
+  return REGULAR_PIXEL_PRESET_IDS.includes(
+    id as (typeof REGULAR_PIXEL_PRESET_IDS)[number]
   );
 };
 

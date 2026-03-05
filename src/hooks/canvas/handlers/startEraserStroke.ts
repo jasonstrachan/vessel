@@ -3,8 +3,8 @@ import type { AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import { EraserTool } from '@/tools/EraserTool';
 import type { ColorCycleEraserSettings } from '@/hooks/canvas/handlers/colorCycle/colorCycleEraserSettings';
-import { startUserBrushStroke } from '@/hooks/canvas/handlers/startUserBrushStroke';
 import { seedOverlayFromActiveLayer } from '@/hooks/canvas/handlers/seedOverlayFromActiveLayer';
+import { sanitizeEraserTipSettings } from '@/stores/helpers/eraserSettings';
 
 export const startEraserStroke = ({
   currentState,
@@ -12,12 +12,8 @@ export const startEraserStroke = ({
   worldPos,
   pressure,
   isEraserV2,
-  isColorCycleBrush,
-  currentBrushId,
-  userBrushEngine,
   brushEngine,
   drawEraserSegment,
-  resolveCustomBrushData,
   eraserToolRef,
   eraserRoiRef,
   drawingCanvasHasContent,
@@ -50,6 +46,7 @@ export const startEraserStroke = ({
         timestampMs?: number;
       }
     ) => void;
+    updateConfig?: (config: { brushSettings: AppState['tools']['brushSettings'] }) => void;
   } | null;
   drawEraserSegment: (
     ctx: CanvasRenderingContext2D,
@@ -105,22 +102,21 @@ export const startEraserStroke = ({
 
   drawCtx.globalCompositeOperation = 'destination-out';
   const eraserOpacity = currentState.tools.eraserSettings.opacity ?? 1;
-  const canMirrorBrush = !isColorCycleBrush;
+  const canMirrorBrush = true;
 
   if (canMirrorBrush) {
     drawCtx.globalAlpha = eraserOpacity;
 
-    if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
-      startUserBrushStroke({
-        currentBrushId,
-        userBrushEngine,
-        drawCtx,
-        worldPos,
-        pressure,
+    if (brushEngine) {
+      const sanitized = sanitizeEraserTipSettings(currentState.tools.eraserSettings);
+      brushEngine.updateConfig?.({
+        brushSettings: {
+          ...currentState.tools.brushSettings,
+          ...currentState.tools.eraserSettings,
+          ...sanitized,
+        },
       });
-    } else if (brushEngine) {
-      const customBrushData = resolveCustomBrushData(currentState);
-      brushEngine.drawBrush(drawCtx, worldPos, worldPos, { pressure, customBrushData });
+      brushEngine.drawBrush(drawCtx, worldPos, worldPos, { pressure });
     } else {
       drawCtx.globalAlpha = 1;
       drawEraserSegment(drawCtx, worldPos, worldPos);

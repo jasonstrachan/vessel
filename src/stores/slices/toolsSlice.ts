@@ -36,7 +36,12 @@ import {
   findStoredColorCycleGradient,
   isColorCyclePresetId,
   isColorCycleBrushShape,
+  isRegularPixelPresetId,
 } from '@/stores/helpers/toolsState';
+import {
+  createEraserTipSettingsPatch,
+  sanitizeEraserTipSettings,
+} from '@/stores/helpers/eraserSettings';
 import { getDefaultMaxPressurePercent, PRESSURE_BASE_PERCENT } from '@/utils/pressureSettings';
 import { applyPaletteSnapshot } from '@/stores/helpers/paletteState';
 import { brushCache } from '@/utils/brushCache';
@@ -93,6 +98,7 @@ const createDefaultEraserSettings = (): BrushSettings => ({
   blendMode: 'destination-out',
   color: 'rgba(255, 255, 255, 0.1)',
   linkSizeToBrush: true,
+  ...createEraserTipSettingsPatch('square'),
 });
 
 export const createDefaultToolState = (): ToolState => ({
@@ -1194,6 +1200,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const next = {
       ...state.tools.eraserSettings,
       ...settings,
+      ...sanitizeEraserTipSettings({
+        brushShape: settings.brushShape ?? currentEraserSettings.brushShape,
+        ditherStrokeTipShape: settings.ditherStrokeTipShape ?? currentEraserSettings.ditherStrokeTipShape,
+      }),
       pressureEnabled: nextPressure.enabled,
       minPressure: nextPressure.min,
       maxPressure: nextPressure.max,
@@ -1371,8 +1381,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
                   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
                   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
     const activeBrushId = state.currentBrushPreset?.id ?? null;
+    const isRegularPixelBrush = Boolean(activeBrushId && isRegularPixelPresetId(activeBrushId));
+    const resolvedEnabled = isRegularPixelBrush ? false : enabled;
     const nextShapeModeByBrush = activeBrushId
-      ? { ...state.shapeModeByBrush, [activeBrushId]: enabled }
+      ? { ...state.shapeModeByBrush, [activeBrushId]: resolvedEnabled }
       : state.shapeModeByBrush;
     return {
       ...(nextShapeModeByBrush !== state.shapeModeByBrush
@@ -1380,9 +1392,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         : {}),
       tools: {
         ...state.tools,
-        shapeMode: enabled,
+        shapeMode: resolvedEnabled,
         // Persist per-domain shape mode memories so switching brushes restores expected state
-        ...(isCC ? { lastColorCycleShapeMode: enabled } : { lastRegularShapeMode: enabled })
+        ...(isCC
+          ? { lastColorCycleShapeMode: resolvedEnabled }
+          : { lastRegularShapeMode: resolvedEnabled })
       }
     };
   }),
@@ -1936,7 +1950,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
     const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
     const forceShapeModePreset = preset.id === 'dither-shape';
-    const forceShapeOffPreset = preset.id === 'dither-stroke';
+    const forceShapeOffPreset = preset.id === 'dither-stroke' || isRegularPixelPresetId(preset.id);
 
     let nextShapeMode: boolean;
     if (forceShapeModePreset) {

@@ -17,6 +17,11 @@ import {
   selectGlobalBrushSize,
   selectShapeMode,
 } from '@/stores/selectors/toolsSelectors';
+import { isRegularPixelPresetId } from '@/stores/helpers/toolsState';
+import {
+  createEraserTipSettingsPatch,
+  resolveEraserTipOption,
+} from '@/stores/helpers/eraserSettings';
 import { BrushShape, type BrushSettings } from "@/types";
 import CommittedNumberInput from "../ui/CommittedNumberInput";
 import Input from "../ui/Input";
@@ -57,6 +62,7 @@ import {
 import ShapeFillControls from "./ShapeFillControls";
 import DitherControls, { DITHER_OPTIONS, PATTERN_STYLES } from './DitherControls';
 import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
+import EraserTipControls from './EraserTipControls';
 
 const PRESSURE_MIN_BOUND = 0;
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
@@ -471,7 +477,11 @@ const BrushControls = () => {
   const customColorCycleMode = activeSettings.customBrushColorCycleMode ?? 'tip';
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
   const sizeLabel = isActiveCustomBrush ? 'Tip Scale %' : `Size ${sizeUnit}`;
-  const hideShapeToggle = (isDitherStrokePreset || isDitherShapePreset) && !isActiveCustomBrush;
+  const hideShapeToggle =
+    ((isDitherStrokePreset || isDitherShapePreset) && !isActiveCustomBrush) ||
+    Boolean(currentBrushPresetId && isRegularPixelPresetId(currentBrushPresetId)) ||
+    currentTool === 'eraser';
+  const eraserTip = resolveEraserTipOption(eraserSettings);
   const capability: BrushCapabilities = currentBrushPresetId
     ? getPresetCapabilities(
         currentBrushPresetId,
@@ -3659,6 +3669,15 @@ const BrushControls = () => {
             className="w-full"
           />
         </div>
+      )}
+
+      {currentTool === 'eraser' && (
+        <EraserTipControls
+          value={eraserTip}
+          onChange={(tip) => {
+            setEraserSettings(createEraserTipSettingsPatch(tip));
+          }}
+        />
       )}
 
       {/* Size */}
