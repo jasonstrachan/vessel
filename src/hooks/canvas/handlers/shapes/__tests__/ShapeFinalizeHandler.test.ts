@@ -2,7 +2,10 @@ import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings, ShapePoint } from '@/types';
 import { BrushShape } from '@/types';
-import { finalizeRasterShapeFill } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
+import {
+  applyTransparencyLockMaskToContext,
+  finalizeRasterShapeFill,
+} from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 
 describe('ShapeFinalizeHandler', () => {
   it('uses latest brush color from store for dither-shape finalize override', () => {
@@ -28,6 +31,8 @@ describe('ShapeFinalizeHandler', () => {
 
     const storeRef = {
       current: {
+        layers: [],
+        activeLayerId: null,
         tools: {
           brushSettings: latestStoreBrushSettings,
         },
@@ -88,5 +93,32 @@ describe('ShapeFinalizeHandler', () => {
     expect(applyStrokeDither).toHaveBeenCalled();
     const ditherArgs = applyStrokeDither.mock.calls[0]?.[3];
     expect(ditherArgs.settingsOverride.color).toBe('#FF00AA');
+  });
+
+  it('applies transparency-lock mask from layer framebuffer', () => {
+    const target = document.createElement('canvas');
+    target.width = 2;
+    target.height = 1;
+    const targetCtx = target.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+    targetCtx.fillStyle = 'rgba(255,0,0,1)';
+    targetCtx.fillRect(0, 0, 2, 1);
+
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 2;
+    framebuffer.height = 1;
+
+    const drawImageSpy = jest.spyOn(targetCtx, 'drawImage');
+
+    applyTransparencyLockMaskToContext({
+      targetCtx,
+      layer: {
+        transparencyLocked: true,
+        imageData: null,
+        framebuffer,
+      } as unknown as AppState['layers'][number],
+    });
+
+    expect(drawImageSpy).toHaveBeenCalledWith(framebuffer, 0, 0, 2, 1);
+    drawImageSpy.mockRestore();
   });
 });

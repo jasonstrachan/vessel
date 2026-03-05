@@ -855,6 +855,57 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     };
   };
 
+  const drawLayerRegionToPreviewBuffer = ({
+    targetCtx,
+    targetCanvas,
+    activeLayer,
+    worldRegion,
+    compositeOperation,
+  }: {
+    targetCtx: CanvasRenderingContext2D;
+    targetCanvas: HTMLCanvasElement;
+    activeLayer: EventHandlerDynamicDeps['layers'][number] | undefined;
+    worldRegion: { x: number; y: number; width: number; height: number };
+    compositeOperation: GlobalCompositeOperation;
+  }): boolean => {
+    if (!activeLayer) {
+      return false;
+    }
+    if (worldRegion.width <= 0 || worldRegion.height <= 0) {
+      return false;
+    }
+
+    let drewSource = false;
+    targetCtx.save();
+    targetCtx.globalCompositeOperation = compositeOperation;
+
+    const sourceCanvas =
+      activeLayer.layerType === 'color-cycle'
+        ? activeLayer.colorCycleData?.canvas
+        : activeLayer.framebuffer;
+    if (sourceCanvas && sourceCanvas.width > 0 && sourceCanvas.height > 0) {
+      try {
+        targetCtx.drawImage(
+          sourceCanvas as CanvasImageSource,
+          worldRegion.x,
+          worldRegion.y,
+          worldRegion.width,
+          worldRegion.height,
+          0,
+          0,
+          targetCanvas.width,
+          targetCanvas.height
+        );
+        drewSource = true;
+      } catch {
+        // Fallback to imageData path below.
+      }
+    }
+
+    targetCtx.restore();
+    return drewSource;
+  };
+
   const drawSimpleShapePreviewOnOverlay = () => {
     const overlay = overlayCanvasRef.current;
     if (!overlay) {
@@ -953,6 +1004,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const worldHeight = overlayRegion.height / scale;
     const worldMinX = (overlayRegion.x - transform.offsetX) / scale;
     const worldMinY = (overlayRegion.y - transform.offsetY) / scale;
+    const worldRegion = {
+      x: worldMinX,
+      y: worldMinY,
+      width: worldWidth,
+      height: worldHeight,
+    };
 
     // Resize buffer to match *world* size (not screen size) so dithering stays stable at any zoom
     const targetW = Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldWidth)));
@@ -971,6 +1028,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     bufferCtx.lineJoin = 'round';
     bufferCtx.lineCap = 'round';
     bufferCtx.imageSmoothingEnabled = !isPixelBrush;
+
+    drawLayerRegionToPreviewBuffer({
+      targetCtx: bufferCtx,
+      targetCanvas: bufferCanvas,
+      activeLayer,
+      worldRegion,
+      compositeOperation: 'source-over',
+    });
 
     bufferCtx.translate(-worldMinX * scaleX, -worldMinY * scaleY);
     bufferCtx.scale(scaleX, scaleY);
@@ -1103,6 +1168,19 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           console.warn('[Vessel] Preview dithering failed', error);
         }
       }
+      }
+    }
+
+    if (activeLayer?.transparencyLocked === true) {
+      const appliedMask = drawLayerRegionToPreviewBuffer({
+        targetCtx: bufferCtx,
+        targetCanvas: bufferCanvas,
+        activeLayer,
+        worldRegion,
+        compositeOperation: 'destination-in',
+      });
+      if (!appliedMask) {
+        bufferCtx.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
       }
     }
 
