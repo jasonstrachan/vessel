@@ -3643,10 +3643,23 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // Clear pointer down state
     isMouseDownRef.current = false;
     const store = useAppStore.getState();
-    if (typeof store.setSequentialPointerDown === 'function') {
-      store.setSequentialPointerDown(false);
+    const shouldDeferSequentialPointerReset =
+      interaction.state.isDrawing &&
+      (tools.currentTool === 'brush' || tools.currentTool === 'eraser');
+    let sequentialPointerReset = false;
+    const resetSequentialPointerDown = () => {
+      if (sequentialPointerReset) {
+        return;
+      }
+      sequentialPointerReset = true;
+      if (typeof store.setSequentialPointerDown === 'function') {
+        store.setSequentialPointerDown(false);
+      }
+      flushBufferedSequentialEvents({ state: store });
+    };
+    if (!shouldDeferSequentialPointerReset) {
+      resetSequentialPointerDown();
     }
-    flushBufferedSequentialEvents({ state: store });
     // Reset snapping anchors at end of action
     strokeStartWorldPosRef.current = null;
     shiftAnchorWorldPosRef.current = null;
@@ -3839,6 +3852,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           toolStateMachine.resetRectangleGradient();
           interaction.dispatch({ type: 'DRAWING_END' });
           drawingHandlers.endStrokeSession(Date.now());
+          resetSequentialPointerDown();
         }
         // Don't end drawing state if we're still defining width
         return;
@@ -3859,6 +3873,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           shapePointCount = drawingHandlers.shapePointsRef.current.length;
           if (!coerced || shapePointCount < 3) {
             // Keep collecting vertices with subsequent clicks
+            resetSequentialPointerDown();
             return;
           }
         }
@@ -3897,6 +3912,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           drawingHandlers.finalizeShapeDrawing();
           // CRITICAL FIX: Check if we actually entered direction selection mode AFTER the call
           if (drawingHandlers.isSelectingDirectionRef?.current) {
+            resetSequentialPointerDown();
             
             // Don't complete finalization yet - we're still in direction selection
             return;
@@ -3946,13 +3962,14 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
               deps.restartColorCycleAnimation();
             }
           }).finally(() => {
+            resetSequentialPointerDown();
             stateMachine.finalizationComplete();
             if (drawingHandlers.ccShapePreviewCacheRef) {
               drawingHandlers.ccShapePreviewCacheRef.current = null;
             }
           });
         } else {
-          
+          resetSequentialPointerDown();
         }
       } else {
         // For regular drawing (non-shape mode), never skip save
@@ -3979,6 +3996,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             deps.restartColorCycleAnimation();
           }
         }).finally(() => {
+          resetSequentialPointerDown();
           stateMachine.finalizationComplete();
         });
       }

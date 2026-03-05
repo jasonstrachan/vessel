@@ -1159,6 +1159,79 @@ describe('pointerHandlers main flows', () => {
     expect(deps.draw).toHaveBeenCalled();
   });
 
+  it('defers sequential pointer reset until brush finalize resolves', async () => {
+    let resolveFinalize: (() => void) | undefined;
+    const finalizePromise = new Promise<void>((resolve) => {
+      resolveFinalize = resolve;
+    });
+    const setSequentialPointerDown = jest.fn();
+    const stateSnapshot = useAppStore.getState();
+    const getStateSpy = jest
+      .spyOn(useAppStore, 'getState')
+      .mockReturnValue({
+        ...stateSnapshot,
+        setSequentialPointerDown,
+      } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const { deps } = createDeps();
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.drawingHandlers.finalizeDrawing = jest.fn(() => finalizePromise);
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 2, clientY: 3 }));
+
+    expect(setSequentialPointerDown).not.toHaveBeenCalled();
+    if (resolveFinalize) {
+      resolveFinalize();
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(setSequentialPointerDown).toHaveBeenCalledWith(false);
+    expect(getStateSpy).toHaveBeenCalled();
+  });
+
+  it('resets sequential pointer state when shape pointer-up enters direction selection', () => {
+    const setSequentialPointerDown = jest.fn();
+    const stateSnapshot = useAppStore.getState();
+    const getStateSpy = jest
+      .spyOn(useAppStore, 'getState')
+      .mockReturnValue({
+        ...stateSnapshot,
+        setSequentialPointerDown,
+      } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+        } as any,
+      },
+      currentBrushPresetId: 'not-color-cycle-gradient',
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }];
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+    deps.drawingHandlers.finalizeShapeDrawing = jest.fn(() => {
+      deps.drawingHandlers.isSelectingDirectionRef.current = true;
+      return Promise.resolve();
+    });
+    dynamicDepsRef.current.currentBrushPresetId = 'not-color-cycle-gradient';
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 5, clientY: 5 }));
+
+    expect(setSequentialPointerDown).toHaveBeenCalledWith(false);
+    expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
+    expect(getStateSpy).toHaveBeenCalled();
+  });
+
   it('finalizes shape drawing on pointer up', async () => {
     const { deps } = createDeps({
       tools: {
