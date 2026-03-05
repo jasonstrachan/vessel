@@ -145,6 +145,7 @@ import type {
   ContourLinesBasis,
   ContourLinesStage,
   ContourLinesState,
+  EventHandlerDynamicDeps,
   EventHandlerDependencies,
   PointerHandlers,
 } from '../utils/types';
@@ -233,6 +234,15 @@ const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
   brushShape === BrushShape.DITHER_GRADIENT ||
   brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
   brushShape === BrushShape.SHAPE_FILL;
+
+export const shouldAllowOutOfBoundsPointerDown = (
+  tools: EventHandlerDynamicDeps['tools'],
+  brushPresetId: string | null
+): boolean =>
+  tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT ||
+  (tools.shapeMode &&
+    (brushPresetId === 'dither-shape' || brushPresetId === 'color-cycle-gradient')) ||
+  (tools.currentTool === 'selection' && (tools.selectionMode ?? 'marquee') === 'marquee');
 
 const computeOpposingAxis = (points: Array<{ x: number; y: number }>) => {
   if (points.length < 2) {
@@ -1950,10 +1960,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Exceptions:
     // - Dither Gradient shapes can start outside to position gradients freely.
     // - Marquee selection can start outside so users can drag into the canvas.
-    const allowOobShapeStart = tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
-    const allowOobMarqueeStart = tools.currentTool === 'selection' &&
-      (tools.selectionMode ?? 'marquee') === 'marquee';
-    const allowOutOfBoundsPointerDown = allowOobShapeStart || allowOobMarqueeStart;
+    const brushPresetId = getDynamicDeps().currentBrushPresetId;
+    const allowOutOfBoundsPointerDown = shouldAllowOutOfBoundsPointerDown(tools, brushPresetId);
     const isPointerOutOfProject = Boolean(
       project &&
       (worldPos.x < 0 || worldPos.x > project.width ||

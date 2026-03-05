@@ -60,6 +60,14 @@ export const useDrawingCanvasInputHandlers = ({
   ...eventHandlerArgs
 }: UseDrawingCanvasInputHandlersOptions) => {
   const { project } = eventHandlerArgs;
+  const isShapePresetAllowingOutsideStart =
+    eventHandlerArgs.tools.shapeMode === true &&
+    (eventHandlerArgs.currentBrushPresetId === 'dither-shape' ||
+      eventHandlerArgs.currentBrushPresetId === 'color-cycle-gradient');
+  const allowPointerDownOutsideCanvasShape =
+    (eventHandlerArgs.tools.currentTool === 'selection' &&
+      (eventHandlerArgs.tools.selectionMode ?? 'marquee') === 'marquee') ||
+    isShapePresetAllowingOutsideStart;
 
   const eventHandlers = useCanvasEventHandlers({
     ...eventHandlerArgs,
@@ -104,9 +112,7 @@ export const useDrawingCanvasInputHandlers = ({
 
   const pointerHandlers = useDrawingCanvasPointerHandlers({
     ...pointerOptions,
-    allowPointerDownOutsideCanvasShape:
-      eventHandlerArgs.tools.currentTool === 'selection' &&
-      (eventHandlerArgs.tools.selectionMode ?? 'marquee') === 'marquee',
+    allowPointerDownOutsideCanvasShape,
     basePointerDown,
     basePointerMove,
     basePointerUp,

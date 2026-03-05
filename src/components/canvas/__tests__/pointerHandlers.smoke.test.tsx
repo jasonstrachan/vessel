@@ -3,7 +3,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
-import { createPointerHandlers, createDefaultContourLinesState } from '@/hooks/canvas/handlers/pointerHandlers';
+import {
+  createPointerHandlers,
+  createDefaultContourLinesState,
+  shouldAllowOutOfBoundsPointerDown,
+} from '@/hooks/canvas/handlers/pointerHandlers';
 import { BrushShape } from '@/types';
 
 const noop = () => {};
@@ -205,5 +209,25 @@ describe('pointerHandlers smoke', () => {
 
     // Smoke only: absence of throw is success.
     expect(true).toBe(true);
+  });
+
+  it('allows out-of-bounds starts for dither-shape preset in shape mode', () => {
+    const deps = createDeps();
+    deps.dynamicDepsRef.current.tools.shapeMode = true;
+    deps.dynamicDepsRef.current.tools.brushSettings.brushShape = BrushShape.PIXEL_DITHER;
+
+    expect(
+      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools, 'dither-shape')
+    ).toBe(true);
+  });
+
+  it('allows out-of-bounds starts for color-cycle-gradient preset in shape mode', () => {
+    const deps = createDeps();
+    deps.dynamicDepsRef.current.tools.shapeMode = true;
+    deps.dynamicDepsRef.current.tools.brushSettings.brushShape = BrushShape.SHAPE_FILL;
+
+    expect(
+      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools, 'color-cycle-gradient')
+    ).toBe(true);
   });
 });
