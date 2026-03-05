@@ -164,6 +164,16 @@ describe('tools slice', () => {
     expect(eraserSize).toBe(18);
   });
 
+  it('sanitizes eraser tip shape to supported options only', () => {
+    const store = useAppStore.getState();
+    store.setEraserSettings({ brushShape: BrushShape.MOSAIC, ditherStrokeTipShape: 'triangle' });
+
+    const eraser = useAppStore.getState().tools.eraserSettings;
+    expect(eraser.brushShape).toBe(BrushShape.SQUARE);
+    expect(eraser.ditherStrokeTipShape).toBe('square');
+    expect(eraser.antialiasing).toBe(false);
+  });
+
   it('returns early when setEraserSettings receives an empty patch', () => {
     const before = useAppStore.getState();
     before.setEraserSettings({});
@@ -365,6 +375,33 @@ describe('tools slice', () => {
     }
 
     expect(useAppStore.getState().tools.shapeMode).toBe(true);
+  });
+
+  it('forces shape mode off for regular pixel presets', () => {
+    const store = useAppStore.getState();
+    store.setShapeMode(true);
+
+    const pixelSquarePreset = brushPresets.find((preset) => preset.id === 'pixel-square');
+    expect(pixelSquarePreset).toBeTruthy();
+    if (!pixelSquarePreset) {
+      return;
+    }
+
+    store.setBrushPreset(pixelSquarePreset);
+    expect(useAppStore.getState().tools.shapeMode).toBe(false);
+  });
+
+  it('ignores setShapeMode(true) while a regular pixel preset is active', () => {
+    const store = useAppStore.getState();
+    const pixelRoundPreset = brushPresets.find((preset) => preset.id === 'pixel-round');
+    expect(pixelRoundPreset).toBeTruthy();
+    if (!pixelRoundPreset) {
+      return;
+    }
+
+    store.setBrushPreset(pixelRoundPreset);
+    store.setShapeMode(true);
+    expect(useAppStore.getState().tools.shapeMode).toBe(false);
   });
 
   it('manages recolor sampling lifecycle', () => {

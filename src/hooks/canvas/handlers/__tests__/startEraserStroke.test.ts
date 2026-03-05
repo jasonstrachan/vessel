@@ -57,13 +57,23 @@ const createArgs = (state: AppState, drawCtx: CanvasRenderingContext2D) => ({
   pressure: 0.8,
   isEraserV2: false,
   isColorCycleBrush: true,
-  currentBrushId: null,
+  currentBrushId: null as string | null,
   userBrushEngine: {
     isUserBrush: () => false,
     setActiveBrush: jest.fn(),
     startStroke: jest.fn(),
   },
-  brushEngine: null,
+  brushEngine: null as {
+    drawBrush: (
+      ctx: CanvasRenderingContext2D,
+      from: { x: number; y: number },
+      to: { x: number; y: number },
+      options?: {
+        pressure: number;
+      }
+    ) => void;
+    updateConfig?: (config: { brushSettings: AppState['tools']['brushSettings'] }) => void;
+  } | null,
   drawEraserSegment: jest.fn(),
   resolveCustomBrushData: jest.fn(),
   eraserToolRef: { current: null },
@@ -140,5 +150,34 @@ describe('startEraserStroke overlay seeding', () => {
     expect(args.drawingCanvasHasContent.current).toBe(true);
     expect(begin).toHaveBeenCalledWith(args.worldPos, args.pressure);
     expect(args.eraserRoiRef.current).toEqual({ x: 1, y: 2, width: 3, height: 4 });
+  });
+
+  it('never uses user/custom brush tips while erasing', () => {
+    const layer = createLayer();
+    const state = createState(layer);
+    const drawCtx = createDrawCtx();
+    const args = createArgs(state, drawCtx);
+    const brushEngineDraw = jest.fn();
+    const userStart = jest.fn();
+    const resolveCustom = jest.fn(() => ({ imageData: new ImageData(2, 2), width: 2, height: 2, isResampler: false }));
+
+    args.isColorCycleBrush = false;
+    args.currentBrushId = 'custom-user-brush';
+    args.brushEngine = {
+      drawBrush: brushEngineDraw,
+    };
+    args.userBrushEngine = {
+      ...args.userBrushEngine,
+      isUserBrush: () => true,
+      startStroke: userStart,
+    };
+    args.resolveCustomBrushData = resolveCustom;
+
+    const started = startEraserStroke(args);
+
+    expect(started).toBe(true);
+    expect(userStart).not.toHaveBeenCalled();
+    expect(resolveCustom).not.toHaveBeenCalled();
+    expect(brushEngineDraw).toHaveBeenCalledWith(drawCtx, args.worldPos, args.worldPos, { pressure: args.pressure });
   });
 });

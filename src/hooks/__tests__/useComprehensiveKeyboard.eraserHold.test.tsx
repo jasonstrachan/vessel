@@ -197,6 +197,126 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     expect(useAppStore.getState().tools.currentTool).toBe('color-adjust');
     keyboard.unmount();
   });
+
+  it('changes eraser size with bracket shortcuts when eraser is active', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      const store = useAppStore.getState();
+      store.setCurrentTool('eraser');
+      store.setEraserSettings({ size: 10, linkSizeToBrush: false });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
+
+    keyboard.unmount();
+  });
+
+  it('changes eraser size with bracket shortcuts while a text input is focused', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      const store = useAppStore.getState();
+      store.setCurrentTool('eraser');
+      store.setEraserSettings({ size: 10, linkSizeToBrush: false });
+    });
+
+    const textInput = document.createElement('input');
+    textInput.type = 'text';
+    document.body.appendChild(textInput);
+    textInput.focus();
+
+    await act(async () => {
+      fireEvent.keyDown(textInput, { key: '[', code: 'BracketLeft' });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
+
+    await act(async () => {
+      fireEvent.keyDown(textInput, { key: ']', code: 'BracketRight' });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
+
+    textInput.blur();
+    document.body.removeChild(textInput);
+    keyboard.unmount();
+  });
+
+  it('changes eraser size from bracket key codes even when key char differs', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      const store = useAppStore.getState();
+      store.setCurrentTool('eraser');
+      store.setEraserSettings({ size: 10, linkSizeToBrush: false });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Unidentified', code: 'BracketLeft' });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Unidentified', code: 'BracketRight' });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
+
+    keyboard.unmount();
+  });
+
+  it('changes eraser size from legacy bracket keyCode values', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      const store = useAppStore.getState();
+      store.setCurrentTool('eraser');
+      store.setEraserSettings({ size: 10, linkSizeToBrush: false });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Unidentified', code: '', keyCode: 219, which: 219 });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Unidentified', code: '', keyCode: 221, which: 221 });
+    });
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
+
+    keyboard.unmount();
+  });
+
+  it('changes linked eraser size by adjusting global brush size', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      const store = useAppStore.getState();
+      store.setCurrentTool('eraser');
+      store.setGlobalBrushSize(12);
+      store.setEraserSettings({ linkSizeToBrush: true });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
+    });
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(11);
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(11);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+    });
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+    expect(useAppStore.getState().tools.eraserSettings.size).toBe(12);
+
+    keyboard.unmount();
+  });
 });
 
 describe('useComprehensiveKeyboard – space safety release', () => {

@@ -298,27 +298,16 @@ export const processBatchedStrokes = (
           }
         } else {
           const eraserOpacity = currentState.tools.eraserSettings.opacity ?? 1;
-          const canMirrorBrush = !ccProcessFlags.isAny;
           drawCtx.save();
           try {
             drawCtx.globalCompositeOperation = 'destination-out';
-            if (canMirrorBrush) {
-              drawCtx.globalAlpha = eraserOpacity;
-              if (currentBrushId && deps.userBrushEngine.isUserBrush(currentBrushId)) {
-                deps.userBrushEngine.continueStroke(drawCtx, drawTo.x, drawTo.y, pressure);
-              } else if (deps.brushEngine) {
-                const customBrushData: CustomBrushStrokeData | undefined =
-                  deps.resolveActiveCustomBrushData(currentState);
-                deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, {
-                  pressure,
-                  customBrushData,
-                  velocityPxPerMs,
-                  timestampMs: pointTimestampMs,
-                });
-              } else {
-                drawCtx.globalAlpha = 1;
-                deps.drawEraserSegment(drawCtx, drawFrom, drawTo);
-              }
+            drawCtx.globalAlpha = eraserOpacity;
+            if (deps.brushEngine) {
+              deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, {
+                pressure,
+                velocityPxPerMs,
+                timestampMs: pointTimestampMs,
+              });
             } else {
               drawCtx.globalAlpha = 1;
               deps.drawEraserSegment(drawCtx, drawFrom, drawTo);

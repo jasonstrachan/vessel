@@ -21,6 +21,27 @@ const clampBrushSize = (value: number): number => {
   return value;
 };
 
+const getLegacyKeyCode = (event: KeyboardEvent): number | null => {
+  const legacyEvent = event as KeyboardEvent & { keyCode?: number; which?: number };
+  if (typeof legacyEvent.keyCode === 'number' && legacyEvent.keyCode > 0) {
+    return legacyEvent.keyCode;
+  }
+  if (typeof legacyEvent.which === 'number' && legacyEvent.which > 0) {
+    return legacyEvent.which;
+  }
+  return null;
+};
+
+const isBracketLeftEvent = (event: KeyboardEvent): boolean => {
+  const legacy = getLegacyKeyCode(event);
+  return event.code === 'BracketLeft' || event.key === '[' || legacy === 219;
+};
+
+const isBracketRightEvent = (event: KeyboardEvent): boolean => {
+  const legacy = getLegacyKeyCode(event);
+  return event.code === 'BracketRight' || event.key === ']' || legacy === 221;
+};
+
 // Treat these input types as text entry fields so we don't hijack shortcuts while typing.
 const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
 
@@ -192,7 +213,7 @@ export function useComprehensiveKeyboard({
 
     lastKeydownTimeRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-    const isBracketShortcut = event.key === '[' || event.key === ']';
+    const isBracketShortcut = isBracketLeftEvent(event) || isBracketRightEvent(event);
     const scopedShortcut = resolveScopedShortcutAction(event);
     const currentScope: KeyboardScope = keyboardScopeRef.current ?? 'canvas';
     const tools = toolsRef.current;
@@ -203,11 +224,7 @@ export function useComprehensiveKeyboard({
 
     const target = event.target as HTMLElement | null;
     const targetIsTextEntry = isTextEntryTarget(target);
-    const allowBracketInNumericInput =
-      targetIsTextEntry &&
-      isBracketShortcut &&
-      target instanceof HTMLInputElement &&
-      target.type?.toLowerCase() === 'number';
+    const allowBracketInTextEntry = targetIsTextEntry && isBracketShortcut;
 
     const alwaysShortcut = resolveAlwaysShortcutAction(event);
     if (alwaysShortcut === 'undo') {
@@ -259,7 +276,7 @@ export function useComprehensiveKeyboard({
     // Ignore if typing in text-focused inputs or editable elements.
     // Exception: allow floating-paste commit/cancel keys so paste can be finalized
     // even when focus remains in a numeric/text input control.
-    if (targetIsTextEntry && !allowBracketInNumericInput && !isFloatingPasteKey) {
+    if (targetIsTextEntry && !allowBracketInTextEntry && !isFloatingPasteKey) {
       return;
     }
 
@@ -373,63 +390,65 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    if (scopedShortcut === 'brush-size-decrease') {
+    const isBrushSizeDecreaseShortcut =
+      scopedShortcut === 'brush-size-decrease' ||
+      isBracketLeftEvent(event);
+    if (isBrushSizeDecreaseShortcut) {
       event.preventDefault();
       if (onBrushSizeDecrease) {
         onBrushSizeDecrease();
       } else {
         const isEraserActive = tools.currentTool === 'eraser';
         const { brushSettings, eraserSettings } = tools;
+        if (isEraserActive) {
+          const isLinked = eraserSettings?.linkSizeToBrush !== false;
+          if (isLinked) {
+            applyBrushSizeDeltaImmediate(-1);
+          } else {
+            const currentSize = eraserSettings?.size ?? brushSettings.size ?? MIN_BRUSH_SIZE;
+            const newSize = Math.max(MIN_BRUSH_SIZE, currentSize - 1);
+            setEraserSettings({ size: newSize });
+          }
+          return;
+        }
         if (brushSettings.brushShape === BrushShape.CUSTOM) {
           const currentPercent = brushSettings.customBrushSizePercent ?? 100;
           const newPercent = Math.max(5, currentPercent - 5);
           setCustomBrushSizePercent(newPercent);
-          if (isEraserActive && eraserSettings?.linkSizeToBrush === false) {
-            const updatedSize = toolsRef.current.brushSettings.size ?? 1;
-            setEraserSettings({ size: updatedSize });
-          }
         } else {
-          const currentSize = isEraserActive
-            ? (eraserSettings?.size ?? brushSettings.size ?? MIN_BRUSH_SIZE)
-            : (brushSettings.size ?? MIN_BRUSH_SIZE);
-          const adjustment = 1;
-          if (isEraserActive) {
-            const newSize = Math.max(MIN_BRUSH_SIZE, currentSize - adjustment);
-            setEraserSettings({ size: newSize });
-          } else {
-            applyBrushSizeDeltaImmediate(-adjustment);
-          }
+          applyBrushSizeDeltaImmediate(-1);
         }
       }
       return;
     }
 
-    if (scopedShortcut === 'brush-size-increase') {
+    const isBrushSizeIncreaseShortcut =
+      scopedShortcut === 'brush-size-increase' ||
+      isBracketRightEvent(event);
+    if (isBrushSizeIncreaseShortcut) {
       event.preventDefault();
       if (onBrushSizeIncrease) {
         onBrushSizeIncrease();
       } else {
         const isEraserActive = tools.currentTool === 'eraser';
         const { brushSettings, eraserSettings } = tools;
+        if (isEraserActive) {
+          const isLinked = eraserSettings?.linkSizeToBrush !== false;
+          if (isLinked) {
+            applyBrushSizeDeltaImmediate(1);
+          } else {
+            const currentSize = eraserSettings?.size ?? brushSettings.size ?? MIN_BRUSH_SIZE;
+            const newSize = Math.min(MAX_BRUSH_SIZE, currentSize + 1);
+            setEraserSettings({ size: newSize });
+          }
+          return;
+        }
         if (brushSettings.brushShape === BrushShape.CUSTOM) {
           const currentPercent = brushSettings.customBrushSizePercent ?? 100;
           const newPercent = Math.min(1000, currentPercent + 5);
           setCustomBrushSizePercent(newPercent);
-          if (isEraserActive && eraserSettings?.linkSizeToBrush === false) {
-            const updatedSize = toolsRef.current.brushSettings.size ?? 1;
-            setEraserSettings({ size: updatedSize });
-          }
         } else {
-          const currentSize = isEraserActive
-            ? (eraserSettings?.size ?? brushSettings.size ?? MIN_BRUSH_SIZE)
-            : (brushSettings.size ?? MIN_BRUSH_SIZE);
-          const adjustment = 1;
-          if (isEraserActive) {
-            const newSize = Math.min(MAX_BRUSH_SIZE, currentSize + adjustment);
-            setEraserSettings({ size: newSize });
-          } else {
-            applyBrushSizeDeltaImmediate(adjustment);
-          }
+          applyBrushSizeDeltaImmediate(1);
         }
       }
       return;

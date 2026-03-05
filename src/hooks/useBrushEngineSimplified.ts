@@ -165,6 +165,7 @@ import {
 import { isFgPending } from '@/utils/colorCycleGradients';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
+import { sanitizeEraserTipSettings } from '@/stores/helpers/eraserSettings';
 
 declare global {
   interface Window {
@@ -234,6 +235,17 @@ export const useBrushEngineSimplified = () => {
       blendMode: tools.brushSettings.blendMode,
     });
   }, [activeLayerTransparencyLock, tools.brushSettings.blendMode]);
+
+  const resolvedEngineBrushSettings = useMemo(() => {
+    if (tools.currentTool !== 'eraser') {
+      return tools.brushSettings;
+    }
+    return {
+      ...tools.brushSettings,
+      ...tools.eraserSettings,
+      ...sanitizeEraserTipSettings(tools.eraserSettings),
+    };
+  }, [tools.brushSettings, tools.currentTool, tools.eraserSettings]);
 
   const setMultiplyIfUnlocked = useCallback((ctx: CanvasRenderingContext2D) => {
     setMultiplyIfUnlockedController({
@@ -508,16 +520,16 @@ export const useBrushEngineSimplified = () => {
       to,
       pressure,
       customBrushData,
-      brushSettings: tools.brushSettings,
+      brushSettings: resolvedEngineBrushSettings,
       clamp,
       inflateRect,
     });
-  }, [tools.brushSettings]);
+  }, [resolvedEngineBrushSettings]);
 
   // Create brush engine facade - only recreate when structural dependencies change
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
-      brushSettings: tools.brushSettings,
+      brushSettings: resolvedEngineBrushSettings,
       transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
@@ -528,12 +540,12 @@ export const useBrushEngineSimplified = () => {
     };
     
     return createBrushEngineFacade(config);
-  }, [tools.brushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, activeLayerTransparencyLock]);
+  }, [resolvedEngineBrushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, activeLayerTransparencyLock]);
 
   // Update engine config when settings change
   useEffect(() => {
     brushEngine.updateConfig({
-      brushSettings: tools.brushSettings,
+      brushSettings: resolvedEngineBrushSettings,
       transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
@@ -541,12 +553,12 @@ export const useBrushEngineSimplified = () => {
     });
 
     // Initialize spam text when the Spam Text brush is selected
-    if (tools.brushSettings.brushShape === BrushShape.SPAM_TEXT) {
-      const contentType = tools.brushSettings.spamContentType || 'mixed';
-      const customText = tools.brushSettings.spamCustomText;
+    if (resolvedEngineBrushSettings.brushShape === BrushShape.SPAM_TEXT) {
+      const contentType = resolvedEngineBrushSettings.spamContentType || 'mixed';
+      const customText = resolvedEngineBrushSettings.spamCustomText;
       brushEngine.initializeSpamText(contentType, customText);
     }
-  }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
+  }, [brushEngine, resolvedEngineBrushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
 
   const shouldApplyStrokeDitherForSettings = useCallback((settings: BrushSettings) => {
     return shouldApplyStrokeDitherForSettingsUtil(settings);
