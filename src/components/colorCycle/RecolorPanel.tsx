@@ -1,8 +1,8 @@
 /**
  * RecolorPanel - Main UI component for the Recolor & Animate feature
  * 
- * Clean, modular interface with comprehensive state management,
- * keyboard shortcuts, and real-time performance monitoring.
+ * Clean, modular interface with comprehensive state management
+ * and real-time performance monitoring.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,7 +12,6 @@ import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 
 // Custom hooks for state management
 import { useRecolorState } from './hooks/useRecolorState';
-import { useRecolorShortcuts } from './hooks/useRecolorShortcuts';
 
 // Modular sub-components
 import { GradientEditor } from '../ui/GradientEditor';
@@ -22,14 +21,10 @@ import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
 import { AnimationControls } from './controls/AnimationControls';
 import Button from '../ui/Button';
 import {
-  DEFAULT_GRADIENT_ID,
   DEFAULT_GRADIENT_STOPS,
-  GRADIENT_PRESETS
 } from '@/utils/gradientPresets';
 // Extract colors feature removed from UI
 import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
-// Performance indicator removed from UI
-import { MIN_RECOLOR_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 
 type GradientStop = { position: number; color: string };
 
@@ -190,12 +185,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     });
   }, [recolorSettings]);
 
-  // Gradient presets for shortcuts (memoized to avoid dependency issues)
-  const gradientPresets = useMemo(() => GRADIENT_PRESETS.map(preset => ({
-    name: preset.id,
-    gradient: preset.stops.map(stop => ({ position: stop.position, color: stop.color }))
-  })), []);
-
   const recolorGradientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recolorGradientPendingRef = useRef<{
     stops: Array<{ position: number; color: string }>;
@@ -324,86 +313,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       hasPendingChangesRef.current = false;
     }
   }, [isVisible, onCommit]);
-
-  // Keyboard shortcuts
-  const shortcutHandlers = useMemo(() => ({
-    toggleAnimation,
-    toggleMode: async () => {
-      if (!activeLayer) return;
-      
-      if (state.mode === 'brush') {
-        await processLayer(activeLayer, {
-          quantizationMode: 'rgb332',
-          ditherMode: 'off',
-          cycleColors: 16,
-          gradientPreset: DEFAULT_GRADIENT_ID
-        });
-      } else {
-        // If already in recolor mode, just toggle animation instead of converting back
-        toggleAnimation();
-      }
-    },
-    // Extract colors removed from UI
-    extractColors: () => {},
-    speedUp: () => {
-      if (activeLayer && recolorSettings) {
-        const newSpeed = Math.min(2.0, recolorSettings.animation.speed + 0.1);
-        updateLayerSpeed(activeLayer.id, newSpeed);
-      }
-    },
-    slowDown: () => {
-      if (activeLayer && recolorSettings) {
-        const newSpeed = Math.max(
-          MIN_RECOLOR_COLOR_CYCLE_SPEED,
-          recolorSettings.animation.speed - 0.1
-        );
-        updateLayerSpeed(activeLayer.id, newSpeed);
-      }
-    },
-    nextPreset: () => {
-      if (activeLayer && recolorSettings) {
-        const currentGradient = recolorSettings.gradient;
-        const currentIndex = gradientPresets.findIndex(p => 
-          JSON.stringify(p.gradient) === JSON.stringify(currentGradient)
-        );
-        const nextIndex = (currentIndex + 1) % gradientPresets.length;
-        updateGradient(activeLayer, gradientPresets[nextIndex].gradient);
-      }
-    },
-    prevPreset: () => {
-      if (activeLayer && recolorSettings) {
-        const currentGradient = recolorSettings.gradient;
-        const currentIndex = gradientPresets.findIndex(p => 
-          JSON.stringify(p.gradient) === JSON.stringify(currentGradient)
-        );
-        const prevIndex = currentIndex <= 0 ? gradientPresets.length - 1 : currentIndex - 1;
-        updateGradient(activeLayer, gradientPresets[prevIndex].gradient);
-      }
-    },
-    resetSpeed: () => {
-      if (activeLayer) {
-        updateLayerSpeed(activeLayer.id, 0.1);
-      }
-    },
-    toggleAdvanced: actions.toggleAdvancedControls
-  }), [
-    toggleAnimation,
-    activeLayer,
-    state.mode,
-    processLayer,
-    actions,
-    recolorSettings,
-    updateLayerSpeed,
-    updateGradient,
-    gradientPresets
-  ]);
-
-  // Setup keyboard shortcuts
-  useRecolorShortcuts(shortcutHandlers, {
-    enabled: isVisible,
-    activeLayer,
-    isRecolorMode: state.mode === 'recolor'
-  });
 
   // Confirmation dialog state
   const [confirmationDialog, setConfirmationDialog] = useState<{

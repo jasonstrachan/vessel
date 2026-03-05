@@ -29,7 +29,6 @@ jest.mock('../hooks/useRecolorState', () => ({
   }),
 }));
 
-jest.mock('../hooks/useRecolorShortcuts', () => ({ useRecolorShortcuts: () => {} }));
 jest.mock('@/components/ui/GradientEditor', () => ({ GradientEditor: () => <div data-testid="gradient-editor" /> }));
 jest.mock('../controls/AnimationControls', () => ({ AnimationControls: () => <div data-testid="animation-controls" /> }));
 jest.mock('../dialogs/ConfirmationDialog', () => ({

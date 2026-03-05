@@ -182,6 +182,21 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     });
     keyboard.unmount();
   });
+
+  it('switches to color-adjust tool on U', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      useAppStore.getState().setCurrentTool('brush');
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'u', code: 'KeyU' });
+    });
+
+    expect(useAppStore.getState().tools.currentTool).toBe('color-adjust');
+    keyboard.unmount();
+  });
 });
 
 describe('useComprehensiveKeyboard – space safety release', () => {
