@@ -7,6 +7,10 @@ import {
   selectPolygonGradientState,
   selectToolsState,
 } from '@/stores/selectors/toolsSelectors';
+import {
+  resolveAlwaysShortcutAction,
+  resolveScopedShortcutAction,
+} from '@/hooks/keyboard/shortcutRegistry';
 
 const MIN_BRUSH_SIZE = 1;
 const MAX_BRUSH_SIZE = 500;
@@ -60,9 +64,6 @@ const selectSelectionRange = (state: AppState) => ({
 });
 const selectFloatingPaste = (state: AppState) => state.floatingPaste;
 const selectPalette = (state: AppState) => state.palette;
-
-const isDeleteKey = (event: KeyboardEvent): boolean =>
-  event.key === 'Delete' || event.key === 'Backspace';
 
 type VoidHandler = () => void | Promise<void>;
 
@@ -192,6 +193,7 @@ export function useComprehensiveKeyboard({
     lastKeydownTimeRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
     const isBracketShortcut = event.key === '[' || event.key === ']';
+    const scopedShortcut = resolveScopedShortcutAction(event);
     const currentScope: KeyboardScope = keyboardScopeRef.current ?? 'canvas';
     const tools = toolsRef.current;
     const polygonGradientState = polygonGradientStateRef.current;
@@ -207,59 +209,35 @@ export function useComprehensiveKeyboard({
       target instanceof HTMLInputElement &&
       target.type?.toLowerCase() === 'number';
 
-    const isUndoShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey;
-    const isRedoShortcut = (event.ctrlKey || event.metaKey) && (
-      (event.key.toLowerCase() === 'z' && event.shiftKey) ||
-      (event.key.toLowerCase() === 'y' && !event.shiftKey)
-    );
-    const isSaveShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's';
-    const isOpenShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o';
-
-    if (isUndoShortcut) {
+    const alwaysShortcut = resolveAlwaysShortcutAction(event);
+    if (alwaysShortcut === 'undo') {
       event.preventDefault();
       void onUndoRef.current?.();
       return;
     }
-
-    if (isRedoShortcut) {
+    if (alwaysShortcut === 'redo') {
       event.preventDefault();
       void onRedoRef.current?.();
       return;
     }
-
-    if (isSaveShortcut) {
+    if (alwaysShortcut === 'save') {
       event.preventDefault();
       void onSaveRef.current?.();
       return;
     }
-
-    if (isOpenShortcut) {
+    if (alwaysShortcut === 'open') {
       event.preventDefault();
       void onOpenRef.current?.();
       return;
     }
-
-    const isCopyShortcut =
-      (event.ctrlKey || event.metaKey) &&
-      event.key.toLowerCase() === 'c' &&
-      !event.shiftKey &&
-      !event.altKey;
-
-    if (isCopyShortcut) {
+    if (alwaysShortcut === 'copy') {
       const handled = await copySelectionToClipboard({ mode: 'copy' });
       if (handled) {
         event.preventDefault();
         return;
       }
     }
-
-    const isCutShortcut =
-      (event.ctrlKey || event.metaKey) &&
-      event.key.toLowerCase() === 'x' &&
-      !event.shiftKey &&
-      !event.altKey;
-
-    if (isCutShortcut) {
+    if (alwaysShortcut === 'cut') {
       const handled = await copySelectionToClipboard({ mode: 'cut' });
       if (handled) {
         event.preventDefault();
@@ -274,10 +252,9 @@ export function useComprehensiveKeyboard({
 
     const isFloatingPasteKey =
       !!floatingPaste &&
-      (event.key === 'Enter' ||
-        event.code === 'NumpadEnter' ||
-        event.key === 'Escape' ||
-        isDeleteKey(event));
+      (scopedShortcut === 'context-enter' ||
+        scopedShortcut === 'context-escape' ||
+        scopedShortcut === 'context-delete');
 
     // Ignore if typing in text-focused inputs or editable elements.
     // Exception: allow floating-paste commit/cancel keys so paste can be finalized
@@ -294,17 +271,6 @@ export function useComprehensiveKeyboard({
     keyboardStateRef.current.isCtrlPressed = event.ctrlKey;
     keyboardStateRef.current.isAltPressed = event.altKey;
     keyboardStateRef.current.isMetaPressed = event.metaKey;
-
-    // Palette swap/copy shortcuts (X to swap, Shift+X to copy foreground to background)
-    if (!event.repeat && event.code === 'KeyX' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      if (event.shiftKey) {
-        setPaletteColor('background', palette.foregroundColor);
-      } else {
-        swapPaletteColors();
-      }
-      return;
-    }
 
     // Handle Space for panning (prevent repeat)
     if (event.code === 'Space' && onSpacePressedRef.current) {
@@ -328,107 +294,86 @@ export function useComprehensiveKeyboard({
     }
     pressedKeysRef.current.add(event.code);
 
-    // Handle Select All (Ctrl/Cmd + A)
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+    if (scopedShortcut === 'palette-copy' || scopedShortcut === 'palette-swap') {
+      event.preventDefault();
+      if (scopedShortcut === 'palette-copy') {
+        setPaletteColor('background', palette.foregroundColor);
+      } else {
+        swapPaletteColors();
+      }
+      return;
+    }
+
+    if (scopedShortcut === 'select-all') {
       event.preventDefault();
       selectAllActiveLayerPixels();
       await switchTool('selection');
       return;
     }
 
-    // Tool switching - C for custom brush
-    if (event.key === 'c' || event.key === 'C') {
-      if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-        await switchTool('custom');
-        void onCustomToolRef.current?.();
-        return;
-      }
+    if (scopedShortcut === 'tool-custom') {
+      event.preventDefault();
+      await switchTool('custom');
+      void onCustomToolRef.current?.();
+      return;
     }
-
-    // Tool switching - F for fill tool
-    if (event.key === 'f' || event.key === 'F') {
-      if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-        await switchTool('fill');
-        return;
-      }
+    if (scopedShortcut === 'tool-fill') {
+      event.preventDefault();
+      await switchTool('fill');
+      return;
     }
-
-    // Tool switching - W for magic wand tool
-    if (event.key === 'w' || event.key === 'W') {
-      if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-        await switchTool('magic-wand');
-        return;
-      }
+    if (scopedShortcut === 'tool-magic-wand') {
+      event.preventDefault();
+      await switchTool('magic-wand');
+      return;
     }
-
-    // Tool switching - B for brush tool
-    if (event.key === 'b' || event.key === 'B') {
-      if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-        await switchTool('brush');
-        return;
-      }
+    if (scopedShortcut === 'tool-brush') {
+      event.preventDefault();
+      await switchTool('brush');
+      return;
     }
-
-    // Tool switching - E for eraser tool (hold for temporary, tap for permanent)
-    if (event.key === 'e' || event.key === 'E') {
-      if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-        
-        // Record press time
-        eraserPressTimeRef.current = Date.now();
-        
-        // Store current tool for potential temporary mode
-        if (tools.currentTool !== 'eraser') {
-          try {
-            await onEraserPressedRef.current?.();
-          } catch {
-            // ignore finalize errors; fall back to default behavior
-          }
-          const originTool = tools.currentTool;
-          previousToolRef.current = originTool;
-          isTemporaryEraserRef.current = true;
-          await switchTool('eraser');
-        } else {
-          // Already in eraser mode, keep it
-          isTemporaryEraserRef.current = false;
+    if (scopedShortcut === 'tool-eraser-hold') {
+      event.preventDefault();
+      eraserPressTimeRef.current = Date.now();
+      if (tools.currentTool !== 'eraser') {
+        try {
+          await onEraserPressedRef.current?.();
+        } catch {
+          // ignore finalize errors; fall back to default behavior
         }
-        return;
+        const originTool = tools.currentTool;
+        previousToolRef.current = originTool;
+        isTemporaryEraserRef.current = true;
+        await switchTool('eraser');
+      } else {
+        isTemporaryEraserRef.current = false;
       }
+      return;
     }
-
-    // Tool switching - M for selection tool (marquee)
-    if (event.key === 'm' || event.key === 'M') {
-      if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-        await switchTool('selection');
-        return;
-      }
+    if (scopedShortcut === 'tool-selection') {
+      event.preventDefault();
+      await switchTool('selection');
+      return;
     }
-
-    // Tool switching - P for color picker (temporary hold)
-    if (event.key === 'p' || event.key === 'P') {
-      if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-
-        if (!isColorPickerHeldRef.current) {
-          const currentTool = tools.currentTool as Tool;
-          if (currentTool !== 'color-picker') {
-            colorPickerPreviousToolRef.current = currentTool;
-          }
+    if (scopedShortcut === 'tool-color-adjust') {
+      event.preventDefault();
+      await switchTool('color-adjust');
+      return;
+    }
+    if (scopedShortcut === 'tool-color-picker-hold') {
+      event.preventDefault();
+      if (!isColorPickerHeldRef.current) {
+        const currentTool = tools.currentTool as Tool;
+        if (currentTool !== 'color-picker') {
+          colorPickerPreviousToolRef.current = currentTool;
         }
-
-        isColorPickerHeldRef.current = true;
-        await switchTool('color-picker');
-        return;
       }
+      isColorPickerHeldRef.current = true;
+      await switchTool('color-picker');
+      return;
     }
 
-    // Brush size adjustment
-    if (event.key === '[') {
+    if (scopedShortcut === 'brush-size-decrease') {
       event.preventDefault();
       if (onBrushSizeDecrease) {
         onBrushSizeDecrease();
@@ -459,7 +404,7 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    if (event.key === ']') {
+    if (scopedShortcut === 'brush-size-increase') {
       event.preventDefault();
       if (onBrushSizeIncrease) {
         onBrushSizeIncrease();
@@ -491,13 +436,13 @@ export function useComprehensiveKeyboard({
     }
 
     // Polygon gradient or contour polygon completion
-  const normalizedShapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
-    ? 'lines'
-    : ((tools.brushSettings.shapeGradientMode === 'flow' ||
-        tools.brushSettings.shapeGradientMode === 'inkRibbons' ||
-        tools.brushSettings.shapeGradientMode === 'triangle')
-        ? 'contour'
-        : (tools.brushSettings.shapeGradientMode || 'contour'));
+    const normalizedShapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
+      ? 'lines'
+      : ((tools.brushSettings.shapeGradientMode === 'flow' ||
+          tools.brushSettings.shapeGradientMode === 'inkRibbons' ||
+          tools.brushSettings.shapeGradientMode === 'triangle')
+          ? 'contour'
+          : (tools.brushSettings.shapeGradientMode || 'contour'));
     const isContourLines2Mode =
       tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON &&
       normalizedShapeGradientMode === 'lines2';
@@ -507,12 +452,12 @@ export function useComprehensiveKeyboard({
          tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
          isContourLines2Mode) && 
         polygonGradientState.points.length >= 3) {
-      if (event.key === 'Enter') {
+      if (scopedShortcut === 'context-enter') {
         event.preventDefault();
         void onPolygonComplete?.();
         return;
       }
-      if (event.key === 'Escape') {
+      if (scopedShortcut === 'context-escape') {
         event.preventDefault();
         onPolygonCancel?.();
         return;
@@ -520,7 +465,7 @@ export function useComprehensiveKeyboard({
     }
 
     // Delete key for deleting selected pixels
-    if (isDeleteKey(event)) {
+    if (scopedShortcut === 'context-delete') {
       event.preventDefault();
       if (floatingPaste) {
         setFloatingPaste(null);
@@ -534,14 +479,14 @@ export function useComprehensiveKeyboard({
 
     // Enter key general handling (for floating paste)
     // Handle both standard Enter and NumpadEnter for wider keyboard support
-    if (event.key === 'Enter' || event.code === 'NumpadEnter') {
+    if (scopedShortcut === 'context-enter') {
       event.preventDefault();
       onEnterPressed?.();
       return;
     }
     
     // Escape key general handling
-    if (event.key === 'Escape') {
+    if (scopedShortcut === 'context-escape') {
       event.preventDefault();
       onEscapePressed?.();
       return;
