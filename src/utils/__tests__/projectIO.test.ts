@@ -593,6 +593,61 @@ describe('projectIO serialize/deserialize layering', () => {
     }
   });
 
+  it('keeps persisted color-cycle brushState on the layer after deserialize', async () => {
+    const savedPaint = Buffer.from(Uint8Array.from([1, 2, 3, 4])).toString('base64');
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-brush-state',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-brush-state',
+        name: 'cc-brush-state',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-state',
+          name: 'CC Layer',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              cycleSpeed: 0.2,
+              fps: 18,
+              layers: [{
+                layerId: 'layer-cc-state',
+                strokeData: {
+                  paintBuffer: savedPaint,
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    const restoredLayer = restored.layers[0];
+
+    expect(restoredLayer?.colorCycleData?.brushState).toEqual(projectPayload.project.layers[0].colorCycleData.brushState);
+  });
+
   it('preserves recovered color-cycle canvas pixels on first commit when runtime has external base only', async () => {
     const canvasImageData = createSolidImageData(3, 3, [240, 120, 60, 255]);
     const colorCycleCanvas = document.createElement('canvas');
