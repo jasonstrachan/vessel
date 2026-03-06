@@ -43,7 +43,7 @@ import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import type { CustomBrushColorCycleData, DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
-import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { encodeColorCycleSpeedByte, sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveVelocitySpacingStrength } from '@/utils/velocitySpacing';
 
@@ -631,7 +631,7 @@ export class ColorCycleBrushCanvas2D {
 
   private createLayerStrokeState(options?: { hasContent?: boolean; bufferSize?: number }): LayerStrokeState {
     const size = Math.max(0, Math.floor(options?.bufferSize ?? this.width * this.height));
-    const initialStrokeCycleSpeed = Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1;
+    const initialStrokeCycleSpeed = sanitizeBrushColorCycleSpeed(this.cycleSpeed);
     const initialStrokeSpeedByte = encodeColorCycleSpeedByte(initialStrokeCycleSpeed);
     return {
       hasContent: Boolean(options?.hasContent),
@@ -2257,7 +2257,7 @@ export class ColorCycleBrushCanvas2D {
       animator.startStroke();
     }
     const strokeData = this.layerStrokes.get(id);
-    const strokeStartSpeed = Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1;
+    const strokeStartSpeed = sanitizeBrushColorCycleSpeed(this.cycleSpeed);
     const speedByte = encodeColorCycleSpeedByte(strokeStartSpeed);
     try {
       if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
@@ -4809,7 +4809,7 @@ export class ColorCycleBrushCanvas2D {
     }
     // Write-speed only: this value is stamped into newly painted pixels.
     // Playback scaling is controlled separately via setPlaybackSpeedScale.
-    this.cycleSpeed = speed;
+    this.cycleSpeed = sanitizeBrushColorCycleSpeed(speed);
     this.animators.forEach(animator => animator.setSpeed(this.playbackSpeedScale));
   }
 
@@ -5906,7 +5906,7 @@ export class ColorCycleBrushCanvas2D {
           layer?.colorCycleData?.brushSpeed
             ?? state.tools.brushSettings.colorCycleSpeed
             ?? 0.1;
-        const speedByte = encodeColorCycleSpeedByte(fallbackSpeed);
+        const speedByte = encodeColorCycleSpeedByte(sanitizeBrushColorCycleSpeed(fallbackSpeed));
         for (let i = 0; i < strokeData.buffers.paint.length; i += 1) {
           strokeData.buffers.spd[i] = strokeData.buffers.paint[i] === 0 ? 0 : speedByte;
         }

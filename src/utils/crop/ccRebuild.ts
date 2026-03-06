@@ -131,6 +131,8 @@ export function rebuildCCLayerAfterCrop({
               entry.id,
               {
                 paintBuffer: snapshotBuffer,
+                gradientIdBuffer: entry.strokeSnapshot?.gradientIdBuffer,
+                gradientDefIdBuffer: entry.strokeSnapshot?.gradientDefIdBuffer,
                 speedBuffer: entry.strokeSnapshot?.speedBuffer,
                 hasContent: entry.strokeSnapshot.hasContent,
                 strokeCounter: entry.strokeSnapshot.strokeCounter
@@ -215,6 +217,10 @@ export function rebuildCCLayerAfterCrop({
                 colorCycleBrush: freshBrush,
                 canvas: freshBrush.getCanvas ? freshBrush.getCanvas() : layer.colorCycleData.canvas,
                 gradient: gradientStops ?? layer.colorCycleData.gradient,
+                gradientIdBuffer:
+                  entry.strokeSnapshot?.gradientIdBuffer ?? layer.colorCycleData.gradientIdBuffer,
+                gradientDefIdBuffer:
+                  entry.strokeSnapshot?.gradientDefIdBuffer ?? layer.colorCycleData.gradientDefIdBuffer,
                 brushSpeed:
                   typeof entry.brushSpeed === 'number'
                     ? entry.brushSpeed
