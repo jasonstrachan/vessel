@@ -8,8 +8,12 @@ const {
   clampBoundsToSurface,
   clampExportLayerSpeedScale,
   applyExportPlaybackScale,
-  scaleEncodedSpeedBuffer
+  scaleEncodedSpeedBuffer,
+  extractBrushStateFromSavedSnapshot,
+  resolveDefBoundSlotPalettes
 } = __TESTING__;
+
+const encodeBytes = (values: number[]): string => Buffer.from(Uint8Array.from(values)).toString('base64');
 
 describe('webglExporter helpers', () => {
   it('resolves first positive numeric candidate and clamps to >=1', () => {
@@ -51,5 +55,91 @@ describe('webglExporter helpers', () => {
     expect(decodeColorCycleSpeedByte(scaledHalf[0])).toBeCloseTo(0.6, 1);
     expect(decodeColorCycleSpeedByte(scaledHalf[1])).toBeCloseTo(0.2, 1);
     expect(scaledHalf[2]).toBe(0);
+  });
+
+  it('extracts brush state from persisted color-cycle snapshots when no live brush exists', () => {
+    const brushState = extractBrushStateFromSavedSnapshot({
+      id: 'layer-cc',
+      layerType: 'color-cycle',
+      imageData: { width: 2, height: 2 },
+      colorCycleData: {
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        brushState: {
+          cycleSpeed: 0.2,
+          fps: 18,
+          layers: [{
+            layerId: 'layer-cc',
+            strokeData: {
+              paintBuffer: encodeBytes([1, 2, 3, 4]),
+              gradientIdBuffer: encodeBytes([9, 9, 10, 10]),
+              speedBuffer: encodeBytes([
+                encodeColorCycleSpeedByte(0.2),
+                encodeColorCycleSpeedByte(0.2),
+                encodeColorCycleSpeedByte(0.2),
+                encodeColorCycleSpeedByte(0.2),
+              ]),
+            },
+          }],
+        },
+      },
+    } as any);
+
+    expect(brushState).toBeDefined();
+    expect(brushState?.width).toBe(2);
+    expect(brushState?.height).toBe(2);
+    expect(brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
+    expect(brushState?.gradientIdBuffer).toEqual([9, 9, 10, 10]);
+    expect(brushState?.speedBuffer).toHaveLength(4);
+    expect(brushState?.targetFPS).toBe(18);
+    expect(brushState?.animationSpeed).toBe(0.2);
+  });
+
+  it('rebuilds missing slot palettes from gradient def bindings during export', () => {
+    const slotPalettes = resolveDefBoundSlotPalettes({
+      data: {
+        gradientDefIdBuffer: new Uint16Array([0, 5, 5, 0]).buffer,
+        gradientDefStore: [{
+          id: 5,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#112233' },
+            { position: 1, color: '#445566' },
+          ],
+          hash: 'def-5',
+          source: 'manual',
+          createdAtMs: 0,
+          slot: 6,
+        }],
+      } as any,
+      brushState: {
+        width: 2,
+        height: 2,
+        indexBuffer: [1, 1, 1, 1],
+        gradientIdBuffer: [6, 24, 24, 6],
+        gradientDefIdBuffer: [0, 5, 5, 0],
+        gradientStops: [],
+        animationOffset: 0,
+      },
+      slotPalettes: [{
+        slot: 6,
+        stops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+      }],
+    });
+
+    expect(slotPalettes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        slot: 24,
+        stops: [
+          { position: 0, color: '#112233' },
+          { position: 1, color: '#445566' },
+        ],
+      }),
+    ]));
   });
 });

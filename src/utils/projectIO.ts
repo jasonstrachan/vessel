@@ -1412,6 +1412,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       brushSpeed: serializedLayer.colorCycleData.brushSpeed,
       controllerSpeedCps: serializedLayer.colorCycleData.controllerSpeedCps,
       flowMode: serializedLayer.colorCycleData.flowMode,
+      brushState: serializedLayer.colorCycleData.brushState,
       canvas: colorCycleCanvas
       // Note: colorCycleBrush will be restored later when the layer is added to the project
     };
@@ -2459,6 +2460,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
           }
 
           layer.colorCycleData.colorCycleBrush = colorCycleBrush;
+          layer.colorCycleData.brushState = savedBrushState;
           savedBrushStates.delete(layer);
 
           if (layer.colorCycleData.isAnimating) {
