@@ -365,6 +365,49 @@ describe('useAppStore commitCrop', () => {
     expect(Array.from(pixelSample?.data ?? [])).toEqual([1, 1, 0, 255]);
   });
 
+  it('preserves color-cycle gradient buffers after cropping', async () => {
+    const layer = createColorCycleLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    expect(brush).toBeDefined();
+
+    const paint = new Uint8Array(24).fill(1);
+    const gradientIds = Uint8Array.from({ length: 24 }, (_, idx) => idx);
+    const gradientDefIds = Uint16Array.from({ length: 24 }, (_, idx) => idx + 100);
+    const speed = new Uint8Array(24).fill(12);
+
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: paint.buffer.slice(0),
+      gradientIdBuffer: gradientIds.buffer.slice(0),
+      gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
+      speedBuffer: speed.buffer.slice(0),
+      hasContent: true,
+      strokeCounter: 3
+    });
+
+    await useAppStore.getState().commitCrop();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const updatedBrush = updatedLayer.colorCycleData?.colorCycleBrush;
+    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+
+    expect(snapshot?.paintBuffer).toBeDefined();
+    expect(snapshot?.gradientIdBuffer).toBeDefined();
+    expect(snapshot?.gradientDefIdBuffer).toBeDefined();
+
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      7, 8, 9,
+      13, 14, 15,
+    ]);
+    expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      107, 108, 109,
+      113, 114, 115,
+    ]);
+  });
+
   it('restores color-cycle brush animation state after cropping', async () => {
     const layer = createColorCycleLayer(6, 4);
     primeStoreForCrop(layer, 6, 4);

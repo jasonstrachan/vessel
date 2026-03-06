@@ -26,6 +26,8 @@ export interface ColorCycleBrushResetEntry {
   wasActiveLayer: boolean;
   strokeSnapshot?: {
     paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;

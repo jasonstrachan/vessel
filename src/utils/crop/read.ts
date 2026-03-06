@@ -170,6 +170,41 @@ const copyScalarRegion = (
   return destination;
 };
 
+const copyScalarRegionU16 = (
+  source: Uint16Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: NormalizedCropRect
+): Uint16Array => {
+  const targetWidth = rect.width;
+  const targetHeight = rect.height;
+  const destination = new Uint16Array(targetWidth * targetHeight);
+  const placement = computeCropPlacement(rect, sourceWidth, sourceHeight);
+
+  if (placement.sw === 0 || placement.sh === 0) {
+    return destination;
+  }
+
+  for (let row = 0; row < placement.sh; row += 1) {
+    const srcRow = placement.sy + row;
+    if (srcRow < 0 || srcRow >= sourceHeight) {
+      continue;
+    }
+    const destRow = placement.dy + row;
+    if (destRow < 0 || destRow >= targetHeight) {
+      continue;
+    }
+    const srcStart = srcRow * sourceWidth + placement.sx;
+    const destStart = destRow * targetWidth + placement.dx;
+    destination.set(
+      source.subarray(srcStart, srcStart + placement.sw),
+      destStart
+    );
+  }
+
+  return destination;
+};
+
 const sliceImageData = (
   source: ImageData,
   rect: NormalizedCropRect,
@@ -469,6 +504,8 @@ export function readLayerSourcesForCrop(
       let strokeSnapshot:
         | {
             paintBuffer: ArrayBuffer;
+            gradientIdBuffer?: ArrayBuffer;
+            gradientDefIdBuffer?: ArrayBuffer;
             speedBuffer?: ArrayBuffer;
             hasContent: boolean;
             strokeCounter: number;
@@ -492,6 +529,27 @@ export function readLayerSourcesForCrop(
               );
               const hasContent =
                 Boolean(rawSnapshot.hasContent) && croppedBuffer.some((value) => value !== 0);
+              let croppedGradientIds: ArrayBuffer | undefined;
+              if (rawSnapshot.gradientIdBuffer) {
+                const gradientSource = new Uint8Array(rawSnapshot.gradientIdBuffer);
+                if (gradientSource.length === srcWidth * srcHeight) {
+                  const gradientCrop = copyScalarRegion(gradientSource, srcWidth, srcHeight, rect);
+                  croppedGradientIds = gradientCrop.buffer.slice(0) as ArrayBuffer;
+                }
+              }
+              let croppedGradientDefIds: ArrayBuffer | undefined;
+              if (rawSnapshot.gradientDefIdBuffer) {
+                const gradientDefSource = new Uint16Array(rawSnapshot.gradientDefIdBuffer);
+                if (gradientDefSource.length === srcWidth * srcHeight) {
+                  const gradientDefCrop = copyScalarRegionU16(
+                    gradientDefSource,
+                    srcWidth,
+                    srcHeight,
+                    rect
+                  );
+                  croppedGradientDefIds = gradientDefCrop.buffer.slice(0) as ArrayBuffer;
+                }
+              }
               let croppedSpeed: ArrayBuffer | undefined;
               if (rawSnapshot.speedBuffer) {
                 const speedSource = new Uint8Array(rawSnapshot.speedBuffer);
@@ -502,6 +560,8 @@ export function readLayerSourcesForCrop(
               }
               strokeSnapshot = {
                 paintBuffer: croppedBuffer.buffer.slice(0) as ArrayBuffer,
+                gradientIdBuffer: croppedGradientIds,
+                gradientDefIdBuffer: croppedGradientDefIds,
                 speedBuffer: croppedSpeed,
                 hasContent,
                 strokeCounter: rawSnapshot.strokeCounter

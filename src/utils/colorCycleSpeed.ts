@@ -1,5 +1,7 @@
 import {
+  DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
   MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 
@@ -16,6 +18,19 @@ export const quantizeColorCycleSpeed = (speed?: number | null): number | null =>
     return clamped;
   }
   return Math.round(clamped / step) * step;
+};
+
+export const sanitizeBrushColorCycleSpeed = (
+  speed?: number | null,
+  fallback: number = DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
+): number => {
+  const candidate = Number.isFinite(speed) ? (speed as number) : fallback;
+  const resolvedFallback = Number.isFinite(fallback) ? fallback : DEFAULT_BRUSH_COLOR_CYCLE_SPEED;
+  const clamped = Math.max(
+    MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED,
+    Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, candidate > 0 ? candidate : resolvedFallback),
+  );
+  return Number.isFinite(clamped) ? clamped : DEFAULT_BRUSH_COLOR_CYCLE_SPEED;
 };
 
 export const encodeColorCycleSpeedByte = (speed?: number | null): number => {
