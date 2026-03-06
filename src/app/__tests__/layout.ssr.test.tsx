@@ -48,6 +48,12 @@ import RootLayout from '../layout';
 
 jest.mock('../globals.css', () => ({}));
 
+jest.mock('next/font/google', () => ({
+  IBM_Plex_Mono: jest.fn(() => ({
+    variable: '--font-ibm-plex-mono',
+  })),
+}));
+
 jest.mock('next/script', () => ({
   __esModule: true,
   default: ({ children }: { children?: React.ReactNode }) => <>{children}</>,

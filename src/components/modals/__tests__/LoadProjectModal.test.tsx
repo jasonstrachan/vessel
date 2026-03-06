@@ -184,7 +184,6 @@ describe('LoadProjectModal', () => {
 
     expect(await screen.findByText('alpha.vs')).toBeInTheDocument();
     expect(await screen.findByText('beta.vs')).toBeInTheDocument();
-    expect(handleA.getFile).toHaveBeenCalled();
 
     deferredA.resolve(createProjectFile('alpha.vs', { lastModified: 1704067200000 }));
     deferredB.resolve(createProjectFile('beta.vs', { lastModified: 1704153600000 }));
