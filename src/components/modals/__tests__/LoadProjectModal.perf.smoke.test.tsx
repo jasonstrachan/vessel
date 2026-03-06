@@ -86,7 +86,7 @@ describe('LoadProjectModal performance smoke', () => {
     expect(elapsedMs).toBeLessThan(1500);
   });
 
-  it('renders sorted entries so first paint shows alphanumeric ordering', async () => {
+  it('renders sorted entries so first paint keeps newest-cluster ordering', async () => {
     jest.useRealTimers();
     (window as any).showDirectoryPicker = jest.fn(async () => ({
       kind: 'directory',
@@ -108,8 +108,8 @@ describe('LoadProjectModal performance smoke', () => {
       .map((button) => button.textContent ?? '')
       .filter((text) => text.includes('project-'));
 
-    expect(labels[0]).toContain('project-1.vs');
+    expect(labels[0]).toContain('project-10.vs');
     expect(labels[1]).toContain('project-2.vs');
-    expect(labels[2]).toContain('project-10.vs');
+    expect(labels[2]).toContain('project-1.vs');
   });
 });
