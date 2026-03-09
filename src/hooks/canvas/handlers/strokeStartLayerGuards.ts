@@ -96,8 +96,13 @@ export const runStrokeStartLayerGuards = ({
       stops: resolved.activeStops,
       speedCps: refreshedState.tools.brushSettings.colorCycleSpeed,
     });
-    requestGradientApply(activeLayer.id, 'mark-session-start');
-    flushGradientApply(activeLayer.id);
+    const shouldPrimeDitheredStrokeRuntime =
+      refreshedState.tools.brushSettings.colorCycleStampDitherEnabled === true ||
+      refreshedState.tools.brushSettings.ditherEnabled === true;
+    if (shouldPrimeDitheredStrokeRuntime) {
+      requestGradientApply(activeLayer.id, 'mark-session-start');
+      flushGradientApply(activeLayer.id);
+    }
   } catch {}
 
   return true;

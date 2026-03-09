@@ -5,7 +5,6 @@ export const configureStartColorCycleStroke = ({
   currentState,
   activeLayer,
   getColorCycleBrushManager,
-  ensureActiveColorCycleGradientSlot,
   debugLog,
 }: {
   currentState: AppState;
@@ -13,11 +12,6 @@ export const configureStartColorCycleStroke = ({
   getColorCycleBrushManager: () => {
     getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined;
   };
-  ensureActiveColorCycleGradientSlot: (
-    state: AppState,
-    layer: AppState['layers'][number],
-    brush?: ColorCycleBrushImplementation | null
-  ) => void;
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
 }): void => {
   const colorCycleBrushManager = getColorCycleBrushManager();
@@ -27,7 +21,6 @@ export const configureStartColorCycleStroke = ({
     fgStops: currentState.tools.brushSettings.colorCycleFgStops,
     gradientStops: currentState.tools.brushSettings.colorCycleGradient?.length ?? 0,
   });
-  ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
   if (colorCycleBrush) {
     if (typeof colorCycleBrush.setFlowMode === 'function') {
       colorCycleBrush.setFlowMode('forward');

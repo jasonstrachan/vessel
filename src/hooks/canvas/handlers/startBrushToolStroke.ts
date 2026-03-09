@@ -57,7 +57,6 @@ export const startBrushToolStroke = ({
   getCCStampTargetCtx,
   resolveBrushRotation,
   getColorCycleBrushManager,
-  ensureActiveColorCycleGradientSlot,
   debugLog,
   beginMaskHealingStroke,
 }: {
@@ -97,11 +96,6 @@ export const startBrushToolStroke = ({
   getColorCycleBrushManager: () => {
     getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined;
   };
-  ensureActiveColorCycleGradientSlot: (
-    state: AppState,
-    layer: AppState['layers'][number],
-    brush?: ColorCycleBrushImplementation | null
-  ) => void;
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
 }): void => {
@@ -192,7 +186,6 @@ export const startBrushToolStroke = ({
       brushEngine,
       resolveBrushRotation,
       getColorCycleBrushManager,
-      ensureActiveColorCycleGradientSlot,
       debugLog,
       beginMaskHealingStroke,
     });

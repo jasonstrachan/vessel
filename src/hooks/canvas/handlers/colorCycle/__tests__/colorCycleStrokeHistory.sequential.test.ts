@@ -251,4 +251,74 @@ describe('commitStrokeHistoryIfNeeded sequential branch', () => {
       'event-segment-2',
     ]);
   });
+
+  it('does not wait for deferred color-cycle stroke save before returning', async () => {
+    const ccLayer = {
+      id: 'layer-cc',
+      name: 'CC Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: document.createElement('canvas'),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas: document.createElement('canvas'),
+      },
+    } as unknown as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      layers: [ccLayer],
+      activeLayerId: ccLayer.id,
+    }));
+
+    let releaseDeferred: (() => void) | undefined;
+    const deferredSave = new Promise<void>((resolve) => {
+      releaseDeferred = resolve;
+    });
+
+    const result = await Promise.race([
+      commitStrokeHistoryIfNeeded(
+        {
+          shouldCommit: true,
+          activeLayerId: ccLayer.id,
+          layerBeforeImage: null,
+          layerBeforeColorState: null,
+          actionType: 'brush',
+          description: 'CC stroke',
+          tool: 'brush',
+          coalesce: undefined,
+          historyBitmapRoi: undefined,
+          shouldSkipBitmapDelta: true,
+          isColorCycleLayer: true,
+          isColorCycleBrush: true,
+          deferredLayerCanvas: document.createElement('canvas'),
+          strokeCaptureRoi: undefined,
+          brushForCleanup: undefined,
+        },
+        {
+          scheduleDeferredColorCycleSave: jest.fn(() => deferredSave),
+          scheduleHistoryCommit: jest.fn(async () => undefined),
+          captureColorCycleBrushState: jest.fn(() => null),
+          perfMark: jest.fn(),
+          perfMeasure: jest.fn(),
+          debugTime: jest.fn(),
+          debugTimeEnd: jest.fn(),
+          debugVerbose: jest.fn(),
+        }
+      ).then(() => 'resolved'),
+      new Promise<'timeout'>((resolve) => {
+        setTimeout(() => resolve('timeout'), 0);
+      }),
+    ]);
+
+    expect(result).toBe('resolved');
+
+    releaseDeferred?.();
+    await deferredSave;
+  });
 });

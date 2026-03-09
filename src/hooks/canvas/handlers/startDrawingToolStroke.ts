@@ -37,7 +37,6 @@ export const startDrawingToolStroke = ({
   getCCStampTargetCtx,
   resolveBrushRotation,
   getColorCycleBrushManager,
-  ensureActiveColorCycleGradientSlot,
   debugLog,
   beginMaskHealingStroke,
 }: {
@@ -71,7 +70,6 @@ export const startDrawingToolStroke = ({
   getCCStampTargetCtx: StartBrushToolStrokeArgs['getCCStampTargetCtx'];
   resolveBrushRotation: StartBrushToolStrokeArgs['resolveBrushRotation'];
   getColorCycleBrushManager: StartBrushToolStrokeArgs['getColorCycleBrushManager'];
-  ensureActiveColorCycleGradientSlot: StartBrushToolStrokeArgs['ensureActiveColorCycleGradientSlot'];
   debugLog: StartBrushToolStrokeArgs['debugLog'];
   beginMaskHealingStroke: StartBrushToolStrokeArgs['beginMaskHealingStroke'];
 }): boolean => {
@@ -114,13 +112,12 @@ export const startDrawingToolStroke = ({
     scheduleRecompose,
     colorCycleLastPosRef,
     colorCycleDistanceRef,
-    colorCycleLastRotationRef,
-    getCCStampTargetCtx,
-    resolveBrushRotation,
-    getColorCycleBrushManager,
-    ensureActiveColorCycleGradientSlot,
-    debugLog,
-    beginMaskHealingStroke,
-  });
+      colorCycleLastRotationRef,
+      getCCStampTargetCtx,
+      resolveBrushRotation,
+      getColorCycleBrushManager,
+      debugLog,
+      beginMaskHealingStroke,
+    });
   return true;
 };

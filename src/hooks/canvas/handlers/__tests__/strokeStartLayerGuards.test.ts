@@ -83,4 +83,52 @@ describe('runStrokeStartLayerGuards', () => {
       "Can't use Color Cycle brush on this layer. Switch to a sequential or Color Cycle layer."
     );
   });
+
+  it('primes gradient runtime at stroke start when CC stamp dithering is enabled', () => {
+    const feedback = jest.fn();
+    const requestGradientApply = jest.spyOn(
+      jest.requireActual('@/hooks/brushEngine/ccGradientApplyScheduler'),
+      'requestGradientApply'
+    );
+    const flushGradientApply = jest.spyOn(
+      jest.requireActual('@/hooks/brushEngine/ccGradientApplyScheduler'),
+      'flushGradientApply'
+    );
+    const state = useAppStore.getState();
+    useAppStore.setState({
+      ...state,
+      layers: [createLayer('color-cycle')],
+      activeLayerId: 'layer-color-cycle',
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleStampDitherEnabled: true,
+        },
+      },
+    });
+    const currentState = {
+      ...useAppStore.getState(),
+      initColorCycleForLayer: jest.fn(),
+    } as typeof state;
+
+    const allowed = runStrokeStartLayerGuards({
+      activeLayer: createLayer('color-cycle'),
+      currentTool: 'brush',
+      isAnyColorCycleBrush: true,
+      runtimeProject: { width: 64, height: 64 },
+      currentState,
+      feedbackMessageRef: { current: feedback },
+      logError: jest.fn(),
+      getColorCycleBrushManager: () => ({ getBrush: () => ({}) as never }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+    });
+
+    expect(allowed).toBe(true);
+    expect(requestGradientApply).toHaveBeenCalledWith('layer-color-cycle', 'mark-session-start');
+    expect(flushGradientApply).toHaveBeenCalledWith('layer-color-cycle');
+
+    requestGradientApply.mockRestore();
+    flushGradientApply.mockRestore();
+  });
 });
