@@ -20,6 +20,7 @@ import {
   getNextGradientSlot,
   resolveActiveColorCycleGradient,
 } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { Layer } from '@/types';
 
 const shouldLogCcGradientDebug = (): boolean => {
@@ -127,6 +128,7 @@ export const ensureActiveColorCycleGradientSlot = ({
   brush,
 }: EnsureActiveColorCycleGradientSlotArgs): void => {
   const brushSettings = state.tools.brushSettings;
+  const useSampledGradient = state.tools.ccGradientSource === 'sampled';
   const useForegroundGradient = Boolean(brushSettings.colorCycleUseForegroundGradient);
   const {
     gradientDefs,
@@ -164,6 +166,17 @@ export const ensureActiveColorCycleGradientSlot = ({
       });
       gradientTraceByLayer.set(layer.id, { sig, source });
     }
+  }
+
+  if (useSampledGradient) {
+    if (brush && typeof (brush as { setPreserveGradientPhase?: (enabled: boolean) => void }).setPreserveGradientPhase === 'function') {
+      (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(preserveGradientPhase);
+    }
+    const activeSession = getActiveMarkGradientSession(layer.id);
+    if (activeSession?.source === 'sampled') {
+      requestGradientApply(layer.id, 'ensure-active-slot:sampled');
+    }
+    return;
   }
 
   if (!useForegroundGradient) {
