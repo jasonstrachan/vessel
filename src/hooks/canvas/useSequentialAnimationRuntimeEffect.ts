@@ -9,10 +9,6 @@ import {
   getBufferedSequentialPendingPayloadBytes,
   noteSequentialCaptureActivity,
 } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
-import {
-  createSequentialPayloadBudgetRuntime,
-  readSequentialProjectPayloadBytes,
-} from '@/lib/sequential/SequentialPayloadBudget';
 import { setSequentialFrameCacheSnapshot } from '@/lib/sequential/SequentialPerfCounters';
 import { getSequentialLayerRendererStats } from '@/lib/sequential/SequentialLayerRenderer';
 import { logError } from '@/utils/debug';
@@ -28,40 +24,6 @@ interface UseSequentialAnimationRuntimeEffectOptions {
   storeRef: React.MutableRefObject<AppState>;
 }
 
-interface SequentialPerfProbeSnapshot {
-  isPlaybackActive: boolean;
-  isCaptureActive: boolean;
-  currentFrame: number;
-  frameCount: number;
-  fps: number;
-  timeSmear: number;
-  metrics: AppState['sequentialRecord']['metrics'];
-  sequentialPayloadBytes: number;
-  sequentialLayerCount: number;
-}
-
-interface SequentialPerfProbeSummary {
-  sampleCount: number;
-  avgTickMsMean: number;
-  lastTickMsMax: number;
-  payloadBytesMax: number;
-  cacheEntriesMax: number;
-  cacheHitRateAtLastSample: number;
-  finalFrame: number;
-  frameCount: number;
-}
-
-interface SequentialPerfProbeApi {
-  getSnapshot: () => SequentialPerfProbeSnapshot;
-  resetMetrics: () => void;
-  printSnapshot: () => SequentialPerfProbeSnapshot;
-  recordSample: () => SequentialPerfProbeSnapshot;
-  getSamples: () => SequentialPerfProbeSnapshot[];
-  clearSamples: () => void;
-  summarizeSamples: () => SequentialPerfProbeSummary;
-}
-
-const payloadBudgetRuntime = createSequentialPayloadBudgetRuntime();
 const SEQUENTIAL_METRICS_SAMPLE_MS = 250;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS = 1000;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS = 4000;
@@ -83,114 +45,6 @@ const hasSequentialRuntimeState = (
   );
 };
 
-const installSequentialPerfProbe = (): (() => void) => {
-  if (process.env.NODE_ENV === 'production') {
-    return () => {};
-  }
-
-  const globalScope = globalThis as typeof globalThis & {
-    vesselSequentialPerf?: SequentialPerfProbeApi;
-  };
-
-  const getSnapshot = (): SequentialPerfProbeSnapshot => {
-    const state = useAppStore.getState();
-    const sequentialLayers = state.layers.filter(
-      (layer) => layer.layerType === 'sequential' && !!layer.sequentialData
-    );
-
-    return {
-      isPlaybackActive: selectSequentialPlaybackActive(state),
-      isCaptureActive: selectSequentialCaptureActive(state),
-      currentFrame: state.sequentialRecord.currentFrame,
-      frameCount: state.sequentialRecord.frameCount,
-      fps: state.sequentialRecord.fps,
-      timeSmear: state.sequentialRecord.timeSmear,
-      metrics: state.sequentialRecord.metrics,
-      sequentialPayloadBytes: readSequentialProjectPayloadBytes({
-        layers: state.layers,
-        runtime: payloadBudgetRuntime,
-      }),
-      sequentialLayerCount: sequentialLayers.length,
-    };
-  };
-
-  const samples: SequentialPerfProbeSnapshot[] = [];
-  const recordSample = (): SequentialPerfProbeSnapshot => {
-    const snapshot = getSnapshot();
-    samples.push(snapshot);
-    return snapshot;
-  };
-
-  const summarizeSamples = (): SequentialPerfProbeSummary => {
-    if (samples.length === 0) {
-      const snapshot = getSnapshot();
-      const totalCacheOps = snapshot.metrics.frameCacheHits + snapshot.metrics.frameCacheMisses;
-      return {
-        sampleCount: 0,
-        avgTickMsMean: 0,
-        lastTickMsMax: 0,
-        payloadBytesMax: snapshot.sequentialPayloadBytes,
-        cacheEntriesMax: snapshot.metrics.frameCacheEntries,
-        cacheHitRateAtLastSample: totalCacheOps > 0 ? snapshot.metrics.frameCacheHits / totalCacheOps : 0,
-        finalFrame: snapshot.currentFrame,
-        frameCount: snapshot.frameCount,
-      };
-    }
-
-    let avgTickMsAccumulator = 0;
-    let lastTickMsMax = 0;
-    let payloadBytesMax = 0;
-    let cacheEntriesMax = 0;
-    for (let i = 0; i < samples.length; i += 1) {
-      const sample = samples[i];
-      avgTickMsAccumulator += sample.metrics.avgTickMs;
-      lastTickMsMax = Math.max(lastTickMsMax, sample.metrics.lastTickMs);
-      payloadBytesMax = Math.max(payloadBytesMax, sample.sequentialPayloadBytes);
-      cacheEntriesMax = Math.max(cacheEntriesMax, sample.metrics.frameCacheEntries);
-    }
-
-    const lastSample = samples[samples.length - 1];
-    const totalCacheOps = lastSample.metrics.frameCacheHits + lastSample.metrics.frameCacheMisses;
-
-    return {
-      sampleCount: samples.length,
-      avgTickMsMean: avgTickMsAccumulator / samples.length,
-      lastTickMsMax,
-      payloadBytesMax,
-      cacheEntriesMax,
-      cacheHitRateAtLastSample: totalCacheOps > 0 ? lastSample.metrics.frameCacheHits / totalCacheOps : 0,
-      finalFrame: lastSample.currentFrame,
-      frameCount: lastSample.frameCount,
-    };
-  };
-
-  const api: SequentialPerfProbeApi = {
-    getSnapshot,
-    resetMetrics: () => {
-      useAppStore.getState().resetSequentialRuntimeMetrics();
-    },
-    printSnapshot: () => {
-      const snapshot = getSnapshot();
-      console.log('[vesselSequentialPerf]', snapshot);
-      return snapshot;
-    },
-    recordSample,
-    getSamples: () => [...samples],
-    clearSamples: () => {
-      samples.length = 0;
-    },
-    summarizeSamples,
-  };
-
-  globalScope.vesselSequentialPerf = api;
-
-  return () => {
-    if (globalScope.vesselSequentialPerf === api) {
-      delete globalScope.vesselSequentialPerf;
-    }
-  };
-};
-
 export const useSequentialAnimationRuntimeEffect = ({
   storeRef,
 }: UseSequentialAnimationRuntimeEffectOptions) => {
@@ -209,8 +63,6 @@ export const useSequentialAnimationRuntimeEffect = ({
       // no-op
     }
   };
-
-  useEffect(() => installSequentialPerfProbe(), []);
 
   useEffect(() => {
     const runtime = getSharedAnimationRuntime();

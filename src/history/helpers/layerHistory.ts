@@ -7,11 +7,9 @@ import { captureColorCycleBrushState, type ColorCycleSerializedState } from './c
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { HistoryDelta } from '@/history/actionTypes';
 import type { CanvasSnapshot } from '@/types';
-import { CC_DEBUG } from '@/debug/ccDebug';
 import { useAppStore } from '@/stores/useAppStore';
 import { createSelectionDelta } from '@/history/deltas/selectionDelta';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import { timeAsync } from '@/utils/perf/ccPerfProbe';
 import {
   cloneSelectionSnapshot,
   selectionSnapshotFromValues,
@@ -195,8 +193,7 @@ export const commitLayerHistory = async ({
   selectionBefore,
   skipBitmapDelta,
   bitmapRoi,
-}: LayerHistoryPayload): Promise<void> =>
-  timeAsync('commitLayerHistory', async () => {
+}: LayerHistoryPayload): Promise<void> => {
     const afterState = useAppStore.getState();
     const refreshedLayer = afterState.layers.find((layer) => layer.id === layerId) ?? null;
     if (!refreshedLayer) {
@@ -294,14 +291,6 @@ export const commitLayerHistory = async ({
       }
 
       if (afterColorState || beforeColorState) {
-        if (CC_DEBUG.on) {
-          console.debug('[cc-delta-capture]', {
-            beforeBytes: beforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-            afterBytes: afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-            beforeCtr: beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-            afterCtr: afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-          });
-        }
         const inferredRoi = inferFallbackRoiFromStateDiff(
           beforeColorState,
           afterColorState,
@@ -364,6 +353,6 @@ export const commitLayerHistory = async ({
         markUnsavedChanges();
       }
     }
-  });
+  };
 
 export const cloneLayerImageData = cloneImageData;

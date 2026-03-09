@@ -1,5 +1,5 @@
 import { BrushShape, type Layer, type SequentialStrokeEvent } from '@/types';
-import { isFeatureFlagEnabled, setFeatureFlag } from '@/config/featureFlags';
+import { setFeatureFlag } from '@/config/featureFlags';
 import {
   clearSequentialLayerRendererAll,
   getSequentialLayerRenderCanvas,
@@ -264,66 +264,6 @@ describe('SequentialLayerRenderer', () => {
     } finally {
       materializeRectSpy.mockRestore();
       patchFrameSpy.mockRestore();
-    }
-  });
-
-  it('exposes patch reason counters and increments them on append patch activity', () => {
-    const previousDirtyRunPatchFlag = isFeatureFlagEnabled('enableSequentialDirtyRunPatch');
-    setFeatureFlag('enableSequentialDirtyRunPatch', true);
-    try {
-      const beforeReasons = window.__lastSequentialPerf?.patching.reasons ?? {
-        applied_run_patch: 0,
-        collapsed_to_band_patch: 0,
-        collapsed_to_full_patch: 0,
-        fallback_exception: 0,
-      };
-
-      const initialLayer = createLayer([createEvent('f0-initial', 0, '#ff0000')]);
-      void getSequentialLayerRenderCanvas({
-        layer: initialLayer,
-        width: 16,
-        height: 16,
-        frameIndex: 0,
-      });
-
-      const appendedLayer: Layer = {
-        ...initialLayer,
-        sequentialData: {
-          ...initialLayer.sequentialData!,
-          events: [
-            ...initialLayer.sequentialData!.events,
-            createEvent('f0-appended', 0, '#00ff00'),
-          ],
-        },
-      };
-
-      void getSequentialLayerRenderCanvas({
-        layer: appendedLayer,
-        width: 16,
-        height: 16,
-        frameIndex: 0,
-      });
-
-      const reasons = window.__lastSequentialPerf?.patching.reasons;
-      expect(reasons).toBeDefined();
-      expect(typeof reasons?.applied_run_patch).toBe('number');
-      expect(typeof reasons?.collapsed_to_band_patch).toBe('number');
-      expect(typeof reasons?.collapsed_to_full_patch).toBe('number');
-      expect(typeof reasons?.fallback_exception).toBe('number');
-
-      const beforeTotal =
-        beforeReasons.applied_run_patch +
-        beforeReasons.collapsed_to_band_patch +
-        beforeReasons.collapsed_to_full_patch +
-        beforeReasons.fallback_exception;
-      const afterTotal =
-        (reasons?.applied_run_patch ?? 0) +
-        (reasons?.collapsed_to_band_patch ?? 0) +
-        (reasons?.collapsed_to_full_patch ?? 0) +
-        (reasons?.fallback_exception ?? 0);
-      expect(afterTotal).toBeGreaterThan(beforeTotal);
-    } finally {
-      setFeatureFlag('enableSequentialDirtyRunPatch', previousDirtyRunPatchFlag);
     }
   });
 

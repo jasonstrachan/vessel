@@ -122,18 +122,6 @@ jest.mock('@/utils/risographTexture', () => ({
   preloadRisographTexture: jest.fn(),
 }));
 
-jest.mock('@/utils/perf/ccPerfProbe', () => ({
-  enableCCPerfProbe: jest.fn(),
-}));
-
-jest.mock('@/history/helpers/layerHistory', () => ({
-  commitLayerHistory: jest.fn(),
-}));
-
-jest.mock('@/history/helpers/colorCycle', () => ({
-  captureColorCycleBrushState: jest.fn(),
-}));
-
 function createMockStore() {
   const store = {
     toggleModal: jest.fn(),

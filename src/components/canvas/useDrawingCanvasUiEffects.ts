@@ -2,7 +2,6 @@ import type React from 'react';
 import { useEffect } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
-import { recordCanvasDrawPerf } from '@/utils/perf/ccPerfProbe';
 
 interface UseDrawingCanvasUiEffectsOptions {
   selectionStart: unknown;
@@ -62,21 +61,7 @@ export const useDrawingCanvasUiEffects = ({
           const canvas = canvasRef.current;
           const ctx = canvas?.getContext('2d', { willReadFrequently: true });
           if (ctx) {
-            const startMs =
-              typeof performance !== 'undefined' && typeof performance.now === 'function'
-                ? performance.now()
-                : null;
             draw(ctx, viewTransformRef.current);
-            if (
-              startMs !== null &&
-              typeof performance !== 'undefined' &&
-              typeof performance.now === 'function'
-            ) {
-              recordCanvasDrawPerf({
-                durationMs: Math.max(0, performance.now() - startMs),
-                reason: 'overlay-animation',
-              });
-            }
           }
         }
         animationId = requestAnimationFrame(animate);
@@ -138,20 +123,6 @@ export const useDrawingCanvasUiEffects = ({
     const ctx = canvasElement?.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
-    const startMs =
-      typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : null;
     draw(ctx, viewTransformRef.current);
-    if (
-      startMs !== null &&
-      typeof performance !== 'undefined' &&
-      typeof performance.now === 'function'
-    ) {
-      recordCanvasDrawPerf({
-        durationMs: Math.max(0, performance.now() - startMs),
-        reason: 'main',
-      });
-    }
   }, [canvasRef, canvasOffsetX, canvasOffsetY, canvasZoom, draw, mode, needsRedraw, viewTransformRef]);
 };
