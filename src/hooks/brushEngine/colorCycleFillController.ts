@@ -112,7 +112,7 @@ export const fillColorCycleLinear = async ({
 }: SharedArgs & {
   vertices: Point2D[];
   direction: Point2D;
-  options?: GradientDitherOptions;
+  options?: GradientDitherOptions & { skipPostRender?: boolean };
 }): Promise<void> => {
   const brush = initializeColorCycleBrush() as FillBrush | null;
   const layerId = activeLayerId;
@@ -162,7 +162,9 @@ export const fillColorCycleLinear = async ({
     );
 
     brush.endStroke(layerId);
-    renderBrushToLayerCanvas(brush, layerId);
+    if (!options?.skipPostRender) {
+      renderBrushToLayerCanvas(brush, layerId);
+    }
   }
 };
 
@@ -180,7 +182,7 @@ export const fillColorCycleConcentric = async ({
   renderBrushToLayerCanvas,
 }: SharedArgs & {
   vertices: Point2D[];
-  options?: GradientDitherOptions;
+  options?: GradientDitherOptions & { skipPostRender?: boolean };
 }): Promise<void> => {
   const brush = initializeColorCycleBrush() as FillBrush | null;
   const layerId = activeLayerId;
@@ -230,6 +232,8 @@ export const fillColorCycleConcentric = async ({
     );
 
     brush.endStroke(layerId);
-    renderBrushToLayerCanvas(brush, layerId);
+    if (!options?.skipPostRender) {
+      renderBrushToLayerCanvas(brush, layerId);
+    }
   }
 };

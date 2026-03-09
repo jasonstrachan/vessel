@@ -309,6 +309,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
         ditherPixelSize: args.ditherPixelSize,
         roi: args.roi,
+        skipPostRender: true,
       });
     });
 
@@ -500,6 +501,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
         ditherPixelSize: args.ditherPixelSize,
         roi: args.roi,
+        skipPostRender: true,
       });
     });
 
