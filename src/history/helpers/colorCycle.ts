@@ -1,6 +1,5 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
-import { timeSync } from '@/utils/perf/ccPerfProbe';
 import type { ColorCycleBrushImplementation } from '@/stores/colorCycleBrushManager';
 
 type BaseColorCycleSerializedState = ReturnType<ColorCycleBrushImplementation['serialize']>;
@@ -82,7 +81,7 @@ const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot 
 };
 
 export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializedState =>
-  timeSync('captureColorCycleBrushState', () => {
+  (() => {
     const manager = getColorCycleBrushManager();
     const brush = manager.getBrush(layerId);
     if (!brush || typeof brush.serialize !== 'function') {
@@ -153,4 +152,4 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
     } catch {
       return null;
     }
-  });
+  })();

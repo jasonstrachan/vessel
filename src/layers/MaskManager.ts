@@ -1,5 +1,4 @@
 import type { Layer } from '@/types';
-import { perfMark, perfMeasure } from '@/utils/perf/ccPerfProbe';
 
 export type MaskDimensions = { width: number; height: number };
 
@@ -67,24 +66,19 @@ export class MaskManager {
 
   applyMaskToCanvas(
     layerId: string,
-    targetCtx: CanvasRenderingContext2D,
-    options: { perfLabel?: string } = {}
+    targetCtx: CanvasRenderingContext2D
   ): void {
     const layer = this.deps.getLayer(layerId);
     const mask = layer?.colorCycleData?.eraseMask;
     if (!layer || !mask) {
       return;
     }
-    const label = options.perfLabel ?? 'cc:mask:apply';
-    perfMark(`${label}:start`);
     targetCtx.save();
     try {
       targetCtx.globalCompositeOperation = 'destination-out';
       targetCtx.drawImage(mask, 0, 0);
     } finally {
       targetCtx.restore();
-      perfMark(`${label}:end`);
-      perfMeasure(label, `${label}:start`, `${label}:end`);
     }
   }
 

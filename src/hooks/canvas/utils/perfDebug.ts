@@ -9,35 +9,21 @@ export type PerfDebugDeps = {
 
 export const createPerfDebug = (deps: PerfDebugDeps) => {
   const debugTime = (label: string) => {
-    if (deps.debugEnabled() && deps.debugTimingEnabled()) {
-      console.time(label);
-    }
+    void label;
   };
 
   const debugTimeEnd = (label: string) => {
-    if (deps.debugEnabled() && deps.debugTimingEnabled()) {
-      console.timeEnd(label);
-    }
+    void label;
   };
 
   const debugVerbose = (...args: Parameters<typeof console.debug>) => {
-    if (deps.debugEnabled() && deps.debugVerboseEnabled()) {
-      console.debug(...args);
-    }
+    void args;
   };
 
   const withTiming = async <T>(label: string, task: () => Promise<T> | T): Promise<T> => {
-    debugTime(label);
-    const startMark = `${label}:start`;
-    const endMark = `${label}:end`;
-    deps.perfMark(startMark);
-    try {
-      return await deps.timeAsync(label, async () => task());
-    } finally {
-      deps.perfMark(endMark);
-      deps.perfMeasure(label, startMark, endMark);
-      debugTimeEnd(label);
-    }
+    void label;
+    void deps;
+    return await task();
   };
 
   return {

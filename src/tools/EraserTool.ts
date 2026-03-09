@@ -6,7 +6,6 @@ import type { BrushStampSource } from './stamps/BrushStampSource';
 import { RasterEraseStrategy } from './strategies/RasterEraseStrategy';
 import { CCMaskEraseStrategy } from './strategies/CCMaskEraseStrategy';
 import type { EraseStrategy } from './strategies/types';
-import { perfMark, perfMeasure } from '@/utils/perf/ccPerfProbe';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 
 export type CanvasPoint = { x: number; y: number };
@@ -63,8 +62,6 @@ export class EraserTool implements StrokeTool {
   }
 
   begin(point: CanvasPoint, pressure = 1): void {
-    perfMark('eraser:begin');
-    perfMark('eraser:roi-build:start');
     this.roi.reset();
     this.isActive = true;
 
@@ -82,7 +79,6 @@ export class EraserTool implements StrokeTool {
     if (!this.isActive || !this.activeContext) {
       return;
     }
-    perfMark('eraser:move');
     const lastPoint = from ?? this.stampSource?.last() ?? null;
     this.strategy.stamp(lastPoint ?? point, point, pressure, this.stampSource);
     this.recordROI(lastPoint, point);
@@ -92,13 +88,10 @@ export class EraserTool implements StrokeTool {
     if (!this.isActive) {
       return;
     }
-    perfMark('eraser:end');
     this.strategy.end();
     this.stampSource?.end();
     this.isActive = false;
     this.activeContext = null;
-    perfMark('eraser:roi-build:end');
-    perfMeasure('eraser:roi-build', 'eraser:roi-build:start', 'eraser:roi-build:end');
   }
 
   cancel(): void {

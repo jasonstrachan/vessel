@@ -2,7 +2,6 @@ import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { NON_ACTIVE_COLOR_CYCLE_FPS } from '@/constants/colorCycle';
-import { recordColorCycleLayerRenderPerf } from '@/utils/perf/ccPerfProbe';
 
 export type ColorCycleBrush = ColorCycleBrushImplementation;
 const NON_ACTIVE_COLOR_CYCLE_FRAME_MS = 1000 / NON_ACTIVE_COLOR_CYCLE_FPS;
@@ -53,11 +52,6 @@ export const renderAllColorCycleLayers = (
   const { storeRef, renderAllCCLogTSRef, ccLog } = deps;
   const currentState = storeRef.current;
   let hasRendered = false;
-  let visibleLayerCount = 0;
-  const renderStartMs =
-    typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : null;
 
   const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
   if (now - renderAllCCLogTSRef.current > 1000) {
@@ -78,7 +72,6 @@ export const renderAllColorCycleLayers = (
       return;
     }
     if (layer.visible && layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
-      visibleLayerCount += 1;
       const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
       if (!colorCycleBrush) return;
 
@@ -130,14 +123,6 @@ export const renderAllColorCycleLayers = (
       }
     }
   });
-
-  if (renderStartMs !== null && typeof performance !== 'undefined' && typeof performance.now === 'function') {
-    recordColorCycleLayerRenderPerf({
-      durationMs: Math.max(0, performance.now() - renderStartMs),
-      visibleLayerCount,
-      onlyActiveLayer,
-    });
-  }
 
   return hasRendered;
 };

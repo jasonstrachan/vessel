@@ -54,13 +54,10 @@ describe('renderAllColorCycleLayers throttling', () => {
 
     const nowSpy = jest.spyOn(performance, 'now');
     nowSpy.mockReturnValueOnce(1000);
-    nowSpy.mockReturnValueOnce(1001);
     renderAllColorCycleLayers(deps);
     nowSpy.mockReturnValueOnce(1010);
-    nowSpy.mockReturnValueOnce(1011);
     renderAllColorCycleLayers(deps);
     nowSpy.mockReturnValueOnce(1200);
-    nowSpy.mockReturnValueOnce(1201);
     renderAllColorCycleLayers(deps);
 
     expect(updateAnimation).toHaveBeenCalledTimes(2);

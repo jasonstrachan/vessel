@@ -74,7 +74,6 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     setFeatureFlag('enableSequentialRecordMode', false);
     requestAnimationFrameSpy.mockRestore();
     cancelAnimationFrameSpy.mockRestore();
-    delete (globalThis as typeof globalThis & { vesselSequentialPerf?: unknown }).vesselSequentialPerf;
   });
 
   it('advances frames and keeps runtime ticking during sequential capture with no CC layers', () => {
@@ -211,67 +210,4 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     unmount();
   });
 
-  it('exposes a dev sequential perf probe with snapshot and reset actions', () => {
-    const storeRef = { current: useAppStore.getState() as AppState };
-
-    const { unmount } = renderHook(() => {
-      storeRef.current = useAppStore.getState() as AppState;
-      useSequentialAnimationRuntimeEffect({ storeRef });
-    });
-
-    const perfProbe = (
-      globalThis as typeof globalThis & {
-        vesselSequentialPerf?: {
-          getSnapshot: () => {
-            metrics: { tickCount: number };
-            sequentialPayloadBytes: number;
-          };
-          resetMetrics: () => void;
-          recordSample: () => unknown;
-          getSamples: () => unknown[];
-          clearSamples: () => void;
-          summarizeSamples: () => {
-            sampleCount: number;
-            avgTickMsMean: number;
-            payloadBytesMax: number;
-          };
-        };
-      }
-    ).vesselSequentialPerf;
-
-    expect(perfProbe).toBeDefined();
-    if (!perfProbe) {
-      unmount();
-      return;
-    }
-
-    act(() => {
-      rafCallback?.(1000);
-      rafCallback?.(1200);
-    });
-
-    const beforeReset = perfProbe.getSnapshot();
-    expect(beforeReset.metrics.tickCount).toBeGreaterThan(0);
-    expect(beforeReset.sequentialPayloadBytes).toBeGreaterThanOrEqual(0);
-
-    act(() => {
-      perfProbe.resetMetrics();
-    });
-
-    const afterReset = perfProbe.getSnapshot();
-    expect(afterReset.metrics.tickCount).toBe(0);
-    perfProbe.clearSamples();
-    act(() => {
-      perfProbe.recordSample();
-      rafCallback?.(1400);
-      perfProbe.recordSample();
-    });
-    const summary = perfProbe.summarizeSamples();
-    expect(summary.sampleCount).toBe(2);
-    expect(summary.avgTickMsMean).toBeGreaterThanOrEqual(0);
-    expect(summary.payloadBytesMax).toBeGreaterThanOrEqual(0);
-    expect(perfProbe.getSamples()).toHaveLength(2);
-
-    unmount();
-  });
 });
