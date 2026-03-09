@@ -1460,7 +1460,11 @@ export const useBrushEngineSimplified = () => {
   const fillCcGradientLinear = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
     direction: { x: number; y: number },
-    options?: { ditherPixelSize?: number; roi?: { x: number; y: number; width: number; height: number } }
+    options?: {
+      ditherPixelSize?: number;
+      roi?: { x: number; y: number; width: number; height: number };
+      skipPostRender?: boolean;
+    }
   ) => {
     await fillColorCycleLinear({
       vertices,
@@ -1488,7 +1492,11 @@ export const useBrushEngineSimplified = () => {
    */
   const fillCcGradientConcentric = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
-    options?: { ditherPixelSize?: number; roi?: { x: number; y: number; width: number; height: number } }
+    options?: {
+      ditherPixelSize?: number;
+      roi?: { x: number; y: number; width: number; height: number };
+      skipPostRender?: boolean;
+    }
   ) => {
     await fillColorCycleConcentric({
       vertices,
