@@ -199,6 +199,11 @@ const applyTransparencyLockToBrushSnapshot = ({
   return true;
 };
 
+const shouldRefreshForegroundRuntimeForShapeFinalize = (
+  useForegroundGradient: boolean,
+  session: MarkGradientSession | null
+): boolean => useForegroundGradient && !session?.binding;
+
 export const computeFallbackLinearDirection = (
   points: Array<{ x: number; y: number }>
 ): { x: number; y: number } => {
@@ -274,16 +279,17 @@ export const finalizeColorCycleShapeFillLinear = async (
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
+      const session = args.session;
+      const shouldRefreshForegroundRuntime = shouldRefreshForegroundRuntimeForShapeFinalize(useFG, session);
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
       let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-      if (useFG && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
+      if (shouldRefreshForegroundRuntime && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
         const ensured = ensureForegroundGradientSlot(args.activeLayerId);
         fgSlot = ensured?.slot ?? fgSlot;
         fgPalette = ensured?.stops?.length
           ? { slot: ensured.slot, stops: ensured.stops }
           : fgPalette;
       }
-      const session = args.session;
       const frozenStops = session?.frozenStopsStored;
       if (!frozenStops?.length) {
         deps.logError('[CC] Missing mark session on shape finalize (linear).');
@@ -313,7 +319,10 @@ export const finalizeColorCycleShapeFillLinear = async (
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
-      if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+      if (shouldRefreshForegroundRuntimeForShapeFinalize(
+        Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
+        args.session
+      )) {
         const layer = st.layers.find((candidate) => candidate.id === args.activeLayerId);
         let fgSlot = layer?.colorCycleData?.fgActiveSlot;
         let fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
@@ -461,16 +470,17 @@ export const finalizeColorCycleShapeFillConcentric = async (
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
+      const session = args.session;
+      const shouldRefreshForegroundRuntime = shouldRefreshForegroundRuntimeForShapeFinalize(useFG, session);
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
       let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-      if (useFG && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
+      if (shouldRefreshForegroundRuntime && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
         const ensured = ensureForegroundGradientSlot(args.activeLayerId);
         fgSlot = ensured?.slot ?? fgSlot;
         fgPalette = ensured?.stops?.length
           ? { slot: ensured.slot, stops: ensured.stops }
           : fgPalette;
       }
-      const session = args.session;
       const frozenStops = session?.frozenStopsStored;
       if (!frozenStops?.length) {
         deps.logError('[CC] Missing mark session on shape finalize (concentric).');
@@ -500,7 +510,10 @@ export const finalizeColorCycleShapeFillConcentric = async (
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
-      if (st.tools.brushSettings.colorCycleUseForegroundGradient) {
+      if (shouldRefreshForegroundRuntimeForShapeFinalize(
+        Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
+        args.session
+      )) {
         const layer = st.layers.find((candidate) => candidate.id === args.activeLayerId);
         let fgSlot = layer?.colorCycleData?.fgActiveSlot;
         let fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);

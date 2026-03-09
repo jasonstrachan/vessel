@@ -25,6 +25,8 @@ export class GradientPalette {
   
   // Cache for parsed colors
   private parsedColors: Map<string, RGBA> = new Map();
+  private static parserCanvas: HTMLCanvasElement | null = null;
+  private static parserContext: CanvasRenderingContext2D | null = null;
   
   constructor(stops?: GradientStop[]) {
     this.colors = new Uint8ClampedArray(this.paletteSize * 4);
@@ -60,11 +62,7 @@ export class GradientPalette {
       return this.parsedColors.get(color)!;
     }
     
-    // Use a small canvas to parse the color
-    const canvas = document.createElement('canvas');
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = GradientPalette.getParserContext();
     
     if (!ctx) {
       const rgba = { r: 0, g: 0, b: 0, a: 255 };
@@ -85,6 +83,21 @@ export class GradientPalette {
     
     this.parsedColors.set(color, rgba);
     return rgba;
+  }
+
+  private static getParserContext(): CanvasRenderingContext2D | null {
+    if (GradientPalette.parserContext) {
+      return GradientPalette.parserContext;
+    }
+    if (typeof document === 'undefined') {
+      return null;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    GradientPalette.parserCanvas = canvas;
+    GradientPalette.parserContext = canvas.getContext('2d', { willReadFrequently: true });
+    return GradientPalette.parserContext;
   }
   
   /**
