@@ -77,7 +77,13 @@ describe('colorCycleMarkSession rebuild', () => {
 
     expect(session).not.toBeNull();
     expect(session?.binding).toBeNull();
+    expect(useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore).toEqual([]);
 
-    finalizeMarkGradientSession(layer.id);
+    const finalized = finalizeMarkGradientSession(layer.id);
+    const finalizedLayer = useAppStore.getState().layers[0];
+
+    expect(finalized?.binding).not.toBeNull();
+    expect(finalizedLayer?.colorCycleData?.gradientDefStore).toHaveLength(1);
+    expect(finalizedLayer?.colorCycleData?.gradientDefStore?.[0]?.source).toBe('sampled');
   });
 });
