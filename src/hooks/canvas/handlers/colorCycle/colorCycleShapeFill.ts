@@ -40,6 +40,15 @@ export type ColorCycleShapeFillDeps = {
   logError: (message: string, error?: unknown) => void;
 };
 
+const launchDeferredColorCycleShapeSave = (
+  deps: ColorCycleShapeFillDeps,
+  args: DeferredSaveWithStateArgs
+): void => {
+  deps.scheduleDeferredColorCycleSaveWithState(args).catch((error) => {
+    deps.logError('Deferred color cycle shape save failed', error);
+  });
+};
+
 const snapshotTransparencyLockMask = (
   layerId: string,
   sourceCanvas: HTMLCanvasElement
@@ -305,7 +314,6 @@ export const finalizeColorCycleShapeFillLinear = async (
           });
         }
       }
-      deps.brushEngine.resetColorCycle(false, { skipGradientReinit: true });
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
         ditherPixelSize: args.ditherPixelSize,
         roi: args.roi,
@@ -415,7 +423,7 @@ export const finalizeColorCycleShapeFillLinear = async (
 
     if (args.shapeLayerId) {
       deps.ccLog('shape: wrote CC canvas', { mode: 'linear', layerId: args.shapeLayerId.slice(-6) });
-      await deps.scheduleDeferredColorCycleSaveWithState({
+      launchDeferredColorCycleShapeSave(deps, {
         layerId: args.shapeLayerId,
         canvas: args.activeLayerCanvas,
         beforeColorState: args.beforeColorState,
@@ -497,7 +505,6 @@ export const finalizeColorCycleShapeFillConcentric = async (
           });
         }
       }
-      deps.brushEngine.resetColorCycle(false, { skipGradientReinit: true });
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
         ditherPixelSize: args.ditherPixelSize,
         roi: args.roi,
@@ -596,7 +603,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
 
     if (args.shapeLayerId) {
       deps.ccLog('shape: wrote CC canvas', { mode: 'concentric', layerId: args.shapeLayerId.slice(-6) });
-      await deps.scheduleDeferredColorCycleSaveWithState({
+      launchDeferredColorCycleShapeSave(deps, {
         layerId: args.shapeLayerId,
         canvas: args.activeLayerCanvas,
         beforeColorState: args.beforeColorState,

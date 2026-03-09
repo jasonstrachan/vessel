@@ -108,4 +108,153 @@ describe('colorCycleShapeFill transparency lock', () => {
 
     getStateSpy.mockRestore();
   });
+
+  it('does not reset the color-cycle stroke lifecycle before shape finalize fill', async () => {
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          colorCycleData: {},
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    const brushEngine = {
+      resetColorCycle: jest.fn(),
+      fillCcGradientLinear: jest.fn(async () => undefined),
+      updateColorCycleTexture: jest.fn(),
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session: null,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(brushEngine.resetColorCycle).not.toHaveBeenCalled();
+    expect(brushEngine.fillCcGradientLinear).toHaveBeenCalledWith(
+      expect.any(Array),
+      { x: 1, y: 0 },
+      expect.objectContaining({
+        skipPostRender: true,
+      })
+    );
+
+    getStateSpy.mockRestore();
+  });
+
+  it('does not wait for deferred color-cycle shape history save before resolving', async () => {
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          colorCycleData: {},
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    let releaseDeferred: (() => void) | undefined;
+    const deferredSave = new Promise<void>((resolve) => {
+      releaseDeferred = resolve;
+    });
+
+    const finalizePromise = finalizeColorCycleShapeFillLinear(
+      {
+        session: null,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: {
+          resetColorCycle: jest.fn(),
+          fillCcGradientLinear: jest.fn(async () => undefined),
+          updateColorCycleTexture: jest.fn(),
+        } as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(() => deferredSave),
+        logError: jest.fn(),
+      }
+    );
+
+    const finalizeResult = await Promise.race([
+      finalizePromise.then(() => 'resolved'),
+      new Promise<'timeout'>((resolve) => {
+        setTimeout(() => resolve('timeout'), 0);
+      }),
+    ]);
+    expect(finalizeResult).toBe('resolved');
+
+    releaseDeferred?.();
+    await deferredSave;
+
+    getStateSpy.mockRestore();
+  });
 });

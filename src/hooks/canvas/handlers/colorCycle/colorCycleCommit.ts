@@ -281,7 +281,7 @@ export const commitBrushHistory = async (
       );
     }
 
-    await deps.scheduleDeferredColorCycleSave({
+    deps.scheduleDeferredColorCycleSave({
       layerId: activeLayerId,
       canvas: deferredLayerCanvas,
       beforeColorState: layerBeforeColorState,
@@ -293,7 +293,7 @@ export const commitBrushHistory = async (
       beforeImage: null,
       skipBitmapDelta: true,
       roi: strokeCaptureRoi,
-    });
+    }).catch(() => {});
     return;
   }
 

@@ -154,7 +154,6 @@ export const useDrawingStartRuntime = ({
       getCCStampTargetCtx,
       resolveBrushRotation,
       getColorCycleBrushManager,
-      ensureActiveColorCycleGradientSlot,
       debugLog,
       beginMaskHealingStroke,
     },

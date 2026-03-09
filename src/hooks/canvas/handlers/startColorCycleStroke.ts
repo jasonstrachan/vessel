@@ -38,7 +38,6 @@ export const startColorCycleStroke = ({
   brushEngine,
   resolveBrushRotation,
   getColorCycleBrushManager,
-  ensureActiveColorCycleGradientSlot,
   debugLog,
   beginMaskHealingStroke,
 }: {
@@ -66,11 +65,6 @@ export const startColorCycleStroke = ({
   getColorCycleBrushManager: () => {
     getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined;
   };
-  ensureActiveColorCycleGradientSlot: (
-    state: AppState,
-    layer: AppState['layers'][number],
-    brush?: ColorCycleBrushImplementation | null
-  ) => void;
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
 }): 'handled' | 'abort' => {
@@ -88,7 +82,6 @@ export const startColorCycleStroke = ({
     currentState,
     activeLayer,
     getColorCycleBrushManager,
-    ensureActiveColorCycleGradientSlot,
     debugLog,
   });
 

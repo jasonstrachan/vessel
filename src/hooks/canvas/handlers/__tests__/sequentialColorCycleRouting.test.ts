@@ -240,7 +240,6 @@ describe('sequential color-cycle routing', () => {
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
-      ensureActiveColorCycleGradientSlot: jest.fn(),
       debugLog: jest.fn(),
       beginMaskHealingStroke: jest.fn(),
     });
@@ -291,7 +290,6 @@ describe('sequential color-cycle routing', () => {
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
-      ensureActiveColorCycleGradientSlot: jest.fn(),
       debugLog: jest.fn(),
       beginMaskHealingStroke: jest.fn(),
     });
@@ -345,7 +343,6 @@ describe('sequential color-cycle routing', () => {
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
-      ensureActiveColorCycleGradientSlot: jest.fn(),
       debugLog: jest.fn(),
       beginMaskHealingStroke: jest.fn(),
     });
