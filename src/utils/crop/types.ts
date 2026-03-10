@@ -11,6 +11,11 @@ export interface CroppedAnimatorIndexSnapshot {
   speedData?: ArrayBuffer;
   flowData?: ArrayBuffer;
   gradientStops?: Array<{ position: number; color: string }>;
+  gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
+  slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+  activeGradientId?: string;
+  paintSlot?: number;
+  legacyRemap?: { from: number; to: number };
 }
 
 export interface ColorCycleBrushResetEntry {

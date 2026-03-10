@@ -415,6 +415,84 @@ describe('useAppStore commitCrop', () => {
     ]);
   });
 
+  it('restores color-cycle gradient slot runtime metadata after cropping', async () => {
+    const layer = createColorCycleLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    expect(brush).toBeDefined();
+
+    useAppStore.setState((state) => ({
+      layers: state.layers.map((candidate) =>
+        candidate.id === layer.id && candidate.colorCycleData
+          ? {
+              ...candidate,
+              colorCycleData: {
+                ...candidate.colorCycleData,
+                gradientDefs: [
+                  { id: 'g0', name: 'Base', currentSlot: 2 },
+                  { id: 'g1', name: 'Accent', currentSlot: 5 },
+                ],
+                gradientDefStore: [
+                  {
+                    id: 101,
+                    kind: 'linear',
+                    stops: [
+                      { position: 0, color: '#110000' },
+                      { position: 1, color: '#220000' },
+                    ],
+                    hash: 'base',
+                    source: 'manual',
+                    createdAtMs: 1,
+                    slot: 2,
+                  },
+                  {
+                    id: 102,
+                    kind: 'linear',
+                    stops: [
+                      { position: 0, color: '#001100' },
+                      { position: 1, color: '#002200' },
+                    ],
+                    hash: 'accent',
+                    source: 'manual',
+                    createdAtMs: 2,
+                    slot: 5,
+                  },
+                ],
+                slotPalettes: [
+                  {
+                    slot: 2,
+                    stops: [
+                      { position: 0, color: '#110000' },
+                      { position: 1, color: '#220000' },
+                    ],
+                  },
+                  {
+                    slot: 5,
+                    stops: [
+                      { position: 0, color: '#001100' },
+                      { position: 1, color: '#002200' },
+                    ],
+                  },
+                ],
+                activeGradientId: 'g1',
+                paintSlot: 5,
+                legacyRemap: { from: 63, to: 5 },
+              },
+            }
+          : candidate
+      ),
+    }));
+    brush?.setActiveGradientSlot?.(layer.id, 5);
+
+    await useAppStore.getState().commitCrop();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const updatedBrush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    expect(updatedBrush?.getActiveGradientSlot?.(layer.id)).toBe(5);
+  });
+
   it('restores color-cycle brush animation state after cropping', async () => {
     const layer = createColorCycleLayer(6, 4);
     primeStoreForCrop(layer, 6, 4);
