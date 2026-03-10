@@ -29,8 +29,6 @@ class AutosaveService {
   private inProgress = false;
   private storeUnsubscribe: (() => void) | null = null;
   private warnedFilePermission = false;
-  private lastTickLogAt = 0;
-  private lastTickLogKey = '';
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -120,25 +118,7 @@ class AutosaveService {
     }
 
     const store = useAppStore.getState();
-    const tickPayload = {
-      enabled: store.autosave.isEnabled,
-      hasUnsavedChanges: store.autosave.hasUnsavedChanges,
-      intervalMs: this.intervalMs,
-      hasProject: Boolean(store.project),
-      layerCount: store.layers.length,
-      fileBackupEnabled: store.autosave.fileBackup.enabled,
-      fileBackupPath: store.autosave.fileBackup.backupPath ?? null,
-      fileHandleName: store.autosave.fileBackup.fileHandle?.name ?? null,
-    };
-    const tickKey = JSON.stringify(tickPayload);
-    const now = Date.now();
-    const shouldLogTick = tickKey !== this.lastTickLogKey || now - this.lastTickLogAt > 5 * 60 * 1000;
-    if (shouldLogTick) {
-      autosaveLog.debug('Autosave tick', tickPayload);
-      this.lastTickLogKey = tickKey;
-      this.lastTickLogAt = now;
-    }
-    
+
     // Check if autosave is enabled and there are unsaved changes
     if (!store.autosave.isEnabled || !store.autosave.hasUnsavedChanges) {
       return;
