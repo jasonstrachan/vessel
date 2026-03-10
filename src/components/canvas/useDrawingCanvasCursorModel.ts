@@ -3,6 +3,20 @@ import { useMemo } from 'react';
 import { BrushShape, type BrushSettings, type Tool } from '@/types';
 import { resolveBrushCursorShape } from './brushCursorShape';
 
+export type BrushCursorDescriptor =
+  | {
+      kind: 'shape';
+      shape: BrushShape;
+      pixelSize: number;
+    }
+  | {
+      kind: 'custom-brush';
+      pixelSize: number;
+      pixelWidth: number;
+      pixelHeight: number;
+      imageData?: ImageData;
+    };
+
 interface UseDrawingCanvasCursorModelOptions {
   tools: {
     currentTool: Tool;
@@ -14,11 +28,13 @@ interface UseDrawingCanvasCursorModelOptions {
       antialiasing: boolean;
       rotationEnabled: boolean;
       ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
+      currentBrushTip?: BrushSettings['currentBrushTip'];
     };
     eraserSettings: {
       brushShape?: BrushShape;
       size?: number;
       linkSizeToBrush?: boolean;
+      currentBrushTip?: BrushSettings['currentBrushTip'];
     };
   };
   globalBrushSize: number;
@@ -59,6 +75,38 @@ export const useDrawingCanvasCursorModel = ({
       tools.currentTool === 'eraser'
         ? Math.max(1, eraserSize)
         : Math.max(1, mosaicCursorSize ?? baseBrushSize);
+    const activeSettings =
+      tools.currentTool === 'eraser' ? tools.eraserSettings : tools.brushSettings;
+    const cursorDescriptor: BrushCursorDescriptor = (() => {
+      const currentBrushTip = activeSettings.currentBrushTip;
+      if (brushShapeForCursor === BrushShape.CUSTOM && currentBrushTip) {
+        const naturalWidth =
+          currentBrushTip.naturalWidth ??
+          currentBrushTip.width ??
+          currentBrushTip.imageData.width;
+        const naturalHeight =
+          currentBrushTip.naturalHeight ??
+          currentBrushTip.height ??
+          currentBrushTip.imageData.height;
+        const maxDimension =
+          currentBrushTip.maxDimension ?? Math.max(naturalWidth, naturalHeight);
+        const scale = maxDimension > 0 ? cursorSize / maxDimension : 1;
+
+        return {
+          kind: 'custom-brush',
+          pixelSize: cursorSize,
+          pixelWidth: Math.max(1, naturalWidth * scale),
+          pixelHeight: Math.max(1, naturalHeight * scale),
+          imageData: currentBrushTip.imageData,
+        };
+      }
+
+      return {
+        kind: 'shape',
+        shape: brushShapeForCursor,
+        pixelSize: cursorSize,
+      };
+    })();
 
     const brushCursorVisible =
       showBrushCursor &&
@@ -67,8 +115,7 @@ export const useDrawingCanvasCursorModel = ({
       cursorStyle === 'none';
 
     return {
-      brushShapeForCursor,
-      cursorSize,
+      cursorDescriptor,
       brushCursorVisible,
     };
   }, [cursorStyle, globalBrushSize, isSpacePressedRef, panIsPanning, showBrushCursor, tools]);

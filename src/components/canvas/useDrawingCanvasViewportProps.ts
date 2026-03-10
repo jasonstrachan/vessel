@@ -24,8 +24,7 @@ interface UseDrawingCanvasViewportPropsOptions {
     ViewportPropSubset,
     | 'canvasStyle'
     | 'overlayCanvasStyle'
-    | 'cursorSize'
-    | 'brushShapeForCursor'
+    | 'cursorDescriptor'
     | 'brushCursorVisible'
   >;
 }
@@ -36,7 +35,7 @@ export const useDrawingCanvasViewportProps = ({
   viewportOptions,
 }: UseDrawingCanvasViewportPropsOptions): ViewportPropSubset => {
   const { canvasStyle, overlayCanvasStyle } = useDrawingCanvasStyles(styleOptions);
-  const { brushShapeForCursor, cursorSize, brushCursorVisible } =
+  const { cursorDescriptor, brushCursorVisible } =
     useDrawingCanvasCursorModel(cursorModelOptions);
 
   return useMemo(
@@ -44,16 +43,14 @@ export const useDrawingCanvasViewportProps = ({
       ...viewportOptions,
       canvasStyle,
       overlayCanvasStyle,
-      cursorSize,
-      brushShapeForCursor,
+      cursorDescriptor,
       brushCursorVisible,
     }),
     [
       viewportOptions,
       canvasStyle,
       overlayCanvasStyle,
-      cursorSize,
-      brushShapeForCursor,
+      cursorDescriptor,
       brushCursorVisible,
     ]
   );
