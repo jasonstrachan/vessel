@@ -598,39 +598,60 @@ export function readLayerSourcesForCrop(
               };
               gradient?: { gradientStops?: Array<{ position: number; color: string }> };
             };
+            gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
+            slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+            activeGradientId?: string;
+            paintSlot?: number;
+            legacyRemap?: { from: number; to: number };
           } | undefined;
           const idx = layerState?.data?.indexBuffer;
-          if (idx?.data) {
-            const sw = colorCycleReadbackCanvas.width;
-            const expectedLength = sw * colorCycleReadbackCanvas.height;
-            const full = new Uint8Array(idx.data);
-            if (expectedLength > 0 && full.length === expectedLength) {
-              const out = copyScalarRegion(full, sw, colorCycleReadbackCanvas.height, rect);
-              const gradientFull = idx.gradientId ? new Uint8Array(idx.gradientId) : null;
-              const gradientOut =
-                gradientFull && gradientFull.length === expectedLength
-                  ? copyScalarRegion(gradientFull, sw, colorCycleReadbackCanvas.height, rect)
-                  : null;
-              const speedFull = idx.speedData ? new Uint8Array(idx.speedData) : null;
-              const speedOut =
-                speedFull && speedFull.length === expectedLength
-                  ? copyScalarRegion(speedFull, sw, colorCycleReadbackCanvas.height, rect)
-                  : null;
-              const flowFull = idx.flowData ? new Uint8Array(idx.flowData) : null;
-              const flowOut =
-                flowFull && flowFull.length === expectedLength
-                  ? copyScalarRegion(flowFull, sw, colorCycleReadbackCanvas.height, rect)
-                  : null;
-              croppedAnimatorIndex = {
-                width: targetWidth,
-                height: targetHeight,
-                data: out.buffer as ArrayBuffer,
-                gradientIdData: gradientOut?.buffer as ArrayBuffer | undefined,
-                speedData: speedOut?.buffer as ArrayBuffer | undefined,
-                flowData: flowOut?.buffer as ArrayBuffer | undefined,
-                gradientStops: layerState?.data?.gradient?.gradientStops
-              };
-            }
+          const sw = colorCycleReadbackCanvas.width;
+          const expectedLength = sw * colorCycleReadbackCanvas.height;
+          const full = idx?.data ? new Uint8Array(idx.data) : null;
+          const hasIndexPayload = Boolean(full && expectedLength > 0 && full.length === expectedLength);
+          const hasRuntimeMetadata = Boolean(
+            layerState?.gradientDefs?.length ||
+            layerState?.slotPalettes?.length ||
+            layerState?.activeGradientId ||
+            typeof layerState?.paintSlot === 'number' ||
+            layerState?.legacyRemap
+          );
+          if (hasIndexPayload || hasRuntimeMetadata) {
+            const out = hasIndexPayload
+              ? copyScalarRegion(full as Uint8Array, sw, colorCycleReadbackCanvas.height, rect)
+              : new Uint8Array(targetWidth * targetHeight);
+            const gradientFull = idx?.gradientId ? new Uint8Array(idx.gradientId) : null;
+            const gradientOut =
+              gradientFull && gradientFull.length === expectedLength
+                ? copyScalarRegion(gradientFull, sw, colorCycleReadbackCanvas.height, rect)
+                : null;
+            const speedFull = idx?.speedData ? new Uint8Array(idx.speedData) : null;
+            const speedOut =
+              speedFull && speedFull.length === expectedLength
+                ? copyScalarRegion(speedFull, sw, colorCycleReadbackCanvas.height, rect)
+                : null;
+            const flowFull = idx?.flowData ? new Uint8Array(idx.flowData) : null;
+            const flowOut =
+              flowFull && flowFull.length === expectedLength
+                ? copyScalarRegion(flowFull, sw, colorCycleReadbackCanvas.height, rect)
+                : null;
+            croppedAnimatorIndex = {
+              width: targetWidth,
+              height: targetHeight,
+              data: out.buffer as ArrayBuffer,
+              gradientIdData: gradientOut?.buffer as ArrayBuffer | undefined,
+              speedData: speedOut?.buffer as ArrayBuffer | undefined,
+              flowData: flowOut?.buffer as ArrayBuffer | undefined,
+              gradientStops: layerState?.data?.gradient?.gradientStops,
+              gradientDefs: layerState?.gradientDefs?.map((entry) => ({ ...entry })),
+              slotPalettes: layerState?.slotPalettes?.map((entry) => ({
+                slot: entry.slot,
+                stops: entry.stops.map((stop) => ({ ...stop })),
+              })),
+              activeGradientId: layerState?.activeGradientId,
+              paintSlot: layerState?.paintSlot,
+              legacyRemap: layerState?.legacyRemap
+            };
           }
         } catch (animatorError) {
           logger('[crop] Failed to capture color-cycle animator index during crop', animatorError);

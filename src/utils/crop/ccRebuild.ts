@@ -145,6 +145,45 @@ export function rebuildCCLayerAfterCrop({
           }
         }
 
+        const slotPalettes = targetLayer.colorCycleData?.slotPalettes ?? [];
+        if (typeof freshBrush.setGradientSlotStops === 'function' && slotPalettes.length > 0) {
+          for (const palette of slotPalettes) {
+            try {
+              freshBrush.setGradientSlotStops(
+                entry.id,
+                palette.slot,
+                palette.stops.map((stop) => ({ ...stop }))
+              );
+            } catch (slotError) {
+              logger('[crop] Failed to restore color-cycle slot palette after crop', slotError);
+            }
+          }
+        }
+
+        const activeSlotFromPaint = targetLayer.colorCycleData?.paintSlot;
+        const activeSlotFromDef =
+          targetLayer.colorCycleData?.activeGradientId && targetLayer.colorCycleData?.gradientDefs
+            ? targetLayer.colorCycleData.gradientDefs.find(
+                (gradientDef) => gradientDef.id === targetLayer.colorCycleData?.activeGradientId
+              )?.currentSlot
+            : undefined;
+        const restoredActiveSlot =
+          typeof activeSlotFromPaint === 'number'
+            ? activeSlotFromPaint
+            : activeSlotFromDef;
+        if (
+          typeof restoredActiveSlot === 'number' &&
+          typeof (freshBrush as { setActiveGradientSlot?: (layerId: string, slot: number) => void }).setActiveGradientSlot === 'function'
+        ) {
+          try {
+            (
+              freshBrush as { setActiveGradientSlot: (layerId: string, slot: number) => void }
+            ).setActiveGradientSlot(entry.id, restoredActiveSlot);
+          } catch (slotError) {
+            logger('[crop] Failed to restore active color-cycle slot after crop', slotError);
+          }
+        }
+
         const brushCanvas = freshBrush.getCanvas?.();
         if (brushCanvas) {
           const brushCtx = brushCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
