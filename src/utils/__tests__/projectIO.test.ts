@@ -143,6 +143,19 @@ const createCanvasFromImageData = (imageData: ImageData): HTMLCanvasElement => {
   return canvas;
 };
 
+const encodeRawImageDataUrl = (imageData: ImageData): string => {
+  const rawData = {
+    width: imageData.width,
+    height: imageData.height,
+    dataBase64: Buffer.from(
+      imageData.data.buffer,
+      imageData.data.byteOffset,
+      imageData.data.byteLength,
+    ).toString('base64'),
+  };
+  return `data:application/json;base64,${Buffer.from(JSON.stringify(rawData)).toString('base64')}`;
+};
+
 const readPixel = (imageData: ImageData | null, x: number, y: number): [number, number, number, number] => {
   if (!imageData) {
     return [0, 0, 0, 0];
@@ -798,6 +811,163 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(after).toBeTruthy();
     const afterPixel = after?.data ?? new Uint8ClampedArray([0, 0, 0, 0]);
     expect(Array.from(afterPixel)).toEqual(Array.from(beforePixel));
+  });
+
+  it('prefers actual color-cycle canvas dimensions over stale saved metadata', async () => {
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = 3;
+    colorCycleCanvas.height = 2;
+
+    const layer: Layer = {
+      id: 'layer-cc-dims-save',
+      name: 'CC Dims Save',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(3, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: colorCycleCanvas,
+        canvasImageData: createSolidImageData(3, 2, [10, 20, 30, 255]),
+        canvasWidth: 4,
+        canvasHeight: 4,
+        isAnimating: false,
+      },
+    };
+
+    const project: Project = {
+      id: 'project-cc-dims-save',
+      name: 'CC Dims Save',
+      width: 3,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    try {
+      const payload = await serializeProject(project, project.layers);
+      const manifest = await readProjectManifest(payload);
+      const serializedColorCycle = manifest.project.layers[0]?.colorCycleData;
+
+      expect(serializedColorCycle?.canvasWidth).toBe(3);
+      expect(serializedColorCycle?.canvasHeight).toBe(2);
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
+  it('drops incompatible cropped color-cycle brushState during load and uses project dimensions', async () => {
+    const canvasImageData = createSolidImageData(4, 4, [240, 120, 60, 255]);
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-crop-mismatch',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-crop-mismatch',
+        name: 'cc-crop-mismatch',
+        width: 3,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-crop-mismatch',
+          name: 'CC Crop Mismatch',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(canvasImageData),
+            canvasWidth: 4,
+            canvasHeight: 4,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              cycleSpeed: 0.2,
+              fps: 18,
+              layers: [{
+                layerId: 'layer-cc-crop-mismatch',
+                strokeData: {
+                  hasContent: true,
+                  strokeCounter: 2,
+                  paintBuffer: Buffer.from(new Uint8Array(16).fill(1)).toString('base64'),
+                },
+                animator: {
+                  indexBuffer: {
+                    width: 4,
+                    height: 4,
+                    data: Buffer.from(new Uint8Array(16).fill(1)).toString('base64'),
+                    palette: ['#000000', '#ffffff'],
+                  },
+                  gradient: {
+                    gradientStops: [
+                      { position: 0, color: '#000000' },
+                      { position: 1, color: '#ffffff' },
+                    ],
+                  },
+                  animation: {
+                    offset: 0,
+                    stats: {
+                      targetFPS: 12,
+                      actualFPS: 12,
+                      frameCount: 1,
+                      totalTime: 0,
+                      averageFrameTime: 0,
+                      isAnimating: false,
+                    },
+                  },
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+
+    expect(restoredLayer.colorCycleData?.canvas?.width).toBe(3);
+    expect(restoredLayer.colorCycleData?.canvas?.height).toBe(2);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeDefined();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[projectIO] Dropping incompatible color cycle brushState during load',
+      expect.objectContaining({
+        layerId: 'layer-cc-crop-mismatch',
+        canvasWidth: 3,
+        canvasHeight: 2,
+      }),
+    );
   });
 
   it('restores flowBuffer from persisted color-cycle brushState', async () => {

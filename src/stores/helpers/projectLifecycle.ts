@@ -382,14 +382,16 @@ export const createProjectLifecycle = ({
               | undefined;
             if (brush?.renderDirectToCanvas && typeof document !== 'undefined') {
               const width =
-                colorCycleData.canvasWidth ??
                 colorCycleData.canvas?.width ??
+                colorCycleData.canvasImageData?.width ??
                 freshState.project?.width ??
+                colorCycleData.canvasWidth ??
                 1;
               const height =
-                colorCycleData.canvasHeight ??
                 colorCycleData.canvas?.height ??
+                colorCycleData.canvasImageData?.height ??
                 freshState.project?.height ??
+                colorCycleData.canvasHeight ??
                 1;
               const tempCanvas = document.createElement('canvas');
               tempCanvas.width = Math.max(1, width);
@@ -412,8 +414,8 @@ export const createProjectLifecycle = ({
             colorCycleData: {
               ...colorCycleData,
               canvasImageData,
-              canvasWidth: colorCycleData.canvasWidth ?? canvasImageData.width,
-              canvasHeight: colorCycleData.canvasHeight ?? canvasImageData.height,
+              canvasWidth: canvasImageData.width,
+              canvasHeight: canvasImageData.height,
             },
           };
         })
