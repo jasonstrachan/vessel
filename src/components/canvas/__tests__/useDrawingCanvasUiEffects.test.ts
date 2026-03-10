@@ -13,9 +13,11 @@ jest.mock('@/stores/useAppStore', () => ({
 
 describe('useDrawingCanvasUiEffects', () => {
   const originalHiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
+  const getContextMock = jest.fn();
 
   beforeEach(() => {
     setSequentialPointerDown.mockClear();
+    getContextMock.mockReset();
   });
 
   afterEach(() => {
@@ -92,5 +94,52 @@ describe('useDrawingCanvasUiEffects', () => {
 
     expect(setCursorStyle).toHaveBeenCalledWith('none');
     expect(setShowBrushCursor).toHaveBeenCalledWith(true);
+  });
+
+  it('redraws when floating paste changes position', () => {
+    const canvas = document.createElement('canvas');
+    const wrapper = document.createElement('div');
+    const ctx = {} as CanvasRenderingContext2D;
+    const draw = jest.fn();
+
+    getContextMock.mockReturnValue(ctx);
+    canvas.getContext = getContextMock as typeof canvas.getContext;
+
+    const { rerender } = renderHook(
+      ({ floatingPaste }) =>
+        useDrawingCanvasUiEffects({
+          selectionStart: null,
+          selectionEnd: null,
+          floatingPaste,
+          setMarchingAntsOffset: jest.fn(),
+          canvasRef: { current: canvas },
+          draw,
+          viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+          defaultCursorStyle: 'default',
+          isPointerInsideCanvas: () => true,
+          setCursorStyle: jest.fn(),
+          setShowBrushCursor: jest.fn(),
+          wrapperRef: { current: wrapper },
+          mode: 'IDLE',
+          canvasZoom: 1,
+          canvasOffsetX: 0,
+          canvasOffsetY: 0,
+          needsRedraw: 0,
+        }),
+      {
+        initialProps: {
+          floatingPaste: { position: { x: 1, y: 1 } },
+        },
+      }
+    );
+
+    expect(draw).toHaveBeenCalledTimes(1);
+
+    rerender({
+      floatingPaste: { position: { x: 2, y: 1 } },
+    });
+
+    expect(draw).toHaveBeenCalledTimes(2);
+    expect(draw).toHaveBeenLastCalledWith(ctx, { scale: 1, offsetX: 0, offsetY: 0 });
   });
 });
