@@ -40,6 +40,25 @@ export const applyRuntimeToBrush = (
     signatures: new Map<number, string>(),
   };
   const nextSignatures = new Map(previous.signatures);
+  let didChangePalette = false;
+
+  for (const palette of snapshot.slotPalettes) {
+    if (!palette.stops || palette.stops.length === 0) {
+      continue;
+    }
+    const signature = signatureForStops(palette.stops);
+    if (previous.signatures.get(palette.slot) !== signature) {
+      didChangePalette = true;
+      break;
+    }
+  }
+
+  if (didChangePalette) {
+    try {
+      brush.commitCurrentStroke?.(layerId);
+      brush.flush?.(layerId);
+    } catch {}
+  }
 
   for (const palette of snapshot.slotPalettes) {
     if (!palette.stops || palette.stops.length === 0) {
@@ -61,11 +80,13 @@ export const applyRuntimeToBrush = (
 
   if (snapshot.paintSlot !== previous.activeSlot) {
     try {
-      brush.commitCurrentStroke?.(layerId);
-      brush.flush?.(layerId);
-    } catch {}
-    try {
       brush.setActiveGradientSlot?.(layerId, snapshot.paintSlot);
+    } catch {}
+  }
+
+  if (didChangePalette || snapshot.paintSlot !== previous.activeSlot) {
+    try {
+      brush.flush?.(layerId);
     } catch {}
   }
 

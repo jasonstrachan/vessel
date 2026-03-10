@@ -10,9 +10,13 @@ import type { FinalizeQueue } from '@/lib/canvas';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
-import { beginMarkGradientSession, finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import {
+  beginMarkGradientSession,
+  finalizeMarkGradientSession,
+  type MarkGradientSession,
+} from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
-import { hashStops } from '@/utils/colorCycleGradientDefs';
+import { hashStops, type GradientDefSource } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { calculateGridSpacing, snapToGridPure } from '@/hooks/brushEngine/utilities';
@@ -81,6 +85,52 @@ const resolveColorCycleFillMode = (
   mode?: 'linear' | 'concentric' | 'circular'
 ): 'linear' | 'concentric' => {
   return mode === 'concentric' || mode === 'circular' ? 'concentric' : 'linear';
+};
+
+const resolveFallbackMarkSource = (state: AppState): GradientDefSource => {
+  if (state.tools.ccGradientSource === 'sampled') {
+    return 'sampled';
+  }
+  if (state.tools.ccGradientSource === 'fg') {
+    return 'fg';
+  }
+  return 'manual';
+};
+
+const buildFallbackMarkSession = (
+  layer: Layer,
+  state: AppState,
+  gradientKind: 'linear' | 'concentric'
+): MarkGradientSession | null => {
+  if (layer.layerType !== 'color-cycle') {
+    return null;
+  }
+
+  const resolved = resolveActiveColorCycleGradient(layer, state.tools.brushSettings, {
+    fgColorHex: state.palette.foregroundColor,
+    fgLightness: state.tools.brushSettings.colorCycleFgLightness,
+    fgVariance: state.tools.brushSettings.colorCycleFgVariance,
+    fgHueShift: state.tools.brushSettings.colorCycleFgHueShift,
+    fgSaturationShift: state.tools.brushSettings.colorCycleFgSaturationShift,
+    fgOpacity: state.tools.brushSettings.colorCycleFgOpacity,
+    fgStops: state.tools.brushSettings.colorCycleFgStops,
+  });
+
+  if (!resolved.activeStops.length) {
+    return null;
+  }
+
+  return {
+    markId: 'cc-shape-fallback',
+    layerId: layer.id,
+    markKind: 'shape',
+    gradientKind,
+    source: resolveFallbackMarkSource(state),
+    frozenStopsStored: resolved.activeStops,
+    frozenHash: hashStops(resolved.activeStops, gradientKind),
+    binding: null,
+    speedCps: state.tools.brushSettings.colorCycleSpeed,
+  };
 };
 
 const resolveDitherGridSnapPoint = (
@@ -926,7 +976,10 @@ export const finalizeShapeDrawing = async (
                   activeLayer,
                 })
               : { restore: null };
-            const session = finalizeMarkGradientSession(shapeLayerIdString);
+            const session = finalizeMarkGradientSession(shapeLayerIdString)
+              ?? (activeLayer
+                ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, 'linear')
+                : null);
             if (!session) {
               console.warn('[CC] Missing mark session before shape finalize (linear selection)', {
                 layerId: shapeLayerIdString,
@@ -1109,7 +1162,10 @@ export const finalizeShapeDrawing = async (
                       activeLayer,
                     })
                   : { restore: null };
-                const session = finalizeMarkGradientSession(shapeLayerIdString);
+                const session = finalizeMarkGradientSession(shapeLayerIdString)
+                  ?? (activeLayer
+                    ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, fillMode)
+                    : null);
                 if (!session) {
                   console.warn('[CC] Missing mark session before shape finalize', {
                     layerId: shapeLayerIdString,

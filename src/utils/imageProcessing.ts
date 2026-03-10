@@ -374,46 +374,116 @@ export function adjustRgbChannelOffsets(
 export interface ColorAdjustOptions {
   hue: number;
   saturation: number;
+  vibrance: number;
   lightness: number;
   contrast: number;
   red: number;
   green: number;
   blue: number;
+  hueRangeEnabled: boolean;
+  hueRangeStart: number;
+  hueRangeEnd: number;
 }
 
 export function applyColorAdjustments(imageData: ImageData, options: ColorAdjustOptions): ImageData {
-  const { hue, saturation, lightness, contrast, red, green, blue } = options;
-  const hasHueSatLightness = hue !== 0 || saturation !== 0 || lightness !== 0;
+  const {
+    hue,
+    saturation,
+    vibrance,
+    lightness,
+    contrast,
+    red,
+    green,
+    blue,
+    hueRangeEnabled,
+    hueRangeStart,
+    hueRangeEnd,
+  } = options;
+  const hasHueSatLightness = hue !== 0 || saturation !== 0 || vibrance !== 0 || lightness !== 0;
   const hasContrast = contrast !== 0;
   const hasChannelOffsets = red !== 0 || green !== 0 || blue !== 0;
 
   if (!hasHueSatLightness && !hasContrast && !hasChannelOffsets) {
     return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
   }
+  const result = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  const data = result.data;
+  const saturationFactor = Math.max(0, Math.min(200, 100 + saturation)) / 100;
+  const lightnessAdjust = Math.max(-100, Math.min(100, lightness));
+  const hueShift = Math.max(-180, Math.min(180, hue));
+  const contrastValue = Math.max(-255, Math.min(255, Math.round(contrast * 2.55)));
+  const contrastFactor = contrastValue !== 0
+    ? (259 * (contrastValue + 255)) / (255 * (259 - contrastValue))
+    : 1;
+  const rOffset = channelPercentToOffset(red);
+  const gOffset = channelPercentToOffset(green);
+  const bOffset = channelPercentToOffset(blue);
+  const normalizedHueRangeStart = ((hueRangeStart % 360) + 360) % 360;
+  const normalizedHueRangeEnd = ((hueRangeEnd % 360) + 360) % 360;
 
-  let working = imageData;
-
-  if (hasHueSatLightness) {
-    const saturationPercent = Math.max(0, Math.min(200, 100 + saturation));
-    const lightnessAdjust = Math.max(-100, Math.min(100, lightness));
-    const hueShift = Math.max(-180, Math.min(180, hue));
-    working = adjustHueLightnessSaturation(working, hueShift, lightnessAdjust, saturationPercent);
-  } else {
-    working = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
-  }
-
-  if (hasContrast) {
-    const contrastValue = Math.max(-255, Math.min(255, Math.round(contrast * 2.55)));
-    if (contrastValue !== 0) {
-      working = adjustContrast(working, contrastValue);
+  const isHueInRange = (hueValue: number): boolean => {
+    if (!hueRangeEnabled) {
+      return true;
     }
+    if (normalizedHueRangeStart <= normalizedHueRangeEnd) {
+      return hueValue >= normalizedHueRangeStart && hueValue <= normalizedHueRangeEnd;
+    }
+    return hueValue >= normalizedHueRangeStart || hueValue <= normalizedHueRangeEnd;
+  };
+
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3];
+    if (alpha === 0) {
+      continue;
+    }
+
+    const originalR = data[i] ?? 0;
+    const originalG = data[i + 1] ?? 0;
+    const originalB = data[i + 2] ?? 0;
+    const [sourceHue, sourceSaturation, sourceLightness] = rgbToHsl(originalR, originalG, originalB);
+
+    if (!isHueInRange(sourceHue)) {
+      continue;
+    }
+
+    let nextHue = sourceHue;
+    let nextSaturation = sourceSaturation;
+    let nextLightness = sourceLightness;
+
+    if (hasHueSatLightness) {
+      nextHue = (nextHue + hueShift + 360) % 360;
+      nextSaturation = Math.max(0, Math.min(100, nextSaturation * saturationFactor));
+
+      if (vibrance > 0) {
+        const headroom = 100 - nextSaturation;
+        nextSaturation = Math.max(0, Math.min(100, nextSaturation + headroom * (vibrance / 100)));
+      } else if (vibrance < 0) {
+        nextSaturation = Math.max(0, Math.min(100, nextSaturation + nextSaturation * (vibrance / 100)));
+      }
+
+      nextLightness = Math.max(0, Math.min(100, nextLightness + lightnessAdjust));
+    }
+
+    let [nextR, nextG, nextB] = hslToRgb(nextHue, nextSaturation, nextLightness);
+
+    if (hasContrast) {
+      nextR = clampByte(contrastFactor * (nextR - 128) + 128);
+      nextG = clampByte(contrastFactor * (nextG - 128) + 128);
+      nextB = clampByte(contrastFactor * (nextB - 128) + 128);
+    }
+
+    if (hasChannelOffsets) {
+      nextR = clampByte(nextR + rOffset);
+      nextG = clampByte(nextG + gOffset);
+      nextB = clampByte(nextB + bOffset);
+    }
+
+    data[i] = nextR;
+    data[i + 1] = nextG;
+    data[i + 2] = nextB;
   }
 
-  if (hasChannelOffsets) {
-    working = adjustRgbChannelOffsets(working, { red, green, blue });
-  }
-
-  return working;
+  return result;
 }
 
 // Replace a color in ImageData with another color

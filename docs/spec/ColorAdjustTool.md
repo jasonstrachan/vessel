@@ -1,7 +1,7 @@
 # Hue/Sat Tool Spec
 
 ## Goal
-Introduce a destructive-but-undoable Hue/Sat tool that lets artists tweak hue, saturation, lightness, and contrast on the active layer or the current selection directly from the existing brush controls column.
+Introduce a destructive-but-undoable Hue/Sat tool that lets artists tweak hue, saturation, vibrance, lightness, and contrast on the active layer or the current selection directly from the existing brush controls column.
 
 ## Scope
 - **In scope**
@@ -26,7 +26,9 @@ Introduce a destructive-but-undoable Hue/Sat tool that lets artists tweak hue, s
 - Controls live where brush settings typically render (right-hand controls panel).
 - Sliders with ranges:
   - Hue: −180° … +180°
+  - Hue range targeting toggle with a two-handle hue strip above the sliders; when enabled, all other sliders only affect hues inside the selected band.
   - Saturation: −100 … +100 (% delta applied via factor)
+  - Vibrance: −100 … +100 (preferentially boosts muted colors)
   - Lightness: −100 … +100 (relative offset)
   - Contrast: −100 … +100 (standard contrast curve)
   - Red: −100 … +100 (% channel delta)

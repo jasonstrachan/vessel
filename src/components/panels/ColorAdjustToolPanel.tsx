@@ -3,14 +3,17 @@
 import React, { useMemo, useCallback, useEffect } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import ProgressSlider from '@/components/ui/ProgressSlider';
+import CustomSwitch from '@/components/ui/CustomSwitch';
+import HueRangeStrip from '@/components/ui/HueRangeStrip';
 import type { ColorAdjustParams, Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { selectPreviousTool } from '@/stores/selectors/toolsSelectors';
 
 type ParamKey = keyof ColorAdjustParams;
+type SliderParamKey = Exclude<ParamKey, 'hueRangeEnabled' | 'hueRangeStart' | 'hueRangeEnd'>;
 
 const SLIDER_CONFIG: Array<{
-  key: ParamKey;
+  key: SliderParamKey;
   label: string;
   min: number;
   max: number;
@@ -19,6 +22,7 @@ const SLIDER_CONFIG: Array<{
 }> = [
   { key: 'hue', label: 'Hue', min: -180, max: 180, suffix: '°' },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100, suffix: '%' },
+  { key: 'vibrance', label: 'Vibrance', min: -100, max: 100, suffix: '%' },
   { key: 'lightness', label: 'Lightness', min: -100, max: 100, suffix: '%' },
   { key: 'contrast', label: 'Contrast', min: -100, max: 100, suffix: '%' },
   { key: 'red', label: 'Red', min: -100, max: 100, suffix: '%' },
@@ -70,6 +74,21 @@ const ColorAdjustToolPanel: React.FC = () => {
     },
     [updateParams]
   );
+  const handleHueRangeChange = useCallback(
+    (value: [number, number]) => {
+      updateParams({
+        hueRangeStart: value[0],
+        hueRangeEnd: value[1],
+      });
+    },
+    [updateParams]
+  );
+  const handleHueRangeToggle = useCallback(
+    (enabled: boolean) => {
+      updateParams({ hueRangeEnabled: enabled });
+    },
+    [updateParams]
+  );
 
   const resolveFallbackTool = useCallback(
     (candidate?: Tool | null): Tool => {
@@ -96,10 +115,11 @@ const ColorAdjustToolPanel: React.FC = () => {
   }, [resetColorAdjustParams]);
 
   const hasAdjustments = useMemo(() => {
-    const { hue, saturation, lightness, contrast, red, green, blue } = session.params;
+    const { hue, saturation, vibrance, lightness, contrast, red, green, blue } = session.params;
     return (
       hue !== 0 ||
       saturation !== 0 ||
+      vibrance !== 0 ||
       lightness !== 0 ||
       contrast !== 0 ||
       red !== 0 ||
@@ -135,6 +155,30 @@ const ColorAdjustToolPanel: React.FC = () => {
         <div className="text-sm text-white">
           {layerName}{' '}
           <span className="text-[#9C9C9C]">({scopeLabel})</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs uppercase tracking-wider text-[#9C9C9C]">
+            Hue Range
+          </div>
+          <CustomSwitch
+            checked={session.params.hueRangeEnabled}
+            onChange={handleHueRangeToggle}
+            aria-label="Enable hue range targeting"
+          />
+        </div>
+
+        <HueRangeStrip
+          value={[session.params.hueRangeStart, session.params.hueRangeEnd]}
+          onValueChange={handleHueRangeChange}
+          disabled={!session.params.hueRangeEnabled}
+        />
+
+        <div className="flex items-center justify-between text-[11px] text-[#9C9C9C]">
+          <span>{Math.round(session.params.hueRangeStart)}°</span>
+          <span>{Math.round(session.params.hueRangeEnd)}°</span>
         </div>
       </div>
 
