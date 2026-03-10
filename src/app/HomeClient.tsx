@@ -12,6 +12,7 @@ import DrawingCanvas from '@/components/canvas/DrawingCanvas';
 import ConsoleSilencer from '@/components/dev/ConsoleSilencer';
 import FeedbackStrip from '@/components/FeedbackStrip';
 import SaveStatusStrip from '@/components/SaveStatusStrip';
+import SelectionConstraintStrip from '@/components/SelectionConstraintStrip';
 import FPSMeter from '@/components/dev/FPSMeter';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 
@@ -192,6 +193,7 @@ export default function Home() {
             onClose={() => setFeedbackMessage(null)}
           />
         )}
+        <SelectionConstraintStrip />
         <SaveStatusStrip phase={saveStatus.phase} message={saveStatus.message} />
       </div>
 

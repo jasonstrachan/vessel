@@ -835,7 +835,7 @@ describe('tools slice', () => {
     expect(nextState.tools.brushSettings.currentBrushTip).toBeUndefined();
   });
 
-  it('clears marquee selection when switching away from the selection tool', () => {
+  it('preserves marquee selection when switching away from the selection tool', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
@@ -846,10 +846,10 @@ describe('tools slice', () => {
       selectionEnd: { x: 3, y: 4 },
     }));
 
-    useAppStore.getState().setCurrentTool('brush');
+    useAppStore.getState().setCurrentTool('color-adjust');
 
     const { selectionStart, selectionEnd } = useAppStore.getState();
-    expect(selectionStart).toBeNull();
-    expect(selectionEnd).toBeNull();
+    expect(selectionStart).toEqual({ x: 1, y: 2 });
+    expect(selectionEnd).toEqual({ x: 3, y: 4 });
   });
 });

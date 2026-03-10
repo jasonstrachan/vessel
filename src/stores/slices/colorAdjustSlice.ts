@@ -1,8 +1,12 @@
 import type { StateCreator } from 'zustand';
-import type { ColorAdjustParams, ColorAdjustState, Layer } from '@/types';
-import { clampSelectionBounds } from '@/stores/helpers/selectionRoi';
+import type { ColorAdjustParams, ColorAdjustState, Layer, Rectangle } from '@/types';
+import {
+  blitImageDataWithinSelection,
+  resolveSelectionRasterScope,
+} from '@/stores/helpers/selectionRoi';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
+import { copyScalarRegion } from '@/stores/helpers/selectionCapture';
 import {
   captureLayerStructureSnapshot,
   commitLayerStructureHistory,
@@ -12,16 +16,34 @@ import { applyColorAdjustments } from '@/utils/imageProcessing';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { writeColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 
 type AppState = import('../useAppStore').AppState;
 
 let colorAdjustPreviewHandle: number | null = null;
 let colorAdjustLayerStructureBefore: LayerStructureSnapshot | null = null;
 let colorAdjustOriginalColorCycleData: Layer['colorCycleData'] | null = null;
+let colorAdjustOriginalColorCycleSnapshot: ColorCycleRuntimeSnapshot | null = null;
 
 // Per-layer working buffers to avoid reallocations during slider drags
 const workingImageCache = new Map<string, ImageData>();
 const scratchCache = new Map<string, ImageData>();
+
+type ColorCycleGradientStop = { position: number; color: string };
+
+type ColorCycleRuntimeSnapshot = {
+  paintBuffer: Uint8Array;
+  gradientIdBuffer: Uint8Array;
+  gradientDefIdBuffer: Uint16Array | null;
+  speedBuffer: Uint8Array | null;
+  flowBuffer: Uint8Array | null;
+  width: number;
+  height: number;
+  hasContent: boolean;
+  strokeCounter: number;
+};
 
 const hasColorAdjustments = (params: ColorAdjustParams): boolean =>
   params.hue !== 0 ||
@@ -38,33 +60,101 @@ const resolveSelectionBounds = (
   width: number,
   height: number
 ): AppState['colorAdjust']['selectionBounds'] => {
-  const selectionFromBounds =
-    state.selectionStart && state.selectionEnd
-      ? {
-          x: Math.min(state.selectionStart.x, state.selectionEnd.x),
-          y: Math.min(state.selectionStart.y, state.selectionEnd.y),
-          width: Math.abs(state.selectionEnd.x - state.selectionStart.x),
-          height: Math.abs(state.selectionEnd.y - state.selectionStart.y),
-        }
-      : null;
   const canvasSelection = state.canvas.selection;
-  const rawBounds =
-    selectionFromBounds && selectionFromBounds.width > 0 && selectionFromBounds.height > 0
-      ? selectionFromBounds
-      : canvasSelection?.active
-        ? canvasSelection.bounds
-        : null;
+  const selectionScope = resolveSelectionRasterScope({
+    selectionStart: state.selectionStart,
+    selectionEnd: state.selectionEnd,
+    selectionMask: state.selectionMask,
+    selectionMaskBounds: state.selectionMaskBounds,
+  }, width, height);
 
-  return clampSelectionBounds(rawBounds, width, height);
+  if (selectionScope.bounds) {
+    return selectionScope.bounds;
+  }
+
+  return canvasSelection?.active ? canvasSelection.bounds : null;
 };
 
 const cloneGradientStops = (
-  stops: Array<{ position: number; color: string }>
-): Array<{ position: number; color: string }> =>
+  stops: ColorCycleGradientStop[]
+): ColorCycleGradientStop[] =>
   stops.map((stop) => ({
     position: stop.position,
     color: stop.color,
   }));
+
+const cloneUint8Array = (source?: ArrayBuffer | ArrayBufferLike | null): Uint8Array | null => {
+  if (!source) {
+    return null;
+  }
+  return new Uint8Array(source.slice(0));
+};
+
+const cloneUint16Array = (source?: ArrayBuffer | ArrayBufferLike | null): Uint16Array | null => {
+  if (!source) {
+    return null;
+  }
+  return new Uint16Array(source.slice(0));
+};
+
+const clampColorCycleSlot = (slot: number): number =>
+  Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
+
+const collectUsedColorCycleSlots = (data: NonNullable<Layer['colorCycleData']>): Set<number> => {
+  const used = new Set<number>();
+  data.slotPalettes?.forEach((entry) => used.add(clampColorCycleSlot(entry.slot)));
+  data.gradientDefs?.forEach((entry) => used.add(clampColorCycleSlot(entry.currentSlot)));
+  if (typeof data.paintSlot === 'number') {
+    used.add(clampColorCycleSlot(data.paintSlot));
+  }
+  if (typeof data.fgActiveSlot === 'number') {
+    used.add(clampColorCycleSlot(data.fgActiveSlot));
+  }
+  used.add(TEMP_SAMPLE_SLOT);
+  used.add(FLOW_SLOT_MASK);
+  return used;
+};
+
+const pickAvailableColorCycleSlot = (used: Set<number>): number | null => {
+  for (let slot = 0; slot < FLOW_SLOT_MASK; slot += 1) {
+    if (!used.has(slot)) {
+      return slot;
+    }
+  }
+  return null;
+};
+
+const buildSelectionAlphaData = (
+  selectionMask: ImageData | null,
+  selectionMaskBounds: Rectangle | null,
+  selectionBounds: Rectangle
+): Uint8ClampedArray | null => {
+  if (!selectionMask || !selectionMaskBounds) {
+    return null;
+  }
+
+  const alpha = new Uint8ClampedArray(selectionBounds.width * selectionBounds.height * 4);
+  const offsetX = selectionBounds.x - Math.floor(selectionMaskBounds.x);
+  const offsetY = selectionBounds.y - Math.floor(selectionMaskBounds.y);
+
+  for (let y = 0; y < selectionBounds.height; y += 1) {
+    const maskY = y + offsetY;
+    if (maskY < 0 || maskY >= selectionMask.height) {
+      continue;
+    }
+    for (let x = 0; x < selectionBounds.width; x += 1) {
+      const maskX = x + offsetX;
+      if (maskX < 0 || maskX >= selectionMask.width) {
+        continue;
+      }
+      const maskIndex = (maskY * selectionMask.width + maskX) * 4 + 3;
+      const targetIndex = (y * selectionBounds.width + x) * 4 + 3;
+      alpha[targetIndex] = selectionMask.data[maskIndex] ?? 0;
+    }
+  }
+
+  return alpha;
+};
 
 const cloneColorCycleData = (
   data: Layer['colorCycleData'] | undefined
@@ -253,6 +343,256 @@ const refreshColorCycleGradientDefRuntime = (
   }
 };
 
+const captureColorCycleRuntimeSnapshot = (
+  state: AppState,
+  layer: Layer
+): ColorCycleRuntimeSnapshot | null => {
+  if (layer.layerType !== 'color-cycle') {
+    return null;
+  }
+
+  const brush = state.getLayerColorCycleBrush(layer.id) as {
+    getLayerSnapshot?: (layerId: string) => {
+      paintBuffer?: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent?: boolean;
+      strokeCounter?: number;
+    } | null;
+    getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
+  } | null;
+  const snapshot = brush?.getLayerSnapshot?.(layer.id) ?? null;
+  const canvas = layer.colorCycleData?.canvas ?? brush?.getCanvas?.() ?? layer.framebuffer;
+  const width = canvas?.width ?? layer.imageData?.width ?? state.project?.width ?? 0;
+  const height = canvas?.height ?? layer.imageData?.height ?? state.project?.height ?? 0;
+
+  if (!snapshot?.paintBuffer || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const paintBuffer = cloneUint8Array(snapshot.paintBuffer);
+  const gradientIdBuffer = cloneUint8Array(snapshot.gradientIdBuffer) ?? new Uint8Array(width * height);
+  const gradientDefIdBuffer = cloneUint16Array(snapshot.gradientDefIdBuffer);
+  const speedBuffer = cloneUint8Array(snapshot.speedBuffer);
+  const flowBuffer = cloneUint8Array(snapshot.flowBuffer);
+
+  if (!paintBuffer || paintBuffer.length !== width * height || gradientIdBuffer.length !== width * height) {
+    return null;
+  }
+  if (gradientDefIdBuffer && gradientDefIdBuffer.length !== width * height) {
+    return null;
+  }
+  if (speedBuffer && speedBuffer.length !== width * height) {
+    return null;
+  }
+  if (flowBuffer && flowBuffer.length !== width * height) {
+    return null;
+  }
+
+  return {
+    paintBuffer,
+    gradientIdBuffer,
+    gradientDefIdBuffer,
+    speedBuffer,
+    flowBuffer,
+    width,
+    height,
+    hasContent: snapshot.hasContent ?? paintBuffer.some((value) => value !== 0),
+    strokeCounter: snapshot.strokeCounter ?? 0,
+  };
+};
+
+const restoreColorCycleRuntimeSnapshot = (
+  state: AppState,
+  layer: Layer,
+  snapshot: ColorCycleRuntimeSnapshot | null
+): void => {
+  if (layer.layerType !== 'color-cycle' || !snapshot) {
+    return;
+  }
+
+  const brush = state.getLayerColorCycleBrush(layer.id) as {
+    applyLayerSnapshot?: (layerId: string, payload: {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    }) => void;
+    renderDirectToCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas, layerId: string) => void;
+    getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
+  } | null;
+
+  if (!brush?.applyLayerSnapshot) {
+    return;
+  }
+
+  brush.applyLayerSnapshot(layer.id, {
+    paintBuffer: snapshot.paintBuffer.slice().buffer,
+    gradientIdBuffer: snapshot.gradientIdBuffer.slice().buffer,
+    gradientDefIdBuffer: snapshot.gradientDefIdBuffer?.slice().buffer,
+    speedBuffer: snapshot.speedBuffer?.slice().buffer,
+    flowBuffer: snapshot.flowBuffer?.slice().buffer,
+    hasContent: snapshot.hasContent,
+    strokeCounter: snapshot.strokeCounter,
+  });
+
+  const canvas = layer.colorCycleData?.canvas ?? brush.getCanvas?.();
+  if (canvas && brush.renderDirectToCanvas) {
+    try {
+      brush.renderDirectToCanvas(canvas, layer.id);
+    } catch {
+      // noop: requestGradientApply can refresh the runtime palette
+    }
+  }
+};
+
+const previewSelectedColorCycleRegion = (
+  state: AppState,
+  set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0],
+  get: () => AppState,
+  layer: Layer,
+  originalData: NonNullable<Layer['colorCycleData']>,
+  originalSnapshot: ColorCycleRuntimeSnapshot,
+  params: ColorAdjustParams,
+  selectionScope: ReturnType<typeof resolveSelectionRasterScope>
+): boolean => {
+  if (layer.layerType !== 'color-cycle' || !state.project) {
+    return false;
+  }
+
+  const selectionBounds = selectionScope.bounds;
+  if (!selectionBounds || selectionBounds.width <= 0 || selectionBounds.height <= 0) {
+    return false;
+  }
+
+  const slotPalettes = originalData.slotPalettes ?? [];
+  if (slotPalettes.length === 0) {
+    return false;
+  }
+
+  restoreColorCycleRuntimeSnapshot(state, layer, originalSnapshot);
+
+  const selectionGradientIds = copyScalarRegion(
+    originalSnapshot.gradientIdBuffer,
+    originalSnapshot.width,
+    originalSnapshot.height,
+    selectionBounds
+  );
+  const selectionPaint = copyScalarRegion(
+    originalSnapshot.paintBuffer,
+    originalSnapshot.width,
+    originalSnapshot.height,
+    selectionBounds
+  );
+
+  const usedSlots = collectUsedColorCycleSlots(originalData);
+  const slotRemap = new Map<number, number>();
+  const nextSlotPalettes = slotPalettes.map((entry) => ({
+    slot: entry.slot,
+    stops: cloneGradientStops(entry.stops),
+  }));
+
+  for (let index = 0; index < selectionGradientIds.length; index += 1) {
+    if ((selectionPaint[index] ?? 0) === 0) {
+      continue;
+    }
+
+    const sourceSlot = clampColorCycleSlot(selectionGradientIds[index] ?? 0);
+    if (slotRemap.has(sourceSlot)) {
+      continue;
+    }
+
+    const sourcePalette = nextSlotPalettes.find((entry) => entry.slot === sourceSlot);
+    if (!sourcePalette) {
+      continue;
+    }
+
+    const nextSlot = pickAvailableColorCycleSlot(usedSlots);
+    if (nextSlot === null) {
+      return false;
+    }
+
+    usedSlots.add(nextSlot);
+    slotRemap.set(sourceSlot, nextSlot);
+    nextSlotPalettes.push({
+      slot: nextSlot,
+      stops: applyColorAdjustmentsToGradient(sourcePalette.stops, params),
+    });
+  }
+
+  if (slotRemap.size === 0) {
+    return false;
+  }
+
+  const baseColorCycleData = cloneColorCycleData(originalData) ?? originalData;
+
+  const remappedGradientIds = selectionGradientIds.slice();
+  for (let index = 0; index < remappedGradientIds.length; index += 1) {
+    if ((selectionPaint[index] ?? 0) === 0) {
+      continue;
+    }
+    const sourceSlot = clampColorCycleSlot(remappedGradientIds[index] ?? 0);
+    const remappedSlot = slotRemap.get(sourceSlot);
+    if (remappedSlot !== undefined) {
+      remappedGradientIds[index] = remappedSlot;
+    }
+  }
+
+  replaceColorCycleLayerData(set, get, layer.id, {
+    ...baseColorCycleData,
+    slotPalettes: nextSlotPalettes,
+  });
+
+  const alphaData = buildSelectionAlphaData(
+    selectionScope.selectionMask,
+    selectionScope.selectionMaskBounds,
+    selectionBounds
+  );
+
+  const wroteRegion = writeColorCycleRegion(
+    state,
+    layer,
+    state.project,
+    selectionBounds,
+    selectionPaint,
+    selectionBounds.width,
+    selectionBounds.height,
+    {
+      alphaData,
+      alphaStride: 4,
+      alphaChannelOffset: 3,
+      alphaThreshold: 0,
+      sourceGradientIds: remappedGradientIds,
+    }
+  );
+
+  if (!wroteRegion) {
+    replaceColorCycleLayerData(set, get, layer.id, baseColorCycleData);
+    restoreColorCycleRuntimeSnapshot(state, layer, originalSnapshot);
+    return false;
+  }
+
+  const refreshedLayer = get().layers.find((entry) => entry.id === layer.id);
+  const refreshedColorCycleData =
+    refreshedLayer?.layerType === 'color-cycle'
+      ? cloneColorCycleData(refreshedLayer.colorCycleData) ?? baseColorCycleData
+      : baseColorCycleData;
+  replaceColorCycleLayerData(set, get, layer.id, {
+    ...refreshedColorCycleData,
+    slotPalettes: nextSlotPalettes,
+  });
+
+  requestGradientApply(layer.id, 'color-adjust-preview-selection');
+  refreshColorCycleGradientDefRuntime(get, layer.id);
+  state.setLayersNeedRecomposition(true);
+  return true;
+};
+
 const snapshotLayerImageData = (layer: Layer | undefined): ImageData | null => {
   if (!layer) {
     return null;
@@ -301,34 +641,6 @@ const getScratchImage = (layerId: string, width: number, height: number): ImageD
   const fresh = new ImageData(new Uint8ClampedArray(width * height * 4), width, height);
   scratchCache.set(cacheKey, fresh);
   return fresh;
-};
-
-// Copy a rectangular region from source into target (same pixel format)
-const copyRegion = (
-  source: ImageData,
-  target: ImageData,
-  bounds: { x: number; y: number; width: number; height: number }
-): void => {
-  const { x, y, width, height } = bounds;
-  for (let row = 0; row < height; row += 1) {
-    const srcStart = ((y + row) * source.width + x) * 4;
-    const tgtStart = ((y + row) * target.width + x) * 4;
-    target.data.set(source.data.subarray(srcStart, srcStart + width * 4), tgtStart);
-  }
-};
-
-const pasteRegionAt = (
-  source: ImageData,
-  target: ImageData,
-  destX: number,
-  destY: number
-): void => {
-  const srcStride = source.width * 4;
-  for (let row = 0; row < source.height; row += 1) {
-    const srcStart = row * srcStride;
-    const tgtStart = ((destY + row) * target.width + destX) * 4;
-    target.data.set(source.data.subarray(srcStart, srcStart + source.width * 4), tgtStart);
-  }
 };
 
 // Keep the framebuffer in sync with ImageData updates so compositing uses the adjusted pixels.
@@ -423,6 +735,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
     const { activeLayerId, layers } = state;
     colorAdjustLayerStructureBefore = null;
     colorAdjustOriginalColorCycleData = null;
+    colorAdjustOriginalColorCycleSnapshot = null;
 
     if (!activeLayerId) {
       set({ colorAdjust: createDefaultColorAdjustState() });
@@ -442,6 +755,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         return;
       }
       colorAdjustOriginalColorCycleData = cloneColorCycleData(layer.colorCycleData);
+      colorAdjustOriginalColorCycleSnapshot = captureColorCycleRuntimeSnapshot(state, layer);
 
       colorAdjustLayerStructureBefore = captureLayerStructureSnapshot(state, {
         actionType: 'color-adjust',
@@ -533,6 +847,31 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       if (layer.layerType !== 'color-cycle' || !colorAdjustOriginalColorCycleData) {
         return;
       }
+      const colorCycleSelectionScope = resolveSelectionRasterScope({
+        selectionStart: state.selectionStart,
+        selectionEnd: state.selectionEnd,
+        selectionMask: state.selectionMask,
+        selectionMaskBounds: state.selectionMaskBounds,
+      }, layer.imageData?.width ?? state.project?.width ?? 0, layer.imageData?.height ?? state.project?.height ?? 0);
+
+      if (
+        colorAdjustOriginalColorCycleSnapshot &&
+        !colorAdjustOriginalColorCycleData.recolorSettings &&
+        previewSelectedColorCycleRegion(
+          state,
+          set,
+          get,
+          layer,
+          colorAdjustOriginalColorCycleData,
+          colorAdjustOriginalColorCycleSnapshot,
+          colorAdjust.params,
+          colorCycleSelectionScope
+        )
+      ) {
+        return;
+      }
+
+      restoreColorCycleRuntimeSnapshot(state, layer, colorAdjustOriginalColorCycleSnapshot);
       const nextColorCycleData = hasColorAdjustments(colorAdjust.params)
         ? buildAdjustedColorCycleData(colorAdjustOriginalColorCycleData, colorAdjust.params)
         : cloneColorCycleData(colorAdjustOriginalColorCycleData);
@@ -567,7 +906,13 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
     }
 
     const { params, originalImageData, targetLayerId } = colorAdjust;
-    const selectionBounds = resolveSelectionBounds(
+    const selectionScope = resolveSelectionRasterScope({
+      selectionStart: state.selectionStart,
+      selectionEnd: state.selectionEnd,
+      selectionMask: state.selectionMask,
+      selectionMaskBounds: state.selectionMaskBounds,
+    }, originalImageData.width, originalImageData.height);
+    const selectionBounds = selectionScope.bounds ?? resolveSelectionBounds(
       state,
       originalImageData.width,
       originalImageData.height
@@ -588,7 +933,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
     }
 
     // ROI path: keep baseline elsewhere intact, only touch the selection bounds
-    copyRegion(originalImageData, working, selectionBounds); // restore baseline for ROI
+    working.data.set(originalImageData.data);
 
     const { width, height, x, y } = selectionBounds;
     const scratch = getScratchImage(targetLayerId, width, height);
@@ -606,7 +951,14 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       ? applyColorAdjustments(scratch, params)
       : scratch;
 
-    pasteRegionAt(adjustedRegion, working, selectionBounds.x, selectionBounds.y);
+    blitImageDataWithinSelection(
+      adjustedRegion,
+      working,
+      selectionBounds.x,
+      selectionBounds.y,
+      selectionScope.selectionMask,
+      selectionScope.selectionMaskBounds
+    );
 
     syncFramebufferFromImageData(layer, working);
     state.updateLayer(layer.id, { imageData: working });
@@ -626,6 +978,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       set({ colorAdjust: createDefaultColorAdjustState() });
       colorAdjustLayerStructureBefore = null;
       colorAdjustOriginalColorCycleData = null;
+      colorAdjustOriginalColorCycleSnapshot = null;
       return;
     }
 
@@ -634,6 +987,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         set({ colorAdjust: createDefaultColorAdjustState() });
         colorAdjustLayerStructureBefore = null;
         colorAdjustOriginalColorCycleData = null;
+        colorAdjustOriginalColorCycleSnapshot = null;
         return;
       }
 
@@ -670,6 +1024,9 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       if (updatedBaseline && updatedBaseline.length > 0) {
         colorAdjustLayerStructureBefore = afterSnapshot;
         colorAdjustOriginalColorCycleData = cloneColorCycleData(refreshedLayer?.colorCycleData);
+        colorAdjustOriginalColorCycleSnapshot = refreshedLayer
+          ? captureColorCycleRuntimeSnapshot(get(), refreshedLayer)
+          : null;
         set({
           colorAdjust: {
             active: true,
@@ -684,6 +1041,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       } else {
         colorAdjustLayerStructureBefore = null;
         colorAdjustOriginalColorCycleData = null;
+        colorAdjustOriginalColorCycleSnapshot = null;
         set({ colorAdjust: createDefaultColorAdjustState() });
       }
       return;
@@ -750,6 +1108,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       set({ colorAdjust: createDefaultColorAdjustState() });
       colorAdjustLayerStructureBefore = null;
       colorAdjustOriginalColorCycleData = null;
+      colorAdjustOriginalColorCycleSnapshot = null;
       return;
     }
 
@@ -760,6 +1119,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       const restoredData = cloneColorCycleData(colorAdjustOriginalColorCycleData);
       if (layer.layerType === 'color-cycle' && restoredData) {
         replaceColorCycleLayerData(set, get, layer.id, restoredData);
+        restoreColorCycleRuntimeSnapshot(state, layer, colorAdjustOriginalColorCycleSnapshot);
       }
       if (layer.layerType === 'color-cycle' && restoredData?.mode === 'recolor' && restoredData.recolorSettings) {
         const refreshedLayer = get().layers.find((entry) => entry.id === layer.id);
@@ -793,6 +1153,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
 
     colorAdjustLayerStructureBefore = null;
     colorAdjustOriginalColorCycleData = null;
+    colorAdjustOriginalColorCycleSnapshot = null;
     set({ colorAdjust: createDefaultColorAdjustState() });
   },
   resetColorAdjustParams: () => {

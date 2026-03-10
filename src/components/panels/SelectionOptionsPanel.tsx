@@ -14,7 +14,7 @@ const OPTIONS: Array<{ label: string; value: SelectionMode }> = [
 ];
 
 const HELP_TEXT: Record<SelectionMode, string> = {
-  marquee: 'Drag to create a rectangle.',
+  marquee: '',
   freehand: 'Drag a path and release to auto-close.',
   'click-line': 'Click points. Double-click or click near start to close.',
 };
@@ -138,7 +138,9 @@ const SelectionOptionsPanel: React.FC = () => {
           Crop
         </button>
       )}
-      <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">{HELP_TEXT[selectionMode]}</p>
+      {HELP_TEXT[selectionMode] ? (
+        <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">{HELP_TEXT[selectionMode]}</p>
+      ) : null}
     </div>
   );
 };

@@ -215,7 +215,7 @@ const mutateColorCycleLayer = (
     if (syncedImage) {
       update.canvasImageData = syncedImage;
     }
-    update.gradientIdBuffer = working.buffer.slice(0) as ArrayBuffer;
+    update.gradientIdBuffer = workingGradientId.buffer.slice(0) as ArrayBuffer;
     update.gradientDefIdBuffer = workingGradientDefId.buffer.slice(0) as ArrayBuffer;
 
     const hasUpdates = Object.keys(update).length > 0;
