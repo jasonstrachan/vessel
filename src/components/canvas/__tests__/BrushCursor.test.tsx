@@ -3,24 +3,19 @@ import BrushCursor from '../BrushCursor';
 
 describe('BrushCursor', () => {
   const getContext = jest.fn(() => ({
+    clearRect: jest.fn(),
     putImageData: jest.fn(),
   }));
-  const toDataURL = jest.fn(() => 'data:image/png;base64,cursor');
 
   beforeAll(() => {
     Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
       configurable: true,
       value: getContext,
     });
-    Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
-      configurable: true,
-      value: toDataURL,
-    });
   });
 
   beforeEach(() => {
     getContext.mockClear();
-    toDataURL.mockClear();
   });
 
   it('renders a custom brush cursor with preserved aspect ratio', () => {
@@ -48,7 +43,7 @@ describe('BrushCursor', () => {
     expect(cursor).not.toBeNull();
     expect(cursor.style.width).toBe('80px');
     expect(cursor.style.height).toBe('40px');
-    expect(cursor.style.backgroundImage).toContain('data:image/png;base64,cursor');
     expect(cursor.style.outline).toBe('1px solid white');
+    expect(cursor.querySelector('canvas')).not.toBeNull();
   });
 });
