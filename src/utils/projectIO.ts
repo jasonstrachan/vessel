@@ -911,6 +911,92 @@ function base64ToUint8Array(base64?: string): Uint8Array | undefined {
   return new Uint8Array(base64ToArrayBuffer(base64));
 }
 
+const resolveColorCycleCanvasDimensions = (
+  colorCycleData: {
+    canvasImageData?: ImageData;
+    canvasWidth?: number;
+    canvasHeight?: number;
+    canvas?: { width?: number; height?: number } | null;
+  } | undefined,
+  fallbackWidth: number,
+  fallbackHeight: number,
+): { width: number; height: number } => {
+  const width =
+    colorCycleData?.canvasImageData?.width ??
+    colorCycleData?.canvas?.width ??
+    colorCycleData?.canvasWidth ??
+    fallbackWidth;
+  const height =
+    colorCycleData?.canvasImageData?.height ??
+    colorCycleData?.canvas?.height ??
+    colorCycleData?.canvasHeight ??
+    fallbackHeight;
+
+  return {
+    width: Math.max(1, Math.floor(width || fallbackWidth || 1)),
+    height: Math.max(1, Math.floor(height || fallbackHeight || 1)),
+  };
+};
+
+const isCompatibleColorCycleSnapshot = (
+  snapshot: PersistedColorCycleBrushState['layers'][number] | undefined,
+  width: number,
+  height: number,
+): boolean => {
+  if (!snapshot) {
+    return true;
+  }
+
+  const expectedPixels = width * height;
+  const expectedDefBytes = expectedPixels * Uint16Array.BYTES_PER_ELEMENT;
+  const strokeData = snapshot.strokeData;
+  const animatorIndex = snapshot.animator?.indexBuffer;
+
+  const matchesExpected = (base64Value: string | undefined, expectedBytes: number): boolean => {
+    if (!base64Value) {
+      return true;
+    }
+    const bytes = base64ToUint8Array(base64Value);
+    return bytes !== undefined && bytes.byteLength === expectedBytes;
+  };
+
+  if (!matchesExpected(strokeData?.paintBuffer, expectedPixels)) {
+    return false;
+  }
+  if (!matchesExpected(strokeData?.gradientIdBuffer, expectedPixels)) {
+    return false;
+  }
+  if (!matchesExpected(strokeData?.speedBuffer, expectedPixels)) {
+    return false;
+  }
+  if (!matchesExpected(strokeData?.flowBuffer, expectedPixels)) {
+    return false;
+  }
+  if (!matchesExpected(strokeData?.gradientDefIdBuffer, expectedDefBytes)) {
+    return false;
+  }
+
+  if (animatorIndex) {
+    if (animatorIndex.width !== width || animatorIndex.height !== height) {
+      return false;
+    }
+    if (!matchesExpected(animatorIndex.data, expectedPixels)) {
+      return false;
+    }
+    if (!matchesExpected(animatorIndex.gradientId, expectedPixels)) {
+      return false;
+    }
+    if (!matchesExpected(animatorIndex.speedData, expectedPixels)) {
+      return false;
+    }
+    if (!matchesExpected(animatorIndex.flowData, expectedPixels)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 
 const resolveLayerImageDataForSave = (layer: Layer): ImageData | null => {
   const layerImageData = layer.imageData ?? null;
@@ -949,18 +1035,11 @@ const resolveColorCycleCanvasImageDataForSave = async (
     return undefined;
   }
 
-  const width =
-    colorCycleData.canvasWidth ??
-    colorCycleData.canvas?.width ??
-    layer.imageData?.width ??
-    (layer.framebuffer as { width?: number } | null)?.width ??
-    1;
-  const height =
-    colorCycleData.canvasHeight ??
-    colorCycleData.canvas?.height ??
-    layer.imageData?.height ??
-    (layer.framebuffer as { height?: number } | null)?.height ??
-    1;
+  const { width, height } = resolveColorCycleCanvasDimensions(
+    colorCycleData,
+    layer.imageData?.width ?? (layer.framebuffer as { width?: number } | null)?.width ?? 1,
+    layer.imageData?.height ?? (layer.framebuffer as { height?: number } | null)?.height ?? 1,
+  );
 
   const renderCanvas = document.createElement('canvas');
   renderCanvas.width = Math.max(1, width);
@@ -1084,14 +1163,24 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
     if (colorCycleData.canvasImageData) {
       try {
         serializedColorCycle.canvasImageData = await imageDataToDataUrl(colorCycleData.canvasImageData);
-        serializedColorCycle.canvasWidth = colorCycleData.canvasImageData.width;
-        serializedColorCycle.canvasHeight = colorCycleData.canvasImageData.height;
+        const { width, height } = resolveColorCycleCanvasDimensions(
+          colorCycleData,
+          colorCycleData.canvasImageData.width,
+          colorCycleData.canvasImageData.height,
+        );
+        serializedColorCycle.canvasWidth = width;
+        serializedColorCycle.canvasHeight = height;
       } catch (error) {
         console.warn('[projectIO] Failed to serialize color cycle canvas image data:', error);
       }
     } else if (colorCycleData.canvas?.width && colorCycleData.canvas?.height) {
-      serializedColorCycle.canvasWidth = colorCycleData.canvas.width;
-      serializedColorCycle.canvasHeight = colorCycleData.canvas.height;
+      const { width, height } = resolveColorCycleCanvasDimensions(
+        colorCycleData,
+        colorCycleData.canvas.width,
+        colorCycleData.canvas.height,
+      );
+      serializedColorCycle.canvasWidth = width;
+      serializedColorCycle.canvasHeight = height;
     }
 
     if (colorCycleData.eraseMaskImageData) {
@@ -1378,8 +1467,23 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
   if (serializedLayer.colorCycleData) {
     // Create canvas for color cycle rendering
     const colorCycleCanvas = document.createElement('canvas');
-    const canvasWidth = serializedLayer.colorCycleData.canvasWidth ?? projectWidth;
-    const canvasHeight = serializedLayer.colorCycleData.canvasHeight ?? projectHeight;
+    const serializedCanvasWidth = serializedLayer.colorCycleData.canvasWidth;
+    const serializedCanvasHeight = serializedLayer.colorCycleData.canvasHeight;
+    const canvasWidth = projectWidth;
+    const canvasHeight = projectHeight;
+    if (
+      typeof serializedCanvasWidth === 'number' &&
+      typeof serializedCanvasHeight === 'number' &&
+      (serializedCanvasWidth !== projectWidth || serializedCanvasHeight !== projectHeight)
+    ) {
+      console.warn('[projectIO] Coercing mismatched color cycle canvas dimensions to project size during load', {
+        layerId: serializedLayer.id,
+        serializedCanvasWidth,
+        serializedCanvasHeight,
+        projectWidth,
+        projectHeight,
+      });
+    }
     colorCycleCanvas.width = Math.max(1, canvasWidth);
     colorCycleCanvas.height = Math.max(1, canvasHeight);
 
@@ -2390,7 +2494,21 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         ))
       );
       if (savedBrushState) {
+        const canvasWidth = layer.colorCycleData.canvas?.width ?? 0;
+        const canvasHeight = layer.colorCycleData.canvas?.height ?? 0;
+        const hasDimensionMismatch = Boolean(
+          canvasWidth > 0 &&
+          canvasHeight > 0 &&
+          savedBrushState.layers?.some((snapshot) => !isCompatibleColorCycleSnapshot(snapshot, canvasWidth, canvasHeight))
+        );
         if (!hasRestorableSavedBrushLayers) {
+          savedBrushStates.delete(layer);
+        } else if (hasDimensionMismatch) {
+          console.warn('[projectIO] Dropping incompatible color cycle brushState during load', {
+            layerId: layer.id,
+            canvasWidth,
+            canvasHeight,
+          });
           savedBrushStates.delete(layer);
         } else {
         try {
