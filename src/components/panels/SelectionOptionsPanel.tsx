@@ -4,7 +4,7 @@ import React from 'react';
 import ButtonGroup from '@/components/ui/ButtonGroup';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
-import type { SelectionMode } from '@/types';
+import type { Rectangle, SelectionMode } from '@/types';
 
 const OPTIONS: Array<{ label: string; value: SelectionMode }> = [
   { label: 'Marquee', value: 'marquee' },
@@ -18,10 +18,31 @@ const HELP_TEXT: Record<SelectionMode, string> = {
   'click-line': 'Click points. Double-click or click near start to close.',
 };
 
+const deriveSelectionRect = (
+  selectionStart: { x: number; y: number } | null,
+  selectionEnd: { x: number; y: number } | null,
+): Rectangle | null => {
+  if (!selectionStart || !selectionEnd) {
+    return null;
+  }
+
+  const x = Math.min(selectionStart.x, selectionEnd.x);
+  const y = Math.min(selectionStart.y, selectionEnd.y);
+  const width = Math.abs(selectionEnd.x - selectionStart.x);
+  const height = Math.abs(selectionEnd.y - selectionStart.y);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { x, y, width, height };
+};
+
 const SelectionOptionsPanel: React.FC = () => {
   const currentTool = useAppStore(selectCurrentTool);
   const selectionMode = useAppStore((state) => state.tools.selectionMode);
   const setSelectionMode = useAppStore((state) => state.setSelectionMode);
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const selectionStart = useAppStore((state) => state.selectionStart);
   const selectionEnd = useAppStore((state) => state.selectionEnd);
   const selectionMask = useAppStore((state) => state.selectionMask);
@@ -31,11 +52,17 @@ const SelectionOptionsPanel: React.FC = () => {
   const flipFloatingPasteHorizontal = useAppStore((state) => state.flipFloatingPasteHorizontal);
   const flipFloatingPasteVertical = useAppStore((state) => state.flipFloatingPasteVertical);
   const invertSelection = useAppStore((state) => state.invertSelection);
+  const setCropState = useAppStore((state) => state.setCropState);
 
   const hasSelectionBounds = Boolean(selectionStart && selectionEnd);
   const hasSelectionMask = Boolean(selectionMask && selectionMaskBounds);
   const canInvertSelection = hasSelectionBounds || hasSelectionMask;
   const canFlipSelection = Boolean(floatingPaste || hasSelectionBounds);
+  const marqueeSelectionRect = React.useMemo(
+    () => deriveSelectionRect(selectionStart, selectionEnd),
+    [selectionEnd, selectionStart],
+  );
+  const canCropSelection = selectionMode === 'marquee' && Boolean(marqueeSelectionRect);
 
   const handleFlipHorizontal = React.useCallback(() => {
     if (!floatingPaste) {
@@ -56,6 +83,20 @@ const SelectionOptionsPanel: React.FC = () => {
     }
     flipFloatingPasteVertical();
   }, [extractSelectionToFloatingPaste, flipFloatingPasteVertical, floatingPaste]);
+
+  const handleCropSelection = React.useCallback(() => {
+    if (!marqueeSelectionRect) {
+      return;
+    }
+
+    setCropState({
+      marquee: marqueeSelectionRect,
+      status: 'ready',
+      activeHandle: null,
+      commitInFlight: false,
+    });
+    setCurrentTool('crop');
+  }, [marqueeSelectionRect, setCropState, setCurrentTool]);
 
   if (currentTool !== 'selection') {
     return null;
@@ -96,6 +137,16 @@ const SelectionOptionsPanel: React.FC = () => {
       >
         Invert
       </button>
+      {selectionMode === 'marquee' && (
+        <button
+          type="button"
+          className="mt-2 h-7 w-full px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={handleCropSelection}
+          disabled={!canCropSelection}
+        >
+          Crop
+        </button>
+      )}
       <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">{HELP_TEXT[selectionMode]}</p>
     </div>
   );

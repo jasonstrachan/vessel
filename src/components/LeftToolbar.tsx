@@ -44,7 +44,6 @@ const LeftToolbar = () => {
       { id: 'fill' as Tool, label: 'Fill', abbr: 'Fl' },
       { id: 'magic-wand' as Tool, label: 'Magic Wand', abbr: 'Mw' },
       { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
-      { id: 'crop' as Tool, label: 'Crop', abbr: 'Cr' },
     ],
     [
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },
