@@ -1,5 +1,18 @@
 import type { Rectangle } from '@/types';
 
+export interface SelectionRasterScopeInput {
+  selectionStart: { x: number; y: number } | null;
+  selectionEnd: { x: number; y: number } | null;
+  selectionMask: ImageData | null;
+  selectionMaskBounds: Rectangle | null;
+}
+
+export interface SelectionRasterScope {
+  bounds: Rectangle | null;
+  selectionMask: ImageData | null;
+  selectionMaskBounds: Rectangle | null;
+}
+
 export const clampMarqueeDragRectToBounds = (
   start: { x: number; y: number } | null,
   end: { x: number; y: number } | null,
@@ -58,6 +71,121 @@ export const clampSelectionBounds = (
     width: clampedWidth,
     height: clampedHeight,
   };
+};
+
+export const resolveSelectionRasterScope = (
+  selection: SelectionRasterScopeInput,
+  imageWidth: number,
+  imageHeight: number
+): SelectionRasterScope => {
+  if (selection.selectionMask && selection.selectionMaskBounds) {
+    return {
+      bounds: clampSelectionBounds(selection.selectionMaskBounds, imageWidth, imageHeight),
+      selectionMask: selection.selectionMask,
+      selectionMaskBounds: selection.selectionMaskBounds,
+    };
+  }
+
+  const rectBounds =
+    selection.selectionStart && selection.selectionEnd
+      ? {
+          x: Math.min(selection.selectionStart.x, selection.selectionEnd.x),
+          y: Math.min(selection.selectionStart.y, selection.selectionEnd.y),
+          width: Math.abs(selection.selectionEnd.x - selection.selectionStart.x),
+          height: Math.abs(selection.selectionEnd.y - selection.selectionStart.y),
+        }
+      : null;
+
+  return {
+    bounds: clampSelectionBounds(rectBounds, imageWidth, imageHeight),
+    selectionMask: null,
+    selectionMaskBounds: null,
+  };
+};
+
+const isMaskPixelSelected = (
+  x: number,
+  y: number,
+  selectionMask: ImageData | null,
+  selectionMaskBounds: Rectangle | null
+): boolean => {
+  if (!selectionMask || !selectionMaskBounds) {
+    return true;
+  }
+
+  const localX = x - Math.floor(selectionMaskBounds.x);
+  const localY = y - Math.floor(selectionMaskBounds.y);
+  if (
+    localX < 0 ||
+    localY < 0 ||
+    localX >= selectionMask.width ||
+    localY >= selectionMask.height
+  ) {
+    return false;
+  }
+
+  const alphaIndex = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
+  return (selectionMask.data[alphaIndex] ?? 0) > 0;
+};
+
+export const copyRectWithinSelection = (
+  source: ImageData,
+  target: ImageData,
+  bounds: Rectangle,
+  selectionMask: ImageData | null,
+  selectionMaskBounds: Rectangle | null
+): void => {
+  const startX = Math.max(0, Math.floor(bounds.x));
+  const startY = Math.max(0, Math.floor(bounds.y));
+  const endX = Math.min(source.width, target.width, Math.ceil(bounds.x + bounds.width));
+  const endY = Math.min(source.height, target.height, Math.ceil(bounds.y + bounds.height));
+
+  for (let y = startY; y < endY; y += 1) {
+    for (let x = startX; x < endX; x += 1) {
+      if (!isMaskPixelSelected(x, y, selectionMask, selectionMaskBounds)) {
+        continue;
+      }
+
+      const index = (y * source.width + x) * 4;
+      target.data[index] = source.data[index];
+      target.data[index + 1] = source.data[index + 1];
+      target.data[index + 2] = source.data[index + 2];
+      target.data[index + 3] = source.data[index + 3];
+    }
+  }
+};
+
+export const blitImageDataWithinSelection = (
+  source: ImageData,
+  target: ImageData,
+  destX: number,
+  destY: number,
+  selectionMask: ImageData | null,
+  selectionMaskBounds: Rectangle | null
+): void => {
+  for (let y = 0; y < source.height; y += 1) {
+    const targetY = destY + y;
+    if (targetY < 0 || targetY >= target.height) {
+      continue;
+    }
+
+    for (let x = 0; x < source.width; x += 1) {
+      const targetX = destX + x;
+      if (targetX < 0 || targetX >= target.width) {
+        continue;
+      }
+      if (!isMaskPixelSelected(targetX, targetY, selectionMask, selectionMaskBounds)) {
+        continue;
+      }
+
+      const sourceIndex = (y * source.width + x) * 4;
+      const targetIndex = (targetY * target.width + targetX) * 4;
+      target.data[targetIndex] = source.data[sourceIndex];
+      target.data[targetIndex + 1] = source.data[sourceIndex + 1];
+      target.data[targetIndex + 2] = source.data[sourceIndex + 2];
+      target.data[targetIndex + 3] = source.data[sourceIndex + 3];
+    }
+  }
 };
 
 export const copyRegionIntoTarget = (source: ImageData, target: ImageData, bounds: Rectangle): void => {

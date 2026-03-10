@@ -484,6 +484,27 @@ describe('pointerHandlers main flows', () => {
     expect(deps.isMouseDownRef.current).toBe(false);
   });
 
+  it('preserves active selection for non-selection tools', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+      },
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 5, y: 5 },
+    });
+
+    dynamicDepsRef.current.tools.currentTool = 'brush';
+    deps.tools = dynamicDepsRef.current.tools;
+    deps.selectionStart = { x: 0, y: 0 } as any;
+    deps.selectionEnd = { x: 5, y: 5 } as any;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 90, clientY: 90 }));
+
+    expect(deps.clearSelection).not.toHaveBeenCalled();
+  });
+
   it('blocks mismatched brush/layer with feedback', () => {
     const feedback = jest.fn();
     const { deps, dynamicDepsRef } = createDeps({
@@ -615,9 +636,14 @@ describe('pointerHandlers main flows', () => {
     const maskBounds = { x: 0, y: 0, width: 2, height: 2 };
 
     const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+      } as any,
       selectionMask: mask,
       selectionMaskBounds: maskBounds as any,
     });
+    dynamicDepsRef.current.tools = deps.tools;
     dynamicDepsRef.current.selectionMask = mask as any;
     dynamicDepsRef.current.selectionMaskBounds = maskBounds as any;
 
@@ -705,6 +731,52 @@ describe('pointerHandlers main flows', () => {
       selectionMaskBounds: null,
       selectionMaskLayerId: null,
     });
+  });
+
+  it('clips flood fill updates to mask-backed selections', () => {
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 3;
+    framebuffer.height = 1;
+    framebuffer.getContext('2d')?.putImageData(new ImageData(3, 1), 0, 0);
+
+    const mask = new ImageData(3, 1);
+    mask.data[7] = 255;
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'fill',
+        fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
+      } as any,
+      layers: [{
+        id: 'layer-1',
+        imageData: new ImageData(3, 1),
+        framebuffer,
+        layerType: 'normal',
+      } as any],
+      activeLayerId: 'layer-1',
+      project: { ...mockProject, width: 3, height: 1 },
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 3, y: 1 },
+      selectionMask: mask,
+      selectionMaskBounds: { x: 0, y: 0, width: 3, height: 1 } as any,
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    dynamicDepsRef.current.selectionStart = deps.selectionStart;
+    dynamicDepsRef.current.selectionEnd = deps.selectionEnd;
+    dynamicDepsRef.current.selectionMask = deps.selectionMask;
+    dynamicDepsRef.current.selectionMaskBounds = deps.selectionMaskBounds;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0 }));
+
+    expect(deps.updateLayer).toHaveBeenCalledTimes(1);
+    const updatedImageData = (deps.updateLayer as jest.Mock).mock.calls[0][1].imageData as ImageData;
+    expect(Array.from(updatedImageData.data)).toEqual([
+      0, 0, 0, 0,
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+    ]);
   });
 
   it('allows dither gradient shape start outside canvas', () => {

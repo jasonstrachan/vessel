@@ -87,6 +87,10 @@ jest.mock('@/components/FeedbackStrip', () => ({
     )
   ),
 }));
+jest.mock('@/components/SelectionConstraintStrip', () => ({
+  __esModule: true,
+  default: createMockComponent('selection-constraint-strip', 'MockSelectionConstraintStrip', () => null),
+}));
 jest.mock('@/components/modals/DocumentModal', () => ({
   __esModule: true,
   DocumentModal: createModalMock('document-modal', 'MockDocumentModal'),

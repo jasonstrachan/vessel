@@ -179,6 +179,10 @@ import {
   alignPointToPixel,
   shouldPixelAlignBrush,
 } from '@/hooks/canvas/utils/strokeRasterPolicy';
+import {
+  copyRectWithinSelection,
+  resolveSelectionRasterScope,
+} from '@/stores/helpers/selectionRoi';
 
 type VerticalSpacingMapperConfig = {
   centroid: { x: number; y: number };
@@ -2016,7 +2020,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       suppressBootstrapUntilPointerUpRef.current = false;
     }
 
-    if (event.button === 0 && selectionHandlers.handleSelectionHitTest({
+    const shouldHandleSelectionHitTest =
+      tools.currentTool === 'selection' || tools.currentTool === 'custom';
+    if (event.button === 0 && shouldHandleSelectionHitTest && selectionHandlers.handleSelectionHitTest({
       worldPos,
       dynamic: {
         tools,
@@ -2533,18 +2539,42 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           }
         );
         
-        // Update the layer's framebuffer with the filled image data
+        const selectionScope = resolveSelectionRasterScope({
+          selectionStart,
+          selectionEnd,
+          selectionMask,
+          selectionMaskBounds,
+        }, filledImageData.width, filledImageData.height);
+        const nextImageData = selectionScope.bounds
+          ? cloneLayerImageData(beforeImage ?? currentImageData)
+          : filledImageData;
+
+        if (!nextImageData) {
+          return;
+        }
+
+        if (selectionScope.bounds && fillBounds) {
+          copyRectWithinSelection(
+            filledImageData,
+            nextImageData,
+            fillBounds,
+            selectionScope.selectionMask,
+            selectionScope.selectionMaskBounds
+          );
+        }
+
+        // Update the layer's framebuffer with the constrained filled image data
         if (activeLayer.framebuffer) {
           const fb = activeLayer.framebuffer;
           const ctx = fb.getContext('2d', { willReadFrequently: true });
           if (ctx && 'putImageData' in ctx) {
-            ctx.putImageData(filledImageData, 0, 0);
+            ctx.putImageData(nextImageData, 0, 0);
           }
         }
         
         // Also update the imageData if it exists
         if (activeLayerId) {
-          updateLayer(activeLayerId, { imageData: filledImageData });
+          updateLayer(activeLayerId, { imageData: nextImageData });
         }
         
         // Trigger canvas composite update
@@ -2611,12 +2641,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return;
       }
       
-      // Clear selection when clicking outside of selected area (for any other tool)
-      selectionHandlers.handleSelectionClearOnOutsideClick({
-        worldPos,
-        selectionStart,
-        selectionEnd,
-      });
+      if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
+        selectionHandlers.handleSelectionClearOnOutsideClick({
+          worldPos,
+          selectionStart,
+          selectionEnd,
+        });
+      }
       
       // Handle rectangle gradient
       if (toolStateMachine.isRectangleGradient) {
