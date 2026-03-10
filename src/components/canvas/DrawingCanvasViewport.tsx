@@ -1,7 +1,8 @@
 import type React from 'react';
-import type { BrushShape, Tool } from '@/types';
+import type { Tool } from '@/types';
 import BrushCursor, { type BrushCursorHandle } from './BrushCursor';
 import { DrawingCanvasOverlays } from './DrawingCanvasOverlays';
+import type { BrushCursorDescriptor } from './useDrawingCanvasCursorModel';
 
 export interface DrawingCanvasViewportProps {
   wrapperRef: React.RefObject<HTMLDivElement | null>;
@@ -26,8 +27,7 @@ export interface DrawingCanvasViewportProps {
   isSpacePressed: boolean;
   displayProjectName: string;
   brushCursorHandleRef: React.RefObject<BrushCursorHandle | null>;
-  cursorSize: number;
-  brushShapeForCursor: BrushShape;
+  cursorDescriptor: BrushCursorDescriptor;
   brushCursorVisible: boolean;
 }
 
@@ -54,8 +54,7 @@ export const DrawingCanvasViewport = ({
   isSpacePressed,
   displayProjectName,
   brushCursorHandleRef,
-  cursorSize,
-  brushShapeForCursor,
+  cursorDescriptor,
   brushCursorVisible,
 }: DrawingCanvasViewportProps) => (
   <div
@@ -104,8 +103,7 @@ export const DrawingCanvasViewport = ({
 
     <BrushCursor
       ref={brushCursorHandleRef}
-      size={cursorSize}
-      brushShape={brushShapeForCursor}
+      descriptor={cursorDescriptor}
       zoom={canvasZoom || 1}
       visible={brushCursorVisible}
     />
