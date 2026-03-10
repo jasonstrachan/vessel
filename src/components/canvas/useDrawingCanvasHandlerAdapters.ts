@@ -42,6 +42,10 @@ export const useDrawingCanvasHandlerAdapters = ({
         originalPosition: paste.originalPosition ?? paste.position,
         sourceLayerId: paste.sourceLayerId ?? null,
         colorCycleIndices: paste.colorCycleIndices ?? null,
+        colorCycleGradientIds: paste.colorCycleGradientIds ?? null,
+        colorCycleGradientDefIds: paste.colorCycleGradientDefIds ?? null,
+        colorCycleSpeed: paste.colorCycleSpeed ?? null,
+        colorCycleFlow: paste.colorCycleFlow ?? null,
       });
     },
     [setFloatingPaste]

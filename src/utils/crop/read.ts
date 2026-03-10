@@ -507,6 +507,7 @@ export function readLayerSourcesForCrop(
             gradientIdBuffer?: ArrayBuffer;
             gradientDefIdBuffer?: ArrayBuffer;
             speedBuffer?: ArrayBuffer;
+            flowBuffer?: ArrayBuffer;
             hasContent: boolean;
             strokeCounter: number;
           }
@@ -558,11 +559,20 @@ export function readLayerSourcesForCrop(
                   croppedSpeed = speedCrop.buffer.slice(0) as ArrayBuffer;
                 }
               }
+              let croppedFlow: ArrayBuffer | undefined;
+              if (rawSnapshot.flowBuffer) {
+                const flowSource = new Uint8Array(rawSnapshot.flowBuffer);
+                if (flowSource.length === srcWidth * srcHeight) {
+                  const flowCrop = copyScalarRegion(flowSource, srcWidth, srcHeight, rect);
+                  croppedFlow = flowCrop.buffer.slice(0) as ArrayBuffer;
+                }
+              }
               strokeSnapshot = {
                 paintBuffer: croppedBuffer.buffer.slice(0) as ArrayBuffer,
                 gradientIdBuffer: croppedGradientIds,
                 gradientDefIdBuffer: croppedGradientDefIds,
                 speedBuffer: croppedSpeed,
+                flowBuffer: croppedFlow,
                 hasContent,
                 strokeCounter: rawSnapshot.strokeCounter
               };
@@ -580,7 +590,12 @@ export function readLayerSourcesForCrop(
             (l: { layerId?: string }) => l.layerId === layer.id
           ) as {
             data?: {
-              indexBuffer?: { data?: ArrayBuffer; gradientId?: ArrayBuffer; speedData?: ArrayBuffer };
+              indexBuffer?: {
+                data?: ArrayBuffer;
+                gradientId?: ArrayBuffer;
+                speedData?: ArrayBuffer;
+                flowData?: ArrayBuffer;
+              };
               gradient?: { gradientStops?: Array<{ position: number; color: string }> };
             };
           } | undefined;
@@ -601,12 +616,18 @@ export function readLayerSourcesForCrop(
                 speedFull && speedFull.length === expectedLength
                   ? copyScalarRegion(speedFull, sw, colorCycleReadbackCanvas.height, rect)
                   : null;
+              const flowFull = idx.flowData ? new Uint8Array(idx.flowData) : null;
+              const flowOut =
+                flowFull && flowFull.length === expectedLength
+                  ? copyScalarRegion(flowFull, sw, colorCycleReadbackCanvas.height, rect)
+                  : null;
               croppedAnimatorIndex = {
                 width: targetWidth,
                 height: targetHeight,
                 data: out.buffer as ArrayBuffer,
                 gradientIdData: gradientOut?.buffer as ArrayBuffer | undefined,
                 speedData: speedOut?.buffer as ArrayBuffer | undefined,
+                flowData: flowOut?.buffer as ArrayBuffer | undefined,
                 gradientStops: layerState?.data?.gradient?.gradientStops
               };
             }

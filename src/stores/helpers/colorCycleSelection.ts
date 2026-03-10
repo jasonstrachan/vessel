@@ -11,6 +11,9 @@ const colorCycleBrushManager = getColorCycleBrushManager();
 type BufferMutator = (buffers: {
   paint: Uint8Array;
   gradientId: Uint8Array;
+  gradientDefId: Uint16Array;
+  speed: Uint8Array;
+  flow: Uint8Array;
   width: number;
   height: number;
 }) => boolean;
@@ -107,11 +110,19 @@ const mutateColorCycleLayer = (
 
   const incoming = snapshot.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null;
   const incomingGradientId = snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null;
+  const incomingGradientDefId = snapshot.gradientDefIdBuffer
+    ? new Uint16Array(snapshot.gradientDefIdBuffer)
+    : (layer.colorCycleData?.gradientDefIdBuffer ? new Uint16Array(layer.colorCycleData.gradientDefIdBuffer) : null);
+  const incomingSpeed = snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null;
+  const incomingFlow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
   if (!incoming && process.env.NODE_ENV !== 'production') {
     console.warn('[cc] no paintBuffer in snapshot', { layerId: layer.id });
   }
   const working = new Uint8Array(bufferLength);
   const workingGradientId = new Uint8Array(bufferLength);
+  const workingGradientDefId = new Uint16Array(bufferLength);
+  const workingSpeed = new Uint8Array(bufferLength);
+  const workingFlow = new Uint8Array(bufferLength);
   if (incoming && incoming.length) {
     if (incoming.length !== bufferLength && process.env.NODE_ENV !== 'production') {
       console.warn('[cc] paintBuffer/canvas mismatch in mutateColorCycleLayer', {
@@ -138,9 +149,26 @@ const mutateColorCycleLayer = (
     workingGradientId.set(incomingGradientId.subarray(0, Math.min(incomingGradientId.length, workingGradientId.length)));
   }
 
+  if (incomingGradientDefId && incomingGradientDefId.length) {
+    workingGradientDefId.set(
+      incomingGradientDefId.subarray(0, Math.min(incomingGradientDefId.length, workingGradientDefId.length))
+    );
+  }
+
+  if (incomingSpeed && incomingSpeed.length) {
+    workingSpeed.set(incomingSpeed.subarray(0, Math.min(incomingSpeed.length, workingSpeed.length)));
+  }
+
+  if (incomingFlow && incomingFlow.length) {
+    workingFlow.set(incomingFlow.subarray(0, Math.min(incomingFlow.length, workingFlow.length)));
+  }
+
   const mutated = mutator({
     paint: working,
     gradientId: workingGradientId,
+    gradientDefId: workingGradientDefId,
+    speed: workingSpeed,
+    flow: workingFlow,
     width: canvas.width,
     height: canvas.height,
   });
@@ -153,6 +181,9 @@ const mutateColorCycleLayer = (
   brush.applyLayerSnapshot(layer.id, {
     paintBuffer: working.buffer,
     gradientIdBuffer: workingGradientId.buffer,
+    gradientDefIdBuffer: workingGradientDefId.buffer,
+    speedBuffer: workingSpeed.buffer,
+    flowBuffer: workingFlow.buffer,
     hasContent,
     strokeCounter: snapshot.strokeCounter,
   });
@@ -185,6 +216,7 @@ const mutateColorCycleLayer = (
       update.canvasImageData = syncedImage;
     }
     update.gradientIdBuffer = working.buffer.slice(0) as ArrayBuffer;
+    update.gradientDefIdBuffer = workingGradientDefId.buffer.slice(0) as ArrayBuffer;
 
     const hasUpdates = Object.keys(update).length > 0;
     return hasUpdates ? { ...base, ...update } : base;
@@ -290,9 +322,17 @@ export const writeColorCycleRegion = (
     alphaChannelOffset?: number;
     alphaThreshold?: number;
     gradientSlot?: number;
+    sourceGradientIds?: Uint8Array | null;
+    sourceGradientDefIds?: Uint16Array | null;
+    sourceSpeed?: Uint8Array | null;
+    sourceFlow?: Uint8Array | null;
   }
 ): boolean =>
-  mutateColorCycleLayer(state, layer, project, ({ paint: buffer, gradientId, width: bufferWidth, height: bufferHeight }) => {
+  mutateColorCycleLayer(
+    state,
+    layer,
+    project,
+    ({ paint: buffer, gradientId, gradientDefId, speed, flow, width: bufferWidth, height: bufferHeight }) => {
     const { startX, startY, endX, endY } = clampRect(rect, bufferWidth, bufferHeight);
     if (startX >= endX || startY >= endY) {
       return false;
@@ -306,6 +346,10 @@ export const writeColorCycleRegion = (
     const alphaThreshold = Math.max(0, options?.alphaThreshold ?? 0);
     const hasGradientSlot = typeof options?.gradientSlot === 'number' && Number.isFinite(options.gradientSlot);
     const gradientSlot = hasGradientSlot ? (Math.round(options.gradientSlot as number) & FLOW_SLOT_MASK) : 0;
+    const sourceGradientIds = options?.sourceGradientIds ?? null;
+    const sourceGradientDefIds = options?.sourceGradientDefIds ?? null;
+    const sourceSpeed = options?.sourceSpeed ?? null;
+    const sourceFlow = options?.sourceFlow ?? null;
     let changed = false;
     for (let y = startY; y < endY; y += 1) {
       const destRowOffset = y * bufferWidth;
@@ -332,14 +376,31 @@ export const writeColorCycleRegion = (
           buffer[destIndex] = value;
           changed = true;
         }
-        if (hasGradientSlot && gradientId[destIndex] !== gradientSlot) {
-          gradientId[destIndex] = gradientSlot;
+        const nextGradientId = sourceGradientIds?.[srcIndex] ?? (hasGradientSlot ? gradientSlot : gradientId[destIndex]);
+        if (gradientId[destIndex] !== nextGradientId) {
+          gradientId[destIndex] = nextGradientId;
+          changed = true;
+        }
+        const nextGradientDefId = sourceGradientDefIds?.[srcIndex] ?? gradientDefId[destIndex];
+        if (gradientDefId[destIndex] !== nextGradientDefId) {
+          gradientDefId[destIndex] = nextGradientDefId;
+          changed = true;
+        }
+        const nextSpeed = sourceSpeed?.[srcIndex] ?? speed[destIndex];
+        if (speed[destIndex] !== nextSpeed) {
+          speed[destIndex] = nextSpeed;
+          changed = true;
+        }
+        const nextFlow = sourceFlow?.[srcIndex] ?? flow[destIndex];
+        if (flow[destIndex] !== nextFlow) {
+          flow[destIndex] = nextFlow;
           changed = true;
         }
       }
     }
     return changed;
-  });
+  }
+);
 
 export const hasColorCycleIndices = (payload?: { colorCycleIndices?: Uint8Array | null }): payload is {
   colorCycleIndices: Uint8Array;

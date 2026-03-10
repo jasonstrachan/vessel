@@ -30,6 +30,10 @@ describe('createClipboardHandlers', () => {
   it('prefers internal clipboard payload with CC indices over image clipboard items', async () => {
     const deps = createDeps();
     const ccIndices = new Uint8Array([5, 6, 7, 8]);
+    const ccGradientIds = new Uint8Array([9, 10, 11, 12]);
+    const ccGradientDefIds = new Uint16Array([101, 102, 103, 104]);
+    const ccSpeed = new Uint8Array([13, 14, 15, 16]);
+    const ccFlow = new Uint8Array([17, 18, 19, 20]);
     deps.selectionClipboardRef = {
       current: {
         imageData: new ImageData(2, 2),
@@ -38,6 +42,10 @@ describe('createClipboardHandlers', () => {
         height: 2,
         mode: 'copy',
         colorCycleIndices: ccIndices,
+        colorCycleGradientIds: ccGradientIds,
+        colorCycleGradientDefIds: ccGradientDefIds,
+        colorCycleSpeed: ccSpeed,
+        colorCycleFlow: ccFlow,
         colorCycleSourceLayerId: 'layer-cc',
       },
     } as ClipboardDeps['selectionClipboardRef'];
@@ -65,6 +73,10 @@ describe('createClipboardHandlers', () => {
       expect.objectContaining({
         sourceLayerId: 'layer-cc',
         colorCycleIndices: ccIndices,
+        colorCycleGradientIds: ccGradientIds,
+        colorCycleGradientDefIds: ccGradientDefIds,
+        colorCycleSpeed: ccSpeed,
+        colorCycleFlow: ccFlow,
       })
     );
   });

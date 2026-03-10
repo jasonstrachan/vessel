@@ -160,6 +160,36 @@ const resampleScalarNearest = (
   return output;
 };
 
+const resampleScalarNearest16 = (
+  source: Uint16Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number
+): Uint16Array => {
+  if (targetWidth <= 0 || targetHeight <= 0) {
+    return new Uint16Array(0);
+  }
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return new Uint16Array(targetWidth * targetHeight);
+  }
+  if (sourceWidth === targetWidth && sourceHeight === targetHeight) {
+    return source.slice();
+  }
+
+  const output = new Uint16Array(targetWidth * targetHeight);
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor((y * sourceHeight) / targetHeight));
+    const outputRow = y * targetWidth;
+    const sourceRow = sourceY * sourceWidth;
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor((x * sourceWidth) / targetWidth));
+      output[outputRow + x] = source[sourceRow + sourceX] ?? 0;
+    }
+  }
+  return output;
+};
+
 const resampleAlphaNearest = (
   imageData: ImageData | null | undefined,
   targetWidth: number,
@@ -287,6 +317,7 @@ const rebuildMoveBeforeColorState = ({
   sourceBounds,
   sourceIndices,
   sourceGradientIds,
+  sourceGradientDefIds,
   sourceSpeed,
   sourceFlow,
   sourceWidth,
@@ -298,6 +329,7 @@ const rebuildMoveBeforeColorState = ({
   sourceBounds: Rectangle;
   sourceIndices: Uint8Array;
   sourceGradientIds?: Uint8Array | null;
+  sourceGradientDefIds?: Uint16Array | null;
   sourceSpeed?: Uint8Array | null;
   sourceFlow?: Uint8Array | null;
   sourceWidth: number;
@@ -314,6 +346,9 @@ const rebuildMoveBeforeColorState = ({
     : null;
   const gradientBuffer = layer0?.strokeData?.gradientIdBuffer
     ? new Uint8Array(layer0.strokeData.gradientIdBuffer)
+    : null;
+  const gradientDefBuffer = layer0?.strokeData?.gradientDefIdBuffer
+    ? new Uint16Array(layer0.strokeData.gradientDefIdBuffer)
     : null;
   const speedBuffer = layer0?.strokeData?.speedBuffer
     ? new Uint8Array(layer0.strokeData.speedBuffer)
@@ -344,6 +379,9 @@ const rebuildMoveBeforeColorState = ({
       if (gradientBuffer && gradientBuffer.length === canvasWidth * canvasHeight) {
         gradientBuffer[dstIndex] = sourceGradientIds?.[srcIndex] ?? 0;
       }
+      if (gradientDefBuffer && gradientDefBuffer.length === canvasWidth * canvasHeight) {
+        gradientDefBuffer[dstIndex] = sourceGradientDefIds?.[srcIndex] ?? 0;
+      }
       if (speedBuffer && speedBuffer.length === canvasWidth * canvasHeight) {
         speedBuffer[dstIndex] = sourceSpeed?.[srcIndex] ?? 0;
       }
@@ -360,6 +398,7 @@ const rebuildMoveBeforeColorState = ({
           ...layer0.strokeData,
           paintBuffer: restored.buffer,
           gradientIdBuffer: gradientBuffer?.buffer ?? layer0.strokeData.gradientIdBuffer,
+          gradientDefIdBuffer: gradientDefBuffer?.buffer ?? layer0.strokeData.gradientDefIdBuffer,
           speedBuffer: speedBuffer?.buffer ?? layer0.strokeData.speedBuffer,
           flowBuffer: flowBuffer?.buffer ?? layer0.strokeData.flowBuffer,
         }
@@ -429,6 +468,7 @@ export const createSelectionPasteHelpers = ({
           sourceBounds: floatingPasteHistoryContext.sourceBounds,
           sourceIndices: floatingPaste.colorCycleIndices,
           sourceGradientIds: floatingPasteHistoryContext.sourceGradientIds,
+          sourceGradientDefIds: floatingPasteHistoryContext.sourceGradientDefIds,
           sourceSpeed: floatingPasteHistoryContext.sourceSpeed,
           sourceFlow: floatingPasteHistoryContext.sourceFlow,
           sourceWidth: floatingPaste.width,
@@ -527,6 +567,50 @@ export const createSelectionPasteHelpers = ({
               colorCycleDestRect.height
             )
           : resolvedColorCycleIndices!;
+        const colorCycleSourceGradientIds = floatingPaste.colorCycleGradientIds
+          ? (requiresResample
+            ? resampleScalarNearest(
+                floatingPaste.colorCycleGradientIds,
+                floatingPaste.width,
+                floatingPaste.height,
+                colorCycleDestRect.width,
+                colorCycleDestRect.height
+              )
+            : floatingPaste.colorCycleGradientIds)
+          : null;
+        const colorCycleSourceGradientDefIds = floatingPaste.colorCycleGradientDefIds
+          ? (requiresResample
+            ? resampleScalarNearest16(
+                floatingPaste.colorCycleGradientDefIds,
+                floatingPaste.width,
+                floatingPaste.height,
+                colorCycleDestRect.width,
+                colorCycleDestRect.height
+              )
+            : floatingPaste.colorCycleGradientDefIds)
+          : null;
+        const colorCycleSourceSpeed = floatingPaste.colorCycleSpeed
+          ? (requiresResample
+            ? resampleScalarNearest(
+                floatingPaste.colorCycleSpeed,
+                floatingPaste.width,
+                floatingPaste.height,
+                colorCycleDestRect.width,
+                colorCycleDestRect.height
+              )
+            : floatingPaste.colorCycleSpeed)
+          : null;
+        const colorCycleSourceFlow = floatingPaste.colorCycleFlow
+          ? (requiresResample
+            ? resampleScalarNearest(
+                floatingPaste.colorCycleFlow,
+                floatingPaste.width,
+                floatingPaste.height,
+                colorCycleDestRect.width,
+                colorCycleDestRect.height
+              )
+            : floatingPaste.colorCycleFlow)
+          : null;
         const colorCycleSourceWidth = requiresResample ? colorCycleDestRect.width : floatingPaste.width;
         const colorCycleSourceHeight = requiresResample ? colorCycleDestRect.height : floatingPaste.height;
         const alphaData = requiresResample
@@ -554,6 +638,10 @@ export const createSelectionPasteHelpers = ({
             alphaChannelOffset: requiresResample ? 0 : 3,
             alphaThreshold: 0,
             gradientSlot: resolvedGradientSlot,
+            sourceGradientIds: colorCycleSourceGradientIds,
+            sourceGradientDefIds: colorCycleSourceGradientDefIds,
+            sourceSpeed: colorCycleSourceSpeed,
+            sourceFlow: colorCycleSourceFlow,
           }
         );
         const afterRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);

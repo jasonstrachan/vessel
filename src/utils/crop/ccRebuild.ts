@@ -134,6 +134,7 @@ export function rebuildCCLayerAfterCrop({
                 gradientIdBuffer: entry.strokeSnapshot?.gradientIdBuffer,
                 gradientDefIdBuffer: entry.strokeSnapshot?.gradientDefIdBuffer,
                 speedBuffer: entry.strokeSnapshot?.speedBuffer,
+                flowBuffer: entry.strokeSnapshot?.flowBuffer,
                 hasContent: entry.strokeSnapshot.hasContent,
                 strokeCounter: entry.strokeSnapshot.strokeCounter
               },
