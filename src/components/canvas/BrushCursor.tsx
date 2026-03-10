@@ -7,6 +7,7 @@ import React, {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
+  useEffect,
   useRef,
 } from 'react';
 import { BrushShape } from '../../types';
@@ -24,7 +25,6 @@ export interface BrushCursorHandle {
 
 // Cache for cursor data URLs to prevent recreation
 const cursorCache = new Map<string, string>();
-const customBrushCursorCache = new WeakMap<ImageData, string>();
 
 const useCursorAssetDataURL = (
   descriptor: BrushCursorDescriptor,
@@ -37,28 +37,7 @@ const useCursorAssetDataURL = (
     }
 
     if (descriptor.kind === 'custom-brush') {
-      if (!descriptor.imageData) {
-        return null;
-      }
-
-      const cached = customBrushCursorCache.get(descriptor.imageData);
-      if (cached) {
-        return cached;
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = descriptor.imageData.width;
-      canvas.height = descriptor.imageData.height;
-      const ctx = canvas.getContext('2d');
-
-      if (!ctx) {
-        return null;
-      }
-
-      ctx.putImageData(descriptor.imageData, 0, 0);
-      const dataUrl = canvas.toDataURL();
-      customBrushCursorCache.set(descriptor.imageData, dataUrl);
-      return dataUrl;
+      return null;
     }
 
     const screenSize = Math.max(screenWidth, screenHeight);
@@ -139,9 +118,12 @@ const BrushCursorComponent = ({
   visible,
 }: BrushCursorProps, ref: React.Ref<BrushCursorHandle>) => {
   const cursorRef = useRef<HTMLDivElement>(null);
+  const customCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const isCustomBrushCursor = descriptor.kind === 'custom-brush';
+  const customImageData =
+    descriptor.kind === 'custom-brush' ? descriptor.imageData : undefined;
   const baseCursorWidth = Math.max(
     1,
     isCustomBrushCursor ? descriptor.pixelWidth : descriptor.pixelSize
@@ -153,6 +135,34 @@ const BrushCursorComponent = ({
   const screenWidth = Math.max(4, baseCursorWidth * zoom);
   const screenHeight = Math.max(4, baseCursorHeight * zoom);
   const cursorDataURL = useCursorAssetDataURL(descriptor, screenWidth, screenHeight);
+
+  useEffect(() => {
+    if (!isCustomBrushCursor) {
+      return;
+    }
+
+    const canvas = customCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const imageData = customImageData;
+    const width = imageData?.width ?? 1;
+    const height = imageData?.height ?? 1;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    ctx.clearRect(0, 0, width, height);
+    if (imageData) {
+      ctx.putImageData(imageData, 0, 0);
+    }
+  }, [customImageData, isCustomBrushCursor]);
 
   const applyTransform = useCallback((screenX: number, screenY: number) => {
     lastPositionRef.current = { x: screenX, y: screenY };
@@ -190,15 +200,16 @@ const BrushCursorComponent = ({
           height: `${Math.ceil(screenHeight)}px`,
           zIndex: 1000,
           mixBlendMode: 'difference',
-          backgroundImage: cursorDataURL ? `url(${cursorDataURL})` : 'none',
-          backgroundSize: 'contain',
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'center',
-          imageRendering: 'pixelated',
           outline: '1px solid white',
           outlineOffset: '1px',
         }}
-      />
+      >
+        <canvas
+          ref={customCanvasRef}
+          className="block h-full w-full"
+          style={{ imageRendering: 'pixelated' }}
+        />
+      </div>
     );
   }
 
