@@ -781,6 +781,10 @@ export const createSelectionPasteHelpers = ({
 
         // Selection scale/transform should preserve exact pixel alpha values.
         tempCtx.imageSmoothingEnabled = false;
+        const isPixelExactPaste =
+          !rotation &&
+          Math.round(destinationRect.width) === floatingPaste.width &&
+          Math.round(destinationRect.height) === floatingPaste.height;
 
         if (rotation) {
           const centerX = destinationRect.x + destinationRect.width / 2;
@@ -797,6 +801,12 @@ export const createSelectionPasteHelpers = ({
             destinationRect.height
           );
           tempCtx.restore();
+        } else if (isPixelExactPaste) {
+          tempCtx.putImageData(
+            floatingPaste.imageData,
+            Math.round(destinationRect.x),
+            Math.round(destinationRect.y)
+          );
         } else {
           const sourceCrop = deriveSourceCrop(
             captureArea,

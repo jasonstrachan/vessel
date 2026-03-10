@@ -525,6 +525,37 @@ const isCanvasLike = (canvas: unknown): canvas is HTMLCanvasElement | OffscreenC
   return isHTMLCanvas(canvas) || isOffscreenCanvas(canvas);
 };
 
+type CanvasSurfaceLike = {
+  width: number;
+  height: number;
+  getContext: (
+    contextId: '2d',
+    options?: CanvasRenderingContext2DSettings
+  ) => CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+};
+
+const isCanvasSurfaceLike = (value: unknown): value is CanvasSurfaceLike => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<CanvasSurfaceLike>;
+  return (
+    typeof candidate.width === 'number' &&
+    typeof candidate.height === 'number' &&
+    typeof candidate.getContext === 'function'
+  );
+};
+
+const isCanvas2DReadContextLike = (
+  value: unknown
+): value is Pick<CanvasRenderingContext2D, 'getImageData'> => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<CanvasRenderingContext2D>;
+  return typeof candidate.getImageData === 'function';
+};
+
 const isImageBitmapLike = (value: unknown): value is ImageBitmap => {
   return typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap;
 };
@@ -536,6 +567,44 @@ const blobToDataURL = (blob: Blob): Promise<string> => {
     reader.onerror = () => reject(reader.error ?? new Error('Failed to read blob'));
     reader.readAsDataURL(blob);
   });
+};
+
+const normalizeCanvasSurfaceForExport = (
+  canvas: unknown
+): HTMLCanvasElement | OffscreenCanvas | undefined => {
+  if (isHTMLCanvas(canvas)) {
+    return canvas;
+  }
+  if (!isCanvasSurfaceLike(canvas)) {
+    return undefined;
+  }
+  if (typeof document === 'undefined') {
+    return isOffscreenCanvas(canvas) ? canvas : undefined;
+  }
+
+  try {
+    const width = Math.max(1, Math.floor(canvas.width));
+    const height = Math.max(1, Math.floor(canvas.height));
+    const sourceCtx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!isCanvas2DReadContextLike(sourceCtx)) {
+      return undefined;
+    }
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = width;
+    exportCanvas.height = height;
+    const exportCtx = exportCanvas.getContext('2d', { willReadFrequently: true });
+    if (!exportCtx) {
+      return undefined;
+    }
+
+    const imageData = sourceCtx.getImageData(0, 0, width, height);
+    exportCtx.putImageData(imageData, 0, 0);
+    return exportCanvas;
+  } catch (error) {
+    console.debug('[webglExporter] Failed to normalize canvas-like surface for export', error);
+    return undefined;
+  }
 };
 
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
@@ -857,11 +926,16 @@ const encodeCanvasToBlob = async (
 };
 
 const canvasToDataURL = async (
-  canvas: HTMLCanvasElement | OffscreenCanvas
+  canvas: HTMLCanvasElement | OffscreenCanvas | CanvasSurfaceLike
 ): Promise<{ dataUrl: string; format: CanvasExportMimeType }> => {
+  const normalizedCanvas = normalizeCanvasSurfaceForExport(canvas);
+  if (!normalizedCanvas) {
+    throw new Error('Unsupported canvas instance for export');
+  }
+
   for (const format of CANVAS_EXPORT_FORMATS) {
     try {
-      const blob = await encodeCanvasToBlob(canvas, format);
+      const blob = await encodeCanvasToBlob(normalizedCanvas, format);
       if (!blob) {
         continue;
       }
@@ -872,9 +946,9 @@ const canvasToDataURL = async (
     }
   }
 
-  if (isHTMLCanvas(canvas)) {
+  if (isHTMLCanvas(normalizedCanvas)) {
     try {
-      const dataUrl = canvas.toDataURL('image/png');
+      const dataUrl = normalizedCanvas.toDataURL('image/png');
       return { dataUrl, format: 'image/png' };
     } catch (error) {
       console.debug('[webglExporter] Final HTMLCanvas toDataURL fallback failed', error);
@@ -4899,4 +4973,5 @@ export const __TESTING__ = {
   scaleEncodedSpeedBuffer,
   extractBrushStateFromSavedSnapshot,
   resolveDefBoundSlotPalettes,
+  normalizeCanvasSurfaceForExport,
 };
