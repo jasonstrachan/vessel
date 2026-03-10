@@ -469,6 +469,25 @@ export const startContinuousColorCycleAnimationCore = (
           ccLog('mark isAnimating=true', { id: layer.id.slice(-6), reason });
         });
       } catch {}
+
+      try {
+        const mgr = getColorCycleBrushManager();
+        ccLayers.forEach((layer) => {
+          const brush = mgr.getBrush(layer.id);
+          if (!brush) {
+            return;
+          }
+          const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+          if (!isPlaying) {
+            if (typeof brush.startAnimation === 'function') {
+              brush.startAnimation();
+            } else if (typeof brush.setPlaying === 'function') {
+              brush.setPlaying(true);
+            }
+            ccLog('force brush playback start', { id: layer.id.slice(-6), reason });
+          }
+        });
+      } catch {}
     }
 
     const limitInitialRenderToActiveLayer = reason === 'stroke-start';
