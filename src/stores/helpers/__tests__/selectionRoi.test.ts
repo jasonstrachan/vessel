@@ -1,4 +1,8 @@
-import { clampSelectionBounds, copyRegionIntoTarget } from '@/stores/helpers/selectionRoi';
+import {
+  clampMarqueeDragRectToBounds,
+  clampSelectionBounds,
+  copyRegionIntoTarget,
+} from '@/stores/helpers/selectionRoi';
 
 const createImageData = (width: number, height: number, fill = 0): ImageData => {
   const data = new Uint8ClampedArray(width * height * 4).fill(fill);
@@ -6,6 +10,11 @@ const createImageData = (width: number, height: number, fill = 0): ImageData => 
 };
 
 describe('clampSelectionBounds', () => {
+  it('clamps marquee drag edges to the provided image bounds', () => {
+    const result = clampMarqueeDragRectToBounds({ x: -25, y: -10 }, { x: 45, y: 30 }, 100, 80);
+    expect(result).toEqual({ x: 0, y: 0, width: 45, height: 30 });
+  });
+
   it('clamps selection within the provided image bounds', () => {
     const result = clampSelectionBounds({ x: -4, y: 10, width: 50, height: 30 }, 32, 32);
     expect(result).toEqual({ x: 0, y: 10, width: 32, height: 22 });
