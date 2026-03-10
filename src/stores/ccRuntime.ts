@@ -5,9 +5,14 @@ import type { Layer } from '@/types';
 type RuntimeSnapshot = {
   isAnimating?: boolean;
   flowMode?: 'forward' | 'reverse' | 'pingpong';
+  brushRef?: unknown;
 };
 
 const lastRuntimeState = new Map<string, RuntimeSnapshot>();
+
+export function resetCCRuntimesForTests(): void {
+  lastRuntimeState.clear();
+}
 
 /**
  * Synchronize color-cycle runtime state from layer data into live brush instances.
@@ -82,10 +87,11 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
     const { isAnimating } = layer.colorCycleData;
     const previous = lastRuntimeState.get(layer.id) ?? {};
     const nextSnapshot: RuntimeSnapshot = { ...previous };
+    const brushChanged = previous.brushRef !== brush;
 
     if (typeof isAnimating === 'boolean') {
       const wasAnimating = previous.isAnimating ?? false;
-      if (wasAnimating !== isAnimating) {
+      if (brushChanged || wasAnimating !== isAnimating) {
         try {
           const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : undefined;
           if (isAnimating) {
@@ -115,6 +121,7 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       } catch {}
     }
 
+    nextSnapshot.brushRef = brush;
     lastRuntimeState.set(layer.id, nextSnapshot);
   }
 

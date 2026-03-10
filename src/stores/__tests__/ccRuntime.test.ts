@@ -26,15 +26,22 @@ const visibleBrush = {
   setFlowDirection: jest.fn()
 };
 
+const replacementBrush = {
+  isPlaying: jest.fn(() => false),
+  stopAnimation: jest.fn(),
+  startAnimation: jest.fn(),
+  setFlowMode: jest.fn(),
+  setFlowDirection: jest.fn()
+};
+
+let brushMap: Record<string, typeof hiddenBrush | typeof visibleBrush | typeof replacementBrush | null> = {
+  'hidden-layer': hiddenBrush,
+  'visible-layer': visibleBrush,
+};
+
 const mockManager = {
   getBrush: jest.fn((layerId: string) => {
-    if (layerId === 'hidden-layer') {
-      return hiddenBrush;
-    }
-    if (layerId === 'visible-layer') {
-      return visibleBrush;
-    }
-    return null;
+    return brushMap[layerId] ?? null;
   })
 };
 
@@ -48,7 +55,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => mockManager
 }));
 
-import { syncCCRuntimes } from '@/stores/ccRuntime';
+import { resetCCRuntimesForTests, syncCCRuntimes } from '@/stores/ccRuntime';
 
 const makeLayer = (overrides: Partial<Layer>): Layer =>
   ({
@@ -69,6 +76,11 @@ const makeLayer = (overrides: Partial<Layer>): Layer =>
 describe('syncCCRuntimes visibility behavior', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetCCRuntimesForTests();
+    brushMap = {
+      'hidden-layer': hiddenBrush,
+      'visible-layer': visibleBrush,
+    };
   });
 
   it('stops hidden layer brushes and skips animation start wiring for hidden layers', () => {
@@ -94,5 +106,25 @@ describe('syncCCRuntimes visibility behavior', () => {
     expect(hiddenBrush.startAnimation).not.toHaveBeenCalled();
     expect(visibleBrush.startAnimation).toHaveBeenCalledTimes(1);
     expect(startRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts animation when a layer gets a fresh brush instance with the same id', () => {
+    const visibleLayer = makeLayer({
+      id: 'visible-layer',
+      visible: true,
+      colorCycleData: {
+        isAnimating: true
+      } as NonNullable<Layer['colorCycleData']>
+    });
+
+    syncCCRuntimes([visibleLayer], 'initial');
+
+    brushMap['visible-layer'] = replacementBrush;
+
+    syncCCRuntimes([visibleLayer], 'brush-replaced');
+
+    expect(visibleBrush.startAnimation).toHaveBeenCalledTimes(1);
+    expect(replacementBrush.startAnimation).toHaveBeenCalledTimes(1);
+    expect(startRuntime).toHaveBeenCalledTimes(2);
   });
 });

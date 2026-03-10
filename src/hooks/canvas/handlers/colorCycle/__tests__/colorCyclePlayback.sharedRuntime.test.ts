@@ -10,6 +10,15 @@ import {
 const dispatchGlobalAnimationFrameUpdate = jest.fn();
 const registerSharedRuntimeConsumer = jest.fn();
 const startSharedRuntime = jest.fn();
+const mockGetBrush = jest.fn();
+
+jest.mock('@/stores/colorCycleBrushManager', () => ({
+  getColorCycleBrushManager: () => ({
+    getBrush: (...args: unknown[]) => mockGetBrush(...args),
+  }),
+  setColorCycleStoreStateGetter: jest.fn(),
+  setLayerIdGetter: jest.fn(),
+}));
 
 jest.mock('@/hooks/canvas/handlers/animation/animationRuntime', () => ({
   dispatchGlobalAnimationFrameUpdate: (...args: unknown[]) =>
@@ -25,6 +34,7 @@ describe('colorCyclePlayback shared runtime integration', () => {
     dispatchGlobalAnimationFrameUpdate.mockReset();
     registerSharedRuntimeConsumer.mockReset();
     startSharedRuntime.mockReset();
+    mockGetBrush.mockReset();
   });
 
   it('registers a shared runtime consumer and unregisters on stop', () => {
@@ -302,5 +312,76 @@ describe('colorCyclePlayback shared runtime integration', () => {
     expect(startSharedRuntime).toHaveBeenCalledTimes(1);
 
     nowSpy.mockRestore();
+  });
+
+  it('forces live brush playback start when layers are already flagged animating', () => {
+    registerSharedRuntimeConsumer.mockImplementation(() => jest.fn());
+
+    const startAnimation = jest.fn();
+    const stopAnimation = jest.fn();
+    mockGetBrush.mockReturnValue({
+      isPlaying: jest.fn(() => false),
+      startAnimation,
+      stopAnimation,
+    });
+
+    const state = {
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE,
+          customBrushColorCycle: false,
+        },
+      },
+      colorCyclePlayback: {
+        desiredPlaying: false,
+        suspendDepth: 0,
+        lastReason: 'toolbar',
+      },
+      layers: [
+        {
+          id: 'layer-cc',
+          layerType: 'color-cycle',
+          colorCycleData: {
+            mode: 'index',
+            isAnimating: true,
+          },
+        },
+      ],
+      project: { width: 64, height: 64 },
+      initColorCycleForLayer: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as AppState;
+
+    startContinuousColorCycleAnimationCore('toolbar', {
+      brushEngine: {
+        renderColorCycle: jest.fn(),
+        updateColorCycleAnimation: jest.fn(),
+        isColorCycleAnimating: jest.fn(() => false),
+      } as unknown as BrushEngine,
+      ensureOverlayInitialized: jest.fn(() => true),
+      renderAllColorCycleLayers: jest.fn(() => true),
+      storeRef: { current: state } as React.MutableRefObject<AppState>,
+      getEffectiveColorCyclePlaying: jest.fn(() => false),
+      cancelDeferredOverlayRender: jest.fn(),
+      scheduleDeferredOverlayRender: jest.fn(),
+      ccLog: jest.fn(),
+      ccGroup: jest.fn(),
+      ccGroupEnd: jest.fn(),
+      dumpLayerFlags: jest.fn(),
+      debugWarn: jest.fn(),
+      continuousColorCycleAnimationRef: { current: null },
+      continuousColorCycleAnimationActiveRef: { current: false },
+      startingColorCycleAnimationRef: { current: false },
+      lastStartAtRef: { current: 0 },
+      drawingCanvasRef: { current: null },
+      drawingCtxRef: { current: null },
+      drawingCanvasHasContent: { current: false },
+      firstPaintRef: { current: true },
+      lastRendererLogTS: { current: 0 },
+      startCooldownMs: 0,
+    });
+
+    expect(stopAnimation).toHaveBeenCalledTimes(1);
+    expect(startAnimation).toHaveBeenCalledTimes(1);
   });
 });
