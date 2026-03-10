@@ -1092,11 +1092,15 @@ export type Tool = 'brush' | 'eraser' | 'fill' | 'magic-wand' | 'crop' | 'select
 export interface ColorAdjustParams {
   hue: number;        // -180 to 180 degrees
   saturation: number; // -100 to 100 percent delta
+  vibrance: number;   // -100 to 100 percent delta, biased toward muted colors
   lightness: number;  // -100 to 100 percent delta
   contrast: number;   // -100 to 100 percent delta
   red: number;        // -100 to 100 percent channel delta
   green: number;      // -100 to 100 percent channel delta
   blue: number;       // -100 to 100 percent channel delta
+  hueRangeEnabled: boolean;
+  hueRangeStart: number; // 0 to 360 degrees
+  hueRangeEnd: number;   // 0 to 360 degrees
 }
 
 export interface ColorAdjustState {

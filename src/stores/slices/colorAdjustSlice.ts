@@ -26,11 +26,37 @@ const scratchCache = new Map<string, ImageData>();
 const hasColorAdjustments = (params: ColorAdjustParams): boolean =>
   params.hue !== 0 ||
   params.saturation !== 0 ||
+  params.vibrance !== 0 ||
   params.lightness !== 0 ||
   params.contrast !== 0 ||
   params.red !== 0 ||
   params.green !== 0 ||
   params.blue !== 0;
+
+const resolveSelectionBounds = (
+  state: AppState,
+  width: number,
+  height: number
+): AppState['colorAdjust']['selectionBounds'] => {
+  const selectionFromBounds =
+    state.selectionStart && state.selectionEnd
+      ? {
+          x: Math.min(state.selectionStart.x, state.selectionEnd.x),
+          y: Math.min(state.selectionStart.y, state.selectionEnd.y),
+          width: Math.abs(state.selectionEnd.x - state.selectionStart.x),
+          height: Math.abs(state.selectionEnd.y - state.selectionStart.y),
+        }
+      : null;
+  const canvasSelection = state.canvas.selection;
+  const rawBounds =
+    selectionFromBounds && selectionFromBounds.width > 0 && selectionFromBounds.height > 0
+      ? selectionFromBounds
+      : canvasSelection?.active
+        ? canvasSelection.bounds
+        : null;
+
+  return clampSelectionBounds(rawBounds, width, height);
+};
 
 const cloneGradientStops = (
   stops: Array<{ position: number; color: string }>
@@ -175,6 +201,58 @@ const buildAdjustedColorCycleData = (
   };
 };
 
+const replaceColorCycleLayerData = (
+  set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0],
+  get: () => AppState,
+  layerId: string,
+  colorCycleData: Layer['colorCycleData']
+): void => {
+  let didReplace = false;
+
+  set((state) => {
+    const layerIndex = state.layers.findIndex((layer) => layer.id === layerId);
+    if (layerIndex < 0) {
+      return state;
+    }
+
+    const currentLayer = state.layers[layerIndex];
+    if (currentLayer.layerType !== 'color-cycle') {
+      return state;
+    }
+
+    const updatedLayer: Layer = {
+      ...currentLayer,
+      colorCycleData,
+    };
+    const nextLayers = [...state.layers];
+    nextLayers[layerIndex] = updatedLayer;
+    didReplace = true;
+
+    return {
+      layers: nextLayers,
+      layersNeedRecomposition: true,
+    };
+  });
+
+  if (didReplace) {
+    get().markCompositeSegmentsDirtyByLayerIds([layerId]);
+  }
+};
+
+const refreshColorCycleGradientDefRuntime = (
+  get: () => AppState,
+  layerId: string
+): void => {
+  try {
+    const brush = get().getLayerColorCycleBrush(layerId) as {
+      syncGradientDefRuntime?: (targetLayerId: string) => void;
+    } | null;
+    brush?.syncGradientDefRuntime?.(layerId);
+  } catch {
+    // noop: shape-bound defs can fall back to next full render if runtime is unavailable
+  }
+};
+
 const snapshotLayerImageData = (layer: Layer | undefined): ImageData | null => {
   if (!layer) {
     return null;
@@ -307,11 +385,15 @@ const scheduleColorAdjustPreview = (getState: () => AppState): void => {
 export const defaultColorAdjustParams: ColorAdjustParams = {
   hue: 0,
   saturation: 0,
+  vibrance: 0,
   lightness: 0,
   contrast: 0,
   red: 0,
   green: 0,
   blue: 0,
+  hueRangeEnabled: false,
+  hueRangeStart: 0,
+  hueRangeEnd: 360,
 };
 
 export const createDefaultColorAdjustState = (): ColorAdjustState => ({
@@ -393,24 +475,8 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       return;
     }
 
-    const selectionFromBounds =
-      state.selectionStart && state.selectionEnd
-        ? {
-            x: Math.min(state.selectionStart.x, state.selectionEnd.x),
-            y: Math.min(state.selectionStart.y, state.selectionEnd.y),
-            width: Math.abs(state.selectionEnd.x - state.selectionStart.x),
-            height: Math.abs(state.selectionEnd.y - state.selectionStart.y),
-          }
-        : null;
-    const canvasSelection = state.canvas.selection;
-    const rawBounds =
-      selectionFromBounds && selectionFromBounds.width > 0 && selectionFromBounds.height > 0
-        ? selectionFromBounds
-        : canvasSelection?.active
-          ? canvasSelection.bounds
-          : null;
-    const selectionBounds = clampSelectionBounds(
-      rawBounds,
+    const selectionBounds = resolveSelectionBounds(
+      state,
       originalImageData.width,
       originalImageData.height
     );
@@ -472,7 +538,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         : cloneColorCycleData(colorAdjustOriginalColorCycleData);
 
       if (nextColorCycleData) {
-        state.updateLayer(layer.id, { colorCycleData: nextColorCycleData });
+        replaceColorCycleLayerData(set, get, layer.id, nextColorCycleData);
       }
 
       if (nextColorCycleData?.mode === 'recolor' && nextColorCycleData.recolorSettings) {
@@ -489,6 +555,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         }
       } else {
         requestGradientApply(layer.id, 'color-adjust-preview');
+        refreshColorCycleGradientDefRuntime(get, layer.id);
       }
 
       state.setLayersNeedRecomposition(true);
@@ -499,7 +566,12 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       return;
     }
 
-    const { params, selectionBounds, originalImageData, targetLayerId } = colorAdjust;
+    const { params, originalImageData, targetLayerId } = colorAdjust;
+    const selectionBounds = resolveSelectionBounds(
+      state,
+      originalImageData.width,
+      originalImageData.height
+    );
     const hasAdjustments = hasColorAdjustments(params);
     const working = getWorkingImage(targetLayerId, originalImageData.width, originalImageData.height);
 
@@ -643,7 +715,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       description: 'Color adjust',
       tool: 'color-adjust',
       selectionBefore: selectionSnapshot ?? undefined,
-      bitmapRoi: colorAdjust.selectionBounds ?? undefined,
+      bitmapRoi: resolveSelectionBounds(state, beforeImage.width, beforeImage.height) ?? undefined,
     }).catch((error) => {
       if (process.env.NODE_ENV !== 'production') {
         console.warn('[history] Failed to record color adjust', error);
@@ -656,14 +728,14 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       : null;
 
     if (updatedBaseline) {
-      set((prev) => ({
+      set(() => ({
         colorAdjust: {
           active: true,
           targetLayerId: layer.id,
           targetLayerType: 'normal',
           originalImageData: updatedBaseline,
           originalColorCycleGradient: null,
-          selectionBounds: prev.colorAdjust.selectionBounds,
+          selectionBounds: resolveSelectionBounds(get(), updatedBaseline.width, updatedBaseline.height),
           params: { ...defaultColorAdjustParams },
         },
       }));
@@ -687,7 +759,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
     if (layer && colorAdjust.targetLayerType === 'color-cycle' && colorAdjustOriginalColorCycleData) {
       const restoredData = cloneColorCycleData(colorAdjustOriginalColorCycleData);
       if (layer.layerType === 'color-cycle' && restoredData) {
-        state.updateLayer(layer.id, { colorCycleData: restoredData });
+        replaceColorCycleLayerData(set, get, layer.id, restoredData);
       }
       if (layer.layerType === 'color-cycle' && restoredData?.mode === 'recolor' && restoredData.recolorSettings) {
         const refreshedLayer = get().layers.find((entry) => entry.id === layer.id);
@@ -703,6 +775,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         }
       } else if (layer.layerType === 'color-cycle') {
         requestGradientApply(layer.id, 'color-adjust-cancel');
+        refreshColorCycleGradientDefRuntime(get, layer.id);
       }
       state.setLayersNeedRecomposition(true);
     }

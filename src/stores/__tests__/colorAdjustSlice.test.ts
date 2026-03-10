@@ -2,6 +2,8 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, Rectangle } from '@/types';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
+type StoreState = ReturnType<typeof useAppStore.getState>;
+
 const DEFAULT_ALIGNMENT = {
   fit: 'none',
   horizontal: 'center',
@@ -156,11 +158,15 @@ const resetStore = () => {
       params: {
         hue: 0,
         saturation: 0,
+        vibrance: 0,
         lightness: 0,
         contrast: 0,
         red: 0,
         green: 0,
         blue: 0,
+        hueRangeEnabled: false,
+        hueRangeStart: 0,
+        hueRangeEnd: 360,
       },
       originalImageData: null,
       originalColorCycleGradient: null,
@@ -254,6 +260,39 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(pixelAt(secondRef, 0, 0)[0]).toBe(51);
   });
 
+  it('uses the latest selection bounds after the session starts', () => {
+    const base = new ImageData(4, 1);
+    base.data.set([
+      0, 255, 0, 255,
+      0, 255, 0, 255,
+      0, 255, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    const layer = createLayer('moving-selection-layer', base);
+    installProjectWithLayer(layer);
+    useAppStore.setState({
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 1, y: 1 },
+    });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+
+    useAppStore.setState({
+      selectionStart: { x: 2, y: 0 },
+      selectionEnd: { x: 4, y: 1 },
+    });
+
+    store.updateColorAdjustParams({ red: 100 });
+    store.previewColorAdjust();
+
+    const updated = useAppStore.getState().layers[0]?.imageData as ImageData;
+    expect(pixelAt(updated, 0, 0)[0]).toBe(0);
+    expect(pixelAt(updated, 1, 0)[0]).toBe(0);
+    expect(pixelAt(updated, 2, 0)[0]).toBe(255);
+    expect(pixelAt(updated, 3, 0)[0]).toBe(255);
+  });
+
   it('adjusts gradient colors for color-cycle brush layers', () => {
     const layer = createColorCycleLayer('cc-layer', [
       { position: 0, color: '#000000' },
@@ -262,6 +301,9 @@ describe('colorAdjustSlice preview performance path', () => {
     installProjectWithLayer(layer);
 
     const store = useAppStore.getState();
+    const originalUpdateLayer = store.updateLayer;
+    const updateLayerSpy = jest.fn(originalUpdateLayer);
+    useAppStore.setState({ updateLayer: updateLayerSpy });
     store.startColorAdjustSession();
     store.updateColorAdjustParams({ red: 100 });
     store.previewColorAdjust();
@@ -274,6 +316,31 @@ describe('colorAdjustSlice preview performance path', () => {
     const secondColor = parseCssColor(updatedGradient[1]?.color ?? '#000000');
     expect(firstColor.r).toBe(255);
     expect(secondColor.r).toBe(255);
+    expect(updateLayerSpy).not.toHaveBeenCalled();
+  });
+
+  it('applies hue-range targeting to raster previews using the current selection bounds', () => {
+    const base = new ImageData(2, 1);
+    base.data.set([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    const layer = createLayer('targeted-raster-layer', base);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({
+      saturation: -100,
+      hueRangeEnabled: true,
+      hueRangeStart: 0,
+      hueRangeEnd: 40,
+    });
+    store.previewColorAdjust();
+
+    const updated = useAppStore.getState().layers[0]?.imageData as ImageData;
+    expect(pixelAt(updated, 0, 0)).toEqual([128, 128, 128, 255]);
+    expect(pixelAt(updated, 1, 0)).toEqual([0, 255, 0, 255]);
   });
 
   it('adjusts slot palettes for color-cycle layers that only persist slot palettes', () => {
@@ -318,6 +385,80 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(defStoreStops.length).toBe(2);
     expect(parseCssColor(recolorStops[0]?.color ?? '#000000').r).toBe(255);
     expect(parseCssColor(defStoreStops[0]?.color ?? '#000000').r).toBe(255);
+  });
+
+  it('refreshes gradient-def runtime for brush-mode color-cycle previews', () => {
+    const layer = createColorCycleRecolorLayerWithDefStore('cc-def-runtime', [
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 1, color: 'rgb(255, 255, 0)' },
+    ]);
+    const brushLayer: Layer = {
+      ...layer,
+      colorCycleData: {
+        ...layer.colorCycleData,
+        mode: 'brush',
+      },
+    };
+    installProjectWithLayer(brushLayer);
+
+    const syncGradientDefRuntime = jest.fn();
+    const getLayerColorCycleBrush = jest.fn(() => ({
+      syncGradientDefRuntime,
+    }));
+    useAppStore.setState({
+      getLayerColorCycleBrush: getLayerColorCycleBrush as unknown as StoreState['getLayerColorCycleBrush'],
+    });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ saturation: -100 });
+    store.previewColorAdjust();
+
+    expect(syncGradientDefRuntime).toHaveBeenCalledWith('cc-def-runtime');
+  });
+
+  it('applies hue-range targeting to color-cycle gradients', () => {
+    const layer = createColorCycleLayer('cc-targeted-layer', [
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 1, color: 'rgb(0, 255, 0)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({
+      saturation: -100,
+      hueRangeEnabled: true,
+      hueRangeStart: 0,
+      hueRangeEnd: 40,
+    });
+    store.previewColorAdjust();
+
+    const updatedGradient = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
+    expect(parseCssColor(updatedGradient[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
+    expect(parseCssColor(updatedGradient[1]?.color ?? '#000000')).toMatchObject({ r: 0, g: 255, b: 0 });
+  });
+
+  it('supports wrap-around hue targeting for color-cycle gradients', () => {
+    const layer = createColorCycleLayer('cc-wrap-layer', [
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 1, color: 'rgb(255, 255, 0)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({
+      saturation: -100,
+      hueRangeEnabled: true,
+      hueRangeStart: 330,
+      hueRangeEnd: 20,
+    });
+    store.previewColorAdjust();
+
+    const updatedGradient = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
+    expect(parseCssColor(updatedGradient[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
+    expect(parseCssColor(updatedGradient[1]?.color ?? '#000000')).toMatchObject({ r: 255, g: 255, b: 0 });
   });
 
   it('restores original color-cycle gradients on cancel', () => {

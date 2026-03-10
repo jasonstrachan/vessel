@@ -1755,6 +1755,33 @@ export class ColorCycleBrushCanvas2D {
   }
 
   /**
+   * Refresh gradient-def palette bindings from the current layer store state.
+   * This is required when gradient defs change outside the normal shape finalize flow,
+   * such as color-adjust previews on color-cycle layers.
+   */
+  syncGradientDefRuntime(layerId: string) {
+    const id = layerId || this.activeLayerId || 'default';
+    const animator = this.animators.get(id);
+    const strokeData = this.layerStrokes.get(id);
+    if (!animator || !strokeData) {
+      return;
+    }
+
+    try {
+      const layer = useAppStore.getState().layers.find((entry) => entry.id === id);
+      const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+        id: number;
+        hash: string;
+        stops: GradientStop[];
+      }> | undefined;
+      this.applyDefBindingsForLayer(id, animator, strokeData, defs);
+      animator.forceRender();
+      this.dirtyLayers.add(id);
+      this.render(false);
+    } catch {}
+  }
+
+  /**
    * Clear paint buffer for a layer (used for shape mode)
    */
   clearPaintBuffer(layerId?: string) {
