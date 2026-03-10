@@ -613,6 +613,65 @@ describe('history integration', () => {
     expect(Array.from(layerAfterUndo!.imageData!.data)).toEqual(Array.from(before.data));
   });
 
+  it('commits floating paste into fully transparent destination pixels on normal layers', async () => {
+    const width = 16;
+    const height = 16;
+    const layer = createLayer('layer-transparent-paste', new ImageData(width, height));
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: null,
+      selectionEnd: null,
+      project: state.project
+        ? {
+            ...state.project,
+            width,
+            height,
+            layers: [layer],
+          }
+        : state.project,
+    }));
+
+    useAppStore.getState().setFloatingPaste({
+      imageData: new ImageData(
+        new Uint8ClampedArray([
+          255, 0, 0, 255,
+          0, 255, 0, 255,
+          0, 0, 255, 255,
+          255, 255, 0, 255,
+        ]),
+        2,
+        2,
+      ),
+      position: { x: 5, y: 6 },
+      width: 2,
+      height: 2,
+      displayWidth: 2,
+      displayHeight: 2,
+    });
+
+    await useAppStore.getState().commitFloatingPaste();
+
+    const updatedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(updatedLayer?.imageData).not.toBeNull();
+    const readPixel = (x: number, y: number): [number, number, number, number] => {
+      const data = updatedLayer?.imageData?.data ?? new Uint8ClampedArray();
+      const index = (y * width + x) * 4;
+      return [
+        data[index] ?? 0,
+        data[index + 1] ?? 0,
+        data[index + 2] ?? 0,
+        data[index + 3] ?? 0,
+      ];
+    };
+
+    expect(readPixel(5, 6)).toEqual([255, 0, 0, 255]);
+    expect(readPixel(6, 6)).toEqual([0, 255, 0, 255]);
+    expect(readPixel(5, 7)).toEqual([0, 0, 255, 255]);
+    expect(readPixel(6, 7)).toEqual([255, 255, 0, 255]);
+  });
+
   it('records and replays color-cycle selection move commits', async () => {
     const width = 8;
     const height = 6;

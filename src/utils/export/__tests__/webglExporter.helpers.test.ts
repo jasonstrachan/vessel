@@ -10,7 +10,8 @@ const {
   applyExportPlaybackScale,
   scaleEncodedSpeedBuffer,
   extractBrushStateFromSavedSnapshot,
-  resolveDefBoundSlotPalettes
+  resolveDefBoundSlotPalettes,
+  normalizeCanvasSurfaceForExport,
 } = __TESTING__;
 
 const encodeBytes = (values: number[]): string => Buffer.from(Uint8Array.from(values)).toString('base64');
@@ -141,5 +142,32 @@ describe('webglExporter helpers', () => {
         ],
       }),
     ]));
+  });
+
+  it('normalizes canvas-like surfaces for export encoding', () => {
+    const sourceImage = new ImageData(
+      new Uint8ClampedArray([
+        10, 20, 30, 255,
+        40, 50, 60, 255,
+        70, 80, 90, 255,
+        100, 110, 120, 255,
+      ]),
+      2,
+      2
+    );
+    const sourceCtx = {
+      getImageData: jest.fn(() => sourceImage),
+    };
+    const wrapper = {
+      width: 2,
+      height: 2,
+      getContext: jest.fn(() => sourceCtx),
+    };
+
+    const normalized = normalizeCanvasSurfaceForExport(wrapper as any);
+    expect(normalized).toBeTruthy();
+    const normalizedCtx = normalized?.getContext('2d', { willReadFrequently: true });
+    const pixel = normalizedCtx?.getImageData(1, 1, 1, 1).data;
+    expect(Array.from(pixel ?? [])).toEqual([100, 110, 120, 255]);
   });
 });

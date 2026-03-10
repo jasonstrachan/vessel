@@ -143,6 +143,8 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                       paintBuffer: layer.strokeData.paintBuffer?.slice(0),
                       gradientIdBuffer: layer.strokeData.gradientIdBuffer?.slice(0),
                       gradientDefIdBuffer: layer.strokeData.gradientDefIdBuffer?.slice(0),
+                      speedBuffer: layer.strokeData.speedBuffer?.slice(0),
+                      flowBuffer: layer.strokeData.flowBuffer?.slice(0),
                     }
                   : undefined,
                 eraseMaskSnapshot: captureEraseMaskSnapshot(layer.layerId),

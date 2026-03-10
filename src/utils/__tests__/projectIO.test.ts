@@ -595,6 +595,7 @@ describe('projectIO serialize/deserialize layering', () => {
 
   it('keeps persisted color-cycle brushState on the layer after deserialize', async () => {
     const savedPaint = Buffer.from(Uint8Array.from([1, 2, 3, 4])).toString('base64');
+    const savedFlow = Buffer.from(Uint8Array.from([5, 6, 7, 8])).toString('base64');
     const projectPayload = {
       version: '1.1.0',
       metadata: {
@@ -634,6 +635,7 @@ describe('projectIO serialize/deserialize layering', () => {
                 layerId: 'layer-cc-state',
                 strokeData: {
                   paintBuffer: savedPaint,
+                  flowBuffer: savedFlow,
                 },
               }],
             },
@@ -646,6 +648,100 @@ describe('projectIO serialize/deserialize layering', () => {
     const restoredLayer = restored.layers[0];
 
     expect(restoredLayer?.colorCycleData?.brushState).toEqual(projectPayload.project.layers[0].colorCycleData.brushState);
+  });
+
+  it('serializes flowBuffer in color-cycle brushState', async () => {
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    const layer: Layer = {
+      id: 'layer-cc-flow-save',
+      name: 'CC Flow Save',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas,
+        mode: 'brush',
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          getFullState: () => ({
+            cycleSpeed: 0.2,
+            fps: 18,
+            layers: [{
+              layerId: 'layer-cc-flow-save',
+              strokeData: {
+                hasContent: true,
+                strokeCounter: 2,
+                paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+                flowBuffer: Uint8Array.from([9, 10, 11, 12]).buffer,
+              },
+            }],
+          }),
+        } as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+      },
+    };
+
+    const project: Project = {
+      id: 'project-cc-flow-save',
+      name: 'CC Flow Save',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    try {
+      const payload = await serializeProject(project, project.layers);
+      const zip = await JSZip.loadAsync(payload);
+      const projectJson = await zip.file('project.json')?.async('string');
+      if (!projectJson) {
+        throw new Error('Missing project.json');
+      }
+
+      const manifest = JSON.parse(projectJson) as {
+        project: {
+          layers: Array<{
+            colorCycleData?: {
+              brushState?: {
+                layers?: Array<{ strokeData?: { flowBuffer?: string } }>;
+              };
+            };
+          }>;
+        };
+      };
+
+      expect(
+        manifest.project.layers[0]?.colorCycleData?.brushState?.layers?.[0]?.strokeData?.flowBuffer
+      ).toBe(Buffer.from(Uint8Array.from([9, 10, 11, 12])).toString('base64'));
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
   });
 
   it('preserves recovered color-cycle canvas pixels on first commit when runtime has external base only', async () => {
@@ -702,6 +798,76 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(after).toBeTruthy();
     const afterPixel = after?.data ?? new Uint8ClampedArray([0, 0, 0, 0]);
     expect(Array.from(afterPixel)).toEqual(Array.from(beforePixel));
+  });
+
+  it('restores flowBuffer from persisted color-cycle brushState', async () => {
+    const flowBuffer = Buffer.from(Uint8Array.from([5, 6, 7, 8])).toString('base64');
+    const paintBuffer = Buffer.from(Uint8Array.from([1, 2, 3, 4])).toString('base64');
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-flow-restore',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-flow-restore',
+        name: 'cc-flow-restore',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-flow-restore',
+          name: 'CC Flow Restore',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: '',
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              cycleSpeed: 0.2,
+              fps: 18,
+              layers: [{
+                layerId: 'layer-cc-flow-restore',
+                strokeData: {
+                  hasContent: true,
+                  strokeCounter: 2,
+                  paintBuffer,
+                  flowBuffer,
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | {
+          getLayerSnapshot?: (layerId: string) => {
+            flowBuffer?: ArrayBuffer;
+          } | null;
+        }
+      | undefined;
+
+    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
+    expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([5, 6, 7, 8]);
   });
 
   it('seeds color-cycle runtime from persisted gradient buffers when brushState is missing', async () => {
