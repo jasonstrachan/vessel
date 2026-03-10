@@ -13,6 +13,7 @@ describe('SelectionOptionsPanel', () => {
   const originalProject = useAppStore.getState().project;
   const originalLayers = useAppStore.getState().layers;
   const originalActiveLayerId = useAppStore.getState().activeLayerId;
+  const originalCrop = useAppStore.getState().crop;
 
   afterEach(() => {
     act(() => {
@@ -27,6 +28,7 @@ describe('SelectionOptionsPanel', () => {
         layers: originalLayers,
         activeLayerId: originalActiveLayerId,
         floatingPaste: null,
+        crop: originalCrop,
       }));
     });
   });
@@ -72,6 +74,26 @@ describe('SelectionOptionsPanel', () => {
     expect(screen.getByRole('button', { name: 'Flip H' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Flip V' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Invert' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Crop' })).toBeInTheDocument();
+  });
+
+  it('enters crop mode from marquee settings using the current selection bounds', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: { ...state.tools, currentTool: 'selection', selectionMode: 'marquee' },
+        selectionStart: { x: 1, y: 2 },
+        selectionEnd: { x: 5, y: 7 },
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Crop' }));
+
+    const state = useAppStore.getState();
+    expect(state.tools.currentTool).toBe('crop');
+    expect(state.crop.marquee).toEqual({ x: 1, y: 2, width: 4, height: 5 });
+    expect(state.crop.status).toBe('ready');
   });
 
   it('inverts the current marquee selection from the panel control', () => {
