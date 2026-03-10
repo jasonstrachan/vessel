@@ -24,6 +24,7 @@ export interface FloatingPasteHistoryContext {
   sourceBounds: Rectangle;
   sourceBeforeImage?: ImageData | null;
   sourceGradientIds?: Uint8Array | null;
+  sourceGradientDefIds?: Uint16Array | null;
   sourceSpeed?: Uint8Array | null;
   sourceFlow?: Uint8Array | null;
   beforeImage: ImageData | null;
@@ -64,6 +65,10 @@ export interface SelectionSlice {
     rotation: number;
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    colorCycleGradientIds?: Uint8Array | null;
+    colorCycleGradientDefIds?: Uint16Array | null;
+    colorCycleSpeed?: Uint8Array | null;
+    colorCycleFlow?: Uint8Array | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -81,6 +86,10 @@ export interface SelectionSlice {
     originalPosition?: { x: number; y: number };
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
+    colorCycleGradientIds?: Uint8Array | null;
+    colorCycleGradientDefIds?: Uint16Array | null;
+    colorCycleSpeed?: Uint8Array | null;
+    colorCycleFlow?: Uint8Array | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -104,6 +113,10 @@ export interface SelectionClipboardPayload {
   height: number;
   mode: 'copy' | 'cut';
   colorCycleIndices?: Uint8Array | null;
+  colorCycleGradientIds?: Uint8Array | null;
+  colorCycleGradientDefIds?: Uint16Array | null;
+  colorCycleSpeed?: Uint8Array | null;
+  colorCycleFlow?: Uint8Array | null;
   colorCycleSourceLayerId?: string | null;
 }
 
@@ -261,6 +274,45 @@ const extractColorCycleRegion = (
   });
 };
 
+const extractColorCycleDefRegion = (
+  state: ColorCycleSerializedState | null,
+  bounds: Rectangle
+): Uint16Array | null => {
+  const layer = state?.layers?.[0];
+  const source = layer?.strokeData?.gradientDefIdBuffer;
+  if (!source) {
+    return null;
+  }
+  const values = new Uint16Array(source);
+  const width = layer.data?.indexBuffer?.width ?? 0;
+  const height = layer.data?.indexBuffer?.height ?? 0;
+  if (!width || !height || values.length < width * height) {
+    return null;
+  }
+
+  const rect = {
+    x: Math.floor(bounds.x),
+    y: Math.floor(bounds.y),
+    width: Math.max(1, Math.ceil(bounds.width)),
+    height: Math.max(1, Math.ceil(bounds.height)),
+  };
+  const destination = new Uint16Array(rect.width * rect.height);
+  const startX = Math.max(0, Math.min(width, rect.x));
+  const startY = Math.max(0, Math.min(height, rect.y));
+  const endX = Math.max(0, Math.min(width, rect.x + rect.width));
+  const endY = Math.max(0, Math.min(height, rect.y + rect.height));
+
+  for (let row = startY; row < endY; row += 1) {
+    for (let col = startX; col < endX; col += 1) {
+      const srcIndex = row * width + col;
+      const destIndex = (row - startY) * rect.width + (col - startX);
+      destination[destIndex] = values[srcIndex];
+    }
+  }
+
+  return destination;
+};
+
 type ColorCycleMaskClearOptions = NonNullable<Parameters<typeof clearColorCycleRegion>[4]>;
 
 const buildColorCycleMaskClearOptions = (
@@ -401,6 +453,31 @@ const flipColorCycleIndices = (
       const sourceIndex = sourceY * width + sourceX;
       const destIndex = y * width + x;
       next[destIndex] = indices[sourceIndex];
+    }
+  }
+
+  return next;
+};
+
+const flipColorCycleValues16 = (
+  values: Uint16Array,
+  width: number,
+  height: number,
+  axis: 'horizontal' | 'vertical'
+): Uint16Array => {
+  const expectedLength = width * height;
+  if (values.length !== expectedLength) {
+    return values.slice();
+  }
+
+  const next = new Uint16Array(values.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = axis === 'horizontal' ? width - 1 - x : x;
+      const sourceY = axis === 'vertical' ? height - 1 - y : y;
+      const sourceIndex = sourceY * width + sourceX;
+      const destIndex = y * width + x;
+      next[destIndex] = values[sourceIndex];
     }
   }
 
@@ -935,6 +1012,10 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           rotation: 0,
           sourceLayerId: activeLayerId,
           colorCycleIndices: capture.colorCycleIndices ?? null,
+          colorCycleGradientIds: capture.colorCycleGradientIds ?? null,
+          colorCycleGradientDefIds: capture.colorCycleGradientDefIds ?? null,
+          colorCycleSpeed: capture.colorCycleSpeed ?? null,
+          colorCycleFlow: capture.colorCycleFlow ?? null,
           vectorPath: floatingVectorPath,
         },
         floatingPasteHistoryContext: {
@@ -947,6 +1028,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           },
           sourceBeforeImage: extractImageDataRegion(sourceImageData, capture.bounds),
           sourceGradientIds: extractColorCycleRegion(beforeColorState, capture.bounds, 'gradientIdBuffer'),
+          sourceGradientDefIds: extractColorCycleDefRegion(beforeColorState, capture.bounds),
           sourceSpeed: extractColorCycleRegion(beforeColorState, capture.bounds, 'speedBuffer'),
           sourceFlow: extractColorCycleRegion(beforeColorState, capture.bounds, 'flowBuffer'),
           beforeImage,
@@ -989,6 +1071,10 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   rotation: paste.colorCycleIndices ? 0 : (paste.rotation ?? 0),
                   sourceLayerId: paste.sourceLayerId ?? null,
                   colorCycleIndices: paste.colorCycleIndices ?? null,
+                  colorCycleGradientIds: paste.colorCycleGradientIds ?? null,
+                  colorCycleGradientDefIds: paste.colorCycleGradientDefIds ?? null,
+                  colorCycleSpeed: paste.colorCycleSpeed ?? null,
+                  colorCycleFlow: paste.colorCycleFlow ?? null,
                   vectorPath: paste.vectorPath ?? null,
                 }
               : null,
@@ -1044,6 +1130,38 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   'horizontal'
                 )
               : floatingPaste.colorCycleIndices,
+            colorCycleGradientIds: floatingPaste.colorCycleGradientIds
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleGradientIds,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'horizontal'
+                )
+              : floatingPaste.colorCycleGradientIds,
+            colorCycleGradientDefIds: floatingPaste.colorCycleGradientDefIds
+              ? flipColorCycleValues16(
+                  floatingPaste.colorCycleGradientDefIds,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'horizontal'
+                )
+              : floatingPaste.colorCycleGradientDefIds,
+            colorCycleSpeed: floatingPaste.colorCycleSpeed
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleSpeed,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'horizontal'
+                )
+              : floatingPaste.colorCycleSpeed,
+            colorCycleFlow: floatingPaste.colorCycleFlow
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleFlow,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'horizontal'
+                )
+              : floatingPaste.colorCycleFlow,
             vectorPath: flipVectorPath(
               floatingPaste.vectorPath ?? null,
               floatingPaste.width,
@@ -1073,6 +1191,38 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   'vertical'
                 )
               : floatingPaste.colorCycleIndices,
+            colorCycleGradientIds: floatingPaste.colorCycleGradientIds
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleGradientIds,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'vertical'
+                )
+              : floatingPaste.colorCycleGradientIds,
+            colorCycleGradientDefIds: floatingPaste.colorCycleGradientDefIds
+              ? flipColorCycleValues16(
+                  floatingPaste.colorCycleGradientDefIds,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'vertical'
+                )
+              : floatingPaste.colorCycleGradientDefIds,
+            colorCycleSpeed: floatingPaste.colorCycleSpeed
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleSpeed,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'vertical'
+                )
+              : floatingPaste.colorCycleSpeed,
+            colorCycleFlow: floatingPaste.colorCycleFlow
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCycleFlow,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'vertical'
+                )
+              : floatingPaste.colorCycleFlow,
             vectorPath: flipVectorPath(
               floatingPaste.vectorPath ?? null,
               floatingPaste.width,
@@ -1118,6 +1268,10 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               height: capture.bounds.height,
               mode,
               colorCycleIndices: capture.colorCycleIndices ?? null,
+              colorCycleGradientIds: capture.colorCycleGradientIds ?? null,
+              colorCycleGradientDefIds: capture.colorCycleGradientDefIds ?? null,
+              colorCycleSpeed: capture.colorCycleSpeed ?? null,
+              colorCycleFlow: capture.colorCycleFlow ?? null,
               colorCycleSourceLayerId: capture.colorCycleIndices ? activeLayerId : null,
             };
 
@@ -1254,6 +1408,18 @@ const createClipboardPayloadFromFloatingPaste = (
     mode,
     colorCycleIndices: floatingPaste.colorCycleIndices
       ? new Uint8Array(floatingPaste.colorCycleIndices)
+      : null,
+    colorCycleGradientIds: floatingPaste.colorCycleGradientIds
+      ? new Uint8Array(floatingPaste.colorCycleGradientIds)
+      : null,
+    colorCycleGradientDefIds: floatingPaste.colorCycleGradientDefIds
+      ? new Uint16Array(floatingPaste.colorCycleGradientDefIds)
+      : null,
+    colorCycleSpeed: floatingPaste.colorCycleSpeed
+      ? new Uint8Array(floatingPaste.colorCycleSpeed)
+      : null,
+    colorCycleFlow: floatingPaste.colorCycleFlow
+      ? new Uint8Array(floatingPaste.colorCycleFlow)
       : null,
     colorCycleSourceLayerId: floatingPaste.sourceLayerId ?? null,
   };

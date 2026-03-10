@@ -220,4 +220,45 @@ describe('selection clipboard helpers', () => {
     expect(Array.from(clipboard?.imageData.data ?? [])).toEqual(Array.from(floatingData.data));
     expect(useAppStore.getState().floatingPaste).toBeNull();
   });
+
+  it('copies full CC payload from floating paste into the internal clipboard', async () => {
+    const floatingData = createFilledImageData(2, 2);
+    const layer = createLayer('layer-floating-cc', floatingData);
+    const project = createProject(layer);
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionClipboard: null,
+      floatingPaste: null,
+      layersNeedRecomposition: false,
+    });
+
+    useAppStore.getState().setFloatingPaste({
+      imageData: floatingData,
+      position: { x: 7, y: 9 },
+      width: 2,
+      height: 2,
+      colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+      colorCycleGradientIds: new Uint8Array([5, 6, 7, 8]),
+      colorCycleGradientDefIds: new Uint16Array([9, 10, 11, 12]),
+      colorCycleSpeed: new Uint8Array([13, 14, 15, 16]),
+      colorCycleFlow: new Uint8Array([17, 18, 19, 20]),
+      sourceLayerId: 'layer-cc',
+    });
+
+    const handled = await useAppStore.getState().copySelectionToClipboard({ mode: 'copy' });
+
+    expect(handled).toBe(true);
+    const clipboard = useAppStore.getState().selectionClipboard;
+    expect(Array.from(clipboard?.colorCycleIndices ?? [])).toEqual([1, 2, 3, 4]);
+    expect(Array.from(clipboard?.colorCycleGradientIds ?? [])).toEqual([5, 6, 7, 8]);
+    expect(Array.from(clipboard?.colorCycleGradientDefIds ?? [])).toEqual([9, 10, 11, 12]);
+    expect(Array.from(clipboard?.colorCycleSpeed ?? [])).toEqual([13, 14, 15, 16]);
+    expect(Array.from(clipboard?.colorCycleFlow ?? [])).toEqual([17, 18, 19, 20]);
+    expect(clipboard?.colorCycleSourceLayerId).toBe('layer-cc');
+  });
 });

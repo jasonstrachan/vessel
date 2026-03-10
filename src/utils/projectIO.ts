@@ -2550,6 +2550,55 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             console.warn('[projectIO] Failed to restore color cycle speed:', error);
           }
         }
+
+        const persistedGradientIdBuffer = layer.colorCycleData.gradientIdBuffer;
+        const persistedGradientDefIdBuffer = layer.colorCycleData.gradientDefIdBuffer;
+        const expectedSize = layer.colorCycleData.canvas!.width * layer.colorCycleData.canvas!.height;
+        const canSeedFromPersistedBuffers =
+          typeof (colorCycleBrush as {
+            applyLayerSnapshot?: (
+              layerId: string,
+              snapshot: {
+                paintBuffer: ArrayBuffer;
+                gradientIdBuffer?: ArrayBuffer;
+                gradientDefIdBuffer?: ArrayBuffer;
+                hasContent: boolean;
+                strokeCounter: number;
+              },
+            ) => void;
+          }).applyLayerSnapshot === 'function' &&
+          persistedGradientIdBuffer instanceof ArrayBuffer &&
+          persistedGradientIdBuffer.byteLength === expectedSize;
+
+        if (canSeedFromPersistedBuffers) {
+          try {
+            const seededPaint = new Uint8Array(persistedGradientIdBuffer.slice(0));
+            const hasPersistedContent = seededPaint.some((value) => value !== 0);
+            (
+              colorCycleBrush as {
+                applyLayerSnapshot: (
+                  layerId: string,
+                  snapshot: {
+                    paintBuffer: ArrayBuffer;
+                    gradientIdBuffer?: ArrayBuffer;
+                    gradientDefIdBuffer?: ArrayBuffer;
+                    hasContent: boolean;
+                    strokeCounter: number;
+                  },
+                ) => void;
+              }
+            ).applyLayerSnapshot(layer.id, {
+              paintBuffer: seededPaint.buffer,
+              gradientIdBuffer: persistedGradientIdBuffer.slice(0),
+              gradientDefIdBuffer: persistedGradientDefIdBuffer?.slice(0),
+              hasContent: hasPersistedContent,
+              strokeCounter: 0,
+            });
+          } catch (error) {
+            console.warn('[projectIO] Failed to seed color cycle runtime from persisted buffers:', error);
+          }
+        }
+
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
 
         const externalBaseImageData = layer.colorCycleData.canvasImageData ?? layer.imageData;

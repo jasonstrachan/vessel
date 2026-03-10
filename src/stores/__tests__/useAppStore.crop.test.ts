@@ -365,7 +365,7 @@ describe('useAppStore commitCrop', () => {
     expect(Array.from(pixelSample?.data ?? [])).toEqual([1, 1, 0, 255]);
   });
 
-  it('preserves color-cycle gradient buffers after cropping', async () => {
+  it('preserves color-cycle animation buffers after cropping', async () => {
     const layer = createColorCycleLayer(6, 4);
     primeStoreForCrop(layer, 6, 4);
 
@@ -377,12 +377,14 @@ describe('useAppStore commitCrop', () => {
     const gradientIds = Uint8Array.from({ length: 24 }, (_, idx) => idx);
     const gradientDefIds = Uint16Array.from({ length: 24 }, (_, idx) => idx + 100);
     const speed = new Uint8Array(24).fill(12);
+    const flow = Uint8Array.from({ length: 24 }, (_, idx) => idx + 20);
 
     brush?.applyLayerSnapshot?.(layer.id, {
       paintBuffer: paint.buffer.slice(0),
       gradientIdBuffer: gradientIds.buffer.slice(0),
       gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
       speedBuffer: speed.buffer.slice(0),
+      flowBuffer: flow.buffer.slice(0),
       hasContent: true,
       strokeCounter: 3
     });
@@ -397,6 +399,7 @@ describe('useAppStore commitCrop', () => {
     expect(snapshot?.paintBuffer).toBeDefined();
     expect(snapshot?.gradientIdBuffer).toBeDefined();
     expect(snapshot?.gradientDefIdBuffer).toBeDefined();
+    expect(snapshot?.flowBuffer).toBeDefined();
 
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       7, 8, 9,
@@ -405,6 +408,10 @@ describe('useAppStore commitCrop', () => {
     expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       107, 108, 109,
       113, 114, 115,
+    ]);
+    expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([
+      27, 28, 29,
+      33, 34, 35,
     ]);
   });
 

@@ -37,6 +37,10 @@ export const createClipboardHandlers = (
       rotation: 0,
       sourceLayerId: clipboardPayload.colorCycleSourceLayerId ?? null,
       colorCycleIndices: clipboardPayload.colorCycleIndices ?? null,
+      colorCycleGradientIds: clipboardPayload.colorCycleGradientIds ?? null,
+      colorCycleGradientDefIds: clipboardPayload.colorCycleGradientDefIds ?? null,
+      colorCycleSpeed: clipboardPayload.colorCycleSpeed ?? null,
+      colorCycleFlow: clipboardPayload.colorCycleFlow ?? null,
     });
 
     requestAnimationFrame(() => {

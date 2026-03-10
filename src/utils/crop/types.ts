@@ -9,6 +9,7 @@ export interface CroppedAnimatorIndexSnapshot {
   data: ArrayBuffer;
   gradientIdData?: ArrayBuffer;
   speedData?: ArrayBuffer;
+  flowData?: ArrayBuffer;
   gradientStops?: Array<{ position: number; color: string }>;
 }
 
@@ -29,6 +30,7 @@ export interface ColorCycleBrushResetEntry {
     gradientIdBuffer?: ArrayBuffer;
     gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
   };

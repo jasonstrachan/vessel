@@ -25,6 +25,10 @@ export interface FloatingPaste {
   rotation: number;
   sourceLayerId?: string | null;
   colorCycleIndices?: Uint8Array | null;
+  colorCycleGradientIds?: Uint8Array | null;
+  colorCycleGradientDefIds?: Uint16Array | null;
+  colorCycleSpeed?: Uint8Array | null;
+  colorCycleFlow?: Uint8Array | null;
 }
 
 export interface CanvasState {

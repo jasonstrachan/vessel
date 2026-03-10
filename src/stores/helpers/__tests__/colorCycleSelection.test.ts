@@ -507,4 +507,86 @@ describe('colorCycleSelection helpers', () => {
     expect(incomingGradient[4]).toBe(5);
     expect(incomingGradient[5]).toBe(5);
   });
+
+  it('preserves full per-pixel CC payload during region write', () => {
+    const paint = new Uint8Array(16).fill(0);
+    const gradientIds = new Uint8Array(16).fill(1);
+    const gradientDefIds = new Uint16Array(16).fill(2);
+    const speed = new Uint8Array(16).fill(3);
+    const flow = new Uint8Array(16).fill(4);
+    const src = new Uint8Array([9, 8, 7, 6]);
+    const srcGradientIds = new Uint8Array([11, 12, 13, 14]);
+    const srcGradientDefIds = new Uint16Array([101, 102, 103, 104]);
+    const srcSpeed = new Uint8Array([21, 22, 23, 24]);
+    const srcFlow = new Uint8Array([31, 32, 33, 34]);
+
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: gradientIds.buffer,
+      gradientDefIdBuffer: gradientDefIds.buffer,
+      speedBuffer: speed.buffer,
+      flowBuffer: flow.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    const layer: Layer = {
+      id: 'layer-cc-payload',
+      name: 'CC payload',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas },
+    } as Layer;
+
+    const updateLayer = jest.fn();
+    const state = {
+      updateLayer,
+      setCurrentCompositeBitmap: jest.fn(),
+      setLayersNeedRecomposition: jest.fn(),
+      markCompositeSegmentsDirtyByLayerIds: jest.fn(),
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const applied = writeColorCycleRegion(
+      state,
+      layer,
+      project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      src,
+      2,
+      2,
+      {
+        sourceGradientIds: srcGradientIds,
+        sourceGradientDefIds: srcGradientDefIds,
+        sourceSpeed: srcSpeed,
+        sourceFlow: srcFlow,
+      }
+    );
+
+    expect(applied).toBe(true);
+    const snapshotArg = mockApplyLayerSnapshot.mock.calls[mockApplyLayerSnapshot.mock.calls.length - 1][1];
+    expect(Array.from(new Uint8Array(snapshotArg.paintBuffer).slice(0, 6))).toEqual([9, 8, 0, 0, 7, 6]);
+    expect(Array.from(new Uint8Array(snapshotArg.gradientIdBuffer).slice(0, 6))).toEqual([11, 12, 1, 1, 13, 14]);
+    expect(Array.from(new Uint16Array(snapshotArg.gradientDefIdBuffer).slice(0, 6))).toEqual([101, 102, 2, 2, 103, 104]);
+    expect(Array.from(new Uint8Array(snapshotArg.speedBuffer).slice(0, 6))).toEqual([21, 22, 3, 3, 23, 24]);
+    expect(Array.from(new Uint8Array(snapshotArg.flowBuffer).slice(0, 6))).toEqual([31, 32, 4, 4, 33, 34]);
+    expect(updateLayer).toHaveBeenCalledWith(
+      'layer-cc-payload',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          gradientDefIdBuffer: expect.any(ArrayBuffer),
+        }),
+      }),
+      expect.objectContaining({ skipColorCycleSync: true })
+    );
+  });
 });

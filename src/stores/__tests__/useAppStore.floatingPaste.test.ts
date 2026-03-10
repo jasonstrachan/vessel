@@ -64,7 +64,7 @@ describe('floating paste transform state', () => {
     expect(floatingPaste?.displayHeight).toBe(12);
   });
 
-  it('flipFloatingPasteHorizontal mirrors image and color-cycle indices', () => {
+  it('flipFloatingPasteHorizontal mirrors image and full color-cycle payload', () => {
     const imageData = new ImageData(
       new Uint8ClampedArray([
         1, 0, 0, 255,
@@ -82,6 +82,10 @@ describe('floating paste transform state', () => {
       width: 2,
       height: 2,
       colorCycleIndices: new Uint8Array([10, 11, 12, 13]),
+      colorCycleGradientIds: new Uint8Array([20, 21, 22, 23]),
+      colorCycleGradientDefIds: new Uint16Array([30, 31, 32, 33]),
+      colorCycleSpeed: new Uint8Array([40, 41, 42, 43]),
+      colorCycleFlow: new Uint8Array([50, 51, 52, 53]),
     });
 
     useAppStore.getState().flipFloatingPasteHorizontal();
@@ -94,9 +98,13 @@ describe('floating paste transform state', () => {
       3, 0, 0, 255,
     ]);
     expect(Array.from(floatingPaste?.colorCycleIndices ?? [])).toEqual([11, 10, 13, 12]);
+    expect(Array.from(floatingPaste?.colorCycleGradientIds ?? [])).toEqual([21, 20, 23, 22]);
+    expect(Array.from(floatingPaste?.colorCycleGradientDefIds ?? [])).toEqual([31, 30, 33, 32]);
+    expect(Array.from(floatingPaste?.colorCycleSpeed ?? [])).toEqual([41, 40, 43, 42]);
+    expect(Array.from(floatingPaste?.colorCycleFlow ?? [])).toEqual([51, 50, 53, 52]);
   });
 
-  it('flipFloatingPasteVertical mirrors image and color-cycle indices', () => {
+  it('flipFloatingPasteVertical mirrors image and full color-cycle payload', () => {
     const imageData = new ImageData(
       new Uint8ClampedArray([
         1, 0, 0, 255,
@@ -114,6 +122,10 @@ describe('floating paste transform state', () => {
       width: 2,
       height: 2,
       colorCycleIndices: new Uint8Array([10, 11, 12, 13]),
+      colorCycleGradientIds: new Uint8Array([20, 21, 22, 23]),
+      colorCycleGradientDefIds: new Uint16Array([30, 31, 32, 33]),
+      colorCycleSpeed: new Uint8Array([40, 41, 42, 43]),
+      colorCycleFlow: new Uint8Array([50, 51, 52, 53]),
     });
 
     useAppStore.getState().flipFloatingPasteVertical();
@@ -126,5 +138,9 @@ describe('floating paste transform state', () => {
       2, 0, 0, 255,
     ]);
     expect(Array.from(floatingPaste?.colorCycleIndices ?? [])).toEqual([12, 13, 10, 11]);
+    expect(Array.from(floatingPaste?.colorCycleGradientIds ?? [])).toEqual([22, 23, 20, 21]);
+    expect(Array.from(floatingPaste?.colorCycleGradientDefIds ?? [])).toEqual([32, 33, 30, 31]);
+    expect(Array.from(floatingPaste?.colorCycleSpeed ?? [])).toEqual([42, 43, 40, 41]);
+    expect(Array.from(floatingPaste?.colorCycleFlow ?? [])).toEqual([52, 53, 50, 51]);
   });
 });

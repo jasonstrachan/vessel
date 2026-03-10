@@ -428,9 +428,17 @@ describe('selection paste commit', () => {
 
   it('writes color-cycle indices directly when committing a floating paste on a color-cycle layer', async () => {
     const colorCycleIndices = new Uint8Array([1, 2, 3, 4]);
+    const colorCycleGradientIds = new Uint8Array([11, 12, 13, 14]);
+    const colorCycleGradientDefIds = new Uint16Array([101, 102, 103, 104]);
+    const colorCycleSpeed = new Uint8Array([21, 22, 23, 24]);
+    const colorCycleFlow = new Uint8Array([31, 32, 33, 34]);
     const { helpers, state, captureCanvasToActiveLayer, layer } = setupHelpers(
       {
         colorCycleIndices,
+        colorCycleGradientIds,
+        colorCycleGradientDefIds,
+        colorCycleSpeed,
+        colorCycleFlow,
         width: 2,
         height: 2,
         displayWidth: 2,
@@ -461,6 +469,10 @@ describe('selection paste commit', () => {
         alphaStride: 4,
         alphaChannelOffset: 3,
         alphaThreshold: 0,
+        sourceGradientIds: colorCycleGradientIds,
+        sourceGradientDefIds: colorCycleGradientDefIds,
+        sourceSpeed: colorCycleSpeed,
+        sourceFlow: colorCycleFlow,
       })
     );
 
@@ -472,9 +484,17 @@ describe('selection paste commit', () => {
 
   it('resamples CC payload to transformed display size on commit', async () => {
     const colorCycleIndices = new Uint8Array([9, 8, 7, 6]);
+    const colorCycleGradientIds = new Uint8Array([1, 2, 3, 4]);
+    const colorCycleGradientDefIds = new Uint16Array([101, 102, 103, 104]);
+    const colorCycleSpeed = new Uint8Array([11, 12, 13, 14]);
+    const colorCycleFlow = new Uint8Array([21, 22, 23, 24]);
     const { helpers, state, layer } = setupHelpers(
       {
         colorCycleIndices,
+        colorCycleGradientIds,
+        colorCycleGradientDefIds,
+        colorCycleSpeed,
+        colorCycleFlow,
         width: 2,
         height: 2,
         displayWidth: 6,
@@ -510,6 +530,34 @@ describe('selection paste commit', () => {
         alphaStride: 1,
         alphaChannelOffset: 0,
         alphaThreshold: 0,
+        sourceGradientIds: new Uint8Array([
+          1, 1, 1, 2, 2, 2,
+          1, 1, 1, 2, 2, 2,
+          1, 1, 1, 2, 2, 2,
+          3, 3, 3, 4, 4, 4,
+          3, 3, 3, 4, 4, 4,
+        ]),
+        sourceGradientDefIds: new Uint16Array([
+          101, 101, 101, 102, 102, 102,
+          101, 101, 101, 102, 102, 102,
+          101, 101, 101, 102, 102, 102,
+          103, 103, 103, 104, 104, 104,
+          103, 103, 103, 104, 104, 104,
+        ]),
+        sourceSpeed: new Uint8Array([
+          11, 11, 11, 12, 12, 12,
+          11, 11, 11, 12, 12, 12,
+          11, 11, 11, 12, 12, 12,
+          13, 13, 13, 14, 14, 14,
+          13, 13, 13, 14, 14, 14,
+        ]),
+        sourceFlow: new Uint8Array([
+          21, 21, 21, 22, 22, 22,
+          21, 21, 21, 22, 22, 22,
+          21, 21, 21, 22, 22, 22,
+          23, 23, 23, 24, 24, 24,
+          23, 23, 23, 24, 24, 24,
+        ]),
       })
     );
   });

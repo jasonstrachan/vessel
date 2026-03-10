@@ -18,6 +18,10 @@ export interface SelectionCaptureResult {
   selectionImageData: ImageData;
   updatedLayerImageData?: ImageData;
   colorCycleIndices?: Uint8Array;
+  colorCycleGradientIds?: Uint8Array;
+  colorCycleGradientDefIds?: Uint16Array;
+  colorCycleSpeed?: Uint8Array;
+  colorCycleFlow?: Uint8Array;
 }
 
 type NormalizedRect = { x: number; y: number; width: number; height: number };
@@ -29,6 +33,45 @@ export const copyScalarRegion = (
   rect: NormalizedRect
 ): Uint8Array => {
   const destination = new Uint8Array(rect.width * rect.height);
+  if (rect.width <= 0 || rect.height <= 0) {
+    return destination;
+  }
+
+  const startX = Math.max(0, Math.min(sourceWidth, rect.x));
+  const startY = Math.max(0, Math.min(sourceHeight, rect.y));
+  const endX = Math.max(0, Math.min(sourceWidth, rect.x + rect.width));
+  const endY = Math.max(0, Math.min(sourceHeight, rect.y + rect.height));
+  const safeWidth = Math.max(0, endX - startX);
+  const safeHeight = Math.max(0, endY - startY);
+
+  for (let row = 0; row < safeHeight; row += 1) {
+    const srcRow = startY + row;
+    if (srcRow < 0 || srcRow >= sourceHeight) {
+      continue;
+    }
+    const destRow = row;
+    for (let col = 0; col < safeWidth; col += 1) {
+      const srcCol = startX + col;
+      if (srcCol < 0 || srcCol >= sourceWidth) {
+        continue;
+      }
+      const destCol = col;
+      const destIndex = destRow * rect.width + destCol;
+      const srcIndex = srcRow * sourceWidth + srcCol;
+      destination[destIndex] = source[srcIndex];
+    }
+  }
+
+  return destination;
+};
+
+const copyScalarRegion16 = (
+  source: Uint16Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: NormalizedRect
+): Uint16Array => {
+  const destination = new Uint16Array(rect.width * rect.height);
   if (rect.width <= 0 || rect.height <= 0) {
     return destination;
   }
@@ -120,6 +163,64 @@ const captureColorCycleIndices = (
   }
 
   return copyScalarRegion(incoming, canvasWidth, canvasHeight, rect);
+};
+
+const captureColorCycleSnapshotScalar = (
+  layer: Layer,
+  rect: NormalizedRect,
+  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer'
+): Uint8Array | undefined => {
+  if (layer.layerType !== 'color-cycle') {
+    return undefined;
+  }
+
+  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const snapshot = brush?.getLayerSnapshot?.(layer.id);
+  const canvas =
+    layer.colorCycleData?.canvas ??
+    (typeof brush?.getCanvas === 'function' ? brush.getCanvas() : null);
+  const canvasWidth = canvas?.width ?? layer.imageData?.width ?? 0;
+  const canvasHeight = canvas?.height ?? layer.imageData?.height ?? 0;
+  const sourceBuffer = snapshot?.[field];
+  if (!canvasWidth || !canvasHeight || !sourceBuffer) {
+    return undefined;
+  }
+
+  const source = new Uint8Array(sourceBuffer);
+  if (source.length !== canvasWidth * canvasHeight) {
+    return undefined;
+  }
+
+  return copyScalarRegion(source, canvasWidth, canvasHeight, rect);
+};
+
+const captureColorCycleGradientDefIds = (
+  layer: Layer,
+  rect: NormalizedRect
+): Uint16Array | undefined => {
+  if (layer.layerType !== 'color-cycle') {
+    return undefined;
+  }
+
+  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const snapshot = brush?.getLayerSnapshot?.(layer.id);
+  const canvas =
+    layer.colorCycleData?.canvas ??
+    (typeof brush?.getCanvas === 'function' ? brush.getCanvas() : null);
+  const canvasWidth = canvas?.width ?? layer.imageData?.width ?? 0;
+  const canvasHeight = canvas?.height ?? layer.imageData?.height ?? 0;
+
+  const sourceBuffer = snapshot?.gradientDefIdBuffer ?? layer.colorCycleData?.gradientDefIdBuffer;
+  if (!canvasWidth || !canvasHeight || !sourceBuffer) {
+    return undefined;
+  }
+
+  const source = new Uint16Array(sourceBuffer);
+  if (source.length !== canvasWidth * canvasHeight) {
+    return undefined;
+  }
+
+  return copyScalarRegion16(source, canvasWidth, canvasHeight, rect);
 };
 
 export const resolveLayerImageData = (layer: Layer | null): ImageData | null => {
@@ -250,6 +351,42 @@ export const captureSelectionBitmap = (
           height: safeHeight,
         })
       : undefined;
+  const colorCycleGradientIds =
+    layer.layerType === 'color-cycle'
+      ? captureColorCycleSnapshotScalar(layer, {
+          x: clampedMinX,
+          y: clampedMinY,
+          width: safeWidth,
+          height: safeHeight,
+        }, 'gradientIdBuffer')
+      : undefined;
+  const colorCycleGradientDefIds =
+    layer.layerType === 'color-cycle'
+      ? captureColorCycleGradientDefIds(layer, {
+          x: clampedMinX,
+          y: clampedMinY,
+          width: safeWidth,
+          height: safeHeight,
+        })
+      : undefined;
+  const colorCycleSpeed =
+    layer.layerType === 'color-cycle'
+      ? captureColorCycleSnapshotScalar(layer, {
+          x: clampedMinX,
+          y: clampedMinY,
+          width: safeWidth,
+          height: safeHeight,
+        }, 'speedBuffer')
+      : undefined;
+  const colorCycleFlow =
+    layer.layerType === 'color-cycle'
+      ? captureColorCycleSnapshotScalar(layer, {
+          x: clampedMinX,
+          y: clampedMinY,
+          width: safeWidth,
+          height: safeHeight,
+        }, 'flowBuffer')
+      : undefined;
 
   if (process.env.NODE_ENV !== 'production' && layer.layerType === 'color-cycle') {
     console.log('[selectionCapture] CC bounds', {
@@ -274,6 +411,10 @@ export const captureSelectionBitmap = (
     selectionImageData,
     updatedLayerImageData,
     colorCycleIndices,
+    colorCycleGradientIds,
+    colorCycleGradientDefIds,
+    colorCycleSpeed,
+    colorCycleFlow,
   };
 };
 
@@ -357,6 +498,10 @@ export const captureSelectionBitmapFromMask = (
     : undefined;
 
   let colorCycleIndices: Uint8Array | undefined;
+  let colorCycleGradientIds: Uint8Array | undefined;
+  let colorCycleGradientDefIds: Uint16Array | undefined;
+  let colorCycleSpeed: Uint8Array | undefined;
+  let colorCycleFlow: Uint8Array | undefined;
   if (layer.layerType === 'color-cycle') {
     const indices = captureColorCycleIndices(layer, {
       x: clampedX,
@@ -372,6 +517,62 @@ export const captureSelectionBitmapFromMask = (
         colorCycleIndices[i] = alpha > 0 ? indices[i] : 0;
       }
     }
+
+    const gradientIds = captureColorCycleSnapshotScalar(layer, {
+      x: clampedX,
+      y: clampedY,
+      width: safeWidth,
+      height: safeHeight,
+    }, 'gradientIdBuffer');
+    if (gradientIds) {
+      colorCycleGradientIds = new Uint8Array(gradientIds.length);
+      for (let i = 0; i < gradientIds.length; i += 1) {
+        const alpha = selectionBuffer[(i * 4) + 3];
+        colorCycleGradientIds[i] = alpha > 0 ? gradientIds[i] : 0;
+      }
+    }
+
+    const gradientDefIds = captureColorCycleGradientDefIds(layer, {
+      x: clampedX,
+      y: clampedY,
+      width: safeWidth,
+      height: safeHeight,
+    });
+    if (gradientDefIds) {
+      colorCycleGradientDefIds = new Uint16Array(gradientDefIds.length);
+      for (let i = 0; i < gradientDefIds.length; i += 1) {
+        const alpha = selectionBuffer[(i * 4) + 3];
+        colorCycleGradientDefIds[i] = alpha > 0 ? gradientDefIds[i] : 0;
+      }
+    }
+
+    const speed = captureColorCycleSnapshotScalar(layer, {
+      x: clampedX,
+      y: clampedY,
+      width: safeWidth,
+      height: safeHeight,
+    }, 'speedBuffer');
+    if (speed) {
+      colorCycleSpeed = new Uint8Array(speed.length);
+      for (let i = 0; i < speed.length; i += 1) {
+        const alpha = selectionBuffer[(i * 4) + 3];
+        colorCycleSpeed[i] = alpha > 0 ? speed[i] : 0;
+      }
+    }
+
+    const flow = captureColorCycleSnapshotScalar(layer, {
+      x: clampedX,
+      y: clampedY,
+      width: safeWidth,
+      height: safeHeight,
+    }, 'flowBuffer');
+    if (flow) {
+      colorCycleFlow = new Uint8Array(flow.length);
+      for (let i = 0; i < flow.length; i += 1) {
+        const alpha = selectionBuffer[(i * 4) + 3];
+        colorCycleFlow[i] = alpha > 0 ? flow[i] : 0;
+      }
+    }
   }
 
   return {
@@ -384,5 +585,9 @@ export const captureSelectionBitmapFromMask = (
     selectionImageData,
     updatedLayerImageData,
     colorCycleIndices,
+    colorCycleGradientIds,
+    colorCycleGradientDefIds,
+    colorCycleSpeed,
+    colorCycleFlow,
   };
 };
