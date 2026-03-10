@@ -124,5 +124,15 @@ export const useDrawingCanvasUiEffects = ({
     if (!ctx) return;
 
     draw(ctx, viewTransformRef.current);
-  }, [canvasRef, canvasOffsetX, canvasOffsetY, canvasZoom, draw, mode, needsRedraw, viewTransformRef]);
+  }, [
+    canvasRef,
+    canvasOffsetX,
+    canvasOffsetY,
+    canvasZoom,
+    draw,
+    floatingPaste,
+    mode,
+    needsRedraw,
+    viewTransformRef,
+  ]);
 };
