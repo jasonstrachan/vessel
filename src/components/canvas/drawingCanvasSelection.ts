@@ -1,4 +1,5 @@
 import type { CanvasShape } from '@/types';
+import { clampMarqueeDragRectToBounds } from '@/stores/helpers/selectionRoi';
 import { strokeMarqueePath, strokeMarqueeRect } from '@/utils/marqueeStroke';
 import { getSelectionMaskContourPath } from '@/utils/selectionMaskContourPath';
 
@@ -67,18 +68,9 @@ export const drawSelectionLayer = ({
   const end = selectionEnd || null;
 
   if (start && end && !hasMask) {
-    const minX = Math.min(start.x, end.x);
-    const maxX = Math.max(start.x, end.x);
-    const minY = Math.min(start.y, end.y);
-    const maxY = Math.max(start.y, end.y);
-    const x = Math.max(0, Math.min(projectWidth, minX));
-    const y = Math.max(0, Math.min(projectHeight, minY));
-    const right = Math.max(0, Math.min(projectWidth, maxX));
-    const bottom = Math.max(0, Math.min(projectHeight, maxY));
-    const width = right - x;
-    const height = bottom - y;
-    if (width > 0 && height > 0) {
-      strokeMarqueeRect(ctx, x, y, width, height, {
+    const marqueeBounds = clampMarqueeDragRectToBounds(start, end, projectWidth, projectHeight);
+    if (marqueeBounds) {
+      strokeMarqueeRect(ctx, marqueeBounds.x, marqueeBounds.y, marqueeBounds.width, marqueeBounds.height, {
         scale,
         marchingAntsOffset,
         animated: true,

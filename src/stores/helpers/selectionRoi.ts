@@ -1,5 +1,33 @@
 import type { Rectangle } from '@/types';
 
+export const clampMarqueeDragRectToBounds = (
+  start: { x: number; y: number } | null,
+  end: { x: number; y: number } | null,
+  imageWidth: number,
+  imageHeight: number
+): Rectangle | null => {
+  if (!start || !end) {
+    return null;
+  }
+
+  const minX = Math.min(start.x, end.x);
+  const maxX = Math.max(start.x, end.x);
+  const minY = Math.min(start.y, end.y);
+  const maxY = Math.max(start.y, end.y);
+  const x = Math.max(0, Math.min(imageWidth, minX));
+  const y = Math.max(0, Math.min(imageHeight, minY));
+  const right = Math.max(0, Math.min(imageWidth, maxX));
+  const bottom = Math.max(0, Math.min(imageHeight, maxY));
+  const width = right - x;
+  const height = bottom - y;
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { x, y, width, height };
+};
+
 export const clampSelectionBounds = (
   bounds: Rectangle | null,
   imageWidth: number,

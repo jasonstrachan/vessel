@@ -82,6 +82,17 @@ describe('SelectionOptionsPanel', () => {
       useAppStore.setState((state) => ({
         ...state,
         tools: { ...state.tools, currentTool: 'selection', selectionMode: 'marquee' },
+        project: {
+          id: 'selection-crop-project',
+          name: 'Selection Crop Project',
+          width: 10,
+          height: 10,
+          layers: [],
+          backgroundColor: '#000000',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: [],
+        },
         selectionStart: { x: 1, y: 2 },
         selectionEnd: { x: 5, y: 7 },
       }));
@@ -93,6 +104,36 @@ describe('SelectionOptionsPanel', () => {
     const state = useAppStore.getState();
     expect(state.tools.currentTool).toBe('crop');
     expect(state.crop.marquee).toEqual({ x: 1, y: 2, width: 4, height: 5 });
+    expect(state.crop.status).toBe('ready');
+  });
+
+  it('uses the visible marquee bounds when the drag starts outside the canvas', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: { ...state.tools, currentTool: 'selection', selectionMode: 'marquee' },
+        project: {
+          id: 'selection-clamped-crop-project',
+          name: 'Selection Clamped Crop Project',
+          width: 100,
+          height: 80,
+          layers: [],
+          backgroundColor: '#000000',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: [],
+        },
+        selectionStart: { x: -25, y: -10 },
+        selectionEnd: { x: 45, y: 30 },
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Crop' }));
+
+    const state = useAppStore.getState();
+    expect(state.tools.currentTool).toBe('crop');
+    expect(state.crop.marquee).toEqual({ x: 0, y: 0, width: 45, height: 30 });
     expect(state.crop.status).toBe('ready');
   });
 

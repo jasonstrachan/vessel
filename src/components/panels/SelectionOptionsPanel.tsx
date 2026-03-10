@@ -2,6 +2,7 @@
 
 import React from 'react';
 import ButtonGroup from '@/components/ui/ButtonGroup';
+import { clampMarqueeDragRectToBounds } from '@/stores/helpers/selectionRoi';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
 import type { Rectangle, SelectionMode } from '@/types';
@@ -21,21 +22,10 @@ const HELP_TEXT: Record<SelectionMode, string> = {
 const deriveSelectionRect = (
   selectionStart: { x: number; y: number } | null,
   selectionEnd: { x: number; y: number } | null,
+  projectWidth: number,
+  projectHeight: number,
 ): Rectangle | null => {
-  if (!selectionStart || !selectionEnd) {
-    return null;
-  }
-
-  const x = Math.min(selectionStart.x, selectionEnd.x);
-  const y = Math.min(selectionStart.y, selectionEnd.y);
-  const width = Math.abs(selectionEnd.x - selectionStart.x);
-  const height = Math.abs(selectionEnd.y - selectionStart.y);
-
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-
-  return { x, y, width, height };
+  return clampMarqueeDragRectToBounds(selectionStart, selectionEnd, projectWidth, projectHeight);
 };
 
 const SelectionOptionsPanel: React.FC = () => {
@@ -43,6 +33,7 @@ const SelectionOptionsPanel: React.FC = () => {
   const selectionMode = useAppStore((state) => state.tools.selectionMode);
   const setSelectionMode = useAppStore((state) => state.setSelectionMode);
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const project = useAppStore((state) => state.project);
   const selectionStart = useAppStore((state) => state.selectionStart);
   const selectionEnd = useAppStore((state) => state.selectionEnd);
   const selectionMask = useAppStore((state) => state.selectionMask);
@@ -59,8 +50,8 @@ const SelectionOptionsPanel: React.FC = () => {
   const canInvertSelection = hasSelectionBounds || hasSelectionMask;
   const canFlipSelection = Boolean(floatingPaste || hasSelectionBounds);
   const marqueeSelectionRect = React.useMemo(
-    () => deriveSelectionRect(selectionStart, selectionEnd),
-    [selectionEnd, selectionStart],
+    () => deriveSelectionRect(selectionStart, selectionEnd, project?.width ?? 0, project?.height ?? 0),
+    [project?.height, project?.width, selectionEnd, selectionStart],
   );
   const canCropSelection = selectionMode === 'marquee' && Boolean(marqueeSelectionRect);
 
