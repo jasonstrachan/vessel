@@ -88,7 +88,7 @@ const AnimationControlsPanel: React.FC = () => {
     },
     [setBrushSettings]
   );
-  const layerSpeedLabel = ccLayerSpeedScale < 0.1
+  const playbackScaleLabel = ccLayerSpeedScale < 0.1
     ? `${ccLayerSpeedScale.toFixed(3)}x`
     : `${ccLayerSpeedScale.toFixed(2)}x`;
 
@@ -108,7 +108,7 @@ const AnimationControlsPanel: React.FC = () => {
           frameCount={sequentialRecord.frameCount}
           fps={sequentialRecord.fps}
           isCaptureActive={sequentialCaptureActive}
-          layerSpeedLabel={layerSpeedLabel}
+          playbackScaleLabel={playbackScaleLabel}
           timeSmear={sequentialRecord.timeSmear}
           onCcLayerSpeedScaleChange={handleCcLayerSpeedScaleChange}
           onFpsChange={handleFpsChange}

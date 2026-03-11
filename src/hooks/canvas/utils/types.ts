@@ -7,6 +7,8 @@ import type { DrawingHandlers } from '@/hooks/useDrawingHandlers';
 import type { SimplePan } from '@/hooks/useSimplePan';
 import type { ToolStateMachine } from '@/hooks/useToolStateMachine';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
+import type { TransferredColorCycleGradientDef } from '@/stores/helpers/colorCycleGradientDefTransfer';
+import type { TransferredColorCycleSlotPalette } from '@/stores/helpers/colorCycleGradientDefTransfer';
 import type {
   computeLines2Defaults,
   prepareContourLinesBasis,
@@ -26,7 +28,9 @@ export interface FloatingPaste {
   sourceLayerId?: string | null;
   colorCycleIndices?: Uint8Array | null;
   colorCycleGradientIds?: Uint8Array | null;
+  colorCycleSlotPalettes?: TransferredColorCycleSlotPalette[] | null;
   colorCycleGradientDefIds?: Uint16Array | null;
+  colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
   colorCycleSpeed?: Uint8Array | null;
   colorCycleFlow?: Uint8Array | null;
 }

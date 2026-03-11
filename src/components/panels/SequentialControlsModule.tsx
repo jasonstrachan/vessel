@@ -16,7 +16,7 @@ interface SequentialControlsModuleProps {
   frameCount: number;
   fps: number;
   isCaptureActive: boolean;
-  layerSpeedLabel: string;
+  playbackScaleLabel: string;
   timeSmear: number;
   onCcLayerSpeedScaleChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onFpsChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -60,7 +60,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
   frameCount,
   fps,
   isCaptureActive,
-  layerSpeedLabel,
+  playbackScaleLabel,
   timeSmear,
   onCcLayerSpeedScaleChange,
   onFpsChange,
@@ -137,7 +137,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
           </div>
 
           <label className="block text-[10px] text-[#BDBDBD]">
-            Layer speed
+            Playback scale
             <div className="mt-1 flex items-center gap-2">
               <input
                 type="range"
@@ -148,12 +148,15 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
                 onChange={onCcLayerSpeedScaleChange}
                 disabled={controlsDisabled}
                 className="w-full accent-[#D9D9D9] disabled:opacity-50"
-                aria-label="Layer speed"
+                aria-label="Playback scale"
               />
               <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
-                {layerSpeedLabel}
+                {playbackScaleLabel}
               </span>
             </div>
+            <span className="mt-1 block text-[9px] text-[#8F8F8F]">
+              Applies to all color-cycle layers during playback.
+            </span>
           </label>
 
           <label className="block text-[10px] text-[#BDBDBD]">

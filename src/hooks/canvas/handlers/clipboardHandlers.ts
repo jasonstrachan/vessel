@@ -38,7 +38,9 @@ export const createClipboardHandlers = (
       sourceLayerId: clipboardPayload.colorCycleSourceLayerId ?? null,
       colorCycleIndices: clipboardPayload.colorCycleIndices ?? null,
       colorCycleGradientIds: clipboardPayload.colorCycleGradientIds ?? null,
+      colorCycleSlotPalettes: clipboardPayload.colorCycleSlotPalettes ?? null,
       colorCycleGradientDefIds: clipboardPayload.colorCycleGradientDefIds ?? null,
+      colorCycleGradientDefs: clipboardPayload.colorCycleGradientDefs ?? null,
       colorCycleSpeed: clipboardPayload.colorCycleSpeed ?? null,
       colorCycleFlow: clipboardPayload.colorCycleFlow ?? null,
     });

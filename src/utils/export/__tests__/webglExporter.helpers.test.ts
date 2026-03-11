@@ -166,7 +166,7 @@ describe('webglExporter helpers', () => {
 
     const normalized = normalizeCanvasSurfaceForExport(wrapper as any);
     expect(normalized).toBeTruthy();
-    const normalizedCtx = normalized?.getContext('2d', { willReadFrequently: true });
+    const normalizedCtx = normalized?.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
     const pixel = normalizedCtx?.getImageData(1, 1, 1, 1).data;
     expect(Array.from(pixel ?? [])).toEqual([100, 110, 120, 255]);
   });
