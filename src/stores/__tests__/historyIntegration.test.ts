@@ -764,6 +764,203 @@ describe('history integration', () => {
     expect(undoSpeed![2 + (1 * width)]).toBe(121);
   });
 
+  it('extracts CC slot palettes into floating paste for marquee cut', () => {
+    const width = 4;
+    const height = 4;
+    const layer = createColorCycleLayer('layer-cc-slot-extract', width, height);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      slotPalettes: [{
+        slot: 9,
+        stops: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#00ff00' },
+        ],
+      }],
+      gradientDefStore: [{
+        id: 2,
+        kind: 'linear',
+        stops: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#00ff00' },
+        ],
+        hash: 'linear:red-green',
+        source: 'manual',
+        createdAtMs: 0,
+        slot: 9,
+      }],
+      nextGradientDefId: 3,
+    };
+
+    useAppStore.setState(() => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      project: {
+        id: 'proj-cc-slot-extract',
+        name: 'CC Slot Extract Test',
+        width,
+        height,
+        layers: [layer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const manager = getColorCycleBrushManager();
+    useAppStore.getState().initColorCycleForLayer(layer.id, width, height);
+    const brush = manager.getLayerColorCycleBrush(layer.id);
+    expect(brush).not.toBeNull();
+
+    const paint = new Uint8Array(width * height);
+    const gradientIds = new Uint8Array(width * height);
+    const gradientDefIds = new Uint16Array(width * height);
+    paint[1 + (1 * width)] = 1;
+    paint[2 + (1 * width)] = 1;
+    paint[1 + (2 * width)] = 1;
+    paint[2 + (2 * width)] = 1;
+    gradientIds[1 + (1 * width)] = 9;
+    gradientIds[2 + (1 * width)] = 9;
+    gradientIds[1 + (2 * width)] = 9;
+    gradientIds[2 + (2 * width)] = 9;
+    gradientDefIds[1 + (1 * width)] = 2;
+    gradientDefIds[2 + (1 * width)] = 2;
+    gradientDefIds[1 + (2 * width)] = 2;
+    gradientDefIds[2 + (2 * width)] = 2;
+
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: gradientIds.buffer,
+      gradientDefIdBuffer: gradientDefIds.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const extracted = useAppStore.getState().extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+
+    const floatingPaste = useAppStore.getState().floatingPaste;
+    expect(floatingPaste?.colorCycleGradientIds).toEqual(new Uint8Array([9, 9, 9, 9]));
+    expect(floatingPaste?.colorCycleGradientDefIds).toEqual(new Uint16Array([2, 2, 2, 2]));
+    expect(floatingPaste?.colorCycleSlotPalettes).toEqual([{
+      slot: 9,
+      stops: [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#00ff00' },
+      ],
+    }]);
+  });
+
+  it('cuts and pastes slot-bound CC strokes onto a new CC layer', async () => {
+    const width = 6;
+    const height = 6;
+    const sourceLayer = createColorCycleLayer('layer-cc-stroke-source', width, height);
+    sourceLayer.colorCycleData = {
+      ...sourceLayer.colorCycleData,
+      slotPalettes: [{
+        slot: 9,
+        stops: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#00ff00' },
+        ],
+      }],
+      gradientDefs: [{ id: 'g9', currentSlot: 9 }],
+      activeGradientId: 'g9',
+      paintSlot: 9,
+      gradientDefStore: [{
+        id: 2,
+        kind: 'linear',
+        stops: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#00ff00' },
+        ],
+        hash: 'linear:red-green',
+        source: 'manual',
+        createdAtMs: 0,
+        slot: 9,
+      }],
+      nextGradientDefId: 3,
+    };
+    const targetLayer = createColorCycleLayer('layer-cc-stroke-target', width, height);
+
+    useAppStore.setState(() => ({
+      layers: [sourceLayer, targetLayer],
+      activeLayerId: sourceLayer.id,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      project: {
+        id: 'proj-cc-stroke-cross-layer',
+        name: 'CC Stroke Cross Layer Test',
+        width,
+        height,
+        layers: [sourceLayer, targetLayer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const manager = getColorCycleBrushManager();
+    useAppStore.getState().initColorCycleForLayer(sourceLayer.id, width, height);
+    useAppStore.getState().initColorCycleForLayer(targetLayer.id, width, height);
+    const sourceBrush = manager.getLayerColorCycleBrush(sourceLayer.id);
+    const targetBrush = manager.getLayerColorCycleBrush(targetLayer.id);
+    expect(sourceBrush).not.toBeNull();
+    expect(targetBrush).not.toBeNull();
+
+    const paint = new Uint8Array(width * height);
+    const gradientIds = new Uint8Array(width * height);
+    const gradientDefIds = new Uint16Array(width * height);
+    for (const [x, y] of [[1, 1], [2, 1], [1, 2], [2, 2]] as const) {
+      const index = x + (y * width);
+      paint[index] = 1;
+      gradientIds[index] = 9;
+      gradientDefIds[index] = 2;
+    }
+
+    sourceBrush?.applyLayerSnapshot?.(sourceLayer.id, {
+      paintBuffer: paint.slice().buffer,
+      gradientIdBuffer: gradientIds.slice().buffer,
+      gradientDefIdBuffer: gradientDefIds.slice().buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const store = useAppStore.getState();
+    const extracted = store.extractSelectionToFloatingPaste();
+    expect(extracted).toBe(true);
+
+    const sourceAfterExtract = sourceBrush?.getLayerSnapshot?.(sourceLayer.id);
+    const sourceAfterPaint = sourceAfterExtract?.paintBuffer ? new Uint8Array(sourceAfterExtract.paintBuffer) : null;
+    expect(sourceAfterPaint).not.toBeNull();
+    expect(sourceAfterPaint![1 + (1 * width)]).toBe(0);
+    expect(sourceAfterPaint![2 + (1 * width)]).toBe(0);
+
+    useAppStore.setState({ activeLayerId: targetLayer.id });
+    await store.commitFloatingPaste();
+
+    const targetSnapshot = targetBrush?.getLayerSnapshot?.(targetLayer.id);
+    const targetPaint = targetSnapshot?.paintBuffer ? new Uint8Array(targetSnapshot.paintBuffer) : null;
+    const targetGradientIds = targetSnapshot?.gradientIdBuffer ? new Uint8Array(targetSnapshot.gradientIdBuffer) : null;
+    const targetGradientDefIds = targetSnapshot?.gradientDefIdBuffer ? new Uint16Array(targetSnapshot.gradientDefIdBuffer) : null;
+    expect(targetPaint).not.toBeNull();
+    expect(targetGradientIds).not.toBeNull();
+    expect(targetGradientDefIds).not.toBeNull();
+    expect(targetPaint![1 + (1 * width)]).toBe(1);
+    expect(targetPaint![2 + (1 * width)]).toBe(1);
+
+    const updatedTargetLayer = useAppStore.getState().layers.find((layer) => layer.id === targetLayer.id);
+    expect(updatedTargetLayer?.colorCycleData?.slotPalettes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ slot: 9 }),
+    ]));
+    expect(targetGradientIds![1 + (1 * width)]).toBe(9);
+    expect(targetGradientDefIds![1 + (1 * width)]).toBe(2);
+  });
+
   it('commits resized marquee transforms on color-cycle layers', async () => {
     const width = 8;
     const height = 8;

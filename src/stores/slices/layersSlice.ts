@@ -1256,9 +1256,6 @@ export const createLayersSlice = (
       } catch (error) {
         logError('[slot-gc] Failed to sync CC runtimes after rebuild', error);
       }
-      if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
-        console.info('[CC] Slot GC rebuild summary', { reason, ...result.stats });
-      }
       return result;
     };
 

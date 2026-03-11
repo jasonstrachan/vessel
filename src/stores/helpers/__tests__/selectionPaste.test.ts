@@ -14,14 +14,14 @@ jest.mock('@/stores/helpers/colorCycleSelection', () => ({
 }));
 
 type WriteColorCycleRegion = typeof import('@/stores/helpers/colorCycleSelection')['writeColorCycleRegion'];
-type DeriveColorCycleIndicesFromImageData =
-  typeof import('@/stores/helpers/colorCycleSelection')['deriveColorCycleIndicesFromImageData'];
 type HasColorCycleIndices = typeof import('@/stores/helpers/colorCycleSelection')['hasColorCycleIndices'];
 
 const { writeColorCycleRegion, deriveColorCycleIndicesFromImageData, hasColorCycleIndices } =
   jest.requireMock('@/stores/helpers/colorCycleSelection') as {
   writeColorCycleRegion: jest.MockedFunction<WriteColorCycleRegion>;
-  deriveColorCycleIndicesFromImageData: jest.MockedFunction<DeriveColorCycleIndicesFromImageData>;
+  deriveColorCycleIndicesFromImageData: jest.MockedFunction<
+    typeof import('@/stores/helpers/colorCycleSelection')['deriveColorCycleIndicesFromImageData']
+  >;
   hasColorCycleIndices: jest.MockedFunction<HasColorCycleIndices>;
 };
 
@@ -47,11 +47,21 @@ jest.mock('@/history/helpers/layerHistory', () => ({
   commitLayerHistory: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('@/hooks/brushEngine/ccGradientApplyScheduler', () => ({
+  requestGradientApply: jest.fn(),
+}));
+
 jest.mock('@/utils/debug', () => ({
   debugLog: jest.fn(),
   debugWarn: jest.fn(),
   logError: jest.fn(),
 }));
+
+const { requestGradientApply } = jest.requireMock('@/hooks/brushEngine/ccGradientApplyScheduler') as {
+  requestGradientApply: jest.MockedFunction<
+    typeof import('@/hooks/brushEngine/ccGradientApplyScheduler')['requestGradientApply']
+  >;
+};
 
 type StoreSet = StoreApi<AppState>['setState'];
 
@@ -117,6 +127,7 @@ const setupHelpers = (
     layers: [layer],
     activeLayerId: layer.id,
     project,
+    scheduleColorCycleSlotRebuild: jest.fn(),
     setLayersNeedRecomposition: jest.fn(),
     setCurrentCompositeBitmap: jest.fn(),
     updateLayer: jest.fn(),
@@ -368,20 +379,19 @@ describe('selection paste commit', () => {
       }
     );
     mockHasColorCycleIndices.mockReturnValueOnce(false);
-    mockDeriveColorCycleIndicesFromImageData.mockReturnValueOnce(null);
 
     await helpers.commitFloatingPaste();
 
     expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(mockDeriveColorCycleIndicesFromImageData).not.toHaveBeenCalled();
     expect(commitLayerHistory).not.toHaveBeenCalled();
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.addNotification).toHaveBeenCalledTimes(1);
     expect(state.floatingPaste).not.toBeNull();
   });
 
-  it('auto-converts bitmap paste into color-cycle indices when needed', async () => {
-    const convertedIndices = new Uint8Array([1, 255]);
-    const { helpers, state, layer } = setupHelpers(
+  it('does not auto-convert bitmap paste into color-cycle indices', async () => {
+    const { helpers, state } = setupHelpers(
       {
         colorCycleIndices: null,
         width: 2,
@@ -404,26 +414,20 @@ describe('selection paste commit', () => {
     );
 
     mockHasColorCycleIndices.mockReturnValueOnce(false);
-    mockDeriveColorCycleIndicesFromImageData.mockReturnValueOnce(convertedIndices);
-    mockWriteColorCycleRegion.mockReturnValueOnce(true);
 
     await helpers.commitFloatingPaste();
 
-    expect(mockDeriveColorCycleIndicesFromImageData).toHaveBeenCalledTimes(1);
-    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
-      state,
-      layer,
-      state.project,
-      { x: 4, y: 7, width: 2, height: 1 },
-      convertedIndices,
-      2,
-      1,
+    expect(mockDeriveColorCycleIndicesFromImageData).not.toHaveBeenCalled();
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(commitLayerHistory).not.toHaveBeenCalled();
+    expect(state.addNotification).toHaveBeenCalledWith(
       expect.objectContaining({
-        offsetX: 0,
-        offsetY: 0,
+        type: 'warning',
+        title: 'Paste blocked',
+        message: expect.stringContaining('Bitmap paste into a color-cycle layer is blocked'),
       })
     );
-    expect(state.floatingPaste).toBeNull();
+    expect(state.floatingPaste).not.toBeNull();
   });
 
   it('writes color-cycle indices directly when committing a floating paste on a color-cycle layer', async () => {
@@ -466,8 +470,9 @@ describe('selection paste commit', () => {
       expect.objectContaining({
         offsetX: 0,
         offsetY: 0,
-        alphaStride: 4,
-        alphaChannelOffset: 3,
+        alphaData: new Uint8Array([255, 255, 255, 255]),
+        alphaStride: 1,
+        alphaChannelOffset: 0,
         alphaThreshold: 0,
         sourceGradientIds: colorCycleGradientIds,
         sourceGradientDefIds: colorCycleGradientDefIds,
@@ -476,10 +481,76 @@ describe('selection paste commit', () => {
       })
     );
 
+    expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-commit');
+    expect(requestGradientApply).toHaveBeenCalledWith(layer.id, 'selection-paste-commit');
     expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
     expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.floatingPaste).toBeNull();
+  });
+
+  it('merges transferred CC slot palettes and remaps gradient ids for slot-bound stroke paste', async () => {
+    const { helpers, state } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        colorCycleGradientIds: new Uint8Array([7, 7, 0, 0]),
+        colorCycleSlotPalettes: [{
+          slot: 7,
+          stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#00ff00' }],
+        }],
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          slotPalettes: [{
+            slot: 7,
+            stops: [{ position: 0, color: '#111111' }, { position: 1, color: '#222222' }],
+          }],
+        },
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.updateLayer).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          slotPalettes: expect.arrayContaining([
+            expect.objectContaining({ slot: 7 }),
+            expect.objectContaining({
+              slot: 0,
+              stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#00ff00' }],
+            }),
+          ]),
+        }),
+      }),
+      { skipColorCycleSync: true }
+    );
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          slotPalettes: expect.arrayContaining([
+            expect.objectContaining({ slot: 0 }),
+          ]),
+        }),
+      }),
+      state.project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      new Uint8Array([1, 2, 3, 4]),
+      2,
+      2,
+      expect.objectContaining({
+        sourceGradientIds: new Uint8Array([0, 0, 0, 0]),
+      })
+    );
   });
 
   it('resamples CC payload to transformed display size on commit', async () => {
@@ -558,6 +629,232 @@ describe('selection paste commit', () => {
           23, 23, 23, 24, 24, 24,
           23, 23, 23, 24, 24, 24,
         ]),
+      })
+    );
+  });
+
+  it('merges transferred CC defs into the destination layer before writing pasted pixels', async () => {
+    const colorCycleGradientDefIds = new Uint16Array([2, 2, 0, 0]);
+    const transferredDefs = [{
+      id: 2,
+      kind: 'linear' as const,
+      stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+      hash: 'linear:black-white',
+      source: 'manual' as const,
+      createdAtMs: 1,
+      slot: 9,
+    }];
+    const { helpers, state } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        colorCycleGradientDefIds,
+        colorCycleGradientDefs: transferredDefs,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefStore: [],
+          nextGradientDefId: 2,
+        },
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.updateLayer).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          gradientDefStore: expect.arrayContaining([
+            expect.objectContaining({
+              id: 2,
+              hash: 'linear:black-white',
+            }),
+          ]),
+          nextGradientDefId: 3,
+        }),
+      }),
+      { skipColorCycleSync: true }
+    );
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          gradientDefStore: expect.arrayContaining([
+            expect.objectContaining({ id: 2, hash: 'linear:black-white' }),
+          ]),
+        }),
+      }),
+      state.project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      new Uint8Array([1, 2, 3, 4]),
+      2,
+      2,
+      expect.objectContaining({
+        sourceGradientDefIds: new Uint16Array([2, 2, 0, 0]),
+      })
+    );
+  });
+
+  it('remaps transferred CC def ids when the destination already uses that id for another palette', async () => {
+    const colorCycleGradientDefIds = new Uint16Array([2, 2, 0, 0]);
+    const transferredDefs = [{
+      id: 2,
+      kind: 'linear' as const,
+      stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#00ff00' }],
+      hash: 'linear:red-green',
+      source: 'manual' as const,
+      createdAtMs: 1,
+      slot: 7,
+    }];
+    const { helpers, state } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        colorCycleGradientDefIds,
+        colorCycleGradientDefs: transferredDefs,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefs: [{ id: 'g0', currentSlot: 5 }],
+          slotPalettes: [{ slot: 5, stops: [{ position: 0, color: '#111111' }, { position: 1, color: '#222222' }] }],
+          gradientDefStore: [{
+            id: 2,
+            kind: 'linear',
+            stops: [{ position: 0, color: '#111111' }, { position: 1, color: '#222222' }],
+            hash: 'linear:existing',
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 5,
+          }],
+          nextGradientDefId: 3,
+        },
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.updateLayer).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          gradientDefStore: expect.arrayContaining([
+            expect.objectContaining({ id: 2, hash: 'linear:existing' }),
+            expect.objectContaining({ id: 3, hash: 'linear:red-green' }),
+          ]),
+          nextGradientDefId: 4,
+        }),
+      }),
+      { skipColorCycleSync: true }
+    );
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          gradientDefStore: expect.arrayContaining([
+            expect.objectContaining({ id: 3, hash: 'linear:red-green' }),
+          ]),
+        }),
+      }),
+      state.project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      new Uint8Array([1, 2, 3, 4]),
+      2,
+      2,
+      expect.objectContaining({
+        sourceGradientDefIds: new Uint16Array([3, 3, 0, 0]),
+      })
+    );
+  });
+
+  it('preserves remapped CC def slot bindings when paste also remaps slot palettes', async () => {
+    const colorCycleGradientDefIds = new Uint16Array([2, 2, 0, 0]);
+    const transferredDefs = [{
+      id: 2,
+      kind: 'linear' as const,
+      stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#00ff00' }],
+      hash: 'linear:red-green',
+      source: 'manual' as const,
+      createdAtMs: 1,
+      slot: 7,
+    }];
+    const { helpers, state } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        colorCycleGradientIds: new Uint8Array([7, 7, 0, 0]),
+        colorCycleSlotPalettes: [{
+          slot: 7,
+          stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#00ff00' }],
+        }],
+        colorCycleGradientDefIds,
+        colorCycleGradientDefs: transferredDefs,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefs: [{ id: 'g0', currentSlot: 7 }],
+          slotPalettes: [{ slot: 7, stops: [{ position: 0, color: '#111111' }, { position: 1, color: '#222222' }] }],
+          gradientDefStore: [],
+          nextGradientDefId: 3,
+        },
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.updateLayer).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          gradientDefStore: expect.arrayContaining([
+            expect.objectContaining({
+              id: 2,
+              hash: 'linear:red-green',
+              slot: 0,
+            }),
+          ]),
+        }),
+      }),
+      { skipColorCycleSync: true }
+    );
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          gradientDefStore: expect.arrayContaining([
+            expect.objectContaining({
+              id: 2,
+              slot: 0,
+            }),
+          ]),
+        }),
+      }),
+      state.project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      new Uint8Array([1, 2, 3, 4]),
+      2,
+      2,
+      expect.objectContaining({
+        sourceGradientIds: new Uint8Array([0, 0, 0, 0]),
+        sourceGradientDefIds: new Uint16Array([2, 2, 0, 0]),
       })
     );
   });

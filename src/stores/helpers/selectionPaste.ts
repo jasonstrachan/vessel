@@ -4,10 +4,14 @@ import type { Rectangle } from '@/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
+import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { debugLog, debugWarn, logError } from '@/utils/debug';
 import {
+  mergeTransferredColorCycleSlotPalettes,
+  mergeTransferredColorCycleGradientDefs,
+} from '@/stores/helpers/colorCycleGradientDefTransfer';
+import {
   debugCaptureColorCycleScalarRegion,
-  deriveColorCycleIndicesFromImageData,
   hasColorCycleIndices,
   writeColorCycleRegion,
 } from '@/stores/helpers/colorCycleSelection';
@@ -216,6 +220,17 @@ const resampleAlphaNearest = (
   }
 
   return output;
+};
+
+const buildOpaqueAlphaFromIndices = (indices: Uint8Array | null | undefined): Uint8Array | null => {
+  if (!indices?.length) {
+    return null;
+  }
+  const alpha = new Uint8Array(indices.length);
+  for (let index = 0; index < indices.length; index += 1) {
+    alpha[index] = (indices[index] ?? 0) > 0 ? 255 : 0;
+  }
+  return alpha;
 };
 
 const unionWithProjectBounds = (
@@ -437,17 +452,18 @@ export const createSelectionPasteHelpers = ({
     if (!activeLayer) {
       return;
     }
+    let targetLayer = activeLayer;
 
     const beforeColorState =
-      activeLayer.layerType === 'color-cycle'
-        ? captureColorCycleBrushState(activeLayer.id)
+      targetLayer.layerType === 'color-cycle'
+        ? captureColorCycleBrushState(targetLayer.id)
         : null;
     const floatingPasteHistoryContext = state.floatingPasteHistoryContext;
     const useMoveHistoryContext = Boolean(
       floatingPasteHistoryContext &&
       floatingPaste.sourceLayerId &&
       floatingPasteHistoryContext.sourceLayerId === floatingPaste.sourceLayerId &&
-      activeLayer.id === floatingPasteHistoryContext.sourceLayerId
+      targetLayer.id === floatingPasteHistoryContext.sourceLayerId
     );
     const historyBeforeColorState = (() => {
       if (!useMoveHistoryContext) {
@@ -504,30 +520,19 @@ export const createSelectionPasteHelpers = ({
       const colorCycleDestRect = toRoundedDestinationRect(destinationRect);
 
       debugLog('selection-paste-cc', 'CC destRect', {
-        layerId: activeLayer.id,
+        layerId: targetLayer.id,
         rect: colorCycleDestRect,
         indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
       });
 
       const resolvedColorCycleIndices = hasColorCycleIndices(floatingPaste)
         ? floatingPaste.colorCycleIndices
-        : (activeLayer.layerType === 'color-cycle'
-          ? deriveColorCycleIndicesFromImageData({
-              imageData: floatingPaste.imageData,
-              layer: activeLayer,
-              fallbackGradientStops: state.tools?.brushSettings?.colorCycleGradient,
-              alphaThreshold: 0,
-            })
-          : null);
-      const usesDerivedColorCycleIndices =
-        activeLayer.layerType === 'color-cycle' &&
-        !hasColorCycleIndices(floatingPaste) &&
-        Boolean(resolvedColorCycleIndices && resolvedColorCycleIndices.length > 0);
+        : null;
       const resolvedGradientSlot = (() => {
-        if (!usesDerivedColorCycleIndices || activeLayer.layerType !== 'color-cycle') {
+        if (targetLayer.layerType !== 'color-cycle' || !hasColorCycleIndices(floatingPaste)) {
           return undefined;
         }
-        const data = activeLayer.colorCycleData;
+        const data = targetLayer.colorCycleData;
         if (typeof data?.paintSlot === 'number') {
           return data.paintSlot;
         }
@@ -541,20 +546,20 @@ export const createSelectionPasteHelpers = ({
       })();
       const hasColorCycleData = Boolean(resolvedColorCycleIndices && resolvedColorCycleIndices.length > 0);
 
-      if (activeLayer.layerType === 'color-cycle' && !hasColorCycleData) {
+      if (targetLayer.layerType === 'color-cycle' && !hasColorCycleData) {
         debugWarn('selection-paste-cc', 'Missing color cycle indices for paste commit', {
-          layerId: activeLayer.id,
+          layerId: targetLayer.id,
         });
         addNotification?.({
           type: 'warning',
           title: 'Paste blocked',
-          message: 'Color-cycle paste requires color-cycle data. Copy from a color-cycle layer or paste onto a normal layer.',
+          message: 'Bitmap paste into a color-cycle layer is blocked. Paste onto a normal layer, or copy from a color-cycle layer to preserve color-cycle data.',
           timestamp: new Date(),
         });
         return;
       }
 
-      if (activeLayer.layerType === 'color-cycle' && hasColorCycleData) {
+      if (targetLayer.layerType === 'color-cycle' && hasColorCycleData) {
         const requiresResample =
           colorCycleDestRect.width !== floatingPaste.width ||
           colorCycleDestRect.height !== floatingPaste.height;
@@ -578,7 +583,29 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCycleGradientIds)
           : null;
-        const colorCycleSourceGradientDefIds = floatingPaste.colorCycleGradientDefIds
+        let remappedGradientDefs = floatingPaste.colorCycleGradientDefs ?? null;
+        let colorCycleRemappedGradientIds = colorCycleSourceGradientIds;
+        if (colorCycleRemappedGradientIds?.length) {
+          const mergedPalettes = mergeTransferredColorCycleSlotPalettes({
+            layer: targetLayer,
+            palettes: floatingPaste.colorCycleSlotPalettes ?? null,
+            gradientIds: colorCycleRemappedGradientIds,
+          });
+          targetLayer = mergedPalettes.layer;
+          colorCycleRemappedGradientIds = mergedPalettes.remappedGradientIds;
+          if (mergedPalettes.slotRemap.size > 0 && remappedGradientDefs?.length) {
+            remappedGradientDefs = remappedGradientDefs.map((entry) => ({
+              ...entry,
+              slot: typeof entry.slot === 'number'
+                ? (mergedPalettes.slotRemap.get(entry.slot) ?? entry.slot)
+                : entry.slot,
+            }));
+          }
+          if (mergedPalettes.changed) {
+            state.updateLayer(targetLayer.id, { colorCycleData: targetLayer.colorCycleData }, { skipColorCycleSync: true });
+          }
+        }
+        let colorCycleSourceGradientDefIds = floatingPaste.colorCycleGradientDefIds
           ? (requiresResample
             ? resampleScalarNearest16(
                 floatingPaste.colorCycleGradientDefIds,
@@ -589,6 +616,18 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCycleGradientDefIds)
           : null;
+        if (colorCycleSourceGradientDefIds?.length) {
+          const merged = mergeTransferredColorCycleGradientDefs({
+            layer: targetLayer,
+            defs: remappedGradientDefs,
+            defIds: colorCycleSourceGradientDefIds,
+          });
+          targetLayer = merged.layer;
+          colorCycleSourceGradientDefIds = merged.remappedDefIds;
+          if (merged.changed) {
+            state.updateLayer(targetLayer.id, { colorCycleData: targetLayer.colorCycleData }, { skipColorCycleSync: true });
+          }
+        }
         const colorCycleSourceSpeed = floatingPaste.colorCycleSpeed
           ? (requiresResample
             ? resampleScalarNearest(
@@ -613,18 +652,34 @@ export const createSelectionPasteHelpers = ({
           : null;
         const colorCycleSourceWidth = requiresResample ? colorCycleDestRect.width : floatingPaste.width;
         const colorCycleSourceHeight = requiresResample ? colorCycleDestRect.height : floatingPaste.height;
-        const alphaData = requiresResample
+        const resampledAlphaData = requiresResample
           ? resampleAlphaNearest(
               floatingPaste.imageData,
               colorCycleDestRect.width,
               colorCycleDestRect.height
             )
+          : null;
+        const bitmapAlphaData = requiresResample
+          ? resampledAlphaData
           : (floatingPaste.imageData?.data ?? null);
+        const hasBitmapAlpha = bitmapAlphaData
+          ? bitmapAlphaData.some((value) => value > 0)
+          : false;
+        const synthesizedAlpha = hasBitmapAlpha
+          ? null
+          : buildOpaqueAlphaFromIndices(colorCycleSourceIndices);
+        const alphaData = hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha;
+        const alphaStride = hasBitmapAlpha
+          ? (requiresResample ? 1 : 4)
+          : 1;
+        const alphaChannelOffset = hasBitmapAlpha
+          ? (requiresResample ? 0 : 3)
+          : 0;
 
-        const beforeRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
+        const beforeRegion = debugCaptureColorCycleScalarRegion(targetLayer, project, colorCycleDestRect);
         const applied = writeColorCycleRegion(
           state,
-          activeLayer,
+          targetLayer,
           project,
           colorCycleDestRect,
           colorCycleSourceIndices,
@@ -634,17 +689,17 @@ export const createSelectionPasteHelpers = ({
             offsetX: 0,
             offsetY: 0,
             alphaData,
-            alphaStride: requiresResample ? 1 : 4,
-            alphaChannelOffset: requiresResample ? 0 : 3,
+            alphaStride,
+            alphaChannelOffset,
             alphaThreshold: 0,
             gradientSlot: resolvedGradientSlot,
-            sourceGradientIds: colorCycleSourceGradientIds,
+            sourceGradientIds: colorCycleRemappedGradientIds,
             sourceGradientDefIds: colorCycleSourceGradientDefIds,
             sourceSpeed: colorCycleSourceSpeed,
             sourceFlow: colorCycleSourceFlow,
           }
         );
-        const afterRegion = debugCaptureColorCycleScalarRegion(activeLayer, project, colorCycleDestRect);
+        const afterRegion = debugCaptureColorCycleScalarRegion(targetLayer, project, colorCycleDestRect);
 
         const beforeNonZero = beforeRegion ? beforeRegion.some((value) => value !== 0) : null;
         const afterNonZero = afterRegion ? afterRegion.some((value) => value !== 0) : null;
@@ -657,31 +712,33 @@ export const createSelectionPasteHelpers = ({
         });
 
         if (applied) {
-          const eraseMask = activeLayer.colorCycleData?.eraseMask;
+          const eraseMask = targetLayer.colorCycleData?.eraseMask;
           const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
-          if (eraseMaskCtx) {
-            eraseMaskCtx.clearRect(
-              colorCycleDestRect.x,
+        if (eraseMaskCtx) {
+          eraseMaskCtx.clearRect(
+            colorCycleDestRect.x,
               colorCycleDestRect.y,
               colorCycleDestRect.width,
               colorCycleDestRect.height
             );
             state.updateLayer(
-              activeLayer.id,
+              targetLayer.id,
               {
                 colorCycleData: {
-                  ...(activeLayer.colorCycleData ?? {}),
+                  ...(targetLayer.colorCycleData ?? {}),
                   eraseMask,
                 },
               },
-              { skipColorCycleSync: true }
-            );
-          }
-          state.setLayersNeedRecomposition(true);
-          state.setCurrentCompositeBitmap(null);
+            { skipColorCycleSync: true }
+          );
+        }
+        state.scheduleColorCycleSlotRebuild?.('selection-paste-commit');
+        requestGradientApply(targetLayer.id, 'selection-paste-commit');
+        state.setLayersNeedRecomposition(true);
+        state.setCurrentCompositeBitmap(null);
 
           await commitLayerHistory({
-            layerId: activeLayer.id,
+            layerId: targetLayer.id,
             beforeImage,
             beforeColorState: historyBeforeColorState,
             bitmapRoi: moveHistoryRoi ?? colorCycleDestRect,
@@ -696,7 +753,7 @@ export const createSelectionPasteHelpers = ({
         }
 
         debugWarn('selection-paste-cc', 'Failed to write color-cycle paste region', {
-          layerId: activeLayer.id,
+          layerId: targetLayer.id,
           rect: colorCycleDestRect,
         });
         return;

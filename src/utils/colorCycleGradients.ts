@@ -102,9 +102,6 @@ const runProjectSlotRebuild = (layerId: string) => {
   result.updates.forEach((update) => {
     state.updateLayer(update.layerId, { colorCycleData: update.colorCycleData });
   });
-  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
-    console.info('[CC] Slot GC rebuild summary', { layerId, ...result.stats });
-  }
   return result;
 };
 

@@ -388,19 +388,6 @@ export const captureSelectionBitmap = (
         }, 'flowBuffer')
       : undefined;
 
-  if (process.env.NODE_ENV !== 'production' && layer.layerType === 'color-cycle') {
-    console.log('[selectionCapture] CC bounds', {
-      layerId: layer.id,
-      bounds: {
-        x: clampedMinX,
-        y: clampedMinY,
-        width: safeWidth,
-        height: safeHeight,
-      },
-      indicesLen: colorCycleIndices?.length ?? 0,
-    });
-  }
-
   return {
     bounds: {
       x: clampedMinX,

@@ -589,4 +589,74 @@ describe('colorCycleSelection helpers', () => {
       expect.objectContaining({ skipColorCycleSync: true })
     );
   });
+
+  it('can skip materialization so preview writes do not render or capture imageData early', () => {
+    const paint = new Uint8Array(16).fill(0);
+    const gradientIds = new Uint8Array(16).fill(1);
+
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: gradientIds.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    const layer: Layer = {
+      id: 'layer-cc-preview',
+      name: 'CC preview',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas },
+    } as Layer;
+
+    const updateLayer = jest.fn();
+    const setCurrentCompositeBitmap = jest.fn();
+    const setLayersNeedRecomposition = jest.fn();
+    const markCompositeSegmentsDirtyByLayerIds = jest.fn();
+
+    const state = {
+      updateLayer,
+      setCurrentCompositeBitmap,
+      setLayersNeedRecomposition,
+      markCompositeSegmentsDirtyByLayerIds,
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const applied = writeColorCycleRegion(
+      state,
+      layer,
+      project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      new Uint8Array([1, 2, 3, 4]),
+      2,
+      2,
+      { skipMaterialize: true }
+    );
+
+    expect(applied).toBe(true);
+    expect(mockApplyLayerSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockRenderDirect).not.toHaveBeenCalled();
+    expect(updateLayer).toHaveBeenCalledWith(
+      'layer-cc-preview',
+      {
+        colorCycleData: expect.objectContaining({
+          canvas,
+          gradientIdBuffer: expect.any(ArrayBuffer),
+        }),
+      },
+      expect.objectContaining({ skipColorCycleSync: true })
+    );
+    expect(setCurrentCompositeBitmap).not.toHaveBeenCalled();
+    expect(setLayersNeedRecomposition).not.toHaveBeenCalled();
+    expect(markCompositeSegmentsDirtyByLayerIds).not.toHaveBeenCalled();
+  });
 });

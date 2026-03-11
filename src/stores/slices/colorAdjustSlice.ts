@@ -14,11 +14,14 @@ import {
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import { applyColorAdjustments } from '@/utils/imageProcessing';
 import { parseCssColor } from '@/utils/color/parseCssColor';
-import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { bindBrushToCanvas, refreshLayerCCSurface } from '@/hooks/brushEngine/colorCycleSurface';
+import { ensureCanvasPixelSize } from '@/hooks/brushEngine/engineShared';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { writeColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
+import { hashStops as hashColorCycleDefStops } from '@/utils/colorCycleGradientDefs';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -164,6 +167,8 @@ const cloneColorCycleData = (
   }
   return {
     ...data,
+    gradientIdBuffer: data.gradientIdBuffer ? data.gradientIdBuffer.slice(0) : data.gradientIdBuffer,
+    gradientDefIdBuffer: data.gradientDefIdBuffer ? data.gradientDefIdBuffer.slice(0) : data.gradientDefIdBuffer,
     gradient: data.gradient ? cloneGradientStops(data.gradient) : data.gradient,
     gradients: data.gradients
       ? data.gradients.map((entry) => ({
@@ -343,6 +348,46 @@ const refreshColorCycleGradientDefRuntime = (
   }
 };
 
+const rerenderColorCycleLayerSurface = (
+  get: () => AppState,
+  layerId: string
+): void => {
+  try {
+    const state = get();
+    const layer = state.layers.find((entry) => entry.id === layerId);
+    if (!layer || layer.layerType !== 'color-cycle') {
+      return;
+    }
+
+    const brush = state.getLayerColorCycleBrush(layerId) as {
+      renderDirectToCanvas?: (canvas: HTMLCanvasElement, targetLayerId: string) => void;
+      getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
+    } | null;
+    if (!brush?.renderDirectToCanvas) {
+      return;
+    }
+
+    const layerCanvas = refreshLayerCCSurface(
+      brush as Parameters<typeof refreshLayerCCSurface>[0],
+      layerId
+    );
+    if (!layerCanvas) {
+      return;
+    }
+
+    ensureCanvasPixelSize(layerCanvas);
+    bindBrushToCanvas(brush as Parameters<typeof bindBrushToCanvas>[0], layerCanvas);
+    flushGradientApply(layerId);
+    brush.renderDirectToCanvas(layerCanvas, layerId);
+
+    state.setCurrentCompositeBitmap?.(null);
+    state.setLayersNeedRecomposition?.(true);
+    state.markCompositeSegmentsDirtyByLayerIds?.([layerId]);
+  } catch {
+    // noop: preview can fall back to the next normal layer render
+  }
+};
+
 const captureColorCycleRuntimeSnapshot = (
   state: AppState,
   layer: Layer
@@ -471,9 +516,6 @@ const previewSelectedColorCycleRegion = (
   }
 
   const slotPalettes = originalData.slotPalettes ?? [];
-  if (slotPalettes.length === 0) {
-    return false;
-  }
 
   restoreColorCycleRuntimeSnapshot(state, layer, originalSnapshot);
 
@@ -483,6 +525,21 @@ const previewSelectedColorCycleRegion = (
     originalSnapshot.height,
     selectionBounds
   );
+  const selectionGradientDefIds = originalSnapshot.gradientDefIdBuffer
+    ? new Uint16Array(
+        copyScalarRegion(
+          new Uint8Array(originalSnapshot.gradientDefIdBuffer.buffer),
+          originalSnapshot.width * 2,
+          originalSnapshot.height,
+          {
+            x: selectionBounds.x * 2,
+            y: selectionBounds.y,
+            width: selectionBounds.width * 2,
+            height: selectionBounds.height,
+          }
+        ).buffer
+      )
+    : null;
   const selectionPaint = copyScalarRegion(
     originalSnapshot.paintBuffer,
     originalSnapshot.width,
@@ -496,6 +553,16 @@ const previewSelectedColorCycleRegion = (
     slot: entry.slot,
     stops: cloneGradientStops(entry.stops),
   }));
+  const originalDefStore = originalData.gradientDefStore ?? [];
+  const nextDefStore = originalDefStore.map((entry) => ({
+    ...entry,
+    stops: cloneGradientStops(entry.stops),
+  }));
+  const defIdRemap = new Map<number, number>();
+  let nextGradientDefId = Math.max(
+    originalData.nextGradientDefId ?? 1,
+    nextDefStore.reduce((max, entry) => Math.max(max, entry.id + 1), 1)
+  );
 
   for (let index = 0; index < selectionGradientIds.length; index += 1) {
     if ((selectionPaint[index] ?? 0) === 0) {
@@ -509,6 +576,12 @@ const previewSelectedColorCycleRegion = (
 
     const sourcePalette = nextSlotPalettes.find((entry) => entry.slot === sourceSlot);
     if (!sourcePalette) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[colorAdjust] Missing CC slot palette for selected slot', {
+          layerId: layer.id,
+          sourceSlot,
+        });
+      }
       continue;
     }
 
@@ -525,7 +598,62 @@ const previewSelectedColorCycleRegion = (
     });
   }
 
-  if (slotRemap.size === 0) {
+  if (selectionGradientDefIds && originalDefStore.length > 0) {
+    for (let index = 0; index < selectionGradientDefIds.length; index += 1) {
+      if ((selectionPaint[index] ?? 0) === 0) {
+        continue;
+      }
+
+      const sourceDefId = selectionGradientDefIds[index] ?? 0;
+      if (sourceDefId <= 0 || defIdRemap.has(sourceDefId)) {
+        continue;
+      }
+
+      const sourceDef = originalDefStore.find((entry) => entry.id === sourceDefId);
+      if (!sourceDef) {
+        continue;
+      }
+
+      const sourceDefSlot = typeof sourceDef.slot === 'number'
+        ? clampColorCycleSlot(sourceDef.slot)
+        : undefined;
+      let remappedSlot = typeof sourceDef.slot === 'number'
+        ? slotRemap.get(sourceDefSlot!)
+        : undefined;
+      if (typeof sourceDef.slot === 'number' && remappedSlot === undefined) {
+        const sourcePalette = nextSlotPalettes.find(
+          (entry) => entry.slot === sourceDefSlot
+        );
+        if (sourcePalette) {
+          const nextSlot = pickAvailableColorCycleSlot(usedSlots);
+          if (nextSlot === null) {
+            return false;
+          }
+          usedSlots.add(nextSlot);
+          remappedSlot = nextSlot;
+          slotRemap.set(sourceDefSlot!, nextSlot);
+          nextSlotPalettes.push({
+            slot: nextSlot,
+            stops: applyColorAdjustmentsToGradient(sourcePalette.stops, params),
+          });
+        }
+      }
+
+      const adjustedStops = applyColorAdjustmentsToGradient(sourceDef.stops, params);
+      const adjustedDef = {
+        ...sourceDef,
+        id: nextGradientDefId,
+        slot: remappedSlot ?? sourceDef.slot,
+        stops: adjustedStops,
+        hash: hashColorCycleDefStops(adjustedStops, sourceDef.kind),
+      };
+      nextDefStore.push(adjustedDef);
+      defIdRemap.set(sourceDefId, nextGradientDefId);
+      nextGradientDefId += 1;
+    }
+  }
+
+  if (slotRemap.size === 0 && defIdRemap.size === 0) {
     return false;
   }
 
@@ -543,10 +671,29 @@ const previewSelectedColorCycleRegion = (
     }
   }
 
-  replaceColorCycleLayerData(set, get, layer.id, {
+  const remappedGradientDefIds = selectionGradientDefIds ? selectionGradientDefIds.slice() : null;
+  if (remappedGradientDefIds) {
+    for (let index = 0; index < remappedGradientDefIds.length; index += 1) {
+      if ((selectionPaint[index] ?? 0) === 0) {
+        continue;
+      }
+      const sourceDefId = remappedGradientDefIds[index] ?? 0;
+      const remappedDefId = defIdRemap.get(sourceDefId);
+      if (remappedDefId !== undefined) {
+        remappedGradientDefIds[index] = remappedDefId;
+      }
+    }
+  }
+
+  const previewColorCycleData = {
     ...baseColorCycleData,
     slotPalettes: nextSlotPalettes,
-  });
+    gradientDefStore: nextDefStore,
+    nextGradientDefId,
+  };
+
+  replaceColorCycleLayerData(set, get, layer.id, previewColorCycleData);
+  const previewLayer = get().layers.find((entry) => entry.id === layer.id) ?? layer;
 
   const alphaData = buildSelectionAlphaData(
     selectionScope.selectionMask,
@@ -556,7 +703,7 @@ const previewSelectedColorCycleRegion = (
 
   const wroteRegion = writeColorCycleRegion(
     state,
-    layer,
+    previewLayer,
     state.project,
     selectionBounds,
     selectionPaint,
@@ -568,6 +715,8 @@ const previewSelectedColorCycleRegion = (
       alphaChannelOffset: 3,
       alphaThreshold: 0,
       sourceGradientIds: remappedGradientIds,
+      sourceGradientDefIds: remappedGradientDefIds,
+      skipMaterialize: true,
     }
   );
 
@@ -585,10 +734,13 @@ const previewSelectedColorCycleRegion = (
   replaceColorCycleLayerData(set, get, layer.id, {
     ...refreshedColorCycleData,
     slotPalettes: nextSlotPalettes,
+    gradientDefStore: nextDefStore,
+    nextGradientDefId,
   });
 
   requestGradientApply(layer.id, 'color-adjust-preview-selection');
   refreshColorCycleGradientDefRuntime(get, layer.id);
+  rerenderColorCycleLayerSurface(get, layer.id);
   state.setLayersNeedRecomposition(true);
   return true;
 };
@@ -895,6 +1047,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       } else {
         requestGradientApply(layer.id, 'color-adjust-preview');
         refreshColorCycleGradientDefRuntime(get, layer.id);
+        rerenderColorCycleLayerSurface(get, layer.id);
       }
 
       state.setLayersNeedRecomposition(true);
@@ -1136,6 +1289,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       } else if (layer.layerType === 'color-cycle') {
         requestGradientApply(layer.id, 'color-adjust-cancel');
         refreshColorCycleGradientDefRuntime(get, layer.id);
+        rerenderColorCycleLayerSurface(get, layer.id);
       }
       state.setLayersNeedRecomposition(true);
     }
