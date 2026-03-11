@@ -49,6 +49,7 @@ import {
   setSharedColorCycleGradient
 } from "../../utils/colorCycleGradients";
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import {
   PRESSURE_BASE_PERCENT,
   clampPressureDeltaPercent,
@@ -1508,9 +1509,21 @@ const BrushControls = () => {
                   ? getPreviewGradientForActiveMark(activeLayerId)
                   : null;
                 const expectsSampled = resolvedGradientSource === 'sampled';
+                const resolvedLayerStops =
+                  activeLayer?.layerType === 'color-cycle'
+                    ? resolveActiveColorCycleGradient(activeLayer, activeSettings, {
+                        fgColorHex: fgColor,
+                        fgLightness: fgDerivedLightness,
+                        fgVariance: activeSettings.colorCycleFgVariance,
+                        fgHueShift: fgDerivedHueShift,
+                        fgSaturationShift: fgDerivedSaturationShift,
+                        fgOpacity: fgDerivedOpacity,
+                        fgStops: activeSettings.colorCycleFgStops,
+                      }).activeStops
+                    : null;
                 const previewStops =
                   previewResult?.stopsStored ??
-                  (expectsSampled ? null : activeLayer?.colorCycleData?.gradient) ??
+                  (expectsSampled ? null : resolvedLayerStops) ??
                   activeSettings.colorCycleGradient ??
                   DEFAULT_GRADIENT_STOPS;
                 return (
