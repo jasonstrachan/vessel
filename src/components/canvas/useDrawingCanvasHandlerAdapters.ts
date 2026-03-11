@@ -43,7 +43,9 @@ export const useDrawingCanvasHandlerAdapters = ({
         sourceLayerId: paste.sourceLayerId ?? null,
         colorCycleIndices: paste.colorCycleIndices ?? null,
         colorCycleGradientIds: paste.colorCycleGradientIds ?? null,
+        colorCycleSlotPalettes: paste.colorCycleSlotPalettes ?? null,
         colorCycleGradientDefIds: paste.colorCycleGradientDefIds ?? null,
+        colorCycleGradientDefs: paste.colorCycleGradientDefs ?? null,
         colorCycleSpeed: paste.colorCycleSpeed ?? null,
         colorCycleFlow: paste.colorCycleFlow ?? null,
       });

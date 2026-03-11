@@ -32,6 +32,14 @@ describe('createClipboardHandlers', () => {
     const ccIndices = new Uint8Array([5, 6, 7, 8]);
     const ccGradientIds = new Uint8Array([9, 10, 11, 12]);
     const ccGradientDefIds = new Uint16Array([101, 102, 103, 104]);
+    const ccGradientDefs = [{
+      id: 101,
+      kind: 'linear' as const,
+      stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+      hash: 'linear:black-white',
+      source: 'manual' as const,
+      createdAtMs: 1,
+    }];
     const ccSpeed = new Uint8Array([13, 14, 15, 16]);
     const ccFlow = new Uint8Array([17, 18, 19, 20]);
     deps.selectionClipboardRef = {
@@ -44,6 +52,7 @@ describe('createClipboardHandlers', () => {
         colorCycleIndices: ccIndices,
         colorCycleGradientIds: ccGradientIds,
         colorCycleGradientDefIds: ccGradientDefIds,
+        colorCycleGradientDefs: ccGradientDefs,
         colorCycleSpeed: ccSpeed,
         colorCycleFlow: ccFlow,
         colorCycleSourceLayerId: 'layer-cc',
@@ -75,6 +84,7 @@ describe('createClipboardHandlers', () => {
         colorCycleIndices: ccIndices,
         colorCycleGradientIds: ccGradientIds,
         colorCycleGradientDefIds: ccGradientDefIds,
+        colorCycleGradientDefs: ccGradientDefs,
         colorCycleSpeed: ccSpeed,
         colorCycleFlow: ccFlow,
       })

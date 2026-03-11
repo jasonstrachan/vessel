@@ -311,7 +311,7 @@ describe('AnimationControlsPanel', () => {
     fireEvent.change(screen.getByRole('slider', { name: /time-smear/i }), {
       target: { value: '2.5' },
     });
-    fireEvent.change(screen.getByRole('slider', { name: /layer speed/i }), {
+    fireEvent.change(screen.getByRole('slider', { name: /playback scale/i }), {
       target: { value: '0.6' },
     });
 
@@ -320,6 +320,7 @@ describe('AnimationControlsPanel', () => {
     expect(store.setRecordFrameCount).toHaveBeenCalledWith(32);
     expect(store.setTimeSmear).toHaveBeenCalledWith(2.5);
     expect(store.setBrushSettings).toHaveBeenCalledWith({ colorCycleLayerSpeedScale: 0.6 });
+    expect(screen.getByText(/applies to all color-cycle layers during playback\./i)).toBeInTheDocument();
   });
 
   it('renders play pause button below sequential controls', () => {
