@@ -118,6 +118,34 @@ const createColorCycleRecolorLayerWithDefStore = (
   };
 };
 
+const createColorCycleLayerWithDefStoreOnly = (
+  id: string,
+  gradientStops: Array<{ position: number; color: string }>
+): Layer => {
+  const layer = createColorCycleLayer(id, gradientStops);
+  return {
+    ...layer,
+    colorCycleData: {
+      ...layer.colorCycleData,
+      gradient: undefined,
+      slotPalettes: [],
+      gradientDefs: [],
+      activeGradientId: undefined,
+      paintSlot: undefined,
+      gradientDefStore: [{
+        id: 1,
+        kind: 'linear',
+        stops: gradientStops.map((stop) => ({ ...stop })),
+        hash: 'def-only-gradient',
+        source: 'manual',
+        createdAtMs: 0,
+        slot: 7,
+      }],
+      nextGradientDefId: 2,
+    },
+  };
+};
+
 const installProjectWithLayer = (layer: Layer) => {
   useAppStore.setState((state) => ({
     layers: [layer],
@@ -558,6 +586,142 @@ describe('colorAdjustSlice preview performance path', () => {
     const updatedGradientIds = new Uint8Array(updatedLayer?.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0));
     expect(updatedGradientIds[0]).toBe(adjustedSlot?.slot ?? 255);
     expect(updatedGradientIds[1]).toBe(0);
+  });
+
+  it('limits color-cycle preview adjustments to selected def-bound pixels by remapping def ids', () => {
+    const layer = createColorCycleLayer('cc-selection-def-layer', [
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 1, color: 'rgb(255, 255, 0)' },
+    ]);
+    const defBoundLayer: Layer = {
+      ...layer,
+      colorCycleData: {
+        ...layer.colorCycleData,
+        gradientDefStore: [{
+          id: 1,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: 'rgb(255, 0, 0)' },
+            { position: 1, color: 'rgb(255, 255, 0)' },
+          ],
+          hash: 'linear:def-original',
+          source: 'manual',
+          createdAtMs: 0,
+          slot: 0,
+        }],
+        nextGradientDefId: 2,
+      },
+    };
+    installProjectWithLayer(defBoundLayer);
+
+    const currentSnapshot = {
+      paintBuffer: new Uint8Array([1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([0, 0]).buffer,
+      gradientDefIdBuffer: new Uint16Array([1, 1]).buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    };
+    const applyLayerSnapshot = jest.fn((_: string, payload: typeof currentSnapshot) => {
+      currentSnapshot.paintBuffer = payload.paintBuffer.slice(0);
+      currentSnapshot.gradientIdBuffer = payload.gradientIdBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.gradientDefIdBuffer = payload.gradientDefIdBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.hasContent = payload.hasContent;
+      currentSnapshot.strokeCounter = payload.strokeCounter;
+    });
+    const brush = {
+      getLayerSnapshot: jest.fn(() => ({
+        paintBuffer: currentSnapshot.paintBuffer.slice(0),
+        gradientIdBuffer: currentSnapshot.gradientIdBuffer.slice(0),
+        gradientDefIdBuffer: currentSnapshot.gradientDefIdBuffer.slice(0),
+        hasContent: currentSnapshot.hasContent,
+        strokeCounter: currentSnapshot.strokeCounter,
+      })),
+      applyLayerSnapshot,
+      renderDirectToCanvas: jest.fn(),
+      getCanvas: jest.fn(() => defBoundLayer.framebuffer),
+    };
+    useAppStore.setState({
+      getLayerColorCycleBrush: jest.fn(() => brush) as unknown as StoreState['getLayerColorCycleBrush'],
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 1, y: 1 },
+    });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ saturation: -100 });
+    store.previewColorAdjust();
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const defStore = updatedLayer?.colorCycleData?.gradientDefStore ?? [];
+    expect(defStore).toHaveLength(2);
+
+    const originalDef = defStore.find((entry) => entry.id === 1);
+    const adjustedDef = defStore.find((entry) => entry.id !== 1);
+    expect(originalDef).toBeDefined();
+    expect(adjustedDef).toBeDefined();
+    expect(parseCssColor(originalDef?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 255, g: 0, b: 0 });
+    expect(parseCssColor(adjustedDef?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
+
+    const updatedDefIds = new Uint16Array(updatedLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    expect(updatedDefIds[0]).toBe(adjustedDef?.id ?? 0);
+  });
+
+  it('adjusts selected def-bound pixels even when the layer has no slot palettes', () => {
+    const layer = createColorCycleLayerWithDefStoreOnly('cc-selection-def-only-layer', [
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 1, color: 'rgb(255, 255, 0)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const currentSnapshot = {
+      paintBuffer: new Uint8Array([1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([7, 7]).buffer,
+      gradientDefIdBuffer: new Uint16Array([1, 1]).buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    };
+    const applyLayerSnapshot = jest.fn((_: string, payload: typeof currentSnapshot) => {
+      currentSnapshot.paintBuffer = payload.paintBuffer.slice(0);
+      currentSnapshot.gradientIdBuffer = payload.gradientIdBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.gradientDefIdBuffer = payload.gradientDefIdBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.hasContent = payload.hasContent;
+      currentSnapshot.strokeCounter = payload.strokeCounter;
+    });
+    const brush = {
+      getLayerSnapshot: jest.fn(() => ({
+        paintBuffer: currentSnapshot.paintBuffer.slice(0),
+        gradientIdBuffer: currentSnapshot.gradientIdBuffer.slice(0),
+        gradientDefIdBuffer: currentSnapshot.gradientDefIdBuffer.slice(0),
+        hasContent: currentSnapshot.hasContent,
+        strokeCounter: currentSnapshot.strokeCounter,
+      })),
+      applyLayerSnapshot,
+      renderDirectToCanvas: jest.fn(),
+      getCanvas: jest.fn(() => layer.framebuffer),
+      syncGradientDefRuntime: jest.fn(),
+    };
+    useAppStore.setState({
+      getLayerColorCycleBrush: jest.fn(() => brush) as unknown as StoreState['getLayerColorCycleBrush'],
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 1, y: 1 },
+    });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ saturation: -100 });
+    store.previewColorAdjust();
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const defStore = updatedLayer?.colorCycleData?.gradientDefStore ?? [];
+    expect(defStore).toHaveLength(2);
+
+    const adjustedDef = defStore.find((entry) => entry.id !== 1);
+    expect(adjustedDef).toBeDefined();
+    expect(parseCssColor(adjustedDef?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
+
+    const updatedDefIds = new Uint16Array(updatedLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    expect(updatedDefIds[0]).toBe(adjustedDef?.id ?? 0);
+    expect(brush.syncGradientDefRuntime).toHaveBeenCalledWith('cc-selection-def-only-layer');
   });
 
   it('restores original color-cycle gradients on cancel', () => {

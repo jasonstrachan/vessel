@@ -433,7 +433,9 @@ export interface AppState {
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
     colorCycleGradientIds?: Uint8Array | null;
+    colorCycleSlotPalettes?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleSlotPalette[] | null;
     colorCycleGradientDefIds?: Uint16Array | null;
+    colorCycleGradientDefs?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
     vectorPath?: {
@@ -454,7 +456,9 @@ export interface AppState {
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
     colorCycleGradientIds?: Uint8Array | null;
+    colorCycleSlotPalettes?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleSlotPalette[] | null;
     colorCycleGradientDefIds?: Uint16Array | null;
+    colorCycleGradientDefs?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
     vectorPath?: {

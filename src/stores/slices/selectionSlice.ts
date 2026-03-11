@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { Rectangle } from '@/types';
+import type { Layer, Rectangle } from '@/types';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
 import type { SelectionSnapshot } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
@@ -16,6 +16,14 @@ import {
   copyScalarRegion,
   resolveLayerImageData,
 } from '@/stores/helpers/selectionCapture';
+import {
+  cloneTransferredColorCycleSlotPalettes,
+  cloneTransferredColorCycleGradientDefs,
+  extractTransferredColorCycleSlotPalettes,
+  extractTransferredColorCycleGradientDefs,
+  type TransferredColorCycleGradientDef,
+  type TransferredColorCycleSlotPalette,
+} from '@/stores/helpers/colorCycleGradientDefTransfer';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -66,7 +74,9 @@ export interface SelectionSlice {
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
     colorCycleGradientIds?: Uint8Array | null;
+    colorCycleSlotPalettes?: TransferredColorCycleSlotPalette[] | null;
     colorCycleGradientDefIds?: Uint16Array | null;
+    colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
     vectorPath?: {
@@ -87,7 +97,9 @@ export interface SelectionSlice {
     sourceLayerId?: string | null;
     colorCycleIndices?: Uint8Array | null;
     colorCycleGradientIds?: Uint8Array | null;
+    colorCycleSlotPalettes?: TransferredColorCycleSlotPalette[] | null;
     colorCycleGradientDefIds?: Uint16Array | null;
+    colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
     vectorPath?: {
@@ -114,11 +126,39 @@ export interface SelectionClipboardPayload {
   mode: 'copy' | 'cut';
   colorCycleIndices?: Uint8Array | null;
   colorCycleGradientIds?: Uint8Array | null;
+  colorCycleSlotPalettes?: TransferredColorCycleSlotPalette[] | null;
   colorCycleGradientDefIds?: Uint16Array | null;
+  colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
   colorCycleSpeed?: Uint8Array | null;
   colorCycleFlow?: Uint8Array | null;
   colorCycleSourceLayerId?: string | null;
 }
+
+const buildTransferredColorCyclePayload = (
+  layer: Layer,
+  capture: {
+    colorCycleIndices?: Uint8Array | null;
+    colorCycleGradientIds?: Uint8Array | null;
+    colorCycleGradientDefIds?: Uint16Array | null;
+    colorCycleSpeed?: Uint8Array | null;
+    colorCycleFlow?: Uint8Array | null;
+  }
+) => ({
+  colorCycleIndices: capture.colorCycleIndices ?? null,
+  colorCycleGradientIds: capture.colorCycleGradientIds ?? null,
+  colorCycleSlotPalettes: extractTransferredColorCycleSlotPalettes(
+    layer,
+    capture.colorCycleGradientIds ?? null,
+    capture.colorCycleGradientDefIds ?? null
+  ),
+  colorCycleGradientDefIds: capture.colorCycleGradientDefIds ?? null,
+  colorCycleGradientDefs: extractTransferredColorCycleGradientDefs(
+    layer,
+    capture.colorCycleGradientDefIds ?? null
+  ),
+  colorCycleSpeed: capture.colorCycleSpeed ?? null,
+  colorCycleFlow: capture.colorCycleFlow ?? null,
+});
 
 const computeBoundsFromSelection = (
   start: { x: number; y: number },
@@ -993,6 +1033,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               })),
             }
           : null;
+      const colorCyclePayload = buildTransferredColorCyclePayload(activeLayer, capture);
       set({
         selectionStart: null,
         selectionEnd: null,
@@ -1011,11 +1052,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           displayHeight: capture.bounds.height,
           rotation: 0,
           sourceLayerId: activeLayerId,
-          colorCycleIndices: capture.colorCycleIndices ?? null,
-          colorCycleGradientIds: capture.colorCycleGradientIds ?? null,
-          colorCycleGradientDefIds: capture.colorCycleGradientDefIds ?? null,
-          colorCycleSpeed: capture.colorCycleSpeed ?? null,
-          colorCycleFlow: capture.colorCycleFlow ?? null,
+          ...colorCyclePayload,
           vectorPath: floatingVectorPath,
         },
         floatingPasteHistoryContext: {
@@ -1072,7 +1109,9 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   sourceLayerId: paste.sourceLayerId ?? null,
                   colorCycleIndices: paste.colorCycleIndices ?? null,
                   colorCycleGradientIds: paste.colorCycleGradientIds ?? null,
+                  colorCycleSlotPalettes: cloneTransferredColorCycleSlotPalettes(paste.colorCycleSlotPalettes),
                   colorCycleGradientDefIds: paste.colorCycleGradientDefIds ?? null,
+                  colorCycleGradientDefs: cloneTransferredColorCycleGradientDefs(paste.colorCycleGradientDefs),
                   colorCycleSpeed: paste.colorCycleSpeed ?? null,
                   colorCycleFlow: paste.colorCycleFlow ?? null,
                   vectorPath: paste.vectorPath ?? null,
@@ -1261,17 +1300,14 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               });
 
           if (capture) {
+            const colorCyclePayload = buildTransferredColorCyclePayload(activeLayer, capture);
             clipboardPayload = {
               imageData: capture.selectionImageData,
               position: { x: capture.bounds.x, y: capture.bounds.y },
               width: capture.bounds.width,
               height: capture.bounds.height,
               mode,
-              colorCycleIndices: capture.colorCycleIndices ?? null,
-              colorCycleGradientIds: capture.colorCycleGradientIds ?? null,
-              colorCycleGradientDefIds: capture.colorCycleGradientDefIds ?? null,
-              colorCycleSpeed: capture.colorCycleSpeed ?? null,
-              colorCycleFlow: capture.colorCycleFlow ?? null,
+              ...colorCyclePayload,
               colorCycleSourceLayerId: capture.colorCycleIndices ? activeLayerId : null,
             };
 
@@ -1412,9 +1448,11 @@ const createClipboardPayloadFromFloatingPaste = (
     colorCycleGradientIds: floatingPaste.colorCycleGradientIds
       ? new Uint8Array(floatingPaste.colorCycleGradientIds)
       : null,
+    colorCycleSlotPalettes: cloneTransferredColorCycleSlotPalettes(floatingPaste.colorCycleSlotPalettes),
     colorCycleGradientDefIds: floatingPaste.colorCycleGradientDefIds
       ? new Uint16Array(floatingPaste.colorCycleGradientDefIds)
       : null,
+    colorCycleGradientDefs: cloneTransferredColorCycleGradientDefs(floatingPaste.colorCycleGradientDefs),
     colorCycleSpeed: floatingPaste.colorCycleSpeed
       ? new Uint8Array(floatingPaste.colorCycleSpeed)
       : null,

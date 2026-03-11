@@ -42,7 +42,10 @@ const mutateColorCycleLayer = (
   state: AppState,
   layer: Layer,
   project: Project,
-  mutator: BufferMutator
+  mutator: BufferMutator,
+  options?: {
+    skipMaterialize?: boolean;
+  }
 ): boolean => {
   if (layer.layerType !== 'color-cycle') {
     return false;
@@ -188,16 +191,22 @@ const mutateColorCycleLayer = (
     strokeCounter: snapshot.strokeCounter,
   });
 
-  try {
-    brush.renderDirectToCanvas?.(canvas, layer.id);
-  } catch {
-    // ignore render errors; state will sync via canvas snapshot
-  }
+  const skipMaterialize = options?.skipMaterialize === true;
+  let syncedImage: ImageData | undefined;
+  let resolvedImageData: ImageData | undefined;
 
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const syncedImage =
-    ctx?.getImageData(0, 0, canvas.width, canvas.height) ?? layer.colorCycleData?.canvasImageData ?? undefined;
-  const resolvedImageData = syncedImage ?? layer.imageData ?? undefined;
+  if (!skipMaterialize) {
+    try {
+      brush.renderDirectToCanvas?.(canvas, layer.id);
+    } catch {
+      // ignore render errors; state will sync via canvas snapshot
+    }
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    syncedImage =
+      ctx?.getImageData(0, 0, canvas.width, canvas.height) ?? layer.colorCycleData?.canvasImageData ?? undefined;
+    resolvedImageData = syncedImage ?? layer.imageData ?? undefined;
+  }
 
   const nextColorCycleData: NonNullable<Layer['colorCycleData']> | undefined = (() => {
     const base = layer.colorCycleData ?? {};
@@ -224,17 +233,23 @@ const mutateColorCycleLayer = (
 
   state.updateLayer(
     layer.id,
-    {
-      imageData: resolvedImageData,
-      colorCycleData: nextColorCycleData,
-    },
+    skipMaterialize
+      ? {
+          colorCycleData: nextColorCycleData,
+        }
+      : {
+          imageData: resolvedImageData,
+          colorCycleData: nextColorCycleData,
+        },
     { skipColorCycleSync: true }
   );
 
-  // Invalidate composites so the new CC pixels show up immediately.
-  state.setCurrentCompositeBitmap?.(null);
-  state.setLayersNeedRecomposition?.(true);
-  state.markCompositeSegmentsDirtyByLayerIds?.([layer.id]);
+  if (!skipMaterialize) {
+    // Invalidate composites so the new CC pixels show up immediately.
+    state.setCurrentCompositeBitmap?.(null);
+    state.setLayersNeedRecomposition?.(true);
+    state.markCompositeSegmentsDirtyByLayerIds?.([layer.id]);
+  }
 
   return true;
 };
@@ -326,6 +341,7 @@ export const writeColorCycleRegion = (
     sourceGradientDefIds?: Uint16Array | null;
     sourceSpeed?: Uint8Array | null;
     sourceFlow?: Uint8Array | null;
+    skipMaterialize?: boolean;
   }
 ): boolean =>
   mutateColorCycleLayer(
@@ -399,8 +415,11 @@ export const writeColorCycleRegion = (
       }
     }
     return changed;
-  }
-);
+    },
+    {
+      skipMaterialize: options?.skipMaterialize,
+    }
+  );
 
 export const hasColorCycleIndices = (payload?: { colorCycleIndices?: Uint8Array | null }): payload is {
   colorCycleIndices: Uint8Array;
