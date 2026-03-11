@@ -37,6 +37,162 @@
 
 ## Recent Updates
 
+## CC new-layer paste + Hue/Sat: dev note
+
+### Status
+
+Two CC paste bugs were real and fixed. One edge-case bug remains.
+
+### Fixed
+
+#### 1) Missing transferred slot palettes in floating paste
+
+**Cause:** floating paste transferred CC ids/defs but not `colorCycleSlotPalettes`.
+
+**Effect:** pasted CC on a new layer had incomplete slot/palette data for Hue/Sat.
+
+**Fix:** include transferred slot palettes in the floating-paste CC payload.
+
+**Result:** original missing-palette transfer bug solved.
+
+#### 2) CC stroke paste disappearing on commit
+
+**Cause:** commit relied on bitmap alpha, but CC stroke content can exist as CC paint/slot data without meaningful bitmap alpha.
+
+**Fix:** synthesize opaque alpha from CC indices when bitmap alpha is absent.
+
+**Result:** CC stroke paste now commits correctly.
+
+#### 3) Paste commit needed explicit CC rebuild/apply
+
+`mutateColorCycleLayer(...)` writes low-level CC state with `skipColorCycleSync: true`, so paste commit needed explicit post-write rebuild/apply.
+
+**Added:**
+- `scheduleColorCycleSlotRebuild?.('selection-paste-commit')`
+- `requestGradientApply(targetLayer.id, 'selection-paste-commit')`
+
+**Result:** paste commit path improved; not the remaining bug.
+
+### Still broken
+
+#### Remaining bug
+
+Hue/Sat on CC content pasted into a different/new CC layer does not visibly update immediately.
+
+**Observed behavior:**
+The Hue/Sat result appears only after a later move / marquee transform / rematerialization-type action.
+
+#### Not broken
+
+- Hue/Sat on normal CC content
+- Hue/Sat on pasted CC content pasted back into the same CC layer
+- CC shape paste generally
+- CC stroke paste commit
+
+### Established facts
+
+#### Hue/Sat preview path really does update state
+
+`previewSelectedColorCycleRegion(...)` does all of this:
+- restores runtime snapshot
+- remaps slot palettes / gradient defs
+- writes region via `writeColorCycleRegion(...)`
+- calls:
+- `requestGradientApply(...)`
+- `refreshColorCycleGradientDefRuntime(...)`
+- `rerenderColorCycleLayerSurface(...)`
+- marks recomposition
+
+So the bug is **not** “Hue/Sat path does nothing.”
+
+#### Final rerender/invalidation is present
+
+`rerenderColorCycleLayerSurface(...)`:
+- gets brush + layer canvas
+- calls `flushGradientApply(layerId)`
+- calls `brush.renderDirectToCanvas(...)`
+- invalidates composite bitmap
+- marks recomposition
+- dirties composite segments
+
+So the bug is **not** simply “forgot final redraw/invalidate.”
+
+#### Slot rebuild already runs on paste commit
+
+Debug logs show:
+- slot rebuild starts on `selection-paste-commit`
+- runtime sync completes
+- later move/transform rebuilds often produce no updates
+
+So the theory “later move fixes it because slot GC finally repairs slots” is **not supported**.
+
+#### Segment compositor mismatch was tested and not sufficient
+
+The visible-segment stack originally drew CC layer canvas directly, unlike the full CC compositor path which rerendered from brush/runtime first.
+
+That mismatch was tested. It did **not** solve the remaining bug.
+
+So this is **not** just a simple compositor-path issue.
+
+#### `mutateColorCycleLayer(...)` is the heavy materialization path
+
+It:
+- mutates working CC buffers
+- `brush.applyLayerSnapshot(...)`
+- `brush.renderDirectToCanvas(...)`
+- captures `getImageData(...)`
+- persists `imageData` / `canvasImageData` / buffers with `skipColorCycleSync: true`
+- invalidates recomposition/composite
+
+This is the strongest “full rematerialization” path identified.
+
+### Ruled down / weak theories
+
+#### Weak: missing final composite invalidation
+
+Current code already invalidates via `rerenderColorCycleLayerSurface(...)`.
+
+#### Weak: missing slot rebuild during preview
+
+Paste commit already runs slot rebuild; logs do not support “later move finally fixes slots.”
+
+#### Weak: simple early-render ordering bug
+
+A final experiment based on that theory did **not** fix the bug.
+
+### Best current conclusion
+
+The remaining bug is a deeper CC preview/runtime/materialization edge case.
+
+Most accurate description:
+
+**Hue/Sat preview for CC content pasted into a different/new CC layer does not visually materialize the same way the later transform/rematerialization path does, even though the underlying data path appears mostly correct.**
+
+So this is now:
+- not a simple transfer bug
+- not a simple slot-GC bug
+- not a simple redraw/invalidate bug
+- not a simple compositor bug
+
+### Recommended stopping point
+
+Leave this as a known bug for now.
+
+#### Known bug note
+
+**Hue/Sat preview for CC content pasted into a different/new CC layer does not visually update immediately; the change appears after a later transform/rematerialization action.**
+
+#### Keep
+
+- transferred slot palettes fix
+- synthesized alpha for CC stroke paste commit
+- explicit paste-commit rebuild/apply
+
+#### Back out
+
+- unsuccessful speculative experiments around the remaining bug
+- any compositor/runtime hacks added only for this investigation
+
 ### Canvas Shape Masks (2026-01-03)
 - **New canvas mask workflow**: documents can define non-rectangular bounds (rectangle, circle, freehand).
 - **UX entry point**: `DocumentModal` now offers canvas shape tools; picking one closes the modal and enters a draw-to-define mode.
