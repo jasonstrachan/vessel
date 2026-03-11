@@ -146,6 +146,9 @@ export function useComprehensiveKeyboard({
   const colorPickerPreviousToolRef = useRef<Tool | null>(null);
   const isColorPickerHeldRef = useRef(false);
   const lastKeydownTimeRef = useRef<number>(0);
+  const brushSizeHoldDirectionRef = useRef<-1 | 0 | 1>(0);
+  const brushSizeHoldAnimationFrameRef = useRef<number | null>(null);
+  const lastBrushSizeHoldTickRef = useRef<number>(0);
 
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const bumpGlobalBrushSize = useAppStore((state) => state.bumpGlobalBrushSize);
@@ -194,6 +197,71 @@ export function useComprehensiveKeyboard({
     },
     [bumpGlobalBrushSize, toolsRef]
   );
+  const applyBrushSizeDeltaForCurrentTool = useCallback((delta: -1 | 1) => {
+    const tools = toolsRef.current;
+    const isEraserActive = tools.currentTool === 'eraser';
+    const { brushSettings, eraserSettings } = tools;
+    if (isEraserActive) {
+      const isLinked = eraserSettings?.linkSizeToBrush !== false;
+      if (isLinked) {
+        applyBrushSizeDeltaImmediate(delta);
+      } else {
+        const currentSize = eraserSettings?.size ?? brushSettings.size ?? MIN_BRUSH_SIZE;
+        const newSize = clampBrushSize(currentSize + delta);
+        if (newSize !== currentSize) {
+          setEraserSettings({ size: newSize });
+        }
+      }
+      return;
+    }
+
+    if (brushSettings.brushShape === BrushShape.CUSTOM) {
+      const currentPercent = brushSettings.customBrushSizePercent ?? 100;
+      const nextPercent = Math.max(5, Math.min(1000, currentPercent + delta * 5));
+      if (nextPercent !== currentPercent) {
+        setCustomBrushSizePercent(nextPercent);
+      }
+      return;
+    }
+
+    applyBrushSizeDeltaImmediate(delta);
+  }, [applyBrushSizeDeltaImmediate, setCustomBrushSizePercent, setEraserSettings, toolsRef]);
+
+  const stopBrushSizeHold = useCallback(() => {
+    brushSizeHoldDirectionRef.current = 0;
+    lastBrushSizeHoldTickRef.current = 0;
+    if (brushSizeHoldAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(brushSizeHoldAnimationFrameRef.current);
+      brushSizeHoldAnimationFrameRef.current = null;
+    }
+  }, []);
+
+  const startBrushSizeHold = useCallback((direction: -1 | 1) => {
+    brushSizeHoldDirectionRef.current = direction;
+    if (brushSizeHoldAnimationFrameRef.current !== null) {
+      return;
+    }
+
+    const step = (timestamp: number) => {
+      const activeDirection = brushSizeHoldDirectionRef.current;
+      if (activeDirection === 0) {
+        brushSizeHoldAnimationFrameRef.current = null;
+        return;
+      }
+
+      if (
+        lastBrushSizeHoldTickRef.current === 0 ||
+        timestamp - lastBrushSizeHoldTickRef.current >= 16
+      ) {
+        lastBrushSizeHoldTickRef.current = timestamp;
+        applyBrushSizeDeltaForCurrentTool(activeDirection);
+      }
+
+      brushSizeHoldAnimationFrameRef.current = requestAnimationFrame(step);
+    };
+
+    brushSizeHoldAnimationFrameRef.current = requestAnimationFrame(step);
+  }, [applyBrushSizeDeltaForCurrentTool]);
   
   // Update refs when callbacks change
   useEffect(() => {
@@ -398,26 +466,7 @@ export function useComprehensiveKeyboard({
       if (onBrushSizeDecrease) {
         onBrushSizeDecrease();
       } else {
-        const isEraserActive = tools.currentTool === 'eraser';
-        const { brushSettings, eraserSettings } = tools;
-        if (isEraserActive) {
-          const isLinked = eraserSettings?.linkSizeToBrush !== false;
-          if (isLinked) {
-            applyBrushSizeDeltaImmediate(-1);
-          } else {
-            const currentSize = eraserSettings?.size ?? brushSettings.size ?? MIN_BRUSH_SIZE;
-            const newSize = Math.max(MIN_BRUSH_SIZE, currentSize - 1);
-            setEraserSettings({ size: newSize });
-          }
-          return;
-        }
-        if (brushSettings.brushShape === BrushShape.CUSTOM) {
-          const currentPercent = brushSettings.customBrushSizePercent ?? 100;
-          const newPercent = Math.max(5, currentPercent - 5);
-          setCustomBrushSizePercent(newPercent);
-        } else {
-          applyBrushSizeDeltaImmediate(-1);
-        }
+        startBrushSizeHold(-1);
       }
       return;
     }
@@ -430,26 +479,7 @@ export function useComprehensiveKeyboard({
       if (onBrushSizeIncrease) {
         onBrushSizeIncrease();
       } else {
-        const isEraserActive = tools.currentTool === 'eraser';
-        const { brushSettings, eraserSettings } = tools;
-        if (isEraserActive) {
-          const isLinked = eraserSettings?.linkSizeToBrush !== false;
-          if (isLinked) {
-            applyBrushSizeDeltaImmediate(1);
-          } else {
-            const currentSize = eraserSettings?.size ?? brushSettings.size ?? MIN_BRUSH_SIZE;
-            const newSize = Math.min(MAX_BRUSH_SIZE, currentSize + 1);
-            setEraserSettings({ size: newSize });
-          }
-          return;
-        }
-        if (brushSettings.brushShape === BrushShape.CUSTOM) {
-          const currentPercent = brushSettings.customBrushSizePercent ?? 100;
-          const newPercent = Math.min(1000, currentPercent + 5);
-          setCustomBrushSizePercent(newPercent);
-        } else {
-          applyBrushSizeDeltaImmediate(1);
-        }
+        startBrushSizeHold(1);
       }
       return;
     }
@@ -512,13 +542,12 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
-      switchTool, setEraserSettings,
-      setCustomBrushSizePercent,
+      switchTool,
       deleteSelectedPixels, selectAllActiveLayerPixels,
       copySelectionToClipboard,
       setFloatingPaste, setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
-      floatingPasteRef, paletteRef, applyBrushSizeDeltaImmediate]);
+      floatingPasteRef, paletteRef, startBrushSizeHold]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
@@ -556,6 +585,10 @@ export function useComprehensiveKeyboard({
     
     // Always clear pressed map on keyup (even if text field prevented us earlier)
     pressedKeysRef.current.delete(event.code);
+
+    if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+      stopBrushSizeHold();
+    }
 
     // Handle P key release (temporary color picker)
     if ((event.key === 'p' || event.key === 'P') && !event.ctrlKey && !event.metaKey) {
@@ -601,7 +634,7 @@ export function useComprehensiveKeyboard({
         return;
       }
     }
-  }, [enabled, allowedScopes, switchTool, keyboardScopeRef]);
+  }, [enabled, allowedScopes, stopBrushSizeHold, switchTool, keyboardScopeRef]);
 
   // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {
@@ -621,6 +654,7 @@ export function useComprehensiveKeyboard({
         isMetaPressed: false,
       };
       pressedKeysRef.current.clear();
+      stopBrushSizeHold();
 
       if (isColorPickerHeldRef.current) {
         const previousTool = colorPickerPreviousToolRef.current;
@@ -631,7 +665,7 @@ export function useComprehensiveKeyboard({
         colorPickerPreviousToolRef.current = null;
       }
     }
-  }, [switchTool]);
+  }, [stopBrushSizeHold, switchTool]);
 
   // Safety net: clear stuck keys if the page becomes hidden or pointer leaves the window
   useEffect(() => {
@@ -642,6 +676,7 @@ export function useComprehensiveKeyboard({
       }
       pressedKeysRef.current.clear();
       keyboardStateRef.current.isSpacePressed = false;
+      stopBrushSizeHold();
     };
 
     const handleVisibility = () => {
@@ -658,7 +693,13 @@ export function useComprehensiveKeyboard({
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('pointerleave', handlePointerLeave);
     };
-  }, []);
+  }, [stopBrushSizeHold]);
+
+  useEffect(() => {
+    return () => {
+      stopBrushSizeHold();
+    };
+  }, [stopBrushSizeHold]);
 
   useEffect(() => {
     if (!enabled) return;

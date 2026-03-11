@@ -25,6 +25,8 @@ describe('useDrawingCanvasCursorModel', () => {
         panIsPanning: false,
         isSpacePressedRef,
         cursorStyle: 'none',
+        temporaryCustomBrush: null,
+        getCustomBrushByIdUnsafe: undefined,
       })
     );
 
@@ -72,6 +74,8 @@ describe('useDrawingCanvasCursorModel', () => {
         panIsPanning: false,
         isSpacePressedRef,
         cursorStyle: 'none',
+        temporaryCustomBrush: null,
+        getCustomBrushByIdUnsafe: undefined,
       })
     );
 
@@ -122,6 +126,8 @@ describe('useDrawingCanvasCursorModel', () => {
         panIsPanning: false,
         isSpacePressedRef,
         cursorStyle: 'none',
+        temporaryCustomBrush: null,
+        getCustomBrushByIdUnsafe: undefined,
       })
     );
 
@@ -131,6 +137,55 @@ describe('useDrawingCanvasCursorModel', () => {
       pixelWidth: 30,
       pixelHeight: 60,
       imageData,
+    });
+  });
+
+  it('falls back to stored custom brush dimensions when currentBrushTip is unavailable', () => {
+    const { result } = renderHook(() =>
+      useDrawingCanvasCursorModel({
+        tools: {
+          currentTool: 'brush' as Tool,
+          brushSettings: {
+            brushShape: BrushShape.CUSTOM,
+            selectedCustomBrush: 'saved-custom',
+            size: 50,
+            antialiasing: true,
+            rotationEnabled: false,
+          },
+          eraserSettings: {
+            size: 10,
+          },
+        },
+        globalBrushSize: 12,
+        showBrushCursor: true,
+        panIsPanning: false,
+        isSpacePressedRef,
+        cursorStyle: 'none',
+        temporaryCustomBrush: null,
+        getCustomBrushByIdUnsafe: () => ({
+          id: 'saved-custom',
+          name: 'Saved',
+          imageData: {
+            width: 8,
+            height: 4,
+            data: new Uint8ClampedArray(8 * 4 * 4),
+          } as ImageData,
+          thumbnail: '',
+          width: 8,
+          height: 4,
+          naturalWidth: 8,
+          naturalHeight: 4,
+          maxDimension: 8,
+          createdAt: Date.now(),
+        }),
+      })
+    );
+
+    expect(result.current.cursorDescriptor).toEqual({
+      kind: 'custom-brush',
+      pixelSize: 50,
+      pixelWidth: 50,
+      pixelHeight: 25,
     });
   });
 });

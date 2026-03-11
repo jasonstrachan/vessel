@@ -23,6 +23,8 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationArgs = ({
     canvasZoom: state.canvasZoom,
     displayProjectName: state.displayProjectName,
     displayMode: state.displayMode,
+    temporaryCustomBrush: state.temporaryCustomBrush,
+    getCustomBrushByIdUnsafe: state.getCustomBrushByIdUnsafe,
   },
   orchestration: {
     visualRuntime: orchestration.visualRuntime,

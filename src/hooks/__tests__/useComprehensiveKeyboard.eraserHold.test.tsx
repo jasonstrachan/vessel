@@ -84,9 +84,14 @@ describe('useComprehensiveKeyboard – temporary eraser hold', () => {
 
 describe('useComprehensiveKeyboard – brush size shortcuts', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     act(() => {
       resetStore();
     });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('handles bracket shortcuts when a numeric input has focus', async () => {
@@ -104,12 +109,14 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
     await act(async () => {
       fireEvent.keyDown(numericInput, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(20);
     });
 
     expect(useAppStore.getState().tools.brushSettings.size).toBe(initialSize - 1);
 
     await act(async () => {
       fireEvent.keyDown(numericInput, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
     });
 
     expect(useAppStore.getState().tools.brushSettings.size).toBe(initialSize);
@@ -209,11 +216,13 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
     await act(async () => {
       fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
 
     await act(async () => {
       fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
 
@@ -236,11 +245,13 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
     await act(async () => {
       fireEvent.keyDown(textInput, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
 
     await act(async () => {
       fireEvent.keyDown(textInput, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
 
@@ -260,11 +271,13 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Unidentified', code: 'BracketLeft' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
 
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Unidentified', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
 
@@ -282,11 +295,13 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Unidentified', code: '', keyCode: 219, which: 219 });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
 
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Unidentified', code: '', keyCode: 221, which: 221 });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(10);
 
@@ -305,16 +320,43 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
     await act(async () => {
       fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.brushSettings.size).toBe(11);
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(11);
 
     await act(async () => {
       fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(12);
 
+    keyboard.unmount();
+  });
+
+  it('coalesces repeated bracket keydown events into frame-paced size changes', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      useAppStore.getState().setGlobalBrushSize(12);
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', repeat: true });
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', repeat: true });
+      jest.advanceTimersByTime(20);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(11);
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(40);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(11);
     keyboard.unmount();
   });
 });

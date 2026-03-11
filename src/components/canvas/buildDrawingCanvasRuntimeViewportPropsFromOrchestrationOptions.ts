@@ -16,6 +16,8 @@ interface BuildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptionsArgs {
     | 'canvasZoom'
     | 'displayProjectName'
     | 'displayMode'
+    | 'temporaryCustomBrush'
+    | 'getCustomBrushByIdUnsafe'
   >;
   orchestration: Pick<
     RuntimeOrchestration,
@@ -42,6 +44,8 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions = ({
     panIsPanning: orchestration.interactionRuntime.pan.panState.isPanning,
     isSpacePressedRef: orchestration.interactionRuntime.isSpacePressedRef,
     cursorStyle: orchestration.visualRuntime.cursorStyle,
+    temporaryCustomBrush: state.temporaryCustomBrush,
+    getCustomBrushByIdUnsafe: state.getCustomBrushByIdUnsafe,
   },
   viewportOptions: {
     cursorStyle: orchestration.visualRuntime.cursorStyle,

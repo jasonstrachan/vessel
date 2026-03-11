@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useMemo } from 'react';
-import { BrushShape, type BrushSettings, type Tool } from '@/types';
-import { resolveBrushCursorShape } from './brushCursorShape';
+import { BrushShape, type BrushSettings, type CustomBrush, type Tool } from '@/types';
+import { resolveBrushCursorDescriptor } from './resolveBrushCursorDescriptor';
 
 export type BrushCursorDescriptor =
   | {
@@ -29,12 +29,14 @@ interface UseDrawingCanvasCursorModelOptions {
       rotationEnabled: boolean;
       ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
       currentBrushTip?: BrushSettings['currentBrushTip'];
+      selectedCustomBrush?: string | null;
     };
     eraserSettings: {
       brushShape?: BrushShape;
       size?: number;
       linkSizeToBrush?: boolean;
       currentBrushTip?: BrushSettings['currentBrushTip'];
+      selectedCustomBrush?: string | null;
     };
   };
   globalBrushSize: number;
@@ -42,6 +44,8 @@ interface UseDrawingCanvasCursorModelOptions {
   panIsPanning: boolean;
   isSpacePressedRef: React.MutableRefObject<boolean>;
   cursorStyle: string;
+  temporaryCustomBrush?: CustomBrush | null;
+  getCustomBrushByIdUnsafe?: ((id: string) => CustomBrush | null | undefined) | null;
 }
 
 export const useDrawingCanvasCursorModel = ({
@@ -51,62 +55,16 @@ export const useDrawingCanvasCursorModel = ({
   panIsPanning,
   isSpacePressedRef,
   cursorStyle,
+  temporaryCustomBrush,
+  getCustomBrushByIdUnsafe,
 }: UseDrawingCanvasCursorModelOptions) => {
   return useMemo(() => {
-    const brushShapeForCursor = resolveBrushCursorShape(tools);
-    const baseBrushSize = tools.brushSettings.size ?? globalBrushSize ?? 1;
-    const eraserSize =
-      tools.eraserSettings.linkSizeToBrush === false
-        ? tools.eraserSettings.size ?? baseBrushSize
-        : baseBrushSize;
-    const mosaicCursorSize = (() => {
-      if (brushShapeForCursor !== BrushShape.MOSAIC) {
-        return null;
-      }
-      const tilePx = Math.max(1, Math.min(128, Math.round(tools.brushSettings.mosaicTilePx ?? 8)));
-      const blocksCount = Math.max(1, Math.min(32, Math.round(tools.brushSettings.mosaicBlocksCount ?? 6)));
-      const rows = 1;
-      const stampW = tilePx * blocksCount;
-      const stampH = tilePx * rows;
-      const scale = baseBrushSize / 60;
-      return Math.max(stampW, stampH) * scale;
-    })();
-    const cursorSize =
-      tools.currentTool === 'eraser'
-        ? Math.max(1, eraserSize)
-        : Math.max(1, mosaicCursorSize ?? baseBrushSize);
-    const activeSettings =
-      tools.currentTool === 'eraser' ? tools.eraserSettings : tools.brushSettings;
-    const cursorDescriptor: BrushCursorDescriptor = (() => {
-      const currentBrushTip = activeSettings.currentBrushTip;
-      if (brushShapeForCursor === BrushShape.CUSTOM && currentBrushTip) {
-        const naturalWidth =
-          currentBrushTip.naturalWidth ??
-          currentBrushTip.width ??
-          currentBrushTip.imageData.width;
-        const naturalHeight =
-          currentBrushTip.naturalHeight ??
-          currentBrushTip.height ??
-          currentBrushTip.imageData.height;
-        const maxDimension =
-          currentBrushTip.maxDimension ?? Math.max(naturalWidth, naturalHeight);
-        const scale = maxDimension > 0 ? cursorSize / maxDimension : 1;
-
-        return {
-          kind: 'custom-brush',
-          pixelSize: cursorSize,
-          pixelWidth: Math.max(1, naturalWidth * scale),
-          pixelHeight: Math.max(1, naturalHeight * scale),
-          imageData: currentBrushTip.imageData,
-        };
-      }
-
-      return {
-        kind: 'shape',
-        shape: brushShapeForCursor,
-        pixelSize: cursorSize,
-      };
-    })();
+    const cursorDescriptor: BrushCursorDescriptor = resolveBrushCursorDescriptor({
+      tools,
+      globalBrushSize,
+      temporaryCustomBrush,
+      getCustomBrushByIdUnsafe,
+    });
 
     const brushCursorVisible =
       showBrushCursor &&
@@ -118,5 +76,14 @@ export const useDrawingCanvasCursorModel = ({
       cursorDescriptor,
       brushCursorVisible,
     };
-  }, [cursorStyle, globalBrushSize, isSpacePressedRef, panIsPanning, showBrushCursor, tools]);
+  }, [
+    cursorStyle,
+    getCustomBrushByIdUnsafe,
+    globalBrushSize,
+    isSpacePressedRef,
+    panIsPanning,
+    showBrushCursor,
+    temporaryCustomBrush,
+    tools,
+  ]);
 };
