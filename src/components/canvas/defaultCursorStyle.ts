@@ -15,10 +15,6 @@ export const resolveDefaultCursorStyle = ({
     return 'crosshair';
   }
 
-  if (brushShape === BrushShape.CUSTOM) {
-    return 'crosshair';
-  }
-
   if (brushShape === BrushShape.PIXEL_DITHER && shapeMode) {
     return 'crosshair';
   }

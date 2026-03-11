@@ -6,8 +6,6 @@ import React, {
   useCallback,
   useImperativeHandle,
   useLayoutEffect,
-  useMemo,
-  useEffect,
   useRef,
 } from 'react';
 import { BrushShape } from '../../types';
@@ -23,93 +21,107 @@ export interface BrushCursorHandle {
   setPosition: (screenX: number, screenY: number) => void;
 }
 
-// Cache for cursor data URLs to prevent recreation
-const cursorCache = new Map<string, string>();
+type CursorRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
-const useCursorAssetDataURL = (
+const getCursorScreenDimensions = (
   descriptor: BrushCursorDescriptor,
+  zoom: number
+) => ({
+  width: Math.max(
+    4,
+    (descriptor.kind === 'custom-brush' ? descriptor.pixelWidth : descriptor.pixelSize) * zoom
+  ),
+  height: Math.max(
+    4,
+    (descriptor.kind === 'custom-brush' ? descriptor.pixelHeight : descriptor.pixelSize) * zoom
+  ),
+});
+
+const getCursorRect = (
+  centerX: number,
+  centerY: number,
+  width: number,
+  height: number
+): CursorRect => {
+  const padding = 4;
+  return {
+    x: Math.floor(centerX - width / 2 - padding),
+    y: Math.floor(centerY - height / 2 - padding),
+    width: Math.ceil(width + padding * 2),
+    height: Math.ceil(height + padding * 2),
+  };
+};
+
+const drawShapeCursor = (
+  ctx: CanvasRenderingContext2D,
+  descriptor: BrushCursorDescriptor,
+  centerX: number,
+  centerY: number,
   screenWidth: number,
   screenHeight: number
 ) => {
-  return useMemo(() => {
-    if (typeof document === 'undefined') {
-      return null;
-    }
+  const halfWidth = screenWidth / 2;
+  const halfHeight = screenHeight / 2;
+  const lineOffset = 0.5;
 
-    if (descriptor.kind === 'custom-brush') {
-      return null;
-    }
+  ctx.beginPath();
 
-    const screenSize = Math.max(screenWidth, screenHeight);
-    const cacheKey = `${descriptor.shape}-${Math.ceil(screenSize)}`;
-    const cached = cursorCache.get(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const canvas = document.createElement('canvas');
-    const size = Math.ceil(screenSize);
-    canvas.width = size;
-    canvas.height = size;
-
-    const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-
-    if (!ctx) {
-      return '';
-    }
-
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-
-    const center = size / 2;
-    const radius = Math.max(0.5, (screenSize - ctx.lineWidth) / 2);
-
-    ctx.beginPath();
-
-    switch (descriptor.shape) {
-      case BrushShape.ROUND:
-        ctx.arc(center, center, radius, 0, Math.PI * 2);
-        break;
-      case BrushShape.SQUARE:
-      case BrushShape.PIXEL_ROUND:
-      case BrushShape.PIXEL_DITHER:
-      case BrushShape.RECTANGLE_GRADIENT:
-      case BrushShape.RESAMPLER:
-      case BrushShape.MOSAIC:
-      case BrushShape.COLOR_CYCLE:
-        ctx.rect(center - radius, center - radius, screenSize - ctx.lineWidth, screenSize - ctx.lineWidth);
-        break;
-      case BrushShape.COLOR_CYCLE_TRIANGLE:
-        ctx.moveTo(center, center - radius);
-        ctx.lineTo(center - radius, center + radius);
-        ctx.lineTo(center + radius, center + radius);
-        ctx.closePath();
-        break;
-      case BrushShape.TRIANGLE:
-      case BrushShape.POLYGON_GRADIENT:
-      case BrushShape.COLOR_CYCLE_SHAPE: {
-        const sides = 6;
-        ctx.moveTo(center + radius, center);
-        for (let i = 1; i <= sides; i++) {
-          const angle = (i * 2 * Math.PI) / sides;
-          ctx.lineTo(center + radius * Math.cos(angle), center + radius * Math.sin(angle));
-        }
-        ctx.closePath();
-        break;
-      }
-    }
-
+  if (descriptor.kind === 'custom-brush') {
+    ctx.rect(
+      Math.round(centerX - halfWidth) + lineOffset,
+      Math.round(centerY - halfHeight) + lineOffset,
+      Math.max(1, Math.round(screenWidth) - 1),
+      Math.max(1, Math.round(screenHeight) - 1)
+    );
     ctx.stroke();
-    const dataUrl = canvas.toDataURL();
-    if (cursorCache.size > 50) {
-      const firstKey = cursorCache.keys().next().value;
-      if (firstKey !== undefined) {
-        cursorCache.delete(firstKey);
+    return;
+  }
+
+  switch (descriptor.shape) {
+    case BrushShape.ROUND:
+      ctx.arc(centerX, centerY, Math.max(0.5, (Math.min(screenWidth, screenHeight) - 1) / 2), 0, Math.PI * 2);
+      break;
+    case BrushShape.SQUARE:
+    case BrushShape.PIXEL_ROUND:
+    case BrushShape.PIXEL_DITHER:
+    case BrushShape.RECTANGLE_GRADIENT:
+    case BrushShape.RESAMPLER:
+    case BrushShape.MOSAIC:
+    case BrushShape.COLOR_CYCLE:
+      ctx.rect(
+        Math.round(centerX - halfWidth) + lineOffset,
+        Math.round(centerY - halfHeight) + lineOffset,
+        Math.max(1, Math.round(screenWidth) - 1),
+        Math.max(1, Math.round(screenHeight) - 1)
+      );
+      break;
+    case BrushShape.COLOR_CYCLE_TRIANGLE:
+      ctx.moveTo(centerX, centerY - halfHeight);
+      ctx.lineTo(centerX - halfWidth, centerY + halfHeight);
+      ctx.lineTo(centerX + halfWidth, centerY + halfHeight);
+      ctx.closePath();
+      break;
+    case BrushShape.TRIANGLE:
+    case BrushShape.POLYGON_GRADIENT:
+    case BrushShape.COLOR_CYCLE_SHAPE: {
+      const radius = Math.min(screenWidth, screenHeight) / 2;
+      const sides = 6;
+      ctx.moveTo(centerX + radius, centerY);
+      for (let i = 1; i <= sides; i += 1) {
+        const angle = (i * 2 * Math.PI) / sides;
+        ctx.lineTo(centerX + radius * Math.cos(angle), centerY + radius * Math.sin(angle));
       }
+      ctx.closePath();
+      break;
     }
-    cursorCache.set(cacheKey, dataUrl);
-    return dataUrl;
-  }, [descriptor, screenHeight, screenWidth]);
+  }
+
+  ctx.stroke();
 };
 
 const BrushCursorComponent = ({
@@ -117,120 +129,129 @@ const BrushCursorComponent = ({
   zoom,
   visible,
 }: BrushCursorProps, ref: React.Ref<BrushCursorHandle>) => {
-  const cursorRef = useRef<HTMLDivElement>(null);
-  const customCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastPaintedRectRef = useRef<CursorRect | null>(null);
+  const dprRef = useRef(1);
+  const lastZoomRef = useRef<number | null>(null);
+  const lastVisibleRef = useRef<boolean | null>(null);
 
-  const isCustomBrushCursor = descriptor.kind === 'custom-brush';
-  const customImageData =
-    descriptor.kind === 'custom-brush' ? descriptor.imageData : undefined;
-  const baseCursorWidth = Math.max(
-    1,
-    isCustomBrushCursor ? descriptor.pixelWidth : descriptor.pixelSize
-  );
-  const baseCursorHeight = Math.max(
-    1,
-    isCustomBrushCursor ? descriptor.pixelHeight : descriptor.pixelSize
-  );
-  const screenWidth = Math.max(4, baseCursorWidth * zoom);
-  const screenHeight = Math.max(4, baseCursorHeight * zoom);
-  const cursorDataURL = useCursorAssetDataURL(descriptor, screenWidth, screenHeight);
-
-  useEffect(() => {
-    if (!isCustomBrushCursor) {
-      return;
-    }
-
-    const canvas = customCanvasRef.current;
+  const paintCursor = useCallback(() => {
+    const canvas = canvasRef.current;
     if (!canvas) {
       return;
     }
-
-    const imageData = customImageData;
-    const width = imageData?.width ?? 1;
-    const height = imageData?.height ?? 1;
-
-    canvas.width = width;
-    canvas.height = height;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       return;
     }
 
-    ctx.clearRect(0, 0, width, height);
-    if (imageData) {
-      ctx.putImageData(imageData, 0, 0);
+    const width = canvas.width / dprRef.current;
+    const height = canvas.height / dprRef.current;
+    ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
+    const shouldClearWholeCanvas =
+      lastZoomRef.current !== zoom || lastVisibleRef.current !== visible;
+
+    if (shouldClearWholeCanvas) {
+      ctx.clearRect(0, 0, width, height);
+      lastPaintedRectRef.current = null;
     }
-  }, [customImageData, isCustomBrushCursor]);
 
-  const applyTransform = useCallback((screenX: number, screenY: number) => {
-    lastPositionRef.current = { x: screenX, y: screenY };
-    const element = cursorRef.current;
-    if (!element) return;
+    const previousRect = lastPaintedRectRef.current;
+    if (previousRect) {
+      ctx.clearRect(previousRect.x, previousRect.y, previousRect.width, previousRect.height);
+      lastPaintedRectRef.current = null;
+    }
 
-    const halfWidth = Math.ceil(screenWidth) / 2;
-    const halfHeight = Math.ceil(screenHeight) / 2;
-    element.style.transform = `translate(${screenX - halfWidth}px, ${screenY - halfHeight}px)`;
-  }, [screenHeight, screenWidth]);
+    lastZoomRef.current = zoom;
+    lastVisibleRef.current = visible;
+
+    if (!visible) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const centerX = lastPositionRef.current.x - rect.left;
+    const centerY = lastPositionRef.current.y - rect.top;
+    const { width: screenWidth, height: screenHeight } =
+      getCursorScreenDimensions(descriptor, zoom);
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.imageSmoothingEnabled = false;
+
+    drawShapeCursor(ctx, descriptor, centerX, centerY, screenWidth, screenHeight);
+    lastPaintedRectRef.current = getCursorRect(centerX, centerY, screenWidth, screenHeight);
+  }, [descriptor, visible, zoom]);
+
+  const resizeCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const nextDpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
+    const nextWidth = Math.max(1, Math.round(rect.width * nextDpr));
+    const nextHeight = Math.max(1, Math.round(rect.height * nextDpr));
+
+    dprRef.current = nextDpr;
+    if (canvas.width !== nextWidth) {
+      canvas.width = nextWidth;
+    }
+    if (canvas.height !== nextHeight) {
+      canvas.height = nextHeight;
+    }
+    lastPaintedRectRef.current = null;
+
+    paintCursor();
+  }, [paintCursor]);
 
   useImperativeHandle(ref, () => ({
     setPosition: (screenX: number, screenY: number) => {
-      applyTransform(screenX, screenY);
-    }
-  }), [applyTransform]);
+      lastPositionRef.current = { x: screenX, y: screenY };
+      paintCursor();
+    },
+  }), [paintCursor]);
 
   useLayoutEffect(() => {
-    if (!visible) return;
-    const { x, y } = lastPositionRef.current;
-    applyTransform(x, y);
-  }, [applyTransform, visible]);
+    resizeCanvas();
 
-  if (!visible) return null;
+    if (typeof ResizeObserver === 'undefined') {
+      return undefined;
+    }
 
-  if (isCustomBrushCursor) {
-    return (
-      <div
-        ref={cursorRef}
-        className="pointer-events-none fixed"
-        style={{
-          left: 0,
-          top: 0,
-          width: `${Math.ceil(screenWidth)}px`,
-          height: `${Math.ceil(screenHeight)}px`,
-          zIndex: 1000,
-          mixBlendMode: 'difference',
-          outline: '1px solid white',
-          outlineOffset: '1px',
-        }}
-      >
-        <canvas
-          ref={customCanvasRef}
-          className="block h-full w-full"
-          style={{ imageRendering: 'pixelated' }}
-        />
-      </div>
-    );
-  }
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return undefined;
+    }
 
-  // Render the fast, pre-baked cursor image for default brushes
+    const observer = new ResizeObserver(() => {
+      resizeCanvas();
+    });
+    observer.observe(canvas);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [resizeCanvas]);
+
+  useLayoutEffect(() => {
+    paintCursor();
+  }, [paintCursor]);
+
   return (
-    <div
-      ref={cursorRef}
-      className="pointer-events-none fixed"
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0"
       style={{
-        left: 0,
-        top: 0,
-        width: `${Math.ceil(screenWidth)}px`,
-        height: `${Math.ceil(screenHeight)}px`,
-        zIndex: 1000,
-        mixBlendMode: 'difference',
+        width: '100%',
+        height: '100%',
         imageRendering: 'pixelated',
-        backgroundImage: cursorDataURL ? `url(${cursorDataURL})` : 'none',
-        backgroundSize: 'contain',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center',
+        zIndex: 1000,
       }}
+      aria-hidden="true"
     />
   );
 };
