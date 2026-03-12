@@ -142,6 +142,7 @@ describe('tools slice', () => {
     store.setBrushSettings({
       pressureLinkedFillResolution: true,
       fillResolution: 137,
+      pressureLinkedFillMaxResolution: 222,
       pressureDitherSmoosh: true,
     });
 
@@ -150,6 +151,7 @@ describe('tools slice', () => {
       expect.objectContaining({
         pressureLinkedFillResolution: true,
         fillResolution: 137,
+        pressureLinkedFillMaxResolution: 222,
         pressureDitherSmoosh: true,
       })
     );
@@ -157,6 +159,7 @@ describe('tools slice', () => {
       expect.objectContaining({
         pressureLinkedFillResolution: true,
         fillResolution: 137,
+        pressureLinkedFillMaxResolution: 222,
         pressureDitherSmoosh: true,
       })
     );

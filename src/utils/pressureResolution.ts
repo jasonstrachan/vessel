@@ -20,6 +20,17 @@ export const createPressureResolutionState = (
   lastTime: 0,
 });
 
+export const resolvePressureLinkedFillMaxResolution = ({
+  fillResolution,
+  pressureLinkedFillMaxResolution,
+}: {
+  fillResolution?: number;
+  pressureLinkedFillMaxResolution?: number;
+}): number => {
+  const preferred = pressureLinkedFillMaxResolution ?? fillResolution ?? PRESSURE_RESOLUTION_MIN_PX;
+  return Math.max(PRESSURE_RESOLUTION_MIN_PX, Math.round(preferred || PRESSURE_RESOLUTION_MIN_PX));
+};
+
 /**
  * Pressure-linked fill resolution with smoothing and hysteresis.
  * 0% pressure -> 1px, 100% pressure -> maxResolution (defaults to sliderValue).

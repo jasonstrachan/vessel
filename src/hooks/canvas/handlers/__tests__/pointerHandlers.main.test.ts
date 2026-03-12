@@ -297,6 +297,23 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setCursorStyle).not.toHaveBeenCalled();
   });
 
+  it('blurs focused editable controls before processing canvas pointer down', () => {
+    const { deps } = createDeps();
+    const handlers = createPointerHandlers(deps);
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    const blurSpy = jest.spyOn(input, 'blur');
+
+    handlers.handlePointerDown(makePointerEvent());
+
+    expect(blurSpy).toHaveBeenCalled();
+
+    blurSpy.mockRestore();
+    input.remove();
+  });
+
   it('does not bootstrap stroke from pointermove while busy', () => {
     const { deps } = createDeps();
     deps.isBusyRef.current = true;

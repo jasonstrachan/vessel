@@ -1179,7 +1179,8 @@ export const pixelDitherPreset: BrushPreset = {
     ditherStrokeTipShape: 'round',
     lostEdge: 0,
     pressureLinkedFillResolution: true,
-    fillResolution: 28
+    fillResolution: 28,
+    pressureLinkedFillMaxResolution: 28,
   }
 };
 
@@ -1213,7 +1214,8 @@ export const shapeDitherPreset: BrushPreset = {
     pxlEdge: true,
     shapeEnabled: true,
     pressureLinkedFillResolution: true,
-    fillResolution: 28
+    fillResolution: 28,
+    pressureLinkedFillMaxResolution: 28,
   }
 };
 

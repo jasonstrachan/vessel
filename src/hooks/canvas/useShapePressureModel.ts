@@ -55,6 +55,7 @@ export const useShapePressureModel = ({
     return computeShapePixelSizeExternal({
       pressure,
       baseResolution: base,
+      maxResolution: settings.pressureLinkedFillMaxResolution,
       pressureLinked: Boolean(settings.pressureLinkedFillResolution),
       stateRef: shapePixelResStateRef,
     });
