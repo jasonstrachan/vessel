@@ -2,7 +2,6 @@ import type React from 'react';
 import {
   computePressureResolution,
   createPressureResolutionState,
-  PRESSURE_RESOLUTION_MAX_PX,
 } from '@/utils/pressureResolution';
 
 export type ShapePressureRefs = {
@@ -106,7 +105,7 @@ export const computeShapePixelSize = ({
     true,
     stateRef.current,
     undefined,
-    PRESSURE_RESOLUTION_MAX_PX
+    baseResolution
   );
 };
 

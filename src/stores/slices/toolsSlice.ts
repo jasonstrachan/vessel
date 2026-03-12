@@ -752,7 +752,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
          
     // Store brush settings to save for later
-    let brushSettingsToSave: { brushId: string; settings: Partial<BrushSettings> } | null = null;
+    let brushSettingsToSave: Array<{ brushId: string; settings: Partial<BrushSettings> }> = [];
     
     if (currentBrushId) {
       // Get existing saved settings for this brush
@@ -965,7 +965,35 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         settingsToSave.colorCycleGradientVersion = newSettings.colorCycleGradientVersion;
       }
       
-      brushSettingsToSave = { brushId: currentBrushId, settings: settingsToSave };
+      brushSettingsToSave = [{ brushId: currentBrushId, settings: settingsToSave }];
+
+      if (DITHER_BRUSH_IDS.includes(currentBrushId)) {
+        const mirroredDitherSettings: Partial<BrushSettings> = {};
+
+        if (settings.fillResolution !== undefined) {
+          mirroredDitherSettings.fillResolution = settingsToSave.fillResolution;
+        }
+        if (settings.pressureLinkedFillResolution !== undefined) {
+          mirroredDitherSettings.pressureLinkedFillResolution =
+            settingsToSave.pressureLinkedFillResolution;
+        }
+        if (settings.pressureDitherSmoosh !== undefined) {
+          mirroredDitherSettings.pressureDitherSmoosh = settingsToSave.pressureDitherSmoosh;
+        }
+
+        if (Object.keys(mirroredDitherSettings).length > 0) {
+          const siblingDitherBrushIds = DITHER_BRUSH_IDS.filter((id) => id !== currentBrushId);
+          brushSettingsToSave.push(
+            ...siblingDitherBrushIds.map((brushId) => ({
+              brushId,
+              settings: {
+                ...(state.brushSpecificSettings[brushId] || {}),
+                ...mirroredDitherSettings,
+              },
+            }))
+          );
+        }
+      }
     }
     
     // Handle brush-specific resource cleanup when switching between custom and regular brushes
@@ -1087,12 +1115,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     
     
     // Apply brush settings save if needed (avoid circular dependency)
-    if (brushSettingsToSave) {
+    if (brushSettingsToSave.length > 0) {
       updatedState = {
         ...updatedState,
         brushSpecificSettings: {
           ...updatedState.brushSpecificSettings,
-          [brushSettingsToSave.brushId]: brushSettingsToSave.settings
+          ...Object.fromEntries(
+            brushSettingsToSave.map(({ brushId, settings }) => [brushId, settings])
+          ),
         }
       };
     }

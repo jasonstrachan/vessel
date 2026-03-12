@@ -2,6 +2,7 @@ import React from 'react';
 import Dropdown from '../ui/Dropdown';
 import ProgressSlider from '../ui/ProgressSlider';
 import CustomSwitch from '../ui/CustomSwitch';
+import Input from '../ui/Input';
 import type { BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import type { DitherAlgorithm } from '@/utils/ditherAlgorithms';
@@ -67,6 +68,7 @@ export const DitherControls: React.FC<Props> = ({
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
   const showLostEdge = !hideLostEdge || settings.brushShape === BrushShape.PIXEL_DITHER;
+  const isPressureLinked = Boolean(settings.pressureLinkedFillResolution);
 
   return (
     <div className="mb-2">
@@ -127,7 +129,7 @@ export const DitherControls: React.FC<Props> = ({
                 max={64}
                 step={1}
                 onChange={(value) => onChange({ fillResolution: Math.max(1, Math.round(value)) })}
-                disabled={Boolean(settings.pressureLinkedFillResolution && isDitherPreset)}
+                disabled={Boolean(isPressureLinked && isDitherPreset)}
                 aria-label="Dither Resolution"
                 className="flex-1"
               />
@@ -145,6 +147,30 @@ export const DitherControls: React.FC<Props> = ({
               onChange={(checked) => onChange({ pressureLinkedFillResolution: checked })}
               aria-label="Pressure-linked Resolution"
             />
+            {isPressureLinked && (
+              <>
+                <label className="text-[#D9D9D9] text-xs ml-2" style={labelStyle}>
+                Max
+                </label>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={settings.fillResolution || 1}
+                  min={1}
+                  max={999}
+                  step={1}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (!Number.isFinite(next)) {
+                      return;
+                    }
+                    onChange({ fillResolution: Math.max(1, Math.min(999, Math.round(next))) });
+                  }}
+                  aria-label="Pressure-linked Max Pixel Size"
+                  className="w-16"
+                />
+              </>
+            )}
           </div>
 
           {afterPresRes ? <div className="mt-2">{afterPresRes}</div> : null}
