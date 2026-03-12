@@ -24,6 +24,7 @@ export const useShapePressureResetEffects = ({
   useEffect(() => {
     const selector = (state: AppState) => ({
       fillResolution: state.tools.brushSettings.fillResolution,
+      pressureLinkedFillMaxResolution: state.tools.brushSettings.pressureLinkedFillMaxResolution,
       pressureLinkedFillResolution: state.tools.brushSettings.pressureLinkedFillResolution,
     });
 
@@ -33,8 +34,11 @@ export const useShapePressureResetEffects = ({
       const pressureToggled =
         next.pressureLinkedFillResolution !== prev.pressureLinkedFillResolution;
       const fillResolutionChanged = next.fillResolution !== prev.fillResolution;
+      const maxResolutionChanged =
+        next.pressureLinkedFillMaxResolution !== prev.pressureLinkedFillMaxResolution;
       const shouldReset =
         pressureToggled ||
+        (maxResolutionChanged && next.pressureLinkedFillResolution) ||
         (fillResolutionChanged && !next.pressureLinkedFillResolution);
 
       if (shouldReset) {

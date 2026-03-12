@@ -57,7 +57,7 @@ export const DitherControls: React.FC<Props> = ({
   forceOn = false,
   hideToggle = false,
   compact = false,
-  isDitherPreset = false,
+  isDitherPreset: _isDitherPreset = false,
   beforeResolution,
   afterPresRes,
   afterResolution,
@@ -65,10 +65,15 @@ export const DitherControls: React.FC<Props> = ({
   hideResolution = false,
   showPxlEdgeToggle = false
 }) => {
+  void _isDitherPreset;
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
   const showLostEdge = !hideLostEdge || settings.brushShape === BrushShape.PIXEL_DITHER;
   const isPressureLinked = Boolean(settings.pressureLinkedFillResolution);
+  const pressureLinkedMaxResolution = Math.max(
+    1,
+    Math.round(settings.pressureLinkedFillMaxResolution ?? settings.fillResolution ?? 1)
+  );
 
   return (
     <div className="mb-2">
@@ -129,7 +134,7 @@ export const DitherControls: React.FC<Props> = ({
                 max={64}
                 step={1}
                 onChange={(value) => onChange({ fillResolution: Math.max(1, Math.round(value)) })}
-                disabled={Boolean(isPressureLinked && isDitherPreset)}
+                disabled={isPressureLinked}
                 aria-label="Dither Resolution"
                 className="flex-1"
               />
@@ -144,7 +149,12 @@ export const DitherControls: React.FC<Props> = ({
             </label>
             <CustomSwitch
               checked={Boolean(settings.pressureLinkedFillResolution)}
-              onChange={(checked) => onChange({ pressureLinkedFillResolution: checked })}
+              onChange={(checked) => onChange({
+                pressureLinkedFillResolution: checked,
+                ...(checked && settings.pressureLinkedFillMaxResolution === undefined
+                  ? { pressureLinkedFillMaxResolution: Math.max(1, Math.round(settings.fillResolution || 1)) }
+                  : {}),
+              })}
               aria-label="Pressure-linked Resolution"
             />
             {isPressureLinked && (
@@ -155,7 +165,7 @@ export const DitherControls: React.FC<Props> = ({
                 <Input
                   type="number"
                   variant="compact"
-                  value={settings.fillResolution || 1}
+                  value={pressureLinkedMaxResolution}
                   min={1}
                   max={999}
                   step={1}
@@ -164,7 +174,9 @@ export const DitherControls: React.FC<Props> = ({
                     if (!Number.isFinite(next)) {
                       return;
                     }
-                    onChange({ fillResolution: Math.max(1, Math.min(999, Math.round(next))) });
+                    onChange({
+                      pressureLinkedFillMaxResolution: Math.max(1, Math.min(999, Math.round(next))),
+                    });
                   }}
                   aria-label="Pressure-linked Max Pixel Size"
                   className="w-16"

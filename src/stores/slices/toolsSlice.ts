@@ -213,6 +213,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorCycleStampDitherClears: settings.colorCycleStampDitherClears,
   colorCycleStampDitherPressureLinked: settings.colorCycleStampDitherPressureLinked,
   pressureLinkedFillResolution: settings.pressureLinkedFillResolution,
+  pressureLinkedFillMaxResolution: settings.pressureLinkedFillMaxResolution,
   pressureDitherSmoosh: settings.pressureDitherSmoosh,
   pigmentLiftEnabled: settings.pigmentLiftEnabled,
   pigmentLiftStrength: settings.pigmentLiftStrength,
@@ -840,6 +841,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.pressureLinkedFillResolution !== undefined) {
         settingsToSave.pressureLinkedFillResolution = newSettings.pressureLinkedFillResolution;
       }
+      if (settings.pressureLinkedFillMaxResolution !== undefined) {
+        settingsToSave.pressureLinkedFillMaxResolution =
+          newSettings.pressureLinkedFillMaxResolution;
+      }
       if (settings.pressureDitherSmoosh !== undefined) {
         settingsToSave.pressureDitherSmoosh = newSettings.pressureDitherSmoosh;
       }
@@ -976,6 +981,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         if (settings.pressureLinkedFillResolution !== undefined) {
           mirroredDitherSettings.pressureLinkedFillResolution =
             settingsToSave.pressureLinkedFillResolution;
+        }
+        if (settings.pressureLinkedFillMaxResolution !== undefined) {
+          mirroredDitherSettings.pressureLinkedFillMaxResolution =
+            settingsToSave.pressureLinkedFillMaxResolution;
         }
         if (settings.pressureDitherSmoosh !== undefined) {
           mirroredDitherSettings.pressureDitherSmoosh = settingsToSave.pressureDitherSmoosh;

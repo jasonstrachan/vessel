@@ -25,6 +25,7 @@ import {
 import {
   computePressureResolution,
   createPressureResolutionState,
+  resolvePressureLinkedFillMaxResolution,
   type PressureResolutionState,
 } from '@/utils/pressureResolution';
 import {
@@ -3160,7 +3161,10 @@ export const createShapeToolHandler = (
                       ),
                       ditherGradPreviewState.resState,
                       undefined,
-                      Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 1))
+                      resolvePressureLinkedFillMaxResolution({
+                        fillResolution: tools.brushSettings.fillResolution,
+                        pressureLinkedFillMaxResolution: tools.brushSettings.pressureLinkedFillMaxResolution,
+                      })
                     );
 
                   if (!ditherGradPreviewState.origin) {

@@ -164,7 +164,12 @@ describe('DitherControls wiring', () => {
     const onChange = jest.fn();
     render(
       <DitherControls
-        settings={{ ...baseSettings, pressureLinkedFillResolution: true, fillResolution: 4 }}
+        settings={{
+          ...baseSettings,
+          pressureLinkedFillResolution: true,
+          fillResolution: 4,
+          pressureLinkedFillMaxResolution: 9,
+        }}
         onChange={onChange}
         forceOn
         hideToggle
@@ -172,12 +177,13 @@ describe('DitherControls wiring', () => {
     );
 
     const resolutionSlider = screen.getByLabelText('Dither Resolution') as HTMLInputElement;
-    expect(resolutionSlider.disabled).toBe(false);
+    expect(resolutionSlider.disabled).toBe(true);
     const slider = screen.getByLabelText('Pressure-linked Max Pixel Size') as HTMLInputElement;
     expect(slider).toBeInTheDocument();
+    expect(slider.value).toBe('9');
 
     fireEvent.change(slider, { target: { value: '7' } });
-    expect(onChange).toHaveBeenCalledWith({ fillResolution: 7 });
+    expect(onChange).toHaveBeenCalledWith({ pressureLinkedFillMaxResolution: 7 });
   });
 
   it('shows lost edge slider for dither gradient brush and wires updates', () => {

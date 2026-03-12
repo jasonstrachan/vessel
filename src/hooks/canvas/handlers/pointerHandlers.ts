@@ -239,6 +239,28 @@ const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
   brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
   brushShape === BrushShape.SHAPE_FILL;
 
+const blurFocusedEditableElement = (): void => {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) {
+    return;
+  }
+
+  const tagName = active.tagName;
+  const isEditable =
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT' ||
+    active.isContentEditable;
+
+  if (isEditable) {
+    active.blur();
+  }
+};
+
 export const shouldAllowOutOfBoundsPointerDown = (
   tools: EventHandlerDynamicDeps['tools'],
   brushPresetId: string | null
@@ -1877,6 +1899,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   );
 
   const handlePointerDown = (event: React.PointerEvent<Element>) => {
+    blurFocusedEditableElement();
     suppressBootstrapUntilPointerUpRef.current = false;
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =

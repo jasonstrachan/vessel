@@ -25,6 +25,7 @@ import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import {
   computePressureResolution,
   createPressureResolutionState,
+  resolvePressureLinkedFillMaxResolution,
   type PressureResolutionState,
 } from '@/utils/pressureResolution';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
@@ -349,7 +350,11 @@ export const useBrushEngineSimplified = () => {
   // Reset pressure-linked resolution caches whenever the mode toggles
   useEffect(() => {
     runResetPressureDitherRuntime(false);
-  }, [tools.brushSettings.pressureLinkedFillResolution, runResetPressureDitherRuntime]);
+  }, [
+    tools.brushSettings.pressureLinkedFillMaxResolution,
+    tools.brushSettings.pressureLinkedFillResolution,
+    runResetPressureDitherRuntime,
+  ]);
 
   const layerHasAnyAlpha = useCallback(() => {
     return detectLayerHasAnyAlpha({
@@ -613,15 +618,24 @@ export const useBrushEngineSimplified = () => {
   }, [isDitherPreset, shouldApplyStrokeDither, tools.brushSettings.ditherBackgroundFill]);
 
   const computePressureScaledResolution = useCallback((pressure: number) => {
+    const baseResolution = tools.brushSettings.fillResolution || 1;
+    const maxResolution = resolvePressureLinkedFillMaxResolution({
+      fillResolution: baseResolution,
+      pressureLinkedFillMaxResolution: tools.brushSettings.pressureLinkedFillMaxResolution,
+    });
     return computePressureResolution(
-      tools.brushSettings.fillResolution || 1,
+      baseResolution,
       pressure,
       tools.brushSettings.pressureLinkedFillResolution ?? false,
       strokePressureResStateRef.current,
       undefined,
-      tools.brushSettings.fillResolution || 1
+      maxResolution
     );
-  }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
+  }, [
+    tools.brushSettings.fillResolution,
+    tools.brushSettings.pressureLinkedFillMaxResolution,
+    tools.brushSettings.pressureLinkedFillResolution,
+  ]);
 
   const updateStrokePresResPressure = useCallback((pressure: number, now: number) => {
     updateStrokePresResPressureController({

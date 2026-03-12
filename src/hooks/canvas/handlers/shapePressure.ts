@@ -2,6 +2,7 @@ import type React from 'react';
 import {
   computePressureResolution,
   createPressureResolutionState,
+  resolvePressureLinkedFillMaxResolution,
 } from '@/utils/pressureResolution';
 
 export type ShapePressureRefs = {
@@ -88,24 +89,30 @@ export const shapePressureDebugEnabled = (): boolean => {
 export const computeShapePixelSize = ({
   pressure,
   baseResolution,
+  maxResolution,
   pressureLinked,
   stateRef,
 }: {
   pressure: number;
   baseResolution: number;
+  maxResolution?: number;
   pressureLinked: boolean;
   stateRef: React.MutableRefObject<ReturnType<typeof createPressureResolutionState>>;
 }): number => {
   if (!pressureLinked) {
     return computePressureResolution(baseResolution, Math.max(0, Math.min(1, pressure)), false);
   }
+  const resolvedMax = resolvePressureLinkedFillMaxResolution({
+    fillResolution: baseResolution,
+    pressureLinkedFillMaxResolution: maxResolution,
+  });
   return computePressureResolution(
     baseResolution,
     Math.max(0, Math.min(1, pressure)),
     true,
     stateRef.current,
     undefined,
-    baseResolution
+    resolvedMax
   );
 };
 
