@@ -24,6 +24,21 @@ describe('ui slice', () => {
     expect(useAppStore.getState().ui.modals.export).toBe(true);
   });
 
+  it('toggles and clamps visible grid settings', () => {
+    const store = useAppStore.getState();
+
+    expect(store.ui.grid.enabled).toBe(false);
+    expect(store.ui.grid.rows).toBe(8);
+    expect(store.ui.grid.columns).toBe(8);
+
+    store.toggleGrid();
+    expect(useAppStore.getState().ui.grid.enabled).toBe(true);
+
+    store.setGridDimensions({ rows: 0, columns: 999 });
+    expect(useAppStore.getState().ui.grid.rows).toBe(1);
+    expect(useAppStore.getState().ui.grid.columns).toBe(128);
+  });
+
   it('manages keyboard scope stack', () => {
     const store = useAppStore.getState();
     expect(store.ui.keyboardScope.active).toBe('canvas');
