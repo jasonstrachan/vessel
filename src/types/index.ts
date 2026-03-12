@@ -669,6 +669,11 @@ export interface UIState {
     loadProject: boolean;
   };
   theme: 'dark' | 'light';
+  grid: {
+    enabled: boolean;
+    rows: number;
+    columns: number;
+  };
   notifications: Notification[];
   keyboardScope: KeyboardScopeState;
 }

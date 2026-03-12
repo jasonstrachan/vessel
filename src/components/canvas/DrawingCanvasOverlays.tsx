@@ -1,7 +1,9 @@
 import type { Tool } from '@/types';
 import CropOverlay from './CropOverlay';
 import FloatingPasteOverlay from './FloatingPasteOverlay';
+import GridOverlay from './GridOverlay';
 import SelectionMarqueeHandles from './SelectionMarqueeHandles';
+import { useAppStore } from '@/stores/useAppStore';
 
 interface DrawingCanvasOverlaysProps {
   project: { width: number; height: number } | null;
@@ -23,47 +25,68 @@ export const DrawingCanvasOverlays = ({
   currentTool,
   isSpacePressed,
   displayProjectName,
-}: DrawingCanvasOverlaysProps) => (
-  <>
-    {project && floatingPaste ? (
-      <FloatingPasteOverlay
-        projectWidth={project.width}
-        projectHeight={project.height}
-        zoom={canvasZoom || 1}
-        offsetX={offsetX}
-        offsetY={offsetY}
-      />
-    ) : null}
+}: DrawingCanvasOverlaysProps) => {
+  const grid = useAppStore((state) => state.ui?.grid ?? {
+    enabled: false,
+    rows: 8,
+    columns: 8,
+  });
 
-    {project ? (
-      <SelectionMarqueeHandles
-        zoom={canvasZoom || 1}
-        offsetX={offsetX}
-        offsetY={offsetY}
-        projectWidth={project.width}
-        projectHeight={project.height}
-      />
-    ) : null}
+  return (
+    <>
+      {project && floatingPaste ? (
+        <FloatingPasteOverlay
+          projectWidth={project.width}
+          projectHeight={project.height}
+          zoom={canvasZoom || 1}
+          offsetX={offsetX}
+          offsetY={offsetY}
+        />
+      ) : null}
 
-    {currentTool === 'crop' && project ? (
-      <CropOverlay
-        active
-        projectWidth={project.width}
-        projectHeight={project.height}
-        zoom={canvasZoom || 1}
-        offsetX={offsetX}
-        offsetY={offsetY}
-        isSpacePressed={isSpacePressed}
-      />
-    ) : null}
+      {project ? (
+        <SelectionMarqueeHandles
+          zoom={canvasZoom || 1}
+          offsetX={offsetX}
+          offsetY={offsetY}
+          projectWidth={project.width}
+          projectHeight={project.height}
+        />
+      ) : null}
 
-    <div className="absolute bottom-4 right-4 flex items-center gap-2 text-[#b5b5b5] text-xs">
-      <div className="bg-black/60 px-2 py-1 rounded max-w-[240px] truncate" title={displayProjectName}>
-        {displayProjectName}
+      {project ? (
+        <GridOverlay
+          enabled={grid.enabled}
+          projectWidth={project.width}
+          projectHeight={project.height}
+          zoom={canvasZoom || 1}
+          offsetX={offsetX}
+          offsetY={offsetY}
+          rows={grid.rows}
+          columns={grid.columns}
+        />
+      ) : null}
+
+      {currentTool === 'crop' && project ? (
+        <CropOverlay
+          active
+          projectWidth={project.width}
+          projectHeight={project.height}
+          zoom={canvasZoom || 1}
+          offsetX={offsetX}
+          offsetY={offsetY}
+          isSpacePressed={isSpacePressed}
+        />
+      ) : null}
+
+      <div className="absolute bottom-4 right-4 flex items-center gap-2 text-[#b5b5b5] text-xs">
+        <div className="bg-black/60 px-2 py-1 rounded max-w-[240px] truncate" title={displayProjectName}>
+          {displayProjectName}
+        </div>
+        <div className="bg-black/60 px-2 py-1 rounded min-w-[58px] text-center">
+          {Math.round((canvasZoom || 1) * 100)}%
+        </div>
       </div>
-      <div className="bg-black/60 px-2 py-1 rounded min-w-[58px] text-center">
-        {Math.round((canvasZoom || 1) * 100)}%
-      </div>
-    </div>
-  </>
-);
+    </>
+  );
+};

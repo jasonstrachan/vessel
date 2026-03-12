@@ -2,6 +2,10 @@ import type { StateCreator } from 'zustand';
 import type { Notification, UIState, KeyboardScope, KeyboardScopeEntry } from '@/types';
 
 const DEFAULT_KEYBOARD_SCOPE: KeyboardScope = 'canvas';
+const DEFAULT_GRID_ROWS = 8;
+const DEFAULT_GRID_COLUMNS = 8;
+const MIN_GRID_DIVISIONS = 1;
+const MAX_GRID_DIVISIONS = 128;
 const KEYBOARD_SCOPE_PRIORITY: readonly KeyboardScope[] = [
   'modal',
   'gradient',
@@ -27,6 +31,13 @@ const resolveActiveKeyboardScope = (stack: KeyboardScopeEntry[]): KeyboardScope 
 
 const createDefaultNotifications = (): Notification[] => [];
 
+const clampGridDivisions = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return MIN_GRID_DIVISIONS;
+  }
+  return Math.max(MIN_GRID_DIVISIONS, Math.min(MAX_GRID_DIVISIONS, Math.round(value)));
+};
+
 export const createDefaultUIState = (): UIState => ({
   panels: {
     leftToolbar: true,
@@ -43,6 +54,11 @@ export const createDefaultUIState = (): UIState => ({
     loadProject: false,
   },
   theme: 'dark',
+  grid: {
+    enabled: false,
+    rows: DEFAULT_GRID_ROWS,
+    columns: DEFAULT_GRID_COLUMNS,
+  },
   notifications: createDefaultNotifications(),
   keyboardScope: {
     active: DEFAULT_KEYBOARD_SCOPE,
@@ -59,6 +75,9 @@ export interface UISlice {
   ui: UIState;
   togglePanel: (panel: PanelKey) => void;
   toggleModal: (modal: ModalKey) => void;
+  toggleGrid: () => void;
+  setGridEnabled: (enabled: boolean) => void;
+  setGridDimensions: (dimensions: Partial<UIState['grid']>) => void;
   setTheme: (theme: UIState['theme']) => void;
   addNotification: (notification: Omit<Notification, 'id'>) => void;
   removeNotification: (id: string) => void;
@@ -85,6 +104,40 @@ export const createUiSlice = (): StateCreator<AppState, [], [], UISlice> => (set
       modals: {
         ...state.ui.modals,
         [modal]: !state.ui.modals[modal],
+      },
+    },
+  })),
+
+  toggleGrid: () => set((state) => ({
+    ui: {
+      ...state.ui,
+      grid: {
+        ...state.ui.grid,
+        enabled: !state.ui.grid.enabled,
+      },
+    },
+  })),
+
+  setGridEnabled: (enabled) => set((state) => ({
+    ui: {
+      ...state.ui,
+      grid: {
+        ...state.ui.grid,
+        enabled,
+      },
+    },
+  })),
+
+  setGridDimensions: (dimensions) => set((state) => ({
+    ui: {
+      ...state.ui,
+      grid: {
+        ...state.ui.grid,
+        ...(typeof dimensions.enabled === 'boolean' ? { enabled: dimensions.enabled } : {}),
+        ...(dimensions.rows !== undefined ? { rows: clampGridDivisions(dimensions.rows) } : {}),
+        ...(dimensions.columns !== undefined
+          ? { columns: clampGridDivisions(dimensions.columns) }
+          : {}),
       },
     },
   })),

@@ -9,13 +9,17 @@ jest.mock('@/utils/toolSwitch', () => ({
 
 type ToolbarStore = {
   tools: { currentTool: string };
+  ui: { grid: { enabled: boolean } };
   saveProject: jest.Mock;
+  toggleGrid: jest.Mock;
   toggleModal: jest.Mock;
 };
 
 const mockStore: ToolbarStore = {
   tools: { currentTool: 'brush' },
+  ui: { grid: { enabled: false } },
   saveProject: jest.fn().mockResolvedValue(undefined),
+  toggleGrid: jest.fn(),
   toggleModal: jest.fn(),
 };
 
@@ -48,6 +52,7 @@ describe('LeftToolbar accessibility', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStore.tools.currentTool = 'brush';
+    mockStore.ui.grid.enabled = false;
   });
 
   it('marks the active tool button as pressed and annotates shortcuts', () => {
@@ -90,5 +95,16 @@ describe('LeftToolbar accessibility', () => {
     await waitFor(() => {
       expect(mockStore.saveProject).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('toggles the grid from the toolbar', () => {
+    render(<LeftToolbar />);
+
+    const gridButton = screen.getByRole('button', { name: /grid/i });
+    expect(gridButton).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(gridButton);
+
+    expect(mockStore.toggleGrid).toHaveBeenCalledTimes(1);
   });
 });

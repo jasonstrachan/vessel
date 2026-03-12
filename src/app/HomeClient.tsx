@@ -6,6 +6,7 @@ import ColorPickerPanel from '@/components/panels/ColorPickerPanel';
 import LayersPanel from '@/components/panels/LayersPanel';
 import AlignmentPanel from '@/components/panels/AlignmentPanel';
 import AnimationControlsPanel from '@/components/panels/AnimationControlsPanel';
+import GridSettingsPanel from '@/components/panels/GridSettingsPanel';
 import BrushLibraryPanel from '@/components/panels/BrushLibraryPanel';
 import BrushSettingsPanel from '@/components/panels/BrushSettingsPanel';
 import DrawingCanvas from '@/components/canvas/DrawingCanvas';
@@ -205,6 +206,7 @@ export default function Home() {
         <div className="flex-1 min-h-0 overflow-hidden">
           <LayersPanel />
         </div>
+        <GridSettingsPanel />
         <AlignmentPanel />
         <AnimationControlsPanel />
       </div>

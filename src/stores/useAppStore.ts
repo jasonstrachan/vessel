@@ -561,6 +561,9 @@ export interface AppState {
   ui: UIState;
   togglePanel: (panel: keyof UIState['panels']) => void;
   toggleModal: (modal: keyof UIState['modals']) => void;
+  toggleGrid: () => void;
+  setGridEnabled: (enabled: boolean) => void;
+  setGridDimensions: (dimensions: Partial<UIState['grid']>) => void;
   setTheme: (theme: 'dark' | 'light') => void;
   addNotification: (notification: Omit<UIState['notifications'][0], 'id'>) => void;
   removeNotification: (id: string) => void;

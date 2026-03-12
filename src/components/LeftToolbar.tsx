@@ -4,6 +4,9 @@ import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
+
+type ToolbarItemId = Tool | 'grid-toggle';
+
 const toolShortcuts: Partial<Record<Tool, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
   custom: { aria: 'KeyC', display: 'C' },
@@ -18,7 +21,7 @@ const toolShortcuts: Partial<Record<Tool, { aria: string; display: string }>> = 
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, saveProject, toggleModal } = useAppStore();
+  const { tools: toolState, ui, saveProject, toggleGrid, toggleModal } = useAppStore();
   const switchTool = useToolSwitcher();
 
   const baseButtonStyle: React.CSSProperties = {
@@ -49,11 +52,12 @@ const LeftToolbar = () => {
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },
       { id: 'load' as Tool, label: 'Load File', abbr: 'Ld' },
       { id: 'export' as Tool, label: 'Export', abbr: 'Ex' },
+      { id: 'grid-toggle' as ToolbarItemId, label: 'Grid', abbr: 'Gd' },
       { id: 'options' as Tool, label: 'Options', abbr: 'St' },
     ],
   ];
 
-  const handleToolClick = async (toolId: Tool) => {
+  const handleToolClick = async (toolId: ToolbarItemId) => {
     if (toolId === 'new-document') {
       toggleModal('document');
     } else if (toolId === 'save') {
@@ -66,6 +70,8 @@ const LeftToolbar = () => {
       toggleModal('loadProject');
     } else if (toolId === 'export' || toolId === 'export-png') {
       toggleModal('export');
+    } else if (toolId === 'grid-toggle') {
+      toggleGrid();
     } else if (toolId === 'options') {
       toggleModal('settings');
     } else {
@@ -89,8 +95,10 @@ const LeftToolbar = () => {
             <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
           )}
           {group.map((tool, toolIndex) => {
-            const isActive = toolState.currentTool === tool.id;
-            const shortcut = toolShortcuts[tool.id]?.display;
+            const isActive = tool.id === 'grid-toggle'
+              ? ui.grid.enabled
+              : toolState.currentTool === tool.id;
+            const shortcut = tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display;
 
             return (
               <React.Fragment key={tool.id}>
@@ -99,8 +107,8 @@ const LeftToolbar = () => {
                   title={shortcut ? `${tool.label} (${shortcut})` : tool.label}
                   aria-label={shortcut ? `${tool.label} (${shortcut})` : tool.label}
                   aria-pressed={isActive}
-                  aria-keyshortcuts={toolShortcuts[tool.id]?.aria}
-                  data-shortcut={toolShortcuts[tool.id]?.display}
+                  aria-keyshortcuts={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.aria}
+                  data-shortcut={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display}
                   type="button"
                   className={`w-[44px] h-10 min-h-[36px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
                   style={baseButtonStyle}
