@@ -173,7 +173,7 @@ describe('GradientEditor', () => {
     expect(borders.some((node) => node.style.borderColor.includes('255, 255, 255'))).toBe(true);
   });
 
-  it('persists edits made to preset dropdown gradients as overrides', () => {
+  it('forks edited preset dropdown gradients into custom entries instead of overriding defaults', () => {
     const { container } = render(
       <GradientEditor
         stops={[
@@ -195,8 +195,9 @@ describe('GradientEditor', () => {
 
     const lastSetItemCall = (window.localStorage.setItem as jest.Mock).mock.calls.at(-1);
     expect(lastSetItemCall).toBeTruthy();
-    const payload = JSON.parse(lastSetItemCall![1] as string) as Array<{ id: string }>;
-    expect(payload.some((entry) => entry.id === 'rainbow')).toBe(true);
+    const payload = JSON.parse(lastSetItemCall![1] as string) as Array<{ id: string; name: string }>;
+    expect(payload.some((entry) => entry.id === 'rainbow')).toBe(false);
+    expect(payload.some((entry) => entry.name === 'Rainbow Copy')).toBe(true);
   });
 
   it('shows matching preset id after restoring stops from props', () => {
@@ -226,5 +227,71 @@ describe('GradientEditor', () => {
 
     expect(window.localStorage.setItem).not.toHaveBeenCalled();
     expect(screen.getByTestId('dropdown-value').textContent).toBe('rainbow');
+  });
+
+  it('ignores stored custom entries that shadow default preset ids', () => {
+    const rainbow = getPresetStops('rainbow');
+    expect(rainbow).toBeTruthy();
+
+    (window.localStorage.getItem as jest.Mock).mockImplementation(() => JSON.stringify([
+      {
+        id: 'rainbow',
+        name: 'Rainbow',
+        stops: [
+          { position: 0, color: '#000000', opacity: 1 },
+          { position: 1, color: '#000000', opacity: 1 },
+        ],
+      },
+    ]));
+
+    render(
+      <GradientEditor
+        stops={(rainbow ?? []).map((stop) => ({ ...stop }))}
+        onChange={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('select-rainbow'));
+    expect(screen.getByTestId('dropdown-value').textContent).toBe('rainbow');
+    expect(window.localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('loads duplicate stored custom gradients with unique ids', () => {
+    (window.localStorage.getItem as jest.Mock).mockImplementation(() => JSON.stringify([
+      {
+        id: 'custom_dup',
+        name: 'Custom A',
+        stops: [
+          { position: 0, color: '#111111', opacity: 1 },
+          { position: 1, color: '#222222', opacity: 1 },
+        ],
+      },
+      {
+        id: 'custom_dup',
+        name: 'Custom B',
+        stops: [
+          { position: 0, color: '#333333', opacity: 1 },
+          { position: 1, color: '#444444', opacity: 1 },
+        ],
+      },
+    ]));
+
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(
+      <GradientEditor
+        stops={[
+          { position: 0, color: '#FF0000' },
+          { position: 1, color: '#00FF00' },
+        ]}
+        onChange={jest.fn()}
+      />
+    );
+
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Encountered two children with the same key')
+    );
+
+    consoleErrorSpy.mockRestore();
   });
 });

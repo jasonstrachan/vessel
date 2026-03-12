@@ -192,6 +192,106 @@ const stopToCssGradientPart = (stop: GradientStop): string => {
   return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha}) ${stop.position * 100}%`;
 };
 
+const DEFAULT_PRESET_ID_SET = new Set(GRADIENT_PRESETS.map((gradient) => gradient.id));
+let gradientIdSequence = 0;
+
+const sanitizeGradientStop = (stop: unknown): GradientStop | null => {
+  if (!stop || typeof stop !== 'object') {
+    return null;
+  }
+
+  const candidate = stop as Partial<GradientStop>;
+  const position = typeof candidate.position === 'number' ? candidate.position : Number.NaN;
+  const color = typeof candidate.color === 'string' ? candidate.color.trim() : '';
+  const opacityRaw =
+    typeof candidate.opacity === 'number'
+      ? candidate.opacity
+      : candidate.opacity === undefined
+        ? 1
+        : Number.NaN;
+
+  if (!Number.isFinite(position) || position < 0 || position > 1 || color.length === 0) {
+    return null;
+  }
+
+  if (!Number.isFinite(opacityRaw)) {
+    return null;
+  }
+
+  return {
+    position,
+    color,
+    opacity: clampAlpha(opacityRaw),
+  };
+};
+
+const sanitizeStoredGradient = (gradient: unknown): SavedGradient | null => {
+  if (!gradient || typeof gradient !== 'object') {
+    return null;
+  }
+
+  const candidate = gradient as Partial<SavedGradient>;
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+  const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+  const stops = Array.isArray(candidate.stops)
+    ? candidate.stops
+      .map(sanitizeGradientStop)
+      .filter((stop): stop is GradientStop => stop !== null)
+      .sort((a, b) => a.position - b.position)
+    : [];
+
+  if (!id || !name || stops.length < 2) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    stops,
+    isDefault: false,
+  };
+};
+
+const createForkedGradientName = (baseName: string, existingGradients: SavedGradient[]): string => {
+  const trimmedBaseName = baseName.trim() || 'Custom';
+  const preferredName = `${trimmedBaseName} Copy`;
+  const existingNames = new Set(existingGradients.map((gradient) => gradient.name));
+
+  if (!existingNames.has(preferredName)) {
+    return preferredName;
+  }
+
+  let suffix = 2;
+  while (existingNames.has(`${preferredName} ${suffix}`)) {
+    suffix += 1;
+  }
+
+  return `${preferredName} ${suffix}`;
+};
+
+const createGradientId = (prefix: 'custom' | 'sampled'): string => {
+  gradientIdSequence += 1;
+  return `${prefix}_${Date.now()}_${gradientIdSequence.toString(36)}`;
+};
+
+const ensureUniqueGradientIds = (gradients: SavedGradient[]): SavedGradient[] => {
+  const seen = new Set<string>();
+
+  return gradients.map((gradient) => {
+    if (!seen.has(gradient.id)) {
+      seen.add(gradient.id);
+      return gradient;
+    }
+
+    const nextId = createGradientId('custom');
+    seen.add(nextId);
+    return {
+      ...gradient,
+      id: nextId,
+    };
+  });
+};
+
 // Load custom gradients from localStorage and merge with defaults
 const loadGradients = (): SavedGradient[] => {
   const defaults = GRADIENT_PRESETS.map(g => ({
@@ -203,18 +303,15 @@ const loadGradients = (): SavedGradient[] => {
   try {
     const stored = localStorage.getItem('vessel_custom_gradients');
     if (stored) {
-      const customGradients = (JSON.parse(stored) as SavedGradient[]).map(g => ({
-        id: g.id,
-        name: g.name,
-        isDefault: false,
-        stops: (g.stops ?? []).map(toGradientStop)
-      }));
-      const customById = new Map(customGradients.map((gradient) => [gradient.id, gradient]));
-      const mergedDefaults = defaults.map((gradient) => customById.get(gradient.id) ?? gradient);
-      const additionalCustom = customGradients.filter(
-        (gradient) => !defaults.some((preset) => preset.id === gradient.id)
-      );
-      return [...mergedDefaults, ...additionalCustom];
+      const parsed = JSON.parse(stored) as unknown;
+      const customGradients = Array.isArray(parsed)
+        ? ensureUniqueGradientIds(parsed
+          .map(sanitizeStoredGradient)
+          .filter((gradient): gradient is SavedGradient => (
+            gradient !== null && !DEFAULT_PRESET_ID_SET.has(gradient.id)
+          )))
+        : [];
+      return [...defaults, ...customGradients];
     }
   } catch (e) {
     console.error('Failed to load gradients:', e);
@@ -496,7 +593,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       if (sampleTarget === 'brush' && pendingSampleAddRef.current) {
         const changedFromStart = nextSig && nextSig !== sampleStartSigRef.current;
         if (changedFromStart) {
-          const newId = `sampled-${Date.now()}`;
+          const newId = createGradientId('sampled');
           const newEntry: SavedGradient = { id: newId, name: 'Sampled', stops: normalized.map(s => ({ ...s })) };
           setSavedGradients(prev => {
             // Avoid duplicates if an identical gradient already exists
@@ -560,9 +657,23 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setSavedGradients(prev => {
       const index = prev.findIndex(g => g.id === selectedGradientId);
       if (index === -1) return prev;
+      const targetGradient = prev[index];
+      if (targetGradient.isDefault) {
+        const newId = createGradientId('custom');
+        const forkedGradient: SavedGradient = {
+          id: newId,
+          name: createForkedGradientName(targetGradient.name, prev),
+          isDefault: false,
+          stops: normalizedStops,
+        };
+        const updated = [...prev, forkedGradient];
+        saveCustomGradients(updated);
+        setSelectedGradientId(newId);
+        return updated;
+      }
       const updated = [...prev];
       updated[index] = {
-        ...prev[index],
+        ...targetGradient,
         isDefault: false,
         stops: normalizedStops
       };
@@ -844,7 +955,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     beginEditSession();
     const existingCustom = savedGradients.filter(g => g.name.startsWith('Custom '));
     const customNumber = existingCustom.length + 1;
-    const newId = `custom_${Date.now()}`;
+    const newId = createGradientId('custom');
     const newGradient: SavedGradient = {
       id: newId,
       name: `Custom ${customNumber}`,
