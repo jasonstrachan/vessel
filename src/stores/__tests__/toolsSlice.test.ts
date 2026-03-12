@@ -133,6 +133,35 @@ describe('tools slice', () => {
     expect(saved?.ditherGradStops).toEqual(['#111111', '#222222']);
   });
 
+  it('keeps pressure-linked dither resolution settings in sync across dither stroke and shape presets', () => {
+    const store = useAppStore.getState();
+    const ditherShapePreset = brushPresets.find((candidate) => candidate.id === 'dither-shape');
+    expect(ditherShapePreset).toBeTruthy();
+    store.setBrushPreset(ditherShapePreset!, true);
+
+    store.setBrushSettings({
+      pressureLinkedFillResolution: true,
+      fillResolution: 137,
+      pressureDitherSmoosh: true,
+    });
+
+    const state = useAppStore.getState();
+    expect(state.brushSpecificSettings['dither-shape']).toEqual(
+      expect.objectContaining({
+        pressureLinkedFillResolution: true,
+        fillResolution: 137,
+        pressureDitherSmoosh: true,
+      })
+    );
+    expect(state.brushSpecificSettings['dither-stroke']).toEqual(
+      expect.objectContaining({
+        pressureLinkedFillResolution: true,
+        fillResolution: 137,
+        pressureDitherSmoosh: true,
+      })
+    );
+  });
+
   it('persists mosaic brush settings per brush', () => {
     const store = useAppStore.getState();
     store.setBrushPreset(mosaicBrushPreset);

@@ -25,7 +25,6 @@ import {
 import {
   computePressureResolution,
   createPressureResolutionState,
-  PRESSURE_RESOLUTION_MAX_PX,
   type PressureResolutionState,
 } from '@/utils/pressureResolution';
 import {
@@ -3161,7 +3160,7 @@ export const createShapeToolHandler = (
                       ),
                       ditherGradPreviewState.resState,
                       undefined,
-                      PRESSURE_RESOLUTION_MAX_PX
+                      Math.max(1, Math.round(tools.brushSettings.fillResolution ?? 1))
                     );
 
                   if (!ditherGradPreviewState.origin) {

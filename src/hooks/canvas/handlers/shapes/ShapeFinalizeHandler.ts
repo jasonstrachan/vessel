@@ -939,8 +939,6 @@ export const finalizeRasterShapeFill = ({
 
         latestShapePixelSizeRef.current = forcedPixelSize;
 
-        const originalFillResolution = state.tools.brushSettings.fillResolution;
-        const originalLinked = state.tools.brushSettings.pressureLinkedFillResolution;
         const settingsForDither: BrushSettings = {
           ...state.tools.brushSettings,
           fillResolution: forcedPixelSize,
@@ -955,34 +953,22 @@ export const finalizeRasterShapeFill = ({
           });
         }
 
-        try {
-          state.setBrushSettings({
-            fillResolution: forcedPixelSize,
-            pressureLinkedFillResolution: false
-          });
-
-          brushEngine.applyStrokeDither(
-            drawCtx,
-            {
-              x: ditherRegion.x,
-              y: ditherRegion.y,
-              width: ditherRegion.width,
-              height: ditherRegion.height
-            },
-            undefined,
-            {
-              mergeExisting: settingsForDither.ditherBackgroundFill !== false,
-              overridePressure: effectivePressure,
-              overridePixelSize: forcedPixelSize,
-              settingsOverride: settingsForDither
-            }
-          );
-        } finally {
-          state.setBrushSettings({
-            fillResolution: originalFillResolution,
-            pressureLinkedFillResolution: originalLinked
-          });
-        }
+        brushEngine.applyStrokeDither(
+          drawCtx,
+          {
+            x: ditherRegion.x,
+            y: ditherRegion.y,
+            width: ditherRegion.width,
+            height: ditherRegion.height
+          },
+          undefined,
+          {
+            mergeExisting: settingsForDither.ditherBackgroundFill !== false,
+            overridePressure: effectivePressure,
+            overridePixelSize: forcedPixelSize,
+            settingsOverride: settingsForDither
+          }
+        );
       }
     } catch (error) {
       logError('Shape dithering failed', error);

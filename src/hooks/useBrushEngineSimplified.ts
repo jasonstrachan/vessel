@@ -25,7 +25,6 @@ import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import {
   computePressureResolution,
   createPressureResolutionState,
-  PRESSURE_RESOLUTION_MAX_PX,
   type PressureResolutionState,
 } from '@/utils/pressureResolution';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
@@ -620,7 +619,7 @@ export const useBrushEngineSimplified = () => {
       tools.brushSettings.pressureLinkedFillResolution ?? false,
       strokePressureResStateRef.current,
       undefined,
-      PRESSURE_RESOLUTION_MAX_PX
+      tools.brushSettings.fillResolution || 1
     );
   }, [tools.brushSettings.fillResolution, tools.brushSettings.pressureLinkedFillResolution]);
 

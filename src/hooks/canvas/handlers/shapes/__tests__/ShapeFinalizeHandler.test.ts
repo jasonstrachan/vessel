@@ -95,6 +95,86 @@ describe('ShapeFinalizeHandler', () => {
     expect(ditherArgs.settingsOverride.color).toBe('#FF00AA');
   });
 
+  it('does not persist temporary pressure-linked dither overrides back to the store on finalize', () => {
+    const applyStrokeDither = jest.fn();
+    const setBrushSettings = jest.fn();
+
+    const liveBrushSettings = {
+      brushShape: BrushShape.PIXEL_DITHER,
+      color: '#000000',
+      ditherEnabled: true,
+      ditherBackgroundFill: true,
+      fillResolution: 11,
+      pressureLinkedFillResolution: true,
+      antialiasing: false,
+      opacity: 1,
+      blendMode: 'source-over',
+    } as unknown as BrushSettings;
+
+    const storeRef = {
+      current: {
+        layers: [],
+        activeLayerId: null,
+        tools: {
+          brushSettings: liveBrushSettings,
+        },
+        setBrushSettings,
+      },
+    } as unknown as React.MutableRefObject<AppState>;
+
+    const drawCtx = {
+      canvas: { width: 64, height: 64 },
+      globalAlpha: 1,
+      globalCompositeOperation: 'source-over',
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'low',
+      fillStyle: '',
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      closePath: jest.fn(),
+      fill: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clearRect: jest.fn(),
+      createPattern: jest.fn(() => null),
+      fillRect: jest.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    finalizeRasterShapeFill({
+      drawCtx,
+      brushEngine: {
+        applyStrokeDither,
+      } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushEngine'],
+      storeRef,
+      liveBrushSettings,
+      shapePoints: [
+        { x: 10, y: 10 },
+        { x: 20, y: 10 },
+        { x: 10, y: 20 },
+      ],
+      ditherGradPoints: null,
+      strokeBoundingBox: null,
+      project: { width: 64, height: 64 },
+      roiPadding: 4,
+      computeAutoSampleStops: jest.fn(() => null),
+      setSharedColorCycleGradient: jest.fn(),
+      computeShapePixelSize: jest.fn(() => 5),
+      hadValidShapePressureRef: { current: true },
+      lastStablePressureRef: { current: 1 },
+      latestShapePixelSizeRef: { current: null },
+      boundingBoxToCaptureRegion: jest.fn(() => ({ x: 0, y: 0, width: 64, height: 64 })),
+      logError: jest.fn(),
+      ccDebug: { on: false, verbose: false },
+    });
+
+    expect(setBrushSettings).not.toHaveBeenCalled();
+    const ditherArgs = applyStrokeDither.mock.calls[0]?.[3];
+    expect(ditherArgs.overridePixelSize).toBe(5);
+    expect(ditherArgs.settingsOverride.fillResolution).toBe(5);
+    expect(ditherArgs.settingsOverride.pressureLinkedFillResolution).toBe(false);
+  });
+
   it('applies transparency-lock mask from layer framebuffer', () => {
     const target = document.createElement('canvas');
     target.width = 2;
