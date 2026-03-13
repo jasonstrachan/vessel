@@ -85,34 +85,32 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
   }, []);
 
   return (
-    <div className="rounded border border-[#3F3F3F] bg-[#232323]">
+    <section aria-labelledby="sequence-controls-heading">
       <button
         type="button"
-        className="w-full px-2.5 py-2 flex items-center justify-between gap-2 text-left"
+        className="w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors py-1"
         onClick={handleToggleExpanded}
         aria-expanded={isExpanded}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-[0.08em] text-[#D0D0D0]">Sequence</span>
-          {isCaptureActive && (
-            <span className="text-[10px] text-[#AFAFAF]">Capturing</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {isExpanded && (
-            <span className="text-[10px] text-[#AFAFAF]">
+        <div className="flex flex-col">
+          <span id="sequence-controls-heading" className="text-sm font-medium text-[#F1F1F6]">
+            Sequence
+          </span>
+          {isExpanded ? (
+            <span className="text-[11px] leading-4 text-[#88888A]">
               Frame {currentFrameDisplay}/{effectiveFrameCount}
+              {isCaptureActive ? ' • Capturing' : ''}
             </span>
-          )}
-          <ChevronRight
-            className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-            aria-hidden
-          />
+          ) : null}
         </div>
+        <ChevronRight
+          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          aria-hidden
+        />
       </button>
 
       {isExpanded && (
-        <div className="p-2.5 pt-0 space-y-2">
+        <div className="mt-1.5 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[10px] text-[#BDBDBD]">
               FPS
@@ -161,7 +159,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
               </span>
             </div>
             <span className="mt-1 block text-[9px] text-[#8F8F8F]">
-              Multiplies playback for Sequence and color-cycle layers.
+              Applies to color-cycle playback only. Sequence playback uses the FPS setting above.
             </span>
           </label>
 
@@ -196,7 +194,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
               <input
                 type="range"
                 min={0.1}
-                max={40}
+                max={80}
                 step={0.1}
                 value={timeSmear}
                 onChange={onTimeSmearChange}
@@ -210,7 +208,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
           </label>
         </div>
       )}
-    </div>
+    </section>
   );
 };
 

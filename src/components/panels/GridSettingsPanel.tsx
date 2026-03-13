@@ -73,7 +73,7 @@ const GridSettingsPanel: React.FC = () => {
   );
 
   return (
-    <section className="bg-[#1A1A1A] border-t border-[#404040] px-2 py-2" aria-labelledby="grid-settings-heading">
+    <section className="bg-[#1A1A1A] border-t border-[#404040] px-4 py-3" aria-labelledby="grid-settings-heading">
       <button
         type="button"
         className="w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors py-1"

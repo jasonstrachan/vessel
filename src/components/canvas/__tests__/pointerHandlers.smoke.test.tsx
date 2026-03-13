@@ -183,6 +183,14 @@ describe('pointerHandlers smoke', () => {
           clickLineSession: { active: false, points: [] },
         },
       },
+      customFreehandCaptureRuntimeRef: {
+        current: {
+          active: false,
+          pointerId: null,
+          points: [],
+          bounds: null,
+        },
+      },
     };
 
     deps.previewSessionIdRef = { current: 0 };

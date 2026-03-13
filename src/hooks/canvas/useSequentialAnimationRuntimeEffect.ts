@@ -12,9 +12,7 @@ import {
 import { setSequentialFrameCacheSnapshot } from '@/lib/sequential/SequentialPerfCounters';
 import { getSequentialLayerRendererStats } from '@/lib/sequential/SequentialLayerRenderer';
 import { logError } from '@/utils/debug';
-import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import {
-  selectPlaybackSpeedScale,
   selectSequentialCaptureActive,
   selectSequentialPlaybackActive,
   useAppStore,
@@ -172,12 +170,7 @@ export const useSequentialAnimationRuntimeEffect = ({
             ? performance.now()
             : Date.now();
         const fps = Math.max(1, state.sequentialRecord.fps);
-        const sliderScale = Math.max(
-          MIN_CC_LAYER_SPEED_SCALE,
-          Math.min(MAX_CC_LAYER_SPEED_SCALE, selectPlaybackSpeedScale(state))
-        );
-        const playbackScale = playbackActive ? sliderScale : 1;
-        const frameDurationMs = 1000 / (fps * playbackScale);
+        const frameDurationMs = 1000 / fps;
 
         let advancedFrames = 0;
         if (shouldAdvanceFrames) {

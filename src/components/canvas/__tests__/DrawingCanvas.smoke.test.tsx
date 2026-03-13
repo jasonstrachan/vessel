@@ -104,6 +104,8 @@ jest.mock('@/stores/useAppStore', () => {
   return {
     useAppStore,
     selectEffectiveColorCyclePlaying: jest.fn(() => false),
+    selectSequentialPlaybackActive: jest.fn(() => false),
+    selectSequentialCaptureActive: jest.fn(() => false),
   };
 });
 
