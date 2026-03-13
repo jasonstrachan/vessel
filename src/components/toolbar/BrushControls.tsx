@@ -394,7 +394,6 @@ const BrushControls = () => {
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
   const setCcGradientSource = useAppStore(state => state.setCcGradientSource);
-  const updateLayer = useAppStore(state => state.updateLayer);
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
   const isColorCycleGradientPreset = currentBrushPresetId === 'color-cycle-gradient';
   const brushSettings = useAppStore(selectBrushSettings);
@@ -667,12 +666,7 @@ const BrushControls = () => {
   const setColorCycleSpeed = React.useCallback((nextRaw: number) => {
     const next = sanitizeBrushColorCycleSpeed(nextRaw);
     setActiveSettings({ colorCycleSpeed: next });
-    if (activeLayer?.layerType === 'color-cycle' && activeLayerId) {
-      updateLayer(activeLayerId, {
-        colorCycleData: { brushSpeed: next, controllerSpeedCps: next },
-      });
-    }
-  }, [activeLayer?.layerType, activeLayerId, setActiveSettings, updateLayer]);
+  }, [setActiveSettings]);
 
   const speedSlider = useCommittedSliderValue(
     activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED,

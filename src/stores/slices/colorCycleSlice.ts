@@ -25,6 +25,7 @@ export type CCReason =
 
 export interface ColorCycleUIState {
   desiredPlaying: boolean;
+  playbackSpeedScale: number;
   suspendDepth: number;
   lastReason?: CCReason;
   recentReasons?: Array<{ reason: CCReason; ts: number }>;
@@ -42,6 +43,7 @@ export interface ColorCycleSlice {
   colorCyclePlayback: ColorCycleUIState;
   playColorCycle: (reason: CCReason) => void;
   pauseColorCycle: (reason: CCReason) => void;
+  setPlaybackSpeedScale: (scale: number) => void;
   suspendColorCycle: (reason: CCReason) => void;
   resumeColorCycle: (reason: CCReason) => void;
   forceResumeColorCycle: (reason: CCReason) => void;
@@ -66,6 +68,26 @@ const appendColorCycleReason = (
   return overflow > 0 ? next.slice(overflow) : next;
 };
 
+const clampPlaybackSpeedScale = (scale: number): number =>
+  Number.isFinite(scale)
+    ? Math.max(0.0005, Math.min(3, scale))
+    : 1;
+
+const applyPlaybackSpeedScale = (state: AppState, scale: number) => ({
+  colorCyclePlayback: {
+    ...state.colorCyclePlayback,
+    playbackSpeedScale: scale,
+  },
+  // Keep runtime playback state and the persisted brush-settings cache in sync.
+  tools: {
+    ...state.tools,
+    brushSettings: {
+      ...state.tools.brushSettings,
+      colorCycleLayerSpeedScale: scale,
+    },
+  },
+});
+
 export const createColorCycleSlice: StateCreator<AppState, [], [], ColorCycleSlice> = (set) => {
   const playColorCycle = (reason: CCReason) => {
     set((state) => ({
@@ -87,6 +109,10 @@ export const createColorCycleSlice: StateCreator<AppState, [], [], ColorCycleSli
         recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason),
       },
     }));
+  };
+
+  const setPlaybackSpeedScale = (scale: number) => {
+    set((state) => applyPlaybackSpeedScale(state, clampPlaybackSpeedScale(scale)));
   };
 
   const suspendColorCycle = (reason: CCReason) => {
@@ -145,12 +171,14 @@ export const createColorCycleSlice: StateCreator<AppState, [], [], ColorCycleSli
   return {
     colorCyclePlayback: {
       desiredPlaying: false,
+      playbackSpeedScale: 1,
       suspendDepth: 0,
       lastReason: 'startup',
       recentReasons: SHOULD_TRACK_COLOR_CYCLE_REASONS ? [] : undefined,
     },
     playColorCycle,
     pauseColorCycle,
+    setPlaybackSpeedScale,
     suspendColorCycle,
     resumeColorCycle,
     forceResumeColorCycle,

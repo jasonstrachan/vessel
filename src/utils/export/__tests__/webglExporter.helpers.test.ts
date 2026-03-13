@@ -9,6 +9,7 @@ const {
   clampExportLayerSpeedScale,
   applyExportPlaybackScale,
   scaleEncodedSpeedBuffer,
+  buildSequentialExportPlayback,
   extractBrushStateFromSavedSnapshot,
   resolveDefBoundSlotPalettes,
   normalizeCanvasSurfaceForExport,
@@ -56,6 +57,34 @@ describe('webglExporter helpers', () => {
     expect(decodeColorCycleSpeedByte(scaledHalf[0])).toBeCloseTo(0.6, 1);
     expect(decodeColorCycleSpeedByte(scaledHalf[1])).toBeCloseTo(0.2, 1);
     expect(scaledHalf[2]).toBe(0);
+  });
+
+  it('keeps sequential export playback timing at the authored fps and duration', () => {
+    expect(
+      buildSequentialExportPlayback({
+        fps: 12,
+        frameCount: 24,
+        durationMs: 2000,
+      })
+    ).toEqual({
+      fps: 12,
+      totalFrames: 24,
+      durationSeconds: 2,
+      perfectLoop: true,
+    });
+
+    expect(
+      buildSequentialExportPlayback({
+        fps: 18,
+        frameCount: 9,
+        durationMs: null,
+      })
+    ).toEqual({
+      fps: 18,
+      totalFrames: 9,
+      durationSeconds: 0.5,
+      perfectLoop: true,
+    });
   });
 
   it('extracts brush state from persisted color-cycle snapshots when no live brush exists', () => {

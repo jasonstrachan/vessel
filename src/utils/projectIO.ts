@@ -29,6 +29,7 @@ import {
   encodeSequentialEventsToChunks,
   type SerializedSequentialStrokeChunkV1,
 } from '@/lib/sequential/SequentialStrokeChunk';
+import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import {
   LEGACY_PROJECT_FILE_EXTENSION,
   LEGACY_PROJECT_FILE_MIME,
@@ -569,6 +570,7 @@ interface SerializedColorCycleLayerData {
   gradientDefIdBuffer?: string;
   isAnimating?: boolean;
   mode?: 'brush' | 'recolor';
+  layerBaseSpeedCps?: number;
   brushSpeed?: number;
   controllerSpeedCps?: number;
   flowMode?: 'forward' | 'reverse' | 'pingpong';
@@ -1157,6 +1159,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       mode: colorCycleData.mode,
       brushSpeed: colorCycleData.brushSpeed,
       controllerSpeedCps: colorCycleData.controllerSpeedCps,
+      layerBaseSpeedCps: colorCycleData.layerBaseSpeedCps,
       flowMode: colorCycleData.flowMode
     };
 
@@ -1525,6 +1528,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       mode: serializedLayer.colorCycleData.mode,
       brushSpeed: serializedLayer.colorCycleData.brushSpeed,
       controllerSpeedCps: serializedLayer.colorCycleData.controllerSpeedCps,
+      layerBaseSpeedCps: serializedLayer.colorCycleData.layerBaseSpeedCps,
       flowMode: serializedLayer.colorCycleData.flowMode,
       brushState: serializedLayer.colorCycleData.brushState,
       canvas: colorCycleCanvas
@@ -2588,9 +2592,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
           requestGradientApply(layer.id, 'project-load');
 
           if (!hasSpeedBuffer) {
-            const controllerSpeed = typeof layer.colorCycleData.controllerSpeedCps === 'number'
-              ? layer.colorCycleData.controllerSpeedCps
-              : layer.colorCycleData.brushSpeed;
+            const controllerSpeed = resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
             if (typeof controllerSpeed === 'number') {
               colorCycleBrush.setSpeed(controllerSpeed);
             } else if (typeof savedBrushState.cycleSpeed === 'number') {
@@ -2678,9 +2680,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         if (layer.colorCycleData.gradient) {
           requestGradientApply(layer.id, 'project-load');
         }
-        const controllerSpeed = typeof layer.colorCycleData.controllerSpeedCps === 'number'
-          ? layer.colorCycleData.controllerSpeedCps
-          : layer.colorCycleData.brushSpeed;
+        const controllerSpeed = resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
         if (typeof controllerSpeed === 'number') {
           try {
             // Legacy fallback for files without per-stroke speed buffers.

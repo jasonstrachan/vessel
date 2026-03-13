@@ -107,6 +107,15 @@ describe('tools slice', () => {
     expect(state.brushSpecificSettings[presetId]?.colorCycleLayerSpeedScale).toBe(0.6);
   });
 
+  it('mirrors playback speed scale into persisted brush settings', () => {
+    const store = useAppStore.getState();
+    store.setPlaybackSpeedScale(0.6);
+
+    const state = useAppStore.getState();
+    expect(state.colorCyclePlayback.playbackSpeedScale).toBe(0.6);
+    expect(state.tools.brushSettings.colorCycleLayerSpeedScale).toBe(0.6);
+  });
+
   it('enables dither background fill by default', () => {
     const store = useAppStore.getState();
     expect(store.tools.brushSettings.ditherBackgroundFill).not.toBe(false);

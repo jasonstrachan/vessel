@@ -5,14 +5,19 @@ import {
   useAppStore,
   selectEffectiveColorCyclePlaying,
   selectColorCycleSuspendDepth,
+  selectPlaybackSpeedScale,
   selectSequentialCaptureActive,
   selectSequentialPlaybackActive,
   selectSequentialRecordState,
 } from '@/stores/useAppStore';
 import {
+  CC_LAYER_SPEED_SCALE_STEP,
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
   MAX_CC_LAYER_SPEED_SCALE,
   MIN_CC_LAYER_SPEED_SCALE,
 } from '@/constants/colorCycle';
+import { sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
+import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import SequentialControlsModule from '@/components/panels/SequentialControlsModule';
 
 const AnimationControlsPanel: React.FC = () => {
@@ -22,10 +27,16 @@ const AnimationControlsPanel: React.FC = () => {
   const setRecordFPS = useAppStore((state) => state.setRecordFPS);
   const setRecordFrameCount = useAppStore((state) => state.setRecordFrameCount);
   const setTimeSmear = useAppStore((state) => state.setTimeSmear);
-  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
-  const ccLayerSpeedScale = useAppStore(
-    (state) => state.tools.brushSettings.colorCycleLayerSpeedScale ?? 1
-  );
+  const setPlaybackSpeedScale = useAppStore((state) => state.setPlaybackSpeedScale);
+  const updateLayer = useAppStore((state) => state.updateLayer);
+  const playbackSpeedScale = useAppStore(selectPlaybackSpeedScale);
+  const activeColorCycleLayer = useAppStore((state) => {
+    const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+    if (!activeLayer || activeLayer.layerType !== 'color-cycle' || activeLayer.colorCycleData?.mode === 'recolor') {
+      return null;
+    }
+    return activeLayer;
+  });
   const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const suspendDepth = useAppStore(selectColorCycleSuspendDepth);
   const sequentialPlaybackActive = useAppStore(selectSequentialPlaybackActive);
@@ -77,20 +88,47 @@ const AnimationControlsPanel: React.FC = () => {
     [setTimeSmear]
   );
 
-  const handleCcLayerSpeedScaleChange = React.useCallback(
+  const handlePlaybackSpeedScaleChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const value = Number(event.target.value);
       if (!Number.isFinite(value)) {
         return;
       }
       const next = Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, value));
-      setBrushSettings({ colorCycleLayerSpeedScale: next });
+      setPlaybackSpeedScale(next);
     },
-    [setBrushSettings]
+    [setPlaybackSpeedScale]
   );
-  const playbackScaleLabel = ccLayerSpeedScale < 0.1
-    ? `${ccLayerSpeedScale.toFixed(3)}x`
-    : `${ccLayerSpeedScale.toFixed(2)}x`;
+  const handleCcBaseSpeedChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (!activeColorCycleLayer) {
+        return;
+      }
+      const next = sanitizeBrushColorCycleSpeed(
+        Number(event.target.value),
+        resolveLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
+      );
+      updateLayer(activeColorCycleLayer.id, {
+        colorCycleData: {
+          ...activeColorCycleLayer.colorCycleData,
+          layerBaseSpeedCps: next,
+        },
+      });
+    },
+    [activeColorCycleLayer, updateLayer]
+  );
+  const playbackScaleLabel = playbackSpeedScale < 0.1
+    ? `${playbackSpeedScale.toFixed(3)}x`
+    : `${playbackSpeedScale.toFixed(2)}x`;
+  const activeCcBaseSpeed = activeColorCycleLayer
+    ? Math.max(
+        CC_LAYER_SPEED_SCALE_STEP,
+        Math.min(
+          MAX_BRUSH_COLOR_CYCLE_SPEED,
+          resolveLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
+        )
+      )
+    : null;
 
   const controlsDisabled = sequentialCaptureActive;
   const currentFrameDisplay = Math.min(
@@ -102,17 +140,19 @@ const AnimationControlsPanel: React.FC = () => {
     <div className="bg-[#1A1A1A] border-t border-[#404040]">
       <div className="px-4 py-3 space-y-3">
         <SequentialControlsModule
-          ccLayerSpeedScale={ccLayerSpeedScale}
           controlsDisabled={controlsDisabled}
+          activeCcBaseSpeed={activeCcBaseSpeed}
           currentFrameDisplay={currentFrameDisplay}
           frameCount={sequentialRecord.frameCount}
           fps={sequentialRecord.fps}
           isCaptureActive={sequentialCaptureActive}
+          playbackSpeedScale={playbackSpeedScale}
           playbackScaleLabel={playbackScaleLabel}
           timeSmear={sequentialRecord.timeSmear}
-          onCcLayerSpeedScaleChange={handleCcLayerSpeedScaleChange}
+          onCcBaseSpeedChange={handleCcBaseSpeedChange}
           onFpsChange={handleFpsChange}
           onFramesChange={handleFramesChange}
+          onPlaybackSpeedScaleChange={handlePlaybackSpeedScaleChange}
           onTimeSmearChange={handleTimeSmearChange}
         />
 

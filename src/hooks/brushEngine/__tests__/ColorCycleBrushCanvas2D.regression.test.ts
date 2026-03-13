@@ -1,6 +1,6 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
-import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { useAppStore } from '@/stores/useAppStore';
 
 type MockContext = CanvasRenderingContext2D & {
@@ -333,16 +333,17 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(violations).toBe(0);
   });
 
-  it('applies speed changes only to newly written pixels', () => {
+  it('rescales existing layer speed bytes when the layer base speed changes', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-speed-write-only';
     brush.setBrushSize(1);
 
     const firstSpeed = 0.2;
-    const secondSpeed = 1.6;
+    const secondBaseSpeed = 1.6;
     const firstExpectedByte = encodeColorCycleSpeedByte(firstSpeed);
-    const secondExpectedByte = encodeColorCycleSpeedByte(secondSpeed);
+    const secondExpectedSpeed = firstSpeed * secondBaseSpeed;
+    const secondExpectedByte = encodeColorCycleSpeedByte(secondExpectedSpeed);
 
     brush.setSpeed(firstSpeed);
     brush.startStroke(layerId);
@@ -364,17 +365,25 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
     expect(afterFirst[firstIndex]).toBe(firstExpectedByte);
 
-    brush.setSpeed(secondSpeed);
+    brush.setLayerBaseSpeed(secondBaseSpeed);
+
+    const afterSecond = animator.getIndexBuffers().spd;
+    if (!afterSecond) {
+      throw new Error('Missing speed buffer after layer speed rescale');
+    }
+    expect(afterSecond[firstIndex]).not.toBe(firstExpectedByte);
+    expect(decodeColorCycleSpeedByte(afterSecond[firstIndex])).toBeCloseTo(secondExpectedSpeed, 1);
+
     brush.startStroke(layerId);
     brush.paint(12, 12, layerId, 1);
     brush.endStroke(layerId);
 
-    const afterSecond = animator.getIndexBuffers().spd;
-    if (!afterSecond) {
+    const afterNewStroke = animator.getIndexBuffers().spd;
+    if (!afterNewStroke) {
       throw new Error('Missing speed buffer after second stroke');
     }
-    expect(afterSecond[firstIndex]).toBe(firstExpectedByte);
-    expect(afterSecond[secondIndex]).toBe(secondExpectedByte);
+    expect(decodeColorCycleSpeedByte(afterNewStroke[firstIndex])).toBeCloseTo(secondExpectedSpeed, 1);
+    expect(afterNewStroke[secondIndex]).toBe(secondExpectedByte);
   });
 
   it('keeps write-speed bytes stable while velocity influences phase progression', () => {

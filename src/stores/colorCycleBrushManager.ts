@@ -11,7 +11,7 @@ import {
 
 type IntervalHandle = ReturnType<typeof setInterval> | number;
 
-type StoreSlice = Pick<AppState, 'tools' | 'layers'>;
+type StoreSlice = Pick<AppState, 'tools' | 'layers' | 'colorCyclePlayback'>;
 
 let storeStateGetter: (() => StoreSlice) | null = null;
 
@@ -53,6 +53,11 @@ const getLayers = (): Layer[] => {
   return storeStateGetter?.().layers ?? [];
 };
 
+const getPlaybackSpeedScale = (): number => {
+  const scale = storeStateGetter?.().colorCyclePlayback?.playbackSpeedScale;
+  return Number.isFinite(scale) ? (scale as number) : 1;
+};
+
 const createCanvasSurface = (width: number, height: number): HTMLCanvasElement => {
   if (typeof document === 'undefined') {
     throw new Error('[ColorCycleBrushManager] document is unavailable to create canvas surfaces');
@@ -66,6 +71,7 @@ const createCanvasSurface = (width: number, height: number): HTMLCanvasElement =
 const buildRegistry = (): ColorCycleBrushManager => {
   const deps: ColorCycleBrushRegistryDeps = {
     getBrushSettings,
+    getPlaybackSpeedScale,
     getLayers,
     createCanvas: createCanvasSurface,
     getBrushClass: getColorCycleBrushCanvas2D,

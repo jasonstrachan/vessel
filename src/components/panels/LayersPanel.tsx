@@ -303,7 +303,7 @@ const LayersPanel: React.FC = () => {
     const durationMs = Math.round((frameCount * 1000) / fps);
 
     const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `SEQ Layer ${layers.filter((layer) => layer.layerType === 'sequential').length + 1}`,
+      name: `Sequence ${layers.filter((layer) => layer.layerType === 'sequential').length + 1}`,
       visible: true,
       opacity: 1,
       blendMode: 'source-over',
@@ -605,10 +605,10 @@ const LayersPanel: React.FC = () => {
         <button
           onClick={handleAddSequentialLayer}
           className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
-          title="Add Animation Layer"
+          title="Add Sequence Layer"
         >
           <Plus size={14} className="text-[#D9D9D9]" />
-          <span>Animation</span>
+          <span>Sequence</span>
         </button>
         <button
           onClick={handleAddColorCycleLayer}
@@ -821,7 +821,7 @@ const LayersPanel: React.FC = () => {
                       </>
                     ) : isSequential ? (
                       <>
-                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>SEQ</span>
+                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>Sequence</span>
                         <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
                           {Math.max(1, Math.round(layer.sequentialData?.frameCount ?? sequentialRecord.frameCount))}f
                         </span>

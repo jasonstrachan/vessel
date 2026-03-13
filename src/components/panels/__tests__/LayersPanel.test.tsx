@@ -625,7 +625,7 @@ describe('LayersPanel interactions', () => {
 
     render(<LayersPanel />);
 
-    fireEvent.click(screen.getByTitle('Add Animation Layer'));
+    fireEvent.click(screen.getByTitle('Add Sequence Layer'));
 
     expect(state.addLayer).toHaveBeenCalledTimes(1);
     const payload = state.addLayer.mock.calls[0]?.[0];

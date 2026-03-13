@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback } from 'react';
 import { BrushShape, type Layer } from '@/types';
-import { useAppStore } from '@/stores/useAppStore';
+import { selectSequentialPlaybackActive, useAppStore, type AppState } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
@@ -32,11 +32,9 @@ export const useDrawingCanvasLayerRendering = ({
 
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
     const activeId = activeLayerId;
-    const storeState = useAppStore.getState() as {
-      activeLayerId?: string | null;
-      sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
-    };
+    const storeState = useAppStore.getState() as AppState;
     const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+    const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
     const isPixelatedDisplay = displayMode === 'pixelated';
     const shouldSmooth = !isPixelatedDisplay && !(
       brushShape === BrushShape.PIXEL_ROUND ||
@@ -95,6 +93,7 @@ export const useDrawingCanvasLayerRendering = ({
           height: project.height,
           frameIndex: sequentialFrameIndex,
           previewEvents,
+          holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
         });
         if (source) {
           try {

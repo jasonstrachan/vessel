@@ -46,6 +46,11 @@ const createLayer = (id: string, layerType: Layer['layerType']): Layer => {
 };
 
 describe('sequentialRecordSlice', () => {
+  it('defaults time smear to 20', () => {
+    const initialState = useAppStore.getInitialState();
+    expect(initialState.sequentialRecord.timeSmear).toBe(20);
+  });
+
   beforeEach(() => {
     useAppStore.setState((state) => ({
       colorCyclePlayback: {

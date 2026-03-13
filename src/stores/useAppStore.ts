@@ -293,6 +293,7 @@ export interface AppState {
   colorCyclePlayback: ColorCycleUIState;
   playColorCycle: (reason: CCReason) => void;
   pauseColorCycle: (reason: CCReason) => void;
+  setPlaybackSpeedScale: (scale: number) => void;
   suspendColorCycle: (reason: CCReason) => void;
   resumeColorCycle: (reason: CCReason) => void;
   forceResumeColorCycle: (reason: CCReason) => void;
@@ -784,6 +785,10 @@ export const useAppStore = createVesselStore<AppState>(
 export const selectColorCyclePlayback = (state: AppState): ColorCycleUIState => state.colorCyclePlayback;
 export const selectColorCycleDesiredPlaying = (state: AppState): boolean =>
   state.colorCyclePlayback.desiredPlaying;
+export const selectPlaybackSpeedScale = (state: AppState): number =>
+  Number.isFinite(state.colorCyclePlayback.playbackSpeedScale)
+    ? state.colorCyclePlayback.playbackSpeedScale
+    : 1;
 export const selectColorCycleSuspendDepth = (state: AppState): number =>
   state.colorCyclePlayback.suspendDepth;
 export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>

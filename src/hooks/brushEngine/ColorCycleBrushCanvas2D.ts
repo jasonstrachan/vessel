@@ -43,9 +43,14 @@ import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import type { CustomBrushColorCycleData, DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
-import { encodeColorCycleSpeedByte, sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
+import {
+  decodeColorCycleSpeedByte,
+  encodeColorCycleSpeedByte,
+  sanitizeBrushColorCycleSpeed,
+} from '@/utils/colorCycleSpeed';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveVelocitySpacingStrength } from '@/utils/velocitySpacing';
+import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 
 type CcCustomStampPerfStats = {
   sourceHit: number;
@@ -242,6 +247,7 @@ type LayerSnapshots = Map<string, ArrayBuffer> | LayerSnapshotEntry[];
 
 interface ColorCycleBrushCanvasState {
   cycleSpeed?: number;
+  layerBaseSpeed?: number;
   playbackSpeedScale?: number;
   fps?: number;
   brushSize?: number;
@@ -270,6 +276,7 @@ type DefPaletteCache = {
 interface ColorCycleBrushCanvasSerialized {
   layers: SerializedLayerState[];
   cycleSpeed: number;
+  layerBaseSpeed?: number;
   playbackSpeedScale?: number;
   fps: number;
   brushSize: number;
@@ -358,6 +365,7 @@ export class ColorCycleBrushCanvas2D {
   // Core settings (match original API)
   private brushSize: number;
   private cycleSpeed: number;
+  private layerBaseSpeed: number;
   private playbackSpeedScale: number;
   private fps: number;
   private gradientBands: number = 12; // Number of color bands in gradients
@@ -531,6 +539,7 @@ export class ColorCycleBrushCanvas2D {
     // Core settings
     this.brushSize = options.brushSize || 20;
     this.cycleSpeed = 0.1;
+    this.layerBaseSpeed = 1;
     this.playbackSpeedScale = 1;
     this.fps = options.fps || 30;
     this.pressureEnabled = false;
@@ -631,7 +640,7 @@ export class ColorCycleBrushCanvas2D {
 
   private createLayerStrokeState(options?: { hasContent?: boolean; bufferSize?: number }): LayerStrokeState {
     const size = Math.max(0, Math.floor(options?.bufferSize ?? this.width * this.height));
-    const initialStrokeCycleSpeed = sanitizeBrushColorCycleSpeed(this.cycleSpeed);
+    const initialStrokeCycleSpeed = this.getResolvedWriteCycleSpeed();
     const initialStrokeSpeedByte = encodeColorCycleSpeedByte(initialStrokeCycleSpeed);
     return {
       hasContent: Boolean(options?.hasContent),
@@ -986,7 +995,19 @@ export class ColorCycleBrushCanvas2D {
     if (hasActiveStrokeSpeed) {
       return strokeData!.strokeCycleSpeed;
     }
-    return Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1;
+    return this.getResolvedWriteCycleSpeed();
+  }
+
+  private getResolvedWriteCycleSpeed(rawSpeed?: number | null): number {
+    const writeSpeed = sanitizeBrushColorCycleSpeed(
+      rawSpeed,
+      Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1
+    );
+    const baseSpeed = sanitizeBrushColorCycleSpeed(
+      this.layerBaseSpeed,
+      1
+    );
+    return sanitizeBrushColorCycleSpeed(writeSpeed * baseSpeed, writeSpeed);
   }
 
   private getWriteSpeedByte(strokeData?: LayerStrokeState | null): number {
@@ -2284,7 +2305,7 @@ export class ColorCycleBrushCanvas2D {
       animator.startStroke();
     }
     const strokeData = this.layerStrokes.get(id);
-    const strokeStartSpeed = sanitizeBrushColorCycleSpeed(this.cycleSpeed);
+    const strokeStartSpeed = this.getResolvedWriteCycleSpeed();
     const speedByte = encodeColorCycleSpeedByte(strokeStartSpeed);
     try {
       if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
@@ -4840,6 +4861,89 @@ export class ColorCycleBrushCanvas2D {
     this.animators.forEach(animator => animator.setSpeed(this.playbackSpeedScale));
   }
 
+  setLayerBaseSpeed(speed: number) {
+    if (!Number.isFinite(speed) || speed < 0) {
+      console.warn(`Invalid layer base speed: ${speed}`);
+      return;
+    }
+
+    const nextBaseSpeed = sanitizeBrushColorCycleSpeed(speed);
+    const previousBaseSpeed = sanitizeBrushColorCycleSpeed(this.layerBaseSpeed, 1);
+    const ratio = previousBaseSpeed > 0 ? nextBaseSpeed / previousBaseSpeed : 1;
+
+    this.layerBaseSpeed = nextBaseSpeed;
+
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+      return;
+    }
+
+    const nextBaseSpeedByte = encodeColorCycleSpeedByte(nextBaseSpeed);
+    let changedAnyLayer = false;
+
+    this.layerStrokes.forEach((strokeData, layerId) => {
+      let changedLayer = false;
+      const speedBuffer = strokeData.buffers.spd;
+      const paintBuffer = strokeData.buffers.paint;
+      let sawEncodedSpeed = false;
+
+      for (let i = 0; i < speedBuffer.length; i += 1) {
+        const encoded = speedBuffer[i] ?? 0;
+        if (encoded <= 0) {
+          continue;
+        }
+        sawEncodedSpeed = true;
+        const decoded = decodeColorCycleSpeedByte(encoded);
+        const scaled = encodeColorCycleSpeedByte(decoded * ratio);
+        if (scaled !== encoded) {
+          speedBuffer[i] = scaled;
+          changedLayer = true;
+        }
+      }
+
+      if (!sawEncodedSpeed && paintBuffer.length === speedBuffer.length) {
+        for (let i = 0; i < paintBuffer.length; i += 1) {
+          const nextByte = paintBuffer[i] === 0 ? 0 : nextBaseSpeedByte;
+          if (speedBuffer[i] !== nextByte) {
+            speedBuffer[i] = nextByte;
+            changedLayer = true;
+          }
+        }
+      }
+
+      if (strokeData.strokeCounter === this.strokeCounter && Number.isFinite(strokeData.strokeCycleSpeed)) {
+        strokeData.strokeCycleSpeed = sanitizeBrushColorCycleSpeed(strokeData.strokeCycleSpeed * ratio);
+        strokeData.strokeSpeedByte = encodeColorCycleSpeedByte(strokeData.strokeCycleSpeed);
+      } else {
+        strokeData.strokeCycleSpeed = this.getResolvedWriteCycleSpeed();
+        strokeData.strokeSpeedByte = encodeColorCycleSpeedByte(strokeData.strokeCycleSpeed);
+      }
+
+      if (!changedLayer) {
+        return;
+      }
+
+      changedAnyLayer = true;
+      this.snapshotFromBuffers(strokeData);
+
+      const animator = this.animators.get(layerId);
+      if (animator) {
+        const dims = animator.getDimensions();
+        animator.markDirtyBounds({
+          minX: 0,
+          minY: 0,
+          width: Math.max(1, dims.width),
+          height: Math.max(1, dims.height),
+        });
+      }
+    });
+
+    this.animators.forEach(animator => animator.setSpeed(this.playbackSpeedScale));
+
+    if (changedAnyLayer) {
+      this.render(false);
+    }
+  }
+
   setPlaybackSpeedScale(scale: number) {
     if (!Number.isFinite(scale) || scale < 0) {
       console.warn(`Invalid playback speed scale: ${scale}`);
@@ -5331,6 +5435,9 @@ export class ColorCycleBrushCanvas2D {
     let highestStrokeCounter = asHistory ? 0 : this.strokeCounter;
     try {
       if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
+      if (state.layerBaseSpeed !== undefined) {
+        this.layerBaseSpeed = sanitizeBrushColorCycleSpeed(state.layerBaseSpeed, 1);
+      }
       if (state.playbackSpeedScale !== undefined) {
         this.setPlaybackSpeedScale(state.playbackSpeedScale);
       }
@@ -5625,6 +5732,7 @@ export class ColorCycleBrushCanvas2D {
     return {
       layers,
       cycleSpeed: this.cycleSpeed,
+      layerBaseSpeed: this.layerBaseSpeed,
       playbackSpeedScale: this.playbackSpeedScale,
       fps: this.fps,
       brushSize: this.brushSize,
@@ -5651,6 +5759,9 @@ export class ColorCycleBrushCanvas2D {
 
     if (typeof data.cycleSpeed === 'number') {
       instance.setSpeed(data.cycleSpeed);
+    }
+    if (typeof data.layerBaseSpeed === 'number') {
+      instance.setLayerBaseSpeed(data.layerBaseSpeed);
     }
     if (typeof data.playbackSpeedScale === 'number') {
       instance.setPlaybackSpeedScale(data.playbackSpeedScale);
@@ -5930,7 +6041,7 @@ export class ColorCycleBrushCanvas2D {
         const state = useAppStore.getState();
         const layer = state.layers.find((candidate) => candidate.id === layerId);
         const fallbackSpeed =
-          layer?.colorCycleData?.brushSpeed
+          resolveLayerColorCycleBaseSpeedFromLayer(layer)
             ?? state.tools.brushSettings.colorCycleSpeed
             ?? 0.1;
         const speedByte = encodeColorCycleSpeedByte(sanitizeBrushColorCycleSpeed(fallbackSpeed));

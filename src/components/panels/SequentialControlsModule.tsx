@@ -5,22 +5,26 @@ import { ChevronRight } from 'lucide-react';
 
 import {
   CC_LAYER_SPEED_SCALE_STEP,
+  DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
   MAX_CC_LAYER_SPEED_SCALE,
   MIN_CC_LAYER_SPEED_SCALE,
 } from '@/constants/colorCycle';
 
 interface SequentialControlsModuleProps {
-  ccLayerSpeedScale: number;
   controlsDisabled: boolean;
+  activeCcBaseSpeed: number | null;
   currentFrameDisplay: number;
   frameCount: number;
   fps: number;
   isCaptureActive: boolean;
+  playbackSpeedScale: number;
   playbackScaleLabel: string;
   timeSmear: number;
-  onCcLayerSpeedScaleChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onCcBaseSpeedChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onFpsChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onFramesChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onPlaybackSpeedScaleChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onTimeSmearChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
@@ -54,17 +58,19 @@ const persistExpandedState = (isExpanded: boolean): void => {
 };
 
 const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
-  ccLayerSpeedScale,
   controlsDisabled,
+  activeCcBaseSpeed,
   currentFrameDisplay,
   frameCount,
   fps,
   isCaptureActive,
+  playbackSpeedScale,
   playbackScaleLabel,
   timeSmear,
-  onCcLayerSpeedScaleChange,
+  onCcBaseSpeedChange,
   onFpsChange,
   onFramesChange,
+  onPlaybackSpeedScaleChange,
   onTimeSmearChange,
 }) => {
   const [isExpanded, setIsExpanded] = React.useState<boolean>(loadInitialExpandedState);
@@ -87,7 +93,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
         aria-expanded={isExpanded}
       >
         <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-[0.08em] text-[#D0D0D0]">Sequential</span>
+          <span className="text-[10px] uppercase tracking-[0.08em] text-[#D0D0D0]">Sequence</span>
           {isCaptureActive && (
             <span className="text-[10px] text-[#AFAFAF]">Capturing</span>
           )}
@@ -137,27 +143,52 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
           </div>
 
           <label className="block text-[10px] text-[#BDBDBD]">
-            Playback scale
+            Playback speed
             <div className="mt-1 flex items-center gap-2">
               <input
                 type="range"
                 min={MIN_CC_LAYER_SPEED_SCALE}
                 max={MAX_CC_LAYER_SPEED_SCALE}
                 step={CC_LAYER_SPEED_SCALE_STEP}
-                value={ccLayerSpeedScale}
-                onChange={onCcLayerSpeedScaleChange}
+                value={playbackSpeedScale}
+                onChange={onPlaybackSpeedScaleChange}
                 disabled={controlsDisabled}
                 className="w-full accent-[#D9D9D9] disabled:opacity-50"
-                aria-label="Playback scale"
+                aria-label="Playback speed"
               />
               <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
                 {playbackScaleLabel}
               </span>
             </div>
             <span className="mt-1 block text-[9px] text-[#8F8F8F]">
-              Applies to all color-cycle layers during playback.
+              Multiplies playback for Sequence and color-cycle layers.
             </span>
           </label>
+
+          {activeCcBaseSpeed !== null && (
+            <label className="block text-[10px] text-[#BDBDBD]">
+              CC base speed
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="range"
+                  min={CC_LAYER_SPEED_SCALE_STEP}
+                  max={MAX_BRUSH_COLOR_CYCLE_SPEED}
+                  step={CC_LAYER_SPEED_SCALE_STEP}
+                  value={activeCcBaseSpeed}
+                  onChange={onCcBaseSpeedChange}
+                  disabled={controlsDisabled}
+                  className="w-full accent-[#D9D9D9] disabled:opacity-50"
+                  aria-label="CC base speed"
+                />
+                <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
+                  {(activeCcBaseSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED).toFixed(2)}x
+                </span>
+              </div>
+              <span className="mt-1 block text-[9px] text-[#8F8F8F]">
+                Active color-cycle layer only.
+              </span>
+            </label>
+          )}
 
           <label className="block text-[10px] text-[#BDBDBD]">
             Time-smear

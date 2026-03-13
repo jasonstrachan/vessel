@@ -329,7 +329,12 @@ export interface Layer {
      */
     paintSlot?: number;
     /**
+     * Explicit per-layer base playback speed for brush-mode color-cycle layers.
+     */
+    layerBaseSpeedCps?: number;
+    /**
      * Global controller speed (cycles per second) used by AnimationController.
+     * @deprecated Use layerBaseSpeedCps.
      */
     controllerSpeedCps?: number;
     /**
@@ -387,7 +392,7 @@ export interface Layer {
     isAnimating?: boolean;
     hasContent?: boolean;
     // Per-layer animation speed for brush-mode CC (cycles per second)
-    // If undefined, UI should default to 0.1 or fall back to brush settings
+    // @deprecated Use layerBaseSpeedCps for layer playback speed.
     brushSpeed?: number;
     // Per-layer animation flow mode for brush-mode CC
     flowMode?: 'forward' | 'reverse' | 'pingpong';

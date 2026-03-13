@@ -1,6 +1,7 @@
 import { logError as defaultLogError } from '@/utils/debug';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
+import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import type {
   ColorCycleBrushResetEntry,
   CroppedAnimatorIndexSnapshot,
@@ -495,10 +496,7 @@ export function readLayerSourcesForCrop(
         typeof layer.colorCycleData.brushSpeed === 'number'
           ? layer.colorCycleData.brushSpeed
           : undefined;
-      const controllerSpeedCps =
-        typeof layer.colorCycleData.controllerSpeedCps === 'number'
-          ? layer.colorCycleData.controllerSpeedCps
-          : undefined;
+      const controllerSpeedCps = resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
       const mode = layer.colorCycleData.mode ?? 'brush';
       const wasActiveLayer = options.activeLayerId === layer.id;
       let strokeSnapshot:
@@ -666,6 +664,7 @@ export function readLayerSourcesForCrop(
         imageData: croppedImageData,
         gradientStops,
         wasAnimating,
+        layerBaseSpeedCps: controllerSpeedCps,
         brushSpeed,
         controllerSpeedCps,
         mode,

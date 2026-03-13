@@ -1,6 +1,6 @@
 import type { Layer } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
-import { useAppStore } from '@/stores/useAppStore';
+import { selectSequentialPlaybackActive, useAppStore, type AppState } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
@@ -42,11 +42,8 @@ export const drawVisibleCompositeStack = ({
   compositeBitmap,
   compositeCanvas,
 }: DrawVisibleCompositeStackOptions): DrawVisibleCompositeStackResult => {
-  const storeState = useAppStore.getState() as {
-    project?: { width: number; height: number } | null;
-    activeLayerId?: string | null;
-    sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
-  };
+  const storeState = useAppStore.getState() as AppState;
+  const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
 
   let invalidCompositeBitmap = false;
   if (!visibleRect) {
@@ -128,6 +125,7 @@ export const drawVisibleCompositeStack = ({
         height: projectHeight,
         frameIndex,
         previewEvents,
+        holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
       });
       if (!sequentialCanvas) {
         return;

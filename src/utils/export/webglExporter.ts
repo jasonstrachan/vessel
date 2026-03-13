@@ -17,6 +17,7 @@ import {
   MIN_CC_LAYER_SPEED_SCALE
 } from '@/constants/colorCycle';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import type {
   ContentBounds,
   ExportContainerLayout,
@@ -254,6 +255,7 @@ const PROPERTY_MINIFY_MAP = {
   gradient: 'gr',
   gradientRef: 'grf',
   brushSpeed: 'spd',
+  layerBaseSpeedCps: 'lbsc',
   controllerSpeedCps: 'csc',
   legacySpeedCps: 'lsc',
   speedMode: 'smd',
@@ -322,6 +324,7 @@ interface WebGLSerializedColorCycle {
   gradientRef?: number;
   brushSpeed?: number | null;
   controllerSpeedCps?: number | null;
+  layerBaseSpeedCps?: number | null;
   speedMode?: 'slot' | 'buffer';
   slotSpeeds?: Array<{ slot: number; speed: number }>;
   speedMin?: number;
@@ -1330,7 +1333,8 @@ const clampExportLayerSpeedScale = (value: unknown): number => {
 const resolveExportLayerSpeedScale = (): number => {
   try {
     return clampExportLayerSpeedScale(
-      useAppStore.getState().tools?.brushSettings?.colorCycleLayerSpeedScale
+      useAppStore.getState().colorCyclePlayback?.playbackSpeedScale
+        ?? useAppStore.getState().tools?.brushSettings?.colorCycleLayerSpeedScale
     );
   } catch {
     return 1;
@@ -1386,6 +1390,11 @@ const resolveExportControllerSpeed = (layer: Layer, layerSpeedScale: number): nu
     return null;
   }
 
+  const layerBaseSpeed = toFiniteNumberOrNull(data.layerBaseSpeedCps);
+  if (layerBaseSpeed !== null) {
+    return applyExportPlaybackScale(layerBaseSpeed, layerSpeedScale);
+  }
+
   const controllerSpeed = toFiniteNumberOrNull(data.controllerSpeedCps);
   if (controllerSpeed !== null) {
     return applyExportPlaybackScale(controllerSpeed, layerSpeedScale);
@@ -1419,7 +1428,7 @@ const resolveExportToolSpeed = (layer: Layer, layerSpeedScale: number): number |
     }
   } catch {}
 
-  const layerSpeed = toFiniteNumberOrNull(layer.colorCycleData?.brushSpeed);
+  const layerSpeed = toFiniteNumberOrNull(resolveLayerColorCycleBaseSpeed(layer.colorCycleData));
   return layerSpeed !== null
     ? applyExportPlaybackScale(layerSpeed, layerSpeedScale)
     : null;
@@ -2899,6 +2908,7 @@ const serializeColorCycleData = async (
     mode: data.mode ?? 'brush',
     gradient: data.gradient,
     brushSpeed: resolvedBrushSpeed,
+    layerBaseSpeedCps: data.mode === 'recolor' ? undefined : resolvedControllerSpeed,
     controllerSpeedCps: controllerSpeedForExport,
     speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,
     speedMax: MAX_BRUSH_COLOR_CYCLE_SPEED,
@@ -3422,22 +3432,14 @@ const captureSequentialLayerFrameTextures = async ({
       cropCanvas = new OffscreenCanvas(cropW, cropH);
     }
   }
-  const byFrame = new Set<number>();
-  for (let i = 0; i < layer.sequentialData.events.length; i += 1) {
-    const event = layer.sequentialData.events[i];
-    const normalized = ((Math.round(event.frameIndex) % safeFrameCount) + safeFrameCount) % safeFrameCount;
-    byFrame.add(normalized);
-  }
   const dedupe = new Map<string, number>();
-  const frameIndexes = Array.from(byFrame.values()).sort((a, b) => a - b);
-
-  for (let i = 0; i < frameIndexes.length; i += 1) {
-    const frameIndex = frameIndexes[i];
+  for (let frameIndex = 0; frameIndex < safeFrameCount; frameIndex += 1) {
     const frameCanvas = getSequentialLayerRenderCanvas({
       layer,
       width: safeWidth,
       height: safeHeight,
       frameIndex,
+      holdPreviousOnEmptyFrames: false,
     });
     if (!frameCanvas) {
       continue;
@@ -3490,6 +3492,34 @@ const captureSequentialLayerFrameTextures = async ({
         }
       }
     : undefined;
+};
+
+const buildSequentialExportPlayback = ({
+  fps,
+  frameCount,
+  durationMs,
+}: {
+  fps: number;
+  frameCount: number;
+  durationMs?: number | null;
+}): {
+  fps: number;
+  totalFrames: number;
+  durationSeconds: number;
+  perfectLoop: true;
+} => {
+  const safeFrameCount = Math.max(1, Math.round(frameCount));
+  const safeFps = Math.max(1, Math.round(fps));
+  const resolvedDurationMs = Number.isFinite(durationMs)
+    ? Math.max(1, Math.round(durationMs as number))
+    : Math.round((safeFrameCount * 1000) / safeFps);
+
+  return {
+    fps: safeFps,
+    totalFrames: safeFrameCount,
+    durationSeconds: Math.max(0.001, Number((resolvedDurationMs / 1000).toFixed(6))),
+    perfectLoop: true,
+  };
 };
 
 type RGBAColor = { r: number; g: number; b: number; a: number };
@@ -4428,7 +4458,9 @@ export const exportProjectAsWebGL = async (
       width: Math.max(originalSurfaceSize.width, options.project.width),
       height: Math.max(originalSurfaceSize.height, options.project.height),
       frameCount: sequentialFrameCount,
-      cropBounds: sequentialContentBounds,
+      // Goblet renders sequential frame textures as full-layer surfaces.
+      // Cropping them here makes the exported playback appear inset/clipped.
+      cropBounds: undefined,
     });
     if (sequentialFrames && sequentialFrames.frames.length > 0) {
       texture = sequentialFrames.frames[0] ?? texture;
@@ -4645,25 +4677,11 @@ export const exportProjectAsWebGL = async (
         : undefined,
       colorCycle,
       sequential: layer.layerType === 'sequential'
-        ? (() => {
-            const baseSequentialFps = Math.max(1, Math.round(layer.sequentialData?.fps ?? options.fps));
-            const scaledSequentialFps = Math.max(
-              MIN_CC_LAYER_SPEED_SCALE,
-              Number((baseSequentialFps * exportLayerSpeedScale).toFixed(6))
-            );
-            const baseDurationMs = layer.sequentialData?.durationMs
-              ?? Math.round((sequentialFrameCount * 1000) / baseSequentialFps);
-            const scaledDurationSeconds = Math.max(
-              0.001,
-              Number(((baseDurationMs / Math.max(MIN_CC_LAYER_SPEED_SCALE, exportLayerSpeedScale)) / 1000).toFixed(6))
-            );
-            return {
-              fps: scaledSequentialFps,
-              totalFrames: sequentialFrameCount,
-              durationSeconds: scaledDurationSeconds,
-              perfectLoop: true
-            };
-          })()
+        ? buildSequentialExportPlayback({
+            fps: layer.sequentialData?.fps ?? options.fps,
+            frameCount: sequentialFrameCount,
+            durationMs: layer.sequentialData?.durationMs,
+          })
         : undefined,
       stackIndex: Number.isFinite(layer.order) ? layer.order : index,
       version: layer.version
@@ -4971,6 +4989,8 @@ export const __TESTING__ = {
   clampExportLayerSpeedScale,
   applyExportPlaybackScale,
   scaleEncodedSpeedBuffer,
+  buildSequentialExportPlayback,
+  captureSequentialLayerFrameTextures,
   extractBrushStateFromSavedSnapshot,
   resolveDefBoundSlotPalettes,
   normalizeCanvasSurfaceForExport,

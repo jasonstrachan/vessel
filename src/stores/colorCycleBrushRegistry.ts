@@ -8,6 +8,7 @@ import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 
 export interface ColorCycleBrushRegistryDeps {
   getBrushSettings: () => BrushSettings | null | undefined;
+  getPlaybackSpeedScale: () => number;
   getLayers: () => Layer[] | null | undefined;
   createCanvas: (width: number, height: number) => HTMLCanvasElement;
   getBrushClass: () => typeof ColorCycleBrushCanvas2D;
@@ -204,10 +205,11 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         brushWithOptionalControls.setSpeed?.(currentSettings.colorCycleSpeed);
       }
       if (typeof brushWithOptionalControls.setPlaybackSpeedScale === 'function') {
-        const layerScale = Number.isFinite(currentSettings.colorCycleLayerSpeedScale)
+        const playbackSpeedScale = deps.getPlaybackSpeedScale();
+        const layerScale = Number.isFinite(playbackSpeedScale)
           ? Math.max(
               MIN_CC_LAYER_SPEED_SCALE,
-              Math.min(MAX_CC_LAYER_SPEED_SCALE, currentSettings.colorCycleLayerSpeedScale as number)
+              Math.min(MAX_CC_LAYER_SPEED_SCALE, playbackSpeedScale)
             )
           : 1;
         brushWithOptionalControls.setPlaybackSpeedScale(layerScale);

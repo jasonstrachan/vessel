@@ -1,5 +1,6 @@
 import type { CustomBrushColorCycleV2, Layer } from '@/types';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 
 export type CapturePoint = { x: number; y: number };
 
@@ -463,7 +464,7 @@ export const captureColorCycleDataFromLayer = (
   }
 
   const gradient = resolveLayerCaptureGradient(activeLayer);
-  const speed = activeLayer.colorCycleData?.brushSpeed;
+  const speed = resolveLayerColorCycleBaseSpeedFromLayer(activeLayer);
   const basePayload = buildCapturedColorCycleDataFromImage(captureResult, {
     gradient,
     speed,
