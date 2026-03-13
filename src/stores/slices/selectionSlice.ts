@@ -17,6 +17,13 @@ import {
   resolveLayerImageData,
 } from '@/stores/helpers/selectionCapture';
 import {
+  appendSequentialEvent,
+  buildSequentialDestinationOutEvent,
+  createSequentialSelectionMask,
+} from '@/lib/sequential/sequentialEdit';
+import { commitSequentialLayerHistory } from '@/history/helpers/sequentialLayerHistory';
+import { cloneSequentialLayerData } from '@/history/deltas/sequentialFrameDelta';
+import {
   cloneTransferredColorCycleSlotPalettes,
   cloneTransferredColorCycleGradientDefs,
   extractTransferredColorCycleSlotPalettes,
@@ -819,6 +826,68 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         activeLayer.layerType === 'color-cycle'
           ? captureColorCycleBrushState(activeLayer.id)
           : null;
+
+      if (activeLayer.layerType === 'sequential' && activeLayer.sequentialData) {
+        const selectionMaskImage = createSequentialSelectionMask({
+          bounds: { x, y, width, height },
+          selectionMask,
+          selectionMaskBounds,
+        });
+        if (!selectionMaskImage) {
+          return;
+        }
+
+        const beforeSequentialData = cloneSequentialLayerData(activeLayer.sequentialData);
+        const frameCount = Math.max(1, Math.round(activeLayer.sequentialData.frameCount));
+        const frameIndex =
+          ((Math.round(state.sequentialRecord.currentFrame) % frameCount) + frameCount) % frameCount;
+        const timestampMs = Date.now();
+        const strokeId = `seq-delete-${timestampMs}`;
+        const event = buildSequentialDestinationOutEvent({
+          layer: activeLayer,
+          frameIndex,
+          maskImageData: selectionMaskImage,
+          maskBounds: { x, y, width, height },
+          eraserSettings: {
+            ...state.tools.brushSettings,
+            ...state.tools.eraserSettings,
+            opacity: 1,
+            blendMode: 'destination-out',
+          },
+          timestampMs,
+          id: `${strokeId}-0`,
+          strokeId,
+        });
+        const afterSequentialData = appendSequentialEvent(beforeSequentialData, event);
+
+        state.updateLayer(
+          activeLayerId,
+          { sequentialData: afterSequentialData },
+          { skipColorCycleSync: true }
+        );
+        state.setCurrentCompositeBitmap(null);
+        state.setLayersNeedRecomposition(true);
+        state.clearSelection();
+
+        const deleteHistoryCommit = commitSequentialLayerHistory({
+          layerId: activeLayerId,
+          beforeSequentialData,
+          afterSequentialData,
+          actionType: 'delete',
+          description: 'Delete selected pixels',
+          tool: 'selection',
+          coalesce: {
+            key: `selection-delete:${activeLayerId}:${frameIndex}`,
+            maxIntervalMs: 250,
+          },
+        }).catch((error) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[history] Failed to record sequential selection delete', error);
+          }
+        });
+        trackPendingHistoryCommit(deleteHistoryCommit);
+        return;
+      }
 
       if (activeLayer.layerType === 'color-cycle') {
         const cleared = clearColorCycleRegion(

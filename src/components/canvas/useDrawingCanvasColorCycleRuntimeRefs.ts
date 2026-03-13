@@ -1,5 +1,6 @@
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
+import { createRafRedrawQueue, type RafRedrawQueue } from './createRafRedrawQueue';
 
 interface UseDrawingCanvasColorCycleRuntimeRefsOptions {
   updateColorCycleGradient: ((stops: Array<{ position: number; color: string }>) => void) | null | undefined;
@@ -18,6 +19,8 @@ export const useDrawingCanvasColorCycleRuntimeRefs = ({
   setColorCycleFlowModeRef,
   colorCycleManagerRef,
 }: UseDrawingCanvasColorCycleRuntimeRefsOptions) => {
+  const redrawQueueRef = useRef<RafRedrawQueue | null>(null);
+
   useEffect(() => {
     updateColorCycleGradientRef.current = updateColorCycleGradient ?? null;
   }, [updateColorCycleGradient, updateColorCycleGradientRef]);
@@ -27,16 +30,28 @@ export const useDrawingCanvasColorCycleRuntimeRefs = ({
   }, [setColorCycleFlowMode, setColorCycleFlowModeRef]);
 
   useEffect(() => {
+    redrawQueueRef.current = createRafRedrawQueue(() => {
+      setNeedsRedraw((prev) => prev + 1);
+    });
+
+    return () => {
+      redrawQueueRef.current?.cancel();
+      redrawQueueRef.current = null;
+    };
+  }, [setNeedsRedraw]);
+
+  useEffect(() => {
     colorCycleManagerRef.current = new SimplifiedColorCycleManager({
       targetFPS: 24,
       onFrame: () => {
-        setNeedsRedraw((prev) => prev + 1);
+        redrawQueueRef.current?.schedule();
       },
     });
 
     return () => {
+      redrawQueueRef.current?.cancel();
       colorCycleManagerRef.current?.destroy();
       colorCycleManagerRef.current = null;
     };
-  }, [colorCycleManagerRef, setNeedsRedraw]);
+  }, [colorCycleManagerRef]);
 };

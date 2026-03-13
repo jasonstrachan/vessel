@@ -1,3 +1,5 @@
+export {};
+
 const loadMock = jest.fn();
 const saveMock = jest.fn();
 

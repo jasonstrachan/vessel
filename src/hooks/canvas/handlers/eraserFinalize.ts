@@ -1,6 +1,17 @@
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { CanvasSnapshot, Layer } from '@/types';
 import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
+import { cloneSequentialLayerData } from '@/history/deltas/sequentialFrameDelta';
+import { commitSequentialLayerHistory } from '@/history/helpers/sequentialLayerHistory';
+import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
+import {
+  appendSequentialEvent,
+  buildSequentialDestinationOutEvent,
+  createSequentialEraseMaskFromDiff,
+  cropImageDataToBounds,
+  findOpaqueMaskBounds,
+} from '@/lib/sequential/sequentialEdit';
+import { useAppStore } from '@/stores/useAppStore';
 
 export type FinalizeEraserStrokeArgs = {
   activeLayer: Layer | null;
@@ -26,6 +37,36 @@ export type FinalizeEraserStrokeDeps = {
   scheduleHistoryCommit: (payload: LayerHistoryPayload) => Promise<void>;
   withTiming: <T>(label: string, task: () => Promise<T> | T) => Promise<T>;
   logError: (message: string) => void;
+};
+
+const extractCanvasRegion = (
+  source: HTMLCanvasElement | OffscreenCanvas,
+  roi?: CaptureRegion
+): ImageData | null => {
+  const ctx = source.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx || !('getImageData' in ctx)) {
+    return null;
+  }
+
+  const x = Math.max(0, Math.floor(roi?.x ?? 0));
+  const y = Math.max(0, Math.floor(roi?.y ?? 0));
+  const right = Math.min(source.width, Math.ceil((roi?.x ?? 0) + (roi?.width ?? source.width)));
+  const bottom = Math.min(source.height, Math.ceil((roi?.y ?? 0) + (roi?.height ?? source.height)));
+  const width = Math.max(0, right - x);
+  const height = Math.max(0, bottom - y);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  try {
+    return ctx.getImageData(x, y, width, height);
+  } catch {
+    return null;
+  }
 };
 
 export const createFinalizeEraserStrokeDeps = (
@@ -85,6 +126,111 @@ export const finalizeEraserStroke = async (
   const actionType = historyAction ?? 'eraser';
   const description = historyDescription ?? 'Eraser Stroke';
   const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
+  if (activeLayer.layerType === 'sequential' && activeLayer.sequentialData && drawingCanvas) {
+    const store = useAppStore.getState();
+    const project = store.project;
+    if (!project) {
+      return false;
+    }
+
+    const frameCount = Math.max(1, Math.round(activeLayer.sequentialData.frameCount));
+    const frameIndex =
+      ((Math.round(store.sequentialRecord.currentFrame) % frameCount) + frameCount) % frameCount;
+    const beforeCanvas = getSequentialLayerRenderCanvas({
+      layer: activeLayer,
+      width: project.width,
+      height: project.height,
+      frameIndex,
+      holdPreviousOnEmptyFrames: true,
+    });
+    if (!beforeCanvas) {
+      return false;
+    }
+
+    const diffRoi = (eraserRoi ?? captureRoi) ?? undefined;
+    const beforeRegion = extractCanvasRegion(beforeCanvas, diffRoi);
+    const afterRegion = extractCanvasRegion(drawingCanvas, diffRoi);
+    if (!beforeRegion || !afterRegion) {
+      return false;
+    }
+
+    const baseBounds = {
+      x: Math.max(0, Math.floor(diffRoi?.x ?? 0)),
+      y: Math.max(0, Math.floor(diffRoi?.y ?? 0)),
+      width: beforeRegion.width,
+      height: beforeRegion.height,
+    };
+    const eraseMask = createSequentialEraseMaskFromDiff({
+      beforeImage: beforeRegion,
+      afterImage: afterRegion,
+      bounds: baseBounds,
+    });
+    if (!eraseMask) {
+      return false;
+    }
+
+    const relativeBounds = findOpaqueMaskBounds(eraseMask);
+    if (!relativeBounds) {
+      return false;
+    }
+
+    const croppedMask = cropImageDataToBounds(eraseMask, relativeBounds);
+    const absoluteBounds = {
+      x: baseBounds.x + relativeBounds.x,
+      y: baseBounds.y + relativeBounds.y,
+      width: relativeBounds.width,
+      height: relativeBounds.height,
+    };
+    const beforeSequentialData = cloneSequentialLayerData(activeLayer.sequentialData);
+    const timestampMs = Date.now();
+    const strokeId = `seq-eraser-${timestampMs}`;
+    const event = buildSequentialDestinationOutEvent({
+      layer: activeLayer,
+      frameIndex,
+      maskImageData: croppedMask,
+      maskBounds: absoluteBounds,
+      eraserSettings: {
+        ...store.tools.brushSettings,
+        ...store.tools.eraserSettings,
+        blendMode: 'destination-out',
+      },
+      timestampMs,
+      id: `${strokeId}-0`,
+      strokeId,
+    });
+    const afterSequentialData = appendSequentialEvent(beforeSequentialData, event);
+
+    store.updateLayer(
+      activeLayerId,
+      { sequentialData: afterSequentialData },
+      { skipColorCycleSync: true }
+    );
+    store.setCurrentCompositeBitmap(null);
+    store.setLayersNeedRecomposition(true);
+
+    if (skipSave) {
+      return false;
+    }
+
+    await commitSequentialLayerHistory({
+      layerId: activeLayerId,
+      beforeSequentialData,
+      afterSequentialData,
+      actionType,
+      description,
+      tool: 'eraser',
+      coalesce: coalesce
+        ? {
+            key: coalesce.key,
+            maxIntervalMs: coalesce.maxIntervalMs,
+            mergeLabel: coalesce.mergeLabel,
+            pointerSession: coalesce.pointerSession,
+          }
+        : undefined,
+    });
+    return true;
+  }
+
   const layerCanvas = activeLayer.colorCycleData?.canvas ?? null;
   const captureMode = isEraserV2 ? { mode: 'replace' as const } : undefined;
   const matchesRoi = (image: ImageData | null, roi: CaptureRegion | null | undefined): boolean =>
