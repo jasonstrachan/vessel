@@ -2129,16 +2129,17 @@ const BrushControls = () => {
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Spacing
             </label>
-            <NonCcSlider
-              value={activeSettings.spacing}
-              min={1}
-              max={40}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
-              }
-              aria-label="Spacing"
-              className="flex-1"
+              <NonCcSlider
+                  value={activeSettings.spacing}
+                  min={1}
+                  max={40}
+                  step={1}
+                  disabled={Boolean(activeSettings.customBrushSnapEnabled)}
+                  onChange={(value) =>
+                    setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+                  }
+                  aria-label="Spacing"
+                  className="flex-1"
             />
             <VelocityLinkToggle
               id="velocity-spacing-spam"
@@ -3489,6 +3490,17 @@ const BrushControls = () => {
                   checked={Boolean(activeSettings.velocitySpacingEnabled)}
                   onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
                   title="Link spacing to cursor speed"
+                />
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Brush Snap
+                </label>
+                <CustomSwitch
+                  id="custom-brush-spacing-by-width"
+                  aria-label="Custom Brush Snap"
+                  checked={Boolean(activeSettings.customBrushSnapEnabled)}
+                  onChange={(checked) => setActiveSettings({ customBrushSnapEnabled: checked })}
                 />
               </div>
             </div>

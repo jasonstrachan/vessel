@@ -773,6 +773,7 @@ export interface BrushSettings {
   brushShape?: BrushShape;
   selectedCustomBrush?: string | null;
   customBrushSizePercent?: number; // Percent scale for custom brush tips (5-1000)
+  customBrushSnapEnabled?: boolean;
   lastRegularBrushSize?: number;
   // Pressure sensitivity settings
   pressureEnabled: boolean;

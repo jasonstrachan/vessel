@@ -232,6 +232,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   gridSnapEnabled: settings.gridSnapEnabled,
   gridSnapSize: settings.gridSnapSize,
   shapeEnabled: settings.shapeEnabled,
+  customBrushSnapEnabled: settings.customBrushSnapEnabled,
   customBrushColorCycle: settings.customBrushColorCycle,
   customBrushColorCycleMode: settings.customBrushColorCycleMode,
   customBrushUseCapturedAlphaMask: settings.customBrushUseCapturedAlphaMask,
