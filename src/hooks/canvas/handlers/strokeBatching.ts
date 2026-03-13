@@ -126,7 +126,7 @@ export type ProcessBatchedStrokesDeps = {
     phaseAdvancePx?: number
   ) => boolean;
   shouldApplyGridSnapPure: (settings: BrushSettings) => boolean;
-  calculateGridSpacing: () => number;
+  calculateGridSpacing: (pressure?: number) => number;
   snapToGridPure: (x: number, y: number, gridSpacing: number) => { x: number; y: number };
   resolveBrushRotation: (
     rotationEnabled: boolean,
@@ -172,7 +172,6 @@ export const processBatchedStrokes = (
   const alignPixelStrokes = deps.shouldPixelAlignBrush(brushSettings);
   const brushSize = brushSettings.size || 1;
   const doSnap = deps.shouldApplyGridSnapPure(brushSettings);
-  const gridSpacing = doSnap ? deps.calculateGridSpacing() : 0;
   const paused = !deps.selectEffectiveColorCyclePlaying(currentState);
 
   if (!drawCtx || !deps.project) {
@@ -392,6 +391,7 @@ export const processBatchedStrokes = (
               args.colorCyclePixelQueueRef.current = queue;
               return queue;
             })();
+            const stampedGridPositions = pixelQueue.stampedGridPositions;
             const stampCmds: Array<{
               x: number;
               y: number;
@@ -430,9 +430,22 @@ export const processBatchedStrokes = (
                 let stampY = previousPos.y + dy * t;
 
                 if (doSnap) {
+                  const gridSpacing = deps.calculateGridSpacing(pressure);
                   const snapped = deps.snapToGridPure(stampX, stampY, gridSpacing);
                   stampX = snapped.x;
                   stampY = snapped.y;
+                }
+
+                if (doSnap) {
+                  const gridKey = `${stampX},${stampY}`;
+                  if (stampedGridPositions.has(gridKey)) {
+                    args.colorCycleDistanceRef.current -= spacingScreenPx;
+                    if (stampCmds.length >= MAX_STAMPS_PER_BATCH) {
+                      break;
+                    }
+                    continue;
+                  }
+                  stampedGridPositions.add(gridKey);
                 }
 
                 const dashAllows = deps.shouldDrawStamp(

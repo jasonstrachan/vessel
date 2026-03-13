@@ -483,15 +483,15 @@ export class BrushEngineFacade {
       // When grid snapping is enabled, draw stamps at grid positions
       if (isGridSnapping) {
         const snapSpacing = customBrushSnapSpacing ?? {
-          x: this.utilities.calculateGridSpacing(),
-          y: this.utilities.calculateGridSpacing(),
+          x: this.utilities.calculateGridSpacing(pressure),
+          y: this.utilities.calculateGridSpacing(pressure),
         };
         const snappedFrom = customBrushSnapSpacing
           ? this.snapToRectGrid(drawFrom, snapSpacing)
-          : this.utilities.snapToGrid(drawFrom.x, drawFrom.y);
+          : this.utilities.snapToGrid(drawFrom.x, drawFrom.y, pressure);
         const snappedTo = customBrushSnapSpacing
           ? this.snapToRectGrid(drawTo, snapSpacing)
-          : this.utilities.snapToGrid(drawTo.x, drawTo.y);
+          : this.utilities.snapToGrid(drawTo.x, drawTo.y, pressure);
 
         // Set image smoothing based on brush type
         if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {

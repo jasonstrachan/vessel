@@ -19,7 +19,10 @@ import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycle
 import { hashStops, type GradientDefSource } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
-import { calculateGridSpacing, snapToGridPure } from '@/hooks/brushEngine/utilities';
+import {
+  calculatePressureAwareGridSpacing,
+  snapToGridPure,
+} from '@/hooks/brushEngine/utilities';
 import {
   isTempSampleSlotAvailable,
   resolveActiveGradientSlot,
@@ -135,7 +138,8 @@ const buildFallbackMarkSession = (
 
 const resolveDitherGridSnapPoint = (
   worldPos: { x: number; y: number },
-  state: AppState
+  state: AppState,
+  pressure?: number
 ): { x: number; y: number } => {
   const presetId = state.currentBrushPreset?.id ?? null;
   const isDitherPreset = presetId === 'dither-stroke' || presetId === 'dither-shape';
@@ -144,7 +148,7 @@ const resolveDitherGridSnapPoint = (
     return worldPos;
   }
 
-  const gridSpacing = calculateGridSpacing(brushSettings);
+  const gridSpacing = calculatePressureAwareGridSpacing(brushSettings, pressure);
   return snapToGridPure(worldPos.x, worldPos.y, gridSpacing);
 };
 
@@ -402,7 +406,7 @@ export const startShapeDrawing = (
   deps: ShapeDrawingDeps
 ): void => {
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
-  const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current);
+  const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current, pressure);
   const renderPreview = args.renderPreview !== false;
   const isNewShape = !refs.isDrawingShapeRef.current || refs.shapePointsRef.current.length === 0;
 
@@ -625,7 +629,7 @@ export const continueShapeDrawing = (
   deps: ShapeDrawingDeps
 ): void => {
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
-  const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current);
+  const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current, pressure);
   const renderPreview = args.renderPreview !== false;
   const rawVal = typeof rawPressure === 'number' ? rawPressure : pressure;
   deps.updateShapePressure(pressure, timestamp, rawVal);
