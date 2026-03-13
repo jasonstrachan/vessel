@@ -12,6 +12,8 @@ import {
 import type { LayerAlignmentSettings } from '@/types';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 
+const LAYER_ALIGNMENT_PANEL_EXPANDED_STORAGE_KEY = 'vessel-layer-alignment-panel-expanded';
+
 type AnchorKey = 'tl' | 'tc' | 'tr' | 'ml' | 'mc' | 'mr' | 'bl' | 'bc' | 'br';
 type AnchorSelection = AnchorKey | 'auto';
 
@@ -73,6 +75,37 @@ const fitButtonBase = [
 const fitButtonActive = 'text-[#F3F3F7] font-semibold';
 const fitButtonInactive = 'text-[#D9D9D9] hover:text-white';
 
+const loadInitialExpandedState = (fallback: boolean): boolean => {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(LAYER_ALIGNMENT_PANEL_EXPANDED_STORAGE_KEY);
+    if (stored === null) {
+      return fallback;
+    }
+    return stored !== '0';
+  } catch {
+    return fallback;
+  }
+};
+
+const persistExpandedState = (isExpanded: boolean): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      LAYER_ALIGNMENT_PANEL_EXPANDED_STORAGE_KEY,
+      isExpanded ? '1' : '0',
+    );
+  } catch {
+    // Ignore storage failures and preserve runtime state.
+  }
+};
+
 const resolveAnchorSelection = (alignment: LayerAlignmentSettings | null): AnchorSelection => {
   if (!alignment || alignment.positioning === 'auto') {
     return 'auto';
@@ -121,7 +154,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const project = useAppStore(state => state.project);
   const updateLayerAlignment = useAppStore((state) => state.updateLayerAlignment);
 
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [isExpanded, setIsExpanded] = useState(() => loadInitialExpandedState(defaultExpanded));
 
   const disabled = !alignment || !activeLayerId;
   const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
@@ -148,7 +181,11 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const offsetDisabled = disabled || isAuto;
 
   const handleToggleExpanded = useCallback(() => {
-    setIsExpanded(prev => !prev);
+    setIsExpanded(prev => {
+      const next = !prev;
+      persistExpandedState(next);
+      return next;
+    });
   }, []);
 
   const handleAlignmentChange = useCallback(
