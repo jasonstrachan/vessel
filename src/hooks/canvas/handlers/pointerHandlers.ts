@@ -345,25 +345,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,
+    customFreehandCaptureRuntimeRef,
     setCustomBrushFreehandPath,
   } = deps;
-
   type Point = { x: number; y: number };
   type CaptureRegion = { x: number; y: number; width: number; height: number };
-  type FreehandBounds = { minX: number; minY: number; maxX: number; maxY: number } | null;
-  type FreehandCaptureState = {
-    active: boolean;
-    pointerId: number | null;
-    points: Point[];
-    bounds: FreehandBounds;
-  };
-
-  const freehandCaptureState: FreehandCaptureState = {
-    active: false,
-    pointerId: null,
-    points: [],
-    bounds: null,
-  };
+  const freehandCaptureState = customFreehandCaptureRuntimeRef.current;
 
   const isSpaceInteractionActive = (): boolean => isSpacePressedRef.current;
 
@@ -687,7 +674,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     drawFreehandCapturePreview();
   };
 
-  const completeFreehandCapture = () => {
+  const completeFreehandCapture = (finalPoint?: Point) => {
     if (!freehandCaptureState.active) {
       return false;
     }
@@ -696,8 +683,23 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCanvas?.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
     const points = freehandCaptureState.points.slice();
-    const bounds = freehandCaptureState.bounds;
+    const bounds = freehandCaptureState.bounds
+      ? { ...freehandCaptureState.bounds }
+      : null;
     resetFreehandCaptureState();
+
+    if (finalPoint) {
+      const last = points[points.length - 1];
+      if (!last || last.x !== finalPoint.x || last.y !== finalPoint.y) {
+        points.push(finalPoint);
+      }
+      if (bounds) {
+        bounds.minX = Math.min(bounds.minX, finalPoint.x);
+        bounds.minY = Math.min(bounds.minY, finalPoint.y);
+        bounds.maxX = Math.max(bounds.maxX, finalPoint.x);
+        bounds.maxY = Math.max(bounds.maxY, finalPoint.y);
+      }
+    }
 
     if (!bounds || points.length < 3) {
       setCustomBrushFreehandPath(null);
@@ -2876,6 +2878,18 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   // RAF aggregator for pointermove to ensure at most one heavy processing per frame
   let scheduledMoveRAF: number | null = null;
   let lastMoveEvent: React.PointerEvent<Element> | null = null;
+  const flushPendingMoveBatch = () => {
+    if (scheduledMoveRAF == null) {
+      return;
+    }
+    cancelAnimationFrame(scheduledMoveRAF);
+    scheduledMoveRAF = null;
+    const event = lastMoveEvent;
+    lastMoveEvent = null;
+    if (event) {
+      processPointerMove(event);
+    }
+  };
   const processPointerMove = (event: React.PointerEvent<Element>) => {
     const {
       canvas,
@@ -3772,6 +3786,14 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     void selectionMask;
     void selectionMaskBounds;
     void isDraggingFloatingPaste;
+    const isCustomFreehandCapturePointer =
+      freehandCaptureState.active &&
+      freehandCaptureState.pointerId === event.pointerId &&
+      tools.currentTool === 'custom' &&
+      tools.customBrushCapture?.mode === 'freehand';
+    if (isCustomFreehandCapturePointer) {
+      flushPendingMoveBatch();
+    }
     // Clear pointer down state
     isMouseDownRef.current = false;
     const store = useAppStore.getState();
@@ -3799,7 +3821,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // quiet
     
     // Release pointer capture
-    withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
+    releasePointerCaptureSafely(event);
 
     pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
     
@@ -3848,12 +3870,20 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       tools.currentTool === 'custom' &&
       tools.customBrushCapture?.mode === 'freehand'
     ) {
-      const captured = completeFreehandCapture();
+      const scale = canvas?.zoom || 1;
+      const pointerMousePos = getMousePos(event);
+      let worldPos = pan.screenToWorld(pointerMousePos.x, pointerMousePos.y, scale);
+      if (project) {
+        worldPos = {
+          x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
+          y: Math.max(0, Math.min(project.height - 1, worldPos.y)),
+        };
+      }
+      const captured = completeFreehandCapture(worldPos);
       applyToolCursor({ isColorPicker: false, useCrosshair: false });
       updateBrushCursorVisibility();
       setShowBrushCursor(true);
       if (captured) {
-        void flushAndSetCurrentTool('brush');
         clearSelection();
       }
       return;
@@ -4223,8 +4253,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       void resumeAnimationAfterPan?.();
     }
     if (freehandCaptureState.active) {
-      cancelFreehandCapture();
-      setShowBrushCursor(true);
+      setShowBrushCursor(false);
     }
   };
 
@@ -4237,7 +4266,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       store.setSequentialPointerDown(false);
     }
     flushBufferedSequentialEvents({ state: store });
-    withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
+    releasePointerCaptureSafely(event);
 
     drawingHandlers.endStrokeSession(Date.now());
     drawingHandlers.clearStrokeSession();
@@ -4300,3 +4329,15 @@ const withPointerCaptureTarget = (
     releasePointerCapture?: (pointerId: number) => void;
     hasPointerCapture?: (pointerId: number) => boolean;
   });
+
+const releasePointerCaptureSafely = (event: React.PointerEvent<Element>): void => {
+  const target = withPointerCaptureTarget(event);
+  try {
+    if (target.hasPointerCapture?.(event.pointerId) === false) {
+      return;
+    }
+    target.releasePointerCapture?.(event.pointerId);
+  } catch {
+    // Best effort only. Some browsers throw if capture is already gone.
+  }
+};

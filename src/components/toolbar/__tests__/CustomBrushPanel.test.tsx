@@ -70,6 +70,7 @@ type MockState = {
   setCustomBrushSampleAllLayers: jest.Mock;
   setCustomBrushCaptureMode: jest.Mock;
   setCustomBrushFreehandPath: jest.Mock;
+  setCurrentTool: jest.Mock;
 };
 
 function makeColorCycleLayer(): Layer {
@@ -136,6 +137,7 @@ function makeBaseState(): MockState {
     setCustomBrushSampleAllLayers: jest.fn(),
     setCustomBrushCaptureMode: jest.fn(),
     setCustomBrushFreehandPath: jest.fn(),
+    setCurrentTool: jest.fn(),
   };
 }
 
@@ -290,6 +292,9 @@ describe('CustomBrushPanel CC capture hint', () => {
     expect(latestCallArg.pressureEnabled).toBe(false);
     expect(latestCallArg.minPressure).toBe(99);
     expect(latestCallArg.maxPressure).toBeUndefined();
+    const setCurrentTool =
+      (useAppStore as unknown as { getState: () => MockState }).getState().setCurrentTool as jest.Mock;
+    expect(setCurrentTool).toHaveBeenCalledWith('brush');
   });
 
   it('falls back to image-derived captured payload when layer map extraction is unavailable', async () => {

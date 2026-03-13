@@ -45,6 +45,7 @@ export const CustomBrushPanel = () => {
   const setCustomBrushSampleAllLayers = useAppStore((state) => state.setCustomBrushSampleAllLayers);
   const setCustomBrushCaptureMode = useAppStore((state) => state.setCustomBrushCaptureMode);
   const setCustomBrushFreehandPath = useAppStore((state) => state.setCustomBrushFreehandPath);
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const [ccImportedHint, setCcImportedHint] = useState(false);
 
   const cancelCapture = useCallback(() => {
@@ -281,6 +282,7 @@ export const CustomBrushPanel = () => {
       colorCycleData,
     });
     setCustomBrushFreehandPath(null);
+    setCurrentTool('brush');
   }, [
     captureMode,
     freehandPath,
@@ -288,7 +290,8 @@ export const CustomBrushPanel = () => {
     sampleAllLayers,
     resolveCaptureCanvas,
     applyCaptureResult,
-    setCustomBrushFreehandPath
+    setCustomBrushFreehandPath,
+    setCurrentTool,
   ]);
 
   // Create brush immediately when selection changes

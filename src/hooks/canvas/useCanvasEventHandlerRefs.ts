@@ -1,5 +1,10 @@
 import { useCallback, useRef } from 'react';
-import type { ContourLinesState, Lines2DefaultsCache, SelectionRuntimeState } from './utils/types';
+import type {
+  ContourLinesState,
+  CustomFreehandCaptureRuntimeState,
+  Lines2DefaultsCache,
+  SelectionRuntimeState,
+} from './utils/types';
 import { createDefaultContourLinesState } from './handlers/pointerHandlers';
 
 export const useCanvasEventHandlerRefs = () => {
@@ -16,6 +21,12 @@ export const useCanvasEventHandlerRefs = () => {
     pendingSelectionHistory: null,
     freehandSession: { active: false, points: [] },
     clickLineSession: { active: false, points: [] },
+  });
+  const customFreehandCaptureRuntimeRef = useRef<CustomFreehandCaptureRuntimeState>({
+    active: false,
+    pointerId: null,
+    points: [],
+    bounds: null,
   });
 
   const newPreviewSession = useCallback(() => {
@@ -38,6 +49,7 @@ export const useCanvasEventHandlerRefs = () => {
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,
     selectionRuntimeRef,
+    customFreehandCaptureRuntimeRef,
     previewSessionIdRef,
     newPreviewSession,
     isCurrentPreviewSession,
