@@ -134,6 +134,7 @@ export const pixelBrushSettings: BrushSettings = {
 export const defaultBrushSettings: BrushSettings = {
   size: 100,
   customBrushSizePercent: 100,
+  customBrushSnapEnabled: false,
   opacity: 1,
   color: '#000000',
   blendMode: 'source-over',

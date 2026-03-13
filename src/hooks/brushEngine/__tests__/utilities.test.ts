@@ -113,6 +113,12 @@ describe('Brush Utilities', () => {
       const settings = { ...mockBrushSettings, spacing: 1 };
       expect(calculateBrushSpacing(settings, 100)).toBe(1);
     });
+
+    test('uses the rendered custom brush width when brush snap is enabled', () => {
+      const settings = { ...mockBrushSettings, customBrushSnapEnabled: true };
+      expect(calculateBrushSpacing(settings, 40, undefined, { width: 20, height: 10 })).toBe(40);
+      expect(calculateBrushSpacing(settings, 30, undefined, { width: 10, height: 20 })).toBe(15);
+    });
   });
 
   describe('calculatePressureSize', () => {

@@ -72,4 +72,24 @@ describe('BrushControls', () => {
 
     expect(mockStore.setGlobalBrushSize).toHaveBeenCalled();
   });
+
+  it('shows brush snap toggle for custom brushes', () => {
+    (mockStore.tools as any).brushSettings = {
+      ...mockStore.tools.brushSettings,
+      brushShape: 'custom',
+      selectedCustomBrush: 'custom-1',
+      customBrushSnapEnabled: true,
+      currentBrushTip: {
+        imageData: new ImageData(16, 8),
+        brushId: 'custom-1',
+        width: 16,
+        height: 8,
+        isColorizable: false,
+      },
+    };
+
+    render(<BrushControls />);
+
+    expect(screen.getByLabelText('Custom Brush Snap')).toBeChecked();
+  });
 });

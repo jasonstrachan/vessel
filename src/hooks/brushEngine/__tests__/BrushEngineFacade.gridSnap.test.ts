@@ -82,4 +82,44 @@ describe('BrushEngineFacade grid snap stamping', () => {
     const stamps = engine.consumeRecentStamps();
     expect(stamps.length).toBeLessThan(5);
   });
+
+  it('snaps custom brushes on both axes using rendered width and height', () => {
+    const engine = new BrushEngineFacade({
+      brushSettings: {
+        ...createBaseSettings(),
+        brushShape: BrushShape.CUSTOM,
+        gridSnapEnabled: false,
+        customBrushSnapEnabled: true,
+        size: 20,
+      },
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    if (!ctx) {
+      return;
+    }
+
+    engine.renderBrushStroke(ctx, {
+      from: { x: 1, y: 1 },
+      to: { x: 35, y: 19 },
+      pressure: 1,
+      velocity: 1,
+      timestamp: performance.now(),
+      customBrushData: {
+        imageData: new ImageData(20, 10),
+        width: 20,
+        height: 10,
+      },
+    });
+
+    const stamps = engine.consumeRecentStamps();
+    expect(stamps.map((stamp) => ({ x: stamp.x, y: stamp.y }))).toEqual([
+      { x: 0, y: 0 },
+      { x: 20, y: 10 },
+      { x: 40, y: 20 },
+    ]);
+  });
 });

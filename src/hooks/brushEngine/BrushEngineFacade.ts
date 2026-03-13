@@ -185,6 +185,51 @@ export class BrushEngineFacade {
   private static readonly MAX_CAPTURED_PATTERN_CACHE = 512;
   private static readonly MAX_CAPTURED_PALETTE_CACHE = 64;
 
+  private resolveCustomBrushSnapSpacing(
+    customBrushData: CustomBrushStrokeData | undefined,
+    size: number
+  ): { x: number; y: number } | null {
+    if (
+      !customBrushData ||
+      !this.config.brushSettings.customBrushSnapEnabled ||
+      this.config.brushSettings.brushShape !== BrushShape.CUSTOM
+    ) {
+      return null;
+    }
+
+    const width = Number(customBrushData.width);
+    const height = Number(customBrushData.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return null;
+    }
+
+    const maxDimension = Math.max(width, height);
+    if (maxDimension <= 0) {
+      return null;
+    }
+
+    return {
+      x: Math.max(1, Math.round((width * size) / maxDimension)),
+      y: Math.max(1, Math.round((height * size) / maxDimension)),
+    };
+  }
+
+  private snapToRectGrid(
+    point: { x: number; y: number },
+    spacing: { x: number; y: number }
+  ): { x: number; y: number } {
+    const snapAxis = (value: number, step: number): number => {
+      const safeStep = Math.max(1, step);
+      const snapped = Math.sign(value) * Math.round(Math.abs(value) / safeStep) * safeStep;
+      return Number.isNaN(snapped) ? 0 : snapped;
+    };
+
+    return {
+      x: snapAxis(point.x, spacing.x),
+      y: snapAxis(point.y, spacing.y),
+    };
+  }
+
   constructor(config: BrushEngineConfig) {
     this.config = config;
     
@@ -343,11 +388,13 @@ export class BrushEngineFacade {
     // Optional velocity spacing increases stamp gap at higher speed.
     const spacing = this.utilities.calculateBrushSpacing(
       size,
-      smoothedVelocity
+      smoothedVelocity,
+      customBrushData
     );
 
     // Keep pointer path in raw space; only quantize stamp placement for grid mode.
-    const isGridSnapping = this.utilities.shouldApplyGridSnap();
+    const customBrushSnapSpacing = this.resolveCustomBrushSnapSpacing(customBrushData, size);
+    const isGridSnapping = this.utilities.shouldApplyGridSnap() || Boolean(customBrushSnapSpacing);
     const drawFrom = from;
     const drawTo = to;
 
@@ -435,9 +482,16 @@ export class BrushEngineFacade {
 
       // When grid snapping is enabled, draw stamps at grid positions
       if (isGridSnapping) {
-        const gridSpacing = this.utilities.calculateGridSpacing();
-        const snappedFrom = this.utilities.snapToGrid(drawFrom.x, drawFrom.y);
-        const snappedTo = this.utilities.snapToGrid(drawTo.x, drawTo.y);
+        const snapSpacing = customBrushSnapSpacing ?? {
+          x: this.utilities.calculateGridSpacing(),
+          y: this.utilities.calculateGridSpacing(),
+        };
+        const snappedFrom = customBrushSnapSpacing
+          ? this.snapToRectGrid(drawFrom, snapSpacing)
+          : this.utilities.snapToGrid(drawFrom.x, drawFrom.y);
+        const snappedTo = customBrushSnapSpacing
+          ? this.snapToRectGrid(drawTo, snapSpacing)
+          : this.utilities.snapToGrid(drawTo.x, drawTo.y);
 
         // Set image smoothing based on brush type
         if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
@@ -498,10 +552,10 @@ export class BrushEngineFacade {
         };
 
         // Traverse every touched grid cell with Bresenham to avoid skipped cells on steep/diagonal moves.
-        let cellX = Math.round(snappedFrom.x / gridSpacing);
-        let cellY = Math.round(snappedFrom.y / gridSpacing);
-        const targetCellX = Math.round(snappedTo.x / gridSpacing);
-        const targetCellY = Math.round(snappedTo.y / gridSpacing);
+        let cellX = Math.round(snappedFrom.x / snapSpacing.x);
+        let cellY = Math.round(snappedFrom.y / snapSpacing.y);
+        const targetCellX = Math.round(snappedTo.x / snapSpacing.x);
+        const targetCellY = Math.round(snappedTo.y / snapSpacing.y);
         const deltaX = Math.abs(targetCellX - cellX);
         const deltaY = Math.abs(targetCellY - cellY);
         const stepX = cellX < targetCellX ? 1 : -1;
@@ -509,7 +563,7 @@ export class BrushEngineFacade {
         let error = deltaX - deltaY;
 
         while (true) {
-          drawSnappedStamp(cellX * gridSpacing, cellY * gridSpacing);
+          drawSnappedStamp(cellX * snapSpacing.x, cellY * snapSpacing.y);
           if (cellX === targetCellX && cellY === targetCellY) {
             break;
           }
