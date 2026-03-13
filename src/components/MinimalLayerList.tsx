@@ -490,7 +490,7 @@ const MinimalLayerList = () => {
     const durationMs = Math.round((frameCount * 1000) / fps);
 
     const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `Animation ${sequentialLayerCount + 1}`,
+      name: `Sequence ${sequentialLayerCount + 1}`,
       visible: true,
       opacity: 1,
       blendMode: 'source-over',
@@ -690,9 +690,9 @@ const MinimalLayerList = () => {
         <button
           onClick={handleAddSequentialLayer}
           className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors border-r border-[#424242] text-[11px] text-[#D9D9D9]"
-          title="Add Animation Layer"
+          title="Add Sequence Layer"
         >
-          +Animation
+          +Sequence
         </button>
         <button
           onClick={handleAddCCLayer}

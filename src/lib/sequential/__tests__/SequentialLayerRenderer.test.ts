@@ -362,4 +362,20 @@ describe('SequentialLayerRenderer', () => {
     const fartherPixel = readCenterPixel(fartherFrame!);
     expect(fartherPixel[3]).toBe(0);
   });
+
+  it('does not hold the previous frame when empty-frame hold is disabled', () => {
+    const layer = createLayerWithFrameCount([createEvent('f0', 0, '#ff0000')], 4);
+
+    const immediateNext = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 1,
+      holdPreviousOnEmptyFrames: false,
+    });
+    expect(immediateNext).not.toBeNull();
+
+    const immediatePixel = readCenterPixel(immediateNext!);
+    expect(immediatePixel[3]).toBe(0);
+  });
 });

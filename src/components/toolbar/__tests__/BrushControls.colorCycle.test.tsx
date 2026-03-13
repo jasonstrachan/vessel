@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { create } from 'zustand';
 import userEvent from '@testing-library/user-event';
 
@@ -397,6 +397,18 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(screen.getByTestId('gradient-editor')).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
+  });
+
+  it('updates brush speed without mutating the active layer CC base speed', async () => {
+    const updateLayer = useAppStore.getState().updateLayer as jest.Mock;
+    render(<BrushControls />);
+
+    const speedInput = screen.getByLabelText('Speed');
+    fireEvent.change(speedInput, { target: { value: '0.5' } });
+    fireEvent.blur(speedInput);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBeCloseTo(0.5);
+    expect(updateLayer).not.toHaveBeenCalled();
   });
 
   it('toggles velocity-linked animation speed for color cycle strokes', async () => {

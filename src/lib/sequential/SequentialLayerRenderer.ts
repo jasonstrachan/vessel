@@ -302,12 +302,14 @@ export const getSequentialLayerRenderCanvas = ({
   height,
   frameIndex,
   previewEvents,
+  holdPreviousOnEmptyFrames = true,
 }: {
   layer: Layer;
   width: number;
   height: number;
   frameIndex: number;
   previewEvents?: ReadonlyArray<SequentialStrokeEvent>;
+  holdPreviousOnEmptyFrames?: boolean;
 }): HTMLCanvasElement | OffscreenCanvas | null => {
   if (layer.layerType !== 'sequential' || !layer.sequentialData) {
     return null;
@@ -459,7 +461,7 @@ export const getSequentialLayerRenderCanvas = ({
     layer.id,
     sourceFrameIndex
   );
-  if (committedFrameEvents.length === 0) {
+  if (holdPreviousOnEmptyFrames && committedFrameEvents.length === 0) {
     const maxLookbackFrames = resolveHoldLookbackFrames({
       fps: layer.sequentialData.fps,
       frameCount: layer.sequentialData.frameCount,

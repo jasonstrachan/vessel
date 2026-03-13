@@ -1,11 +1,13 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
+import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 
 type LayerSummary = {
   id: string;
   layerType?: string;
   colorCycleData?: {
     mode?: string;
+    layerBaseSpeedCps?: number;
     controllerSpeedCps?: number;
     brushSpeed?: number;
   };
@@ -17,6 +19,7 @@ type BrushLike = {
   setBrushSize: (size: number) => void;
   setFPS: (fps: number) => void;
   setSpeed: (speed: number) => void;
+  setLayerBaseSpeed?: (speed: number) => void;
   setPlaybackSpeedScale?: (scale: number) => void;
   setGradientBands: (bands: number) => void;
   setBandSpacing: (spacing: number) => void;
@@ -41,6 +44,7 @@ export type InitializeColorCycleBrushArgs = {
   projectWidth?: number;
   projectHeight?: number;
   brushSettings: BrushSettings;
+  playbackSpeedScale?: number;
   isCCGradientActiveLayer: boolean;
   defaultBandSpacing: number;
   clampColorCycleBandSpacing: (value?: number) => number;
@@ -61,6 +65,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
   projectWidth,
   projectHeight,
   brushSettings,
+  playbackSpeedScale = 1,
   isCCGradientActiveLayer,
   defaultBandSpacing,
   clampColorCycleBandSpacing,
@@ -113,16 +118,20 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
 
     try {
       const speedLayer = getLayers().find((layer) => layer.id === activeLayerId);
-      const perLayerSpeed = speedLayer?.colorCycleData?.controllerSpeedCps ?? speedLayer?.colorCycleData?.brushSpeed;
-      const baseSpeed = perLayerSpeed ?? brushSettings.colorCycleSpeed;
-      const layerSpeedScale = Number.isFinite(brushSettings.colorCycleLayerSpeedScale)
+      const perLayerSpeed = resolveLayerColorCycleBaseSpeed(speedLayer?.colorCycleData);
+      const writeSpeed = brushSettings.colorCycleSpeed;
+      const baseSpeed = perLayerSpeed ?? 1;
+      const layerSpeedScale = Number.isFinite(playbackSpeedScale)
         ? Math.max(
             MIN_CC_LAYER_SPEED_SCALE,
-            Math.min(MAX_CC_LAYER_SPEED_SCALE, brushSettings.colorCycleLayerSpeedScale as number)
+            Math.min(MAX_CC_LAYER_SPEED_SCALE, playbackSpeedScale as number)
           )
         : 1;
-      if (typeof baseSpeed === 'number' && Number.isFinite(baseSpeed)) {
-        colorCycleBrush.setSpeed(baseSpeed);
+      if (typeof writeSpeed === 'number' && Number.isFinite(writeSpeed)) {
+        colorCycleBrush.setSpeed(writeSpeed);
+      }
+      if (typeof baseSpeed === 'number' && Number.isFinite(baseSpeed) && typeof colorCycleBrush.setLayerBaseSpeed === 'function') {
+        colorCycleBrush.setLayerBaseSpeed(baseSpeed);
       }
       if (typeof colorCycleBrush.setPlaybackSpeedScale === 'function') {
         colorCycleBrush.setPlaybackSpeedScale(layerSpeedScale);

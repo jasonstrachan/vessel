@@ -34,6 +34,7 @@ const makeBrush = () => ({
   setBrushSize: jest.fn(),
   setFPS: jest.fn(),
   setSpeed: jest.fn(),
+  setLayerBaseSpeed: jest.fn(),
   setPlaybackSpeedScale: jest.fn(),
   setGradientBands: jest.fn(),
   setBandSpacing: jest.fn(),
@@ -114,6 +115,7 @@ describe('colorCycleInitController', () => {
     expect(brush.setBrushSize).toHaveBeenCalledWith(12);
     expect(brush.setFPS).toHaveBeenCalledWith(24);
     expect(brush.setSpeed).toHaveBeenCalledWith(6);
+    expect(brush.setLayerBaseSpeed).toHaveBeenCalledWith(1);
     expect(brush.setGradientBands).toHaveBeenCalledWith(16);
     expect(brush.setDitherEnabled).toHaveBeenCalledWith(true);
     expect(brush.setDitherPixelSize).toHaveBeenCalledWith(3);
@@ -135,8 +137,8 @@ describe('colorCycleInitController', () => {
       brushSettings: {
         ...makeBrushSettings(),
         colorCycleSpeed: 0.5,
-        colorCycleLayerSpeedScale: 0.4,
       } as BrushSettings,
+      playbackSpeedScale: 0.4,
       isCCGradientActiveLayer: false,
       defaultBandSpacing: 12,
       clampColorCycleBandSpacing: (v) => v ?? 12,
@@ -148,7 +150,38 @@ describe('colorCycleInitController', () => {
     });
 
     expect(brush.setSpeed).toHaveBeenCalledWith(0.5);
+    expect(brush.setLayerBaseSpeed).toHaveBeenCalledWith(1);
     expect(brush.setPlaybackSpeedScale).toHaveBeenCalledWith(0.4);
+  });
+
+  it('keeps tool write speed separate from layer base speed when the layer has an override', () => {
+    const brush = makeBrush();
+
+    initializeColorCycleBrushForActiveLayer({
+      activeLayerId: 'layer-cc',
+      projectWidth: 64,
+      projectHeight: 64,
+      brushSettings: {
+        ...makeBrushSettings(),
+        colorCycleSpeed: 0.5,
+      } as BrushSettings,
+      playbackSpeedScale: 1,
+      isCCGradientActiveLayer: false,
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (v) => v ?? 12,
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      getLayers: () => [{
+        id: 'layer-cc',
+        layerType: 'color-cycle',
+        colorCycleData: { layerBaseSpeedCps: 1.4 },
+      }],
+      initColorCycleForLayer: jest.fn(),
+      getActiveLayerColorCycleBrush: () => brush,
+      requestGradientApply: jest.fn(),
+    });
+
+    expect(brush.setSpeed).toHaveBeenCalledWith(0.5);
+    expect(brush.setLayerBaseSpeed).toHaveBeenCalledWith(1.4);
   });
 
   it('toggles animation only for color-cycle layers', () => {

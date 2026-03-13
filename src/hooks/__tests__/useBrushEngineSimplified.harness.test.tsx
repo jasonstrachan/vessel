@@ -5,17 +5,43 @@ import { useBrushEngineSimplified } from '../useBrushEngineSimplified';
 
 // Mock dependencies
 const mockApplyDitheringWithFillResolution = jest.fn((...args: any[]) => args[0] as ImageData);
+const mockSetSpeed = jest.fn();
+const mockSetLayerBaseSpeed = jest.fn();
+const getMockManagedBrush = () => ({
+  setTargetCanvas: jest.fn(),
+  getCanvas: jest.fn(),
+  setOnFrameRendered: jest.fn(),
+  endStroke: jest.fn(),
+  setBrushSize: jest.fn(),
+  setFPS: jest.fn(),
+  setSpeed: mockSetSpeed,
+  setLayerBaseSpeed: mockSetLayerBaseSpeed,
+  setPlaybackSpeedScale: jest.fn(),
+  setGradientBands: jest.fn(),
+  setBandSpacing: jest.fn(),
+  setDitherEnabled: jest.fn(),
+  setDitherPixelSize: jest.fn(),
+  setPxlEdgeEnabled: jest.fn(),
+  setStampDitherEnabled: jest.fn(),
+  setPressureEnabled: jest.fn(),
+  setMinPressure: jest.fn(),
+  setMaxPressure: jest.fn(),
+  setStampShape: jest.fn(),
+  setFlowMode: jest.fn(),
+  setFlowDirection: jest.fn(),
+  setLegacyFlowMode: jest.fn(),
+  setDitherStrength: jest.fn(),
+});
 const mockGetBrush = jest.fn(() => ({
   setTargetCanvas: jest.fn(),
+  setSpeed: mockSetSpeed,
+  setLayerBaseSpeed: mockSetLayerBaseSpeed,
 }));
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => ({
     getBrush: (...args: Parameters<typeof mockGetBrush>) => {
       mockGetBrush(...args);
-      return {
-        setTargetCanvas: jest.fn(),
-        getCanvas: jest.fn(),
-      };
+      return getMockManagedBrush();
     },
   }),
 }));
@@ -39,6 +65,7 @@ jest.mock('@/stores/useAppStore', () => {
     project: { width: 10, height: 10 },
     layers: [],
     activeLayerId: null,
+    getLayerColorCycleBrush: () => getMockManagedBrush(),
   };
   const useAppStore = (selector: any) => (typeof selector === 'function' ? selector(state) : state);
   (useAppStore as any).getState = () => state;
@@ -80,6 +107,8 @@ const Harness: React.FC<{ onReady: (engine: ReturnType<typeof useBrushEngineSimp
 describe('useBrushEngineSimplified harness', () => {
   beforeEach(() => {
     mockApplyDitheringWithFillResolution.mockClear();
+    mockSetSpeed.mockClear();
+    mockSetLayerBaseSpeed.mockClear();
   });
 
   it('initializes and exposes API methods', async () => {
@@ -237,6 +266,83 @@ describe('useBrushEngineSimplified harness', () => {
 
     getContextSpy.mockRestore();
     global.requestAnimationFrame = originalRaf;
+  });
+
+  it('uses layer base speed rescaling only for same-layer CC speed edits', async () => {
+    const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => any } }).useAppStore.getState();
+    state.tools.brushSettings.colorCycleSpeed = 0.3;
+    state.layers = [
+      {
+        id: 'layer-a',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          layerBaseSpeedCps: 0.2,
+        },
+      },
+      {
+        id: 'layer-b',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          layerBaseSpeedCps: 0.8,
+        },
+      },
+    ];
+    state.activeLayerId = 'layer-a';
+
+    let renderApi: ReturnType<typeof render> | null = null;
+    await act(async () => {
+      renderApi = render(<Harness onReady={() => {}} />);
+    });
+
+    expect(mockSetSpeed).toHaveBeenCalledWith(0.3);
+    expect(mockSetLayerBaseSpeed).toHaveBeenCalledWith(0.2);
+
+    await act(async () => {
+      state.layers[0].colorCycleData.layerBaseSpeedCps = 0.5;
+      renderApi?.rerender(<Harness onReady={() => {}} />);
+    });
+
+    expect(mockSetLayerBaseSpeed).toHaveBeenCalledWith(0.5);
+
+    await act(async () => {
+      state.activeLayerId = 'layer-b';
+      renderApi?.rerender(<Harness onReady={() => {}} />);
+    });
+
+    expect(mockSetSpeed).toHaveBeenCalledWith(0.3);
+    expect(mockSetLayerBaseSpeed).toHaveBeenCalledWith(0.8);
+  });
+
+  it('does not treat brush speed changes as layer base changes when the layer has no explicit base speed', async () => {
+    const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => any } }).useAppStore.getState();
+    state.tools.brushSettings.colorCycleSpeed = 0.2;
+    state.layers = [
+      {
+        id: 'layer-a',
+        layerType: 'color-cycle',
+        colorCycleData: {},
+      },
+    ];
+    state.activeLayerId = 'layer-a';
+
+    let renderApi: ReturnType<typeof render> | null = null;
+    await act(async () => {
+      renderApi = render(<Harness onReady={() => {}} />);
+    });
+
+    expect(mockSetSpeed).toHaveBeenCalledWith(0.2);
+    expect(mockSetLayerBaseSpeed).toHaveBeenCalledWith(1);
+
+    mockSetSpeed.mockClear();
+    mockSetLayerBaseSpeed.mockClear();
+
+    await act(async () => {
+      state.tools.brushSettings.colorCycleSpeed = 0.6;
+      renderApi?.rerender(<Harness onReady={() => {}} />);
+    });
+
+    expect(mockSetSpeed).toHaveBeenCalledWith(0.6);
+    expect(mockSetLayerBaseSpeed).not.toHaveBeenCalled();
   });
 
 });

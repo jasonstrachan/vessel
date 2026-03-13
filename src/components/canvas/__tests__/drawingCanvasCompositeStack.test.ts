@@ -7,6 +7,12 @@ const mockGetState = jest.fn();
 const mockGetSequentialLayerRenderCanvas = jest.fn();
 
 jest.mock('@/stores/useAppStore', () => ({
+  selectSequentialPlaybackActive: (state: {
+    colorCyclePlayback?: { desiredPlaying?: boolean };
+    layers?: Array<{ layerType?: string }>;
+  }) =>
+    Boolean(state.colorCyclePlayback?.desiredPlaying) &&
+    Boolean(state.layers?.some((layer) => layer.layerType === 'sequential')),
   useAppStore: {
     getState: () => mockGetState(),
   },
@@ -91,6 +97,8 @@ describe('drawVisibleCompositeStack', () => {
 
     mockGetState.mockReturnValue({
       project: { width: 16, height: 16 },
+      colorCyclePlayback: { desiredPlaying: false },
+      layers: [],
       sequentialRecord: { currentFrame: 7 },
     });
     mockGetSequentialLayerRenderCanvas.mockReturnValue(seqCanvas);
@@ -185,6 +193,7 @@ describe('drawVisibleCompositeStack', () => {
       width: 16,
       height: 16,
       frameIndex: 7,
+      holdPreviousOnEmptyFrames: true,
     });
   });
 
@@ -196,10 +205,14 @@ describe('drawVisibleCompositeStack', () => {
     mockGetState
       .mockReturnValueOnce({
         project: { width: 16, height: 16 },
+        colorCyclePlayback: { desiredPlaying: true },
+        layers: [{ layerType: 'sequential' }, { layerType: 'color-cycle' }],
         sequentialRecord: { currentFrame: 2, isCaptureActive: false },
       })
       .mockReturnValueOnce({
         project: { width: 16, height: 16 },
+        colorCyclePlayback: { desiredPlaying: true },
+        layers: [{ layerType: 'sequential' }, { layerType: 'color-cycle' }],
         sequentialRecord: { currentFrame: 3, isCaptureActive: true },
       });
     mockGetSequentialLayerRenderCanvas.mockReturnValue(seqCanvas);
@@ -304,12 +317,14 @@ describe('drawVisibleCompositeStack', () => {
       width: 16,
       height: 16,
       frameIndex: 2,
+      holdPreviousOnEmptyFrames: false,
     });
     expect(mockGetSequentialLayerRenderCanvas).toHaveBeenNthCalledWith(2, {
       layer: layerMap.get('layer-seq'),
       width: 16,
       height: 16,
       frameIndex: 3,
+      holdPreviousOnEmptyFrames: false,
     });
   });
 
@@ -319,6 +334,8 @@ describe('drawVisibleCompositeStack', () => {
 
     mockGetState.mockReturnValue({
       project: { width: 16, height: 16 },
+      colorCyclePlayback: { desiredPlaying: false },
+      layers: [],
       sequentialRecord: { currentFrame: 3 },
     });
     mockGetSequentialLayerRenderCanvas.mockReturnValue(null);

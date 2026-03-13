@@ -365,6 +365,16 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(roundTripped.serialize().stampDitherPressureLinked).toBe(true);
   });
 
+  it('restores layer base speed through restoreFullState', () => {
+    const source = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 10, fps: 60 });
+    source.setLayerBaseSpeed(1.75);
+
+    const restored = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 10, fps: 60 });
+    restored.restoreFullState(source.serialize() as any);
+
+    expect(restored.serialize().layerBaseSpeed).toBeCloseTo(1.75, 5);
+  });
+
   it('applies layer snapshot with size mismatch and updates animator buffer', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);

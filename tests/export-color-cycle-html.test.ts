@@ -549,7 +549,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.type).toBe('sequential');
     expect(Array.isArray(exportedLayer.assets?.textureFrames)).toBe(true);
     expect(exportedLayer.assets?.textureFrames).toHaveLength(1);
-    expect(exportedLayer.assets?.textureFrameMap).toEqual([0, -1]);
+    expect(exportedLayer.assets?.textureFrameMap).toEqual([0, 0]);
     expect(exportedLayer.assets?.texture).toBe(exportedLayer.assets?.textureFrames?.[0]);
     expect(exportedLayer.sequential?.fps).toBe(12);
     expect(exportedLayer.sequential?.totalFrames).toBe(2);
@@ -640,7 +640,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     const firstLayer = payload.l?.[0];
     expect(Array.isArray(firstLayer?.as?.txf)).toBe(true);
     expect(firstLayer?.as?.txf).toHaveLength(1);
-    expect(firstLayer?.as?.txfm).toEqual([0, -1]);
+    expect(firstLayer?.as?.txfm).toEqual([0, 0]);
     expect(firstLayer?.sq?.fps).toBe(12);
     expect(firstLayer?.sq?.tfm).toBe(2);
 

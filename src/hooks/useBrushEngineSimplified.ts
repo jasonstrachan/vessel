@@ -7,8 +7,10 @@ import { useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   selectColorCycleDesiredPlaying,
   selectEffectiveColorCyclePlaying,
+  selectPlaybackSpeedScale,
   useAppStore
 } from '../stores/useAppStore';
+import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape, type BrushSettings } from '../types';
 import {
@@ -195,10 +197,10 @@ export { refreshLayerCCSurface } from './brushEngine/colorCycleSurface';
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
   const layers = useAppStore((state) => state.layers);
-  // Track per-layer CC brush speed for the active layer
-  const activeLayerBrushSpeed = useAppStore((state) => {
+  const playbackSpeedScale = useAppStore(selectPlaybackSpeedScale);
+  const activeLayerBaseSpeed = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
-    return layer?.colorCycleData?.controllerSpeedCps ?? layer?.colorCycleData?.brushSpeed;
+    return resolveLayerColorCycleBaseSpeed(layer?.colorCycleData);
   });
   const activeLayerFlowMode = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
@@ -1313,6 +1315,7 @@ export const useBrushEngineSimplified = () => {
       projectWidth: project?.width,
       projectHeight: project?.height,
       brushSettings: tools.brushSettings,
+      playbackSpeedScale,
       isCCGradientActiveLayer,
       defaultBandSpacing: DEFAULT_CC_BAND_SPACING,
       clampColorCycleBandSpacing,
@@ -1325,6 +1328,7 @@ export const useBrushEngineSimplified = () => {
     });
   }, [
     tools.brushSettings,
+    playbackSpeedScale,
     project?.width,
     project?.height,
     activeLayerId,
@@ -1533,34 +1537,67 @@ export const useBrushEngineSimplified = () => {
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
-  const resolvedColorCycleBaseSpeed = useMemo(() => {
-    const perLayerSpeed = activeLayerBrushSpeed;
+  const resolvedColorCycleWriteSpeed = useMemo(() => {
     const fallbackSpeed = tools.brushSettings.colorCycleSpeed;
-    if (Number.isFinite(perLayerSpeed)) {
-      return perLayerSpeed as number;
-    }
     if (Number.isFinite(fallbackSpeed)) {
       return fallbackSpeed as number;
     }
     return null;
   }, [
-    activeLayerBrushSpeed,
     tools.brushSettings.colorCycleSpeed,
   ]);
 
-  const resolvedColorCycleLayerSpeedScale = useMemo(() => {
-    const layerScaleRaw = tools.brushSettings.colorCycleLayerSpeedScale;
-    return Number.isFinite(layerScaleRaw)
-      ? Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, layerScaleRaw as number))
-      : 1;
-  }, [tools.brushSettings.colorCycleLayerSpeedScale]);
+  const resolvedColorCycleBaseSpeed = useMemo(() => {
+    const perLayerSpeed = activeLayerBaseSpeed;
+    if (Number.isFinite(perLayerSpeed)) {
+      return perLayerSpeed as number;
+    }
+    return 1;
+  }, [
+    activeLayerBaseSpeed,
+  ]);
 
-  // Update color cycle speed when it changes
+  const resolvedColorCycleLayerSpeedScale = useMemo(() => {
+    return Number.isFinite(playbackSpeedScale)
+      ? Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, playbackSpeedScale))
+      : 1;
+  }, [playbackSpeedScale]);
+
+  const lastAppliedColorCycleLayerIdRef = useRef<string | null>(null);
+  const lastAppliedColorCycleBaseSpeedRef = useRef<number | null>(null);
+
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && resolvedColorCycleBaseSpeed !== null) {
-      colorCycleBrush.setSpeed(resolvedColorCycleBaseSpeed);
+    if (!colorCycleBrush || resolvedColorCycleWriteSpeed === null) {
+      return;
     }
+    colorCycleBrush.setSpeed(resolvedColorCycleWriteSpeed);
+  }, [
+    getActiveLayerColorCycleBrush,
+    resolvedColorCycleWriteSpeed,
+  ]);
+
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (!colorCycleBrush || resolvedColorCycleBaseSpeed === null || !activeLayerId) {
+      return;
+    }
+
+    const previousLayerId = lastAppliedColorCycleLayerIdRef.current;
+    const previousBaseSpeed = lastAppliedColorCycleBaseSpeedRef.current;
+    const isSameLayer = previousLayerId === activeLayerId;
+    const hasPreviousBaseSpeed = Number.isFinite(previousBaseSpeed);
+    const didBaseSpeedChange = hasPreviousBaseSpeed
+      && Math.abs((previousBaseSpeed as number) - resolvedColorCycleBaseSpeed) > Number.EPSILON;
+
+    if (isSameLayer && didBaseSpeedChange) {
+      colorCycleBrush.setLayerBaseSpeed(resolvedColorCycleBaseSpeed);
+    } else if (typeof colorCycleBrush.setLayerBaseSpeed === 'function') {
+      colorCycleBrush.setLayerBaseSpeed(resolvedColorCycleBaseSpeed);
+    }
+
+    lastAppliedColorCycleLayerIdRef.current = activeLayerId;
+    lastAppliedColorCycleBaseSpeedRef.current = resolvedColorCycleBaseSpeed;
   }, [
     activeLayerId,
     getActiveLayerColorCycleBrush,

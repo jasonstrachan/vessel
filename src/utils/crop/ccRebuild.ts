@@ -3,6 +3,7 @@ import type { RecolorOptions } from '@/lib/colorCycle/RecolorManager';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import type { StoreApi } from 'zustand';
 import type { ColorCycleBrushResetEntry, RecolorRebuildRequest } from './types';
 
@@ -214,10 +215,11 @@ export function rebuildCCLayerAfterCrop({
     }
 
         const targetControllerSpeed =
-          typeof entry.controllerSpeedCps === 'number'
-            ? entry.controllerSpeedCps
-            : targetLayer.colorCycleData?.controllerSpeedCps ??
-              targetLayer.colorCycleData?.brushSpeed ??
+          typeof entry.layerBaseSpeedCps === 'number'
+            ? entry.layerBaseSpeedCps
+            : typeof entry.controllerSpeedCps === 'number'
+              ? entry.controllerSpeedCps
+            : resolveLayerColorCycleBaseSpeed(targetLayer.colorCycleData) ??
               getState().tools.brushSettings.colorCycleSpeed ??
               0.1;
 
@@ -265,10 +267,12 @@ export function rebuildCCLayerAfterCrop({
                   typeof entry.brushSpeed === 'number'
                     ? entry.brushSpeed
                     : layer.colorCycleData.brushSpeed,
-                controllerSpeedCps:
-                  typeof entry.controllerSpeedCps === 'number'
-                    ? entry.controllerSpeedCps
-                    : layer.colorCycleData.controllerSpeedCps,
+                layerBaseSpeedCps:
+                  typeof entry.layerBaseSpeedCps === 'number'
+                    ? entry.layerBaseSpeedCps
+                    : typeof entry.controllerSpeedCps === 'number'
+                      ? entry.controllerSpeedCps
+                    : layer.colorCycleData.layerBaseSpeedCps,
                 isAnimating: entry.wasAnimating
               }
             };

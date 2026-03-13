@@ -1,9 +1,21 @@
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 jest.mock('@/stores/useAppStore', () => {
-  type ColorCyclePlayback = { desiredPlaying: boolean; suspendDepth: number };
-  type Layer = { id: string; layerType: 'normal' | 'color-cycle' | 'sequential' };
+  type ColorCyclePlayback = {
+    desiredPlaying: boolean;
+    suspendDepth: number;
+    playbackSpeedScale: number;
+  };
+  type Layer = {
+    id: string;
+    layerType: 'normal' | 'color-cycle' | 'sequential';
+    colorCycleData?: {
+      brushSpeed?: number;
+      controllerSpeedCps?: number;
+      mode?: 'brush' | 'recolor';
+    };
+  };
   type SequentialRecord = {
     fps: number;
     frameCount: number;
@@ -19,15 +31,11 @@ jest.mock('@/stores/useAppStore', () => {
     playColorCycle: jest.Mock;
     pauseColorCycle: jest.Mock;
     forceResumeColorCycle: jest.Mock;
+    setPlaybackSpeedScale: jest.Mock;
     setRecordFPS: jest.Mock;
     setRecordFrameCount: jest.Mock;
     setTimeSmear: jest.Mock;
-    setBrushSettings: jest.Mock;
-    tools: {
-      brushSettings: {
-        colorCycleLayerSpeedScale?: number;
-      };
-    };
+    updateLayer: jest.Mock;
   };
   type Selector<T> = (state: MockState) => T;
   type StoreHook = {
@@ -39,7 +47,7 @@ jest.mock('@/stores/useAppStore', () => {
 
   const listeners = new Set<(state: MockState) => void>();
   const state: MockState = {
-    colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+    colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0, playbackSpeedScale: 1 },
     layers: [{ id: 'layer-regular', layerType: 'normal' }],
     activeLayerId: 'layer-regular',
     sequentialRecord: {
@@ -52,20 +60,28 @@ jest.mock('@/stores/useAppStore', () => {
     playColorCycle: jest.fn(),
     pauseColorCycle: jest.fn(),
     forceResumeColorCycle: jest.fn(),
+    setPlaybackSpeedScale: jest.fn((next: number) => {
+      state.colorCyclePlayback = {
+        ...state.colorCyclePlayback,
+        playbackSpeedScale: next,
+      };
+    }),
     setRecordFPS: jest.fn(),
     setRecordFrameCount: jest.fn(),
     setTimeSmear: jest.fn(),
-    setBrushSettings: jest.fn((updates: { colorCycleLayerSpeedScale?: number }) => {
-      state.tools.brushSettings = {
-        ...state.tools.brushSettings,
-        ...updates,
-      };
+    updateLayer: jest.fn((id: string, updates: { colorCycleData?: Layer['colorCycleData'] }) => {
+      state.layers = state.layers.map((layer) =>
+        layer.id === id
+          ? {
+              ...layer,
+              colorCycleData: {
+                ...layer.colorCycleData,
+                ...updates.colorCycleData,
+              },
+            }
+          : layer
+      );
     }),
-    tools: {
-      brushSettings: {
-        colorCycleLayerSpeedScale: 1,
-      },
-    },
   };
 
   const useAppStore = ((selector?: Selector<unknown>) =>
@@ -84,6 +100,7 @@ jest.mock('@/stores/useAppStore', () => {
   const selectEffectiveColorCyclePlaying = (s: MockState) =>
     s.colorCyclePlayback.desiredPlaying && s.colorCyclePlayback.suspendDepth === 0;
   const selectColorCycleSuspendDepth = (s: MockState) => s.colorCyclePlayback.suspendDepth;
+  const selectPlaybackSpeedScale = (s: MockState) => s.colorCyclePlayback.playbackSpeedScale;
   const selectSequentialRecordState = (s: MockState) => s.sequentialRecord;
   const selectSequentialPlaybackActive = (s: MockState) => {
     const activeLayer = s.layers.find((layer) => layer.id === s.activeLayerId);
@@ -97,6 +114,7 @@ jest.mock('@/stores/useAppStore', () => {
     useAppStore,
     selectEffectiveColorCyclePlaying,
     selectColorCycleSuspendDepth,
+    selectPlaybackSpeedScale,
     selectSequentialRecordState,
     selectSequentialPlaybackActive,
     selectSequentialCaptureActive,
@@ -109,8 +127,12 @@ import { useAppStore } from '@/stores/useAppStore';
 const SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY = 'vessel-sequential-panel-expanded';
 
 type PanelMockState = {
-  colorCyclePlayback: { desiredPlaying: boolean; suspendDepth: number };
-  layers: Array<{ id: string; layerType: 'normal' | 'color-cycle' | 'sequential' }>;
+  colorCyclePlayback: { desiredPlaying: boolean; suspendDepth: number; playbackSpeedScale: number };
+  layers: Array<{
+    id: string;
+    layerType: 'normal' | 'color-cycle' | 'sequential';
+    colorCycleData?: { layerBaseSpeedCps?: number; brushSpeed?: number; controllerSpeedCps?: number; mode?: 'brush' | 'recolor' };
+  }>;
   activeLayerId: string | null;
   sequentialRecord: {
     fps: number;
@@ -122,15 +144,11 @@ type PanelMockState = {
   playColorCycle: jest.Mock;
   pauseColorCycle: jest.Mock;
   forceResumeColorCycle: jest.Mock;
+  setPlaybackSpeedScale: jest.Mock;
   setRecordFPS: jest.Mock;
   setRecordFrameCount: jest.Mock;
   setTimeSmear: jest.Mock;
-  setBrushSettings: jest.Mock;
-  tools: {
-    brushSettings: {
-      colorCycleLayerSpeedScale?: number;
-    };
-  };
+  updateLayer: jest.Mock;
 };
 
 const appStore = useAppStore as unknown as {
@@ -145,12 +163,13 @@ describe('AnimationControlsPanel', () => {
     store.playColorCycle.mockClear();
     store.pauseColorCycle.mockClear();
     store.forceResumeColorCycle.mockClear();
+    store.setPlaybackSpeedScale.mockClear();
     store.setRecordFPS.mockClear();
     store.setRecordFrameCount.mockClear();
     store.setTimeSmear.mockClear();
-    store.setBrushSettings.mockClear();
+    store.updateLayer.mockClear();
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0, playbackSpeedScale: 1 },
       layers: [{ id: 'layer-regular', layerType: 'normal' }],
       activeLayerId: 'layer-regular',
       sequentialRecord: {
@@ -160,17 +179,12 @@ describe('AnimationControlsPanel', () => {
         currentFrame: 0,
         isPointerDown: false,
       },
-      tools: {
-        brushSettings: {
-          colorCycleLayerSpeedScale: 1,
-        },
-      },
     });
   });
 
   it('pauses when effective playback is active', () => {
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0, playbackSpeedScale: 1 },
     });
 
     render(<AnimationControlsPanel />);
@@ -183,7 +197,7 @@ describe('AnimationControlsPanel', () => {
 
   it('plays and force-resumes when suspended', () => {
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2, playbackSpeedScale: 1 },
     });
 
     render(<AnimationControlsPanel />);
@@ -196,7 +210,7 @@ describe('AnimationControlsPanel', () => {
 
   it('disables sequential controls while capturing', () => {
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0, playbackSpeedScale: 1 },
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
       activeLayerId: 'layer-seq',
       sequentialRecord: {
@@ -216,28 +230,16 @@ describe('AnimationControlsPanel', () => {
   });
 
   it('shows sequential controls even when active layer is not sequential', () => {
-    appStore.setState({
-      layers: [{ id: 'layer-regular', layerType: 'normal' }],
-      activeLayerId: 'layer-regular',
-      sequentialRecord: {
-        fps: 12,
-        frameCount: 24,
-        timeSmear: 1,
-        currentFrame: 0,
-        isPointerDown: false,
-      },
-    });
-
     render(<AnimationControlsPanel />);
 
-    expect(screen.getByText('Sequential')).toBeInTheDocument();
+    expect(screen.getByText('Sequence')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeInTheDocument();
   });
 
   it('shows pause while sequential capture is active and returns to play on pointer up', () => {
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0, playbackSpeedScale: 1 },
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
       activeLayerId: 'layer-seq',
       sequentialRecord: {
@@ -254,7 +256,7 @@ describe('AnimationControlsPanel', () => {
 
     unmount();
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0, playbackSpeedScale: 1 },
       sequentialRecord: {
         ...appStore.getState().sequentialRecord,
         isPointerDown: false,
@@ -266,7 +268,7 @@ describe('AnimationControlsPanel', () => {
 
   it('shows play and force-resumes when sequential playback is suspended', () => {
     appStore.setState({
-      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2 },
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2, playbackSpeedScale: 1 },
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
       activeLayerId: 'layer-seq',
       sequentialRecord: {
@@ -287,7 +289,7 @@ describe('AnimationControlsPanel', () => {
     expect(store.pauseColorCycle).not.toHaveBeenCalled();
   });
 
-  it('updates sequential controls when active sequential layer is selected', () => {
+  it('updates playback speed and sequential controls', () => {
     appStore.setState({
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
       activeLayerId: 'layer-seq',
@@ -311,7 +313,7 @@ describe('AnimationControlsPanel', () => {
     fireEvent.change(screen.getByRole('slider', { name: /time-smear/i }), {
       target: { value: '2.5' },
     });
-    fireEvent.change(screen.getByRole('slider', { name: /playback scale/i }), {
+    fireEvent.change(screen.getByRole('slider', { name: /playback speed/i }), {
       target: { value: '0.6' },
     });
 
@@ -319,8 +321,33 @@ describe('AnimationControlsPanel', () => {
     expect(store.setRecordFPS).toHaveBeenCalledWith(24);
     expect(store.setRecordFrameCount).toHaveBeenCalledWith(32);
     expect(store.setTimeSmear).toHaveBeenCalledWith(2.5);
-    expect(store.setBrushSettings).toHaveBeenCalledWith({ colorCycleLayerSpeedScale: 0.6 });
-    expect(screen.getByText(/applies to all color-cycle layers during playback\./i)).toBeInTheDocument();
+    expect(store.setPlaybackSpeedScale).toHaveBeenCalledWith(0.6);
+    expect(screen.getByText(/multiplies playback for sequence and color-cycle layers\./i)).toBeInTheDocument();
+  });
+
+  it('shows and updates CC base speed for the active color-cycle layer', () => {
+    appStore.setState({
+      layers: [{
+        id: 'layer-cc',
+        layerType: 'color-cycle',
+        colorCycleData: { layerBaseSpeedCps: 0.42, mode: 'brush' },
+      }],
+      activeLayerId: 'layer-cc',
+    });
+
+    render(<AnimationControlsPanel />);
+
+    fireEvent.change(screen.getByRole('slider', { name: /cc base speed/i }), {
+      target: { value: '0.8' },
+    });
+
+    const store = appStore.getState();
+    expect(store.updateLayer).toHaveBeenCalledWith('layer-cc', {
+      colorCycleData: {
+        layerBaseSpeedCps: 0.8,
+        mode: 'brush',
+      },
+    });
   });
 
   it('renders play pause button below sequential controls', () => {
@@ -337,12 +364,12 @@ describe('AnimationControlsPanel', () => {
     });
 
     const { container } = render(<AnimationControlsPanel />);
-    const sequentialHeader = screen.getByText('Sequential');
+    const sequentialHeader = screen.getByText('Sequence');
     const playbackButton = screen.getByRole('button', { name: /play/i });
     const relation = sequentialHeader.compareDocumentPosition(playbackButton);
 
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(container.textContent).toContain('Sequential');
+    expect(container.textContent).toContain('Sequence');
   });
 
   it('allows minimizing sequential controls', () => {
@@ -360,7 +387,7 @@ describe('AnimationControlsPanel', () => {
 
     render(<AnimationControlsPanel />);
 
-    const toggleButton = screen.getByRole('button', { name: /Sequential/i });
+    const toggleButton = screen.getByRole('button', { name: /Sequence/i });
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
     fireEvent.click(toggleButton);
     expect(screen.queryByRole('spinbutton', { name: /fps/i })).not.toBeInTheDocument();
@@ -386,6 +413,6 @@ describe('AnimationControlsPanel', () => {
     render(<AnimationControlsPanel />);
 
     expect(screen.queryByRole('spinbutton', { name: /fps/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Sequential/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /Sequence/i })).toHaveAttribute('aria-expanded', 'false');
   });
 });
