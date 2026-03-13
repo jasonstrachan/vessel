@@ -1,5 +1,7 @@
 import type { Layer } from '@/types';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
+import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
+import { useAppStore } from '@/stores/useAppStore';
 
 export const seedOverlayFromActiveLayer = ({
   activeLayer,
@@ -11,6 +13,29 @@ export const seedOverlayFromActiveLayer = ({
   if (activeLayer.layerType === 'color-cycle') {
     setOverlaySeededFromLayer(drawCtx.canvas, false);
     return false;
+  }
+
+  if (activeLayer.layerType === 'sequential' && activeLayer.sequentialData) {
+    const state = useAppStore.getState();
+    const project = state.project;
+    if (project) {
+      const source = getSequentialLayerRenderCanvas({
+        layer: activeLayer,
+        width: project.width,
+        height: project.height,
+        frameIndex: state.sequentialRecord.currentFrame,
+        holdPreviousOnEmptyFrames: true,
+      });
+      if (source) {
+        try {
+          drawCtx.drawImage(source, 0, 0);
+          setOverlaySeededFromLayer(drawCtx.canvas, true);
+          return true;
+        } catch {
+          // Fall through to framebuffer/imageData fallback.
+        }
+      }
+    }
   }
 
   const framebuffer = activeLayer.framebuffer;

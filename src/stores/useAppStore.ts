@@ -270,6 +270,7 @@ import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/sl
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
 import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglExportSettingsStorage';
+import { loadSequentialSettings, saveSequentialSettings } from '@/utils/sequentialSettingsStorage';
 import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
@@ -1090,6 +1091,17 @@ const hydrateWebglExportSettings = (): void => {
   useAppStore.getState().updateWebglExportSettings(payload);
 };
 
+const hydrateSequentialSettings = (): void => {
+  const payload = loadSequentialSettings();
+  if (!payload) {
+    return;
+  }
+
+  if (typeof payload.timeSmear === 'number') {
+    useAppStore.getState().setTimeSmear(payload.timeSmear);
+  }
+};
+
 const subscribeToWebglExportSettingsPersistence = (): void => {
   let pendingPayload: WebGLExportSettings | null = null;
   let debounceHandle: number | null = null;
@@ -1132,6 +1144,48 @@ const subscribeToWebglExportSettingsPersistence = (): void => {
   }
 };
 
+const subscribeToSequentialSettingsPersistence = (): void => {
+  let pendingPayload: { timeSmear: number } | null = null;
+  let debounceHandle: number | null = null;
+
+  const flushPending = () => {
+    if (!pendingPayload) {
+      return;
+    }
+    const payload = pendingPayload;
+    pendingPayload = null;
+    debounceHandle = null;
+    saveSequentialSettings(payload);
+  };
+
+  const scheduleSave = (payload: { timeSmear: number }) => {
+    pendingPayload = payload;
+    if (typeof window === 'undefined') {
+      flushPending();
+      return;
+    }
+    if (debounceHandle !== null) {
+      window.clearTimeout(debounceHandle);
+    }
+    debounceHandle = window.setTimeout(flushPending, 250);
+  };
+
+  storeSubscribeWithSelector(
+    (state) => state.sequentialRecord.timeSmear,
+    (next, prev) => {
+      if (next === prev) {
+        return;
+      }
+      scheduleSave({ timeSmear: next });
+    }
+  );
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushPending);
+    window.addEventListener('pagehide', flushPending);
+  }
+};
+
 const subscribeToSaveInFlightUnloadGuard = (): void => {
   if (typeof window === 'undefined') {
     return;
@@ -1157,6 +1211,8 @@ hydrateGlobalBrushSettings();
 subscribeToGlobalBrushPersistence();
 hydrateWebglExportSettings();
 subscribeToWebglExportSettingsPersistence();
+hydrateSequentialSettings();
+subscribeToSequentialSettingsPersistence();
 subscribeToSaveInFlightUnloadGuard();
 
 // DEBUG ONLY
