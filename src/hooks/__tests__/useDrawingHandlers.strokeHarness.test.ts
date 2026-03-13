@@ -79,12 +79,14 @@ jest.mock('@/stores/useAppStore', () => {
   const selectEffectiveColorCyclePlaying = jest.fn(() => false);
   const selectColorCycleDesiredPlaying = jest.fn(() => false);
   const selectColorCycleSuspendDepth = jest.fn(() => 0);
+  const selectSequentialCaptureActive = jest.fn(() => false);
   return {
     useAppStore: mock,
     selectActiveLayerId: () => null,
     selectEffectiveColorCyclePlaying,
     selectColorCycleDesiredPlaying,
     selectColorCycleSuspendDepth,
+    selectSequentialCaptureActive,
   };
 });
 

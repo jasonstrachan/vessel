@@ -322,7 +322,9 @@ describe('AnimationControlsPanel', () => {
     expect(store.setRecordFrameCount).toHaveBeenCalledWith(32);
     expect(store.setTimeSmear).toHaveBeenCalledWith(2.5);
     expect(store.setPlaybackSpeedScale).toHaveBeenCalledWith(0.6);
-    expect(screen.getByText(/multiplies playback for sequence and color-cycle layers\./i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/applies to color-cycle playback only\. sequence playback uses the fps setting above\./i)
+    ).toBeInTheDocument();
   });
 
   it('shows and updates CC base speed for the active color-cycle layer', () => {

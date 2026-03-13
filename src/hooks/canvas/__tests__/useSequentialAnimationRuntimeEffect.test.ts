@@ -210,4 +210,43 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     unmount();
   });
 
+  it('does not let color-cycle playback speed scale change sequence frame stepping speed', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      colorCyclePlayback: {
+        ...state.colorCyclePlayback,
+        desiredPlaying: true,
+        playbackSpeedScale: 3,
+      },
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        fps: 10,
+        currentFrame: 0,
+      },
+    }));
+
+    const storeRef = { current: useAppStore.getState() as AppState };
+    const { unmount } = renderHook(() => {
+      storeRef.current = useAppStore.getState() as AppState;
+      useSequentialAnimationRuntimeEffect({ storeRef });
+    });
+
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1050);
+    });
+
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(0);
+
+    act(() => {
+      rafCallback?.(1100);
+    });
+
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(1);
+
+    unmount();
+  });
+
 });

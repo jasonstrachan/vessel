@@ -46,9 +46,10 @@ const createLayer = (id: string, layerType: Layer['layerType']): Layer => {
 };
 
 describe('sequentialRecordSlice', () => {
-  it('defaults time smear to 20', () => {
+  it('defaults sequence playback to 12 fps and time smear to 40', () => {
     const initialState = useAppStore.getInitialState();
-    expect(initialState.sequentialRecord.timeSmear).toBe(20);
+    expect(initialState.sequentialRecord.fps).toBe(12);
+    expect(initialState.sequentialRecord.timeSmear).toBe(40);
   });
 
   beforeEach(() => {
@@ -84,7 +85,7 @@ describe('sequentialRecordSlice', () => {
     expect(useAppStore.getState().sequentialRecord.frameCount).toBe(512);
 
     store.setTimeSmear(100);
-    expect(useAppStore.getState().sequentialRecord.timeSmear).toBe(40);
+    expect(useAppStore.getState().sequentialRecord.timeSmear).toBe(80);
 
     const next = useAppStore.getState().sequentialRecord;
     expect(next.durationMs).toBe(Math.round((next.frameCount * 1000) / next.fps));
