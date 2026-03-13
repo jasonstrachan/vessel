@@ -5,6 +5,7 @@
 
 import {
   calculateGridSpacing,
+  calculatePressureAwareGridSpacing,
   shouldApplyGridSnapPure,
   snapToGridPure,
   calculateBrushSpacing,
@@ -53,6 +54,28 @@ describe('Brush Utilities', () => {
 
     test('enforces minimum spacing of 1', () => {
       expect(calculateGridSpacing({ ...mockBrushSettings, gridSnapSize: 0 })).toBe(1);
+    });
+  });
+
+  describe('calculatePressureAwareGridSpacing', () => {
+    test('returns base spacing when pressure is disabled', () => {
+      expect(
+        calculatePressureAwareGridSpacing({ ...mockBrushSettings, gridSnapSize: 12, pressureEnabled: false }, 1)
+      ).toBe(12);
+    });
+
+    test('increases snap spacing as pressure increases', () => {
+      const settings = {
+        ...mockBrushSettings,
+        gridSnapSize: 10,
+        pressureEnabled: true,
+        minPressure: 0,
+        maxPressure: 100,
+      };
+
+      expect(calculatePressureAwareGridSpacing(settings, 0)).toBe(10);
+      expect(calculatePressureAwareGridSpacing(settings, 0.5)).toBeGreaterThan(10);
+      expect(calculatePressureAwareGridSpacing(settings, 1)).toBe(20);
     });
   });
 
@@ -254,6 +277,19 @@ describe('Brush Utilities', () => {
 
       settings = { ...settings, gridSnapSize: 5 };
       expect(utils.calculateGridSpacing()).toBe(5);
+    });
+
+    test('calculateGridSpacing can scale with pressure', () => {
+      const getSettings = () => ({
+        ...mockBrushSettings,
+        gridSnapSize: 8,
+        pressureEnabled: true,
+        minPressure: 0,
+        maxPressure: 100,
+      });
+      const utils = createBrushUtilities(getSettings);
+
+      expect(utils.calculateGridSpacing(1)).toBe(16);
     });
 
     test('snap to grid uses calculated spacing', () => {

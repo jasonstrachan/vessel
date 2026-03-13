@@ -2,7 +2,11 @@ import { useMemo } from 'react';
 import { useStrokeInputHandlers } from '@/hooks/canvas/useStrokeInputHandlers';
 import type { useDrawingHandlerRefs } from '@/hooks/canvas/useDrawingHandlerRefs';
 import { createPixelQueue } from '@/hooks/brushEngine/strokeProcessor';
-import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '@/hooks/brushEngine/utilities';
+import {
+  shouldApplyGridSnapPure,
+  snapToGridPure,
+  calculatePressureAwareGridSpacing,
+} from '@/hooks/brushEngine/utilities';
 import { shouldDrawStamp } from '@/hooks/brushEngine/strokeProcessor';
 import { selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
 import { alignPointToPixel, shouldPixelAlignBrush } from '@/hooks/canvas/utils/captureRegions';
@@ -98,7 +102,8 @@ export const useDrawingStrokeRuntime = ({
       clipLineSegment,
       shouldDrawStamp,
       shouldApplyGridSnapPure,
-      calculateGridSpacing: () => calculateGridSpacing(storeRef.current.tools.brushSettings),
+      calculateGridSpacing: (pressure?: number) =>
+        calculatePressureAwareGridSpacing(storeRef.current.tools.brushSettings, pressure),
       snapToGridPure,
       resolveBrushRotation,
       captureBrushFromCanvas,

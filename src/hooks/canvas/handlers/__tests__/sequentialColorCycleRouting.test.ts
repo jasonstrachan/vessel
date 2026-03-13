@@ -695,6 +695,88 @@ describe('sequential color-cycle routing', () => {
     expect(deps.scheduleRecompose).not.toHaveBeenCalled();
   });
 
+  it('deduplicates snapped color-cycle stamps that land in the same grid cell', () => {
+    const state = createColorCycleState();
+    const layer = state.layers.find((entry) => entry.id === state.activeLayerId);
+    const targetCtx = layer?.colorCycleData?.canvas?.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('color-cycle 2d context unavailable');
+    }
+
+    const drawColorCycle = jest.fn();
+    const args: ProcessBatchedStrokesArgs = {
+      strokeBatchRef: {
+        current: [
+          { pos: { x: 0, y: 0 }, pressure: 1 },
+          { pos: { x: 7, y: 0 }, pressure: 1 },
+        ],
+      },
+      strokeBatchTimerRef: { current: 1 },
+      drawingCtxRef: { current: targetCtx },
+      lastDrawPosRef: { current: { x: 0, y: 0 } },
+      lastDrawTimestampRef: { current: null },
+      brushSamplingPreviewActiveRef: { current: false },
+      autoSamplePointsRef: { current: [] },
+      ccSampledPointsRef: { current: [] },
+      resamplerBrushDataRef: { current: undefined },
+      stampCounterRef: { current: 0 },
+      colorCyclePixelQueueRef: { current: createPixelQueue() },
+      colorCycleDistanceRef: { current: 0 },
+      colorCycleLastPosRef: { current: { x: 0, y: 0 } },
+      colorCycleLastRotationRef: { current: 0 },
+      eraserToolRef: { current: null },
+      eraserRoiRef: { current: null },
+    };
+
+    const deps: ProcessBatchedStrokesDeps = {
+      storeRef: { current: state },
+      project: { width: 32, height: 32 },
+      brushEngine: {
+        drawBrush: jest.fn(),
+        consumeRecentStamps: jest.fn(() => []),
+        drawColorCycle,
+      },
+      userBrushEngine: {
+        isUserBrush: () => false,
+        continueStroke: jest.fn(),
+      },
+      drawEraserSegment: jest.fn(),
+      updateAutoSampledGradient: jest.fn(),
+      updateCcSampledGradient: jest.fn(),
+      renderBrushSamplingPreview: jest.fn(),
+      getCCStampTargetCtx: () => targetCtx,
+      scheduleRecompose: jest.fn(),
+      extendMaskHealingStroke: jest.fn(),
+      createPixelQueue,
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      resolveActiveCustomBrushData: () => undefined,
+      getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
+      selectEffectiveColorCyclePlaying: () => true,
+      shouldPixelAlignBrush: () => false,
+      alignPointToPixel: (point) => point,
+      clipLineSegment: (start, end) => [start, end],
+      shouldDrawStamp: () => true,
+      shouldApplyGridSnapPure: () => true,
+      calculateGridSpacing: () => 8,
+      snapToGridPure: (x, y, spacing) => ({
+        x: Math.round(x / spacing) * spacing,
+        y: Math.round(y / spacing) * spacing,
+      }),
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      captureBrushFromCanvas: jest.fn(() => null),
+      isEraserV2: false,
+    };
+
+    processBatchedStrokes(args, deps);
+
+    const stampedCells = drawColorCycle.mock.calls.map((call) => ({ x: call[1], y: call[2] }));
+    expect(stampedCells).toEqual([
+      { x: 0, y: 0 },
+      { x: 8, y: 0 },
+    ]);
+  });
+
   it('expands clipping bounds by brush radius to keep edge strokes continuous', () => {
     createSequentialState();
     useAppStore.setState((state) => ({

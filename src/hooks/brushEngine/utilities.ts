@@ -50,6 +50,33 @@ export const calculateGridSpacing = (brushSettings?: BrushSettings): number => {
 };
 
 /**
+ * Scale grid spacing with live pressure so snap distance tracks the rendered brush size.
+ */
+export const calculatePressureAwareGridSpacing = (
+  brushSettings?: BrushSettings,
+  pressure?: number
+): number => {
+  const baseSpacing = calculateGridSpacing(brushSettings);
+  if (!brushSettings?.pressureEnabled || !Number.isFinite(pressure)) {
+    return baseSpacing;
+  }
+  const safePressure = pressure ?? 1;
+
+  const resolvedRange = resolveBrushPressureRange(brushSettings);
+  if (!resolvedRange.enabled) {
+    return baseSpacing;
+  }
+
+  const sizing = resolvePressureSizing(baseSpacing, {
+    enabled: resolvedRange.enabled,
+    minPercent: resolvedRange.minPercent,
+    maxPercent: resolvedRange.maxPercent,
+  });
+
+  return Math.max(1, Math.round(sizing.sample(safePressure) * 2));
+};
+
+/**
  * Check if grid snapping should be applied
  */
 export const shouldApplyGridSnapPure = (brushSettings: BrushSettings): boolean => {
@@ -196,10 +223,11 @@ export const shouldSkipPigmentLiftWithTransparencyLock = (
  */
 export const createBrushUtilities = (getSettings: () => BrushSettings) => {
   return {
-    calculateGridSpacing: () => calculateGridSpacing(getSettings()),
+    calculateGridSpacing: (pressure?: number) =>
+      calculatePressureAwareGridSpacing(getSettings(), pressure),
     shouldApplyGridSnap: () => shouldApplyGridSnapPure(getSettings()),
-    snapToGrid: (x: number, y: number) => {
-      const spacing = calculateGridSpacing(getSettings());
+    snapToGrid: (x: number, y: number, pressure?: number) => {
+      const spacing = calculatePressureAwareGridSpacing(getSettings(), pressure);
       return snapToGridPure(x, y, spacing);
     },
     calculateBrushSpacing: (

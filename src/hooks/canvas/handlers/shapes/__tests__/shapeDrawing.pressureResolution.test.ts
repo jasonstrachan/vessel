@@ -107,6 +107,25 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, ditherStrokeState)).toEqual({ x: 16, y: 16 });
   });
 
+  it('expands dither grid snap spacing when pressure grows', () => {
+    const pressureSnapState = {
+      currentBrushPreset: { id: 'dither-stroke' },
+      tools: {
+        brushSettings: {
+          gridSnapEnabled: true,
+          gridSnapSize: 8,
+          pressureEnabled: true,
+          minPressure: 0,
+          maxPressure: 100,
+          brushShape: BrushShape.PIXEL_DITHER,
+        },
+      },
+    } as unknown as AppState;
+
+    expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, pressureSnapState, 0)).toEqual({ x: 8, y: 24 });
+    expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, pressureSnapState, 1)).toEqual({ x: 16, y: 16 });
+  });
+
   it('leaves points unchanged when grid snap is disabled or preset is not dither', () => {
     const gridOffState = {
       currentBrushPreset: { id: 'dither-shape' },
