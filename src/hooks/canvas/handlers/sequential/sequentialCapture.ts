@@ -22,6 +22,8 @@ import {
   selectSequentialCaptureActive,
   type AppState,
 } from '@/stores/useAppStore';
+import { resolvePressureSizing } from '@/utils/pressureSizing';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { brushRegistry } from '@/brushes/BrushRegistry';
 import {
   BrushShape,
@@ -1093,16 +1095,27 @@ export const createFallbackSequentialStamp = (
   point: { x: number; y: number },
   pressure: number,
   brushSettings: BrushSettings
-): SequentialStampPoint => ({
-  x: point.x,
-  y: point.y,
-  pressure: Number.isFinite(pressure) ? Math.max(0, Math.min(1, pressure)) : 1,
-  rotation: Number.isFinite(brushSettings.rotation) ? brushSettings.rotation : 0,
-  size: Number.isFinite(brushSettings.size) ? Math.max(0, brushSettings.size) : 1,
-  alpha: Number.isFinite(brushSettings.opacity)
-    ? Math.max(0, Math.min(1, brushSettings.opacity))
-    : 1,
-});
+): SequentialStampPoint => {
+  const normalizedPressure = Number.isFinite(pressure) ? Math.max(0, Math.min(1, pressure)) : 1;
+  const baseSize = Number.isFinite(brushSettings.size) ? Math.max(1, brushSettings.size) : 1;
+  const pressureRange = resolveBrushPressureRange(brushSettings);
+  const pressureSizing = resolvePressureSizing(baseSize, {
+    enabled: pressureRange.enabled,
+    minPercent: pressureRange.minPercent,
+    maxPercent: pressureRange.maxPercent,
+  });
+
+  return {
+    x: point.x,
+    y: point.y,
+    pressure: normalizedPressure,
+    rotation: Number.isFinite(brushSettings.rotation) ? brushSettings.rotation : 0,
+    size: Math.max(1, Math.round(pressureSizing.sample(normalizedPressure) * 2)),
+    alpha: Number.isFinite(brushSettings.opacity)
+      ? Math.max(0, Math.min(1, brushSettings.opacity))
+      : 1,
+  };
+};
 
 export const applyDeterministicStampCap = ({
   runtime,

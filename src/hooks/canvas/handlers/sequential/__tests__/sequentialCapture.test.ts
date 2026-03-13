@@ -3,6 +3,7 @@ import {
   __TESTING__,
   applyDeterministicStampCap,
   captureSequentialStampsForActiveLayer,
+  createFallbackSequentialStamp,
   createSequentialEventBufferRuntime,
   flushBufferedSequentialEvents,
   getBufferedSequentialLayerFrameEvents,
@@ -162,6 +163,23 @@ describe('sequentialCapture', () => {
     expect(events[0].stamps).toHaveLength(2);
     expect(events[0].brush.brushShape).toBe(BrushShape.ROUND);
     expect(events[0].brush.tipShape).toBe('round');
+  });
+
+  it('sizes fallback sequential stamps from the current pressure response', () => {
+    const stamp = createFallbackSequentialStamp(
+      { x: 10, y: 12 },
+      0.05,
+      {
+        ...useAppStore.getState().tools.brushSettings,
+        size: 10,
+        pressureEnabled: true,
+        minPressure: 50,
+        maxPressure: 150,
+      }
+    );
+
+    expect(stamp.pressure).toBeCloseTo(0.05);
+    expect(stamp.size).toBe(5);
   });
 
   it('captures effective square tip shape for pixel-square style brushes', () => {
