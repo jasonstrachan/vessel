@@ -242,6 +242,14 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
         clickLineSession: { active: false, points: [] },
       },
     },
+    customFreehandCaptureRuntimeRef: {
+      current: {
+        active: false,
+        pointerId: null,
+        points: [],
+        bounds: null,
+      },
+    },
     defaultCursorStyle: 'none',
     ...depOverrides,
   };
@@ -383,6 +391,241 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.clearStrokeSession).not.toHaveBeenCalled();
     expect(deps.pan.startPan).toHaveBeenCalledWith(20, 20);
     expect(deps.drawingHandlers.continueDrawing).not.toHaveBeenCalled();
+  });
+
+  it('keeps the custom tool mounted until freehand capture is materialized', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'custom',
+        customBrushCapture: {
+          mode: 'freehand',
+          sampleAllLayers: false,
+          freehandPath: null,
+        } as any,
+      },
+    });
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ pointerId: 7, clientX: 10, clientY: 10 }));
+    handlers.handlePointerMove(
+      makePointerEvent({ pointerId: 7, buttons: 1, clientX: 18, clientY: 10 })
+    );
+    handlers.handlePointerMove(
+      makePointerEvent({ pointerId: 7, buttons: 1, clientX: 14, clientY: 18 })
+    );
+    handlers.handlePointerUp(makePointerEvent({ pointerId: 7, clientX: 10, clientY: 10 }));
+
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenCalled();
+    expect(deps.setCurrentTool).not.toHaveBeenCalledWith('brush');
+    expect(dynamicDepsRef.current.tools.currentTool).toBe('custom');
+  });
+
+  it('includes the pointer-up point when completing a custom freehand capture', () => {
+    const { deps } = createDeps(
+      {
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'custom',
+          customBrushCapture: {
+            mode: 'freehand',
+            sampleAllLayers: false,
+            freehandPath: null,
+          } as any,
+        },
+      },
+      {
+        getMousePos: jest.fn((event: any) => ({
+          x: event.clientX ?? 0,
+          y: event.clientY ?? 0,
+        })),
+      }
+    );
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ pointerId: 9, clientX: 20, clientY: 20 }));
+    handlers.handlePointerMove(
+      makePointerEvent({ pointerId: 9, buttons: 1, clientX: 40, clientY: 20 })
+    );
+    handlers.handlePointerUp(makePointerEvent({ pointerId: 9, clientX: 30, clientY: 40 }));
+
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenLastCalledWith({
+      points: [
+        { x: 20, y: 20 },
+        { x: 40, y: 20 },
+        { x: 30, y: 40 },
+      ],
+      bounds: { x: 20, y: 20, width: 20, height: 20 },
+    });
+  });
+
+  it('does not cancel a custom freehand capture on pointer leave', () => {
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'custom',
+        customBrushCapture: {
+          mode: 'freehand',
+          sampleAllLayers: false,
+          freehandPath: null,
+        } as any,
+      },
+    });
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ pointerId: 12, clientX: 10, clientY: 10 }));
+    handlers.handlePointerMove(
+      makePointerEvent({ pointerId: 12, buttons: 1, clientX: 18, clientY: 18 })
+    );
+    handlers.handlePointerLeave();
+    handlers.handlePointerMove(
+      makePointerEvent({ pointerId: 12, buttons: 1, clientX: 28, clientY: 18 })
+    );
+    handlers.handlePointerUp(makePointerEvent({ pointerId: 12, clientX: 28, clientY: 18 }));
+
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenCalled();
+    expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
+  });
+
+  it('flushes a pending custom freehand move before completing on pointer up', () => {
+    let queuedRaf: FrameRequestCallback | null = null;
+    const previousRaf = global.requestAnimationFrame;
+    global.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      queuedRaf = cb;
+      return 1;
+    };
+    try {
+      const { deps } = createDeps(
+        {
+          tools: {
+            ...baseDynamic.tools,
+            currentTool: 'custom',
+            customBrushCapture: {
+              mode: 'freehand',
+              sampleAllLayers: false,
+              freehandPath: null,
+            } as any,
+          },
+        },
+        {
+          getMousePos: jest.fn((event: any) => ({
+            x: event.clientX ?? 0,
+            y: event.clientY ?? 0,
+          })),
+        }
+      );
+      const handlers = createPointerHandlers(deps);
+
+      handlers.handlePointerDown(makePointerEvent({ pointerId: 15, clientX: 20, clientY: 20 }));
+      handlers.handlePointerMove(
+        makePointerEvent({ pointerId: 15, buttons: 1, clientX: 40, clientY: 20 })
+      );
+      handlers.handlePointerUp(makePointerEvent({ pointerId: 15, clientX: 30, clientY: 40 }));
+
+      expect(queuedRaf).not.toBeNull();
+      expect(deps.setCustomBrushFreehandPath).toHaveBeenLastCalledWith({
+        points: [
+          { x: 20, y: 20 },
+          { x: 40, y: 20 },
+          { x: 30, y: 40 },
+        ],
+        bounds: { x: 20, y: 20, width: 20, height: 20 },
+      });
+    } finally {
+      global.requestAnimationFrame = previousRaf;
+    }
+  });
+
+  it('completes custom freehand capture even when pointer capture is already gone on pointer up', () => {
+    const releasePointerCapture = jest.fn(() => {
+      throw new DOMException('missing capture', 'NotFoundError');
+    });
+    const { deps } = createDeps(
+      {
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'custom',
+          customBrushCapture: {
+            mode: 'freehand',
+            sampleAllLayers: false,
+            freehandPath: null,
+          } as any,
+        },
+      },
+      {
+        getMousePos: jest.fn((event: any) => ({
+          x: event.clientX ?? 0,
+          y: event.clientY ?? 0,
+        })),
+      }
+    );
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ pointerId: 18, clientX: 20, clientY: 20 }));
+    handlers.handlePointerMove(
+      makePointerEvent({ pointerId: 18, buttons: 1, clientX: 40, clientY: 20 })
+    );
+    handlers.handlePointerUp(
+      makePointerEvent({
+        pointerId: 18,
+        clientX: 30,
+        clientY: 40,
+        currentTarget: {
+          releasePointerCapture,
+          hasPointerCapture: jest.fn().mockReturnValue(false),
+        } as any,
+      })
+    );
+
+    expect(releasePointerCapture).not.toHaveBeenCalled();
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenLastCalledWith({
+      points: [
+        { x: 20, y: 20 },
+        { x: 40, y: 20 },
+        { x: 30, y: 40 },
+      ],
+      bounds: { x: 20, y: 20, width: 20, height: 20 },
+    });
+  });
+
+  it('preserves custom freehand capture state across handler recreation', () => {
+    const { deps } = createDeps(
+      {
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'custom',
+          customBrushCapture: {
+            mode: 'freehand',
+            sampleAllLayers: false,
+            freehandPath: null,
+          } as any,
+        },
+      },
+      {
+        getMousePos: jest.fn((event: any) => ({
+          x: event.clientX ?? 0,
+          y: event.clientY ?? 0,
+        })),
+      }
+    );
+    const handlersA = createPointerHandlers(deps);
+
+    handlersA.handlePointerDown(makePointerEvent({ pointerId: 22, clientX: 20, clientY: 20 }));
+    handlersA.handlePointerMove(
+      makePointerEvent({ pointerId: 22, buttons: 1, clientX: 40, clientY: 20 })
+    );
+
+    const handlersB = createPointerHandlers(deps);
+    handlersB.handlePointerUp(makePointerEvent({ pointerId: 22, clientX: 30, clientY: 40 }));
+
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenLastCalledWith({
+      points: [
+        { x: 20, y: 20 },
+        { x: 40, y: 20 },
+        { x: 30, y: 40 },
+      ],
+      bounds: { x: 20, y: 20, width: 20, height: 20 },
+    });
   });
 
   it('does not resume drawing after space-pan release until pointer is lifted', () => {

@@ -114,6 +114,13 @@ export interface SelectionRuntimeState {
   clickLineSession: SelectionPathSession;
 }
 
+export interface CustomFreehandCaptureRuntimeState {
+  active: boolean;
+  pointerId: number | null;
+  points: Array<{ x: number; y: number }>;
+  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
+}
+
 export interface EventHandlerDynamicDeps {
   project: Project | null;
   canvas: CanvasState | null;
@@ -265,6 +272,7 @@ export interface EventHandlerDependencies {
   contourLinesDefaultsCacheRef: React.MutableRefObject<Lines2DefaultsCache | null>;
   contourLinesFinalizingRef: React.MutableRefObject<boolean>;
   selectionRuntimeRef: React.MutableRefObject<SelectionRuntimeState>;
+  customFreehandCaptureRuntimeRef: React.MutableRefObject<CustomFreehandCaptureRuntimeState>;
 }
 
 // Canonical dependency contract for handler modules (alias to avoid churn).
