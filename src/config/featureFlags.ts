@@ -26,8 +26,8 @@ const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
 const defaultState: FeatureFlagState = {
   useCanvas2DColorCycle: false,
   logColorCycleOperations: false,
-  useColorCycleWorker: false,
-  enableSequentialRecordMode: false,
+  useColorCycleWorker: true,
+  enableSequentialRecordMode: true,
   enableSequentialGpuAcceleration: false,
   enableSequentialTemporalDistribution: true,
   enableSequentialTypedQueueDebtControl: true,
