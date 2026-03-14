@@ -19,6 +19,7 @@ export const useDrawingCanvasStoreState = () => {
       canvasOffsetX: state.canvas.offsetX,
       canvasOffsetY: state.canvas.offsetY,
       displayMode: state.canvas.displayMode,
+      transparencyBackgroundMode: state.canvas.transparencyBackgroundMode,
       compositeBitmap: state.currentCompositeBitmap,
       compositeSegmentsVersion: state.compositeSegmentsVersion,
       currentTool: state.tools.currentTool,
