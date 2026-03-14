@@ -152,13 +152,16 @@ function createMockStore() {
         lastBackupTime: null,
       },
     },
-    canvas: { showRulers: false, showFPSMeter: true },
+    canvas: { showRulers: false, showFPSMeter: true, transparencyBackgroundMode: 'checker' },
     setAutosaveEnabled: jest.fn(),
     setAutosaveInterval: jest.fn(),
     clearSaveStatus: jest.fn(),
     toggleRulers: jest.fn(),
     setShowFPSMeter: jest.fn((visible: boolean) => {
       store.canvas.showFPSMeter = visible;
+    }),
+    setTransparencyBackgroundMode: jest.fn((mode: 'checker' | 'gray') => {
+      store.canvas.transparencyBackgroundMode = mode;
     }),
     setHistorySize: jest.fn(),
     newProject: jest.fn(),
@@ -252,5 +255,18 @@ describe('Home page client rendering', () => {
     render(<Home />);
 
     expect(mockStore.setShowFPSMeter).toHaveBeenCalledWith(false);
+  });
+
+  it('applies persisted transparency background preference from settings', () => {
+    localStorage.setItem(
+      'vessel-settings',
+      JSON.stringify({
+        canvas: { transparencyBackgroundMode: 'gray' },
+      })
+    );
+
+    render(<Home />);
+
+    expect(mockStore.setTransparencyBackgroundMode).toHaveBeenCalledWith('gray');
   });
 });

@@ -19,6 +19,7 @@ export interface CanvasSlice {
   setCanvasViewport: (viewport: { left: number; top: number; width: number; height: number }) => void;
   toggleRulers: () => void;
   setShowFPSMeter: (visible: boolean) => void;
+  setTransparencyBackgroundMode: (mode: CanvasState['transparencyBackgroundMode']) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setCanvasDimensions: (width: number, height: number) => void;
   resizeCanvas: (width: number, height: number) => Promise<void>;
@@ -38,6 +39,7 @@ export const defaultCanvasState: CanvasState = {
   gridSize: 16,
   showRulers: false,
   showFPSMeter: true,
+  transparencyBackgroundMode: 'checker',
   displayMode: 'pixelated',
   canvasWidth: 2000,
   canvasHeight: 2000,
@@ -109,6 +111,15 @@ export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (s
       }
       return {
         canvas: { ...state.canvas, showFPSMeter: visible },
+      };
+    }),
+  setTransparencyBackgroundMode: (mode) =>
+    set((state) => {
+      if (state.canvas.transparencyBackgroundMode === mode) {
+        return state;
+      }
+      return {
+        canvas: { ...state.canvas, transparencyBackgroundMode: mode },
       };
     }),
   setDisplayMode: (mode) =>

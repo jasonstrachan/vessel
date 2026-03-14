@@ -43,6 +43,7 @@ export default function Home() {
 
   const canvasShowRulers = useAppStore((state) => state.canvas.showRulers);
   const showFPSMeter = useAppStore((state) => state.canvas.showFPSMeter);
+  const setTransparencyBackgroundMode = useAppStore((state) => state.setTransparencyBackgroundMode);
   const setAutosaveEnabled = useAppStore((state) => state.setAutosaveEnabled);
   const setAutosaveInterval = useAppStore((state) => state.setAutosaveInterval);
   const toggleRulers = useAppStore((state) => state.toggleRulers);
@@ -118,6 +119,12 @@ export default function Home() {
           if (typeof settings.canvas.showFPSMeter === 'boolean') {
             setShowFPSMeter(settings.canvas.showFPSMeter);
           }
+          if (
+            settings.canvas.transparencyBackgroundMode === 'checker' ||
+            settings.canvas.transparencyBackgroundMode === 'gray'
+          ) {
+            setTransparencyBackgroundMode(settings.canvas.transparencyBackgroundMode);
+          }
         }
 
         // Load history settings
@@ -133,7 +140,7 @@ export default function Home() {
     } finally {
       setIsSettingsHydrated(true);
     }
-  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, toggleRulers]);
+  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setTransparencyBackgroundMode, toggleRulers]);
 
   useEffect(() => {
     if (!isAutosaveEnabled) {

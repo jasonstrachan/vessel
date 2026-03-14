@@ -34,6 +34,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   useKeyboardScope('modal', isOpen);
   const showRulers = useAppStore(state => state.canvas.showRulers);
   const showFPSMeter = useAppStore(state => state.canvas.showFPSMeter);
+  const transparencyBackgroundMode = useAppStore(state => state.canvas.transparencyBackgroundMode);
   const isAutosaveEnabled = useAppStore(state => state.autosave.isEnabled);
   const autosaveInterval = useAppStore(state => state.autosave.interval);
   const historySize = useAppStore(state => state.history.maxHistorySize);
@@ -42,6 +43,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const setHistorySize = useAppStore(state => state.setHistorySize);
   const toggleRulers = useAppStore(state => state.toggleRulers);
   const setShowFPSMeter = useAppStore(state => state.setShowFPSMeter);
+  const setTransparencyBackgroundMode = useAppStore(state => state.setTransparencyBackgroundMode);
   const project = useAppStore(state => state.project);
   const layers = useAppStore(state => state.layers);
   
@@ -65,6 +67,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       canvas: {
         showRulers: currentState.canvas.showRulers,
         showFPSMeter: currentState.canvas.showFPSMeter,
+        transparencyBackgroundMode: currentState.canvas.transparencyBackgroundMode,
       },
       history: {
         maxHistorySize: currentState.history.maxHistorySize,
@@ -129,6 +132,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleFPSMeterToggle = (enabled: boolean) => {
     setShowFPSMeter(enabled);
+  };
+
+  const handleTransparencyBackgroundModeChange = (
+    event: React.ChangeEvent<HTMLSelectElement>
+  ) => {
+    const mode = event.target.value;
+    if (mode === 'checker' || mode === 'gray') {
+      setTransparencyBackgroundMode(mode);
+    }
   };
 
   useEffect(() => {
@@ -225,6 +237,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   checked={showFPSMeter}
                   onChange={handleFPSMeterToggle}
                 />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <label htmlFor="transparency-background-mode" className="text-base text-[#888]">
+                  Transparent Background
+                </label>
+                <select
+                  id="transparency-background-mode"
+                  value={transparencyBackgroundMode}
+                  onChange={handleTransparencyBackgroundModeChange}
+                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                >
+                  <option value="checker">Checkered</option>
+                  <option value="gray">Grey</option>
+                </select>
               </div>
             </div>
           </div>

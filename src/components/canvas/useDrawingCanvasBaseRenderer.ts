@@ -20,6 +20,7 @@ import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState'
 
 const CANVAS_CHECKER_LIGHT = '#2a2a2e';
 const CANVAS_CHECKER_DARK = '#1c1c1f';
+const CANVAS_TRANSPARENCY_GRAY = '#5a5a5f';
 
 type Point = { x: number; y: number };
 
@@ -92,6 +93,7 @@ interface UseDrawingCanvasBaseRendererOptions {
   brushShape: BrushShape | undefined;
   antialiasing: boolean | undefined;
   displayMode: 'pixelated' | 'smooth';
+  transparencyBackgroundMode: 'checker' | 'gray';
   currentTool: Tool;
   underCompositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   underCompositeHasContentRef: React.MutableRefObject<boolean>;
@@ -134,6 +136,7 @@ export const useDrawingCanvasBaseRenderer = ({
   brushShape,
   antialiasing,
   displayMode,
+  transparencyBackgroundMode,
   currentTool,
   underCompositeCanvasRef,
   underCompositeHasContentRef,
@@ -222,6 +225,8 @@ export const useDrawingCanvasBaseRenderer = ({
         displayHeight,
         checkerPatternCanvasRef,
         checkerPatternCacheRef,
+        transparencyBackgroundMode,
+        solidBackgroundColor: CANVAS_TRANSPARENCY_GRAY,
         checkerLight: CANVAS_CHECKER_LIGHT,
         checkerDark: CANVAS_CHECKER_DARK,
       });
@@ -403,6 +408,7 @@ export const useDrawingCanvasBaseRenderer = ({
       brushShape,
       antialiasing,
       displayMode,
+      transparencyBackgroundMode,
       currentTool,
       underCompositeCanvasRef,
       underCompositeHasContentRef,

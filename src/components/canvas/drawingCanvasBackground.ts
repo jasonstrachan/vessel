@@ -18,6 +18,8 @@ interface RenderCanvasBackgroundOptions {
   displayHeight: number;
   checkerPatternCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   checkerPatternCacheRef: React.MutableRefObject<WeakMap<CanvasRenderingContext2D, CanvasPattern | null>>;
+  transparencyBackgroundMode: 'checker' | 'gray';
+  solidBackgroundColor: string;
   checkerLight: string;
   checkerDark: string;
 }
@@ -33,9 +35,23 @@ export const renderCanvasBackground = ({
   displayHeight,
   checkerPatternCanvasRef,
   checkerPatternCacheRef,
+  transparencyBackgroundMode,
+  solidBackgroundColor,
   checkerLight,
   checkerDark,
 }: RenderCanvasBackgroundOptions): void => {
+  if (transparencyBackgroundMode === 'gray') {
+    if (visibleRect) {
+      ctx.fillStyle = solidBackgroundColor;
+      ctx.fillRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
+      return;
+    }
+
+    ctx.fillStyle = solidBackgroundColor;
+    ctx.fillRect(0, 0, project.width, project.height);
+    return;
+  }
+
   const checkerSize = 10;
   const checkerTileSize = checkerSize * 2;
 

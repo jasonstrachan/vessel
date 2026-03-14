@@ -587,6 +587,7 @@ export interface CanvasState {
   gridSize: number;
   showRulers: boolean;
   showFPSMeter: boolean;
+  transparencyBackgroundMode: 'checker' | 'gray';
   displayMode: 'pixelated' | 'smooth';
   canvasWidth: number;
   canvasHeight: number;

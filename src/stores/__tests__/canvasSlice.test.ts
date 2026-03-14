@@ -4,7 +4,15 @@ import { useAppStore } from '@/stores/useAppStore';
 describe('canvas slice invariants', () => {
   const reset = () => {
     useAppStore.setState({
-      canvas: { ...useAppStore.getState().canvas, zoom: 1, offsetX: 0, offsetY: 0, showRulers: false, showFPSMeter: true },
+      canvas: {
+        ...useAppStore.getState().canvas,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0,
+        showRulers: false,
+        showFPSMeter: true,
+        transparencyBackgroundMode: 'checker',
+      },
       canvasViewport: { left: 0, top: 0, width: 0, height: 0 },
     });
   };
@@ -55,5 +63,14 @@ describe('canvas slice invariants', () => {
 
     useAppStore.getState().setShowFPSMeter(false);
     expect(useAppStore.getState().canvas.showFPSMeter).toBe(false);
+  });
+
+  it('keeps transparency background mode setter idempotent when unchanged', () => {
+    const before = useAppStore.getState().canvas;
+    useAppStore.getState().setTransparencyBackgroundMode('checker');
+    expect(useAppStore.getState().canvas).toBe(before);
+
+    useAppStore.getState().setTransparencyBackgroundMode('gray');
+    expect(useAppStore.getState().canvas.transparencyBackgroundMode).toBe('gray');
   });
 });
