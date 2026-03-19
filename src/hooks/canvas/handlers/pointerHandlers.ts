@@ -1281,16 +1281,52 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     return shouldPixelAlignBrush(settings as BrushSettings | null | undefined);
   };
 
-  const updateAlignedMousePosition = (
-    worldPos: Point,
-    rect: DOMRect | undefined | null,
-    scale: number,
-    alignToPixel: boolean
-  ) => {
-    const displayWorld = alignToPixel
-      ? { x: worldPos.x + 0.5, y: worldPos.y + 0.5 }
-      : worldPos;
+  const shouldSnapPointerToPixelGrid = (
+    tools: {
+      currentTool: string;
+      brushSettings: { brushShape?: BrushShape; antialiasing?: boolean };
+    }
+  ): boolean => {
+    return (
+      tools.currentTool === 'selection' ||
+      tools.currentTool === 'custom' ||
+      shouldPixelAlignCursor(tools.brushSettings)
+    );
+  };
 
+  const resolveCursorDisplayWorldPoint = (
+    worldPos: Point,
+    tools: {
+      brushSettings: { brushShape?: BrushShape; antialiasing?: boolean; size?: number };
+    }
+  ): Point => {
+    if (!shouldPixelAlignCursor(tools.brushSettings)) {
+      return worldPos;
+    }
+
+    if (
+      tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+      tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER
+    ) {
+      const stampSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
+      const centerOffset = stampSize % 2 === 0 ? 0 : 0.5;
+      return {
+        x: worldPos.x + centerOffset,
+        y: worldPos.y + centerOffset,
+      };
+    }
+
+    return {
+      x: worldPos.x + 0.5,
+      y: worldPos.y + 0.5,
+    };
+  };
+
+  const updateAlignedMousePosition = (
+    displayWorld: Point,
+    rect: DOMRect | undefined | null,
+    scale: number
+  ) => {
     if (!rect) {
       setCursorPosition(displayWorld.x * scale, displayWorld.y * scale);
       return;
@@ -1927,7 +1963,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
         shouldPixelAlignCursor(tools.brushSettings)
       );
-      updateAlignedMousePosition(worldPosAligned, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
+      updateAlignedMousePosition(
+        resolveCursorDisplayWorldPoint(worldPosAligned, tools),
+        rect,
+        scale
+      );
       event.preventDefault();
       withPointerCaptureTarget(event).setPointerCapture?.(event.pointerId);
       if (adjustShouldRoute && shapeHandler.handlePointerDown(event as React.PointerEvent<HTMLCanvasElement>)) {
@@ -1980,7 +2020,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
 
     pointerInsideCanvas = true;
-    const shouldAlignCursor = shouldPixelAlignCursor(tools.brushSettings);
+    const shouldSnapPointer = shouldSnapPointerToPixelGrid(tools);
     
     const rect = canvasRef.current?.getBoundingClientRect();
     const pointerPos = rect ? {
@@ -2037,9 +2077,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const scale = canvas?.zoom || 1;
     const worldPos = alignPointToPixel(
       pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
-      shouldAlignCursor
+      shouldSnapPointer
     );
-    updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
+    updateAlignedMousePosition(resolveCursorDisplayWorldPoint(worldPos, tools), rect, scale);
 
     if ((event.buttons & 1) === 0) {
       suppressBootstrapUntilPointerUpRef.current = false;
@@ -2919,13 +2959,13 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     const scale = canvas?.zoom || 1;
 
     pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
-    const shouldAlignCursor = shouldPixelAlignCursor(tools.brushSettings);
+    const shouldSnapPointer = shouldSnapPointerToPixelGrid(tools);
     const worldPos = alignPointToPixel(
       pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale),
-      shouldAlignCursor
+      shouldSnapPointer
     );
 
-    updateAlignedMousePosition(worldPos, rect, scale, shouldAlignCursor);
+    updateAlignedMousePosition(resolveCursorDisplayWorldPoint(worldPos, tools), rect, scale);
 
     // If the pointer starts outside and enters the canvas while primary button is held,
     // bootstrap a normal stroke on entry.
@@ -3918,6 +3958,12 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
 
     const mousePos = getMousePos(event);
+    const pointerScale = canvas?.zoom || 1;
+    const shouldSnapPointer = shouldSnapPointerToPixelGrid(tools);
+    const worldPosOnPointerUp = alignPointToPixel(
+      pan.screenToWorld(mousePos.x, mousePos.y, pointerScale),
+      shouldSnapPointer
+    );
 
     const shouldRouteToShapeHandler =
       tools.currentTool === 'brush' &&
@@ -3976,8 +4022,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // Handle selection
     if (selectionHandlers.handleSelectionPointerUp({
       event,
-      mousePos,
-      pan,
+      worldPos: worldPosOnPointerUp,
       dynamic: {
         tools,
         selectionStart,
@@ -4191,7 +4236,11 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
         shouldPixelAlignCursor(tools.brushSettings)
       );
-      updateAlignedMousePosition(worldPos, rect, scale, shouldPixelAlignCursor(tools.brushSettings));
+      updateAlignedMousePosition(
+        resolveCursorDisplayWorldPoint(worldPos, tools),
+        rect,
+        scale
+      );
       if (adjustShouldRoute && shapeHandler.handlePointerMove(event as React.PointerEvent<HTMLCanvasElement>)) {
         return;
       }

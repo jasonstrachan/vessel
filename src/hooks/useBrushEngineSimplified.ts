@@ -634,9 +634,7 @@ export const useBrushEngineSimplified = () => {
       maxResolution
     );
   }, [
-    tools.brushSettings.fillResolution,
-    tools.brushSettings.pressureLinkedFillMaxResolution,
-    tools.brushSettings.pressureLinkedFillResolution,
+    tools.brushSettings,
   ]);
 
   const updateStrokePresResPressure = useCallback((pressure: number, now: number) => {

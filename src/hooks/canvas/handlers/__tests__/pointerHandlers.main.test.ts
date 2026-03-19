@@ -699,6 +699,29 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(true);
   });
 
+  it('centers even-sized pixel brush cursors on the stamp raster cells', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          size: 2,
+          shapeEnabled: false,
+        } as any,
+      },
+    });
+
+    dynamicDepsRef.current.tools = deps.tools;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
+
+    expect(deps.setCursorPosition).toHaveBeenCalledWith(10, 10);
+  });
+
   it('uses crosshair cursor for dither-stroke shape mode', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
@@ -742,6 +765,45 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.clearSelection).toHaveBeenCalledTimes(1);
     expect(deps.isMouseDownRef.current).toBe(false);
+  });
+
+  it('snaps marquee selection bounds to whole pixels on pointer up', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      canvas: { width: 100, height: 100, scale: 2, zoom: 2 } as any,
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.ROUND,
+        } as any,
+      },
+    });
+
+    dynamicDepsRef.current.tools.currentTool = 'selection';
+    deps.tools = dynamicDepsRef.current.tools;
+    deps.canvas = dynamicDepsRef.current.canvas;
+    deps.pan = {
+      ...deps.pan,
+      screenToWorld: (x: number, y: number, scale: number) => ({ x: x / scale, y: y / scale }),
+      worldToScreen: (x: number, y: number, scale: number) => ({ x: x * scale, y: y * scale }),
+    } as any;
+    deps.getMousePos = jest.fn((event: any) => ({
+      x: event.clientX,
+      y: event.clientY,
+    }));
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
+    (deps.interaction.state as any).isSelecting = true;
+
+    handlers.handlePointerUp(makePointerEvent({ clientX: 21, clientY: 21 }));
+
+    expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
+      { x: 5, y: 5 },
+      { x: 11, y: 11 }
+    );
   });
 
   it('preserves active selection for non-selection tools', () => {

@@ -77,6 +77,7 @@ describe('Brush Utilities', () => {
       expect(calculatePressureAwareGridSpacing(settings, 0.5)).toBeGreaterThan(10);
       expect(calculatePressureAwareGridSpacing(settings, 1)).toBe(20);
     });
+
   });
 
   describe('shouldApplyGridSnapPure', () => {
@@ -174,6 +175,7 @@ describe('Brush Utilities', () => {
       expect(maxSize).toBe(15);
     });
   });
+
 
   describe('calculatePressureOpacity', () => {
     test('returns base opacity when pressure disabled', () => {

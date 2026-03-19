@@ -29,6 +29,29 @@ interface ResolveBrushCursorDescriptorOptions {
   getCustomBrushByIdUnsafe?: ((id: string) => CustomBrush | null | undefined) | null;
 }
 
+const resolvePixelDitherCursorSize = (
+  baseBrushSize: number,
+  tipShape: BrushSettings['ditherStrokeTipShape'] | undefined
+): number => {
+  const stampSize = Math.max(1, Math.round(baseBrushSize));
+  switch (tipShape ?? 'round') {
+    case 'diamond':
+      return Math.max(stampSize, Math.ceil(stampSize * Math.SQRT2));
+    case 'diamond5':
+    case 'diamond7':
+    case 'diamond9': {
+      const gridSize = tipShape === 'diamond9' ? 9 : tipShape === 'diamond7' ? 7 : 5;
+      const pixelScale = Math.max(1, Math.round(stampSize / gridSize));
+      return Math.max(stampSize, pixelScale * gridSize);
+    }
+    case 'round':
+    case 'square':
+    case 'triangle':
+    default:
+      return stampSize;
+  }
+};
+
 export const resolveBrushCursorDescriptor = ({
   tools,
   globalBrushSize,
@@ -56,7 +79,13 @@ export const resolveBrushCursorDescriptor = ({
   const cursorSize =
     tools.currentTool === 'eraser'
       ? Math.max(1, eraserSize)
-      : Math.max(1, mosaicCursorSize ?? baseBrushSize);
+      : Math.max(
+          1,
+          mosaicCursorSize ??
+            (tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER
+              ? resolvePixelDitherCursorSize(baseBrushSize, tools.brushSettings.ditherStrokeTipShape)
+              : baseBrushSize)
+        );
   const activeSettings =
     tools.currentTool === 'eraser' ? tools.eraserSettings : tools.brushSettings;
   const currentBrushTip = activeSettings.currentBrushTip;
