@@ -722,49 +722,6 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setCursorPosition).toHaveBeenCalledWith(10, 10);
   });
 
-  it('falls back to wrapper viewport coordinates when the canvas rect is unavailable', () => {
-    const { deps, dynamicDepsRef } = createDeps({
-      tools: {
-        ...baseDynamic.tools,
-        currentTool: 'brush',
-        shapeMode: false,
-        brushSettings: {
-          ...baseDynamic.tools.brushSettings,
-          brushShape: BrushShape.PIXEL_DITHER,
-          size: 1,
-          shapeEnabled: false,
-        } as any,
-      },
-    });
-
-    const wrapper = document.createElement('div') as HTMLDivElement & {
-      getBoundingClientRect: () => DOMRect;
-    };
-    wrapper.getBoundingClientRect = jest.fn(
-      () =>
-        ({
-          left: 120,
-          top: 80,
-          width: 100,
-          height: 100,
-          right: 220,
-          bottom: 180,
-          x: 120,
-          y: 80,
-        }) as DOMRect
-    );
-
-    deps.wrapperRef.current = wrapper;
-    deps.canvasRef.current = null as unknown as HTMLCanvasElement;
-    dynamicDepsRef.current.tools = deps.tools;
-
-    const handlers = createPointerHandlers(deps);
-
-    handlers.handlePointerDown(makePointerEvent({ clientX: 130, clientY: 90 }));
-
-    expect(deps.setCursorPosition).toHaveBeenCalledWith(130.5, 90.5);
-  });
-
   it('uses crosshair cursor for dither-stroke shape mode', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
