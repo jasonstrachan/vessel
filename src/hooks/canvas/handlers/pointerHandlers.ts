@@ -177,6 +177,7 @@ import { resolveSpacePanCursor } from './utils/spacePanCursor';
 import { resolveToolCursorState } from './utils/toolCursor';
 import {
   alignPointToPixel,
+  resolveColorCycleRasterAnchor,
   shouldPixelAlignBrush,
 } from '@/hooks/canvas/utils/strokeRasterPolicy';
 import {
@@ -229,6 +230,63 @@ export const createDefaultContourLinesState = (): ContourLinesState => ({
   spacingReferenceSpacing: null,
   randomSeed: null,
 });
+
+type CursorWorldPoint = { x: number; y: number };
+
+const resolveCursorDisplayWorldPointForBrush = (
+  worldPos: CursorWorldPoint,
+  brushSettings: {
+    brushShape?: BrushShape;
+    antialiasing?: boolean;
+    size?: number;
+    colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
+  }
+): CursorWorldPoint => {
+  if (!shouldPixelAlignBrush(brushSettings as BrushSettings | null | undefined)) {
+    return worldPos;
+  }
+
+  if (
+    brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+    brushSettings.brushShape === BrushShape.PIXEL_DITHER
+  ) {
+    const stampSize = Math.max(1, Math.round(brushSettings.size || 1));
+    const centerOffset = stampSize % 2 === 0 ? 0 : 0.5;
+    return {
+      x: worldPos.x + centerOffset,
+      y: worldPos.y + centerOffset,
+    };
+  }
+
+  if (brushSettings.brushShape === BrushShape.SQUARE && brushSettings.antialiasing === false) {
+    const stampSize = Math.max(1, Math.round(brushSettings.size || 1));
+    const centerOffset = stampSize % 2 === 0 ? 0 : 0.5;
+    return {
+      x: worldPos.x + centerOffset,
+      y: worldPos.y + centerOffset,
+    };
+  }
+
+  if (
+    brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+    brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+  ) {
+    const rasterAnchor = resolveColorCycleRasterAnchor(brushSettings);
+    if (rasterAnchor === 'pixel-square-center') {
+      const stampSize = Math.max(1, Math.round(brushSettings.size || 1));
+      const centerOffset = stampSize % 2 === 0 ? 0 : 0.5;
+      return {
+        x: worldPos.x + centerOffset,
+        y: worldPos.y + centerOffset,
+      };
+    }
+  }
+
+  return {
+    x: worldPos.x + 0.5,
+    y: worldPos.y + 0.5,
+  };
+};
 
 const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
   brushShape === BrushShape.CONTOUR_POLYGON ||
@@ -1297,29 +1355,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const resolveCursorDisplayWorldPoint = (
     worldPos: Point,
     tools: {
-      brushSettings: { brushShape?: BrushShape; antialiasing?: boolean; size?: number };
-    }
-  ): Point => {
-    if (!shouldPixelAlignCursor(tools.brushSettings)) {
-      return worldPos;
-    }
-
-    if (
-      tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
-      tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER
-    ) {
-      const stampSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
-      const centerOffset = stampSize % 2 === 0 ? 0 : 0.5;
-      return {
-        x: worldPos.x + centerOffset,
-        y: worldPos.y + centerOffset,
+      brushSettings: {
+        brushShape?: BrushShape;
+        antialiasing?: boolean;
+        size?: number;
+        colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
       };
     }
-
-    return {
-      x: worldPos.x + 0.5,
-      y: worldPos.y + 0.5,
-    };
+  ): Point => {
+    return resolveCursorDisplayWorldPointForBrush(worldPos, tools.brushSettings);
   };
 
   const updateAlignedMousePosition = (
@@ -4362,6 +4406,7 @@ export const __TESTING__ = {
   shouldEnableContourDebug,
   isAdvancedShapeBrush,
   computeOpposingAxis,
+  resolveCursorDisplayWorldPointForBrush,
 };
 const withPointerCaptureTarget = (
   event: React.PointerEvent<Element>

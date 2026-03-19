@@ -174,8 +174,8 @@ describe('colorCycleDrawController', () => {
 
     drawColorCycleStroke({
       ctx,
-      x: 10.2,
-      y: 12.9,
+      x: 10.8,
+      y: 12.2,
       brushSettings: {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
@@ -197,6 +197,6 @@ describe('colorCycleDrawController', () => {
       mirrorScheduledRef: { current: false },
     });
 
-    expect(brush.paint).toHaveBeenCalledWith(10, 12, 'layer-1', 1, 0);
+    expect(brush.paint).toHaveBeenCalledWith(11, 12, 'layer-1', 1, 0);
   });
 });

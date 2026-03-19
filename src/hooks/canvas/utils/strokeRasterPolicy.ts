@@ -1,6 +1,6 @@
 import { BrushShape, type BrushSettings } from '@/types';
 
-export type RasterAnchorMode = 'pixel-edge' | 'pixel-center';
+export type RasterAnchorMode = 'pixel-center' | 'pixel-square-center';
 
 type PixelAlignSettings = Pick<BrushSettings, 'brushShape' | 'antialiasing'>;
 type ColorCycleRasterSettings = Pick<BrushSettings, 'brushShape' | 'colorCycleStampShape'>;
@@ -48,11 +48,11 @@ export const resolveColorCycleRasterAnchor = (
   if (settings.brushShape === BrushShape.COLOR_CYCLE) {
     const stampShape = settings.colorCycleStampShape ?? 'square';
     if (stampShape === 'square') {
-      return 'pixel-edge';
+      return 'pixel-square-center';
     }
     return 'pixel-center';
   }
-  return 'pixel-edge';
+  return 'pixel-square-center';
 };
 
 export const quantizeToRasterPoint = (
@@ -71,7 +71,7 @@ export const quantizeToRasterPoint = (
     };
   }
   return {
-    x: Math.floor(scaledX),
-    y: Math.floor(scaledY),
+    x: Math.round(scaledX),
+    y: Math.round(scaledY),
   };
 };

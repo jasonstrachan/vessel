@@ -20,6 +20,17 @@ describe('strokeRasterPolicy', () => {
     expect(shouldPixelAlignBrush(withBrushSettings({ brushShape: BrushShape.COLOR_CYCLE_TRIANGLE }))).toBe(true);
   });
 
+  it('resolves square color-cycle stamps to square-center anchoring', () => {
+    expect(
+      resolveColorCycleRasterAnchor(
+        withBrushSettings({
+          brushShape: BrushShape.COLOR_CYCLE,
+          colorCycleStampShape: 'square',
+        })
+      )
+    ).toBe('pixel-square-center');
+  });
+
   it('resolves center anchor for non-square color-cycle stamps', () => {
     expect(
       resolveColorCycleRasterAnchor(
@@ -33,5 +44,9 @@ describe('strokeRasterPolicy', () => {
 
   it('quantizes center-anchor coordinates to half pixels', () => {
     expect(quantizeToRasterPoint(12.2, 7.9, 1, 1, 'pixel-center')).toEqual({ x: 12.5, y: 7.5 });
+  });
+
+  it('quantizes square-center coordinates to nearest integer stamp centers', () => {
+    expect(quantizeToRasterPoint(12.7, 7.2, 1, 1, 'pixel-square-center')).toEqual({ x: 13, y: 7 });
   });
 });
