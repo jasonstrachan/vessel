@@ -305,6 +305,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   let lastOverlayPreviewTs = 0;
   const {
     canvasRef,
+    wrapperRef,
     overlayCanvasRef,
     compositeCanvasRef,
     isBusyRef,
@@ -1327,13 +1328,20 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     rect: DOMRect | undefined | null,
     scale: number
   ) => {
-    if (!rect) {
-      setCursorPosition(displayWorld.x * scale, displayWorld.y * scale);
+    const viewportRect = resolvePointerViewportRect(rect);
+    if (!viewportRect) {
       return;
     }
     const screenPos = pan.worldToScreen(displayWorld.x, displayWorld.y, scale);
-    setCursorPosition(rect.left + screenPos.x, rect.top + screenPos.y);
+    setCursorPosition(viewportRect.left + screenPos.x, viewportRect.top + screenPos.y);
   };
+
+  const resolvePointerViewportRect = (rect?: DOMRect | null): DOMRect | null =>
+    rect ??
+    canvasRef.current?.getBoundingClientRect() ??
+    wrapperRef.current?.getBoundingClientRect() ??
+    overlayCanvasRef.current?.getBoundingClientRect() ??
+    null;
 
   const setContourLinesState = (partialState: Partial<ContourLinesState>) => {
     contourLinesStateRef.current = {
@@ -1856,7 +1864,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   let pointerInsideCanvas = false;
 
   const isPointerWithinCanvas = (clientX: number, clientY: number) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
+    const rect = resolvePointerViewportRect();
     if (!rect) return false;
     return clientX >= rect.left && clientX <= rect.right &&
            clientY >= rect.top && clientY <= rect.bottom;
@@ -1951,7 +1959,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       isMouseDownRef.current = true;
       pointerInsideCanvas = true;
       const { canvas, tools } = getDynamicDeps();
-      const rect = canvasRef.current?.getBoundingClientRect();
+      const rect = resolvePointerViewportRect();
       const pointerPos = rect
         ? {
             x: event.clientX - rect.left,
@@ -2022,7 +2030,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     pointerInsideCanvas = true;
     const shouldSnapPointer = shouldSnapPointerToPixelGrid(tools);
     
-    const rect = canvasRef.current?.getBoundingClientRect();
+    const rect = resolvePointerViewportRect();
     const pointerPos = rect ? {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
@@ -2949,7 +2957,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     void isDraggingFloatingPaste;
     void layers;
     void activeLayerId;
-    const rect = canvasRef.current?.getBoundingClientRect();
+    const rect = resolvePointerViewportRect();
     const currentPointerPos = rect
       ? {
           x: event.clientX - rect.left,
@@ -4224,7 +4232,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
       pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
       const { canvas, tools } = getDynamicDeps();
-      const rect = canvasRef.current?.getBoundingClientRect();
+      const rect = resolvePointerViewportRect();
       const pointerPos = rect
         ? {
             x: event.clientX - rect.left,
