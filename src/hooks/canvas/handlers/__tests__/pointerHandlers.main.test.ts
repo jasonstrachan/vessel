@@ -1397,6 +1397,36 @@ describe('pointerHandlers main flows', () => {
     expect(firstCall?.[1]).toBe(0.1);
   });
 
+  it('uses base pressure for mouse input when pressure is enabled without modifiers', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          pressureEnabled: true,
+        },
+      },
+    });
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+    deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
+    deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({
+      pointerType: 'mouse',
+      pressure: 0,
+      clientX: 22,
+      clientY: 28,
+      nativeEvent: { getCoalescedEvents: () => [] as unknown as PointerEvent[] } as any,
+    }));
+
+    const firstCall = (deps.drawingHandlers.continueDrawing as jest.Mock).mock.calls[0];
+    expect(firstCall?.[1]).toBe(0);
+  });
+
   it('uses variable mouse pressure when pressure-linked fill resolution is enabled', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {

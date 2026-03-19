@@ -116,4 +116,39 @@ describe('BrushCursor', () => {
 
     expect(context.clearRect).toHaveBeenCalledWith(0, 0, 200, 100);
   });
+
+  it('clears the full cursor layer when the cursor descriptor changes size', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+
+    const { rerender } = render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{
+          kind: 'shape',
+          shape: BrushShape.SQUARE,
+          pixelSize: 20,
+        }}
+        zoom={1}
+        visible
+      />
+    );
+
+    ref.current?.setPosition(110, 70);
+    context.clearRect.mockClear();
+
+    rerender(
+      <BrushCursor
+        ref={ref}
+        descriptor={{
+          kind: 'shape',
+          shape: BrushShape.SQUARE,
+          pixelSize: 8,
+        }}
+        zoom={1}
+        visible
+      />
+    );
+
+    expect(context.clearRect).toHaveBeenCalledWith(0, 0, 200, 100);
+  });
 });

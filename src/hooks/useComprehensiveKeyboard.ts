@@ -14,6 +14,8 @@ import {
 
 const MIN_BRUSH_SIZE = 1;
 const MAX_BRUSH_SIZE = 500;
+const BRUSH_SIZE_HOLD_INITIAL_DELAY_MS = 220;
+const BRUSH_SIZE_HOLD_INTERVAL_MS = 60;
 
 const clampBrushSize = (value: number): number => {
   if (value < MIN_BRUSH_SIZE) return MIN_BRUSH_SIZE;
@@ -40,6 +42,16 @@ const isBracketLeftEvent = (event: KeyboardEvent): boolean => {
 const isBracketRightEvent = (event: KeyboardEvent): boolean => {
   const legacy = getLegacyKeyCode(event);
   return event.code === 'BracketRight' || event.key === ']' || legacy === 221;
+};
+
+const getPressedKeyId = (event: KeyboardEvent): string => {
+  if (isBracketLeftEvent(event)) {
+    return 'BracketLeft';
+  }
+  if (isBracketRightEvent(event)) {
+    return 'BracketRight';
+  }
+  return event.code || event.key;
 };
 
 // Treat these input types as text entry fields so we don't hijack shortcuts while typing.
@@ -149,6 +161,7 @@ export function useComprehensiveKeyboard({
   const brushSizeHoldDirectionRef = useRef<-1 | 0 | 1>(0);
   const brushSizeHoldAnimationFrameRef = useRef<number | null>(null);
   const lastBrushSizeHoldTickRef = useRef<number>(0);
+  const brushSizeHoldStartedAtRef = useRef<number>(0);
 
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const bumpGlobalBrushSize = useAppStore((state) => state.bumpGlobalBrushSize);
@@ -230,6 +243,7 @@ export function useComprehensiveKeyboard({
   const stopBrushSizeHold = useCallback(() => {
     brushSizeHoldDirectionRef.current = 0;
     lastBrushSizeHoldTickRef.current = 0;
+    brushSizeHoldStartedAtRef.current = 0;
     if (brushSizeHoldAnimationFrameRef.current !== null) {
       cancelAnimationFrame(brushSizeHoldAnimationFrameRef.current);
       brushSizeHoldAnimationFrameRef.current = null;
@@ -241,6 +255,7 @@ export function useComprehensiveKeyboard({
     if (brushSizeHoldAnimationFrameRef.current !== null) {
       return;
     }
+    brushSizeHoldStartedAtRef.current = 0;
 
     const step = (timestamp: number) => {
       const activeDirection = brushSizeHoldDirectionRef.current;
@@ -249,10 +264,17 @@ export function useComprehensiveKeyboard({
         return;
       }
 
-      if (
-        lastBrushSizeHoldTickRef.current === 0 ||
-        timestamp - lastBrushSizeHoldTickRef.current >= 16
-      ) {
+      if (brushSizeHoldStartedAtRef.current === 0) {
+        brushSizeHoldStartedAtRef.current = timestamp;
+      }
+
+      const holdElapsed = timestamp - brushSizeHoldStartedAtRef.current;
+      const shouldRepeat =
+        holdElapsed >= BRUSH_SIZE_HOLD_INITIAL_DELAY_MS &&
+        (lastBrushSizeHoldTickRef.current === 0 ||
+          timestamp - lastBrushSizeHoldTickRef.current >= BRUSH_SIZE_HOLD_INTERVAL_MS);
+
+      if (shouldRepeat) {
         lastBrushSizeHoldTickRef.current = timestamp;
         applyBrushSizeDeltaForCurrentTool(activeDirection);
       }
@@ -370,14 +392,14 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    // For bracket keys, allow repeat events for continuous size adjustment
-    const allowRepeat = isBracketShortcut;
-
-    // Prevent repeat events for other keys (but allow for bracket keys)
-    if (!allowRepeat && pressedKeysRef.current.has(event.code)) {
+    const pressedKeyId = getPressedKeyId(event);
+    if (pressedKeysRef.current.has(pressedKeyId)) {
+      if (isBracketShortcut) {
+        event.preventDefault();
+      }
       return;
     }
-    pressedKeysRef.current.add(event.code);
+    pressedKeysRef.current.add(pressedKeyId);
 
     if (scopedShortcut === 'palette-copy' || scopedShortcut === 'palette-swap') {
       event.preventDefault();
@@ -466,6 +488,7 @@ export function useComprehensiveKeyboard({
       if (onBrushSizeDecrease) {
         onBrushSizeDecrease();
       } else {
+        applyBrushSizeDeltaForCurrentTool(-1);
         startBrushSizeHold(-1);
       }
       return;
@@ -479,6 +502,7 @@ export function useComprehensiveKeyboard({
       if (onBrushSizeIncrease) {
         onBrushSizeIncrease();
       } else {
+        applyBrushSizeDeltaForCurrentTool(1);
         startBrushSizeHold(1);
       }
       return;
@@ -547,7 +571,7 @@ export function useComprehensiveKeyboard({
       copySelectionToClipboard,
       setFloatingPaste, setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
-      floatingPasteRef, paletteRef, startBrushSizeHold]);
+      floatingPasteRef, paletteRef, startBrushSizeHold, applyBrushSizeDeltaForCurrentTool]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
@@ -577,14 +601,15 @@ export function useComprehensiveKeyboard({
       // Only process if space was actually pressed
       if (keyboardStateRef.current.isSpacePressed) {
         keyboardStateRef.current.isSpacePressed = false;
-        pressedKeysRef.current.delete(event.code);
+        pressedKeysRef.current.delete(getPressedKeyId(event));
         void onSpaceReleasedRef.current?.();
       }
       return;
     }
     
     // Always clear pressed map on keyup (even if text field prevented us earlier)
-    pressedKeysRef.current.delete(event.code);
+    const pressedKeyId = getPressedKeyId(event);
+    pressedKeysRef.current.delete(pressedKeyId);
 
     if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
       stopBrushSizeHold();

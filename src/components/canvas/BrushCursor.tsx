@@ -28,6 +28,13 @@ type CursorRect = {
   height: number;
 };
 
+const getDescriptorCacheKey = (descriptor: BrushCursorDescriptor): string => {
+  if (descriptor.kind === 'custom-brush') {
+    return `custom:${descriptor.pixelWidth}x${descriptor.pixelHeight}:${descriptor.pixelSize}`;
+  }
+  return `shape:${descriptor.shape}:${descriptor.pixelSize}`;
+};
+
 const getCursorScreenDimensions = (
   descriptor: BrushCursorDescriptor,
   zoom: number
@@ -135,6 +142,7 @@ const BrushCursorComponent = ({
   const dprRef = useRef(1);
   const lastZoomRef = useRef<number | null>(null);
   const lastVisibleRef = useRef<boolean | null>(null);
+  const lastDescriptorKeyRef = useRef<string | null>(null);
 
   const paintCursor = useCallback(() => {
     const canvas = canvasRef.current;
@@ -150,8 +158,11 @@ const BrushCursorComponent = ({
     const width = canvas.width / dprRef.current;
     const height = canvas.height / dprRef.current;
     ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
+    const descriptorKey = getDescriptorCacheKey(descriptor);
     const shouldClearWholeCanvas =
-      lastZoomRef.current !== zoom || lastVisibleRef.current !== visible;
+      lastZoomRef.current !== zoom ||
+      lastVisibleRef.current !== visible ||
+      lastDescriptorKeyRef.current !== descriptorKey;
 
     if (shouldClearWholeCanvas) {
       ctx.clearRect(0, 0, width, height);
@@ -166,6 +177,7 @@ const BrushCursorComponent = ({
 
     lastZoomRef.current = zoom;
     lastVisibleRef.current = visible;
+    lastDescriptorKeyRef.current = descriptorKey;
 
     if (!visible) {
       return;
