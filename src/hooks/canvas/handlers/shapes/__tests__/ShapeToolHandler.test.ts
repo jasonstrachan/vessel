@@ -48,4 +48,33 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     expect(drawImageSpy).toHaveBeenCalledWith(framebuffer, 0, 0, 2, 1);
     drawImageSpy.mockRestore();
   });
+
+  it('clips preview canvases to the polygon instead of leaving the roi box visible', () => {
+    const overlayCtx = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      closePath: jest.fn(),
+      fill: jest.fn(),
+      globalCompositeOperation: 'source-over',
+      fillStyle: '#000000',
+    } as unknown as CanvasRenderingContext2D;
+
+    __shapeToolTestUtils.applyPolygonMaskToCanvasContext(overlayCtx, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 0, y: 4 },
+    ]);
+
+    expect(overlayCtx.save).toHaveBeenCalled();
+    expect(overlayCtx.beginPath).toHaveBeenCalled();
+    expect(overlayCtx.moveTo).toHaveBeenCalledWith(0, 0);
+    expect(overlayCtx.lineTo).toHaveBeenNthCalledWith(1, 4, 0);
+    expect(overlayCtx.lineTo).toHaveBeenNthCalledWith(2, 0, 4);
+    expect(overlayCtx.closePath).toHaveBeenCalled();
+    expect(overlayCtx.fill).toHaveBeenCalled();
+    expect(overlayCtx.restore).toHaveBeenCalled();
+  });
 });

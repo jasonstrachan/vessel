@@ -177,6 +177,7 @@ export type PatternStyle =
   | 'horizontal-lines'
   | 'crosshatch'
   | 'diagonal'
+  | 'ascii'
   | 'tone-adaptive';
 
 export interface DitherSettings {
@@ -190,6 +191,172 @@ export interface DitherSettings {
 }
 
 const mod = (value: number, modulo: number) => ((value % modulo) + modulo) % modulo;
+const hashCell = (x: number, y: number) => ((x * 73856093) ^ (y * 19349663)) >>> 0;
+
+const ASCII_CELL_WIDTH = 5;
+const ASCII_CELL_HEIGHT = 7;
+const ASCII_GLYPH_BUCKETS = [
+  [
+    [
+      '00000',
+      '00000',
+      '00000',
+      '00000',
+      '00100',
+      '00000',
+      '00000',
+    ],
+    [
+      '00000',
+      '00000',
+      '00000',
+      '00000',
+      '00000',
+      '00010',
+      '00000',
+    ],
+  ],
+  [
+    [
+      '00000',
+      '00000',
+      '00100',
+      '00000',
+      '00100',
+      '00000',
+      '00000',
+    ],
+    [
+      '00000',
+      '00000',
+      '00010',
+      '00000',
+      '00100',
+      '00000',
+      '00000',
+    ],
+  ],
+  [
+    [
+      '00000',
+      '00000',
+      '00000',
+      '01110',
+      '00000',
+      '00000',
+      '00000',
+    ],
+    [
+      '00000',
+      '00000',
+      '00000',
+      '11110',
+      '00000',
+      '00000',
+      '00000',
+    ],
+  ],
+  [
+    [
+      '00000',
+      '00000',
+      '01110',
+      '00000',
+      '01110',
+      '00000',
+      '00000',
+    ],
+    [
+      '00000',
+      '00000',
+      '11110',
+      '00000',
+      '11110',
+      '00000',
+      '00000',
+    ],
+  ],
+  [
+    [
+      '00100',
+      '00100',
+      '11111',
+      '00100',
+      '11111',
+      '00100',
+      '00100',
+    ],
+    [
+      '10001',
+      '01010',
+      '00100',
+      '11111',
+      '00100',
+      '01010',
+      '10001',
+    ],
+  ],
+  [
+    [
+      '10101',
+      '01110',
+      '11111',
+      '01110',
+      '11111',
+      '01110',
+      '10101',
+    ],
+    [
+      '10101',
+      '11111',
+      '01110',
+      '11111',
+      '01110',
+      '11111',
+      '10101',
+    ],
+  ],
+  [
+    [
+      '01110',
+      '00001',
+      '00110',
+      '00001',
+      '00001',
+      '10001',
+      '01110',
+    ],
+    [
+      '11110',
+      '10000',
+      '11110',
+      '00001',
+      '00001',
+      '10001',
+      '01110',
+    ],
+  ],
+  [
+    [
+      '01110',
+      '10001',
+      '10101',
+      '10101',
+      '10111',
+      '10000',
+      '01110',
+    ],
+    [
+      '01110',
+      '10001',
+      '10111',
+      '10101',
+      '10111',
+      '10000',
+      '01110',
+    ],
+  ],
+] as const;
 
 /**
  * Calculates pressure-sensitive dither threshold
@@ -980,6 +1147,26 @@ export const applyPatternDither = (
           const dx = Math.abs(mod(px, spacing) - spacing / 2);
           const dy = Math.abs(mod(py, spacing) - spacing / 2);
           patternValue = (dx + dy) / spacing;
+          break;
+        }
+        case 'ascii': {
+          // ASCII-style glyph cells: tone picks a glyph bucket, hashed cells vary symbols.
+          const lum = (data[idx] + data[idx + 1] + data[idx + 2]) / (3 * 255);
+          const cellX = Math.floor(px / ASCII_CELL_WIDTH);
+          const cellY = Math.floor(py / ASCII_CELL_HEIGHT);
+          const glyphIndex = Math.max(
+            0,
+            Math.min(
+              ASCII_GLYPH_BUCKETS.length - 1,
+              Math.floor((1 - lum) * ASCII_GLYPH_BUCKETS.length)
+            )
+          );
+          const glyphBucket = ASCII_GLYPH_BUCKETS[glyphIndex];
+          const glyph = glyphBucket[hashCell(cellX, cellY) % glyphBucket.length];
+          const glyphX = mod(px, ASCII_CELL_WIDTH);
+          const glyphY = mod(py, ASCII_CELL_HEIGHT);
+          const isInk = glyph[glyphY][glyphX] === '1';
+          patternValue = isInk ? 0.12 : 0.88;
           break;
         }
         case 'tone-adaptive': {

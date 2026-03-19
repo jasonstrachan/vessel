@@ -29,7 +29,9 @@ export const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>
   { value: 'vertical-lines', label: 'Vertical Lines' },
   { value: 'horizontal-lines', label: 'Horizontal Lines' },
   { value: 'crosshatch', label: 'Crosshatch' },
-  { value: 'diagonal', label: 'Diamond' }
+  { value: 'diagonal', label: 'Diamond' },
+  { value: 'ascii', label: 'ASCII Cells' },
+  { value: 'tone-adaptive', label: 'Tone Adaptive' }
 ];
 
 export const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
