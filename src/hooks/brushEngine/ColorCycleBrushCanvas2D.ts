@@ -2015,26 +2015,19 @@ export class ColorCycleBrushCanvas2D {
     animator.markDirty({ x: minX, y: minY, width: Math.max(1, maxX - minX + 1), height: Math.max(1, maxY - minY + 1) });
   }
 
-  private samplePaintBufferHasContent(
+  private paintBufferHasContent(
     paint: Uint8Array | undefined,
     width: number,
-    height: number,
-    sampleSize: number = 16
+    height: number
   ): boolean {
     try {
       if (!paint || paint.length === 0 || width <= 0 || height <= 0) {
         return false;
       }
-      const sampleW = Math.min(sampleSize, width);
-      const sampleH = Math.min(sampleSize, height);
-      const stepX = Math.max(1, Math.floor(width / sampleW));
-      const stepY = Math.max(1, Math.floor(height / sampleH));
-      for (let y = 0; y < height; y += stepY) {
-        const row = y * width;
-        for (let x = 0; x < width; x += stepX) {
-          if (paint[row + x] !== 0) {
-            return true;
-          }
+      const limit = Math.min(width * height, paint.length);
+      for (let index = 0; index < limit; index += 1) {
+        if (paint[index] !== 0) {
+          return true;
         }
       }
       return false;
@@ -2593,11 +2586,10 @@ export class ColorCycleBrushCanvas2D {
       const snapshotFlowBuffer: ArrayBuffer | undefined = strokeData.buffers.flow.slice().buffer;
       const snapshotGradientDefIdBuffer: ArrayBuffer | undefined = strokeData.buffers.def.slice().buffer;
 
-      const hasContent = this.samplePaintBufferHasContent(
+      const hasContent = this.paintBufferHasContent(
         strokeData.buffers.paint,
         this.width,
-        this.height,
-        32
+        this.height
       );
       strokeData.hasContent = hasContent;
       strokeData.snapshot = {
@@ -2649,11 +2641,10 @@ export class ColorCycleBrushCanvas2D {
     const spd = strokeData.buffers.spd;
     const flow = strokeData.buffers.flow;
     const def = strokeData.buffers.def;
-    const hasContent = this.samplePaintBufferHasContent(
+    const hasContent = this.paintBufferHasContent(
       paint,
       this.width,
-      this.height,
-      32
+      this.height
     );
     strokeData.hasContent = hasContent;
     strokeData.snapshot = {
@@ -4383,11 +4374,10 @@ export class ColorCycleBrushCanvas2D {
     let hasRenderableContent = strokeData?.hasContent ?? false;
     if (!hasRenderableContent) {
       try {
-        hasRenderableContent = this.samplePaintBufferHasContent(
+        hasRenderableContent = this.paintBufferHasContent(
           strokeData?.buffers.paint,
           this.width,
-          this.height,
-          16
+          this.height
         );
       } catch {}
     }
@@ -5582,11 +5572,10 @@ export class ColorCycleBrushCanvas2D {
         console.log('[Debug] No paint buffer data on layer');
         return true;
       }
-      const hasContent = this.samplePaintBufferHasContent(
+      const hasContent = this.paintBufferHasContent(
         strokeData.buffers.paint,
         this.width,
-        this.height,
-        32
+        this.height
       );
       console.log('[Debug] Animator buffer has content:', hasContent, 'layer:', id);
       return !hasContent;

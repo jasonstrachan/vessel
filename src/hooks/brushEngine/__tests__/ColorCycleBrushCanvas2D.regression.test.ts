@@ -153,6 +153,22 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(Array.from(after)).not.toEqual(Array.from(before));
   });
 
+  it('keeps the first tiny stroke on a fresh color-cycle layer', () => {
+    const canvas = makeCanvas(64, 64);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-small-first-stroke';
+
+    brush.setBrushSize(1);
+    brush.startStroke(layerId);
+    brush.paint(1, 1, layerId, 1);
+    brush.endStroke(layerId);
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(true);
+    expect(snapshot).not.toBeNull();
+    expect(new Uint8Array(snapshot!.paintBuffer).some((value) => value !== 0)).toBe(true);
+  });
+
   it('linear fill is monotonic along x (with at most one wrap)', async () => {
     const canvas = makeCanvas(24, 12);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
