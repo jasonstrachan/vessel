@@ -115,6 +115,10 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     expect(useAppStore.getState().tools.brushSettings.size).toBe(initialSize - 1);
 
     await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+    });
+
+    await act(async () => {
       fireEvent.keyDown(numericInput, { key: ']', code: 'BracketRight' });
       jest.advanceTimersByTime(20);
     });
@@ -221,6 +225,10 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
 
     await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+    });
+
+    await act(async () => {
       fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
       jest.advanceTimersByTime(20);
     });
@@ -250,6 +258,10 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
 
     await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+    });
+
+    await act(async () => {
       fireEvent.keyDown(textInput, { key: ']', code: 'BracketRight' });
       jest.advanceTimersByTime(20);
     });
@@ -276,6 +288,10 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
 
     await act(async () => {
+      fireEvent.keyUp(window, { key: 'Unidentified', code: 'BracketLeft' });
+    });
+
+    await act(async () => {
       fireEvent.keyDown(window, { key: 'Unidentified', code: 'BracketRight' });
       jest.advanceTimersByTime(20);
     });
@@ -298,6 +314,10 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
       jest.advanceTimersByTime(20);
     });
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(9);
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: 'Unidentified', code: 'BracketLeft', keyCode: 219, which: 219 });
+    });
 
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Unidentified', code: '', keyCode: 221, which: 221 });
@@ -326,6 +346,10 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     expect(useAppStore.getState().tools.eraserSettings.size).toBe(11);
 
     await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+    });
+
+    await act(async () => {
       fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
       jest.advanceTimersByTime(20);
     });
@@ -335,7 +359,7 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     keyboard.unmount();
   });
 
-  it('coalesces repeated bracket keydown events into frame-paced size changes', async () => {
+  it('coalesces repeated bracket keydown events into paced size changes', async () => {
     const keyboard = render(React.createElement(KeyboardHarness));
 
     act(() => {
@@ -346,17 +370,29 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
       fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
       fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', repeat: true });
       fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', repeat: true });
-      jest.advanceTimersByTime(20);
+      jest.advanceTimersByTime(40);
     });
 
     expect(useAppStore.getState().tools.brushSettings.size).toBe(11);
 
     await act(async () => {
-      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
-      jest.advanceTimersByTime(40);
+      jest.advanceTimersByTime(180);
     });
 
     expect(useAppStore.getState().tools.brushSettings.size).toBe(11);
+
+    await act(async () => {
+      jest.advanceTimersByTime(60);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(10);
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(80);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(10);
     keyboard.unmount();
   });
 });

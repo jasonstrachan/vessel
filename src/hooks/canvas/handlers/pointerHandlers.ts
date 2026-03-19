@@ -528,7 +528,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
       if (shiftKey) return 0.1;
       if (ctrlKey) return 0.9;
-      return 1;
+      return 0;
     }
 
     const value = Number.isFinite(rawPressure) ? (rawPressure as number) : fallback;
