@@ -57,8 +57,7 @@ export type SelectionHandlers = {
   }) => boolean;
   handleSelectionPointerUp: (args: {
     event: React.PointerEvent<Element>;
-    mousePos: Point;
-    pan: { screenToWorld: (x: number, y: number, scale: number) => Point };
+    worldPos: Point;
     dynamic: SelectionDynamicDeps;
   }) => boolean;
 };
@@ -516,13 +515,11 @@ export const createSelectionHandlers = (
 
   const handleSelectionPointerUp = ({
     event,
-    mousePos,
-    pan,
+    worldPos: rawWorldPos,
     dynamic,
   }: {
     event: React.PointerEvent<Element>;
-    mousePos: Point;
-    pan: { screenToWorld: (x: number, y: number, scale: number) => Point };
+    worldPos: Point;
     dynamic: SelectionDynamicDeps;
   }): boolean => {
     clearStaleClickLineSession();
@@ -531,8 +528,7 @@ export const createSelectionHandlers = (
     }
 
     if (freehandSession.active) {
-      const scale = dynamic.canvas?.zoom || 1;
-      let worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
+      let worldPos = rawWorldPos;
       if (dynamic.project) {
         worldPos = {
           x: Math.max(0, Math.min(dynamic.project.width - 1, worldPos.x)),
@@ -561,8 +557,7 @@ export const createSelectionHandlers = (
     }
 
     deps.interaction.dispatch({ type: 'SELECTION_END' });
-    const scale = dynamic.canvas?.zoom || 1;
-    let worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
+    let worldPos = rawWorldPos;
 
     if (dynamic.project) {
       worldPos = {
