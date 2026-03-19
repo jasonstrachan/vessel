@@ -282,12 +282,14 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           >
             <option value="dots">Dots</option>
             <option value="lines">Diagonal Lines</option>
-            <option value="vertical-lines">Vertical Lines</option>
-            <option value="horizontal-lines">Horizontal Lines</option>
-            <option value="crosshatch">Crosshatch</option>
-            <option value="diagonal">Diamond</option>
-          </select>
-        </div>
+          <option value="vertical-lines">Vertical Lines</option>
+          <option value="horizontal-lines">Horizontal Lines</option>
+          <option value="crosshatch">Crosshatch</option>
+          <option value="diagonal">Diamond</option>
+          <option value="ascii">ASCII Cells</option>
+          <option value="tone-adaptive">Tone Adaptive</option>
+        </select>
+      </div>
       )}
       
       {/* Performance Toggle */}

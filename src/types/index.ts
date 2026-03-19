@@ -206,6 +206,7 @@ export interface SequentialBrushSnapshot {
       | 'horizontal-lines'
       | 'crosshatch'
       | 'diagonal'
+      | 'ascii'
       | 'tone-adaptive'
       | null;
     particleDensity?: number | null;
@@ -861,7 +862,15 @@ export interface BrushSettings {
     | 'blue-noise'
     | 'void-and-cluster'
     | 'pattern';
-  patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+  patternStyle?:
+    | 'dots'
+    | 'lines'
+    | 'vertical-lines'
+    | 'horizontal-lines'
+    | 'crosshatch'
+    | 'diagonal'
+    | 'ascii'
+    | 'tone-adaptive';
   /** Dither Stroke only: stamp tip shape selection */
   ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
   // Pigment lift mask: erode existing pigment before applying a new stamp

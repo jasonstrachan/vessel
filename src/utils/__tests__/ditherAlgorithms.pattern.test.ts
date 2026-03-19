@@ -64,3 +64,65 @@ describe('applyPatternDither tone-adaptive', () => {
     expect(rowsDiffer(highRow, midRow)).toBe(true);
   });
 });
+
+describe('applyPatternDither ascii', () => {
+  const palette: [number, number, number][] = [
+    [0, 0, 0],
+    [255, 255, 255]
+  ];
+
+  const settings: DitherSettings = {
+    algorithm: 'pattern',
+    pressure: 0.5,
+    intensity: 1,
+    bayerMatrixSize: 8,
+    palette,
+    patternStyle: 'ascii' as PatternStyle
+  };
+
+  it('increases ink density as luminance gets darker', () => {
+    const width = 12;
+    const height = 18;
+    const data = new Uint8ClampedArray(width * height * 4);
+    const rows = [
+      { start: 0, end: 5, luminance: 235 },
+      { start: 6, end: 11, luminance: 140 },
+      { start: 12, end: 17, luminance: 35 },
+    ];
+
+    for (const band of rows) {
+      for (let y = band.start; y <= band.end; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = (y * width + x) * 4;
+          data[idx] = band.luminance;
+          data[idx + 1] = band.luminance;
+          data[idx + 2] = band.luminance;
+          data[idx + 3] = 255;
+        }
+      }
+    }
+
+    const image = new ImageData(data, width, height);
+    const result = applyPatternDither(image, settings);
+
+    const countInk = (startRow: number, endRow: number) => {
+      let ink = 0;
+      for (let y = startRow; y <= endRow; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = (y * width + x) * 4;
+          if (result.data[idx] < 128) {
+            ink += 1;
+          }
+        }
+      }
+      return ink;
+    };
+
+    const highlightInk = countInk(0, 5);
+    const midInk = countInk(6, 11);
+    const shadowInk = countInk(12, 17);
+
+    expect(highlightInk).toBeLessThan(midInk);
+    expect(midInk).toBeLessThan(shadowInk);
+  });
+});

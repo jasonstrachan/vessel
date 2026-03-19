@@ -11,6 +11,7 @@ import {
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
 
@@ -1097,6 +1098,17 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       height: worldHeight,
     };
 
+    const clipPreviewBufferToShape = () => {
+      const localVertices = points.map((point) => ({
+        x: (point.x - worldMinX) * scaleX,
+        y: (point.y - worldMinY) * scaleY,
+      }));
+      bufferCtx.save();
+      bufferCtx.setTransform(1, 0, 0, 1, 0, 0);
+      applyPolygonMaskToCanvasContext(bufferCtx, localVertices);
+      bufferCtx.restore();
+    };
+
     // Resize buffer to match *world* size (not screen size) so dithering stays stable at any zoom
     const targetW = Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldWidth)));
     const targetH = Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldHeight)));
@@ -1269,6 +1281,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         bufferCtx.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
       }
     }
+
+    clipPreviewBufferToShape();
 
     overlayCtx.save();
     overlayCtx.imageSmoothingEnabled = false;

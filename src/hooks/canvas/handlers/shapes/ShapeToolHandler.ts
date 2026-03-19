@@ -36,6 +36,7 @@ import {
 } from '@/utils/colorCycleGradients';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -321,6 +322,20 @@ const computeBoundingBox = (points: Array<{ x: number; y: number }>): ShapeFillB
     if (point.y > maxY) maxY = point.y;
   }
   return { minX, minY, maxX, maxY };
+};
+
+const createPreviewYieldController = () => {
+  let sliceStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  return async (row: number) => {
+    if ((row & 0x3f) !== 0) {
+      return;
+    }
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - sliceStart > 8) {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      sliceStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+  };
 };
 
 const boundingBoxToRoi = (
@@ -3033,6 +3048,7 @@ export const createShapeToolHandler = (
                         tempCtx.clearRect(0, 0, w, h);
                         const imageData = tempCtx.createImageData(w, h);
                         const data = imageData.data;
+                        const yieldIfNeeded = createPreviewYieldController();
                         (async () => {
                           try {
                             await fillCcGradientDither({
@@ -3047,6 +3063,7 @@ export const createShapeToolHandler = (
                               algorithm: fillAlgorithm,
                               patternStyle: fillPatternStyle,
                               fillBackground,
+                              yieldIfNeeded,
                               sampleNormalized: (x, y) => {
                                 const proj = x * axis.dir.x + y * axis.dir.y;
                                 return (proj - minProj) / projRange;
@@ -3265,16 +3282,7 @@ export const createShapeToolHandler = (
                     });
                     tempCtx.clearRect(0, 0, w, h);
                     tempCtx.putImageData(imageData, 0, 0);
-                    tempCtx.globalCompositeOperation = 'destination-in';
-                    tempCtx.beginPath();
-                    tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
-                    for (let i = 1; i < localVertices.length; i += 1) {
-                      tempCtx.lineTo(localVertices[i].x, localVertices[i].y);
-                    }
-                    tempCtx.closePath();
-                    tempCtx.fillStyle = 'white';
-                    tempCtx.fill();
-                    tempCtx.globalCompositeOperation = 'source-over';
+                    applyPolygonMaskToCanvasContext(tempCtx, localVertices);
 
                     overlayCtx.save();
                     overlayCtx.globalAlpha = 1;
@@ -4027,5 +4035,6 @@ export const createShapeToolHandler = (
 export const __shapeToolTestUtils = {
   isShapeFillToolActive,
   applyTransparencyLockMaskToContext,
+  applyPolygonMaskToCanvasContext,
 };
 const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing']);
