@@ -23,6 +23,8 @@ export interface LayerAlignmentPercentOffset {
   y: number;
 }
 
+export type GradientSeamProfile = 'hard' | 'soft';
+
 export type LayerPositioningMode = 'anchor' | 'auto';
 
 export interface LayerAlignmentSettings {
@@ -383,6 +385,7 @@ export interface Layer {
       stops: Array<{ position: number; color: string }>;
       hash: string;
       source: 'manual' | 'fg' | 'sampled';
+      seamProfile?: GradientSeamProfile;
       createdAtMs: number;
       slot?: number;
       speedCps?: number;

@@ -48,6 +48,11 @@ import {
   encodeColorCycleSpeedByte,
   sanitizeBrushColorCycleSpeed,
 } from '@/utils/colorCycleSpeed';
+import {
+  appendGradientSeamProfileSignature,
+  normalizeGradientSeamProfile,
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveVelocitySpacingStrength } from '@/utils/velocitySpacing';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
@@ -210,6 +215,7 @@ interface SerializedLayerState {
     stops: GradientStop[];
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
+    seamProfile?: GradientSeamProfile;
     createdAtMs: number;
     slot?: number;
     speedCps?: number;
@@ -850,10 +856,10 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private buildDefPaletteSignature(
-    defs: Array<{ id: number; hash: string }>
+    defs: Array<{ id: number; hash: string; seamProfile?: GradientSeamProfile }>
   ): string {
     return defs
-      .map((entry) => `${entry.id}:${entry.hash}`)
+      .map((entry) => `${entry.id}:${appendGradientSeamProfileSignature(entry.hash, entry.seamProfile)}`)
       .sort()
       .join('|');
   }
@@ -864,6 +870,7 @@ export class ColorCycleBrushCanvas2D {
       id: number;
       hash: string;
       stops: GradientStop[];
+      seamProfile?: GradientSeamProfile;
     }> | undefined
   ): DefPaletteCache | null {
     if (!defs || defs.length === 0) {
@@ -885,10 +892,13 @@ export class ColorCycleBrushCanvas2D {
       if (!def || !def.stops || def.stops.length === 0) {
         continue;
       }
-      const handle = ensurePalette({ stops: def.stops });
+      const handle = ensurePalette({
+        stops: def.stops,
+        seamProfile: normalizeGradientSeamProfile(def.seamProfile),
+      });
       palettesById.set(def.id, handle.uint32);
       rgbaById.set(def.id, handle.rgba);
-      signaturesById.set(def.id, def.hash);
+      signaturesById.set(def.id, appendGradientSeamProfileSignature(def.hash, def.seamProfile));
     }
 
     const nextCache: DefPaletteCache = {
@@ -905,7 +915,7 @@ export class ColorCycleBrushCanvas2D {
     layerId: string,
     animator: ColorCycleAnimator,
     strokeData: LayerStrokeState | undefined,
-    defs: Array<{ id: number; hash: string; stops: GradientStop[] }> | undefined
+    defs: Array<{ id: number; hash: string; stops: GradientStop[]; seamProfile?: GradientSeamProfile }> | undefined
   ): void {
     if (typeof (animator as { setDefIdData?: (data?: Uint16Array | null) => void }).setDefIdData === 'function') {
       (animator as { setDefIdData: (data?: Uint16Array | null) => void }).setDefIdData(strokeData?.buffers.def);
@@ -1603,11 +1613,15 @@ export class ColorCycleBrushCanvas2D {
     }
   }
 
-  private applyGradientForLayer(layerId: string, stops: GradientStop[]) {
+  private applyGradientForLayer(
+    layerId: string,
+    stops: GradientStop[],
+    seamProfile: GradientSeamProfile = 'hard',
+  ) {
     const animator = this.getAnimator(layerId);
     const activeSlot = this.activeGradientSlots.get(layerId) ?? 0;
 
-    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops);
+    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops, seamProfile);
     const previousSignature = this.gradientSignatures.get(layerId);
     const gradientChanged = signature !== previousSignature;
 
@@ -1617,10 +1631,10 @@ export class ColorCycleBrushCanvas2D {
 
     // Update gradient for the active slot
     if (typeof animator.setGradientSlot === 'function') {
-      animator.setGradientSlot(activeSlot, stops);
+      animator.setGradientSlot(activeSlot, stops, seamProfile);
       animator.setActiveGradientSlot?.(activeSlot);
     } else {
-      animator.setGradient(stops);
+      animator.setGradient(stops, seamProfile);
     }
 
     // Cache stops for perceptual dithering paths
@@ -1657,7 +1671,12 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Register gradient stops for a specific slot without changing the active slot.
    */
-  setGradientSlot(layerId: string, slot: number, stops: GradientStop[]) {
+  setGradientSlot(
+    layerId: string,
+    slot: number,
+    stops: GradientStop[],
+    seamProfile: GradientSeamProfile = 'hard',
+  ) {
     const id = layerId || this.activeLayerId || 'default';
     const clampedSlot = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
@@ -1673,14 +1692,14 @@ export class ColorCycleBrushCanvas2D {
       this.gradientSlotSignaturesByLayer.set(id, signatureMap);
     }
 
-    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops);
+    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops, seamProfile);
     const previousSignature = signatureMap.get(clampedSlot);
     const signatureChanged = signature !== previousSignature;
 
     if (!signatureChanged) {
       const activeSlot = this.activeGradientSlots.get(id);
       if (activeSlot === clampedSlot && this.gradientSignatures.get(id) !== signature) {
-        this.applyGradientForLayer(id, stops);
+        this.applyGradientForLayer(id, stops, seamProfile);
       }
       return;
     }
@@ -1699,7 +1718,7 @@ export class ColorCycleBrushCanvas2D {
     slotMap.set(clampedSlot, stops);
 
     if (this.activeGradientSlots.get(id) === clampedSlot) {
-      this.applyGradientForLayer(id, stops);
+      this.applyGradientForLayer(id, stops, seamProfile);
     }
   }
 
@@ -1707,7 +1726,12 @@ export class ColorCycleBrushCanvas2D {
    * Register gradient stops for a slot (palette update only).
    * This does not toggle the active slot, and is safe to call for inactive slots.
    */
-  setGradientSlotStops(layerId: string, slot: number, stops: GradientStop[]) {
+  setGradientSlotStops(
+    layerId: string,
+    slot: number,
+    stops: GradientStop[],
+    seamProfile: GradientSeamProfile = 'hard',
+  ) {
     const id = layerId || this.activeLayerId || 'default';
     const clampedSlot = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
@@ -1723,7 +1747,7 @@ export class ColorCycleBrushCanvas2D {
       this.gradientSlotSignaturesByLayer.set(id, signatureMap);
     }
 
-    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops);
+    const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops, seamProfile);
     const previousSignature = signatureMap.get(clampedSlot);
     const signatureChanged = signature !== previousSignature;
 
@@ -1735,13 +1759,13 @@ export class ColorCycleBrushCanvas2D {
     slotMap.set(clampedSlot, stops);
 
     if (this.activeGradientSlots.get(id) === clampedSlot) {
-      this.applyGradientForLayer(id, stops);
+      this.applyGradientForLayer(id, stops, seamProfile);
       return;
     }
 
     const animator = this.getAnimator(id);
     if (typeof animator.setGradientSlot === 'function') {
-      animator.setGradientSlot(clampedSlot, stops);
+      animator.setGradientSlot(clampedSlot, stops, seamProfile);
     }
   }
 
@@ -5681,6 +5705,7 @@ export class ColorCycleBrushCanvas2D {
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
             hash: entry.hash,
             source: entry.source,
+            seamProfile: entry.seamProfile,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
             speedCps: entry.speedCps,
@@ -6335,12 +6360,15 @@ export class ColorCycleBrushCanvas2D {
     console.log('ColorCycleBrushCanvas2D disposed');
   }
 
-  private static computeGradientSignature(stops: GradientStop[]): string {
+  private static computeGradientSignature(
+    stops: GradientStop[],
+    seamProfile: GradientSeamProfile = 'hard',
+  ): string {
     if (!stops || stops.length === 0) {
-      return '[]';
+      return appendGradientSeamProfileSignature('[]', seamProfile);
     }
 
-    return stops
+    const signature = stops
       .map((stop) => {
         const pos = Number.isFinite(stop.position) ? stop.position.toFixed(6) : 'NaN';
         const color = stop.color;
@@ -6354,5 +6382,6 @@ export class ColorCycleBrushCanvas2D {
         return `${pos}:?`;
       })
       .join('|');
+    return appendGradientSeamProfileSignature(signature, seamProfile);
   }
 }

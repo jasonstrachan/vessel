@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { bakePaletteTable, renderBrushFrame, type Goblet2GradientStop } from '@/lib/colorCycle/goblet2Cpu';
+import { applyGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 
 type FixtureThresholds = {
   maxChannelDelta: number;
@@ -26,7 +27,7 @@ type CCFixture = {
     speedBuffer: number[];
     gradientStops: Goblet2GradientStop[];
   };
-  slotPalettes?: Array<{ slot: number; stops: Goblet2GradientStop[] }>;
+  slotPalettes?: Array<{ slot: number; stops: Goblet2GradientStop[]; seamProfile?: GradientSeamProfile }>;
 };
 
 const clamp01 = (value: number): number => {
@@ -136,7 +137,7 @@ const decodeSpeed = (byte: number, speedMin: number, speedMax: number): number =
 };
 
 const buildReferencePaletteTable = (
-  slotPalettes: Map<number, Goblet2GradientStop[]> | null,
+  slotPalettes: Map<number, { stops: Goblet2GradientStop[]; seamProfile?: GradientSeamProfile }> | null,
   fallbackGradient: Goblet2GradientStop[],
   paletteSize: number,
   slotCount: number,
@@ -144,8 +145,8 @@ const buildReferencePaletteTable = (
   const data = new Uint8Array(Math.max(1, paletteSize) * Math.max(1, slotCount) * 4);
   const fallbackStops = normalizeStops(fallbackGradient);
   for (let slot = 0; slot < slotCount; slot += 1) {
-    const slotStops = slotPalettes?.get(slot);
-    const normalized = slotStops ? normalizeStops(slotStops) : fallbackStops;
+    const slotPalette = slotPalettes?.get(slot);
+    const normalized = slotPalette ? normalizeStops(slotPalette.stops) : fallbackStops;
     for (let i = 0; i < paletteSize; i += 1) {
       const t = paletteSize === 1 ? 0 : i / (paletteSize - 1);
       const c = sampleStops(normalized, t);
@@ -155,6 +156,11 @@ const buildReferencePaletteTable = (
       data[base + 2] = c.b;
       data[base + 3] = c.a;
     }
+    applyGradientSeamProfile(data, {
+      paletteSize,
+      seamProfile: slotPalette?.seamProfile,
+      offset: slot * paletteSize * 4,
+    });
   }
   return data;
 };
@@ -164,7 +170,7 @@ const renderVesselReferenceFrame = (params: {
   gradientIdBuffer: Uint8Array;
   speedBuffer: Uint8Array;
   fallbackGradient: Goblet2GradientStop[];
-  slotPalettes: Map<number, Goblet2GradientStop[]> | null;
+  slotPalettes: Map<number, { stops: Goblet2GradientStop[]; seamProfile?: GradientSeamProfile }> | null;
   paletteSize: number;
   slotCount: number;
   speedMin: number;
@@ -278,7 +284,12 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
       const gradientIdBuffer = Uint8Array.from(fixture.brushState.gradientIdBuffer);
       const speedBuffer = Uint8Array.from(fixture.brushState.speedBuffer);
       const slotPalettes = fixture.slotPalettes
-        ? new Map<number, Goblet2GradientStop[]>(fixture.slotPalettes.map((entry) => [entry.slot, entry.stops]))
+        ? new Map<number, { stops: Goblet2GradientStop[]; seamProfile?: GradientSeamProfile }>(
+            fixture.slotPalettes.map((entry) => [
+              entry.slot,
+              { stops: entry.stops, seamProfile: entry.seamProfile },
+            ]),
+          )
         : null;
 
       const paletteSize = Math.max(1, Math.round(fixture.paletteSize ?? 256));

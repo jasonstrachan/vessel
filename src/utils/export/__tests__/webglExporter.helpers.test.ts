@@ -140,6 +140,7 @@ describe('webglExporter helpers', () => {
           ],
           hash: 'def-5',
           source: 'manual',
+          seamProfile: 'soft',
           createdAtMs: 0,
           slot: 6,
         }],
@@ -165,6 +166,7 @@ describe('webglExporter helpers', () => {
     expect(slotPalettes).toEqual(expect.arrayContaining([
       expect.objectContaining({
         slot: 24,
+        seamProfile: 'soft',
         stops: [
           { position: 0, color: '#112233' },
           { position: 1, color: '#445566' },

@@ -1,4 +1,14 @@
+import {
+  applyGradientSeamProfile,
+  normalizeGradientSeamProfile,
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
+
 export type Goblet2GradientStop = { position: number; color: string };
+export type Goblet2SlotPalette = {
+  stops: Goblet2GradientStop[];
+  seamProfile?: GradientSeamProfile;
+};
 
 export type Goblet2PaletteTable = {
   data: Uint8Array;
@@ -106,7 +116,7 @@ export const decodeSpeedByte = (byte: number, speedMin: number, speedMax: number
 };
 
 export const bakePaletteTable = (
-  slotPalettes: Map<number, Goblet2GradientStop[]> | null,
+  slotPalettes: Map<number, Goblet2GradientStop[] | Goblet2SlotPalette> | null,
   fallbackGradient: Goblet2GradientStop[],
   paletteSize = 256,
   slotCount = 64
@@ -115,7 +125,14 @@ export const bakePaletteTable = (
   const data = new Uint8Array(size * slotCount * 4);
   const fallbackStops = normalizeStops(fallbackGradient);
   for (let slot = 0; slot < slotCount; slot += 1) {
-    const stops = slotPalettes?.get(slot) ? normalizeStops(slotPalettes.get(slot) ?? []) : fallbackStops;
+    const slotPalette = slotPalettes?.get(slot) ?? null;
+    const slotStops = Array.isArray(slotPalette)
+      ? slotPalette
+      : slotPalette?.stops ?? null;
+    const seamProfile = Array.isArray(slotPalette)
+      ? 'hard'
+      : normalizeGradientSeamProfile(slotPalette?.seamProfile);
+    const stops = slotStops ? normalizeStops(slotStops) : fallbackStops;
     for (let i = 0; i < size; i += 1) {
       const t = size === 1 ? 0 : i / (size - 1);
       const c = sampleGradient(stops, t);
@@ -125,6 +142,11 @@ export const bakePaletteTable = (
       data[idx + 2] = c.b;
       data[idx + 3] = c.a;
     }
+    applyGradientSeamProfile(data, {
+      paletteSize: size,
+      seamProfile,
+      offset: slot * size * 4,
+    });
   }
   return { data, width: size, height: slotCount };
 };

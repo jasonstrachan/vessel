@@ -5,6 +5,10 @@ import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { quantizeColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import {
+  normalizeGradientSeamProfile,
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
+import {
   rebuildGradientSlotUsageAndGC,
   rebuildOnDemandAndRetryAllocate,
   buildDefaultReservedSlots,
@@ -20,6 +24,7 @@ export type ColorCycleGradientDefStore = {
   stops: StoredStop[];
   hash: string;
   source: GradientDefSource;
+  seamProfile?: GradientSeamProfile;
   createdAtMs: number;
   slot?: number;
   speedCps?: number;
@@ -107,6 +112,7 @@ export const ensureGradientDefForStops = (params: {
   source: GradientDefSource;
   preferredSlot?: number;
   speedCps?: number;
+  seamProfile?: GradientSeamProfile;
 }): { def: ColorCycleGradientDefStore; slot: number; hash: string } | null => {
   const attemptEnsure = (): { result: { def: ColorCycleGradientDefStore; slot: number; hash: string } | null; failure?: 'no-slot' } => {
     const state = useAppStore.getState();
@@ -120,6 +126,7 @@ export const ensureGradientDefForStops = (params: {
     const defStore = colorCycleData.gradientDefStore ?? [];
     const incomingSpeed = Number.isFinite(params.speedCps) ? params.speedCps : null;
     const incomingSpeedQ = quantizeColorCycleSpeed(incomingSpeed);
+    const incomingSeamProfile = normalizeGradientSeamProfile(params.seamProfile);
     const matchesSpeed = (entry: ColorCycleGradientDefStore): boolean => {
       if (incomingSpeedQ === null) {
         return !Number.isFinite(entry.speedCps ?? NaN);
@@ -130,10 +137,17 @@ export const ensureGradientDefForStops = (params: {
       }
       return Math.abs(entryQ - incomingSpeedQ) <= 1e-6;
     };
-    let existing = defStore.find((entry) => entry.hash === hash && matchesSpeed(entry)) ?? null;
+    const matchesSeamProfile = (entry: ColorCycleGradientDefStore): boolean =>
+      normalizeGradientSeamProfile(entry.seamProfile) === incomingSeamProfile;
+    let existing = defStore.find(
+      (entry) => entry.hash === hash && matchesSpeed(entry) && matchesSeamProfile(entry)
+    ) ?? null;
     if (!existing && incomingSpeedQ !== null) {
       existing = defStore.find(
-        (entry) => entry.hash === hash && !Number.isFinite(entry.speedCps ?? NaN)
+        (entry) =>
+          entry.hash === hash &&
+          !Number.isFinite(entry.speedCps ?? NaN) &&
+          matchesSeamProfile(entry)
       ) ?? null;
     }
     const existingSlot = existing?.slot;
@@ -162,8 +176,12 @@ export const ensureGradientDefForStops = (params: {
         return { result: null, failure: 'no-slot' };
       }
       const nextSpeed = incomingSpeed !== null ? incomingSpeed : existing.speedCps;
-      if (existing.slot !== slot || (incomingSpeed !== null && existing.speedCps !== nextSpeed)) {
-        def = { ...existing, slot, speedCps: nextSpeed };
+      if (
+        existing.slot !== slot ||
+        (incomingSpeed !== null && existing.speedCps !== nextSpeed) ||
+        normalizeGradientSeamProfile(existing.seamProfile) !== incomingSeamProfile
+      ) {
+        def = { ...existing, slot, speedCps: nextSpeed, seamProfile: incomingSeamProfile };
         nextDefStore = defStore.map((entry) => (entry.id === existing.id ? def : entry));
       } else {
         def = existing;
@@ -184,6 +202,7 @@ export const ensureGradientDefForStops = (params: {
         stops: frozenStops,
         hash,
         source: params.source,
+        seamProfile: incomingSeamProfile,
         createdAtMs: Date.now(),
         slot,
         speedCps: incomingSpeed ?? undefined,

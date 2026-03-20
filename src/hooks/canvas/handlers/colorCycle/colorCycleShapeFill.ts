@@ -253,6 +253,7 @@ const resolveDitherRenderSession = ({
     stops: renderPalette.renderStops,
     source: session.source,
     speedCps: session.speedCps ?? undefined,
+    seamProfile: session.seamProfile,
   });
   if (!renderDef) {
     return {

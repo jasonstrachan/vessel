@@ -10,6 +10,9 @@ import {
   type GradientDefSource,
 } from '@/utils/colorCycleGradientDefs';
 import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
+import {
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
 
 export type MarkGradientSession = {
   markId: string;
@@ -17,6 +20,7 @@ export type MarkGradientSession = {
   markKind: 'stroke' | 'shape';
   gradientKind: 'linear' | 'concentric';
   source: GradientDefSource;
+  seamProfile?: GradientSeamProfile;
   frozenStopsStored: StoredStop[];
   frozenHash: string;
   binding: { kind: 'def'; defId: number; slot: number } | null;
@@ -68,6 +72,7 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       stops: session.frozenStopsStored,
       source: session.source,
       speedCps: session.speedCps ?? undefined,
+      seamProfile: session.seamProfile,
     });
     if (defResult) {
       session.binding = { kind: 'def', defId: defResult.def.id, slot: defResult.slot };
@@ -94,6 +99,7 @@ export const beginMarkGradientSession = (params: {
   if (!layer || layer.layerType !== 'color-cycle') {
     return null;
   }
+  const seamProfile: GradientSeamProfile = 'hard';
   const frozenStops = cloneStops(params.stops);
   if (params.source === 'sampled') {
     const session: MarkGradientSession = {
@@ -102,6 +108,7 @@ export const beginMarkGradientSession = (params: {
       markKind: params.markKind,
       gradientKind: params.gradientKind,
       source: params.source,
+      seamProfile,
       frozenStopsStored: frozenStops,
       frozenHash: '',
       binding: null,
@@ -136,6 +143,7 @@ export const beginMarkGradientSession = (params: {
     stops: frozenStops,
     source: params.source,
     speedCps: params.speedCps,
+    seamProfile,
   });
   if (!defResult) {
     return null;
@@ -147,6 +155,7 @@ export const beginMarkGradientSession = (params: {
     markKind: params.markKind,
     gradientKind: params.gradientKind,
     source: params.source,
+    seamProfile,
     frozenStopsStored: frozenStops,
     frozenHash: defResult.hash,
     binding: { kind: 'def', defId: defResult.def.id, slot: defResult.slot },

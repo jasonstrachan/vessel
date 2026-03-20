@@ -2,6 +2,7 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { AppState } from '@/stores/useAppStore';
 import { buildRuntimeSnapshot, signatureForStops, type CCRuntimeSnapshot } from './ccGradientRuntime';
+import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
 
 const lastAppliedByLayer = new Map<
   string,
@@ -47,7 +48,8 @@ export const applyRuntimeToBrush = (
       continue;
     }
     const signature = signatureForStops(palette.stops);
-    if (previous.signatures.get(palette.slot) !== signature) {
+    const paletteSignature = appendGradientSeamProfileSignature(signature, palette.seamProfile);
+    if (previous.signatures.get(palette.slot) !== paletteSignature) {
       didChangePalette = true;
       break;
     }
@@ -64,15 +66,18 @@ export const applyRuntimeToBrush = (
     if (!palette.stops || palette.stops.length === 0) {
       continue;
     }
-    const signature = signatureForStops(palette.stops);
+    const signature = appendGradientSeamProfileSignature(
+      signatureForStops(palette.stops),
+      palette.seamProfile,
+    );
     if (previous.signatures.get(palette.slot) === signature) {
       continue;
     }
     try {
       if (typeof brush.setGradientSlotStops === 'function') {
-        brush.setGradientSlotStops(layerId, palette.slot, palette.stops);
+        brush.setGradientSlotStops(layerId, palette.slot, palette.stops, palette.seamProfile);
       } else {
-        brush.setGradientSlot?.(layerId, palette.slot, palette.stops);
+        brush.setGradientSlot?.(layerId, palette.slot, palette.stops, palette.seamProfile);
       }
       nextSignatures.set(palette.slot, signature);
     } catch {}

@@ -11,6 +11,10 @@ import { parseCssColor } from '@/utils/color/parseCssColor';
 import { posInt, round3, toNum } from '@/utils/num';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import {
+  normalizeGradientSeamProfile,
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
+import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
   MAX_CC_LAYER_SPEED_SCALE,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
@@ -131,6 +135,11 @@ type LayerExportMetrics = LayerContentMetrics;
 type CanvasExportMimeType = 'image/avif' | 'image/webp' | 'image/png';
 
 type SerializedGradientStops = Array<{ position: number; color: string }>;
+type SerializedSlotPalette = {
+  slot: number;
+  stops: SerializedGradientStops;
+  seamProfile?: GradientSeamProfile;
+};
 
 interface CanvasExportFormatOption {
   type: CanvasExportMimeType;
@@ -332,7 +341,7 @@ interface WebGLSerializedColorCycle {
   isAnimating: boolean;
   recolorSettings?: Record<string, unknown>;
   brushState?: WebGLSerializedBrushState;
-  slotPalettes?: Array<{ slot: number; stops: SerializedGradientStops }>;
+  slotPalettes?: SerializedSlotPalette[];
   alphaMask?: WebGLSerializedAlphaMask;
   coverageBoundsPx?: WebGLLayerBounds;
   coverageBoundsSourcePx?: WebGLLayerBounds;
@@ -1658,8 +1667,8 @@ const resolveFgDerivedStops = (
 const resolveDefBoundSlotPalettes = (params: {
   data: Layer['colorCycleData'] | undefined;
   brushState?: WebGLSerializedBrushState;
-  slotPalettes?: Array<{ slot: number; stops: SerializedGradientStops }>;
-}): Array<{ slot: number; stops: SerializedGradientStops }> | undefined => {
+  slotPalettes?: SerializedSlotPalette[];
+}): SerializedSlotPalette[] | undefined => {
   const { data, brushState } = params;
   if (!data || !brushState) {
     return params.slotPalettes;
@@ -1676,7 +1685,16 @@ const resolveDefBoundSlotPalettes = (params: {
     return params.slotPalettes;
   }
 
-  const resolved = [...(params.slotPalettes ?? [])];
+  const seamProfilesBySlot = new Map<number, GradientSeamProfile>();
+  defs.forEach((entry) => {
+    if (typeof entry.slot === 'number') {
+      seamProfilesBySlot.set(entry.slot, normalizeGradientSeamProfile(entry.seamProfile));
+    }
+  });
+  const resolved = [...(params.slotPalettes ?? [])].map((entry) => ({
+    ...entry,
+    seamProfile: entry.seamProfile ?? seamProfilesBySlot.get(entry.slot),
+  }));
   const existingSlots = new Set(resolved.map((entry) => entry.slot));
   const missingUsedSlots = [...collectUsedSlots(gradientIds, indices)].filter((slot) => !existingSlots.has(slot));
   if (missingUsedSlots.length === 0) {
@@ -1722,6 +1740,7 @@ const resolveDefBoundSlotPalettes = (params: {
     resolved.push({
       slot,
       stops: toSerializableGradientStops(def.stops, []),
+      seamProfile: normalizeGradientSeamProfile(def.seamProfile),
     });
   }
 
@@ -1731,20 +1750,20 @@ const resolveDefBoundSlotPalettes = (params: {
 const resolveExportSlotPalettes = (
   data: Layer['colorCycleData'] | undefined,
   brushState?: WebGLSerializedBrushState
-): Array<{ slot: number; stops: SerializedGradientStops }> | undefined => {
+): SerializedSlotPalette[] | undefined => {
   if (!data) {
     return undefined;
   }
 
   let slotPalettes = data.slotPalettes?.length
-    ? data.slotPalettes.map((entry) => ({
-        slot: entry.slot,
-        stops: toSerializableGradientStops(entry.stops, [])
-      }))
+      ? data.slotPalettes.map((entry) => ({
+          slot: entry.slot,
+          stops: toSerializableGradientStops(entry.stops, []),
+        }))
     : data.gradients?.length
       ? data.gradients.map((entry) => ({
           slot: entry.slot,
-          stops: toSerializableGradientStops(entry.stops, [])
+          stops: toSerializableGradientStops(entry.stops, []),
         }))
       : undefined;
 

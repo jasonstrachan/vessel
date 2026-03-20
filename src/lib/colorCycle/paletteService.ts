@@ -1,4 +1,9 @@
 import { GradientPalette, GradientStop } from '@/lib/GradientPalette';
+import {
+  DEFAULT_GRADIENT_SEAM_PROFILE,
+  normalizeGradientSeamProfile,
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
 import { cacheLog } from '@/utils/devLog';
 import { performanceMonitor } from '@/utils/performanceMonitor';
 
@@ -31,6 +36,7 @@ export interface PaletteRequest {
   palette?: GradientPalette;
   stops?: GradientStop[];
   size?: number;
+  seamProfile?: GradientSeamProfile;
 }
 
 type PaletteCacheEntry = {
@@ -100,13 +106,13 @@ function normalizeColor(color: GradientStop['color']): string {
   return `rgb(${r},${g},${b})`;
 }
 
-function buildKey(stops: GradientStop[], size: number): string {
+function buildKey(stops: GradientStop[], size: number, seamProfile: GradientSeamProfile): string {
   const canonical = stops.map((stop) => ({
     p: Number(stop.position.toFixed(6)),
     c: normalizeColor(stop.color),
     o: Number.isFinite(stop.opacity) ? Number(stop.opacity).toFixed(6) : '1.000000',
   }));
-  return JSON.stringify({ size, stops: canonical });
+  return JSON.stringify({ size, seamProfile, stops: canonical });
 }
 
 function packToUint32(rgba: Uint8ClampedArray, size: number): Uint32Array {
@@ -154,7 +160,9 @@ function resolvePalette(request: PaletteRequest): GradientPalette {
     return request.palette;
   }
   if (request.stops && request.stops.length > 0) {
-    return new GradientPalette(request.stops);
+    return new GradientPalette(request.stops, {
+      seamProfile: normalizeGradientSeamProfile(request.seamProfile),
+    });
   }
   return GradientPalette.createDefault();
 }
@@ -163,7 +171,8 @@ export function ensurePalette(request: PaletteRequest = {}): PaletteHandle {
   const palette = resolvePalette(request);
   const size = request.size ?? DEFAULT_SIZE;
   const stops = resolveStops(request, palette);
-  const key = buildKey(stops, size);
+  const seamProfile = normalizeGradientSeamProfile(request.seamProfile ?? palette.getSeamProfile?.() ?? DEFAULT_GRADIENT_SEAM_PROFILE);
+  const key = buildKey(stops, size, seamProfile);
   const cached = cache.get(key);
   if (cached) {
     recordEvent('hit', key, cached.handle.rgbaByteLength);
@@ -190,7 +199,8 @@ export function invalidatePalette(request: PaletteRequest): void {
   const palette = resolvePalette(request);
   const size = request.size ?? DEFAULT_SIZE;
   const stops = resolveStops(request, palette);
-  const key = buildKey(stops, size);
+  const seamProfile = normalizeGradientSeamProfile(request.seamProfile ?? palette.getSeamProfile?.() ?? DEFAULT_GRADIENT_SEAM_PROFILE);
+  const key = buildKey(stops, size, seamProfile);
   cache.delete(key);
 }
 

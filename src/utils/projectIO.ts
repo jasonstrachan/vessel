@@ -444,6 +444,7 @@ interface SerializedBrushLayerSnapshot {
     stops: Array<{ position: number; color: string }>;
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
+    seamProfile?: 'hard' | 'soft';
     createdAtMs: number;
     slot?: number;
     speedCps?: number;
@@ -529,6 +530,7 @@ interface SerializedColorCycleLayerData {
     stops: Array<{ position: number; color: string }>;
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
+    seamProfile?: 'hard' | 'soft';
     createdAtMs: number;
     slot?: number;
     speedCps?: number;
@@ -649,6 +651,7 @@ interface ColorCycleBrushState {
       stops: Array<{ position: number; color: string }>;
       hash: string;
       source: 'manual' | 'fg' | 'sampled';
+      seamProfile?: 'hard' | 'soft';
       createdAtMs: number;
       slot?: number;
       speedCps?: number;
@@ -1120,6 +1123,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
             hash: entry.hash,
             source: entry.source,
+            seamProfile: entry.seamProfile,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
             speedCps: entry.speedCps,
@@ -1355,6 +1359,7 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
         stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
         hash: entry.hash,
         source: entry.source,
+        seamProfile: entry.seamProfile,
         createdAtMs: entry.createdAtMs,
         slot: entry.slot,
         speedCps: entry.speedCps,
@@ -1517,6 +1522,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
             stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
             hash: entry.hash,
             source: entry.source,
+            seamProfile: entry.seamProfile,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
             speedCps: entry.speedCps,

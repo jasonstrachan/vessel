@@ -8,11 +8,14 @@ describe('goblet2Cpu helpers', () => {
   });
 
   it('renders brush frames with palette shift and zero transparency', () => {
-    const slotPalettes = new Map<number, { position: number; color: string }[]>();
-    slotPalettes.set(0, [
-      { position: 0, color: '#000000' },
-      { position: 1, color: '#ffffff' }
-    ]);
+    const slotPalettes = new Map<number, { stops: { position: number; color: string }[]; seamProfile?: 'hard' | 'soft' }>();
+    slotPalettes.set(0, {
+      seamProfile: 'hard',
+      stops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' }
+      ],
+    });
 
     const paletteTable = bakePaletteTable(slotPalettes, [
       { position: 0, color: '#000000' },
@@ -40,5 +43,24 @@ describe('goblet2Cpu helpers', () => {
     expect(Array.from(pixel(1))).toEqual([0, 0, 0, 255]);
     expect(Array.from(pixel(2))).toEqual([0, 0, 0, 0]);
     expect(Array.from(pixel(3))).toEqual([170, 170, 170, 255]);
+  });
+
+  it('softens the final palette slice back toward the first color', () => {
+    const slotPalettes = new Map<number, { stops: { position: number; color: string }[]; seamProfile?: 'hard' | 'soft' }>();
+    slotPalettes.set(0, {
+      seamProfile: 'soft',
+      stops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    });
+
+    const paletteTable = bakePaletteTable(slotPalettes, [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ], 256, 1);
+
+    const last = paletteTable.data.slice((256 - 1) * 4, 256 * 4);
+    expect(Array.from(last)).toEqual([0, 0, 0, 255]);
   });
 });
