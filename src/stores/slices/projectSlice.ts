@@ -16,6 +16,11 @@ import {
 import { normalizeCanvasShape } from '@/utils/canvasShape';
 import { createProjectLifecycle, type SaveProjectRequest } from '@/stores/helpers/projectLifecycle';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  captureResizeHistoryBaseline,
+  recordResizeHistory,
+} from '@/stores/helpers/resizeHistory';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
 import { createCustomBrushPreset } from '@/utils/customBrushPreset';
@@ -28,6 +33,121 @@ type CustomBrushSnapshot = {
 
 const cloneImageData = (source: ImageData): ImageData => {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
+};
+
+const getCanvasContext = (
+  canvas: HTMLCanvasElement | OffscreenCanvas | null
+): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null => {
+  if (!canvas) {
+    return null;
+  }
+  return canvas.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+};
+
+const createCanvasSurface = (
+  width: number,
+  height: number,
+  options: { forceDom?: boolean } = {}
+): HTMLCanvasElement | OffscreenCanvas | null => {
+  if (typeof document !== 'undefined' && (options.forceDom || typeof OffscreenCanvas === 'undefined')) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+
+  if (!options.forceDom && typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+
+  return null;
+};
+
+const resolveSourceImageData = (
+  sourceCanvas: HTMLCanvasElement | OffscreenCanvas | null | undefined,
+  sourceImageData: ImageData | null | undefined
+): ImageData | null => {
+  const preferCanvasPixels = process.env.NODE_ENV !== 'test';
+  const sourceCtx = sourceCanvas ? getCanvasContext(sourceCanvas) : null;
+  const canvasImageData = sourceCanvas && sourceCtx
+    ? sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height)
+    : null;
+
+  if (preferCanvasPixels && canvasImageData) {
+    return canvasImageData;
+  }
+
+  if (sourceImageData) {
+    return sourceImageData;
+  }
+
+  return canvasImageData;
+};
+
+const scaleImageDataNearest = (
+  sourceImageData: ImageData,
+  width: number,
+  height: number
+): ImageData => {
+  if (sourceImageData.width === width && sourceImageData.height === height) {
+    return cloneImageData(sourceImageData);
+  }
+
+  const scaled = new ImageData(width, height);
+  const source = sourceImageData.data;
+  const target = scaled.data;
+  const sourceWidth = sourceImageData.width;
+  const sourceHeight = sourceImageData.height;
+
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor((y * sourceHeight) / height));
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor((x * sourceWidth) / width));
+      const sourceIndex = (sourceY * sourceWidth + sourceX) * 4;
+      const targetIndex = (y * width + x) * 4;
+
+      target[targetIndex] = source[sourceIndex];
+      target[targetIndex + 1] = source[sourceIndex + 1];
+      target[targetIndex + 2] = source[sourceIndex + 2];
+      target[targetIndex + 3] = source[sourceIndex + 3];
+    }
+  }
+
+  return scaled;
+};
+
+const scaleCanvasContent = (
+  sourceCanvas: HTMLCanvasElement | OffscreenCanvas | null | undefined,
+  sourceImageData: ImageData | null | undefined,
+  width: number,
+  height: number,
+  options: { forceDom?: boolean } = {}
+): {
+  canvas: HTMLCanvasElement | OffscreenCanvas | null;
+  imageData: ImageData | null;
+} => {
+  const target = createCanvasSurface(width, height, options);
+  const targetCtx = getCanvasContext(target);
+  if (!target || !targetCtx) {
+    return { canvas: null, imageData: null };
+  }
+
+  const resolvedSourceImageData = resolveSourceImageData(sourceCanvas, sourceImageData);
+  if (!resolvedSourceImageData) {
+    return { canvas: target, imageData: targetCtx.getImageData(0, 0, width, height) };
+  }
+
+  targetCtx.clearRect(0, 0, width, height);
+  const scaledImageData = scaleImageDataNearest(resolvedSourceImageData, width, height);
+  targetCtx.putImageData(scaledImageData, 0, 0);
+
+  return {
+    canvas: target,
+    imageData: scaledImageData,
+  };
 };
 
 const generateThumbnailFromImageData = (imageData: ImageData): string => {
@@ -216,56 +336,96 @@ export const createProjectSlice =
     };
 
     const resizeProjectCanvas = async (width: number, height: number) => {
+      await flushPendingToolWork();
+
       const state = get();
       if (!state.project) {
         return;
       }
+      if (state.project.width === width && state.project.height === height) {
+        return;
+      }
 
-      const oldWidth = state.project.width;
-      const oldHeight = state.project.height;
-
-      const offsetX = (width - oldWidth) / 2;
-      const offsetY = (height - oldHeight) / 2;
+      const historyBaseline = captureResizeHistoryBaseline({
+        project: state.project,
+        layers: state.layers,
+      });
 
       let resizedLayers: Layer[] = state.layers;
+      resizedLayers = state.layers.map((layer) => {
+        const scaledLayer = scaleCanvasContent(layer.framebuffer, layer.imageData, width, height);
+        if (!scaledLayer.canvas || !scaledLayer.imageData) {
+          return layer;
+        }
 
-      if (typeof OffscreenCanvas !== 'undefined') {
-        resizedLayers = state.layers.map((layer) => {
-          const framebuffer = layer.framebuffer;
-          const imageData = layer.imageData;
-
-          if (!framebuffer) {
-            return layer;
-          }
-
-          const newFramebuffer = new OffscreenCanvas(width, height);
-          const newCtx = newFramebuffer.getContext('2d', {
-            willReadFrequently: true,
-          } as CanvasRenderingContext2DSettings) as OffscreenCanvasRenderingContext2D | null;
-
-          if (!newCtx) {
-            return layer;
-          }
-
-          const oldCtx = framebuffer.getContext('2d', {
-            willReadFrequently: true,
-          } as CanvasRenderingContext2DSettings) as OffscreenCanvasRenderingContext2D | null;
-
-          if (oldCtx && imageData) {
-            oldCtx.clearRect(0, 0, framebuffer.width, framebuffer.height);
-            oldCtx.putImageData(imageData, 0, 0);
-          }
-
-          newCtx.drawImage(framebuffer as CanvasImageSource, offsetX, offsetY);
-          const newImageData = newCtx.getImageData(0, 0, width, height);
-
+        if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
           return {
             ...layer,
-            imageData: newImageData,
-            framebuffer: newFramebuffer,
+            imageData: scaledLayer.imageData,
+            framebuffer: scaledLayer.canvas,
+            version: (layer.version ?? 0) + 1,
           };
-        });
-      }
+        }
+
+        const scaledColorCycle = scaleCanvasContent(
+          layer.colorCycleData.canvas,
+          layer.colorCycleData.canvasImageData ?? layer.imageData,
+          width,
+          height,
+          { forceDom: true }
+        );
+        const scaledEraseMask = layer.colorCycleData.eraseMask || layer.colorCycleData.eraseMaskImageData
+          ? scaleCanvasContent(
+              layer.colorCycleData.eraseMask,
+              layer.colorCycleData.eraseMaskImageData,
+              width,
+              height,
+              { forceDom: true }
+            )
+          : null;
+        const scaledOriginalImage = layer.colorCycleData.recolorSettings?.originalImageData
+          ? scaleCanvasContent(
+              null,
+              layer.colorCycleData.recolorSettings.originalImageData,
+              width,
+              height
+            )
+          : null;
+
+        return {
+          ...layer,
+          imageData: scaledLayer.imageData,
+          framebuffer: scaledLayer.canvas,
+          version: (layer.version ?? 0) + 1,
+          colorCycleData: {
+            ...layer.colorCycleData,
+            canvas:
+              (scaledColorCycle.canvas as HTMLCanvasElement | null) ??
+              layer.colorCycleData.canvas,
+            canvasImageData:
+              scaledColorCycle.imageData ??
+              layer.colorCycleData.canvasImageData,
+            canvasWidth: width,
+            canvasHeight: height,
+            eraseMask:
+              (scaledEraseMask?.canvas as HTMLCanvasElement | null) ??
+              layer.colorCycleData.eraseMask,
+            eraseMaskImageData:
+              scaledEraseMask?.imageData ??
+              layer.colorCycleData.eraseMaskImageData,
+            recolorSettings: layer.colorCycleData.recolorSettings
+              ? {
+                  ...layer.colorCycleData.recolorSettings,
+                  originalImageData:
+                    scaledOriginalImage?.imageData ??
+                    layer.colorCycleData.recolorSettings.originalImageData,
+                  indexBuffer: undefined,
+                  phaseMap: undefined,
+                }
+              : undefined,
+          },
+        };
+      });
 
       set((current) => {
         if (!current.project) {
@@ -278,6 +438,7 @@ export const createProjectSlice =
           height,
           updatedAt: new Date(),
           canvasShape: normalizeCanvasShape(current.project.canvasShape, width, height),
+          layers: resizedLayers,
         };
 
         const nextLayers = syncPercentOffsetsFromPixels(resizedLayers, updatedProject);
@@ -292,10 +453,20 @@ export const createProjectSlice =
             canvasHeight: height,
             needsDimensionUpdate: true,
           },
+          currentOffscreenCanvas: null,
+          currentCompositeBitmap: null,
         };
       });
 
       get().setLayersNeedRecomposition(true);
+
+      await recordResizeHistory({
+        beforeProject: historyBaseline.projectSize,
+        afterProject: { width, height },
+        beforeLayers: historyBaseline.layerSnapshots,
+        afterLayers: resizedLayers,
+        description: `Resize canvas to ${width}×${height}`,
+      });
     };
 
     const addCustomBrush = (brush: CustomBrush) => {

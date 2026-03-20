@@ -1,6 +1,7 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
+import historyManager from '@/history/historyService';
 
 const makeCanvas = () => {
   const ctx = {
@@ -111,6 +112,7 @@ beforeEach(() => {
   mockManager.getLayerColorCycleBrush.mockReturnValue(mockBrush);
   mockManager.createBrush.mockReturnValue(mockBrush);
   mockManager.initColorCycleForLayer.mockReturnValue(true);
+  historyManager.clear();
 
   useAppStore.setState((state) => ({
     layers: [],
@@ -239,6 +241,33 @@ describe('layers slice integration', () => {
     expect(nextLayerB?.visible).toBe(false);
     expect(nextLayerC?.visible).toBe(true);
     expect(nextState.layersNeedRecomposition).toBe(true);
+  });
+
+  it('does not create undo history entries for layer visibility changes', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+
+    historyManager.clear();
+
+    useAppStore.getState().setLayersVisibility([layerA], false);
+    expect(historyManager.entries()).toHaveLength(0);
+
+    useAppStore.getState().toggleLayersVisibility([layerA, layerB]);
+    expect(historyManager.entries()).toHaveLength(0);
+
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, false);
+    expect(historyManager.entries()).toHaveLength(0);
+
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, true);
+    expect(historyManager.entries()).toHaveLength(0);
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(true);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(false);
+    expect(nextState.layers.find((layer) => layer.id === layerC)?.visible).toBe(true);
   });
 
   it('ignores unknown and duplicate ids when setting visibility', () => {

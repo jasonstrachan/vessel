@@ -2337,11 +2337,6 @@ export const createLayersSlice = (
       return;
     }
 
-    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
-      actionType: 'layers',
-      description: visible ? 'Show selected layers' : 'Hide selected layers',
-    });
-
     let didChange = false;
     set((state) => {
       const targetIdSet = new Set(targetIds);
@@ -2366,24 +2361,6 @@ export const createLayersSlice = (
     if (!didChange) {
       return;
     }
-
-    const stateAfterChange = get();
-    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
-      actionType: 'layers',
-      description: visible ? 'Show selected layers' : 'Hide selected layers',
-      previousSnapshot: beforeSnapshot,
-    });
-
-    commitLayerStructureHistory({
-      set,
-      beforeSnapshot,
-      afterSnapshot,
-      label: visible ? 'Show selected layers' : 'Hide selected layers',
-      metadata: {
-        operation: visible ? 'show-selected-layers' : 'hide-selected-layers',
-        layerIds: targetIds,
-      },
-    });
     get().markAllCompositeSegmentsDirty();
   },
   toggleLayersVisibility: (layerIds) => {
@@ -2397,11 +2374,6 @@ export const createLayersSlice = (
     if (targetIds.length === 0) {
       return;
     }
-
-    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
-      actionType: 'layers',
-      description: 'Toggle selected layers visibility',
-    });
 
     let didChange = false;
     set((state) => {
@@ -2427,24 +2399,6 @@ export const createLayersSlice = (
     if (!didChange) {
       return;
     }
-
-    const stateAfterChange = get();
-    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
-      actionType: 'layers',
-      description: 'Toggle selected layers visibility',
-      previousSnapshot: beforeSnapshot,
-    });
-
-    commitLayerStructureHistory({
-      set,
-      beforeSnapshot,
-      afterSnapshot,
-      label: 'Toggle selected layers visibility',
-      metadata: {
-        operation: 'toggle-selected-layers-visibility',
-        layerIds: targetIds,
-      },
-    });
     get().markAllCompositeSegmentsDirty();
   },
   createLayerGroupFromSelection: (layerIds) => {
@@ -2617,11 +2571,6 @@ export const createLayersSlice = (
       return;
     }
 
-    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
-      actionType: 'layers',
-      description: visible ? 'Show layer group' : 'Hide layer group',
-    });
-
     let didChange = false;
     let didHiddenStateChange = false;
     set((state) => {
@@ -2679,24 +2628,6 @@ export const createLayersSlice = (
     if (!didChange && !didHiddenStateChange) {
       return;
     }
-
-    const stateAfterChange = get();
-    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
-      actionType: 'layers',
-      description: visible ? 'Show layer group' : 'Hide layer group',
-      previousSnapshot: beforeSnapshot,
-    });
-
-    commitLayerStructureHistory({
-      set,
-      beforeSnapshot,
-      afterSnapshot,
-      label: visible ? 'Show layer group' : 'Hide layer group',
-      metadata: {
-        operation: visible ? 'show-layer-group' : 'hide-layer-group',
-        groupId,
-      },
-    });
     if (didChange) {
       get().markCompositeSegmentsDirtyByLayerIds(memberIds);
     }
