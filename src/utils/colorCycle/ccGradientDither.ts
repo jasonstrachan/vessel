@@ -19,6 +19,7 @@ export type CcGradientDitherOptions = {
   baseOffset: number;
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
+  pairBandCount?: number;
   fillBackground?: boolean;
   pxlEdge?: boolean;
   sampleNormalized: (x: number, y: number) => number;
@@ -235,6 +236,7 @@ export const fillCcGradientDither = async ({
   baseOffset,
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
+  pairBandCount,
   fillBackground = true,
   pxlEdge = false,
   sampleNormalized,
@@ -243,6 +245,7 @@ export const fillCcGradientDither = async ({
   yieldIfNeeded,
 }: CcGradientDitherOptions): Promise<void> => {
   const clampedLevels = Math.max(1, Math.min(255, Math.floor(levels)));
+  const clampedPairBands = Math.max(0, Math.floor(pairBandCount ?? 0));
   const cellSize = Math.max(1, Math.floor(pixelSize));
   const useWholeEdgeCells = Boolean(pxlEdge && cellSize > 1);
   const bboxWidth = Math.max(1, maxX - minX + 1);
@@ -322,7 +325,7 @@ export const fillCcGradientDither = async ({
     const end = serpentine ? -1 : activeCells.length;
     const step = serpentine ? -1 : 1;
 
-    const sampleY = minY + cy * cellSize + cellSize * 0.5;
+      const sampleY = minY + cy * cellSize + cellSize * 0.5;
     for (let i = start; i !== end; i += step) {
       const cx = activeCells[i];
       const sampleX = minX + cx * cellSize + cellSize * 0.5;
@@ -337,7 +340,84 @@ export const fillCcGradientDither = async ({
     }
   }
 
-  if (clampedLevels === 1) {
+  if (clampedPairBands > 0) {
+    const pairCount = Math.max(1, clampedPairBands);
+    const lowIndexForBand = (band: number) =>
+      indexFromNormalized((band * 2) / (pairCount * 2), baseOffset);
+    const highIndexForBand = (band: number) =>
+      indexFromNormalized((band * 2 + 1) / (pairCount * 2), baseOffset);
+    const resolveBandState = (coverage: number, error = 0) => {
+      const scaled = clamp01(coverage / 255 + error) * pairCount;
+      const band = Math.max(0, Math.min(pairCount - 1, Math.floor(Math.min(pairCount - 1e-6, scaled))));
+      const local = clamp01(scaled - band);
+      return { band, local };
+    };
+
+    if (algorithm in ERROR_DIFFUSION_KERNELS) {
+      const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
+      const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
+      const errBuf = new Float32Array(gridW * gridH);
+      const jitterScale = profile.jitterBase * 0.25;
+
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const activeRow = activeCellsByRow[cy];
+        if (!activeRow.length) continue;
+
+        const useSerpentine = kernel.serpentine !== false;
+        const leftToRight = useSerpentine ? (cy & 1) === 0 : true;
+        const start = leftToRight ? 0 : activeRow.length - 1;
+        const end = leftToRight ? activeRow.length : -1;
+        const step = leftToRight ? 1 : -1;
+
+        for (let i = start; i !== end; i += step) {
+          const cx = activeRow[i];
+          const cellIdx = cy * gridW + cx;
+          const { band, local: initialLocal } = resolveBandState(cellCoverage[cellIdx], errBuf[cellIdx] || 0);
+          let local = initialLocal;
+          if (jitterScale > 0) {
+            local = clamp01(local + (noiseAt(cx, cy) - 0.5) * jitterScale);
+          }
+          const usePrimary = local >= profile.threshold;
+          cellIndices[cellIdx] = usePrimary ? highIndexForBand(band) : (fillBackground ? lowIndexForBand(band) : 0);
+          const quant = usePrimary ? 1 : 0;
+          const err = local - quant;
+          if (err !== 0) {
+            const norm = 1 / Math.max(1, kernel.divisor);
+            for (let k = 0; k < kernel.taps.length; k += 1) {
+              const tap = kernel.taps[k];
+              const nx = cx + (leftToRight ? tap.dx : -tap.dx);
+              const ny = cy + tap.dy;
+              if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+              const nIdx = ny * gridW + nx;
+              if (!activeMask[nIdx]) continue;
+              errBuf[nIdx] += err * tap.weight * norm;
+            }
+          }
+        }
+      }
+    } else {
+      const phaseX = Math.floor(minX / Math.max(1, cellSize));
+      const phaseY = Math.floor(minY / Math.max(1, cellSize));
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const activeRow = activeCellsByRow[cy];
+        if (!activeRow.length) continue;
+        const rowOffset = cy * gridW;
+        for (let i = 0; i < activeRow.length; i += 1) {
+          const cx = activeRow[i];
+          const cellIdx = rowOffset + cx;
+          const { band, local } = resolveBandState(cellCoverage[cellIdx]);
+          const threshold = resolveOrderedThreshold(
+            algorithm,
+            patternStyle,
+            cx + phaseX,
+            cy + phaseY
+          );
+          const usePrimary = local >= threshold;
+          cellIndices[cellIdx] = usePrimary ? highIndexForBand(band) : (fillBackground ? lowIndexForBand(band) : 0);
+        }
+      }
+    }
+  } else if (clampedLevels === 1) {
     const lowIndex = indexFromNormalized(0, baseOffset);
     const highIndex = indexFromNormalized(0.5, baseOffset);
     const phaseX = Math.floor(minX / Math.max(1, cellSize));

@@ -3,9 +3,11 @@ import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCyc
 import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import { useAppStore } from '@/stores/useAppStore';
 import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
+import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 type SnapshotCapableBrush = ColorCycleBrush & {
@@ -213,6 +215,66 @@ const shouldRefreshForegroundRuntimeForShapeFinalize = (
   session: MarkGradientSession | null
 ): boolean => useForegroundGradient && !session?.binding;
 
+type CcDitherRenderSession = Pick<
+  MarkGradientSession,
+  'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps'
+>;
+
+const resolveDitherRenderSession = ({
+  layerId,
+  session,
+  brushSettings,
+}: {
+  layerId: string;
+  session: MarkGradientSession | null;
+  brushSettings: ReturnType<typeof useAppStore.getState>['tools']['brushSettings'];
+}): CcDitherRenderSession | null => {
+  if (!session?.frozenStopsStored?.length || !brushSettings.ditherEnabled) {
+    return session
+      ? {
+          binding: session.binding,
+          frozenStopsStored: session.frozenStopsStored,
+          frozenHash: session.frozenHash,
+          source: session.source,
+          gradientKind: session.gradientKind,
+          speedCps: session.speedCps,
+        }
+      : null;
+  }
+
+  const renderPalette = buildCcDitherRenderPalette({
+    baseStops: session.frozenStopsStored,
+    bands: resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
+    spread: brushSettings.ditherPaletteSpread,
+  });
+  const renderDef = ensureGradientDefForStops({
+    layerId,
+    kind: session.gradientKind,
+    stops: renderPalette.renderStops,
+    source: session.source,
+    speedCps: session.speedCps ?? undefined,
+  });
+  if (!renderDef) {
+    return {
+      binding: session.binding,
+      frozenStopsStored: session.frozenStopsStored,
+      frozenHash: session.frozenHash,
+      source: session.source,
+      gradientKind: session.gradientKind,
+      speedCps: session.speedCps,
+    };
+  }
+
+  return {
+    binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
+    frozenStopsStored: renderPalette.renderStops,
+    frozenHash: renderDef.hash,
+    source: session.source,
+    gradientKind: session.gradientKind,
+    speedCps: session.speedCps,
+  };
+};
+
 export const computeFallbackLinearDirection = (
   points: Array<{ x: number; y: number }>
 ): { x: number; y: number } => {
@@ -283,12 +345,17 @@ export const finalizeColorCycleShapeFillLinear = async (
     const lockMaskCanvas = preFillPaintMask
       ? null
       : snapshotTransparencyLockMask(args.activeLayerId, args.activeLayerCanvas);
-    await deps.timeAsync('cc:shape:fill(linear)', async () => {
+    const renderSession = await deps.timeAsync('cc:shape:fill(linear)', async () => {
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
       const session = args.session;
+      const resolvedRenderSession = resolveDitherRenderSession({
+        layerId: args.activeLayerId,
+        session,
+        brushSettings: liveSettings,
+      });
       const shouldRefreshForegroundRuntime = shouldRefreshForegroundRuntimeForShapeFinalize(useFG, session);
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
       let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
@@ -299,26 +366,31 @@ export const finalizeColorCycleShapeFillLinear = async (
           ? { slot: ensured.slot, stops: ensured.stops }
           : fgPalette;
       }
-      const frozenStops = session?.frozenStopsStored;
+      const frozenStops = resolvedRenderSession?.frozenStopsStored;
       if (!frozenStops?.length) {
         deps.logError('[CC] Missing mark session on shape finalize (linear).');
       }
-      if (session?.binding?.slot !== undefined && frozenStops?.length) {
+      if (resolvedRenderSession?.binding?.slot !== undefined && frozenStops?.length) {
         const brush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
         if (brush) {
           applyRuntimeToBrush(brush, args.activeLayerId, {
             layerId: args.activeLayerId,
-            paintSlot: session.binding.slot,
-            slotPalettes: [{ slot: session.binding.slot, stops: frozenStops }],
+            paintSlot: resolvedRenderSession.binding.slot,
+            slotPalettes: [{ slot: resolvedRenderSession.binding.slot, stops: frozenStops }],
             flowMode: liveLayer?.colorCycleData?.flowMode,
           });
         }
       }
+      const ccDitherMode = resolveCcDitherBandMode(liveSettings.gradientBands ?? 16);
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
         ditherPixelSize: args.ditherPixelSize,
+        ditherPairBandCount: liveSettings.ditherEnabled
+          ? ccDitherMode.pairBandCount
+          : undefined,
         roi: args.roi,
         skipPostRender: true,
       });
+      return resolvedRenderSession;
     });
 
     deps.timeSync('cc:shape:texture', () => {
@@ -366,16 +438,20 @@ export const finalizeColorCycleShapeFillLinear = async (
     }
 
     try {
-      const session = args.session;
-      if (session?.binding && colorCycleBrush?.bindGradientDefIdToSlot) {
+      if (
+        renderSession &&
+        renderSession.binding &&
+        colorCycleBrush &&
+        typeof colorCycleBrush.bindGradientDefIdToSlot === 'function'
+      ) {
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
           : undefined;
-        const previewSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
+        const previewSlot = renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
         colorCycleBrush.bindGradientDefIdToSlot(
           args.activeLayerId,
-          session.binding.defId,
-          session.binding.slot,
+          renderSession.binding.defId,
+          renderSession.binding.slot,
           bbox,
           previewSlot
         );
@@ -395,7 +471,7 @@ export const finalizeColorCycleShapeFillLinear = async (
           }
         }
       }
-      if (session?.source === 'sampled') {
+      if (renderSession?.source === 'sampled') {
         try {
           useAppStore.getState().setCcGradientSampleCount(0);
         } catch {}
@@ -474,12 +550,17 @@ export const finalizeColorCycleShapeFillConcentric = async (
     const lockMaskCanvas = preFillPaintMask
       ? null
       : snapshotTransparencyLockMask(args.activeLayerId, args.activeLayerCanvas);
-    await deps.timeAsync('cc:shape:fill(concentric)', async () => {
+    const renderSession = await deps.timeAsync('cc:shape:fill(concentric)', async () => {
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
       const session = args.session;
+      const resolvedRenderSession = resolveDitherRenderSession({
+        layerId: args.activeLayerId,
+        session,
+        brushSettings: liveSettings,
+      });
       const shouldRefreshForegroundRuntime = shouldRefreshForegroundRuntimeForShapeFinalize(useFG, session);
       let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
       let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
@@ -490,26 +571,31 @@ export const finalizeColorCycleShapeFillConcentric = async (
           ? { slot: ensured.slot, stops: ensured.stops }
           : fgPalette;
       }
-      const frozenStops = session?.frozenStopsStored;
+      const frozenStops = resolvedRenderSession?.frozenStopsStored;
       if (!frozenStops?.length) {
         deps.logError('[CC] Missing mark session on shape finalize (concentric).');
       }
-      if (session?.binding?.slot !== undefined && frozenStops?.length) {
+      if (resolvedRenderSession?.binding?.slot !== undefined && frozenStops?.length) {
         const brush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
         if (brush) {
           applyRuntimeToBrush(brush, args.activeLayerId, {
             layerId: args.activeLayerId,
-            paintSlot: session.binding.slot,
-            slotPalettes: [{ slot: session.binding.slot, stops: frozenStops }],
+            paintSlot: resolvedRenderSession.binding.slot,
+            slotPalettes: [{ slot: resolvedRenderSession.binding.slot, stops: frozenStops }],
             flowMode: liveLayer?.colorCycleData?.flowMode,
           });
         }
       }
+      const ccDitherMode = resolveCcDitherBandMode(liveSettings.gradientBands ?? 16);
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
         ditherPixelSize: args.ditherPixelSize,
+        ditherPairBandCount: liveSettings.ditherEnabled
+          ? ccDitherMode.pairBandCount
+          : undefined,
         roi: args.roi,
         skipPostRender: true,
       });
+      return resolvedRenderSession;
     });
 
     deps.timeSync('cc:shape:texture', () => {
@@ -546,16 +632,20 @@ export const finalizeColorCycleShapeFillConcentric = async (
     }
 
     try {
-      const session = args.session;
-      if (session?.binding && colorCycleBrush?.bindGradientDefIdToSlot) {
+      if (
+        renderSession &&
+        renderSession.binding &&
+        colorCycleBrush &&
+        typeof colorCycleBrush.bindGradientDefIdToSlot === 'function'
+      ) {
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
           : undefined;
-        const previewSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
+        const previewSlot = renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
         colorCycleBrush.bindGradientDefIdToSlot(
           args.activeLayerId,
-          session.binding.defId,
-          session.binding.slot,
+          renderSession.binding.defId,
+          renderSession.binding.slot,
           bbox,
           previewSlot
         );
@@ -575,7 +665,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
           }
         }
       }
-      if (session?.source === 'sampled') {
+      if (renderSession?.source === 'sampled') {
         try {
           useAppStore.getState().setCcGradientSampleCount(0);
         } catch {}

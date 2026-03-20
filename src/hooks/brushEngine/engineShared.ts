@@ -164,6 +164,16 @@ const wrapHue = (h: number): number => {
   return v < 0 ? v + 360 : v;
 };
 
+const shortestHueDelta = (from: number, to: number): number => {
+  let delta = (to - from) % 360;
+  if (delta > 180) {
+    delta -= 360;
+  } else if (delta < -180) {
+    delta += 360;
+  }
+  return delta;
+};
+
 const rgbToHsl = (r: number, g: number, b: number): { h: number; s: number; l: number } => {
   const rn = r / 255;
   const gn = g / 255;
@@ -220,6 +230,26 @@ const hslToRgb = (h: number, s: number, l: number): [number, number, number] => 
   ];
 };
 
+const averageHue = (colors: Array<{ h: number; s: number; l: number }>): number => {
+  if (colors.length === 0) {
+    return 0;
+  }
+  let sumX = 0;
+  let sumY = 0;
+  for (const color of colors) {
+    const radians = (wrapHue(color.h) * Math.PI) / 180;
+    sumX += Math.cos(radians);
+    sumY += Math.sin(radians);
+  }
+  if (sumX === 0 && sumY === 0) {
+    return wrapHue(colors[0]?.h ?? 0);
+  }
+  return wrapHue((Math.atan2(sumY, sumX) * 180) / Math.PI);
+};
+
+const formatRgb = ([r, g, b]: readonly number[]) =>
+  `rgb(${clamp(Math.round(r), 0, 255)}, ${clamp(Math.round(g), 0, 255)}, ${clamp(Math.round(b), 0, 255)})`;
+
 const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] => {
   const [r, g, b] = parseColor(baseHex || '#000');
   const { h, s, l } = rgbToHsl(r, g, b);
@@ -244,12 +274,11 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
     ]);
   };
 
-  const toRgbString = (unit: number[]) => {
-    const rr = clamp(Math.round(unit[0] * 255), 0, 255);
-    const gg = clamp(Math.round(unit[1] * 255), 0, 255);
-    const bb = clamp(Math.round(unit[2] * 255), 0, 255);
-    return `rgb(${rr}, ${gg}, ${bb})`;
-  };
+  const toRgbString = (unit: number[]) => formatRgb([
+    unit[0] * 255,
+    unit[1] * 255,
+    unit[2] * 255,
+  ]);
 
   if (spread >= 0.95) {
     const c1 = hslToRgb(wrapHue(h + 150), 0.9, 0.35).map((v) => v / 255);
@@ -293,6 +322,94 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
   return alignToBase(paletteUnits, 0.9).map(toRgbString);
 };
 
+const resamplePalette = (colors: string[], count: number): [number, number, number][] => {
+  const parsed = colors.map((color) => parseColor(color || '#000')) as [number, number, number][];
+  if (parsed.length === 0 || count <= 0) {
+    return [];
+  }
+  if (parsed.length === 1 || count === 1) {
+    return [parsed[0]];
+  }
+
+  const result: [number, number, number][] = [];
+  for (let i = 0; i < count; i += 1) {
+    const t = count === 1 ? 0 : i / (count - 1);
+    const scaled = t * (parsed.length - 1);
+    const leftIndex = Math.floor(scaled);
+    const rightIndex = Math.min(parsed.length - 1, leftIndex + 1);
+    const mix = scaled - leftIndex;
+    const left = parsed[leftIndex];
+    const right = parsed[rightIndex];
+    result.push([
+      Math.round(left[0] + (right[0] - left[0]) * mix),
+      Math.round(left[1] + (right[1] - left[1]) * mix),
+      Math.round(left[2] + (right[2] - left[2]) * mix),
+    ]);
+  }
+  return result;
+};
+
+export const spreadPaletteColors = (
+  colors: string[],
+  spreadPercent?: number
+): string[] => {
+  if (!Array.isArray(colors) || colors.length === 0) {
+    return [];
+  }
+
+  const spread = clamp01((spreadPercent ?? 0) / 100);
+  if (spread <= 0.01) {
+    return colors.slice();
+  }
+
+  if (colors.length === 1) {
+    return buildDitherPalette(colors[0], spreadPercent);
+  }
+
+  const parsed = colors.map((color) => parseColor(color || '#000')) as [number, number, number][];
+  const hslColors = parsed.map(([r, g, b]) => rgbToHsl(r, g, b));
+  const avgHue = averageHue(hslColors);
+  const avgSaturation = hslColors.reduce((sum, color) => sum + color.s, 0) / hslColors.length;
+  const avgLightness = hslColors.reduce((sum, color) => sum + color.l, 0) / hslColors.length;
+  const anchorPalette = resamplePalette(
+    buildDitherPalette(formatRgb(parsed.reduce<[number, number, number]>(
+      (acc, color) => [acc[0] + color[0], acc[1] + color[1], acc[2] + color[2]],
+      [0, 0, 0]
+    ).map((value) => value / parsed.length)), spreadPercent),
+    colors.length
+  );
+
+  return hslColors.map((color, index) => {
+    const position = colors.length === 1 ? 0.5 : index / (colors.length - 1);
+    const centerOffset = position - 0.5;
+    const hueDelta = shortestHueDelta(avgHue, color.h);
+    const anchorHsl = anchorPalette[index]
+      ? rgbToHsl(anchorPalette[index][0], anchorPalette[index][1], anchorPalette[index][2])
+      : color;
+
+    const nextHue = wrapHue(
+      avgHue +
+      hueDelta * (1 + spread * 1.6) +
+      centerOffset * 110 * spread +
+      shortestHueDelta(color.h, anchorHsl.h) * 0.35 * spread
+    );
+    const nextSaturation = clamp01(
+      avgSaturation +
+      (color.s - avgSaturation) * (1 + spread * 1.4) +
+      (anchorHsl.s - color.s) * 0.45 * spread +
+      0.18 * spread
+    );
+    const nextLightness = clamp01(
+      avgLightness +
+      (color.l - avgLightness) * (1 + spread * 1.8) +
+      centerOffset * 0.42 * spread +
+      (anchorHsl.l - color.l) * 0.3 * spread
+    );
+
+    return formatRgb(hslToRgb(nextHue, nextSaturation, nextLightness));
+  });
+};
+
 export const computeStrokeDitherPaletteForSettings = (settings: BrushSettings): string[] => {
   const { palette } = resolveStrokeDitherPalette({
     color: settings.color || '#000',
@@ -301,6 +418,14 @@ export const computeStrokeDitherPaletteForSettings = (settings: BrushSettings): 
   });
   return palette;
 };
+
+export const buildSpreadInkPalette = ({
+  color,
+  spreadPercent,
+}: {
+  color: string;
+  spreadPercent?: number;
+}): string[] => buildDitherPalette(color || '#000', spreadPercent ?? 0);
 
 export const resolveStrokeDitherPalette = ({
   color,

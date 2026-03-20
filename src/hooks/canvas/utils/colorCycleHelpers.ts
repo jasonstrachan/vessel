@@ -1,7 +1,6 @@
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
-
 export type GradientStop = { position: number; color: string; opacity?: number };
 export type ForegroundGradientParams = {
   fgColorHex?: string;
@@ -114,10 +113,13 @@ export const resolveActiveColorCycleGradient = (
 };
 
 export const parseCssColorToRgba = (color: string): [number, number, number, number] => {
-  const hex = color?.trim().toLowerCase();
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-  if (hex?.startsWith('#')) {
-    const raw = hex.slice(1);
+  const parseHex = (value: string): [number, number, number, number] | null => {
+    const normalized = value?.trim().toLowerCase();
+    if (!normalized?.startsWith('#')) {
+      return null;
+    }
+    const raw = normalized.slice(1);
     if (raw.length === 3 || raw.length === 4) {
       const r = parseInt(raw[0] + raw[0], 16);
       const g = parseInt(raw[1] + raw[1], 16);
@@ -132,6 +134,18 @@ export const parseCssColorToRgba = (color: string): [number, number, number, num
       const a = raw.length === 8 ? parseInt(raw.slice(6, 8), 16) : 255;
       return [clamp(r), clamp(g), clamp(b), clamp(a)];
     }
+    return null;
+  };
+
+  const directHex = parseHex(color);
+  if (directHex) {
+    return directHex;
+  }
+  const rgbMatch = color?.trim().match(/^rgba?\(([^)]+)\)$/i);
+  if (rgbMatch?.[1]) {
+    const parts = rgbMatch[1].split(',').map(part => parseFloat(part.trim()));
+    const [r, g, b, a = 1] = parts;
+    return [clamp(r), clamp(g), clamp(b), clamp(a * 255)];
   }
 
   // Fallback: use canvas parsing for named/rgba strings when DOM is available
@@ -141,6 +155,10 @@ export const parseCssColorToRgba = (color: string): [number, number, number, num
       ctx.fillStyle = '#000';
       ctx.fillStyle = color;
       const computed = ctx.fillStyle;
+      const computedHex = parseHex(computed);
+      if (computedHex) {
+        return computedHex;
+      }
       if (typeof computed === 'string' && computed.startsWith('rgb')) {
         const m = computed.match(/rgba?\\(([^)]+)\\)/);
         if (m?.[1]) {

@@ -2,6 +2,7 @@ import {
   drawRectangleGradient,
   type DrawRectangleGradientArgs,
 } from '../shapeRectangleGradientController';
+import { spreadPaletteColors } from '../engineShared';
 import type { BrushSettings } from '@/types';
 
 const createGradientRecorder = () => {
@@ -82,6 +83,7 @@ const createDefaultArgs = (): DrawRectangleGradientArgs => {
       | 'fillResolution'
       | 'ditherAlgorithm'
       | 'patternStyle'
+      | 'ditherPaletteSpread'
       | 'risographColorShift'
     >,
     withTransparencyLock,
@@ -181,5 +183,41 @@ describe('shapeRectangleGradientController', () => {
       ['#111111', '#222222']
     );
     expect(args.canvasPool.release).toHaveBeenCalledWith(tempCanvas);
+  });
+
+  it('reuses ditherPaletteSpread for rectangle gradient dithering palettes', () => {
+    const args = createDefaultArgs();
+    args.brushSettings.ditherEnabled = true;
+    args.brushSettings.ditherPaletteSpread = 65;
+
+    const mainGradient = createGradientRecorder();
+    const localGradient = createGradientRecorder();
+    (args.ctx.createLinearGradient as unknown as jest.Mock)
+      .mockImplementationOnce(() => mainGradient.gradient)
+      .mockImplementationOnce(() => localGradient.gradient);
+
+    const imageData = new ImageData(new Uint8ClampedArray(16 * 16 * 4), 16, 16);
+    const tempCtx: Partial<CanvasRenderingContext2D> = {
+      clearRect: jest.fn(),
+      createLinearGradient: jest.fn(() => localGradient.gradient),
+      fillRect: jest.fn(),
+      getImageData: jest.fn(() => imageData),
+      putImageData: jest.fn(),
+    };
+    const tempCanvas = {
+      getContext: jest.fn(() => tempCtx as CanvasRenderingContext2D),
+    } as unknown as HTMLCanvasElement;
+
+    args.canvasPool.acquire = jest.fn(() => tempCanvas);
+
+    drawRectangleGradient(args);
+
+    expect(args.applyDithering).toHaveBeenCalledWith(
+      imageData,
+      2,
+      'sierra-lite',
+      'dots',
+      spreadPaletteColors(['#111111', '#222222'], 65)
+    );
   });
 });

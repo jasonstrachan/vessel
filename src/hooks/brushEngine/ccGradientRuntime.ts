@@ -39,6 +39,13 @@ const cloneStops = (stops: GradientStop[]): GradientStop[] =>
 let activeMarkSessionGetter: ((layerId: string) => MarkGradientSession | null) | null = null;
 let activeMarkSessionLoad: Promise<void> | null = null;
 
+export const __setActiveMarkSessionGetterForTests = (
+  getter: ((layerId: string) => MarkGradientSession | null) | null
+): void => {
+  activeMarkSessionGetter = getter;
+  activeMarkSessionLoad = null;
+};
+
 const ensureActiveMarkSessionGetter = () => {
   if (activeMarkSessionGetter || activeMarkSessionLoad) {
     return;

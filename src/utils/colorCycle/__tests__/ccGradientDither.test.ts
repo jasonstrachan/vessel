@@ -70,6 +70,89 @@ describe('fillCcGradientDither', () => {
     expect(values.has(128)).toBe(true);
   });
 
+  it('uses band-local ink pairs when pairBandCount is provided', async () => {
+    const width = 8;
+    const height = 4;
+    const out = new Uint8Array(width * height);
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 7, y: 0 },
+        { x: 7, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: 7,
+      maxY: 3,
+      pixelSize: 1,
+      levels: 2,
+      pairBandCount: 2,
+      baseOffset: 0,
+      algorithm: 'pattern',
+      patternStyle: 'dots',
+      sampleNormalized: (x) => (x < 4 ? 0.2 : 0.7),
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+    });
+
+    const values = new Set<number>();
+    for (let i = 0; i < out.length; i += 1) {
+      if (out[i] > 0) values.add(out[i]);
+    }
+
+    expect(Array.from(values).every((value) => [1, 65, 128, 192].includes(value))).toBe(true);
+    expect(Array.from(values).some((value) => value <= 65)).toBe(true);
+    expect(Array.from(values).some((value) => value >= 128)).toBe(true);
+  });
+
+  it('keeps a flat dither ratio when colors are collapsed to flat mode', async () => {
+    const width = 8;
+    const height = 4;
+    const out = new Uint8Array(width * height);
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 7, y: 0 },
+        { x: 7, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: 7,
+      maxY: 3,
+      pixelSize: 1,
+      levels: 1,
+      pairBandCount: 0,
+      baseOffset: 0,
+      algorithm: 'pattern',
+      patternStyle: 'dots',
+      sampleNormalized: (x) => (x < 4 ? 0 : 1),
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+    });
+
+    const left = new Set<number>();
+    const right = new Set<number>();
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const value = out[y * width + x];
+        if (value <= 0) {
+          continue;
+        }
+        (x < 4 ? left : right).add(value);
+      }
+    }
+
+    expect(Array.from(left)).toEqual(Array.from(right));
+    expect(left.has(1)).toBe(true);
+    expect(left.has(128)).toBe(true);
+  });
+
   it('honors pixelSize for levels=1 so resolution affects the pattern grid', async () => {
     const width = 8;
     const height = 8;

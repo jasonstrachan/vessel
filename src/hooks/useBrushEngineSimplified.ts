@@ -1477,6 +1477,7 @@ export const useBrushEngineSimplified = () => {
     direction: { x: number; y: number },
     options?: {
       ditherPixelSize?: number;
+      ditherPairBandCount?: number;
       roi?: { x: number; y: number; width: number; height: number };
       skipPostRender?: boolean;
     }
@@ -1509,6 +1510,7 @@ export const useBrushEngineSimplified = () => {
     vertices: Array<{ x: number; y: number }>,
     options?: {
       ditherPixelSize?: number;
+      ditherPairBandCount?: number;
       roi?: { x: number; y: number; width: number; height: number };
       skipPostRender?: boolean;
     }

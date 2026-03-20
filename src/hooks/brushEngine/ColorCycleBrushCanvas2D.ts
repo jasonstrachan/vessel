@@ -136,6 +136,7 @@ type FillOptions = {
   ditherLevels?: number;
   ccGradient?: boolean;
   ditherPixelSize?: number;
+  ditherPairBandCount?: number;
   ditherBackgroundFill?: boolean;
   roi?: { x: number; y: number; width: number; height: number };
   spacing?: number;
@@ -2184,8 +2185,8 @@ export class ColorCycleBrushCanvas2D {
     };
   }
 
-  private colorAtPosition(pos: number): { r: number; g: number; b: number } {
-    const stops = this.currentGradientStops;
+  private colorAtPosition(pos: number, stopsOverride?: GradientStop[]): { r: number; g: number; b: number } {
+    const stops = stopsOverride ?? this.currentGradientStops;
     if (!stops || stops.length === 0) return { r: 0, g: 0, b: 0 };
     const sorted = [...stops].sort((a, b) => a.position - b.position);
     if (pos <= sorted[0].position) return this.parseCssColor(sorted[0].color);
@@ -2224,8 +2225,6 @@ export class ColorCycleBrushCanvas2D {
     const map = new Map<string, number>();
     const n = Math.max(2, Math.floor(numColors));
     for (let i = 0; i < n; i++) {
-      // Color-cycle gradients are periodic. Sample [0, 1) so low counts
-      // (e.g. 2 slices) do not hit duplicated 0/1 endpoints.
       const pos = i / n;
       const rgb = this.colorAtPosition(pos);
       const hex = this.rgbToHex(rgb);
@@ -3092,7 +3091,10 @@ export class ColorCycleBrushCanvas2D {
       const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
       if (ccGradient && this.ditherEnabled) {
-        const quantLevels = ditherLevels ?? Math.max(2, numBands);
+        const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
+        const quantLevels = pairBandCount > 0
+          ? (ditherLevels ?? Math.max(2, numBands))
+          : 1;
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         await fillCcGradientDither({
           vertices,
@@ -3102,6 +3104,7 @@ export class ColorCycleBrushCanvas2D {
           maxY: fillMaxY,
           pixelSize,
           levels: quantLevels,
+          pairBandCount,
           baseOffset,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
@@ -3988,7 +3991,10 @@ export class ColorCycleBrushCanvas2D {
       const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
       if (ccGradient && this.ditherEnabled) {
-        const quantLevels = ditherLevels ?? Math.max(2, numBands);
+        const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
+        const quantLevels = pairBandCount > 0
+          ? (ditherLevels ?? Math.max(2, numBands))
+          : 1;
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const edges = new Array(vertices.length);
         for (let i = 0; i < vertices.length; i += 1) {
@@ -4007,6 +4013,7 @@ export class ColorCycleBrushCanvas2D {
           maxY: bbox.minY + bbox.height - 1,
           pixelSize,
           levels: quantLevels,
+          pairBandCount,
           baseOffset,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
@@ -5079,6 +5086,7 @@ export class ColorCycleBrushCanvas2D {
     this.ditherPixelSize = Math.max(1, Math.floor(size));
   }
 
+
   /** Keep scanline fills aligned to whole edge pixels. */
   setPxlEdgeEnabled(enabled: boolean) {
     this.pxlEdgeEnabled = !!enabled;
@@ -5733,7 +5741,7 @@ export class ColorCycleBrushCanvas2D {
       stampDitherBgFill: this.stampDitherBgFill,
       stampDitherClears: !this.stampDitherBgFill,
       stampDitherPressureLinked: this.stampDitherPressureLinked,
-      pxlEdgeEnabled: this.pxlEdgeEnabled
+      pxlEdgeEnabled: this.pxlEdgeEnabled,
     };
   }
   

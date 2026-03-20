@@ -1,4 +1,5 @@
 import type { Point2D, PolygonGradientData, PolygonGradientSettings } from './shapeTypes';
+import { spreadPaletteColors } from './engineShared';
 
 type CanvasPoolLike = {
   acquire: (width: number, height: number) => HTMLCanvasElement;
@@ -269,6 +270,7 @@ export const drawPolygonGradient = ({
         const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
         const patternStyle = brushSettings.patternStyle || 'dots';
 
+        const paletteColors = spreadPaletteColors(validColors, brushSettings.ditherPaletteSpread);
         const ditheredData = fillResolution > 1
           ? applyDitheringWithFillResolution(
               gradientImageData,
@@ -276,9 +278,9 @@ export const drawPolygonGradient = ({
               fillResolution,
               algorithm,
               patternStyle,
-              validColors
+              paletteColors
             )
-          : applyDithering(gradientImageData, numColors, algorithm, patternStyle, validColors);
+          : applyDithering(gradientImageData, numColors, algorithm, patternStyle, paletteColors);
 
         tempCtx.putImageData(ditheredData, 0, 0);
 

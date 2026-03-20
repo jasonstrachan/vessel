@@ -1,4 +1,5 @@
 import { drawPolygonGradient, type DrawPolygonGradientArgs } from '../shapePolygonGradientController';
+import { spreadPaletteColors } from '../engineShared';
 import type { BrushSettings } from '@/types';
 
 const createGradientRecorder = () => {
@@ -71,6 +72,7 @@ const createDefaultArgs = (): DrawPolygonGradientArgs => {
       | 'fillResolution'
       | 'ditherAlgorithm'
       | 'patternStyle'
+      | 'ditherPaletteSpread'
     >,
     withTransparencyLock: jest.fn((_ctx: CanvasRenderingContext2D, draw: () => void) => draw()),
     setBlendIfUnlocked: jest.fn(),
@@ -167,5 +169,57 @@ describe('shapePolygonGradientController', () => {
     expect(args.applyDithering).not.toHaveBeenCalled();
     expect(args.applyRisographEffect).toHaveBeenCalledTimes(1);
     expect(args.canvasPool.release).toHaveBeenCalledWith(tempCanvas);
+  });
+
+  it('reuses ditherPaletteSpread for sampled polygon palettes', () => {
+    const args = createDefaultArgs();
+    args.brushSettings.ditherEnabled = true;
+    args.brushSettings.fillResolution = 1;
+    args.brushSettings.ditherPaletteSpread = 70;
+
+    const mainGradient = createGradientRecorder();
+    const localGradient = createGradientRecorder();
+    (args.ctx.createLinearGradient as unknown as jest.Mock)
+      .mockImplementationOnce(() => mainGradient.gradient)
+      .mockImplementationOnce(() => localGradient.gradient);
+
+    const imageData = new ImageData(new Uint8ClampedArray(16 * 16 * 4), 16, 16);
+    const tempCtx: Partial<CanvasRenderingContext2D> = {
+      clearRect: jest.fn(),
+      createLinearGradient: jest.fn(() => localGradient.gradient),
+      fillRect: jest.fn(),
+      getImageData: jest.fn(() => imageData),
+      putImageData: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      closePath: jest.fn(),
+      fill: jest.fn(),
+      globalCompositeOperation: 'source-over',
+      lineJoin: 'miter',
+      lineCap: 'butt',
+      imageSmoothingEnabled: false,
+      fillStyle: '#fff',
+    };
+
+    const tempCanvas = {
+      width: 14,
+      height: 14,
+      getContext: jest.fn(() => tempCtx as CanvasRenderingContext2D),
+    } as unknown as HTMLCanvasElement;
+
+    args.canvasPool.acquire = jest.fn(() => tempCanvas);
+
+    drawPolygonGradient(args);
+
+    expect(args.applyDithering).toHaveBeenCalledWith(
+      imageData,
+      2,
+      'sierra-lite',
+      'dots',
+      spreadPaletteColors(['#ff0000', '#00ff00', '#0000ff', '#ffff00'], 70)
+    );
   });
 });

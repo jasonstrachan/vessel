@@ -16,6 +16,7 @@ export type RoiRect = {
 
 export type GradientDitherOptions = {
   ditherPixelSize?: number;
+  ditherPairBandCount?: number;
   roi?: RoiRect;
 };
 
@@ -30,6 +31,7 @@ export type RectangleGradientSettings = Pick<
   | 'fillResolution'
   | 'ditherAlgorithm'
   | 'patternStyle'
+  | 'ditherPaletteSpread'
   | 'risographColorShift'
 >;
 
@@ -44,4 +46,5 @@ export type PolygonGradientSettings = Pick<
   | 'fillResolution'
   | 'ditherAlgorithm'
   | 'patternStyle'
+  | 'ditherPaletteSpread'
 >;

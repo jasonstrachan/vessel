@@ -3,6 +3,7 @@ import type { Layer } from '@/types';
 import {
   beginMarkGradientSession,
   finalizeMarkGradientSession,
+  getPreviewGradientForActiveMark,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
 
@@ -41,6 +42,13 @@ describe('colorCycleMarkSession rebuild', () => {
     useAppStore.setState((state) => ({
       layers: [],
       activeLayerId: null,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherPaletteSpread: 0,
+        },
+      },
       project: state.project
         ? { ...state.project, width: 2, height: 2 }
         : state.project,
@@ -85,5 +93,52 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(finalized?.binding).not.toBeNull();
     expect(finalizedLayer?.colorCycleData?.gradientDefStore).toHaveLength(1);
     expect(finalizedLayer?.colorCycleData?.gradientDefStore?.[0]?.source).toBe('sampled');
+  });
+
+  it('keeps sampled preview and finalized sampled stops unchanged', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherPaletteSpread: 100,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    if (!session) {
+      throw new Error('Expected sampled mark session');
+    }
+
+    session.previewStopsStored = [
+      { position: 0, color: '#556270' },
+      { position: 1, color: '#88939f' },
+    ];
+
+    const preview = getPreviewGradientForActiveMark(layer.id);
+    expect(preview?.stopsStored.map((stop) => stop.color)).toEqual(
+      session.previewStopsStored.map((stop) => stop.color)
+    );
+
+    finalizeMarkGradientSession(layer.id);
+    const finalizedStops = useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore?.[0]?.stops;
+    expect(finalizedStops?.map((stop) => stop.color)).toEqual(
+      session.previewStopsStored.map((stop) => stop.color)
+    );
   });
 });

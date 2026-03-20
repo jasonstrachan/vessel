@@ -1,4 +1,5 @@
 import type { Point2D, RectangleGradientSettings } from './shapeTypes';
+import { spreadPaletteColors } from './engineShared';
 
 type CanvasPoolLike = {
   acquire: (width: number, height: number) => HTMLCanvasElement;
@@ -222,7 +223,10 @@ export const drawRectangleGradient = ({
           const fillResolution = brushSettings.fillResolution || 1;
           const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = brushSettings.patternStyle || 'dots';
-          const paletteColors = colors.length > 0 ? colors : [brushSettings.color];
+          const paletteColors = spreadPaletteColors(
+            colors.length > 0 ? colors : [brushSettings.color],
+            brushSettings.ditherPaletteSpread
+          );
           const ditheredData = fillResolution > 1
             ? applyDitheringWithFillResolution(
                 imageData,

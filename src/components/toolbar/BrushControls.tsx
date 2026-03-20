@@ -447,6 +447,8 @@ const BrushControls = () => {
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const activeSettings =
     currentTool === 'eraser' ? eraserSettings : brushSettings;
+  const isCcGradientShapePreset =
+    isColorCycleGradientPreset && activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
   const selectedCustomBrushId = activeSettings.selectedCustomBrush;
   const activeCustomBrushColorCycle = React.useMemo(() => {
@@ -1669,22 +1671,42 @@ const BrushControls = () => {
               hideLostEdge
               beforeResolution={
                 isColorCycleGradientPreset ? (
-                  <div className="flex items-center gap-2 mt-2">
-                    <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                      Colors
-                    </label>
-                    <ProgressSlider
-                      value={activeSettings.gradientBands ?? 16}
-                      min={1}
-                      max={16}
-                      step={1}
-                      onChange={(value) =>
-                        setActiveSettings({ gradientBands: Math.max(1, Math.round(value)) })
-                      }
-                      aria-label="Dither Colors"
-                      className="flex-1"
-                    />
-                  </div>
+                  <>
+                    <div className="flex items-center gap-2 mt-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        Colors
+                      </label>
+                      <ProgressSlider
+                        value={activeSettings.gradientBands ?? 16}
+                        min={1}
+                        max={16}
+                        step={1}
+                        onChange={(value) =>
+                          setActiveSettings({ gradientBands: Math.max(1, Math.round(value)) })
+                        }
+                        aria-label="Dither Colors"
+                        className="flex-1"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        Sprd
+                      </label>
+                      <ProgressSlider
+                        value={activeSettings.ditherPaletteSpread ?? 0}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onChange={(value) =>
+                          setActiveSettings({
+                            ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value))),
+                          })
+                        }
+                        aria-label="Dither Palette Spread"
+                        className="flex-1"
+                      />
+                    </div>
+                  </>
                 ) : null
               }
             />
@@ -3788,7 +3810,7 @@ const BrushControls = () => {
         </div>
       )}
 
-      {canDitherForShape(activeSettings.brushShape) && (
+      {canDitherForShape(activeSettings.brushShape) && !isCcGradientShapePreset && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label
