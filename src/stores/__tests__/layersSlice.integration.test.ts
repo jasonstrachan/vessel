@@ -559,6 +559,23 @@ describe('layers slice integration', () => {
     expect(useAppStore.getState().layers.find((layer) => layer.id === mixedMergedId)?.groupId).toBeUndefined();
   });
 
+  it('removes multiple selected layers while preserving a valid active selection', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    useAppStore.getState().setSelectedLayerIds([layerA, layerC]);
+    useAppStore.getState().setActiveLayer(layerC, { preserveSelection: true });
+
+    useAppStore.getState().removeLayers([layerA, layerC]);
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers.map((layer) => layer.id)).toEqual([layerB]);
+    expect(nextState.activeLayerId).toBe(layerB);
+    expect(nextState.selectedLayerIds).toEqual([layerB]);
+  });
+
   it('duplicates a regular layer and focuses the copy', () => {
     const store = useAppStore.getState();
     const originalId = store.addLayer(createNormalLayerInput('Layer 1'));
@@ -579,6 +596,24 @@ describe('layers slice integration', () => {
     expect(duplicatedLayer.framebuffer).not.toBe(originalLayer.framebuffer);
     expect(nextState.activeLayerId).toBe(duplicatedId);
     expect(nextState.selectedLayerIds).toEqual([duplicatedId]);
+  });
+
+  it('duplicates multiple selected layers and selects the duplicated block', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+
+    const duplicatedIds = useAppStore.getState().duplicateLayers([layerA, layerC]);
+
+    expect(duplicatedIds).toHaveLength(2);
+
+    const nextState = useAppStore.getState();
+    expect(nextState.selectedLayerIds).toEqual(duplicatedIds);
+    expect(nextState.activeLayerId).toBe(duplicatedIds[duplicatedIds.length - 1]);
+
+    const nextIds = nextState.layers.map((layer) => layer.id);
+    expect(nextIds).toEqual([layerA, duplicatedIds[0], layerB, layerC, duplicatedIds[1]]);
   });
 
   it('duplicates color-cycle layers and reinitializes brush resources', () => {

@@ -55,7 +55,9 @@ type StoreState = {
   } | null;
   addLayer: jest.Mock;
   duplicateLayer: jest.Mock;
+  duplicateLayers: jest.Mock;
   removeLayer: jest.Mock;
+  removeLayers: jest.Mock;
   updateLayer: jest.Mock;
   setActiveLayer: jest.Mock;
   reorderLayers: jest.Mock;
@@ -102,7 +104,9 @@ const state: StoreState = {
   },
   addLayer: jest.fn(() => null),
   duplicateLayer: jest.fn(() => null),
+  duplicateLayers: jest.fn(() => []),
   removeLayer: jest.fn(),
+  removeLayers: jest.fn(),
   updateLayer: jest.fn((layerId: string, updates: Partial<Layer>) => {
     state.layers = state.layers.map((layer) => (layer.id === layerId ? { ...layer, ...updates } : layer));
   }),
@@ -254,6 +258,8 @@ const setupLayers = () => {
   state.addLayer.mockClear();
   state.initColorCycleForLayer.mockClear();
   state.setBrushSettings.mockClear();
+  state.duplicateLayers.mockClear();
+  state.removeLayers.mockClear();
   state.setLayersVisibility.mockClear();
   state.toggleLayersVisibility.mockClear();
   state.createLayerGroupFromSelection.mockClear();
@@ -307,9 +313,20 @@ describe('LayersPanel interactions', () => {
     expect(groupedHideButton).not.toBeNull();
     fireEvent.click(groupedHideButton as Element);
 
-    expect(state.updateLayer).toHaveBeenCalledWith('layer-c', { visible: false });
-    expect(state.setLayersVisibility).not.toHaveBeenCalled();
+    expect(state.setLayersVisibility).toHaveBeenCalledWith(['layer-c'], false);
     expect(state.toggleLayersVisibility).not.toHaveBeenCalled();
+  });
+
+  it('applies row visibility toggles to the full selection when the clicked row is selected', () => {
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+    render(<LayersPanel />);
+
+    const firstLayerRow = getLayerRows()[0];
+    const groupedHideButton = firstLayerRow?.querySelector('button[title=\"Hide Layer\"]');
+    expect(groupedHideButton).not.toBeNull();
+    fireEvent.click(groupedHideButton as Element);
+
+    expect(state.setLayersVisibility).toHaveBeenCalledWith(['layer-a', 'layer-c'], false);
   });
 
   it('renders group headers and applies visibility to all group members', () => {
@@ -478,8 +495,53 @@ describe('LayersPanel interactions', () => {
     fireEvent.drop(targetRow as Element, { dataTransfer });
 
     expect(state.updateLayer).toHaveBeenCalledWith('layer-b', { groupId: 'group-1' });
-    expect(state.reorderLayers).toHaveBeenCalledWith(1, 2);
+    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-b'], 2);
     expect(state.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
+  });
+
+  it('duplicates the full selection from the layer menu when the clicked row is selected', () => {
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+    state.duplicateLayers.mockReturnValue(['layer-a-copy', 'layer-c-copy']);
+    render(<LayersPanel />);
+
+    openMenuForLayerC();
+    fireEvent.click(screen.getByText('Duplicate layer'));
+
+    expect(state.duplicateLayers).toHaveBeenCalledWith(['layer-a', 'layer-c']);
+  });
+
+  it('deletes the full selection from the layer menu when the clicked row is selected', () => {
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+    render(<LayersPanel />);
+
+    openMenuForLayerC();
+    fireEvent.click(screen.getByText('Delete layer'));
+
+    expect(state.removeLayers).toHaveBeenCalledWith(['layer-a', 'layer-c']);
+  });
+
+  it('reorders the full selected block when dragging a selected row onto another row', () => {
+    state.selectedLayerIds = ['layer-a', 'layer-b'];
+    state.activeLayerId = 'layer-b';
+    render(<LayersPanel />);
+
+    const rows = getLayerRows();
+    const sourceRow = rows[1];
+    const targetRow = rows[0];
+    expect(sourceRow).not.toBeUndefined();
+    expect(targetRow).not.toBeUndefined();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-b'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    fireEvent.drop(targetRow as Element, { dataTransfer });
+
+    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-a', 'layer-b'], 2);
   });
 
   it('collapses and expands grouped layers from the group header', () => {

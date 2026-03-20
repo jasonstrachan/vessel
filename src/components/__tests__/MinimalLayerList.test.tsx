@@ -21,8 +21,11 @@ jest.mock('@/stores/useAppStore', () => {
       state.activeLayerId = id;
       listeners.forEach((l) => l(state));
     },
-    updateLayer: (id: string, updates: Partial<Layer>) => {
-      state.layers = state.layers.map((l: Layer) => (l.id === id ? { ...l, ...updates } : l));
+    setLayersVisibility: (ids: string[], visible: boolean) => {
+      const targetIds = new Set(ids);
+      state.layers = state.layers.map((l: Layer) => (
+        targetIds.has(l.id) ? { ...l, visible } : l
+      ));
       listeners.forEach((l) => l(state));
     },
     reorderLayers: (ids: string[]) => {
@@ -34,8 +37,29 @@ jest.mock('@/stores/useAppStore', () => {
         .filter(Boolean);
       listeners.forEach((l) => l(state));
     },
+    reorderLayerBlock: (ids: string[], destinationIndex: number) => {
+      const blockIdSet = new Set(ids);
+      const blockLayers = state.layers.filter((layer: Layer) => blockIdSet.has(layer.id));
+      const remainingLayers = state.layers.filter((layer: Layer) => !blockIdSet.has(layer.id));
+      const removedBeforeDestination = state.layers.reduce((count: number, layer: Layer, index: number) => (
+        blockIdSet.has(layer.id) && index < destinationIndex ? count + 1 : count
+      ), 0);
+      const adjustedDestination = Math.max(
+        0,
+        Math.min(remainingLayers.length, destinationIndex - removedBeforeDestination),
+      );
+      const nextLayers = [...remainingLayers];
+      nextLayers.splice(adjustedDestination, 0, ...blockLayers);
+      state.layers = nextLayers.map((layer: Layer, index: number) => ({ ...layer, order: index }));
+      listeners.forEach((l) => l(state));
+    },
     addLayer: jest.fn(),
     removeLayer: jest.fn(),
+    removeLayers: jest.fn((ids: string[]) => {
+      const targetIds = new Set(ids);
+      state.layers = state.layers.filter((layer: Layer) => !targetIds.has(layer.id));
+      listeners.forEach((l) => l(state));
+    }),
     setBrushSettings: jest.fn(),
     initColorCycleForLayer: jest.fn(),
     playColorCycle: jest.fn(),
@@ -173,7 +197,7 @@ describe('MinimalLayerList visibility toggling', () => {
     });
   });
 
-  it('toggles only the clicked layer by default', () => {
+  it('toggles the full selection when clicking an eye button on a selected row', () => {
     render(<MinimalLayerList />);
 
     const eyeButtons = screen.getAllByRole('button').filter((btn) => btn.innerHTML.includes('svg'));
@@ -182,8 +206,7 @@ describe('MinimalLayerList visibility toggling', () => {
     fireEvent.click(eyeButtons[0]);
 
     const visibleStates = useAppStore.getState().layers.map((l) => l.visible);
-    const hiddenCount = visibleStates.filter((visible) => !visible).length;
-    expect(hiddenCount).toBe(1);
+    expect(visibleStates).toEqual([false, false]);
   });
 
   it('toggles only the clicked layer when it is the sole selection', () => {
@@ -201,13 +224,13 @@ describe('MinimalLayerList visibility toggling', () => {
     expect(layers.find((l) => l.id === 'layer-2')?.visible).toBeDefined();
   });
 
-  it('toggles all selected layers when shift-clicking an eye button', () => {
+  it('toggles all selected layers when clicking an eye button on a selected row', () => {
     render(<MinimalLayerList />);
 
     const eyeButtons = screen.getAllByRole('button').filter((btn) => btn.innerHTML.includes('svg'));
     expect(eyeButtons.length).toBeGreaterThan(0);
 
-    fireEvent.click(eyeButtons[0], { shiftKey: true });
+    fireEvent.click(eyeButtons[0]);
 
     const visibleStates = useAppStore.getState().layers.map((l) => l.visible);
     expect(visibleStates).toEqual([false, false]);

@@ -80,11 +80,11 @@ const LayersPanel: React.FC = () => {
   const layerGroups = useAppStore(selectLayerGroups);
   const hiddenLayerGroupIds = useAppStore((state) => state.hiddenLayerGroupIds);
   const addLayer = useAppStore((state) => state.addLayer);
-  const duplicateLayer = useAppStore((state) => state.duplicateLayer);
+  const duplicateLayers = useAppStore((state) => state.duplicateLayers);
   const removeLayer = useAppStore((state) => state.removeLayer);
+  const removeLayers = useAppStore((state) => state.removeLayers);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const setActiveLayer = useAppStore((state) => state.setActiveLayer);
-  const reorderLayers = useAppStore((state) => state.reorderLayers);
   const reorderLayerBlock = useAppStore((state) => state.reorderLayerBlock);
   const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
   const selectLayerAlpha = useAppStore((state) => state.selectLayerAlpha);
@@ -98,6 +98,7 @@ const LayersPanel: React.FC = () => {
   const createLayerGroupFromSelection = useAppStore((state) => state.createLayerGroupFromSelection);
   const removeLayerGroup = useAppStore((state) => state.removeLayerGroup);
   const setLayerGroupVisibility = useAppStore((state) => state.setLayerGroupVisibility);
+  const setLayersVisibility = useAppStore((state) => state.setLayersVisibility);
   const sequentialRecord = useAppStore((state) => state.sequentialRecord);
   const layerGroupsById = React.useMemo(
     () => new Map(layerGroups.map((group) => [group.id, group] as const)),
@@ -135,6 +136,24 @@ const LayersPanel: React.FC = () => {
     });
     return idsByGroupId;
   }, [layerGroupsById, layers]);
+
+  const resolveActionLayerIds = React.useCallback((layerId: string) => {
+    if (!selectedLayerIds.includes(layerId) || selectedLayerIds.length <= 1) {
+      return [layerId];
+    }
+
+    const selectedIdSet = new Set(selectedLayerIds);
+    return layers
+      .filter((layer) => selectedIdSet.has(layer.id))
+      .map((layer) => layer.id);
+  }, [layers, selectedLayerIds]);
+
+  const updateResolvedLayers = React.useCallback((layerId: string, updates: Partial<Layer>) => {
+    const targetLayerIds = resolveActionLayerIds(layerId);
+    targetLayerIds.forEach((targetLayerId) => {
+      updateLayer(targetLayerId, updates);
+    });
+  }, [resolveActionLayerIds, updateLayer]);
 
   React.useEffect(() => {
     setCollapsedGroupIds((previous) => {
@@ -331,35 +350,45 @@ const LayersPanel: React.FC = () => {
   }, [activeLayerId, addLayer, insertionGroupId, layers, sequentialRecord, setActiveLayer, setSelectedLayerIds]);
 
   const handleDeleteLayer = React.useCallback((layerId: string) => {
-    if (layers.length > 1) {
-      removeLayer(layerId);
+    const targetLayerIds = resolveActionLayerIds(layerId);
+    if (layers.length > targetLayerIds.length) {
+      if (targetLayerIds.length === 1) {
+        removeLayer(layerId);
+        return;
+      }
+      removeLayers(targetLayerIds);
     }
-  }, [layers.length, removeLayer]);
+  }, [layers.length, removeLayer, removeLayers, resolveActionLayerIds]);
+
+  const handleDuplicateLayer = React.useCallback((layerId: string) => {
+    const duplicatedIds = duplicateLayers(resolveActionLayerIds(layerId));
+    return duplicatedIds;
+  }, [duplicateLayers, resolveActionLayerIds]);
 
   const handleToggleVisibility = React.useCallback((layerId: string) => {
     const layer = layers.find(l => l.id === layerId);
     if (layer) {
-      updateLayer(layerId, { visible: !layer.visible });
+      setLayersVisibility(resolveActionLayerIds(layerId), !layer.visible);
     }
-  }, [layers, updateLayer]);
+  }, [layers, resolveActionLayerIds, setLayersVisibility]);
 
   const handleToggleLock = React.useCallback((layerId: string) => {
     const layer = layers.find(l => l.id === layerId);
     if (layer) {
-      updateLayer(layerId, { locked: !layer.locked });
+      updateResolvedLayers(layerId, { locked: !layer.locked });
     }
-  }, [layers, updateLayer]);
+  }, [layers, updateResolvedLayers]);
 
   const handleOpacityChange = React.useCallback((layerId: string, opacityPercent: number) => {
-    updateLayer(layerId, { opacity: opacityPercent / 100 });
-  }, [updateLayer]);
+    updateResolvedLayers(layerId, { opacity: opacityPercent / 100 });
+  }, [updateResolvedLayers]);
 
   const handleToggleTransparencyLock = React.useCallback((layerId: string) => {
     const layer = layers.find(l => l.id === layerId);
     if (layer) {
-      updateLayer(layerId, { transparencyLocked: layer.transparencyLocked !== true });
+      updateResolvedLayers(layerId, { transparencyLocked: layer.transparencyLocked !== true });
     }
-  }, [layers, updateLayer]);
+  }, [layers, updateResolvedLayers]);
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -444,8 +473,9 @@ const LayersPanel: React.FC = () => {
 
     const draggedId = transferData;
 
+    const sourceLayerIds = resolveActionLayerIds(draggedId);
     const draggedLayer = layers.find((layer) => layer.id === draggedId);
-    if (!draggedLayer) {
+    if (!draggedLayer || sourceLayerIds.length === 0) {
       return;
     }
 
@@ -455,26 +485,35 @@ const LayersPanel: React.FC = () => {
       .filter((layer) => layer.groupId === groupId && layer.id !== draggedId);
     const targetLayerId = groupMembersInPanelOrder[0]?.id;
 
-    updateLayer(draggedId, { groupId });
+    sourceLayerIds.forEach((sourceLayerId) => {
+      updateLayer(sourceLayerId, { groupId });
+    });
 
     if (targetLayerId && targetLayerId !== draggedId) {
-      const originalDraggedIndex = layers.findIndex((layer) => layer.id === draggedId);
       const originalTargetIndex = layers.findIndex((layer) => layer.id === targetLayerId);
-      if (originalDraggedIndex !== -1 && originalTargetIndex !== -1 && originalDraggedIndex !== originalTargetIndex) {
-        reorderLayers(originalDraggedIndex, originalTargetIndex);
+      if (originalTargetIndex !== -1) {
+        reorderLayerBlock(sourceLayerIds, originalTargetIndex);
       }
     }
 
     setDraggedLayerId(null);
     setDraggedGroupId(null);
     setDragOverBottom(false);
-  }, [layers, reorderLayerBlock, reorderLayers, updateLayer]);
+  }, [layers, reorderLayerBlock, resolveActionLayerIds, updateLayer]);
 
   const handleDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, targetLayerId: string) => {
     event.preventDefault();
     const draggedId = event.dataTransfer.getData('text/plain');
 
-    if (draggedId && draggedId !== targetLayerId) {
+    if (draggedId) {
+      const sourceLayerIds = resolveActionLayerIds(draggedId);
+      if (sourceLayerIds.includes(targetLayerId)) {
+        setDraggedLayerId(null);
+        setDraggedGroupId(null);
+        setDragOverBottom(false);
+        return;
+      }
+
       const targetLayer = layers.find((layer) => layer.id === targetLayerId) ?? null;
       if (targetLayer) {
         const nextGroupId = targetLayer.groupId && layerGroupsById.has(targetLayer.groupId)
@@ -482,25 +521,23 @@ const LayersPanel: React.FC = () => {
           : undefined;
         const draggedLayer = layers.find((layer) => layer.id === draggedId) ?? null;
         if (draggedLayer && draggedLayer.groupId !== nextGroupId) {
-          updateLayer(draggedId, { groupId: nextGroupId });
+          sourceLayerIds.forEach((sourceLayerId) => {
+            updateLayer(sourceLayerId, { groupId: nextGroupId });
+          });
         }
       }
 
-      const reversedLayers = layers.slice().reverse();
-      const draggedIndex = reversedLayers.findIndex(layer => layer.id === draggedId);
-      const targetIndex = reversedLayers.findIndex(layer => layer.id === targetLayerId);
+      const targetIndex = layers.findIndex((layer) => layer.id === targetLayerId);
 
-      if (draggedIndex !== -1 && targetIndex !== -1) {
-        const originalDraggedIndex = layers.length - 1 - draggedIndex;
-        const originalTargetIndex = layers.length - 1 - targetIndex;
-        reorderLayers(originalDraggedIndex, originalTargetIndex);
+      if (targetIndex !== -1) {
+        reorderLayerBlock(sourceLayerIds, targetIndex);
       }
     }
 
     setDraggedLayerId(null);
     setDraggedGroupId(null);
     setDragOverBottom(false);
-  }, [layerGroupsById, layers, reorderLayers, updateLayer]);
+  }, [layerGroupsById, layers, reorderLayerBlock, resolveActionLayerIds, updateLayer]);
 
   const handleDragOverBottom = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -525,15 +562,15 @@ const LayersPanel: React.FC = () => {
         setDraggedGroupId(null);
         return;
       }
-      const originalDraggedIndex = layers.findIndex(layer => layer.id === draggedId);
-      if (originalDraggedIndex !== -1) {
-        reorderLayers(originalDraggedIndex, 0);
+      const sourceLayerIds = resolveActionLayerIds(draggedId);
+      if (sourceLayerIds.length > 0) {
+        reorderLayerBlock(sourceLayerIds, 0);
       }
     }
     setDragOverBottom(false);
     setDraggedLayerId(null);
     setDraggedGroupId(null);
-  }, [layers, reorderLayers]);
+  }, [reorderLayerBlock, resolveActionLayerIds]);
 
   const handleDragEnd = React.useCallback(() => {
     setDraggedLayerId(null);
@@ -941,8 +978,8 @@ const LayersPanel: React.FC = () => {
                       <button
                         onClick={event => {
                           event.stopPropagation();
-                          const duplicatedId = duplicateLayer(layer.id);
-                          if (duplicatedId) {
+                          const duplicatedIds = handleDuplicateLayer(layer.id);
+                          if (duplicatedIds.length > 0) {
                             setLayerMenuState(null);
                           }
                         }}

@@ -1133,7 +1133,9 @@ export interface LayersSlice {
   setLayers: (layers: Layer[]) => void;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   duplicateLayer: (layerId: string) => string | null;
+  duplicateLayers: (layerIds: string[]) => string[];
   removeLayer: (id: string) => void;
+  removeLayers: (layerIds: string[]) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
   appendSequentialLayerEvent: (
     layerId: string,
@@ -1938,6 +1940,35 @@ export const createLayersSlice = (
 
     return newLayerId;
   },
+  duplicateLayers: (layerIds) => {
+    const state = get();
+    const validIds = layerIds.filter((layerId, index) => (
+      layerId &&
+      layerIds.indexOf(layerId) === index &&
+      state.layers.some((layer) => layer.id === layerId)
+    ));
+
+    if (validIds.length === 0) {
+      return [];
+    }
+
+    const orderedIds = state.layers
+      .filter((layer) => validIds.includes(layer.id))
+      .map((layer) => layer.id);
+
+    const duplicatedIds = orderedIds
+      .map((layerId) => get().duplicateLayer(layerId))
+      .filter((layerId): layerId is string => Boolean(layerId));
+
+    if (duplicatedIds.length > 1) {
+      set({
+        activeLayerId: duplicatedIds[duplicatedIds.length - 1] ?? null,
+        selectedLayerIds: duplicatedIds,
+      });
+    }
+
+    return duplicatedIds;
+  },
   removeLayer: (id) => {
     clearSequentialLayerRendererLayer(id);
     const stateBeforeRemove = get();
@@ -1997,6 +2028,24 @@ export const createLayersSlice = (
     pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
     get().markAllCompositeSegmentsDirty();
     scheduleSlotRebuild('remove-layer');
+  },
+  removeLayers: (layerIds) => {
+    const state = get();
+    const validIds = layerIds.filter((layerId, index) => (
+      layerId &&
+      layerIds.indexOf(layerId) === index &&
+      state.layers.some((layer) => layer.id === layerId)
+    ));
+
+    if (validIds.length === 0 || validIds.length >= state.layers.length) {
+      return;
+    }
+
+    validIds.forEach((layerId) => {
+      if (get().layers.length > 1) {
+        get().removeLayer(layerId);
+      }
+    });
   },
   scheduleColorCycleSlotRebuild: (reason) => {
     scheduleSlotRebuild(reason);
