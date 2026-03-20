@@ -1,8 +1,8 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { BrushSettings, Layer } from '@/types';
-import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { parseCssColorToRgba, resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 
-const createBrushSettings = (): BrushSettings => ({
+const createBrushSettings = (overrides: Partial<BrushSettings> = {}): BrushSettings => ({
   size: 10,
   opacity: 1,
   color: '#000000',
@@ -109,9 +109,10 @@ const createBrushSettings = (): BrushSettings => ({
   spamCustomText: '',
   shapeGradientMode: 'contour',
   linkSizeToBrush: true,
+  ...overrides,
 });
 
-const createLayer = (): Layer =>
+const createLayer = (overrides?: Partial<Layer>): Layer =>
   ({
     id: 'layer-cc',
     name: 'CC Layer',
@@ -132,8 +133,8 @@ const createLayer = (): Layer =>
         {
           slot: 7,
           stops: [
-            { position: 0, color: '#ff0000' },
-            { position: 1, color: '#00ff00' },
+            { position: 0, color: '#6b7280' },
+            { position: 1, color: '#9aa3ad' },
           ],
         },
       ],
@@ -141,6 +142,7 @@ const createLayer = (): Layer =>
       paintSlot: 7,
     },
     version: 1,
+    ...(overrides ?? {}),
   }) as Layer;
 
 describe('resolveActiveColorCycleGradient', () => {
@@ -149,8 +151,14 @@ describe('resolveActiveColorCycleGradient', () => {
 
     expect(result.activeSlot).toBe(7);
     expect(result.activeStops).toEqual([
-      { position: 0, color: '#ff0000' },
-      { position: 1, color: '#00ff00' },
+      { position: 0, color: '#6b7280' },
+      { position: 1, color: '#9aa3ad' },
     ]);
+  });
+});
+
+describe('parseCssColorToRgba', () => {
+  it('parses rgb strings even when the canvas normalizes them to hex', () => {
+    expect(parseCssColorToRgba('rgb(94, 17, 100)')).toEqual([94, 17, 100, 255]);
   });
 });

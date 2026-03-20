@@ -1,5 +1,8 @@
 import { useAppStore } from '@/stores/useAppStore';
-import { cloneStops, resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
+import {
+  cloneStops,
+  resolveActiveColorCycleGradient,
+} from '@/hooks/canvas/utils/colorCycleHelpers';
 import {
   ensureGradientDefForStops,
   hashStops,

@@ -1,5 +1,10 @@
-import { buildRuntimeSnapshot } from '@/hooks/brushEngine/ccGradientRuntime';
+import {
+  __setActiveMarkSessionGetterForTests,
+  buildRuntimeSnapshot,
+} from '@/hooks/brushEngine/ccGradientRuntime';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { BrushSettings, Layer } from '@/types';
+import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 const makeBrushSettings = (overrides: Partial<BrushSettings> = {}): BrushSettings =>
   ({
@@ -37,6 +42,10 @@ const makeLayer = (overrides: Partial<Layer> = {}): Layer =>
   } as unknown as Layer);
 
 describe('ccGradientRuntime', () => {
+  afterEach(() => {
+    __setActiveMarkSessionGetterForTests(null);
+  });
+
   it('preserves runtime slot palettes without stop-count normalization', () => {
     const layer = makeLayer();
     const brushSettings = makeBrushSettings();
@@ -73,5 +82,43 @@ describe('ccGradientRuntime', () => {
     expect(snapshot.paintSlot).toBe(5);
     expect(slot5).toBeTruthy();
     expect(slot5?.stops.length).toBe(3);
+  });
+
+  it('uses sampled preview stops directly for active sampled sessions', () => {
+    const layer = makeLayer();
+    const brushSettings = makeBrushSettings({
+      ditherPaletteSpread: 100,
+    });
+    const session: MarkGradientSession = {
+      markId: 'session-1',
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      frozenHash: '',
+      binding: null,
+      previewStopsStored: [
+        { position: 0, color: '#556270' },
+        { position: 1, color: '#88939f' },
+      ],
+      previewHash: '',
+      fallbackStopsStored: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    };
+
+    __setActiveMarkSessionGetterForTests(() => session);
+
+    const snapshot = buildRuntimeSnapshot(layer, brushSettings);
+
+    expect(snapshot.paintSlot).toBe(TEMP_SAMPLE_SLOT);
+    expect(snapshot.slotPalettes[0]?.stops.map((stop) => stop.color)).toEqual(
+      session.previewStopsStored?.map((stop) => stop.color)
+    );
   });
 });

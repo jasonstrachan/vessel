@@ -620,7 +620,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
         ...state.tools,
         brushSettings: {
           ...state.tools.brushSettings,
-          brushShape: 'color_cycle' as BrushSettings['brushShape'],
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
           customBrushColorCycle: false,
           customBrushColorCycleMode: 'tip',
         },
@@ -651,7 +651,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
         ...state.tools,
         brushSettings: {
           ...state.tools.brushSettings,
-          brushShape: 'color_cycle' as BrushSettings['brushShape'],
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
           customBrushColorCycle: false,
           customBrushColorCycleMode: 'tip',
           colorCycleFillMode: 'linear',
@@ -664,5 +664,28 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     render(<BrushControls />);
     await user.click(screen.getByRole('button', { name: 'Concentric' }));
     expect(useAppStore.getState().tools.brushSettings.colorCycleFillMode).toBe('concentric');
+  });
+
+  it('shows spread inside the CC gradient dither controls', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          ditherEnabled: true,
+          ditherPaletteSpread: 24,
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    expect(screen.getByLabelText('Dither Palette Spread')).toBeInTheDocument();
+    expect(screen.getByText('Sprd')).toBeInTheDocument();
   });
 });

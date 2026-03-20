@@ -34,8 +34,10 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
+import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 
 type ShapeAdjustHelperUpdate = {
@@ -1698,47 +1700,6 @@ export const createShapeToolHandler = (
     return { start: minP, end: maxP, dir: { x: dx, y: dy }, length };
   };
 
-  const parseCssColorToRgba = (color: string): [number, number, number, number] => {
-    const hex = color?.trim().toLowerCase();
-    const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-    if (hex?.startsWith('#')) {
-      const raw = hex.slice(1);
-      if (raw.length === 3 || raw.length === 4) {
-        const r = parseInt(raw[0] + raw[0], 16);
-        const g = parseInt(raw[1] + raw[1], 16);
-        const b = parseInt(raw[2] + raw[2], 16);
-        const a = raw.length === 4 ? parseInt(raw[3] + raw[3], 16) : 255;
-        return [clamp(r), clamp(g), clamp(b), clamp(a)];
-      }
-      if (raw.length === 6 || raw.length === 8) {
-        const r = parseInt(raw.slice(0, 2), 16);
-        const g = parseInt(raw.slice(2, 4), 16);
-        const b = parseInt(raw.slice(4, 6), 16);
-        const a = raw.length === 8 ? parseInt(raw.slice(6, 8), 16) : 255;
-        return [clamp(r), clamp(g), clamp(b), clamp(a)];
-      }
-    }
-
-    if (typeof document !== 'undefined') {
-      const ctx = document.createElement('canvas').getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#000';
-        ctx.fillStyle = color;
-        const computed = ctx.fillStyle;
-        if (typeof computed === 'string' && computed.startsWith('rgb')) {
-          const m = computed.match(/rgba?\(([^)]+)\)/);
-          if (m?.[1]) {
-            const parts = m[1].split(',').map(part => parseFloat(part.trim()));
-            const [r, g, b, a = 1] = parts;
-            return [clamp(r), clamp(g), clamp(b), clamp(a * 255)];
-          }
-        }
-      }
-    }
-
-    return [0, 0, 0, 255];
-  };
-
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
     const store = useAppStore.getState();
     const { brushSettings } = store.tools;
@@ -2923,6 +2884,13 @@ export const createShapeToolHandler = (
                         : brushNow.colorCycleGradient?.length
                           ? brushNow.colorCycleGradient
                           : DEFAULT_COLOR_CYCLE_GRADIENT);
+                  const ditherRenderStops = shouldDitherPreview
+                    ? buildCcDitherRenderPalette({
+                        baseStops: stops,
+                        bands: resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount,
+                        spread: brushNow.ditherPaletteSpread,
+                      }).renderStops
+                    : stops;
                   if (shouldDitherPreview) {
                     if (ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
                       const { scale, offsetX, offsetY } = viewTransformRef.current;
@@ -2982,7 +2950,7 @@ export const createShapeToolHandler = (
                         if (proj > maxProj) maxProj = proj;
                       }
                       const projRange = Math.max(1e-6, maxProj - minProj);
-                      const sortedStops = [...stops]
+                      const sortedStops = [...ditherRenderStops]
                         .map(stop => ({
                           position: Math.max(0, Math.min(1, Number.isFinite(stop.position) ? stop.position : 0)),
                           rgba: parseCssColorToRgba(stop.color),

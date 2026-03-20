@@ -17,6 +17,7 @@ type FillBrush = ColorCycleBrushImplementation & {
       ccGradient?: boolean;
       ditherLevels?: number;
       ditherPixelSize?: number;
+      ditherPairBandCount?: number;
       roi?: GradientDitherOptions['roi'];
       lostEdge?: number;
     };
@@ -154,6 +155,7 @@ export const fillColorCycleLinear = async ({
           ccGradient: ccGradientMode,
           ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
+          ditherPairBandCount: options?.ditherPairBandCount,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
@@ -224,6 +226,7 @@ export const fillColorCycleConcentric = async ({
           ccGradient: ccGradientMode,
           ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
+          ditherPairBandCount: options?.ditherPairBandCount,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
