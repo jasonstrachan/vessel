@@ -583,7 +583,9 @@ export interface AppState {
   currentLayer: number;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   duplicateLayer: (id: string) => string | null;
+  duplicateLayers: (layerIds: string[]) => string[];
   removeLayer: (id: string) => void;
+  removeLayers: (layerIds: string[]) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
   appendSequentialLayerEvent: (
     layerId: string,

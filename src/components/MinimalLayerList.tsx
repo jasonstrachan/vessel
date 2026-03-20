@@ -281,15 +281,15 @@ const MinimalLayerList = () => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds, shallow);
   const layersRef = useStoreSelectorRef(selectLayers);
-  const selectedLayerIdsRef = useStoreSelectorRef(selectSelectedLayerIds);
   const brushSettingsRef = useStoreSelectorRef(selectBrushSettings);
   const projectSizeRef = useStoreSelectorRef(selectProjectDimensions);
   // Actions
   const addLayer = useAppStore((state) => state.addLayer);
-  const updateLayer = useAppStore((state) => state.updateLayer);
+  const setLayersVisibility = useAppStore((state) => state.setLayersVisibility);
   const setActiveLayer = useAppStore((state) => state.setActiveLayer);
-  const reorderLayers = useAppStore((state) => state.reorderLayers);
   const removeLayer = useAppStore((state) => state.removeLayer);
+  const removeLayers = useAppStore((state) => state.removeLayers);
+  const reorderLayerBlock = useAppStore((state) => state.reorderLayerBlock);
   const initColorCycleForLayer = useAppStore((state) => state.initColorCycleForLayer);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const brushPresets = useAppStore((state) => state.brushPresets);
@@ -305,6 +305,17 @@ const MinimalLayerList = () => {
     }
     return map;
   }, [layers]);
+
+  const resolveActionLayerIds = useCallback((layerId: string) => {
+    if (!selectedLayerIds.includes(layerId) || selectedLayerIds.length <= 1) {
+      return [layerId];
+    }
+
+    const selectedIdSet = new Set(selectedLayerIds);
+    return layers
+      .filter((layer) => selectedIdSet.has(layer.id))
+      .map((layer) => layer.id);
+  }, [layers, selectedLayerIds]);
   
   // Remove local overrides; animation state comes from store + unified event
   
@@ -529,27 +540,14 @@ const MinimalLayerList = () => {
       return;
     }
 
-    const selection = selectedLayerIdsRef.current;
-    const shouldApplyToSelection =
-      (event.shiftKey || event.metaKey || event.ctrlKey) &&
-      selection.includes(layerId) &&
-      selection.length > 1;
-    const layerIdsToUpdate = shouldApplyToSelection ? selection : [layerId];
-    const nextVisible = !targetLayer.visible;
-
-    layerIdsToUpdate.forEach((id) => {
-      const layer = layers.find(l => l.id === id);
-      if (layer && layer.visible !== nextVisible) {
-        updateLayer(id, { visible: nextVisible });
-      }
-    });
-  }, [layersRef, selectedLayerIdsRef, updateLayer]);
+    setLayersVisibility(resolveActionLayerIds(layerId), !targetLayer.visible);
+  }, [layersRef, resolveActionLayerIds, setLayersVisibility]);
   
   // Handle drag start
   const commitDrop = useCallback((draggedId: string, indicatorOverride?: number | null) => {
     const layers = layersRef.current;
-    const draggedIndex = layers.findIndex(l => l.id === draggedId);
-    if (draggedIndex === -1) {
+    const draggedLayerIds = resolveActionLayerIds(draggedId);
+    if (draggedLayerIds.length === 0) {
       return false;
     }
 
@@ -561,12 +559,20 @@ const MinimalLayerList = () => {
       return false;
     }
 
-    if (draggedIndex !== destinationIndex) {
-      reorderLayers(draggedIndex, destinationIndex);
+    const currentIndices = draggedLayerIds
+      .map((layerId) => layers.findIndex((layer) => layer.id === layerId))
+      .filter((index) => index !== -1);
+    const isContiguousBlock = currentIndices.every((index, position) => (
+      position === 0 || index === currentIndices[position - 1] + 1
+    ));
+    const blockStartsAtDestination = isContiguousBlock && currentIndices[0] === destinationIndex;
+
+    if (!blockStartsAtDestination) {
+      reorderLayerBlock(draggedLayerIds, destinationIndex);
     }
 
     return true;
-  }, [convertDisplayIndexToStoreIndex, dropIndicatorIndex, layersRef, reorderLayers]);
+  }, [convertDisplayIndexToStoreIndex, dropIndicatorIndex, layersRef, reorderLayerBlock, resolveActionLayerIds]);
 
   const onDragOverIndex = useCallback((index: number) => {
     if (!draggedLayerId) {
@@ -620,8 +626,18 @@ const MinimalLayerList = () => {
   }, [setActiveLayer]);
 
   const handleRemoveLayer = useCallback((layerId: string) => {
-    removeLayer(layerId);
-  }, [removeLayer]);
+    const targetLayerIds = resolveActionLayerIds(layerId);
+    if (layersRef.current.length <= targetLayerIds.length) {
+      return;
+    }
+
+    if (targetLayerIds.length === 1) {
+      removeLayer(layerId);
+      return;
+    }
+
+    removeLayers(targetLayerIds);
+  }, [layersRef, removeLayer, removeLayers, resolveActionLayerIds]);
   
   const renderDropPreview = (index: number) => {
     const layers = layersRef.current;
