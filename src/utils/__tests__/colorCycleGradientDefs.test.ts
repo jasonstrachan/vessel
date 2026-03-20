@@ -147,4 +147,43 @@ describe('colorCycleGradientDefs', () => {
     const deadDef = updatedStore.find((entry) => entry.id === 2);
     expect(deadDef?.slot).toBeUndefined();
   });
+
+  it('stores seam profile per def and treats soft/hard variants as distinct defs', () => {
+    const layer = createLayer();
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const hard = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: baseStops,
+      source: 'manual',
+      seamProfile: 'hard',
+    });
+    const soft = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: baseStops,
+      source: 'manual',
+      seamProfile: 'soft',
+    });
+
+    expect(hard?.def.seamProfile).toBe('hard');
+    expect(soft?.def.seamProfile).toBe('soft');
+    expect(soft?.def.id).not.toBe(hard?.def.id);
+  });
+
+  it('can persist a hard default seam profile for new defs', () => {
+    const layer = createLayer();
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: baseStops,
+      source: 'manual',
+      seamProfile: 'hard',
+    });
+
+    expect(result?.def.seamProfile).toBe('hard');
+  });
 });

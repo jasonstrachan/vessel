@@ -2,10 +2,16 @@ import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
+import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 
 export type GradientStop = { position: number; color: string; opacity?: number };
 export type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
-export type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
+export type ColorCycleSlotPalette = {
+  slot: number;
+  stops: GradientStop[];
+  seamProfile?: GradientSeamProfile;
+};
 
 export type CCRuntimeSnapshot = {
   layerId: string;
@@ -35,6 +41,25 @@ const normalizePaintSlot = (slot: number): number => {
 
 const cloneStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map((stop) => ({ position: stop.position, color: stop.color, opacity: stop.opacity }));
+
+const resolveSessionSeamProfile = (
+  session: MarkGradientSession | null,
+): GradientSeamProfile => normalizeGradientSeamProfile(session?.seamProfile);
+
+const resolveSlotSeamProfile = (
+  layer: Layer,
+  slot: number,
+  session: MarkGradientSession | null,
+): GradientSeamProfile => {
+  if (session) {
+    const sampledSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
+    if (session.binding?.slot === slot || sampledSlot === slot) {
+      return resolveSessionSeamProfile(session);
+    }
+  }
+  const def = layer.colorCycleData?.gradientDefStore?.find((entry) => entry.slot === slot);
+  return normalizeGradientSeamProfile(def?.seamProfile);
+};
 
 let activeMarkSessionGetter: ((layerId: string) => MarkGradientSession | null) | null = null;
 let activeMarkSessionLoad: Promise<void> | null = null;
@@ -128,7 +153,11 @@ export const buildRuntimeSnapshot = (
     return {
       layerId: layer.id,
       paintSlot: TEMP_SAMPLE_SLOT,
-      slotPalettes: [{ slot: TEMP_SAMPLE_SLOT, stops }],
+      slotPalettes: [{
+        slot: TEMP_SAMPLE_SLOT,
+        stops,
+        seamProfile: resolveSessionSeamProfile(activeSession),
+      }],
       flowMode: layer.colorCycleData?.flowMode,
     };
   }
@@ -140,6 +169,7 @@ export const buildRuntimeSnapshot = (
         {
           slot: activeSession.binding.slot,
           stops: cloneStops(activeSession.frozenStopsStored),
+          seamProfile: resolveSessionSeamProfile(activeSession),
         },
       ],
       flowMode: layer.colorCycleData?.flowMode,
@@ -151,12 +181,17 @@ export const buildRuntimeSnapshot = (
   const normalizedPalettes = palettes.map((entry) => ({
     slot: entry.slot,
     stops: cloneStops(entry.stops),
+    seamProfile: resolveSlotSeamProfile(layer, entry.slot, activeSession),
   }));
 
   const hasPaintPalette = normalizedPalettes.some((entry) => entry.slot === paintSlot);
   const ensuredPalettes = hasPaintPalette
     ? normalizedPalettes
-    : [...normalizedPalettes, { slot: paintSlot, stops: cloneStops(fallbackStops) }];
+    : [...normalizedPalettes, {
+        slot: paintSlot,
+        stops: cloneStops(fallbackStops),
+        seamProfile: resolveSlotSeamProfile(layer, paintSlot, activeSession),
+      }];
 
   return {
     layerId: layer.id,

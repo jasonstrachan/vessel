@@ -1,5 +1,11 @@
 import { GradientPalette, GradientStop } from '@/lib/GradientPalette';
 import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
+import {
+  appendGradientSeamProfileSignature,
+  DEFAULT_GRADIENT_SEAM_PROFILE,
+  normalizeGradientSeamProfile,
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
 
 export type PaletteRGBA = Uint8ClampedArray | Uint8Array;
 
@@ -10,6 +16,7 @@ export class PaletteController {
   private paletteSignaturesBySlot: Array<string | null>;
   private palettesBySlot: Uint32Array[];
   private paletteRGBABySlot: Array<PaletteRGBA | null>;
+  private seamProfilesBySlot: GradientSeamProfile[];
   private activeGradientSlot: number = 0;
 
   constructor(options: { gradientStops?: GradientStop[] } = {}) {
@@ -22,6 +29,7 @@ export class PaletteController {
     this.paletteSignaturesBySlot = new Array(256).fill(null);
     this.palettesBySlot = Array.from({ length: 256 }, () => new Uint32Array(256));
     this.paletteRGBABySlot = new Array(256).fill(null);
+    this.seamProfilesBySlot = new Array(256).fill(DEFAULT_GRADIENT_SEAM_PROFILE);
     this.refreshBasePalette();
   }
 
@@ -84,26 +92,38 @@ export class PaletteController {
     return this.paletteSignaturesBySlot[clamped];
   }
 
-  setGradientStops(stops: GradientStop[]): { changed: boolean; signature: string } {
-    return this.setGradientSlot(0, stops);
+  setGradientStops(
+    stops: GradientStop[],
+    seamProfile: GradientSeamProfile = DEFAULT_GRADIENT_SEAM_PROFILE,
+  ): { changed: boolean; signature: string } {
+    return this.setGradientSlot(0, stops, seamProfile);
   }
 
-  setGradientSlot(slot: number, stops: GradientStop[]): { changed: boolean; signature: string } {
+  setGradientSlot(
+    slot: number,
+    stops: GradientStop[],
+    seamProfile: GradientSeamProfile = DEFAULT_GRADIENT_SEAM_PROFILE,
+  ): { changed: boolean; signature: string } {
     const clampedSlot = Math.max(0, Math.min(255, Math.round(slot)));
-    const signature = PaletteController.computeSignature(stops);
+    const normalizedSeamProfile = normalizeGradientSeamProfile(seamProfile);
+    const signature = appendGradientSeamProfileSignature(
+      PaletteController.computeSignature(stops),
+      normalizedSeamProfile,
+    );
     if (this.paletteSignaturesBySlot[clampedSlot] === signature) {
       return { changed: false, signature };
     }
     this.paletteSignaturesBySlot[clampedSlot] = signature;
+    this.seamProfilesBySlot[clampedSlot] = normalizedSeamProfile;
 
     if (clampedSlot === 0) {
       this.gradientSignature = signature;
-      this.gradientPalette.updateFromGradient(stops);
+      this.gradientPalette.updateFromGradient(stops, normalizedSeamProfile);
       this.refreshBasePalette();
       return { changed: true, signature };
     }
 
-    const handle = ensurePalette({ stops });
+    const handle = ensurePalette({ stops, seamProfile: normalizedSeamProfile });
     this.palettesBySlot[clampedSlot] = handle.uint32;
     this.paletteRGBABySlot[clampedSlot] = handle.rgba;
     return { changed: true, signature };
@@ -120,11 +140,15 @@ export class PaletteController {
   }
 
   private refreshBasePalette() {
-    this.paletteHandle = ensurePalette({ palette: this.gradientPalette });
+    this.paletteHandle = ensurePalette({
+      palette: this.gradientPalette,
+      seamProfile: this.gradientPalette.getSeamProfile(),
+    });
     const handle = this.paletteHandle;
     this.palettesBySlot[0] = handle.uint32;
     this.paletteRGBABySlot[0] = handle.rgba;
     this.paletteSignaturesBySlot[0] = this.gradientSignature ?? 'slot:0';
+    this.seamProfilesBySlot[0] = this.gradientPalette.getSeamProfile();
   }
 
   static computeSignature(stops: GradientStop[]): string {

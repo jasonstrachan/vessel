@@ -4,6 +4,12 @@
  */
 
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
+import {
+  applyGradientSeamProfile,
+  DEFAULT_GRADIENT_SEAM_PROFILE,
+  normalizeGradientSeamProfile,
+  type GradientSeamProfile,
+} from '@/lib/colorCycle/gradientSeamProfile';
 
 export interface GradientStop {
   position: number; // 0.0 to 1.0
@@ -22,24 +28,26 @@ export class GradientPalette {
   private colors: Uint8ClampedArray;  // 256 * 4 (RGBA)
   private gradientStops: GradientStop[];
   private paletteSize: number = 256;
+  private seamProfile: GradientSeamProfile = DEFAULT_GRADIENT_SEAM_PROFILE;
   
   // Cache for parsed colors
   private parsedColors: Map<string, RGBA> = new Map();
   private static parserCanvas: HTMLCanvasElement | null = null;
   private static parserContext: CanvasRenderingContext2D | null = null;
   
-  constructor(stops?: GradientStop[]) {
+  constructor(stops?: GradientStop[], options?: { seamProfile?: GradientSeamProfile }) {
     this.colors = new Uint8ClampedArray(this.paletteSize * 4);
+    this.seamProfile = normalizeGradientSeamProfile(options?.seamProfile);
     this.gradientStops = stops || [
       { position: 0, color: '#000000' },
       { position: 1, color: '#ffffff' }
     ];
     
     if (stops && stops.length > 0) {
-      this.updateFromGradient(stops);
+      this.updateFromGradient(stops, this.seamProfile);
     } else {
       // Initialize with default gradient if no stops provided
-      this.updateFromGradient(this.gradientStops);
+      this.updateFromGradient(this.gradientStops, this.seamProfile);
     }
   }
   
@@ -130,9 +138,9 @@ export class GradientPalette {
   /**
    * Update palette from gradient stops
    */
-  updateFromGradient(stops: GradientStop[]) {
+  updateFromGradient(stops: GradientStop[], seamProfile: GradientSeamProfile = this.seamProfile) {
     if (!stops || stops.length === 0) return;
-    
+    this.seamProfile = normalizeGradientSeamProfile(seamProfile);
     this.gradientStops = [...stops];
     
     // Sort stops by position
@@ -163,6 +171,10 @@ export class GradientPalette {
       this.colors[idx + 2] = color.b;
       this.colors[idx + 3] = color.a;
     }
+    applyGradientSeamProfile(this.colors, {
+      paletteSize: this.paletteSize,
+      seamProfile: this.seamProfile,
+    });
   }
   
   /**
@@ -291,6 +303,10 @@ export class GradientPalette {
       strings.push(this.getColorString(i));
     }
     return strings;
+  }
+
+  getSeamProfile(): GradientSeamProfile {
+    return this.seamProfile;
   }
 
   /**
@@ -442,7 +458,7 @@ export class GradientPalette {
    * Clone the palette
    */
   clone(): GradientPalette {
-    const cloned = new GradientPalette();
+    const cloned = new GradientPalette(undefined, { seamProfile: this.seamProfile });
     cloned.colors = new Uint8ClampedArray(this.colors);
     cloned.gradientStops = this.gradientStops.map(stop => ({ ...stop }));
     return cloned;
@@ -461,10 +477,12 @@ export class GradientPalette {
   serialize(): {
     gradientStops: GradientStop[];
     paletteSize: number;
+    seamProfile: GradientSeamProfile;
   } {
     return {
       gradientStops: this.getGradientStops(),
-      paletteSize: this.paletteSize
+      paletteSize: this.paletteSize,
+      seamProfile: this.seamProfile,
     };
   }
   
@@ -474,13 +492,14 @@ export class GradientPalette {
   static deserialize(data: {
     gradientStops: GradientStop[];
     paletteSize?: number;
+    seamProfile?: GradientSeamProfile;
   }): GradientPalette {
-    const palette = new GradientPalette();
+    const palette = new GradientPalette(undefined, { seamProfile: data.seamProfile });
     if (data.paletteSize) {
       palette.paletteSize = data.paletteSize;
       palette.colors = new Uint8ClampedArray(palette.paletteSize * 4);
     }
-    palette.updateFromGradient(data.gradientStops);
+    palette.updateFromGradient(data.gradientStops, data.seamProfile);
     return palette;
   }
 }

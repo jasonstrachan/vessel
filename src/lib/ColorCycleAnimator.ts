@@ -14,6 +14,7 @@ import { RendererWebGL, type PaletteRGBA } from '@/lib/colorCycle/rendering/Rend
 import { FlowMode, StrokeOrderTracker } from '@/lib/colorCycle/StrokeOrderTracker';
 import type { CCIndexSurface, CCIndexSurfaceRect } from '@/lib/colorCycle/CCIndexSurface';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -1182,13 +1183,13 @@ export class ColorCycleAnimator implements CCIndexSurface {
   /**
    * Update gradient
    */
-  setGradient(stops: GradientStop[]) {
-    this.setGradientSlot(0, stops);
+  setGradient(stops: GradientStop[], seamProfile?: GradientSeamProfile) {
+    this.setGradientSlot(0, stops, seamProfile);
   }
 
-  setGradientSlot(slot: number, stops: GradientStop[]) {
+  setGradientSlot(slot: number, stops: GradientStop[], seamProfile?: GradientSeamProfile) {
     const clampedSlot = Math.max(0, Math.min(255, Math.round(slot)));
-    const result = this.paletteController.setGradientSlot(clampedSlot, stops);
+    const result = this.paletteController.setGradientSlot(clampedSlot, stops, seamProfile);
     if (!result.changed) {
       return;
     }

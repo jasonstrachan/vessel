@@ -20,6 +20,8 @@ A slot storing the current derived FG gradient. It changes when FG parameters ch
 
 **Gradient Def (def):**  
 An immutable gradient stored in `gradientDefStore` with a unique `defId`.
+Defs now also carry an optional `seamProfile` (`'hard' | 'soft'`) that controls how the
+final baked 256-color palette wraps back to the first color.
 
 **Def slot:**  
 A slot allocated for a def at mark start. Used only for preview/runtime convenience.  
@@ -83,6 +85,22 @@ This is now enforced in:
    - (Dev) Parity assert: `def.hash === session.frozenHash`.
 
 After commit, **changing FG should not affect the stroke**, because the def buffer is authoritative. If a def slot cannot be allocated, the mark can fall back to a live slot palette, which makes old pixels appear to “reuse” or mutate to a newer gradient.
+
+---
+
+## Seam Profile Status
+
+- Seam behavior is now implemented at the **def palette bake** layer, not by moving seam position.
+- The shared path is used by Vessel runtime, persisted defs, preview-aligned runtime rebuilds, and Goblet export/runtime parity.
+- `seamProfile: 'hard'` preserves the current hard wrap.
+- `seamProfile: 'soft'` blends the final palette slice back toward the first color so the wrap is less abrupt.
+
+Current repo policy:
+
+- The infrastructure is enabled and persisted.
+- New defs currently default to **`hard`**.
+- Automatic hard/soft selection was intentionally deferred because the first heuristics were visually unstable.
+- A later pass can reintroduce authored or heuristic `soft` assignment without changing the shared bake architecture again.
 
 ---
 

@@ -549,6 +549,7 @@ export const commitColorCycleLayerStroke = async (
                 stops: session.frozenStopsStored,
                 hash: session.frozenHash,
                 source: session.source,
+                seamProfile: session.seamProfile,
                 createdAtMs: Date.now(),
                 slot: session.binding.slot,
                 speedCps: session.speedCps ?? undefined,
