@@ -40,6 +40,8 @@ import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycle
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 
+const SHAPE_PREVIEW_OPACITY = 0.6;
+
 type ShapeAdjustHelperUpdate = {
   spacing: number;
   density?: number;
@@ -2780,6 +2782,7 @@ export const createShapeToolHandler = (
               const isCCLinear = brushNow.colorCycleFillMode === 'linear';
               const isColorCycleGradientPreset = presetId === 'color-cycle-gradient';
               const isColorCycleGradientPreview = isCCShape && isCCLinear;
+              const isDitherShapePreview = presetId === 'dither-shape' && tools.shapeMode;
               const shouldDitherPreview =
                 isCCShape && (isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled);
               
@@ -2789,7 +2792,7 @@ export const createShapeToolHandler = (
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
                 overlayCtx.restore();
                 overlayCtx.save();
-                overlayCtx.globalAlpha = 1;
+                overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                 overlayCtx.drawImage(
                   ditherGradPreviewState.ccLastCanvas,
                   ditherGradPreviewState.ccLastOrigin.x,
@@ -2804,7 +2807,7 @@ export const createShapeToolHandler = (
                   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
                   overlayCtx.restore();
                   overlayCtx.save();
-                  overlayCtx.globalAlpha = 1;
+                  overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                   overlayCtx.drawImage(
                     cachedPreview.canvas,
                     cachedPreview.origin.x,
@@ -2901,7 +2904,7 @@ export const createShapeToolHandler = (
                       overlayCtx.save();
                       overlayCtx.translate(offsetX, offsetY);
                       overlayCtx.scale(scale, scale);
-                      overlayCtx.globalAlpha = 1;
+                      overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                       overlayCtx.imageSmoothingEnabled = false;
                       overlayCtx.drawImage(
                         ditherGradPreviewState.ccLastCanvas,
@@ -3068,7 +3071,7 @@ export const createShapeToolHandler = (
                             overlayCtx.save();
                             overlayCtx.translate(offsetX, offsetY);
                             overlayCtx.scale(scale, scale);
-                            overlayCtx.globalAlpha = 1;
+                            overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                             overlayCtx.imageSmoothingEnabled = false;
                             overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
                             overlayCtx.restore();
@@ -3096,15 +3099,18 @@ export const createShapeToolHandler = (
                       gradient.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
                     });
                     overlayCtx.fillStyle = gradient;
-                    overlayCtx.globalAlpha = 1.0;
+                    overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                   }
                 } else {
                   overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-                  overlayCtx.globalAlpha = 1.0;
+                  overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                 }
               } else if (isShapeFill) {
                 overlayCtx.fillStyle = tools.brushSettings.color ?? 'rgba(255,255,255,1)';
                 overlayCtx.globalAlpha = 0.35;
+              } else if (isDitherShapePreview) {
+                overlayCtx.fillStyle = tools.brushSettings.color;
+                overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
               } else if (tools.shapeMode && !isPolygonGradient && !isShapeFill) {
                 overlayCtx.fillStyle = tools.brushSettings.color;
                 overlayCtx.globalAlpha = 0.4;
@@ -3253,7 +3259,7 @@ export const createShapeToolHandler = (
                     applyPolygonMaskToCanvasContext(tempCtx, localVertices);
 
                     overlayCtx.save();
-                    overlayCtx.globalAlpha = 1;
+                    overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                     overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
                     overlayCtx.restore();
                   }

@@ -12,6 +12,9 @@ import {
 } from '@/utils/colorCycleGradients';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
+
+const SHAPE_PREVIEW_OPACITY = 0.6;
+
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
 
@@ -1018,7 +1021,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       ? rawPoints
       : rawPoints.filter((_, idx) => idx % decimationStep === 0 || idx === rawPoints.length - 1);
 
-    const { tools, layers, activeLayerId } = getDynamicDeps();
+    const { tools, layers, activeLayerId, currentBrushPresetId } = getDynamicDeps();
     const brushSettings = tools.brushSettings;
     const isPixelBrush =
       brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
@@ -1033,6 +1036,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const strokeWidth = Math.max(1, brushSettings.size ?? 1);
     const activeBrushShape = brushSettings.brushShape ?? BrushShape.ROUND;
     const isColorCycleShapePreview = activeBrushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    const isColorCycleGradientPreview =
+      isColorCycleShapePreview && brushSettings.colorCycleFillMode === 'linear';
+    const isDitherShapePreview = currentBrushPresetId === 'dither-shape';
+    const previewOpacity =
+      isColorCycleGradientPreview || isDitherShapePreview
+        ? SHAPE_PREVIEW_OPACITY
+        : 1;
     const skipOutline =
       isColorCycleShapePreview ||
       isShapeFillBrush(activeBrushShape) ||
@@ -1077,10 +1087,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       if (!skipOutline) {
         overlayCtx.strokeStyle = strokeColor;
         overlayCtx.lineWidth = strokeWidth;
-        overlayCtx.globalAlpha = 1;
+        overlayCtx.globalAlpha = previewOpacity;
         overlayCtx.stroke();
       }
-      overlayCtx.globalAlpha = 1;
+      overlayCtx.globalAlpha = previewOpacity;
       overlayCtx.fillStyle = strokeColor;
       overlayCtx.fill();
       overlayCtx.restore();
@@ -1155,7 +1165,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     if (!skipOutline) {
       bufferCtx.strokeStyle = strokeColor;
       bufferCtx.lineWidth = strokeWidth;
-      bufferCtx.globalAlpha = 1;
+      bufferCtx.globalAlpha = previewOpacity;
       bufferCtx.stroke();
     }
 
@@ -1221,7 +1231,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       bufferCtx.fillStyle = strokeColor;
     }
 
-    bufferCtx.globalAlpha = 1;
+    bufferCtx.globalAlpha = previewOpacity;
     bufferCtx.fill();
     bufferCtx.restore();
 
@@ -1286,6 +1296,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     overlayCtx.save();
     overlayCtx.imageSmoothingEnabled = false;
+    overlayCtx.globalAlpha = previewOpacity;
     overlayCtx.drawImage(
       bufferCanvas,
       0,
