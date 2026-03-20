@@ -71,6 +71,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 2000);
   const [newWidth, setNewWidth] = useState(2000);
   const [newHeight, setNewHeight] = useState(2000);
+  const [isResizing, setIsResizing] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -136,13 +137,20 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
     };
   }, [dragging, pos.x, pos.y]);
 
-  const handleResize = () => {
-    if (project) {
+  const handleResize = async () => {
+    if (!project || isResizing) {
+      return;
+    }
+
+    setIsResizing(true);
+    try {
       const width = resizeWidth === '' ? 1 : Number(resizeWidth);
       const height = resizeHeight === '' ? 1 : Number(resizeHeight);
-      resizeCanvas(width, height);
+      await resizeCanvas(width, height);
+      onClose();
+    } finally {
+      setIsResizing(false);
     }
-    onClose();
   };
 
   const handleNewDocument = () => {
@@ -252,8 +260,9 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                   variant="primary"
                   size="md"
                   className="w-36"
+                  disabled={isResizing}
                 >
-                  Resize
+                  {isResizing ? 'Resizing...' : 'Resize'}
                 </Button>
               </div>
             </div>

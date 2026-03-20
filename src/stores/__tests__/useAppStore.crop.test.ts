@@ -99,11 +99,13 @@ const resetStore = () => {
 };
 
 beforeEach(() => {
+  historyManager.clear();
   resetStore();
 });
 
 afterEach(() => {
   jest.restoreAllMocks();
+  historyManager.clear();
   resetStore();
 });
 
@@ -259,6 +261,51 @@ const primeStoreForCrop = (
     selectionStart: null,
     selectionEnd: null,
     floatingPaste: null
+  }));
+};
+
+const primeStoreForResize = (
+  layer: Layer,
+  projectWidth: number,
+  projectHeight: number
+) => {
+  const baseProject = useAppStore.getState().project;
+  const project: Project = baseProject
+    ? {
+        ...baseProject,
+        width: projectWidth,
+        height: projectHeight,
+        layers: [layer],
+        updatedAt: new Date()
+      }
+    : {
+        id: 'project-resize-test',
+        name: 'Resize Test',
+        width: projectWidth,
+        height: projectHeight,
+        layers: [layer],
+        backgroundColor: 'transparent',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+        brushSpecificSettings: {},
+        exportLayout: createDefaultExportLayout()
+      };
+
+  useAppStore.setState((state) => ({
+    project,
+    layers: [layer],
+    activeLayerId: layer.id,
+    currentOffscreenCanvas: null,
+    layersNeedRecomposition: false,
+    canvas: {
+      ...state.canvas,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+      canvasWidth: projectWidth,
+      canvasHeight: projectHeight,
+    },
   }));
 };
 
@@ -578,5 +625,78 @@ describe('useAppStore commitCrop', () => {
     const lastEntry = entries[entries.length - 1];
     expect(lastEntry.action).toBe('crop');
     expect(lastEntry.label).toBe('Crop to selection');
+  });
+
+  it('resizes layer content instead of only changing document bounds', async () => {
+    const layer = createLayer(2, 2);
+    primeStoreForResize(layer, 2, 2);
+
+    await useAppStore.getState().resizeCanvas(4, 4);
+
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers[0];
+    const pixels = updatedLayer.imageData?.data ?? new Uint8ClampedArray();
+    const pixelAt = (x: number, y: number) => {
+      const index = (y * 4 + x) * 4;
+      return Array.from(pixels.slice(index, index + 4));
+    };
+
+    expect(state.project?.width).toBe(4);
+    expect(state.project?.height).toBe(4);
+    expect(updatedLayer.imageData?.width).toBe(4);
+    expect(updatedLayer.imageData?.height).toBe(4);
+    expect(pixelAt(0, 0)).toEqual([0, 0, 0, 255]);
+    expect(pixelAt(3, 0)).toEqual([1, 0, 0, 255]);
+    expect(pixelAt(0, 3)).toEqual([0, 1, 0, 255]);
+    expect(pixelAt(3, 3)).toEqual([1, 1, 0, 255]);
+  });
+
+  it('resizes recolor source image data with the document', async () => {
+    const layer = createRecolorLayer(2, 2);
+    primeStoreForResize(layer, 2, 2);
+
+    await useAppStore.getState().resizeCanvas(4, 4);
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const originalImage = updatedLayer.colorCycleData?.recolorSettings?.originalImageData;
+    const pixels = originalImage?.data ?? new Uint8ClampedArray();
+    const bottomRightIndex = (4 * 4 - 1) * 4;
+
+    expect(originalImage?.width).toBe(4);
+    expect(originalImage?.height).toBe(4);
+    expect(Array.from(pixels.slice(bottomRightIndex, bottomRightIndex + 4))).toEqual([1, 1, 0, 255]);
+    expect(updatedLayer.colorCycleData?.recolorSettings?.indexBuffer).toBeUndefined();
+    expect(updatedLayer.colorCycleData?.canvasWidth).toBe(4);
+    expect(updatedLayer.colorCycleData?.canvasHeight).toBe(4);
+  });
+
+  it('records canvas resize in history so undo and redo restore dimensions and pixels', async () => {
+    const layer = createLayer(2, 2);
+    primeStoreForResize(layer, 2, 2);
+
+    await useAppStore.getState().resizeCanvas(4, 4);
+
+    expect(historyManager.peekUndo()?.action).toBe('project-transform');
+    expect(useAppStore.getState().project?.width).toBe(4);
+    expect(useAppStore.getState().project?.height).toBe(4);
+
+    await useAppStore.getState().undo();
+
+    let state = useAppStore.getState();
+    let updatedLayer = state.layers[0];
+    expect(state.project?.width).toBe(2);
+    expect(state.project?.height).toBe(2);
+    expect(updatedLayer.imageData?.width).toBe(2);
+    expect(updatedLayer.imageData?.height).toBe(2);
+    expect(Array.from(updatedLayer.imageData?.data ?? [])).toEqual(Array.from(layer.imageData?.data ?? []));
+
+    await useAppStore.getState().redo();
+
+    state = useAppStore.getState();
+    updatedLayer = state.layers[0];
+    expect(state.project?.width).toBe(4);
+    expect(state.project?.height).toBe(4);
+    expect(updatedLayer.imageData?.width).toBe(4);
+    expect(updatedLayer.imageData?.height).toBe(4);
   });
 });
