@@ -116,18 +116,13 @@ export const createClipboardHandlers = (
               return;
             }
 
-            tempCanvas.width = project.width;
-            tempCanvas.height = project.height;
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
 
-            const scale = Math.min(project.width / img.width, project.height / img.height, 1);
-            const scaledWidth = img.width * scale;
-            const scaledHeight = img.height * scale;
-            const x = (project.width - scaledWidth) / 2;
-            const y = (project.height - scaledHeight) / 2;
-            const imageX = Math.floor(x);
-            const imageY = Math.floor(y);
-            const imageWidth = Math.ceil(scaledWidth);
-            const imageHeight = Math.ceil(scaledHeight);
+            const imageX = 0;
+            const imageY = 0;
+            const imageWidth = img.width;
+            const imageHeight = img.height;
 
             const fallbackPosition = {
               x: Math.max(0, Math.min(project.width - imageWidth, imageX)),
@@ -135,7 +130,7 @@ export const createClipboardHandlers = (
             };
             const viewportPosition = getViewportPastePosition(imageWidth, imageHeight) ?? fallbackPosition;
 
-            tempCtx.drawImage(img, x, y, scaledWidth, scaledHeight);
+            tempCtx.drawImage(img, 0, 0);
             const pasteImageData = tempCtx.getImageData(imageX, imageY, imageWidth, imageHeight);
 
             await commitExistingFloatingIfPresent();
