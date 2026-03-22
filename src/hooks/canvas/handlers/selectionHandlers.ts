@@ -251,7 +251,7 @@ export const createSelectionHandlers = (
 ): SelectionHandlers => {
   const runtime = deps.selectionRuntimeRef.current;
   const { freehandSession, clickLineSession } = runtime;
-  const MARQUEE_AUTO_PAN_EDGE_PX = 32;
+  const MARQUEE_AUTO_PAN_EDGE_PX = 20;
   const MARQUEE_AUTO_PAN_MAX_SPEED_PX = 18;
 
   const clearOverlay = () => {
@@ -652,8 +652,8 @@ export const createSelectionHandlers = (
       let worldPos = rawWorldPos;
       if (dynamic.project) {
         worldPos = {
-          x: Math.max(0, Math.min(dynamic.project.width - 1, worldPos.x)),
-          y: Math.max(0, Math.min(dynamic.project.height - 1, worldPos.y)),
+          x: Math.max(0, Math.min(dynamic.project.width, worldPos.x)),
+          y: Math.max(0, Math.min(dynamic.project.height, worldPos.y)),
         };
       }
 
@@ -684,8 +684,8 @@ export const createSelectionHandlers = (
 
     if (dynamic.project) {
       worldPos = {
-        x: Math.max(0, Math.min(dynamic.project.width - 1, worldPos.x)),
-        y: Math.max(0, Math.min(dynamic.project.height - 1, worldPos.y)),
+        x: Math.max(0, Math.min(dynamic.project.width, worldPos.x)),
+        y: Math.max(0, Math.min(dynamic.project.height, worldPos.y)),
       };
     }
 

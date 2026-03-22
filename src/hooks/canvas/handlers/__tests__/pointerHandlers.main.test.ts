@@ -282,9 +282,15 @@ describe('pointerHandlers main flows', () => {
 
   beforeAll(() => {
     global.requestAnimationFrame = (cb: FrameRequestCallback): number => {
-      cb(performance.now());
+      cb(globalThis.performance.now());
       return 1;
     };
+    if (!('performance' in globalThis)) {
+      Object.defineProperty(globalThis, 'performance', {
+        configurable: true,
+        value: { now: () => Date.now() },
+      });
+    }
   });
 
   afterEach(() => {
@@ -804,6 +810,47 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
       { x: 5, y: 5 },
       { x: 11, y: 11 }
+    );
+  });
+
+  it('allows marquee selection to reach the project edge on pointer up', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      project: { ...mockProject, width: 100, height: 100 },
+      canvas: { width: 100, height: 100, scale: 1, zoom: 1 } as any,
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.ROUND,
+        } as any,
+      },
+    });
+
+    dynamicDepsRef.current.tools.currentTool = 'selection';
+    deps.tools = dynamicDepsRef.current.tools;
+    deps.project = dynamicDepsRef.current.project;
+    deps.canvas = dynamicDepsRef.current.canvas;
+    deps.pan = {
+      ...deps.pan,
+      screenToWorld: (x: number, y: number) => ({ x, y }),
+      worldToScreen: (x: number, y: number) => ({ x, y }),
+    } as any;
+    deps.getMousePos = jest.fn((event: any) => ({
+      x: event.clientX,
+      y: event.clientY,
+    }));
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
+    (deps.interaction.state as any).isSelecting = true;
+
+    handlers.handlePointerUp(makePointerEvent({ clientX: 100, clientY: 100 }));
+
+    expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
+      { x: 10, y: 10 },
+      { x: 100, y: 100 }
     );
   });
 
