@@ -670,6 +670,52 @@ describe('useAppStore commitCrop', () => {
     expect(updatedLayer.colorCycleData?.canvasHeight).toBe(4);
   });
 
+  it('resizes color-cycle runtime buffers with the document', async () => {
+    const layer = createColorCycleLayer(2, 2);
+    primeStoreForResize(layer, 2, 2);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 2, 2);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+      gradientIdBuffer: Uint8Array.from([11, 12, 13, 14]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([101, 102, 103, 104]).buffer,
+      speedBuffer: Uint8Array.from([21, 22, 23, 24]).buffer,
+      flowBuffer: Uint8Array.from([31, 32, 33, 34]).buffer,
+      hasContent: true,
+      strokeCounter: 7,
+    });
+
+    await useAppStore.getState().resizeCanvas(4, 4);
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const updatedBrush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+
+    expect(updatedLayer.colorCycleData?.canvas?.width).toBe(4);
+    expect(updatedLayer.colorCycleData?.canvas?.height).toBe(4);
+    expect(updatedBrush?.getCanvas?.().width).toBe(4);
+    expect(updatedBrush?.getCanvas?.().height).toBe(4);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      1, 1, 2, 2,
+      1, 1, 2, 2,
+      3, 3, 4, 4,
+      3, 3, 4, 4,
+    ]);
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      11, 11, 12, 12,
+      11, 11, 12, 12,
+      13, 13, 14, 14,
+      13, 13, 14, 14,
+    ]);
+    expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      101, 101, 102, 102,
+      101, 101, 102, 102,
+      103, 103, 104, 104,
+      103, 103, 104, 104,
+    ]);
+  });
+
   it('records canvas resize in history so undo and redo restore dimensions and pixels', async () => {
     const layer = createLayer(2, 2);
     primeStoreForResize(layer, 2, 2);
