@@ -95,6 +95,7 @@ const createDeps = (): KeyboardDeps => {
         pendingSelectionHistory: null,
         freehandSession: { active: false, points: [] },
         clickLineSession: { active: false, points: [] },
+        marqueeAutoPan: { frameId: null, screenPos: null },
       },
     },
     setNeedsRedraw: jest.fn(),

@@ -1996,6 +1996,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       canvasRef,
       overlayCanvasRef,
       viewTransformRef,
+      pan,
+      setPan: deps.setPan,
       draw: deps.draw,
       updateBrushCursorVisibility,
       flushAndSetCurrentTool,
@@ -3348,7 +3350,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
     
     // Handle selection
-    if (selectionHandlers.handleSelectionPointerMove({ worldPos })) {
+    if (selectionHandlers.handleSelectionPointerMove({ worldPos, screenPos: currentPointerPos })) {
       return;
     }
     

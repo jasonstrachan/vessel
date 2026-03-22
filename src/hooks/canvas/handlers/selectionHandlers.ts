@@ -29,6 +29,11 @@ export type SelectionHandlerDeps = {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   overlayCanvasRef: React.RefObject<HTMLCanvasElement>;
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
+  pan: {
+    setPan?: (offsetX: number, offsetY: number, options?: { silent?: boolean }) => void;
+    screenToWorld: (x: number, y: number, currentScale?: number) => { x: number; y: number };
+  };
+  setPan?: (offsetX: number, offsetY: number, options?: { silent?: boolean }) => void;
   draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
   updateBrushCursorVisibility: () => void;
   flushAndSetCurrentTool: (tool: Tool) => Promise<void> | void;
@@ -54,6 +59,7 @@ export type SelectionHandlers = {
   }) => boolean;
   handleSelectionPointerMove: (args: {
     worldPos: Point;
+    screenPos: Point;
   }) => boolean;
   handleSelectionPointerUp: (args: {
     event: React.PointerEvent<Element>;
@@ -245,6 +251,8 @@ export const createSelectionHandlers = (
 ): SelectionHandlers => {
   const runtime = deps.selectionRuntimeRef.current;
   const { freehandSession, clickLineSession } = runtime;
+  const MARQUEE_AUTO_PAN_EDGE_PX = 32;
+  const MARQUEE_AUTO_PAN_MAX_SPEED_PX = 18;
 
   const clearOverlay = () => {
     const overlayCanvas = deps.overlayCanvasRef.current;
@@ -332,6 +340,110 @@ export const createSelectionHandlers = (
 
   const finishHistory = (pointerId: number, outcome: string) => {
     commitRuntimeSelectionHistory(runtime, { pointerId, outcome });
+  };
+
+  const stopMarqueeAutoPan = () => {
+    if (runtime.marqueeAutoPan.frameId != null) {
+      cancelAnimationFrame(runtime.marqueeAutoPan.frameId);
+      runtime.marqueeAutoPan.frameId = null;
+    }
+    runtime.marqueeAutoPan.screenPos = null;
+  };
+
+  const computeAutoPanDelta = (
+    screenPos: Point,
+    canvasWidth: number,
+    canvasHeight: number
+  ): Point => {
+    const edgeVelocity = (value: number, size: number) => {
+      if (value < MARQUEE_AUTO_PAN_EDGE_PX) {
+        const ratio = (MARQUEE_AUTO_PAN_EDGE_PX - value) / MARQUEE_AUTO_PAN_EDGE_PX;
+        return MARQUEE_AUTO_PAN_MAX_SPEED_PX * ratio;
+      }
+      if (value > size - MARQUEE_AUTO_PAN_EDGE_PX) {
+        const ratio = (value - (size - MARQUEE_AUTO_PAN_EDGE_PX)) / MARQUEE_AUTO_PAN_EDGE_PX;
+        return -MARQUEE_AUTO_PAN_MAX_SPEED_PX * ratio;
+      }
+      return 0;
+    };
+
+    return {
+      x: edgeVelocity(screenPos.x, canvasWidth),
+      y: edgeVelocity(screenPos.y, canvasHeight),
+    };
+  };
+
+  const redrawSelectionPreview = (start: Point, end: Point) => {
+    deps.setSelectionBounds(start, end);
+    const canvas = deps.canvasRef.current;
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+    if (ctx) {
+      deps.draw(ctx, deps.viewTransformRef.current);
+    }
+  };
+
+  const applyMarqueeAutoPan = (screenPos: Point): boolean => {
+    const canvas = deps.canvasRef.current;
+    const rect = canvas?.getBoundingClientRect();
+    const start = deps.interaction.refs.selectionStart.current;
+    if (!canvas || !rect || !start || !getDynamicDeps().project) {
+      return false;
+    }
+
+    const delta = computeAutoPanDelta(screenPos, rect.width, rect.height);
+    if (delta.x === 0 && delta.y === 0) {
+      return false;
+    }
+
+    const nextOffsetX = deps.viewTransformRef.current.offsetX + delta.x;
+    const nextOffsetY = deps.viewTransformRef.current.offsetY + delta.y;
+    deps.viewTransformRef.current.offsetX = nextOffsetX;
+    deps.viewTransformRef.current.offsetY = nextOffsetY;
+    deps.setPan?.(nextOffsetX, nextOffsetY, { silent: true });
+    deps.pan.setPan?.(nextOffsetX, nextOffsetY, { silent: true });
+
+    const scale = deps.viewTransformRef.current.scale || 1;
+    const nextWorldPos = deps.pan.screenToWorld(screenPos.x, screenPos.y, scale);
+    redrawSelectionPreview(start, nextWorldPos);
+    return true;
+  };
+
+  const runMarqueeAutoPan = () => {
+    runtime.marqueeAutoPan.frameId = null;
+    const start = deps.interaction.refs.selectionStart.current;
+    const screenPos = runtime.marqueeAutoPan.screenPos;
+    const mode = currentSelectionMode(getDynamicDeps().tools);
+    if (!start || !screenPos || !deps.interaction.state.isSelecting || mode !== 'marquee') {
+      stopMarqueeAutoPan();
+      return;
+    }
+
+    if (!applyMarqueeAutoPan(screenPos)) {
+      stopMarqueeAutoPan();
+      return;
+    }
+
+    runtime.marqueeAutoPan.frameId = requestAnimationFrame(runMarqueeAutoPan);
+  };
+
+  const updateMarqueeAutoPan = (screenPos: Point) => {
+    runtime.marqueeAutoPan.screenPos = screenPos;
+    const canvas = deps.canvasRef.current;
+    const rect = canvas?.getBoundingClientRect();
+    if (!rect) {
+      stopMarqueeAutoPan();
+      return;
+    }
+
+    const delta = computeAutoPanDelta(screenPos, rect.width, rect.height);
+    if (delta.x === 0 && delta.y === 0) {
+      stopMarqueeAutoPan();
+      return;
+    }
+
+    if (runtime.marqueeAutoPan.frameId == null) {
+      runtime.marqueeAutoPan.frameId = requestAnimationFrame(runMarqueeAutoPan);
+    }
   };
 
   const handleSelectionHitTest = ({ worldPos, dynamic }: {
@@ -422,6 +534,7 @@ export const createSelectionHandlers = (
     deps.interaction.dispatch({ type: 'SELECTION_START' });
 
     if (mode === 'freehand' && tools.currentTool === 'selection') {
+      stopMarqueeAutoPan();
       deps.interaction.refs.selectionStart.current = null;
       freehandSession.active = true;
       freehandSession.points = [worldPos];
@@ -429,6 +542,7 @@ export const createSelectionHandlers = (
       return true;
     }
 
+    stopMarqueeAutoPan();
     deps.interaction.refs.selectionStart.current = worldPos;
     deps.setSelectionBounds(worldPos, worldPos);
     if (tools.currentTool === 'custom') {
@@ -477,16 +591,20 @@ export const createSelectionHandlers = (
 
   const handleSelectionPointerMove = ({
     worldPos,
+    screenPos,
   }: {
     worldPos: Point;
+    screenPos: Point;
   }): boolean => {
     clearStaleClickLineSession();
     if (clickLineSession.active) {
+      stopMarqueeAutoPan();
       drawPathPreview(clickLineSession.points, worldPos);
       return true;
     }
 
     if (freehandSession.active) {
+      stopMarqueeAutoPan();
       const points = freehandSession.points;
       const last = points[points.length - 1];
       const dx = worldPos.x - last.x;
@@ -499,16 +617,17 @@ export const createSelectionHandlers = (
     }
 
     if (!deps.interaction.state.isSelecting) {
+      stopMarqueeAutoPan();
       return false;
     }
 
     if (deps.interaction.refs.selectionStart.current) {
-      deps.setSelectionBounds(deps.interaction.refs.selectionStart.current, worldPos);
-    }
-    const canvas = deps.canvasRef.current;
-    const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-    if (ctx) {
-      deps.draw(ctx, deps.viewTransformRef.current);
+      redrawSelectionPreview(deps.interaction.refs.selectionStart.current, worldPos);
+      if (currentSelectionMode(getDynamicDeps().tools) === 'marquee') {
+        updateMarqueeAutoPan(screenPos);
+      } else {
+        stopMarqueeAutoPan();
+      }
     }
     return true;
   };
@@ -524,10 +643,12 @@ export const createSelectionHandlers = (
   }): boolean => {
     clearStaleClickLineSession();
     if (clickLineSession.active) {
+      stopMarqueeAutoPan();
       return true;
     }
 
     if (freehandSession.active) {
+      stopMarqueeAutoPan();
       let worldPos = rawWorldPos;
       if (dynamic.project) {
         worldPos = {
@@ -553,9 +674,11 @@ export const createSelectionHandlers = (
     }
 
     if (!deps.interaction.state.isSelecting) {
+      stopMarqueeAutoPan();
       return false;
     }
 
+    stopMarqueeAutoPan();
     deps.interaction.dispatch({ type: 'SELECTION_END' });
     let worldPos = rawWorldPos;
 
