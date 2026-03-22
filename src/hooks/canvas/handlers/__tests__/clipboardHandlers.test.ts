@@ -27,6 +27,10 @@ const createDeps = (): ClipboardDeps => {
 };
 
 describe('createClipboardHandlers', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('prefers internal clipboard payload with CC indices over image clipboard items', async () => {
     const deps = createDeps();
     const ccIndices = new Uint8Array([5, 6, 7, 8]);
@@ -89,5 +93,78 @@ describe('createClipboardHandlers', () => {
         colorCycleFlow: ccFlow,
       })
     );
+  });
+
+  it('keeps pasted image clipboard content at intrinsic size instead of fitting to the project', async () => {
+    const deps = createDeps();
+    const originalFileReader = global.FileReader;
+    const originalImage = global.Image;
+
+    const mockGetImageData = jest.fn(() => new ImageData(200, 150));
+    jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      ((contextId: string) => {
+        if (contextId !== '2d') {
+          return null;
+        }
+        return {
+          drawImage: jest.fn(),
+          getImageData: mockGetImageData,
+        } as unknown as CanvasRenderingContext2D;
+      }) as HTMLCanvasElement['getContext']
+    );
+
+    class MockFileReader {
+      onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+
+      readAsDataURL() {
+        this.onload?.({ target: { result: 'data:image/png;base64,fake' } } as ProgressEvent<FileReader>);
+      }
+    }
+
+    class MockImage {
+      width = 200;
+      height = 150;
+      onload: (() => void) | null = null;
+
+      set src(_value: string) {
+        this.onload?.();
+      }
+    }
+
+    try {
+      global.FileReader = MockFileReader as unknown as typeof FileReader;
+      global.Image = MockImage as unknown as typeof Image;
+
+      const event = {
+        preventDefault: jest.fn(),
+        clipboardData: {
+          items: [
+            {
+              type: 'image/png',
+              getAsFile: jest.fn(() => new Blob(['fake'], { type: 'image/png' })),
+            },
+          ],
+        },
+      } as unknown as ClipboardEvent;
+
+      const handlers = createClipboardHandlers(deps);
+      await handlers.handlePaste(event);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(deps.getViewportPastePosition).toHaveBeenCalledWith(200, 150);
+      expect(mockGetImageData).toHaveBeenCalledWith(0, 0, 200, 150);
+      expect(deps.setFloatingPaste).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: 200,
+          height: 150,
+          displayWidth: 200,
+          displayHeight: 150,
+        })
+      );
+    } finally {
+      global.FileReader = originalFileReader;
+      global.Image = originalImage;
+    }
   });
 });
