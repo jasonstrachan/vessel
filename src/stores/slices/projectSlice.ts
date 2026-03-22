@@ -31,6 +31,16 @@ type CustomBrushSnapshot = {
   defaultCustomBrushId: string | null;
 } | null;
 
+type ColorCycleLayerSnapshot = {
+  paintBuffer: ArrayBuffer;
+  gradientIdBuffer?: ArrayBuffer;
+  gradientDefIdBuffer?: ArrayBuffer;
+  speedBuffer?: ArrayBuffer;
+  flowBuffer?: ArrayBuffer;
+  hasContent: boolean;
+  strokeCounter: number;
+};
+
 const cloneImageData = (source: ImageData): ImageData => {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
 };
@@ -117,6 +127,96 @@ const scaleImageDataNearest = (
   }
 
   return scaled;
+};
+
+const scaleScalarBufferNearest = (
+  source: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  width: number,
+  height: number
+): Uint8Array => {
+  const scaled = new Uint8Array(width * height);
+
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor((y * sourceHeight) / height));
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor((x * sourceWidth) / width));
+      scaled[y * width + x] = source[sourceY * sourceWidth + sourceX] ?? 0;
+    }
+  }
+
+  return scaled;
+};
+
+const scaleScalarBufferNearest16 = (
+  source: Uint16Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  width: number,
+  height: number
+): Uint16Array => {
+  const scaled = new Uint16Array(width * height);
+
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor((y * sourceHeight) / height));
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor((x * sourceWidth) / width));
+      scaled[y * width + x] = source[sourceY * sourceWidth + sourceX] ?? 0;
+    }
+  }
+
+  return scaled;
+};
+
+const scaleColorCycleSnapshot = ({
+  snapshot,
+  sourceWidth,
+  sourceHeight,
+  width,
+  height,
+}: {
+  snapshot: ColorCycleLayerSnapshot;
+  sourceWidth: number;
+  sourceHeight: number;
+  width: number;
+  height: number;
+}): ColorCycleLayerSnapshot => {
+  const scaleUint8Buffer = (buffer?: ArrayBuffer): ArrayBuffer | undefined => {
+    if (!buffer) {
+      return undefined;
+    }
+    const source = new Uint8Array(buffer);
+    if (source.length !== sourceWidth * sourceHeight) {
+      return undefined;
+    }
+    return scaleScalarBufferNearest(source, sourceWidth, sourceHeight, width, height).buffer.slice(0) as ArrayBuffer;
+  };
+
+  const scaleUint16Buffer = (buffer?: ArrayBuffer): ArrayBuffer | undefined => {
+    if (!buffer) {
+      return undefined;
+    }
+    const source = new Uint16Array(buffer);
+    if (source.length !== sourceWidth * sourceHeight) {
+      return undefined;
+    }
+    return scaleScalarBufferNearest16(source, sourceWidth, sourceHeight, width, height).buffer.slice(0) as ArrayBuffer;
+  };
+
+  const scaledPaintBuffer = scaleUint8Buffer(snapshot.paintBuffer);
+  if (!scaledPaintBuffer) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    paintBuffer: scaledPaintBuffer,
+    gradientIdBuffer: scaleUint8Buffer(snapshot.gradientIdBuffer),
+    gradientDefIdBuffer: scaleUint16Buffer(snapshot.gradientDefIdBuffer),
+    speedBuffer: scaleUint8Buffer(snapshot.speedBuffer),
+    flowBuffer: scaleUint8Buffer(snapshot.flowBuffer),
+  };
 };
 
 const scaleCanvasContent = (
@@ -350,6 +450,30 @@ export const createProjectSlice =
         project: state.project,
         layers: state.layers,
       });
+      const colorCycleSnapshots = new Map<string, ColorCycleLayerSnapshot>();
+      if (colorCycleBrushManager) {
+        state.layers.forEach((layer) => {
+          if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode === 'recolor') {
+            return;
+          }
+
+          const brush = colorCycleBrushManager.getBrush(layer.id);
+          const snapshot = brush?.getLayerSnapshot?.(layer.id);
+          if (!snapshot?.paintBuffer) {
+            return;
+          }
+
+          colorCycleSnapshots.set(layer.id, {
+            paintBuffer: snapshot.paintBuffer.slice(0),
+            gradientIdBuffer: snapshot.gradientIdBuffer?.slice(0),
+            gradientDefIdBuffer: snapshot.gradientDefIdBuffer?.slice(0),
+            speedBuffer: snapshot.speedBuffer?.slice(0),
+            flowBuffer: snapshot.flowBuffer?.slice(0),
+            hasContent: snapshot.hasContent,
+            strokeCounter: snapshot.strokeCounter,
+          });
+        });
+      }
 
       let resizedLayers: Layer[] = state.layers;
       resizedLayers = state.layers.map((layer) => {
@@ -391,6 +515,35 @@ export const createProjectSlice =
               height
             )
           : null;
+        const sourceWidth = Math.max(
+          1,
+          layer.colorCycleData.canvasWidth ??
+            layer.colorCycleData.canvas?.width ??
+            layer.imageData?.width ??
+            state.project?.width ??
+            width
+        );
+        const sourceHeight = Math.max(
+          1,
+          layer.colorCycleData.canvasHeight ??
+            layer.colorCycleData.canvas?.height ??
+            layer.imageData?.height ??
+            state.project?.height ??
+            height
+        );
+        const scaledSnapshot = (() => {
+          const snapshot = colorCycleSnapshots.get(layer.id);
+          if (!snapshot) {
+            return null;
+          }
+          return scaleColorCycleSnapshot({
+            snapshot,
+            sourceWidth,
+            sourceHeight,
+            width,
+            height,
+          });
+        })();
 
         return {
           ...layer,
@@ -407,6 +560,12 @@ export const createProjectSlice =
               layer.colorCycleData.canvasImageData,
             canvasWidth: width,
             canvasHeight: height,
+            gradientIdBuffer:
+              scaledSnapshot?.gradientIdBuffer ??
+              layer.colorCycleData.gradientIdBuffer,
+            gradientDefIdBuffer:
+              scaledSnapshot?.gradientDefIdBuffer ??
+              layer.colorCycleData.gradientDefIdBuffer,
             eraseMask:
               (scaledEraseMask?.canvas as HTMLCanvasElement | null) ??
               layer.colorCycleData.eraseMask,
@@ -459,6 +618,64 @@ export const createProjectSlice =
       });
 
       get().setLayersNeedRecomposition(true);
+
+      if (colorCycleBrushManager) {
+        resizedLayers.forEach((layer) => {
+          if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode === 'recolor') {
+            return;
+          }
+
+          const scaledSnapshot = colorCycleSnapshots.get(layer.id);
+          const layerCanvas = layer.colorCycleData?.canvas;
+          const brush = colorCycleBrushManager.getBrush(layer.id);
+          if (!scaledSnapshot || !layerCanvas || !brush) {
+            return;
+          }
+
+          const nextSnapshot = scaleColorCycleSnapshot({
+            snapshot: scaledSnapshot,
+            sourceWidth: Math.max(1, state.project?.width ?? layerCanvas.width),
+            sourceHeight: Math.max(1, state.project?.height ?? layerCanvas.height),
+            width,
+            height,
+          });
+
+          try {
+            brush.setTargetCanvas?.(layerCanvas);
+            brush.applyLayerSnapshot?.(layer.id, nextSnapshot);
+            brush.renderDirectToCanvas?.(layerCanvas, layer.id);
+
+            const layerCtx = layerCanvas.getContext(
+              '2d',
+              { willReadFrequently: true } as CanvasRenderingContext2DSettings
+            );
+            const renderedImageData = layerCtx?.getImageData(0, 0, layerCanvas.width, layerCanvas.height);
+            if (renderedImageData) {
+              get().updateLayer(
+                layer.id,
+                {
+                  imageData: renderedImageData,
+                  colorCycleData: {
+                    ...(layer.colorCycleData ?? {}),
+                    canvas: layerCanvas,
+                    canvasImageData: renderedImageData,
+                    colorCycleBrush: brush,
+                    gradientIdBuffer:
+                      nextSnapshot.gradientIdBuffer ??
+                      layer.colorCycleData?.gradientIdBuffer,
+                    gradientDefIdBuffer:
+                      nextSnapshot.gradientDefIdBuffer ??
+                      layer.colorCycleData?.gradientDefIdBuffer,
+                  },
+                },
+                { skipColorCycleSync: true }
+              );
+            }
+          } catch {
+            // Best effort: the scaled layer canvas still preserves visible pixels.
+          }
+        });
+      }
 
       await recordResizeHistory({
         beforeProject: historyBaseline.projectSize,
