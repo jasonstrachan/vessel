@@ -240,6 +240,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
         pendingSelectionHistory: null,
         freehandSession: { active: false, points: [] },
         clickLineSession: { active: false, points: [] },
+        marqueeAutoPan: { frameId: null, screenPos: null },
       },
     },
     customFreehandCaptureRuntimeRef: {

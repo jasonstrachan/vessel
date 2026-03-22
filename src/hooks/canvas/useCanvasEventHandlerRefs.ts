@@ -21,6 +21,7 @@ export const useCanvasEventHandlerRefs = () => {
     pendingSelectionHistory: null,
     freehandSession: { active: false, points: [] },
     clickLineSession: { active: false, points: [] },
+    marqueeAutoPan: { frameId: null, screenPos: null },
   });
   const customFreehandCaptureRuntimeRef = useRef<CustomFreehandCaptureRuntimeState>({
     active: false,

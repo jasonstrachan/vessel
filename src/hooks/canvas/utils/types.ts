@@ -112,6 +112,10 @@ export interface SelectionRuntimeState {
   } | null;
   freehandSession: SelectionPathSession;
   clickLineSession: SelectionPathSession;
+  marqueeAutoPan: {
+    frameId: number | null;
+    screenPos: { x: number; y: number } | null;
+  };
 }
 
 export interface CustomFreehandCaptureRuntimeState {
