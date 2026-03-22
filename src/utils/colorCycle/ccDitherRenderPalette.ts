@@ -1,5 +1,9 @@
 import { parseColor } from '@/hooks/brushEngine/colorUtils';
-import { buildSpreadInkPalette, resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
+import {
+  buildSpreadInkPalette,
+  resolveStrokeDitherPalette,
+  spreadPaletteColors,
+} from '@/hooks/brushEngine/engineShared';
 import type { BrushSettings } from '@/types';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
@@ -23,6 +27,8 @@ const rgbDistance = (a: [number, number, number], b: [number, number, number]): 
 
 const formatRgb = (rgb: [number, number, number]): string =>
   `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+
+const rgbToCss = (rgb: [number, number, number]): string => formatRgb(rgb);
 
 const sampleGradientColor = (stops: StoredStop[], position: number): [number, number, number] => {
   const sorted = [...stops].sort((a, b) => a.position - b.position);
@@ -214,6 +220,7 @@ export const buildCcDitherRenderPalette = ({
   const bandCount = Math.max(0, Math.floor(bands || 0));
   const spreadStrength = clamp01((spread ?? 0) / 100);
   const useTriadStops = spreadStrength >= 0.95;
+  const preservesOrderedStops = baseStops.length > 2;
   if (!baseStops.length) {
     return { bandCount: 0, renderStops: baseStops.slice() };
   }
@@ -255,7 +262,36 @@ export const buildCcDitherRenderPalette = ({
 
   const renderStops: StoredStop[] = [];
   for (let band = 0; band < bandCount; band += 1) {
+    const segmentStart = band / bandCount;
     const center = clamp01((band + 0.5) / bandCount);
+    const segmentEnd = (band + 1) / bandCount;
+    if (preservesOrderedStops) {
+      const sourceColors = useTriadStops
+        ? [
+            rgbToCss(sampleGradientColor(baseStops, segmentStart)),
+            rgbToCss(sampleGradientColor(baseStops, center)),
+            rgbToCss(sampleGradientColor(baseStops, segmentEnd)),
+          ]
+        : [
+            rgbToCss(sampleGradientColor(baseStops, segmentStart)),
+            rgbToCss(sampleGradientColor(baseStops, segmentEnd)),
+          ];
+      const spreadColors = spreadPaletteColors(sourceColors, spread ?? 0);
+      if (useTriadStops && spreadColors.length >= 3) {
+        renderStops.push({ position: segmentStart, color: spreadColors[0] });
+        renderStops.push({ position: center, color: spreadColors[1] });
+        renderStops.push({ position: segmentEnd, color: spreadColors[2] });
+        continue;
+      }
+
+      renderStops.push({ position: segmentStart, color: spreadColors[0] ?? sourceColors[0] });
+      renderStops.push({
+        position: segmentEnd,
+        color: spreadColors[1] ?? sourceColors[sourceColors.length - 1],
+      });
+      continue;
+    }
+
     const targetRgb = sampleGradientColor(baseStops, center);
     const targetHex = formatRgb(targetRgb);
     const palette = useTriadStops
@@ -269,12 +305,9 @@ export const buildCcDitherRenderPalette = ({
           ditherBackgroundFill: false,
         }).palette;
     const triad = useTriadStops ? pickInkTriad(targetRgb, palette) : null;
-    const segmentStart = band / bandCount;
-    const segmentMid = (band + 0.5) / bandCount;
-    const segmentEnd = (band + 1) / bandCount;
     if (triad) {
       renderStops.push({ position: segmentStart, color: triad.low });
-      renderStops.push({ position: segmentMid, color: triad.mid });
+      renderStops.push({ position: center, color: triad.mid });
       renderStops.push({ position: segmentEnd, color: triad.high });
       continue;
     }

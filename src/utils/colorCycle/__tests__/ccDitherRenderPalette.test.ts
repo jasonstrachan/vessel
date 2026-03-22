@@ -93,6 +93,28 @@ describe('buildCcDitherRenderPalette', () => {
     expect(distinct.size).toBeGreaterThanOrEqual(3);
   });
 
+  it('preserves ordered colors for multi-stop gradients', () => {
+    const baseStops = [
+      { position: 0, color: '#ff0000' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 1, color: '#0000ff' },
+    ];
+
+    const palette = buildCcDitherRenderPalette({
+      baseStops,
+      bands: 2,
+      spread: 0,
+    });
+
+    expect(palette.bandCount).toBe(2);
+    expect(palette.renderStops).toEqual([
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 0.5, color: 'rgb(0, 255, 0)' },
+      { position: 0.5, color: 'rgb(0, 255, 0)' },
+      { position: 1, color: 'rgb(0, 0, 255)' },
+    ]);
+  });
+
   it('builds a flat two-ink palette when band count is zero', () => {
     const baseStops = [
       { position: 0, color: '#224466' },
