@@ -19,12 +19,14 @@ type BrushSnapshot = {
 
 export class CCMaskEraseStrategy implements EraseStrategy {
   private ctx: CanvasRenderingContext2D | null = null;
+  private overlayCtx: CanvasRenderingContext2D | null = null;
   private readonly stampCanvasCache = new WeakMap<ImageData, HTMLCanvasElement>();
 
   constructor(
     private readonly maskManager: MaskManager,
     private readonly layerId: string,
-    private readonly getBrushSnapshot: () => BrushSnapshot
+    private readonly getBrushSnapshot: () => BrushSnapshot,
+    private readonly previewOverlayCtx?: CanvasRenderingContext2D | null
   ) {}
 
   begin(layer: Layer, options: { opacity: number }): CanvasRenderingContext2D | null {
@@ -41,6 +43,15 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     } catch {}
     this.ctx.globalCompositeOperation = 'source-over';
     this.ctx.globalAlpha = options.opacity ?? 1;
+    this.overlayCtx = this.previewOverlayCtx ?? null;
+    if (this.overlayCtx) {
+      this.overlayCtx.save();
+      try {
+        this.overlayCtx.imageSmoothingEnabled = false;
+      } catch {}
+      this.overlayCtx.globalCompositeOperation = 'destination-out';
+      this.overlayCtx.globalAlpha = options.opacity ?? 1;
+    }
     return this.ctx;
   }
 
@@ -55,6 +66,9 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     }
     if (stampSource) {
       stampSource.draw(this.ctx, from, to, { pressure });
+      if (this.overlayCtx) {
+        stampSource.draw(this.overlayCtx, from, to, { pressure });
+      }
       return;
     }
     const snapshot = this.getBrushSnapshot();
@@ -72,6 +86,10 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     this.ctx.restore();
     this.maskManager.bumpVersion(this.layerId);
     this.ctx = null;
+    if (this.overlayCtx) {
+      this.overlayCtx.restore();
+      this.overlayCtx = null;
+    }
   }
 
   private computeStampSize(pressure: number, snapshot: BrushSnapshot): number {
@@ -118,6 +136,7 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     if (!ctx) {
       return;
     }
+    const overlayCtx = this.overlayCtx;
 
     const stamp = snapshot.customStamp;
     if (stamp?.imageData) {
@@ -126,20 +145,23 @@ export class CCMaskEraseStrategy implements EraseStrategy {
       const scale = size / maxDim;
       const width = stamp.width * scale;
       const height = stamp.height * scale;
-      ctx.drawImage(
-        source,
-        x - width / 2,
-        y - height / 2,
-        width,
-        height
-      );
+      const drawX = x - width / 2;
+      const drawY = y - height / 2;
+      ctx.drawImage(source, drawX, drawY, width, height);
+      overlayCtx?.drawImage(source, drawX, drawY, width, height);
       return;
     }
 
     if (snapshot.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) {
       this.drawTriangle(ctx, x, y, size);
+      if (overlayCtx) {
+        this.drawTriangle(overlayCtx, x, y, size);
+      }
     } else {
       this.drawSquare(ctx, x, y, size);
+      if (overlayCtx) {
+        this.drawSquare(overlayCtx, x, y, size);
+      }
     }
   }
 

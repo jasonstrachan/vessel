@@ -71,6 +71,7 @@ export const runFinalizeColorCycleCommitBranch = async ({
     project,
     drawingCanvas,
     strokeBoundingBox,
+    captureRoi,
     strokeCapturePadding,
     roiPadding,
     enableCaptureRoi,

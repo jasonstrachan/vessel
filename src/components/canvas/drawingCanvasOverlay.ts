@@ -50,23 +50,9 @@ export const drawCanvasOverlayLayer = ({
     return;
   }
 
-  const anyCCAnimating = layers.some(
-    (layer) =>
-      layer.visible &&
-      layer.layerType === 'color-cycle' &&
-      layer.colorCycleData?.mode !== 'recolor' &&
-      Boolean(layer.colorCycleData?.isAnimating)
-  );
-  const isManagerPlaying =
-    colorCycleManager && typeof colorCycleManager.isPlaying === 'function'
-      ? colorCycleManager.isPlaying()
-      : false;
-
-  const activelyDrawing = Boolean(isDrawing);
-  const overlayBlockedByAnimation = anyCCAnimating || isManagerPlaying;
-  if (overlayBlockedByAnimation && !activelyDrawing) {
-    return;
-  }
+  void layers;
+  void isDrawing;
+  void colorCycleManager;
 
   const { x, y, width, height } = visibleRect;
   if (width <= 0 || height <= 0) {

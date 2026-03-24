@@ -16,6 +16,7 @@ export type ColorCycleStrokeCommitArgs = {
   project: { width: number; height: number } | null;
   drawingCanvas: HTMLCanvasElement | null;
   strokeBoundingBox: BoundingBox | null;
+  captureRoi?: CaptureRegion;
   strokeCapturePadding: number;
   roiPadding: number;
   enableCaptureRoi: boolean;
@@ -168,6 +169,7 @@ export const commitColorCycleStrokeIfNeeded = async (
     brushSettings: args.brushSettings,
     project: args.project,
     strokeBoundingBox: args.strokeBoundingBox,
+    captureRoi: args.captureRoi,
     strokeCapturePadding: args.strokeCapturePadding,
     roiPadding: args.roiPadding,
     enableCaptureRoi: args.enableCaptureRoi,
@@ -182,8 +184,9 @@ export const commitColorCycleStrokeIfNeeded = async (
     dispatchFrameUpdate: deps.dispatchFrameUpdate,
   });
 
-  if (commitResult.strokeCaptureRoi) {
-    deps.clearEraseMaskInRegion(args.activeLayer.id, commitResult.strokeCaptureRoi);
+  const resolvedStrokeCaptureRoi = commitResult.strokeCaptureRoi ?? args.captureRoi;
+  if (resolvedStrokeCaptureRoi) {
+    deps.clearEraseMaskInRegion(args.activeLayer.id, resolvedStrokeCaptureRoi);
   }
 
   return {
@@ -191,6 +194,6 @@ export const commitColorCycleStrokeIfNeeded = async (
     skipped: false,
     brushForCleanup: commitResult.brushForCleanup,
     deferredLayerCanvas: commitResult.deferredLayerCanvas,
-    strokeCaptureRoi: commitResult.strokeCaptureRoi,
+    strokeCaptureRoi: resolvedStrokeCaptureRoi,
   };
 };
