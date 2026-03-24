@@ -1,3 +1,4 @@
+import type { Layer } from '@/types';
 import { drawCanvasOverlayLayer } from '@/components/canvas/drawingCanvasOverlay';
 
 jest.mock('@/utils/selectionMaskContourPath', () => ({
@@ -83,6 +84,46 @@ describe('drawCanvasOverlayLayer', () => {
 
     expect(ctx.translate).toHaveBeenCalledWith(5, 7);
     expect(ctx.clip).toHaveBeenCalledTimes(1);
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders overlay even when color-cycle animation is active', () => {
+    const ctx = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      clip: jest.fn(),
+      drawImage: jest.fn(),
+      translate: jest.fn(),
+      globalAlpha: 1,
+      globalCompositeOperation: 'source-over',
+    } as unknown as CanvasRenderingContext2D;
+
+    drawCanvasOverlayLayer({
+      ctx,
+      layers: [
+        {
+          id: 'layer-cc',
+          visible: true,
+          layerType: 'color-cycle',
+          colorCycleData: {
+            mode: 'brush',
+            isAnimating: true,
+          },
+        } as unknown as Layer,
+      ],
+      activeLayer: null,
+      visibleRect: { x: 0, y: 0, width: 100, height: 100 },
+      overlayCanvasElement: document.createElement('canvas'),
+      overlayActive: true,
+      isDrawing: false,
+      colorCycleManager: { isPlaying: () => true },
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionVectorPath: null,
+    });
+
     expect(ctx.drawImage).toHaveBeenCalledTimes(1);
   });
 });

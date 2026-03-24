@@ -57,7 +57,7 @@ export class EraserTool implements StrokeTool {
     const isColorCycleLayer = layer.layerType === 'color-cycle';
     this.stampSource = isColorCycleLayer ? null : deps.createStampSource();
     this.strategy = isColorCycleLayer
-      ? new CCMaskEraseStrategy(deps.maskManager, layer.id, deps.getBrushSettings)
+      ? new CCMaskEraseStrategy(deps.maskManager, layer.id, deps.getBrushSettings, deps.overlayCtx)
       : new RasterEraseStrategy(deps.overlayCtx);
   }
 
@@ -70,6 +70,10 @@ export class EraserTool implements StrokeTool {
     this.activeContext = ctx;
     if (ctx && this.stampSource) {
       this.stampSource.begin(ctx, point, pressure);
+    } else if (ctx) {
+      // Color-cycle erasing uses the mask strategy directly, so stamp once on pointer-down
+      // to keep taps and the first preview frame visible before any move event arrives.
+      this.strategy.stamp(point, point, pressure, null);
     }
 
     this.recordROI(null, point);

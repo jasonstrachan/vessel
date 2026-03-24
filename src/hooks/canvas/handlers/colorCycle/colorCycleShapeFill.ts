@@ -1,6 +1,7 @@
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
 import { useAppStore } from '@/stores/useAppStore';
 import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
@@ -49,6 +50,20 @@ const launchDeferredColorCycleShapeSave = (
   deps.scheduleDeferredColorCycleSaveWithState(args).catch((error) => {
     deps.logError('Deferred color cycle shape save failed', error);
   });
+};
+
+export const clearColorCycleShapeEraseMask = (
+  layerId: string,
+  roi?: DeferredSaveWithStateArgs['roi']
+): void => {
+  if (!roi) {
+    return;
+  }
+  clearColorCycleEraseMaskInRegion(
+    { current: useAppStore.getState() },
+    layerId,
+    roi
+  );
 };
 
 const snapshotTransparencyLockMask = (
@@ -498,6 +513,8 @@ export const finalizeColorCycleShapeFillLinear = async (
       deps.ccLog('shape: frameUpdate dispatched', { mode: 'linear' });
     } catch {}
 
+    clearColorCycleShapeEraseMask(args.activeLayerId, args.roi);
+
     if (args.shapeLayerId) {
       deps.ccLog('shape: wrote CC canvas', { mode: 'linear', layerId: args.shapeLayerId.slice(-6) });
       launchDeferredColorCycleShapeSave(deps, {
@@ -691,6 +708,8 @@ export const finalizeColorCycleShapeFillConcentric = async (
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
       deps.ccLog('shape: frameUpdate dispatched', { mode: 'concentric' });
     } catch {}
+
+    clearColorCycleShapeEraseMask(args.activeLayerId, args.roi);
 
     if (args.shapeLayerId) {
       deps.ccLog('shape: wrote CC canvas', { mode: 'concentric', layerId: args.shapeLayerId.slice(-6) });

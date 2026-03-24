@@ -135,6 +135,7 @@ export type CommitColorCycleLayerStrokeArgs = {
   brushSettings: BrushSettings;
   project: { width: number; height: number } | null;
   strokeBoundingBox: BoundingBox | null;
+  captureRoi?: CaptureRegion;
   strokeCapturePadding: number;
   roiPadding: number;
   enableCaptureRoi: boolean;
@@ -383,14 +384,14 @@ export const commitColorCycleLayerStroke = async (
   }
 
   deps.startFinalizeVisibleTimer();
-  let strokeCaptureRoi: CaptureRegion | undefined;
+  let strokeCaptureRoi: CaptureRegion | undefined = args.captureRoi;
   if (args.enableCaptureRoi && args.project) {
     deps.perfMark('cc:roi:start');
     strokeCaptureRoi = boundingBoxToCaptureRegion(
       args.strokeBoundingBox,
       args.roiPadding + args.strokeCapturePadding,
       args.project
-    );
+    ) ?? strokeCaptureRoi;
     deps.perfMark('cc:roi:end');
     deps.perfMeasure('cc:roi', 'cc:roi:start', 'cc:roi:end');
   }
