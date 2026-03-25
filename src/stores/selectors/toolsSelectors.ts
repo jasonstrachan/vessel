@@ -1,5 +1,9 @@
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings, BrushEditorState, PolygonGradientState, ToolState } from '@/types';
+import {
+  summarizeEligibleColorAdjustTargets,
+  type EligibleTargetSummary,
+} from '@/stores/helpers/colorAdjustSession';
 
 export const selectBrushSettings = (state: AppState): BrushSettings => state.tools.brushSettings;
 export const selectEraserSettings = (state: AppState): BrushSettings => state.tools.eraserSettings;
@@ -30,3 +34,7 @@ export const selectBrushPresetMeta = (state: AppState) => ({
 });
 export const selectTemporaryCustomBrush = (state: AppState) => state.temporaryCustomBrush;
 export const selectBrushEditorStatus = (state: AppState) => state.brushEditor.status;
+export const selectColorAdjustEligibleTargetSummary = (
+  state: AppState
+): EligibleTargetSummary =>
+  summarizeEligibleColorAdjustTargets(state.activeLayerId, state.selectedLayerIds, state.layers);

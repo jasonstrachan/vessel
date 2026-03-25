@@ -397,6 +397,12 @@ export interface AppState {
   selectionMaskBounds: Rectangle | null;
   selectionMaskLayerId: string | null;
   setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
+  appendSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
+  appendSelectionMask: (payload: {
+    mask: ImageData;
+    bounds: Rectangle;
+    layerId?: string | null;
+  }) => void;
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
   selectLayerAlpha: (layerId?: string | null) => void;

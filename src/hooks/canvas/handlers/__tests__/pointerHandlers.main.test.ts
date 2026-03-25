@@ -1035,7 +1035,8 @@ describe('pointerHandlers main flows', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
         ...baseDynamic.tools,
-        currentTool: 'magic-wand',
+        currentTool: 'selection',
+        selectionMode: 'magic-wand',
         wandSettings: { threshold: 0, contiguous: true },
       } as any,
       layers: [{ id: 'layer-1', imageData, layerType: 'raster' } as any],
@@ -1060,6 +1061,50 @@ describe('pointerHandlers main flows', () => {
     });
   });
 
+  it('creates magic wand selection from selection tool mode on a color-cycle layer', () => {
+    const imageData = new ImageData(
+      new Uint8ClampedArray([
+        255, 0, 0, 255,
+        0, 0, 255, 255,
+      ]),
+      2,
+      1
+    );
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        selectionMode: 'magic-wand',
+        wandSettings: { threshold: 0, contiguous: true },
+      } as any,
+      layers: [{
+        id: 'layer-cc',
+        imageData,
+        layerType: 'color-cycle',
+        colorCycleData: {},
+      } as any],
+      activeLayerId: 'layer-cc',
+      project: { ...mockProject, width: 2, height: 1 },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0 }));
+
+    const state = useAppStore.getState();
+    expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    expect(state.selectionMaskLayerId).toBe('layer-cc');
+
+    useAppStore.setState({
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+  });
+
   it('creates non-contiguous magic wand selection mask', () => {
     const imageData = new ImageData(3, 1);
     const px = imageData.data;
@@ -1071,7 +1116,8 @@ describe('pointerHandlers main flows', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
         ...baseDynamic.tools,
-        currentTool: 'magic-wand',
+        currentTool: 'selection',
+        selectionMode: 'magic-wand',
         wandSettings: { threshold: 0, contiguous: false },
       } as any,
       layers: [{ id: 'layer-1', imageData, layerType: 'raster' } as any],
@@ -1093,6 +1139,89 @@ describe('pointerHandlers main flows', () => {
     expect(mask.data[3]).toBe(255);
     expect(mask.data[7]).toBe(0);
     expect(mask.data[11]).toBe(255);
+
+    useAppStore.setState({
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+  });
+
+  it('appends magic wand selection when Shift is held', () => {
+    const imageData = new ImageData(3, 1);
+    const px = imageData.data;
+    px.set([255, 0, 0, 255], 0);
+    px.set([0, 0, 255, 255], 4);
+    px.set([255, 0, 0, 255], 8);
+
+    useAppStore.setState({
+      selectionStart: { x: 2, y: 0 },
+      selectionEnd: { x: 3, y: 1 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: 'layer-1',
+    });
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        selectionMode: 'magic-wand',
+        wandSettings: { threshold: 0, contiguous: true },
+      } as any,
+      layers: [{ id: 'layer-1', imageData, layerType: 'raster' } as any],
+      activeLayerId: 'layer-1',
+      project: { ...mockProject, width: 3, height: 1 },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0, shiftKey: true }));
+
+    const state = useAppStore.getState();
+    expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 3, height: 1 });
+    expect(state.selectionMask?.data[3]).toBe(255);
+    expect(state.selectionMask?.data[11]).toBe(255);
+
+    useAppStore.setState({
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+  });
+
+  it('preserves the existing selection while starting a Shift-marquee append', () => {
+    useAppStore.setState({
+      selectionStart: { x: 40, y: 40 },
+      selectionEnd: { x: 50, y: 50 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'selection',
+        selectionMode: 'marquee',
+      } as any,
+      selectionStart: { x: 40, y: 40 },
+      selectionEnd: { x: 50, y: 50 },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    dynamicDepsRef.current.selectionStart = { x: 40, y: 40 } as any;
+    dynamicDepsRef.current.selectionEnd = { x: 50, y: 50 } as any;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0, shiftKey: true }));
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 40, y: 40 });
+    expect(state.selectionEnd).toEqual({ x: 50, y: 50 });
 
     useAppStore.setState({
       selectionStart: null,

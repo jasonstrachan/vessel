@@ -431,7 +431,8 @@ export function useComprehensiveKeyboard({
     }
     if (scopedShortcut === 'tool-magic-wand') {
       event.preventDefault();
-      await switchTool('magic-wand');
+      useAppStore.getState().setSelectionMode('magic-wand');
+      await switchTool('selection');
       return;
     }
     if (scopedShortcut === 'tool-brush') {

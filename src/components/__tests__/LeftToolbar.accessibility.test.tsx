@@ -8,19 +8,21 @@ jest.mock('@/utils/toolSwitch', () => ({
 }));
 
 type ToolbarStore = {
-  tools: { currentTool: string };
+  tools: { currentTool: string; selectionMode?: string };
   ui: { grid: { enabled: boolean } };
   saveProject: jest.Mock;
   toggleGrid: jest.Mock;
   toggleModal: jest.Mock;
+  setSelectionMode: jest.Mock;
 };
 
 const mockStore: ToolbarStore = {
-  tools: { currentTool: 'brush' },
+  tools: { currentTool: 'brush', selectionMode: 'marquee' },
   ui: { grid: { enabled: false } },
   saveProject: jest.fn().mockResolvedValue(undefined),
   toggleGrid: jest.fn(),
   toggleModal: jest.fn(),
+  setSelectionMode: jest.fn(),
 };
 
 jest.mock('@/stores/useAppStore', () => {
@@ -52,6 +54,7 @@ describe('LeftToolbar accessibility', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStore.tools.currentTool = 'brush';
+    mockStore.tools.selectionMode = 'marquee';
     mockStore.ui.grid.enabled = false;
   });
 
@@ -83,8 +86,19 @@ describe('LeftToolbar accessibility', () => {
     fireEvent.click(wandButton);
 
     await waitFor(() => {
-      expect(mockSwitchTool).toHaveBeenCalledWith('magic-wand');
+      expect(mockStore.setSelectionMode).toHaveBeenCalledWith('magic-wand');
+      expect(mockSwitchTool).toHaveBeenCalledWith('selection');
     });
+  });
+
+  it('treats selection wand mode as the active wand button state', () => {
+    mockStore.tools.currentTool = 'selection';
+    mockStore.tools.selectionMode = 'magic-wand';
+
+    render(<LeftToolbar />);
+
+    expect(screen.getByRole('button', { name: /magic wand \(w\)/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /selection \(m\)/i })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('routes save actions through the store API for accessibility buttons', async () => {

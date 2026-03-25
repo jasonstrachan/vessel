@@ -1,8 +1,12 @@
-import { createSelectionHandlers } from '@/hooks/canvas/handlers/selectionHandlers';
+import {
+  createSelectionHandlers,
+  finalizeClickLineSelectionSession,
+} from '@/hooks/canvas/handlers/selectionHandlers';
 import type { SelectionHandlerDeps } from '@/hooks/canvas/handlers/selectionHandlers';
 import type { EventHandlerDynamicDeps } from '@/hooks/canvas/utils/types';
 import type { BrushSettings, PaletteState, PolygonGradientState } from '@/types';
 import { BrushShape } from '@/types';
+import { useAppStore } from '@/stores/useAppStore';
 
 const createCanvas = () => {
   const canvas = document.createElement('canvas') as HTMLCanvasElement & {
@@ -148,5 +152,167 @@ describe('selectionHandlers marquee auto-pan', () => {
     const latestEnd = setSelectionBounds.mock.calls.at(-1)?.[1];
     expect(latestEnd?.x).toBeGreaterThan(98);
     expect(draw).toHaveBeenCalled();
+  });
+});
+
+describe('selectionHandlers append selection', () => {
+  afterEach(() => {
+    useAppStore.getState().clearSelection();
+    jest.restoreAllMocks();
+  });
+
+  it('appends marquee bounds when Shift is held on pointer up', () => {
+    const dynamic = createDynamicDeps();
+    const deps: SelectionHandlerDeps = {
+      interaction: {
+        state: { isDrawing: false, isSelecting: true, drawingMode: 'idle' },
+        dispatch: jest.fn(),
+        refs: {
+          selectionStart: { current: { x: 10, y: 10 } },
+        },
+      },
+      setSelectionBounds: jest.fn(),
+      clearSelection: jest.fn(),
+      setShowBrushCursor: jest.fn(),
+      canvasRef: { current: createCanvas() },
+      overlayCanvasRef: { current: createCanvas() },
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      pan: {
+        screenToWorld: (x, y) => ({ x, y }),
+      },
+      draw: jest.fn(),
+      updateBrushCursorVisibility: jest.fn(),
+      flushAndSetCurrentTool: jest.fn(),
+      selectionRuntimeRef: {
+        current: {
+          pendingSelectionHistory: null,
+          freehandSession: { active: false, points: [] },
+          clickLineSession: { active: false, points: [] },
+          marqueeAutoPan: { frameId: null, screenPos: null },
+        },
+      },
+    };
+
+    useAppStore.setState({
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 5, y: 5 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    const handlers = createSelectionHandlers(deps, () => dynamic);
+    const handled = handlers.handleSelectionPointerUp({
+      event: {
+        pointerId: 1,
+        shiftKey: true,
+      } as React.PointerEvent<Element>,
+      worldPos: { x: 20, y: 20 },
+      dynamic,
+    });
+
+    expect(handled).toBe(true);
+    expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 20, height: 20 });
+  });
+
+  it('appends click-line masks when Shift is held', () => {
+    useAppStore.setState({
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    const dynamic = createDynamicDeps();
+    const runtime = {
+      pendingSelectionHistory: null,
+      freehandSession: { active: false, points: [] },
+      clickLineSession: {
+        active: true,
+        points: [
+          { x: 10, y: 10 },
+          { x: 12, y: 10 },
+          { x: 12, y: 12 },
+        ],
+      },
+      marqueeAutoPan: { frameId: null, screenPos: null },
+    };
+
+    const handled = finalizeClickLineSelectionSession({
+      runtime,
+      dynamic,
+      outcome: 'selection-click-line',
+      append: true,
+    });
+
+    expect(handled).toBe(true);
+    expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 12, height: 12 });
+  });
+
+  it('appends freehand masks when Shift is held on pointer up', () => {
+    useAppStore.setState({
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    const dynamic = {
+      ...createDynamicDeps(),
+      tools: {
+        ...createDynamicDeps().tools,
+        selectionMode: 'freehand',
+      },
+    };
+    const deps: SelectionHandlerDeps = {
+      interaction: {
+        state: { isDrawing: false, isSelecting: true, drawingMode: 'idle' },
+        dispatch: jest.fn(),
+        refs: {
+          selectionStart: { current: null },
+        },
+      },
+      setSelectionBounds: jest.fn(),
+      clearSelection: jest.fn(),
+      setShowBrushCursor: jest.fn(),
+      canvasRef: { current: createCanvas() },
+      overlayCanvasRef: { current: createCanvas() },
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      pan: {
+        screenToWorld: (x, y) => ({ x, y }),
+      },
+      draw: jest.fn(),
+      updateBrushCursorVisibility: jest.fn(),
+      flushAndSetCurrentTool: jest.fn(),
+      selectionRuntimeRef: {
+        current: {
+          pendingSelectionHistory: null,
+          freehandSession: {
+            active: true,
+            points: [
+              { x: 10, y: 10 },
+              { x: 12, y: 10 },
+            ],
+          },
+          clickLineSession: { active: false, points: [] },
+          marqueeAutoPan: { frameId: null, screenPos: null },
+        },
+      },
+    };
+
+    const handlers = createSelectionHandlers(deps, () => dynamic as EventHandlerDynamicDeps);
+    const handled = handlers.handleSelectionPointerUp({
+      event: {
+        pointerId: 2,
+        shiftKey: true,
+      } as React.PointerEvent<Element>,
+      worldPos: { x: 12, y: 12 },
+      dynamic: dynamic as EventHandlerDynamicDeps,
+    });
+
+    expect(handled).toBe(true);
+    expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 12, height: 12 });
   });
 });

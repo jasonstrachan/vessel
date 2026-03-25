@@ -262,6 +262,9 @@ describe('tools slice', () => {
 
     store.setSelectionMode('click-line');
     expect(useAppStore.getState().tools.selectionMode).toBe('click-line');
+
+    store.setSelectionMode('magic-wand');
+    expect(useAppStore.getState().tools.selectionMode).toBe('magic-wand');
   });
 
   it('initializes magic wand settings with expected defaults', () => {

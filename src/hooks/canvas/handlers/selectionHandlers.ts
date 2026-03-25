@@ -8,6 +8,7 @@ import type {
   EventHandlerDynamicDeps,
   SelectionRuntimeState,
 } from '../utils/types';
+import { applyMaskSelectionResult } from './selectionApply';
 
 type Point = { x: number; y: number };
 type SelectionDynamicDeps = Pick<
@@ -49,6 +50,7 @@ export type SelectionHandlers = {
     worldPos: Point;
     pointerId: number;
     clickCount: number;
+    shiftKey: boolean;
     tools: SelectionDynamicDeps['tools'];
     dynamic: SelectionDynamicDeps;
   }) => boolean;
@@ -146,7 +148,8 @@ const buildMaskFromPath = (
 const applyMaskSelection = (
   dynamic: SelectionDynamicDeps,
   points: Point[],
-  mode: 'freehand' | 'click-line'
+  mode: 'freehand' | 'click-line',
+  append: boolean
 ): boolean => {
   const built = buildMaskFromPath(points, dynamic.project);
   if (!built) {
@@ -154,16 +157,15 @@ const applyMaskSelection = (
     return false;
   }
 
-  useAppStore.setState({
-    selectionStart: { x: built.bounds.x, y: built.bounds.y },
-    selectionEnd: { x: built.bounds.x + built.bounds.width, y: built.bounds.y + built.bounds.height },
-    selectionVectorPath: {
+  applyMaskSelectionResult({
+    append,
+    mask: built.mask,
+    bounds: built.bounds,
+    layerId: dynamic.activeLayerId ?? null,
+    vectorPath: {
       mode,
       points: points.map((point) => ({ x: point.x, y: point.y })),
     },
-    selectionMask: built.mask,
-    selectionMaskBounds: built.bounds,
-    selectionMaskLayerId: dynamic.activeLayerId ?? null,
   });
   return true;
 };
@@ -195,12 +197,14 @@ export const finalizeClickLineSelectionSession = ({
   clearOverlay,
   outcome,
   historyMeta,
+  append = false,
 }: {
   runtime: SelectionRuntimeState;
   dynamic: SelectionRuntimeDynamicDeps;
   clearOverlay?: () => void;
   outcome: string;
   historyMeta?: Record<string, unknown>;
+  append?: boolean;
 }): boolean => {
   if (!runtime.clickLineSession.active) {
     return false;
@@ -215,7 +219,7 @@ export const finalizeClickLineSelectionSession = ({
   runtime.clickLineSession.points = [];
   clearOverlay?.();
 
-  if (applyMaskSelection(dynamic, points, 'click-line')) {
+  if (applyMaskSelection(dynamic, points, 'click-line', append)) {
     commitRuntimeSelectionHistory(runtime, {
       outcome,
       ...(historyMeta ?? {}),
@@ -250,6 +254,9 @@ export const createSelectionHandlers = (
   getDynamicDeps: () => SelectionDynamicDeps
 ): SelectionHandlers => {
   const runtime = deps.selectionRuntimeRef.current;
+  if (!runtime.marqueeAutoPan) {
+    runtime.marqueeAutoPan = { frameId: null, screenPos: null };
+  }
   const { freehandSession, clickLineSession } = runtime;
   const MARQUEE_AUTO_PAN_EDGE_PX = 20;
   const MARQUEE_AUTO_PAN_MAX_SPEED_PX = 18;
@@ -484,12 +491,14 @@ export const createSelectionHandlers = (
     worldPos,
     pointerId,
     clickCount,
+    shiftKey,
     tools,
     dynamic,
   }: {
     worldPos: Point;
     pointerId: number;
     clickCount: number;
+    shiftKey: boolean;
     tools: SelectionDynamicDeps['tools'];
     dynamic: SelectionDynamicDeps;
   }): boolean => {
@@ -499,6 +508,10 @@ export const createSelectionHandlers = (
     }
 
     const mode = currentSelectionMode(tools);
+    if (mode === 'magic-wand' && tools.currentTool === 'selection') {
+      return false;
+    }
+
     if (mode === 'click-line' && tools.currentTool === 'selection') {
       if (!clickLineSession.active) {
         beginHistory(tools, pointerId);
@@ -522,6 +535,7 @@ export const createSelectionHandlers = (
           clearOverlay,
           outcome: 'selection-click-line',
           historyMeta: { pointerId },
+          append: shiftKey,
         });
       }
 
@@ -544,7 +558,9 @@ export const createSelectionHandlers = (
 
     stopMarqueeAutoPan();
     deps.interaction.refs.selectionStart.current = worldPos;
-    deps.setSelectionBounds(worldPos, worldPos);
+    if (!shiftKey) {
+      deps.setSelectionBounds(worldPos, worldPos);
+    }
     if (tools.currentTool === 'custom') {
       deps.setShowBrushCursor(false);
     }
@@ -664,7 +680,7 @@ export const createSelectionHandlers = (
       freehandSession.active = false;
       freehandSession.points = [];
       clearOverlay();
-      if (applyMaskSelection(dynamic, points, 'freehand')) {
+      if (applyMaskSelection(dynamic, points, 'freehand', event.shiftKey)) {
         finishHistory(event.pointerId, 'selection-freehand');
       } else {
         runtime.pendingSelectionHistory = null;
@@ -690,7 +706,14 @@ export const createSelectionHandlers = (
     }
 
     if (deps.interaction.refs.selectionStart.current) {
-      deps.setSelectionBounds(deps.interaction.refs.selectionStart.current, worldPos);
+      if (event.shiftKey) {
+        useAppStore.getState().appendSelectionBounds(
+          deps.interaction.refs.selectionStart.current,
+          worldPos
+        );
+      } else {
+        deps.setSelectionBounds(deps.interaction.refs.selectionStart.current, worldPos);
+      }
       if (dynamic.tools.currentTool === 'custom') {
         void deps.flushAndSetCurrentTool('brush');
         deps.clearSelection();

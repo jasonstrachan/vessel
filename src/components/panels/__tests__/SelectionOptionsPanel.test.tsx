@@ -46,6 +46,7 @@ describe('SelectionOptionsPanel', () => {
     expect(screen.getByRole('button', { name: 'Marquee' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Freehand' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Click Line' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Magic Wand' })).toBeInTheDocument();
   });
 
   it('updates selection mode when selecting an option', () => {
@@ -59,6 +60,20 @@ describe('SelectionOptionsPanel', () => {
     render(<BrushSettingsPanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Freehand' }));
     expect(useAppStore.getState().tools.selectionMode).toBe('freehand');
+  });
+
+  it('renders magic wand controls from the selection panel when wand mode is active', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: { ...state.tools, currentTool: 'selection', selectionMode: 'magic-wand' },
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+
+    expect(screen.getByLabelText('Magic Wand Threshold')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox')).toBeInTheDocument();
   });
 
   it('renders flip controls for the selection transform', () => {

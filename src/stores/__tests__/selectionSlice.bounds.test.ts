@@ -38,6 +38,21 @@ const createProject = (layer: Layer): Project => ({
 describe('selection slice bounds helpers', () => {
   const alphaAt = (mask: ImageData, x: number, y: number): number =>
     mask.data[(y * mask.width + x) * 4 + 3];
+  const createMask = (
+    width: number,
+    height: number,
+    opaquePixels: Array<{ x: number; y: number }>
+  ): ImageData => {
+    const mask = new ImageData(width, height);
+    opaquePixels.forEach(({ x, y }) => {
+      const index = (y * width + x) * 4;
+      mask.data[index] = 255;
+      mask.data[index + 1] = 255;
+      mask.data[index + 2] = 255;
+      mask.data[index + 3] = 255;
+    });
+    return mask;
+  };
 
   const resetStore = () => {
     useAppStore.setState({
@@ -115,6 +130,70 @@ describe('selection slice bounds helpers', () => {
     expect(useAppStore.getState().selectionMask).toBeNull();
     expect(useAppStore.getState().selectionMaskBounds).toBeNull();
     expect(useAppStore.getState().selectionMaskLayerId).toBeNull();
+  });
+
+  it('appendSelectionBounds merges an incoming marquee with an existing marquee', () => {
+    useAppStore.setState({
+      activeLayerId: 'layer-1',
+      selectionStart: { x: 2, y: 3 },
+      selectionEnd: { x: 4, y: 5 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    } as Partial<ReturnType<typeof useAppStore.getState>>);
+
+    useAppStore.getState().appendSelectionBounds({ x: 6, y: 4 }, { x: 8, y: 7 });
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 2, y: 3 });
+    expect(state.selectionEnd).toEqual({ x: 8, y: 7 });
+    expect(state.selectionMaskBounds).toEqual({ x: 2, y: 3, width: 6, height: 4 });
+    expect(state.selectionMaskLayerId).toBe('layer-1');
+    expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
+    expect(alphaAt(state.selectionMask as ImageData, 4, 1)).toBe(255);
+  });
+
+  it('appendSelectionMask merges an incoming mask with an existing marquee', () => {
+    useAppStore.setState({
+      activeLayerId: 'layer-1',
+      selectionStart: { x: 2, y: 2 },
+      selectionEnd: { x: 4, y: 4 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    } as Partial<ReturnType<typeof useAppStore.getState>>);
+
+    useAppStore.getState().appendSelectionMask({
+      mask: createMask(2, 2, [{ x: 1, y: 1 }]),
+      bounds: { x: 5, y: 5, width: 2, height: 2 },
+    });
+
+    const state = useAppStore.getState();
+    expect(state.selectionMaskBounds).toEqual({ x: 2, y: 2, width: 5, height: 5 });
+    expect(state.selectionMaskLayerId).toBe('layer-1');
+    expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
+    expect(alphaAt(state.selectionMask as ImageData, 4, 4)).toBe(255);
+    expect(alphaAt(state.selectionMask as ImageData, 3, 3)).toBe(0);
+  });
+
+  it('appendSelectionBounds merges into an existing mask selection', () => {
+    useAppStore.setState({
+      activeLayerId: 'layer-active',
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      selectionMask: createMask(2, 2, [{ x: 1, y: 0 }]),
+      selectionMaskBounds: { x: 4, y: 4, width: 2, height: 2 },
+      selectionMaskLayerId: 'layer-mask',
+    } as Partial<ReturnType<typeof useAppStore.getState>>);
+
+    useAppStore.getState().appendSelectionBounds({ x: 0, y: 0 }, { x: 2, y: 1 });
+
+    const state = useAppStore.getState();
+    expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 6, height: 6 });
+    expect(state.selectionMaskLayerId).toBe('layer-active');
+    expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
+    expect(alphaAt(state.selectionMask as ImageData, 5, 4)).toBe(255);
+    expect(alphaAt(state.selectionMask as ImageData, 3, 3)).toBe(0);
   });
 
   it('invertSelection inverts marquee bounds across the active layer dimensions', () => {
