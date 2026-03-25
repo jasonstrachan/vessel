@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useCallback, useEffect } from 'react';
-import { shallow } from 'zustand/shallow';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/stores/useAppStore';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import CustomSwitch from '@/components/ui/CustomSwitch';
@@ -42,7 +42,7 @@ const ColorAdjustToolPanel: React.FC = () => {
   const resetColorAdjustParams = useAppStore((state) => state.resetColorAdjustParams);
   const startColorAdjustSession = useAppStore((state) => state.startColorAdjustSession);
   const previousTool = useAppStore(selectPreviousTool);
-  const eligibleTargetSummary = useAppStore(selectColorAdjustEligibleTargetSummary, shallow);
+  const eligibleTargetSummary = useAppStore(useShallow(selectColorAdjustEligibleTargetSummary));
   const switchTool = useToolSwitcher();
   const hasValidLayer = eligibleTargetSummary.hasValidLayer;
   const layerName = eligibleTargetSummary.label;
