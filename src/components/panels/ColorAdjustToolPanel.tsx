@@ -1,13 +1,17 @@
 'use client';
 
 import React, { useMemo, useCallback, useEffect } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useAppStore } from '@/stores/useAppStore';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import CustomSwitch from '@/components/ui/CustomSwitch';
 import HueRangeStrip from '@/components/ui/HueRangeStrip';
 import type { ColorAdjustParams, Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
-import { selectPreviousTool } from '@/stores/selectors/toolsSelectors';
+import {
+  selectColorAdjustEligibleTargetSummary,
+  selectPreviousTool,
+} from '@/stores/selectors/toolsSelectors';
 
 type ParamKey = keyof ColorAdjustParams;
 type SliderParamKey = Exclude<ParamKey, 'hueRangeEnabled' | 'hueRangeStart' | 'hueRangeEnd'>;
@@ -38,35 +42,11 @@ const ColorAdjustToolPanel: React.FC = () => {
   const resetColorAdjustParams = useAppStore((state) => state.resetColorAdjustParams);
   const startColorAdjustSession = useAppStore((state) => state.startColorAdjustSession);
   const previousTool = useAppStore(selectPreviousTool);
-  const hasValidLayer = useAppStore((state) => {
-    if (!state.activeLayerId) {
-      return false;
-    }
-    const layer = state.layers.find((l) => l.id === state.activeLayerId);
-    if (!layer) {
-      return false;
-    }
-    if (layer.layerType === 'normal') {
-      return Boolean(layer.imageData);
-    }
-    if (layer.layerType === 'color-cycle') {
-      return Boolean(
-        (layer.colorCycleData?.recolorSettings?.gradient?.length ?? 0) > 0 ||
-        (layer.colorCycleData?.gradient?.length ?? 0) > 0 ||
-        (layer.colorCycleData?.slotPalettes?.some((entry) => entry.stops.length > 0) ?? false) ||
-        (layer.colorCycleData?.gradientDefStore?.some((entry) => entry.stops.length > 0) ?? false)
-      );
-    }
-    return false;
-  });
-  const layerName = useAppStore((state) => {
-    if (!state.activeLayerId) {
-      return 'Layer';
-    }
-    const layer = state.layers.find((l) => l.id === state.activeLayerId);
-    return layer?.name ?? 'Layer';
-  });
+  const eligibleTargetSummary = useAppStore(selectColorAdjustEligibleTargetSummary, shallow);
   const switchTool = useToolSwitcher();
+  const hasValidLayer = eligibleTargetSummary.hasValidLayer;
+  const layerName = eligibleTargetSummary.label;
+  const targetCount = eligibleTargetSummary.count;
 
   const handleSliderChange = useCallback(
     (key: ParamKey) => (value: number) => {
@@ -128,9 +108,11 @@ const ColorAdjustToolPanel: React.FC = () => {
     );
   }, [session.params]);
 
-  const scopeLabel = session.targetLayerType === 'color-cycle'
-    ? 'Gradient'
-    : (session.selectionBounds ? 'Selection' : 'Layer');
+  const scopeLabel = targetCount > 1
+    ? 'Layers'
+    : session.targetLayerType === 'color-cycle'
+      ? 'Gradient'
+      : (session.selectionBounds ? 'Selection' : 'Layer');
 
   useEffect(() => {
     if (!session.active && hasValidLayer) {

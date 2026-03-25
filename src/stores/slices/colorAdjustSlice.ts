@@ -11,6 +11,9 @@ import {
   captureLayerStructureSnapshot,
   commitLayerStructureHistory,
 } from '@/stores/helpers/layerStructureHistory';
+import {
+  buildColorAdjustSessionTargets,
+} from '@/stores/helpers/colorAdjustSession';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import { applyColorAdjustments } from '@/utils/imageProcessing';
 import { parseCssColor } from '@/utils/color/parseCssColor';
@@ -27,8 +30,9 @@ type AppState = import('../useAppStore').AppState;
 
 let colorAdjustPreviewHandle: number | null = null;
 let colorAdjustLayerStructureBefore: LayerStructureSnapshot | null = null;
-let colorAdjustOriginalColorCycleData: Layer['colorCycleData'] | null = null;
-let colorAdjustOriginalColorCycleSnapshot: ColorCycleRuntimeSnapshot | null = null;
+const colorAdjustOriginalImageDataByLayerId = new Map<string, ImageData>();
+const colorAdjustOriginalColorCycleDataByLayerId = new Map<string, Layer['colorCycleData']>();
+const colorAdjustOriginalColorCycleSnapshotByLayerId = new Map<string, ColorCycleRuntimeSnapshot>();
 
 // Per-layer working buffers to avoid reallocations during slider drags
 const workingImageCache = new Map<string, ImageData>();
@@ -57,6 +61,13 @@ const hasColorAdjustments = (params: ColorAdjustParams): boolean =>
   params.red !== 0 ||
   params.green !== 0 ||
   params.blue !== 0;
+
+const resetColorAdjustSessionCaches = (): void => {
+  colorAdjustLayerStructureBefore = null;
+  colorAdjustOriginalImageDataByLayerId.clear();
+  colorAdjustOriginalColorCycleDataByLayerId.clear();
+  colorAdjustOriginalColorCycleSnapshotByLayerId.clear();
+};
 
 const resolveSelectionBounds = (
   state: AppState,
@@ -868,7 +879,377 @@ export const createDefaultColorAdjustState = (): ColorAdjustState => ({
   targetLayerType: null,
   selectionBounds: null,
   targetLayerId: null,
+  targetLayerIds: [],
 });
+
+const applySessionTargetsToCaches = (
+  sessionTargets: ReturnType<typeof buildColorAdjustSessionTargets<ColorCycleRuntimeSnapshot>>
+): void => {
+  colorAdjustOriginalImageDataByLayerId.clear();
+  colorAdjustOriginalColorCycleDataByLayerId.clear();
+  colorAdjustOriginalColorCycleSnapshotByLayerId.clear();
+
+  sessionTargets.originalImageDataByLayerId.forEach((value, key) => {
+    colorAdjustOriginalImageDataByLayerId.set(key, value);
+  });
+  sessionTargets.originalColorCycleDataByLayerId.forEach((value, key) => {
+    colorAdjustOriginalColorCycleDataByLayerId.set(key, value);
+  });
+  sessionTargets.originalColorCycleSnapshotByLayerId.forEach((value, key) => {
+    colorAdjustOriginalColorCycleSnapshotByLayerId.set(key, value as ColorCycleRuntimeSnapshot);
+  });
+};
+
+const buildSessionTargets = (state: AppState) =>
+  buildColorAdjustSessionTargets<ColorCycleRuntimeSnapshot>({
+    state,
+    cloneColorCycleData,
+    resolveColorCycleGradient,
+    snapshotLayerImageData,
+    resolveSelectionBounds,
+    captureColorCycleRuntimeSnapshot,
+  });
+
+const previewColorCycleLayerAdjustments = ({
+  state,
+  set,
+  get,
+  layer,
+  params,
+}: {
+  state: AppState;
+  set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0];
+  get: () => AppState;
+  layer: Layer;
+  params: ColorAdjustParams;
+}): void => {
+  const originalColorCycleData = colorAdjustOriginalColorCycleDataByLayerId.get(layer.id);
+  if (!originalColorCycleData || layer.layerType !== 'color-cycle') {
+    return;
+  }
+
+  const originalRuntimeSnapshot =
+    colorAdjustOriginalColorCycleSnapshotByLayerId.get(layer.id) ?? null;
+  const colorCycleSelectionScope = resolveSelectionRasterScope({
+    selectionStart: state.selectionStart,
+    selectionEnd: state.selectionEnd,
+    selectionMask: state.selectionMask,
+    selectionMaskBounds: state.selectionMaskBounds,
+  }, layer.imageData?.width ?? state.project?.width ?? 0, layer.imageData?.height ?? state.project?.height ?? 0);
+
+  if (
+    originalRuntimeSnapshot &&
+    !originalColorCycleData.recolorSettings &&
+    previewSelectedColorCycleRegion(
+      state,
+      set,
+      get,
+      layer,
+      originalColorCycleData,
+      originalRuntimeSnapshot,
+      params,
+      colorCycleSelectionScope
+    )
+  ) {
+    return;
+  }
+
+  restoreColorCycleRuntimeSnapshot(state, layer, originalRuntimeSnapshot);
+  const nextColorCycleData = hasColorAdjustments(params)
+    ? buildAdjustedColorCycleData(originalColorCycleData, params)
+    : cloneColorCycleData(originalColorCycleData);
+
+  if (nextColorCycleData) {
+    replaceColorCycleLayerData(set, get, layer.id, nextColorCycleData);
+  }
+
+  if (nextColorCycleData?.mode === 'recolor' && nextColorCycleData.recolorSettings) {
+    const refreshedLayer = get().layers.find((entry) => entry.id === layer.id);
+    if (refreshedLayer?.layerType === 'color-cycle') {
+      try {
+        RecolorManager.getInstance().updateGradient(
+          refreshedLayer,
+          cloneGradientStops(nextColorCycleData.recolorSettings.gradient)
+        );
+      } catch {
+        // noop: keep store layer data updated even if runtime manager is unavailable
+      }
+    }
+  } else {
+    requestGradientApply(layer.id, 'color-adjust-preview');
+    refreshColorCycleGradientDefRuntime(get, layer.id);
+    rerenderColorCycleLayerSurface(get, layer.id);
+  }
+
+  state.setLayersNeedRecomposition(true);
+};
+
+const previewRasterLayerAdjustments = ({
+  state,
+  layer,
+  layerId,
+  params,
+}: {
+  state: AppState;
+  layer: Layer;
+  layerId: string;
+  params: ColorAdjustParams;
+}): void => {
+  const originalImageData = colorAdjustOriginalImageDataByLayerId.get(layer.id);
+  if (!originalImageData || layer.layerType !== 'normal') {
+    return;
+  }
+
+  const selectionScope = resolveSelectionRasterScope({
+    selectionStart: state.selectionStart,
+    selectionEnd: state.selectionEnd,
+    selectionMask: state.selectionMask,
+    selectionMaskBounds: state.selectionMaskBounds,
+  }, originalImageData.width, originalImageData.height);
+  const selectionBounds = selectionScope.bounds ?? resolveSelectionBounds(
+    state,
+    originalImageData.width,
+    originalImageData.height
+  );
+  const shouldAdjust = hasColorAdjustments(params);
+  const working = getWorkingImage(layerId, originalImageData.width, originalImageData.height);
+
+  if (!selectionBounds) {
+    working.data.set(originalImageData.data);
+    const adjusted = shouldAdjust
+      ? applyColorAdjustments(working, params)
+      : cloneLayerImageData(working) ?? working;
+    state.updateLayer(layer.id, { imageData: adjusted });
+    syncFramebufferFromImageData(layer, adjusted);
+    state.setLayersNeedRecomposition(true);
+    return;
+  }
+
+  working.data.set(originalImageData.data);
+
+  const { width, height, x, y } = selectionBounds;
+  const scratch = getScratchImage(layerId, width, height);
+  const targetStride = scratch.width * 4;
+  for (let row = 0; row < height; row += 1) {
+    const srcStart = ((y + row) * originalImageData.width + x) * 4;
+    const tgtStart = row * targetStride;
+    scratch.data.set(
+      originalImageData.data.subarray(srcStart, srcStart + width * 4),
+      tgtStart
+    );
+  }
+
+  const adjustedRegion = shouldAdjust
+    ? applyColorAdjustments(scratch, params)
+    : scratch;
+
+  blitImageDataWithinSelection(
+    adjustedRegion,
+    working,
+    selectionBounds.x,
+    selectionBounds.y,
+    selectionScope.selectionMask,
+    selectionScope.selectionMaskBounds
+  );
+
+  syncFramebufferFromImageData(layer, working);
+  state.updateLayer(layer.id, { imageData: working });
+  state.setLayersNeedRecomposition(true);
+};
+
+const restoreColorCycleLayerAdjustments = ({
+  state,
+  set,
+  get,
+  layer,
+}: {
+  state: AppState;
+  set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0];
+  get: () => AppState;
+  layer: Layer;
+}): void => {
+  const originalColorCycleData = colorAdjustOriginalColorCycleDataByLayerId.get(layer.id) ?? null;
+  if (layer.layerType !== 'color-cycle' || !originalColorCycleData) {
+    return;
+  }
+
+  const restoredData = cloneColorCycleData(originalColorCycleData);
+  if (restoredData) {
+    replaceColorCycleLayerData(set, get, layer.id, restoredData);
+    restoreColorCycleRuntimeSnapshot(
+      state,
+      layer,
+      colorAdjustOriginalColorCycleSnapshotByLayerId.get(layer.id) ?? null
+    );
+  }
+  if (restoredData?.mode === 'recolor' && restoredData.recolorSettings) {
+    const refreshedLayer = get().layers.find((entry) => entry.id === layer.id);
+    if (refreshedLayer?.layerType === 'color-cycle') {
+      try {
+        RecolorManager.getInstance().updateGradient(
+          refreshedLayer,
+          cloneGradientStops(restoredData.recolorSettings.gradient)
+        );
+      } catch {
+        // noop
+      }
+    }
+  } else {
+    requestGradientApply(layer.id, 'color-adjust-cancel');
+    refreshColorCycleGradientDefRuntime(get, layer.id);
+    rerenderColorCycleLayerSurface(get, layer.id);
+  }
+  state.setLayersNeedRecomposition(true);
+};
+
+const restoreRasterLayerAdjustments = ({
+  state,
+  layer,
+}: {
+  state: AppState;
+  layer: Layer;
+}): void => {
+  const originalImageData = colorAdjustOriginalImageDataByLayerId.get(layer.id);
+  if (layer.layerType !== 'normal' || !originalImageData) {
+    return;
+  }
+
+  const restoredImage = cloneLayerImageData(originalImageData);
+  if (!restoredImage) {
+    return;
+  }
+
+  syncFramebufferFromImageData(layer, restoredImage);
+  state.updateLayer(layer.id, { imageData: restoredImage });
+  state.setLayersNeedRecomposition(true);
+};
+
+const commitRasterColorAdjustHistory = async ({
+  state,
+  refreshedState,
+  targetLayerIds,
+}: {
+  state: AppState;
+  refreshedState: AppState;
+  targetLayerIds: string[];
+}): Promise<void> => {
+  const selectionSnapshot =
+    state.selectionStart && state.selectionEnd
+      ? selectionSnapshotFromValues(state.selectionStart, state.selectionEnd)
+      : null;
+
+  for (const targetLayerId of targetLayerIds) {
+    const layer = refreshedState.layers.find((entry) => entry.id === targetLayerId);
+    if (!layer || layer.layerType === 'color-cycle') {
+      continue;
+    }
+
+    const originalImageData = colorAdjustOriginalImageDataByLayerId.get(layer.id);
+    if (!originalImageData || layer.layerType !== 'normal') {
+      continue;
+    }
+
+    const beforeImage = cloneLayerImageData(originalImageData);
+    if (!beforeImage) {
+      continue;
+    }
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage,
+      beforeColorState: null,
+      actionType: 'color-adjust',
+      description: 'Color adjust',
+      tool: 'color-adjust',
+      selectionBefore: selectionSnapshot ?? undefined,
+      bitmapRoi: resolveSelectionBounds(state, beforeImage.width, beforeImage.height) ?? undefined,
+    }).catch((error) => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[history] Failed to record color adjust', error);
+      }
+    });
+  }
+};
+
+const commitColorCycleColorAdjustHistory = ({
+  set,
+  refreshedState,
+  targetLayerIds,
+}: {
+  set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0];
+  refreshedState: AppState;
+  targetLayerIds: string[];
+}): void => {
+  const colorCycleTargetIds = targetLayerIds.filter((targetLayerId) => {
+    const layer = refreshedState.layers.find((entry) => entry.id === targetLayerId);
+    return layer?.layerType === 'color-cycle';
+  });
+
+  if (colorCycleTargetIds.length === 0) {
+    return;
+  }
+
+  const beforeSnapshot = colorAdjustLayerStructureBefore;
+  const afterSnapshot = captureLayerStructureSnapshot(refreshedState, {
+    actionType: 'color-adjust',
+    description: 'Color adjust',
+    activeLayerId: refreshedState.activeLayerId ?? colorCycleTargetIds[0],
+    previousSnapshot: beforeSnapshot,
+  });
+
+  if (!beforeSnapshot) {
+    return;
+  }
+
+  commitLayerStructureHistory({
+    set,
+    beforeSnapshot,
+    afterSnapshot,
+    label: 'Color adjust',
+    metadata: {
+      layerIds: colorCycleTargetIds,
+      tool: 'color-adjust',
+    },
+  });
+};
+
+const refreshColorAdjustSessionState = (
+  state: AppState,
+  set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0]
+): void => {
+  const sessionTargets = buildSessionTargets(state);
+
+  if (sessionTargets.eligibleLayerIds.length === 0 || !sessionTargets.firstLayerId) {
+    resetColorAdjustSessionCaches();
+    set({ colorAdjust: createDefaultColorAdjustState() });
+    return;
+  }
+
+  applySessionTargetsToCaches(sessionTargets);
+
+  if (sessionTargets.hasColorCycleTarget) {
+    colorAdjustLayerStructureBefore = captureLayerStructureSnapshot(state, {
+      actionType: 'color-adjust',
+      description: 'Color adjust',
+      activeLayerId: state.activeLayerId ?? sessionTargets.firstLayerId,
+    });
+  } else {
+    colorAdjustLayerStructureBefore = null;
+  }
+
+  set({
+    colorAdjust: {
+      active: true,
+      targetLayerId: sessionTargets.firstLayerId,
+      targetLayerIds: sessionTargets.eligibleLayerIds,
+      targetLayerType: sessionTargets.distinctLayerTypes.size === 1 ? sessionTargets.firstLayerType : null,
+      originalImageData: sessionTargets.firstOriginalImageData,
+      originalColorCycleGradient: sessionTargets.firstOriginalGradient,
+      selectionBounds: sessionTargets.firstSelectionBounds,
+      params: { ...defaultColorAdjustParams },
+    },
+  });
+};
 
 export interface ColorAdjustSlice {
   colorAdjust: ColorAdjustState;
@@ -883,81 +1264,11 @@ export interface ColorAdjustSlice {
 export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustSlice> = (set, get) => ({
   colorAdjust: createDefaultColorAdjustState(),
   startColorAdjustSession: () => {
-    const state = get();
-    const { activeLayerId, layers } = state;
-    colorAdjustLayerStructureBefore = null;
-    colorAdjustOriginalColorCycleData = null;
-    colorAdjustOriginalColorCycleSnapshot = null;
-
-    if (!activeLayerId) {
-      set({ colorAdjust: createDefaultColorAdjustState() });
+    resetColorAdjustSessionCaches();
+    refreshColorAdjustSessionState(get(), set);
+    if (!get().colorAdjust.active) {
       return;
     }
-
-    const layer = layers.find((l) => l.id === activeLayerId);
-    if (!layer) {
-      set({ colorAdjust: createDefaultColorAdjustState() });
-      return;
-    }
-
-    if (layer.layerType === 'color-cycle') {
-      const originalGradient = resolveColorCycleGradient(layer);
-      if (!originalGradient || originalGradient.length === 0) {
-        set({ colorAdjust: createDefaultColorAdjustState() });
-        return;
-      }
-      colorAdjustOriginalColorCycleData = cloneColorCycleData(layer.colorCycleData);
-      colorAdjustOriginalColorCycleSnapshot = captureColorCycleRuntimeSnapshot(state, layer);
-
-      colorAdjustLayerStructureBefore = captureLayerStructureSnapshot(state, {
-        actionType: 'color-adjust',
-        description: 'Color adjust',
-        activeLayerId: layer.id,
-      });
-
-      set({
-        colorAdjust: {
-          active: true,
-          targetLayerId: layer.id,
-          targetLayerType: 'color-cycle',
-          originalImageData: null,
-          originalColorCycleGradient: originalGradient,
-          selectionBounds: null,
-          params: { ...defaultColorAdjustParams },
-        },
-      });
-      scheduleColorAdjustPreview(get);
-      return;
-    }
-
-    if (layer.layerType !== 'normal') {
-      set({ colorAdjust: createDefaultColorAdjustState() });
-      return;
-    }
-
-    const originalImageData = snapshotLayerImageData(layer);
-    if (!originalImageData) {
-      set({ colorAdjust: createDefaultColorAdjustState() });
-      return;
-    }
-
-    const selectionBounds = resolveSelectionBounds(
-      state,
-      originalImageData.width,
-      originalImageData.height
-    );
-
-    set({
-      colorAdjust: {
-        active: true,
-        targetLayerId: layer.id,
-        targetLayerType: 'normal',
-        originalImageData,
-        originalColorCycleGradient: null,
-        selectionBounds,
-        params: { ...defaultColorAdjustParams },
-      },
-    });
     scheduleColorAdjustPreview(get);
   },
   updateColorAdjustParams: (params) => {
@@ -986,328 +1297,95 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
   previewColorAdjust: () => {
     const state = get();
     const { colorAdjust } = state;
-    if (!colorAdjust.active || !colorAdjust.targetLayerId) {
+    const targetLayerIds = colorAdjust.targetLayerIds;
+
+    if (!colorAdjust.active || targetLayerIds.length === 0) {
       return;
     }
 
-    const layer = state.layers.find((l) => l.id === colorAdjust.targetLayerId);
-    if (!layer) {
-      return;
-    }
-
-    if (colorAdjust.targetLayerType === 'color-cycle') {
-      if (layer.layerType !== 'color-cycle' || !colorAdjustOriginalColorCycleData) {
-        return;
+    for (const targetLayerId of targetLayerIds) {
+      const layer = state.layers.find((entry) => entry.id === targetLayerId);
+      if (!layer) {
+        continue;
       }
-      const colorCycleSelectionScope = resolveSelectionRasterScope({
-        selectionStart: state.selectionStart,
-        selectionEnd: state.selectionEnd,
-        selectionMask: state.selectionMask,
-        selectionMaskBounds: state.selectionMaskBounds,
-      }, layer.imageData?.width ?? state.project?.width ?? 0, layer.imageData?.height ?? state.project?.height ?? 0);
 
-      if (
-        colorAdjustOriginalColorCycleSnapshot &&
-        !colorAdjustOriginalColorCycleData.recolorSettings &&
-        previewSelectedColorCycleRegion(
+      if (layer.layerType === 'color-cycle') {
+        previewColorCycleLayerAdjustments({
           state,
           set,
           get,
           layer,
-          colorAdjustOriginalColorCycleData,
-          colorAdjustOriginalColorCycleSnapshot,
-          colorAdjust.params,
-          colorCycleSelectionScope
-        )
-      ) {
-        return;
+          params: colorAdjust.params,
+        });
+        continue;
       }
 
-      restoreColorCycleRuntimeSnapshot(state, layer, colorAdjustOriginalColorCycleSnapshot);
-      const nextColorCycleData = hasColorAdjustments(colorAdjust.params)
-        ? buildAdjustedColorCycleData(colorAdjustOriginalColorCycleData, colorAdjust.params)
-        : cloneColorCycleData(colorAdjustOriginalColorCycleData);
-
-      if (nextColorCycleData) {
-        replaceColorCycleLayerData(set, get, layer.id, nextColorCycleData);
-      }
-
-      if (nextColorCycleData?.mode === 'recolor' && nextColorCycleData.recolorSettings) {
-        const refreshedLayer = get().layers.find((entry) => entry.id === layer.id);
-        if (refreshedLayer?.layerType === 'color-cycle') {
-          try {
-            RecolorManager.getInstance().updateGradient(
-              refreshedLayer,
-              cloneGradientStops(nextColorCycleData.recolorSettings.gradient)
-            );
-          } catch {
-            // noop: keep store layer data updated even if runtime manager is unavailable
-          }
-        }
-      } else {
-        requestGradientApply(layer.id, 'color-adjust-preview');
-        refreshColorCycleGradientDefRuntime(get, layer.id);
-        rerenderColorCycleLayerSurface(get, layer.id);
-      }
-
-      state.setLayersNeedRecomposition(true);
-      return;
+      previewRasterLayerAdjustments({
+        state,
+        layer,
+        layerId: targetLayerId,
+        params: colorAdjust.params,
+      });
     }
-
-    if (!colorAdjust.originalImageData || layer.layerType !== 'normal') {
-      return;
-    }
-
-    const { params, originalImageData, targetLayerId } = colorAdjust;
-    const selectionScope = resolveSelectionRasterScope({
-      selectionStart: state.selectionStart,
-      selectionEnd: state.selectionEnd,
-      selectionMask: state.selectionMask,
-      selectionMaskBounds: state.selectionMaskBounds,
-    }, originalImageData.width, originalImageData.height);
-    const selectionBounds = selectionScope.bounds ?? resolveSelectionBounds(
-      state,
-      originalImageData.width,
-      originalImageData.height
-    );
-    const hasAdjustments = hasColorAdjustments(params);
-    const working = getWorkingImage(targetLayerId, originalImageData.width, originalImageData.height);
-
-    if (!selectionBounds) {
-      // Full-layer adjustment; copy baseline then adjust
-      working.data.set(originalImageData.data);
-      const adjusted = hasAdjustments
-        ? applyColorAdjustments(working, params)
-        : cloneLayerImageData(working) ?? working;
-      state.updateLayer(layer.id, { imageData: adjusted });
-      syncFramebufferFromImageData(layer, adjusted);
-      state.setLayersNeedRecomposition(true);
-      return;
-    }
-
-    // ROI path: keep baseline elsewhere intact, only touch the selection bounds
-    working.data.set(originalImageData.data);
-
-    const { width, height, x, y } = selectionBounds;
-    const scratch = getScratchImage(targetLayerId, width, height);
-    const targetStride = scratch.width * 4;
-    for (let row = 0; row < height; row += 1) {
-      const srcStart = ((y + row) * originalImageData.width + x) * 4;
-      const tgtStart = row * targetStride;
-      scratch.data.set(
-        originalImageData.data.subarray(srcStart, srcStart + width * 4),
-        tgtStart
-      );
-    }
-
-    const adjustedRegion = hasAdjustments
-      ? applyColorAdjustments(scratch, params)
-      : scratch;
-
-    blitImageDataWithinSelection(
-      adjustedRegion,
-      working,
-      selectionBounds.x,
-      selectionBounds.y,
-      selectionScope.selectionMask,
-      selectionScope.selectionMaskBounds
-    );
-
-    syncFramebufferFromImageData(layer, working);
-    state.updateLayer(layer.id, { imageData: working });
-    state.setLayersNeedRecomposition(true);
   },
   applyColorAdjust: async () => {
     const state = get();
     const { colorAdjust } = state;
-    if (!colorAdjust.active || !colorAdjust.targetLayerId) {
+    const targetLayerIds = colorAdjust.targetLayerIds;
+
+    if (!colorAdjust.active || targetLayerIds.length === 0) {
       return;
     }
 
     cancelScheduledColorAdjustPreview();
 
-    const layer = state.layers.find((l) => l.id === colorAdjust.targetLayerId);
-    if (!layer) {
-      set({ colorAdjust: createDefaultColorAdjustState() });
-      colorAdjustLayerStructureBefore = null;
-      colorAdjustOriginalColorCycleData = null;
-      colorAdjustOriginalColorCycleSnapshot = null;
-      return;
-    }
-
-    if (colorAdjust.targetLayerType === 'color-cycle') {
-      if (layer.layerType !== 'color-cycle') {
-        set({ colorAdjust: createDefaultColorAdjustState() });
-        colorAdjustLayerStructureBefore = null;
-        colorAdjustOriginalColorCycleData = null;
-        colorAdjustOriginalColorCycleSnapshot = null;
-        return;
-      }
-
-      get().previewColorAdjust();
-
-      const beforeSnapshot = colorAdjustLayerStructureBefore;
-      const refreshedState = get();
-      const afterSnapshot = captureLayerStructureSnapshot(refreshedState, {
-        actionType: 'color-adjust',
-        description: 'Color adjust',
-        activeLayerId: layer.id,
-        previousSnapshot: beforeSnapshot,
-      });
-
-      if (beforeSnapshot) {
-        commitLayerStructureHistory({
-          set,
-          beforeSnapshot,
-          afterSnapshot,
-          label: 'Color adjust',
-          metadata: {
-            layerId: layer.id,
-            tool: 'color-adjust',
-          },
-        });
-      }
-
-      const refreshedLayer = refreshedState.layers.find((entry) => entry.id === layer.id);
-      const updatedBaseline =
-        refreshedLayer && refreshedLayer.layerType === 'color-cycle'
-          ? resolveColorCycleGradient(refreshedLayer)
-          : null;
-
-      if (updatedBaseline && updatedBaseline.length > 0) {
-        colorAdjustLayerStructureBefore = afterSnapshot;
-        colorAdjustOriginalColorCycleData = cloneColorCycleData(refreshedLayer?.colorCycleData);
-        colorAdjustOriginalColorCycleSnapshot = refreshedLayer
-          ? captureColorCycleRuntimeSnapshot(get(), refreshedLayer)
-          : null;
-        set({
-          colorAdjust: {
-            active: true,
-            targetLayerId: layer.id,
-            targetLayerType: 'color-cycle',
-            originalImageData: null,
-            originalColorCycleGradient: updatedBaseline,
-            selectionBounds: null,
-            params: { ...defaultColorAdjustParams },
-          },
-        });
-      } else {
-        colorAdjustLayerStructureBefore = null;
-        colorAdjustOriginalColorCycleData = null;
-        colorAdjustOriginalColorCycleSnapshot = null;
-        set({ colorAdjust: createDefaultColorAdjustState() });
-      }
-      return;
-    }
-
-    if (!colorAdjust.originalImageData || layer.layerType !== 'normal') {
-      set({ colorAdjust: createDefaultColorAdjustState() });
-      return;
-    }
-
-    const beforeImage = cloneLayerImageData(colorAdjust.originalImageData);
-    if (!beforeImage) {
-      set({ colorAdjust: createDefaultColorAdjustState() });
-      return;
-    }
-
     get().previewColorAdjust();
-
-    const selectionSnapshot =
-      state.selectionStart && state.selectionEnd
-        ? selectionSnapshotFromValues(state.selectionStart, state.selectionEnd)
-        : null;
-
-    await commitLayerHistory({
-      layerId: layer.id,
-      beforeImage,
-      beforeColorState: null,
-      actionType: 'color-adjust',
-      description: 'Color adjust',
-      tool: 'color-adjust',
-      selectionBefore: selectionSnapshot ?? undefined,
-      bitmapRoi: resolveSelectionBounds(state, beforeImage.width, beforeImage.height) ?? undefined,
-    }).catch((error) => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[history] Failed to record color adjust', error);
-      }
+    const refreshedState = get();
+    await commitRasterColorAdjustHistory({
+      state,
+      refreshedState,
+      targetLayerIds,
     });
-
-    const refreshedLayer = get().layers.find((l) => l.id === layer.id);
-    const updatedBaseline = refreshedLayer?.imageData
-      ? cloneLayerImageData(refreshedLayer.imageData)
-      : null;
-
-    if (updatedBaseline) {
-      set(() => ({
-        colorAdjust: {
-          active: true,
-          targetLayerId: layer.id,
-          targetLayerType: 'normal',
-          originalImageData: updatedBaseline,
-          originalColorCycleGradient: null,
-          selectionBounds: resolveSelectionBounds(get(), updatedBaseline.width, updatedBaseline.height),
-          params: { ...defaultColorAdjustParams },
-        },
-      }));
-    } else {
-      set({ colorAdjust: createDefaultColorAdjustState() });
-    }
+    commitColorCycleColorAdjustHistory({
+      set,
+      refreshedState,
+      targetLayerIds,
+    });
+    refreshColorAdjustSessionState(get(), set);
   },
   cancelColorAdjust: () => {
     const state = get();
     const { colorAdjust } = state;
-    if (!colorAdjust.active || !colorAdjust.targetLayerId) {
+    const targetLayerIds = colorAdjust.targetLayerIds;
+
+    if (!colorAdjust.active || targetLayerIds.length === 0) {
       set({ colorAdjust: createDefaultColorAdjustState() });
-      colorAdjustLayerStructureBefore = null;
-      colorAdjustOriginalColorCycleData = null;
-      colorAdjustOriginalColorCycleSnapshot = null;
+      resetColorAdjustSessionCaches();
       return;
     }
 
     cancelScheduledColorAdjustPreview();
 
-    const layer = state.layers.find((l) => l.id === colorAdjust.targetLayerId);
-    if (layer && colorAdjust.targetLayerType === 'color-cycle' && colorAdjustOriginalColorCycleData) {
-      const restoredData = cloneColorCycleData(colorAdjustOriginalColorCycleData);
-      if (layer.layerType === 'color-cycle' && restoredData) {
-        replaceColorCycleLayerData(set, get, layer.id, restoredData);
-        restoreColorCycleRuntimeSnapshot(state, layer, colorAdjustOriginalColorCycleSnapshot);
+    for (const targetLayerId of targetLayerIds) {
+      const layer = state.layers.find((entry) => entry.id === targetLayerId);
+      if (!layer) {
+        continue;
       }
-      if (layer.layerType === 'color-cycle' && restoredData?.mode === 'recolor' && restoredData.recolorSettings) {
-        const refreshedLayer = get().layers.find((entry) => entry.id === layer.id);
-        if (refreshedLayer?.layerType === 'color-cycle') {
-          try {
-            RecolorManager.getInstance().updateGradient(
-              refreshedLayer,
-              cloneGradientStops(restoredData.recolorSettings.gradient)
-            );
-          } catch {
-            // noop
-          }
-        }
-      } else if (layer.layerType === 'color-cycle') {
-        requestGradientApply(layer.id, 'color-adjust-cancel');
-        refreshColorCycleGradientDefRuntime(get, layer.id);
-        rerenderColorCycleLayerSurface(get, layer.id);
+
+      if (layer.layerType === 'color-cycle') {
+        restoreColorCycleLayerAdjustments({
+          state,
+          set,
+          get,
+          layer,
+        });
+        continue;
       }
-      state.setLayersNeedRecomposition(true);
+
+      restoreRasterLayerAdjustments({ state, layer });
     }
 
-    if (layer && colorAdjust.targetLayerType !== 'color-cycle' && colorAdjust.originalImageData) {
-      if (layer.layerType === 'normal') {
-        const restoredImage = cloneLayerImageData(colorAdjust.originalImageData);
-        if (restoredImage) {
-          syncFramebufferFromImageData(layer, restoredImage);
-          state.updateLayer(layer.id, { imageData: restoredImage });
-          state.setLayersNeedRecomposition(true);
-        }
-      }
-    }
-
-    colorAdjustLayerStructureBefore = null;
-    colorAdjustOriginalColorCycleData = null;
-    colorAdjustOriginalColorCycleSnapshot = null;
+    resetColorAdjustSessionCaches();
     set({ colorAdjust: createDefaultColorAdjustState() });
   },
   resetColorAdjustParams: () => {

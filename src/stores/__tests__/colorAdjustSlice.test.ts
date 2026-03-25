@@ -146,23 +146,24 @@ const createColorCycleLayerWithDefStoreOnly = (
   };
 };
 
-const installProjectWithLayer = (layer: Layer) => {
+const installProjectWithLayers = (layers: Layer[], activeLayerId = layers[0]?.id ?? null) => {
   useAppStore.setState((state) => ({
-    layers: [layer],
-    activeLayerId: layer.id,
+    layers,
+    activeLayerId,
+    selectedLayerIds: activeLayerId ? [activeLayerId] : [],
     project: state.project
       ? {
           ...state.project,
-          width: layer.imageData?.width ?? state.project.width,
-          height: layer.imageData?.height ?? state.project.height,
-          layers: [layer],
+          width: layers[0]?.imageData?.width ?? state.project.width,
+          height: layers[0]?.imageData?.height ?? state.project.height,
+          layers,
         }
       : {
           id: 'test-project',
           name: 'Test Project',
-          width: layer.imageData?.width ?? 2,
-          height: layer.imageData?.height ?? 2,
-          layers: [layer],
+          width: layers[0]?.imageData?.width ?? 2,
+          height: layers[0]?.imageData?.height ?? 2,
+          layers,
           backgroundColor: '#000000',
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -172,6 +173,10 @@ const installProjectWithLayer = (layer: Layer) => {
           customBrushes: [],
         },
   }));
+};
+
+const installProjectWithLayer = (layer: Layer) => {
+  installProjectWithLayers([layer], layer.id);
 };
 
 const resetStore = () => {
@@ -204,6 +209,7 @@ const resetStore = () => {
       targetLayerType: null,
       selectionBounds: null,
       targetLayerId: null,
+      targetLayerIds: [],
     },
   }));
 };
@@ -266,6 +272,57 @@ describe('colorAdjustSlice preview performance path', () => {
     // Outside ROI: unchanged (still 0 red)
     expect(pixelAt(updated, 0, 0)[0]).toBe(0);
     expect(pixelAt(updated, 3, 3)[0]).toBe(0);
+  });
+
+  it('previews saturation changes across all selected raster layers', () => {
+    const first = new ImageData(1, 1);
+    first.data.set([255, 0, 0, 255]);
+    const second = new ImageData(1, 1);
+    second.data.set([0, 255, 0, 255]);
+
+    const layerA = createLayer('layer-a', first);
+    const layerB = createLayer('layer-b', second);
+    installProjectWithLayers([layerA, layerB], layerA.id);
+    useAppStore.setState({ selectedLayerIds: [layerA.id, layerB.id] });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ saturation: -100 });
+    store.previewColorAdjust();
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA.id);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB.id);
+
+    expect(pixelAt(nextLayerA!.imageData!, 0, 0)).toEqual([128, 128, 128, 255]);
+    expect(pixelAt(nextLayerB!.imageData!, 0, 0)).toEqual([128, 128, 128, 255]);
+    expect(nextState.colorAdjust.targetLayerIds).toEqual([layerA.id, layerB.id]);
+  });
+
+  it('restores all selected raster layers on cancel', () => {
+    const first = new ImageData(1, 1);
+    first.data.set([255, 0, 0, 255]);
+    const second = new ImageData(1, 1);
+    second.data.set([0, 255, 0, 255]);
+
+    const layerA = createLayer('layer-a', first);
+    const layerB = createLayer('layer-b', second);
+    installProjectWithLayers([layerA, layerB], layerA.id);
+    useAppStore.setState({ selectedLayerIds: [layerA.id, layerB.id] });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ saturation: -100 });
+    store.previewColorAdjust();
+    store.cancelColorAdjust();
+
+    const nextState = useAppStore.getState();
+    const nextLayerA = nextState.layers.find((layer) => layer.id === layerA.id);
+    const nextLayerB = nextState.layers.find((layer) => layer.id === layerB.id);
+
+    expect(pixelAt(nextLayerA!.imageData!, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixelAt(nextLayerB!.imageData!, 0, 0)).toEqual([0, 255, 0, 255]);
+    expect(nextState.colorAdjust.targetLayerIds).toEqual([]);
   });
 
   it('reuses the working buffer across previews (no churn)', () => {
