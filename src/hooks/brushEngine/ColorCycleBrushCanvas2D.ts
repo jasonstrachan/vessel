@@ -3116,9 +3116,7 @@ export class ColorCycleBrushCanvas2D {
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
       if (ccGradient && this.ditherEnabled) {
         const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
-        const quantLevels = pairBandCount > 0
-          ? (ditherLevels ?? Math.max(2, numBands))
-          : 1;
+        const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         await fillCcGradientDither({
           vertices,
@@ -3802,7 +3800,6 @@ export class ColorCycleBrushCanvas2D {
     // Use scanline fill with inline gradient calculation - simpler and more reliable
     // gradientBands represents number of color divisions
     // bandSpacing (or passed spacing) represents pixel distance between bands
-    const baseOffset = this.stampCounter % 255;
     const noiseSeed = (this.stampCounter & 0xffff) / 65535;
 
     // Adaptive performance: for very large shapes, skip costly per-edge distance checks
@@ -3845,6 +3842,7 @@ export class ColorCycleBrushCanvas2D {
     const ditherLevels = Number.isFinite(options?.ditherLevels)
       ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
+    const baseOffset = this.stampCounter % 255;
     const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
 
@@ -4016,9 +4014,7 @@ export class ColorCycleBrushCanvas2D {
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
       if (ccGradient && this.ditherEnabled) {
         const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
-        const quantLevels = pairBandCount > 0
-          ? (ditherLevels ?? Math.max(2, numBands))
-          : 1;
+        const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const edges = new Array(vertices.length);
         for (let i = 0; i < vertices.length; i += 1) {

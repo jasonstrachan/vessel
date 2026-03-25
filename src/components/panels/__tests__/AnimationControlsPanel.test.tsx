@@ -1,6 +1,13 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
+const toggleGlobalColorCyclePlayback = jest.fn<Promise<void>, [boolean, string]>(() => Promise.resolve());
+
+jest.mock('@/utils/colorCyclePlayback', () => ({
+  toggleGlobalColorCyclePlayback: (shouldPlay: boolean, reason: string) =>
+    toggleGlobalColorCyclePlayback(shouldPlay, reason),
+}));
+
 jest.mock('@/stores/useAppStore', () => {
   type ColorCyclePlayback = {
     desiredPlaying: boolean;
@@ -159,6 +166,7 @@ const appStore = useAppStore as unknown as {
 describe('AnimationControlsPanel', () => {
   beforeEach(() => {
     window.localStorage.removeItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY);
+    toggleGlobalColorCyclePlayback.mockClear();
     const store = appStore.getState();
     store.playColorCycle.mockClear();
     store.pauseColorCycle.mockClear();
@@ -191,7 +199,8 @@ describe('AnimationControlsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /pause/i }));
 
     const store = appStore.getState();
-    expect(store.pauseColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(toggleGlobalColorCyclePlayback).toHaveBeenCalledWith(false, 'toolbar');
+    expect(store.pauseColorCycle).not.toHaveBeenCalled();
     expect(store.playColorCycle).not.toHaveBeenCalled();
   });
 
@@ -204,7 +213,7 @@ describe('AnimationControlsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /play/i }));
 
     const store = appStore.getState();
-    expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(toggleGlobalColorCyclePlayback).toHaveBeenCalledWith(true, 'toolbar');
     expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
   });
 
@@ -284,7 +293,7 @@ describe('AnimationControlsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /play/i }));
 
     const store = appStore.getState();
-    expect(store.playColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(toggleGlobalColorCyclePlayback).toHaveBeenCalledWith(true, 'toolbar');
     expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
     expect(store.pauseColorCycle).not.toHaveBeenCalled();
   });

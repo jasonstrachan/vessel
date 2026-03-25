@@ -1860,4 +1860,68 @@ describe('pointerHandlers main flows', () => {
     expect(deps.compositeLayersToCanvas).toHaveBeenCalled();
     expect(deps.setNeedsRedraw).toHaveBeenCalled();
   });
+
+  it('does not commit cached CC dither preview pixels to the layer canvas before finalize', async () => {
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          ditherEnabled: true,
+          colorCycleFillMode: 'linear',
+        } as any,
+      },
+      project: { ...mockProject, width: 50, height: 50 },
+    });
+
+    const layerCanvas = document.createElement('canvas') as HTMLCanvasElement;
+    const layerCtx = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      drawImage: jest.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    (layerCanvas as any).getContext = jest.fn(() => layerCtx);
+
+    useAppStore.setState({
+      layers: [{
+        id: 'layer-cc',
+        name: 'CC',
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over',
+        locked: false,
+        layerType: 'color-cycle',
+        colorCycleData: { canvas: layerCanvas },
+      } as any],
+      activeLayerId: 'layer-cc',
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }];
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+    deps.drawingHandlers.ccShapePreviewCacheRef = {
+      current: {
+        canvas: document.createElement('canvas'),
+        origin: { x: 3, y: 4 },
+      },
+    };
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 4, clientY: 4 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(layerCtx.drawImage).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+
+    useAppStore.setState({
+      layers: [],
+      activeLayerId: null,
+    });
+  });
 });

@@ -4120,24 +4120,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             return;
           }
         }
-        const cachedPreview = drawingHandlers.ccShapePreviewCacheRef?.current ?? null;
         const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-        if (cachedPreview && isColorCycleShape && tools.brushSettings.ditherEnabled) {
-          const state = useAppStore.getState();
-          const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
-          const layerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
-          if (activeLayer?.layerType === 'color-cycle' && layerCanvas) {
-            const ctx = layerCanvas.getContext('2d', { willReadFrequently: true });
-            if (ctx) {
-              ctx.save();
-              ctx.globalCompositeOperation = 'source-over';
-              ctx.globalAlpha = 1;
-              ctx.imageSmoothingEnabled = false;
-              ctx.drawImage(cachedPreview.canvas, cachedPreview.origin.x, cachedPreview.origin.y);
-              ctx.restore();
-            }
-          }
-        }
         // Check if we need to enter direction selection mode for linear gradient
         const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';
         const brushPresetId = getDynamicDeps().currentBrushPresetId;

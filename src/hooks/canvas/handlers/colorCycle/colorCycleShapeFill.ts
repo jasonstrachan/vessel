@@ -230,6 +230,25 @@ const shouldRefreshForegroundRuntimeForShapeFinalize = (
   session: MarkGradientSession | null
 ): boolean => useForegroundGradient && !session?.binding;
 
+const resolveShapeFinalizeDitherOptions = (
+  brushSettings: ReturnType<typeof useAppStore.getState>['tools']['brushSettings'],
+  ditherPixelSize: number | undefined,
+  roi: DeferredSaveWithStateArgs['roi'] | undefined
+): {
+  ditherPixelSize: number | undefined;
+  ditherLevels?: number;
+  roi: DeferredSaveWithStateArgs['roi'] | undefined;
+  skipPostRender: true;
+} => {
+  const ccDitherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
+  return {
+    ditherPixelSize,
+    ditherLevels: brushSettings.ditherEnabled ? ccDitherMode.quantLevels : undefined,
+    roi,
+    skipPostRender: true,
+  };
+};
+
 type CcDitherRenderSession = Pick<
   MarkGradientSession,
   'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps'
@@ -397,14 +416,8 @@ export const finalizeColorCycleShapeFillLinear = async (
           });
         }
       }
-      const ccDitherMode = resolveCcDitherBandMode(liveSettings.gradientBands ?? 16);
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
-        ditherPixelSize: args.ditherPixelSize,
-        ditherPairBandCount: liveSettings.ditherEnabled
-          ? ccDitherMode.pairBandCount
-          : undefined,
-        roi: args.roi,
-        skipPostRender: true,
+        ...resolveShapeFinalizeDitherOptions(liveSettings, args.ditherPixelSize, args.roi),
       });
       return resolvedRenderSession;
     });
@@ -460,14 +473,15 @@ export const finalizeColorCycleShapeFillLinear = async (
         colorCycleBrush &&
         typeof colorCycleBrush.bindGradientDefIdToSlot === 'function'
       ) {
+        const binding = renderSession.binding;
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
           : undefined;
         const previewSlot = renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
         colorCycleBrush.bindGradientDefIdToSlot(
           args.activeLayerId,
-          renderSession.binding.defId,
-          renderSession.binding.slot,
+          binding.defId,
+          binding.slot,
           bbox,
           previewSlot
         );
@@ -604,14 +618,8 @@ export const finalizeColorCycleShapeFillConcentric = async (
           });
         }
       }
-      const ccDitherMode = resolveCcDitherBandMode(liveSettings.gradientBands ?? 16);
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
-        ditherPixelSize: args.ditherPixelSize,
-        ditherPairBandCount: liveSettings.ditherEnabled
-          ? ccDitherMode.pairBandCount
-          : undefined,
-        roi: args.roi,
-        skipPostRender: true,
+        ...resolveShapeFinalizeDitherOptions(liveSettings, args.ditherPixelSize, args.roi),
       });
       return resolvedRenderSession;
     });
@@ -656,14 +664,15 @@ export const finalizeColorCycleShapeFillConcentric = async (
         colorCycleBrush &&
         typeof colorCycleBrush.bindGradientDefIdToSlot === 'function'
       ) {
+        const binding = renderSession.binding;
         const bbox = args.roi
           ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
           : undefined;
         const previewSlot = renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
         colorCycleBrush.bindGradientDefIdToSlot(
           args.activeLayerId,
-          renderSession.binding.defId,
-          renderSession.binding.slot,
+          binding.defId,
+          binding.slot,
           bbox,
           previewSlot
         );
