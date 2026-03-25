@@ -644,7 +644,7 @@ export interface ToolState {
   };
 }
 
-export type SelectionMode = 'marquee' | 'freehand' | 'click-line';
+export type SelectionMode = 'marquee' | 'freehand' | 'click-line' | 'magic-wand';
 
 export type CropHandle =
   | 'top-left'
@@ -1114,7 +1114,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'magic-wand' | 'crop' | 'selection' | 'eyedropper' | 'color-picker' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor' | 'color-adjust';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'crop' | 'selection' | 'eyedropper' | 'color-picker' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor' | 'color-adjust';
 
 export interface ColorAdjustParams {
   hue: number;        // -180 to 180 degrees
@@ -1138,6 +1138,7 @@ export interface ColorAdjustState {
   targetLayerType?: Layer['layerType'] | null;
   selectionBounds: Rectangle | null;
   targetLayerId: string | null;
+  targetLayerIds: string[];
 }
 
 export type BlendMode = GlobalCompositeOperation;
