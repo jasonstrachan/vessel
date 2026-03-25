@@ -19,10 +19,9 @@ import {
 import { sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import SequentialControlsModule from '@/components/panels/SequentialControlsModule';
+import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 
 const AnimationControlsPanel: React.FC = () => {
-  const playColorCycle = useAppStore(state => state.playColorCycle);
-  const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const forceResumeColorCycle = useAppStore(state => state.forceResumeColorCycle);
   const setRecordFPS = useAppStore((state) => state.setRecordFPS);
   const setRecordFrameCount = useAppStore((state) => state.setRecordFrameCount);
@@ -49,14 +48,14 @@ const AnimationControlsPanel: React.FC = () => {
 
   const handleTogglePlayback = React.useCallback(() => {
     if (isPlaybackRunning) {
-      pauseColorCycle('toolbar');
+      void toggleGlobalColorCyclePlayback(false, 'toolbar');
       return;
     }
-    playColorCycle('toolbar');
     if (suspendDepth > 0) {
       forceResumeColorCycle('toolbar');
     }
-  }, [isPlaybackRunning, pauseColorCycle, playColorCycle, forceResumeColorCycle, suspendDepth]);
+    void toggleGlobalColorCyclePlayback(true, 'toolbar');
+  }, [isPlaybackRunning, forceResumeColorCycle, suspendDepth]);
 
   const handleFpsChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {

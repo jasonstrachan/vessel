@@ -109,9 +109,42 @@ describe('buildCcDitherRenderPalette', () => {
     expect(palette.bandCount).toBe(2);
     expect(palette.renderStops).toEqual([
       { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 0.25, color: 'rgb(128, 128, 0)' },
       { position: 0.5, color: 'rgb(0, 255, 0)' },
-      { position: 0.5, color: 'rgb(0, 255, 0)' },
-      { position: 1, color: 'rgb(0, 0, 255)' },
+      { position: 0.75, color: 'rgb(0, 128, 128)' },
+    ]);
+  });
+
+  it('emits center-aligned ordered stops for wrapped multi-stop dither bands', () => {
+    const baseStops = [
+      { position: 0, color: '#000000' },
+      { position: 0.1, color: '#1f1f1f' },
+      { position: 0.2, color: '#3f3f3f' },
+      { position: 0.3, color: '#5f5f5f' },
+      { position: 0.4, color: '#7f7f7f' },
+      { position: 0.5, color: '#9f9f9f' },
+      { position: 0.6, color: '#bfbfbf' },
+      { position: 0.7, color: '#dfdfdf' },
+      { position: 0.8, color: '#f5f5f5' },
+      { position: 0.9, color: '#ffffff' },
+      { position: 1, color: '#000000' },
+    ];
+
+    const palette = buildCcDitherRenderPalette({
+      baseStops,
+      bands: 4,
+      spread: 0,
+    });
+
+    expect(palette.renderStops.map((stop) => stop.position)).toEqual([
+      0,
+      0.125,
+      0.25,
+      0.375,
+      0.5,
+      0.625,
+      0.75,
+      0.875,
     ]);
   });
 

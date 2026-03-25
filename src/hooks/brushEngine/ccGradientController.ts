@@ -1,6 +1,8 @@
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { requestGradientApply } from './ccGradientApplyScheduler';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
@@ -56,6 +58,55 @@ const normalizePalettes = (palettes: SlotPalette[]): SlotPalette[] =>
     slot: clampSlot(entry.slot),
     stops: cloneStops(entry.stops),
   }));
+
+const resolveRuntimeStopsForEdit = ({
+  layer,
+  targetSlot,
+  stops,
+}: {
+  layer: Layer;
+  targetSlot: number;
+  stops: GradientStop[];
+}): {
+  slotStops: GradientStop[];
+  defStopsById: Map<number, GradientStop[]>;
+  defHashesById: Map<number, string>;
+} => {
+  const colorCycleData = layer.colorCycleData;
+  const baseStops = cloneStops(stops);
+  const defStore = colorCycleData?.gradientDefStore ?? [];
+  const defsOnTargetSlot = defStore.filter((entry) => clampSlot(entry.slot ?? 0) === targetSlot);
+  if (defsOnTargetSlot.length === 0) {
+    return {
+      slotStops: baseStops,
+      defStopsById: new Map(),
+      defHashesById: new Map(),
+    };
+  }
+
+  const brushSettings = useAppStore.getState().tools.brushSettings;
+  const shouldUseDitherRuntime = Boolean(brushSettings.ditherEnabled);
+  const runtimeStops = shouldUseDitherRuntime
+    ? buildCcDitherRenderPalette({
+        baseStops,
+        bands: resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
+        spread: brushSettings.ditherPaletteSpread,
+      }).renderStops
+    : baseStops;
+
+  const defStopsById = new Map<number, GradientStop[]>();
+  const defHashesById = new Map<number, string>();
+  defsOnTargetSlot.forEach((entry) => {
+    defStopsById.set(entry.id, cloneStops(runtimeStops));
+    defHashesById.set(entry.id, hashStops(runtimeStops, entry.kind));
+  });
+
+  return {
+    slotStops: cloneStops(runtimeStops),
+    defStopsById,
+    defHashesById,
+  };
+};
 
 export const applyGradientEdit = (params: {
   stops: GradientStop[];
@@ -125,19 +176,37 @@ export const applyGradientEdit = (params: {
 
   // commitRecolor
   const targetSlot = paintSlot === EDITOR_SLOT ? 0 : clampSlot(paintSlot);
+  const runtimeStops = resolveRuntimeStopsForEdit({
+    layer,
+    targetSlot,
+    stops: params.stops,
+  });
   const hasSlot = slotPalettes.some((entry) => entry.slot === targetSlot);
   slotPalettes = hasSlot
     ? slotPalettes.map((entry) =>
         entry.slot === targetSlot
-          ? { slot: targetSlot, stops: cloneStops(params.stops) }
+          ? { slot: targetSlot, stops: cloneStops(runtimeStops.slotStops) }
           : entry
       )
-    : [...slotPalettes, { slot: targetSlot, stops: cloneStops(params.stops) }];
+    : [...slotPalettes, { slot: targetSlot, stops: cloneStops(runtimeStops.slotStops) }];
+  const gradientDefStore = layer.colorCycleData.gradientDefStore?.map((entry) => {
+    const nextStops = runtimeStops.defStopsById.get(entry.id);
+    const nextHash = runtimeStops.defHashesById.get(entry.id);
+    if (!nextStops || !nextHash) {
+      return entry;
+    }
+    return {
+      ...entry,
+      stops: cloneStops(nextStops),
+      hash: nextHash,
+    };
+  });
 
   state.updateLayer(targetLayerId, {
     colorCycleData: {
       ...layer.colorCycleData,
       gradientDefs,
+      gradientDefStore,
       slotPalettes,
       activeGradientId: activeDef.id,
       paintSlot: targetSlot,

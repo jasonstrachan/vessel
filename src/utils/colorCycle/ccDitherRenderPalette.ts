@@ -274,7 +274,7 @@ export const buildCcDitherRenderPalette = ({
           ]
         : [
             rgbToCss(sampleGradientColor(baseStops, segmentStart)),
-            rgbToCss(sampleGradientColor(baseStops, segmentEnd)),
+            rgbToCss(sampleGradientColor(baseStops, center)),
           ];
       const spreadColors = spreadPaletteColors(sourceColors, spread ?? 0);
       if (useTriadStops && spreadColors.length >= 3) {
@@ -286,8 +286,8 @@ export const buildCcDitherRenderPalette = ({
 
       renderStops.push({ position: segmentStart, color: spreadColors[0] ?? sourceColors[0] });
       renderStops.push({
-        position: segmentEnd,
-        color: spreadColors[1] ?? sourceColors[sourceColors.length - 1],
+        position: center,
+        color: spreadColors[1] ?? sourceColors[1],
       });
       continue;
     }

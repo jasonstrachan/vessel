@@ -431,6 +431,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(finalizeSpy).toHaveBeenCalled();
   });
 
+
   it('rebuilds animator from index snapshot via deserialize', () => {
     const canvas = makeCanvas();
     const indexData = new Uint8Array([1, 0, 0, 0]);
@@ -700,6 +701,36 @@ describe('ColorCycleBrushCanvas2D', () => {
       expect.objectContaining({
         algorithm: 'atkinson',
         patternStyle: 'lines',
+        levels: 4,
+        pairBandCount: 0,
+      })
+    );
+  });
+
+  it('honors explicit ditherLevels for linear cc gradient fills without pair-band mode', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setDitherEnabled(true);
+    ccGradientDitherMocks.fillCcGradientDither.mockClear();
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 5 },
+      { x: 0, y: 5 },
+    ];
+
+    await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 4, {
+      continuous: true,
+      ccGradient: true,
+      ditherLevels: 6,
+    });
+
+    expect(ccGradientDitherMocks.fillCcGradientDither).toHaveBeenCalledWith(
+      expect.objectContaining({
+        levels: 6,
+        pairBandCount: 0,
       })
     );
   });
