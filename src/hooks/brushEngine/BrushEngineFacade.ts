@@ -78,6 +78,22 @@ export interface BrushStrokeParams {
   customBrushData?: CustomBrushStrokeData;
 }
 
+const resolveCustomPatternDimensions = (
+  customBrushData?: CustomBrushStrokeData
+): { width: number; height: number } | undefined => {
+  if (!customBrushData) {
+    return undefined;
+  }
+
+  const width = Number(customBrushData.width);
+  const height = Number(customBrushData.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  return { width, height };
+};
+
 type CapturedPatternPerfStats = {
   calls: number;
   totalMs: number;
@@ -465,7 +481,8 @@ export class BrushEngineFacade {
       risographIntensity: brushSettings.risographIntensity || 0,
       blendMode: ctx.globalCompositeOperation,
       pattern: customBrushData?.imageData, // Pass custom brush data as pattern
-      isColorizable: customBrushData?.isColorizable // Pass colorizable flag for custom brushes
+      isColorizable: customBrushData?.isColorizable, // Pass colorizable flag for custom brushes
+      customPatternDimensions: resolveCustomPatternDimensions(customBrushData),
     };
 
     this.initializeCustomStrokeCycleStateIfNeeded(params, shape);
@@ -544,7 +561,8 @@ export class BrushEngineFacade {
                 settings.rotation,
                 settings.risographIntensity,
                 stampPattern,
-                stampIsColorizable
+                stampIsColorizable,
+                settings.customPatternDimensions
               );
             }
             stampedPositions.add(posKey);
@@ -693,7 +711,8 @@ export class BrushEngineFacade {
               settings.rotation,
               settings.risographIntensity,
               stampPattern,
-              stampIsColorizable // Pass isColorizable as centerAlignment for custom brushes
+              stampIsColorizable, // Pass isColorizable as centerAlignment for custom brushes
+              settings.customPatternDimensions
             );
           }
         }
@@ -718,7 +737,10 @@ export class BrushEngineFacade {
 
       if (this.pixelQueue.accumulatedDistance >= spacingThreshold) {
         this.pixelQueue.accumulatedDistance -= spacingThreshold;
-        if (this.canDrawAt(ctx, to.x, to.y)) {
+        if (
+          !this.shouldSkipNearDuplicateFinalStamp(to, settings) &&
+          this.canDrawAt(ctx, to.x, to.y)
+        ) {
           let stampPattern = settings.pattern;
           let stampIsColorizable = settings.isColorizable;
           if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
@@ -751,7 +773,8 @@ export class BrushEngineFacade {
             settings.rotation,
             settings.risographIntensity,
             stampPattern,
-            stampIsColorizable
+            stampIsColorizable,
+            settings.customPatternDimensions
           );
         }
       }
@@ -1179,6 +1202,24 @@ export class BrushEngineFacade {
     return imageData;
   }
 
+  private shouldSkipNearDuplicateFinalStamp(
+    point: { x: number; y: number },
+    settings: RenderSettings
+  ): boolean {
+    if (settings.shape !== BrushShape.CUSTOM || this.recentStamps.length === 0) {
+      return false;
+    }
+
+    const lastStamp = this.recentStamps[this.recentStamps.length - 1];
+    if (!lastStamp) {
+      return false;
+    }
+
+    const dx = point.x - lastStamp.x;
+    const dy = point.y - lastStamp.y;
+    return Math.hypot(dx, dy) < 1;
+  }
+
   private createTrackedShapeDrawer(
     drawer: ReturnType<typeof createShapeDrawer>
   ): ReturnType<typeof createShapeDrawer> {
@@ -1192,7 +1233,8 @@ export class BrushEngineFacade {
       rotation: number,
       risographIntensity: number,
       pattern?: ImageData,
-      centerAlignment?: boolean
+      centerAlignment?: boolean,
+      customPatternDimensions?: { width: number; height: number }
     ) => {
       drawer(
         ctx,
@@ -1204,7 +1246,8 @@ export class BrushEngineFacade {
         rotation,
         risographIntensity,
         pattern,
-        centerAlignment
+        centerAlignment,
+        customPatternDimensions
       );
 
       if (!this.stampTrackingActive) {
@@ -1260,7 +1303,8 @@ export class BrushEngineFacade {
     rotation: number,
     risographIntensity: number,
     pattern?: ImageData,
-    centerAlignment?: boolean
+    centerAlignment?: boolean,
+    customPatternDimensions?: { width: number; height: number }
   ): void {
     this.shapeDrawer(
       ctx,
@@ -1272,7 +1316,8 @@ export class BrushEngineFacade {
       rotation,
       risographIntensity,
       pattern,
-      centerAlignment
+      centerAlignment,
+      customPatternDimensions
     );
   }
   

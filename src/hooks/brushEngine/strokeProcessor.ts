@@ -36,7 +36,8 @@ export interface StrokeProcessorDependencies {
     rotation: number,
     risographIntensity: number,
     pattern?: ImageData,
-    centerAlignment?: boolean
+    centerAlignment?: boolean,
+    customPatternDimensions?: { width: number; height: number }
   ) => void;
 }
 
@@ -690,7 +691,19 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
         applyPigmentLift(ctx, roundedX, roundedY, settings, brushSettings);
         const jitteredColor = deps.applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
         ctx.fillStyle = jitteredColor;
-        deps.drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+        deps.drawShape(
+          ctx,
+          roundedX,
+          roundedY,
+          settings.size,
+          settings.shape,
+          false,
+          settings.rotation,
+          settings.risographIntensity,
+          settings.pattern,
+          settings.centerAlignment,
+          settings.customPatternDimensions
+        );
       }
       
       return;
@@ -725,7 +738,19 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
           applyPigmentLift(ctx, queue.waitingPixelX, queue.waitingPixelY, settings, brushSettings);
           const jitteredColor = deps.applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          deps.drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+          deps.drawShape(
+            ctx,
+            queue.waitingPixelX,
+            queue.waitingPixelY,
+            settings.size,
+            settings.shape,
+            false,
+            settings.rotation,
+            settings.risographIntensity,
+            settings.pattern,
+            settings.centerAlignment,
+            settings.customPatternDimensions
+          );
         }
         if (usePixelSpacing) {
           queue.accumulatedDistance = Math.max(0, queue.accumulatedDistance - spacingThreshold);
@@ -858,7 +883,8 @@ export const perfectPixels = (
       rotation: number,
       risographIntensity: number,
       pattern?: ImageData,
-      centerAlignment?: boolean
+      centerAlignment?: boolean,
+      customPatternDimensions?: { width: number; height: number }
     ) => void;
   },
   brushSettings: BrushSettings
@@ -899,7 +925,8 @@ export const drawPixelPerfectLine = (
       rotation: number,
       risographIntensity: number,
       pattern?: ImageData,
-      centerAlignment?: boolean
+      centerAlignment?: boolean,
+      customPatternDimensions?: { width: number; height: number }
     ) => void;
   },
   brushSettings: BrushSettings
