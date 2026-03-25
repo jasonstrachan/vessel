@@ -53,8 +53,10 @@ export const selectionToCaptureBounds = (
 
   const minX = Math.floor(Math.min(start.x, end.x));
   const minY = Math.floor(Math.min(start.y, end.y));
-  const maxX = Math.floor(Math.max(start.x, end.x));
-  const maxY = Math.floor(Math.max(start.y, end.y));
+  // Expand the trailing edge to the next pixel boundary so the captured brush
+  // includes the full boxed region instead of dropping the last column/row.
+  const maxX = Math.ceil(Math.max(start.x, end.x));
+  const maxY = Math.ceil(Math.max(start.y, end.y));
 
   const width = maxX - minX;
   const height = maxY - minY;

@@ -185,6 +185,23 @@ const getCustomTintedCanvas = (
   return canvas;
 };
 
+export const resolveCustomPatternDrawDimensions = (
+  size: number,
+  pattern: Pick<ImageData, 'width' | 'height'>,
+  customPatternDimensions?: { width: number; height: number }
+): { scaledWidth: number; scaledHeight: number } => {
+  const baseWidth = customPatternDimensions?.width ?? pattern.width;
+  const baseHeight = customPatternDimensions?.height ?? pattern.height;
+  const maxDimension = Math.max(baseWidth, baseHeight);
+  const sizeBucket = Math.max(1, Math.round(size * 2) / 2);
+  const scaleFactor = maxDimension > 0 ? sizeBucket / maxDimension : 1;
+
+  return {
+    scaledWidth: Math.max(1, Math.round(baseWidth * scaleFactor)),
+    scaledHeight: Math.max(1, Math.round(baseHeight * scaleFactor)),
+  };
+};
+
 /**
  * Get or create a pre-rotated pixel stamp
  */
@@ -288,6 +305,7 @@ export const drawShape = (
   risographIntensity: number = 0,
   pattern?: ImageData,
   centerAlignment?: boolean,
+  customPatternDimensions?: { width: number; height: number },
   settings?: DrawShapeSettings,
   deps?: ShapeDrawingDependencies
 ) => {
@@ -460,11 +478,11 @@ export const drawShape = (
       const sourceCanvas = getCustomSourceCanvas(pattern, cacheKey);
 
       // For custom brushes, the size parameter already represents the scaled size.
-      const maxDimension = Math.max(pattern.width, pattern.height);
-      const sizeBucket = Math.max(1, Math.round(size * 2) / 2);
-      const scaleFactor = maxDimension > 0 ? sizeBucket / maxDimension : 1;
-      const scaledWidth = Math.max(1, Math.round(pattern.width * scaleFactor));
-      const scaledHeight = Math.max(1, Math.round(pattern.height * scaleFactor));
+      const { scaledWidth, scaledHeight } = resolveCustomPatternDrawDimensions(
+        size,
+        pattern,
+        customPatternDimensions
+      );
 
       const scaledCanvas = getCustomScaledCanvas(pattern, sourceCanvas, scaledWidth, scaledHeight, cacheKey);
 
@@ -1094,7 +1112,8 @@ export const createShapeDrawer = (
     rotation?: number,
     risographIntensity?: number,
     pattern?: ImageData,
-    centerAlignment?: boolean
+    centerAlignment?: boolean,
+    customPatternDimensions?: { width: number; height: number }
   ) => {
     drawShape(
       ctx,
@@ -1107,6 +1126,7 @@ export const createShapeDrawer = (
       risographIntensity || 0,
       pattern,
       centerAlignment,
+      customPatternDimensions,
       settings,
       deps
     );

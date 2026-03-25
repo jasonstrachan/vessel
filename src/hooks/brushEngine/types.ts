@@ -74,6 +74,10 @@ export interface RenderSettings {
   centerAlignment?: boolean;
   blendMode?: GlobalCompositeOperation;
   isColorizable?: boolean; // For custom brushes
+  customPatternDimensions?: {
+    width: number;
+    height: number;
+  };
 }
 
 /**

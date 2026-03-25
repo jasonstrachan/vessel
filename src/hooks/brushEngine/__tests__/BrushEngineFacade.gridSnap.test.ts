@@ -1,4 +1,5 @@
 import { BrushEngineFacade } from '@/hooks/brushEngine/BrushEngineFacade';
+import { resolveCustomPatternDrawDimensions } from '@/hooks/brushEngine/shapes';
 import { BrushShape, type BrushSettings } from '@/types';
 
 const createBaseSettings = (): BrushSettings => ({
@@ -121,5 +122,58 @@ describe('BrushEngineFacade grid snap stamping', () => {
       { x: 20, y: 10 },
       { x: 40, y: 20 },
     ]);
+  });
+
+  it('uses resolved custom brush dimensions for final custom stamp scaling', () => {
+    expect(
+      resolveCustomPatternDrawDimensions(
+        20,
+        { width: 10, height: 10 },
+        { width: 20, height: 10 }
+      )
+    ).toEqual({
+      scaledWidth: 20,
+      scaledHeight: 10,
+    });
+  });
+
+  it('skips a near-duplicate terminal custom-brush stamp', () => {
+    const engine = new BrushEngineFacade({
+      brushSettings: {
+        ...createBaseSettings(),
+        brushShape: BrushShape.CUSTOM,
+        gridSnapEnabled: false,
+        customBrushSnapEnabled: false,
+        antialiasing: true,
+        spacing: 1,
+        dashedEnabled: false,
+        size: 12,
+      },
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    if (!ctx) {
+      return;
+    }
+
+    engine.renderBrushStroke(ctx, {
+      from: { x: 0, y: 0 },
+      to: { x: 2.4, y: 0 },
+      pressure: 1,
+      velocity: 0,
+      timestamp: performance.now(),
+      customBrushData: {
+        imageData: new ImageData(12, 12),
+        width: 12,
+        height: 12,
+      },
+    });
+
+    const stamps = engine.consumeRecentStamps();
+    expect(stamps).toHaveLength(1);
+    expect(stamps[0]?.x).toBeCloseTo(1.6);
   });
 });

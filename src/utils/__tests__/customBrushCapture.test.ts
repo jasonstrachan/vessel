@@ -1,4 +1,7 @@
-import { captureColorCycleDataFromLayer } from '@/utils/customBrushCapture';
+import {
+  captureColorCycleDataFromLayer,
+  selectionToCaptureBounds,
+} from '@/utils/customBrushCapture';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
@@ -122,5 +125,29 @@ describe('captureColorCycleDataFromLayer', () => {
       { position: 0, color: '#00ff00' },
       { position: 1, color: '#00ff00' },
     ]);
+  });
+});
+
+describe('selectionToCaptureBounds', () => {
+  it('expands the trailing edge to preserve the full selected pixel area', () => {
+    expect(
+      selectionToCaptureBounds({ x: 10.2, y: 20.1 }, { x: 14.9, y: 25.9 })
+    ).toEqual({
+      x: 10,
+      y: 20,
+      width: 5,
+      height: 6,
+    });
+  });
+
+  it('is symmetric regardless of drag direction', () => {
+    expect(
+      selectionToCaptureBounds({ x: 14.9, y: 25.9 }, { x: 10.2, y: 20.1 })
+    ).toEqual({
+      x: 10,
+      y: 20,
+      width: 5,
+      height: 6,
+    });
   });
 });
