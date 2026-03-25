@@ -3,7 +3,6 @@
 import React from 'react';
 import BrushControls from '@/components/toolbar/BrushControls';
 import FillControls from '@/components/toolbar/FillControls';
-import MagicWandControls from '@/components/toolbar/MagicWandControls';
 import { CustomBrushPanel } from '@/components/toolbar/CustomBrushPanel';
 import { ColorCycleUI } from '@/components/colorCycle/integration/ColorCycleUI';
 import BrushEditorUI from '@/components/BrushEditorUI';
@@ -86,7 +85,6 @@ const BrushSettingsPanel: React.FC = () => {
             {currentTool === 'selection' && <SelectionOptionsPanel />}
             {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
             {currentTool === 'fill' && <FillControls />}
-            {currentTool === 'magic-wand' && <MagicWandControls />}
             {currentTool === 'custom' && <CustomBrushPanel />}
             {brushSettings.brushShape === BrushShape.CUSTOM && (
               <div className="px-4 pb-0">

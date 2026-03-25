@@ -229,7 +229,11 @@ describe('finalizeEraserStroke history ROI alignment', () => {
       holdPreviousOnEmptyFrames: false,
     });
     const renderedCtx = renderedAfterFinalize?.getContext('2d', { willReadFrequently: true });
-    expect(renderedCtx?.getImageData(1, 1, 1, 1).data[3]).toBe(0);
+    expect(renderedCtx).toBeTruthy();
+    if (!renderedCtx || !('getImageData' in renderedCtx)) {
+      throw new Error('Expected a 2d rendering context with getImageData');
+    }
+    expect(renderedCtx.getImageData(1, 1, 1, 1).data[3]).toBe(0);
 
     await useAppStore.getState().undo();
     const afterUndo = useAppStore.getState().layers.find((entry) => entry.id === layer.id);

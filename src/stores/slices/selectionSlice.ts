@@ -62,6 +62,15 @@ export interface SelectionSlice {
     start: { x: number; y: number } | null,
     end: { x: number; y: number } | null
   ) => void;
+  appendSelectionBounds: (
+    start: { x: number; y: number } | null,
+    end: { x: number; y: number } | null
+  ) => void;
+  appendSelectionMask: (payload: {
+    mask: ImageData;
+    bounds: Rectangle;
+    layerId?: string | null;
+  }) => void;
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
   selectLayerAlpha: (layerId?: string | null) => void;
@@ -176,6 +185,120 @@ const computeBoundsFromSelection = (
   width: Math.abs(end.x - start.x),
   height: Math.abs(end.y - start.y),
 });
+
+const normalizeSelectionRect = (rect: Rectangle): Rectangle | null => {
+  const x = Math.floor(rect.x);
+  const y = Math.floor(rect.y);
+  const right = Math.ceil(rect.x + rect.width);
+  const bottom = Math.ceil(rect.y + rect.height);
+  const width = right - x;
+  const height = bottom - y;
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { x, y, width, height };
+};
+
+const cloneMaskImageData = (mask: ImageData): ImageData =>
+  new ImageData(new Uint8ClampedArray(mask.data), mask.width, mask.height);
+
+const buildOpaqueMaskFromRect = (rect: Rectangle): { bounds: Rectangle; mask: ImageData } | null => {
+  const normalized = normalizeSelectionRect(rect);
+  if (!normalized) {
+    return null;
+  }
+
+  const mask = new ImageData(normalized.width, normalized.height);
+  for (let index = 0; index < mask.data.length; index += 4) {
+    mask.data[index] = 255;
+    mask.data[index + 1] = 255;
+    mask.data[index + 2] = 255;
+    mask.data[index + 3] = 255;
+  }
+
+  return {
+    bounds: normalized,
+    mask,
+  };
+};
+
+const getSelectionMaskRepresentation = (state: Pick<
+  SelectionSlice,
+  'selectionStart' | 'selectionEnd' | 'selectionMask' | 'selectionMaskBounds'
+>): { bounds: Rectangle; mask: ImageData } | null => {
+  if (state.selectionMask && state.selectionMaskBounds) {
+    const normalized = normalizeSelectionRect(state.selectionMaskBounds);
+    if (!normalized) {
+      return null;
+    }
+    return {
+      bounds: normalized,
+      mask: cloneMaskImageData(state.selectionMask),
+    };
+  }
+
+  if (state.selectionStart && state.selectionEnd) {
+    return buildOpaqueMaskFromRect(computeBoundsFromSelection(state.selectionStart, state.selectionEnd));
+  }
+
+  return null;
+};
+
+const mergeSelectionMasks = (
+  existing: { bounds: Rectangle; mask: ImageData } | null,
+  incoming: { bounds: Rectangle; mask: ImageData } | null
+): { bounds: Rectangle; mask: ImageData } | null => {
+  if (!existing) {
+    return incoming;
+  }
+  if (!incoming) {
+    return existing;
+  }
+
+  const x = Math.min(existing.bounds.x, incoming.bounds.x);
+  const y = Math.min(existing.bounds.y, incoming.bounds.y);
+  const right = Math.max(existing.bounds.x + existing.bounds.width, incoming.bounds.x + incoming.bounds.width);
+  const bottom = Math.max(existing.bounds.y + existing.bounds.height, incoming.bounds.y + incoming.bounds.height);
+  const width = right - x;
+  const height = bottom - y;
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const mergedMask = new ImageData(width, height);
+
+  const blitMask = (source: { bounds: Rectangle; mask: ImageData }) => {
+    const offsetX = source.bounds.x - x;
+    const offsetY = source.bounds.y - y;
+    for (let sourceY = 0; sourceY < source.mask.height; sourceY += 1) {
+      for (let sourceX = 0; sourceX < source.mask.width; sourceX += 1) {
+        const sourceIndex = (sourceY * source.mask.width + sourceX) * 4 + 3;
+        if ((source.mask.data[sourceIndex] ?? 0) === 0) {
+          continue;
+        }
+
+        const targetX = offsetX + sourceX;
+        const targetY = offsetY + sourceY;
+        const targetIndex = (targetY * width + targetX) * 4;
+        mergedMask.data[targetIndex] = 255;
+        mergedMask.data[targetIndex + 1] = 255;
+        mergedMask.data[targetIndex + 2] = 255;
+        mergedMask.data[targetIndex + 3] = 255;
+      }
+    }
+  };
+
+  blitMask(existing);
+  blitMask(incoming);
+
+  return {
+    bounds: { x, y, width, height },
+    mask: mergedMask,
+  };
+};
 
 const findOpaquePixelBounds = (imageData: ImageData): Rectangle | null => {
   const { width, height, data } = imageData;
@@ -576,6 +699,62 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
+      }),
+    appendSelectionBounds: (start, end) =>
+      set((state) => {
+        if (!start || !end) {
+          return state;
+        }
+
+        const incoming = buildOpaqueMaskFromRect(computeBoundsFromSelection(start, end));
+        if (!incoming) {
+          return state;
+        }
+
+        const merged = mergeSelectionMasks(getSelectionMaskRepresentation(state), incoming);
+        if (!merged) {
+          return state;
+        }
+
+        return {
+          selectionStart: { x: merged.bounds.x, y: merged.bounds.y },
+          selectionEnd: {
+            x: merged.bounds.x + merged.bounds.width,
+            y: merged.bounds.y + merged.bounds.height,
+          },
+          selectionVectorPath: null,
+          selectionMask: merged.mask,
+          selectionMaskBounds: merged.bounds,
+          selectionMaskLayerId: state.activeLayerId ?? state.selectionMaskLayerId ?? null,
+        };
+      }),
+    appendSelectionMask: ({ mask, bounds, layerId }) =>
+      set((state) => {
+        const normalizedBounds = normalizeSelectionRect(bounds);
+        if (!normalizedBounds || mask.width <= 0 || mask.height <= 0) {
+          return state;
+        }
+
+        const incoming = {
+          bounds: normalizedBounds,
+          mask: cloneMaskImageData(mask),
+        };
+        const merged = mergeSelectionMasks(getSelectionMaskRepresentation(state), incoming);
+        if (!merged) {
+          return state;
+        }
+
+        return {
+          selectionStart: { x: merged.bounds.x, y: merged.bounds.y },
+          selectionEnd: {
+            x: merged.bounds.x + merged.bounds.width,
+            y: merged.bounds.y + merged.bounds.height,
+          },
+          selectionVectorPath: null,
+          selectionMask: merged.mask,
+          selectionMaskBounds: merged.bounds,
+          selectionMaskLayerId: layerId ?? state.activeLayerId ?? state.selectionMaskLayerId ?? null,
+        };
       }),
     clearSelection: () =>
       set({

@@ -5,9 +5,9 @@ import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
-type ToolbarItemId = Tool | 'grid-toggle';
+type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand';
 
-const toolShortcuts: Partial<Record<Tool, { aria: string; display: string }>> = {
+const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
   custom: { aria: 'KeyC', display: 'C' },
   eraser: { aria: 'KeyE', display: 'E (tap/hold)' },
@@ -21,7 +21,7 @@ const toolShortcuts: Partial<Record<Tool, { aria: string; display: string }>> = 
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, ui, saveProject, toggleGrid, toggleModal } = useAppStore();
+  const { tools: toolState, ui, saveProject, toggleGrid, toggleModal, setSelectionMode } = useAppStore();
   const switchTool = useToolSwitcher();
 
   const baseButtonStyle: React.CSSProperties = {
@@ -45,7 +45,7 @@ const LeftToolbar = () => {
       { id: 'eyedropper' as Tool, label: 'Eyedropper', abbr: 'Ey' },
       { id: 'color-picker' as Tool, label: 'Color Picker', abbr: 'Cp' },
       { id: 'fill' as Tool, label: 'Fill', abbr: 'Fl' },
-      { id: 'magic-wand' as Tool, label: 'Magic Wand', abbr: 'Mw' },
+      { id: 'magic-wand' as ToolbarItemId, label: 'Magic Wand', abbr: 'Mw' },
       { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
     ],
     [
@@ -74,6 +74,9 @@ const LeftToolbar = () => {
       toggleGrid();
     } else if (toolId === 'options') {
       toggleModal('settings');
+    } else if (toolId === 'magic-wand') {
+      setSelectionMode('magic-wand');
+      await switchTool('selection');
     } else {
       await switchTool(toolId);
     }
@@ -97,7 +100,11 @@ const LeftToolbar = () => {
           {group.map((tool, toolIndex) => {
             const isActive = tool.id === 'grid-toggle'
               ? ui.grid.enabled
-              : toolState.currentTool === tool.id;
+              : tool.id === 'magic-wand'
+                ? toolState.currentTool === 'selection' && toolState.selectionMode === 'magic-wand'
+                : tool.id === 'selection'
+                  ? toolState.currentTool === 'selection' && toolState.selectionMode !== 'magic-wand'
+                  : toolState.currentTool === tool.id;
             const shortcut = tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display;
 
             return (

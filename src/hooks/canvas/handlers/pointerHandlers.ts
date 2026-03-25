@@ -156,7 +156,6 @@ import type {
 import { BrushShape, type BrushSettings } from '../../../types';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
-import { floodSelect } from '@/utils/floodSelect';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
 import {
   generateContourLines,
@@ -188,6 +187,7 @@ import {
   copyRectWithinSelection,
   resolveSelectionRasterScope,
 } from '@/stores/helpers/selectionRoi';
+import { applyMagicWandSelection } from './magicWandSelection';
 
 type VerticalSpacingMapperConfig = {
   centroid: { x: number; y: number };
@@ -331,6 +331,9 @@ export const shouldAllowOutOfBoundsPointerDown = (
   (tools.shapeMode &&
     (brushPresetId === 'dither-shape' || brushPresetId === 'color-cycle-gradient')) ||
   (tools.currentTool === 'selection' && (tools.selectionMode ?? 'marquee') === 'marquee');
+
+const shouldUseMagicWandSelectionMode = (tools: EventHandlerDynamicDeps['tools']): boolean =>
+  tools.currentTool === 'selection' && (tools.selectionMode ?? 'marquee') === 'magic-wand';
 
 const computeOpposingAxis = (points: Array<{ x: number; y: number }>) => {
   if (points.length < 2) {
@@ -2157,7 +2160,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     const shouldHandleSelectionHitTest =
       tools.currentTool === 'selection' || tools.currentTool === 'custom';
-    if (event.button === 0 && shouldHandleSelectionHitTest && selectionHandlers.handleSelectionHitTest({
+    if (
+      event.button === 0 &&
+      !event.shiftKey &&
+      shouldHandleSelectionHitTest &&
+      selectionHandlers.handleSelectionHitTest({
       worldPos,
       dynamic: {
         tools,
@@ -2170,7 +2177,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         project,
         activeLayerId,
       },
-    })) {
+      })
+    ) {
       isMouseDownRef.current = false;
       return;
     }
@@ -2360,7 +2368,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         );
       })();
 
-      if (isInsideSelection) {
+      if (isInsideSelection && !event.shiftKey) {
         const extracted = deps.extractSelectionToFloatingPaste();
         if (extracted) {
           const nextFloatingPaste = useAppStore.getState().floatingPaste;
@@ -2412,7 +2420,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       useCrosshair:
         shouldRouteToShapeHandler ||
         tools.shapeMode ||
-        tools.currentTool === 'magic-wand',
+        shouldUseMagicWandSelectionMode(tools),
     });
 
     if (shouldRouteToShapeHandler) {
@@ -2532,62 +2540,19 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Handle left click
     if (event.button === 0) {
       // Handle magic wand tool
-      if (tools.currentTool === 'magic-wand') {
+      if (shouldUseMagicWandSelectionMode(tools)) {
         const activeLayer = layers.find((layer) => layer.id === activeLayerId);
-        if (!activeLayer) return;
-
-        const canvasWidth = project?.width || 1920;
-        const canvasHeight = project?.height || 1080;
-
-        let currentImageData: ImageData | null = null;
-
-        if (activeLayer.framebuffer) {
-          const fb = activeLayer.framebuffer;
-          if (fb.width !== canvasWidth || fb.height !== canvasHeight) {
-            fb.width = canvasWidth;
-            fb.height = canvasHeight;
-          }
-
-          const ctx = fb.getContext('2d', { willReadFrequently: true });
-          if (ctx && 'getImageData' in ctx) {
-            currentImageData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
-          }
-        }
-
-        if (!currentImageData && activeLayer.imageData) {
-          currentImageData = activeLayer.imageData;
-        }
-
-        if (!currentImageData) {
-          clearSelection();
-          return;
-        }
-
-        const selection = floodSelect(
-          currentImageData,
-          Math.floor(worldPos.x),
-          Math.floor(worldPos.y),
-          {
-            threshold: tools.wandSettings.threshold,
-            contiguous: tools.wandSettings.contiguous,
-          }
-        );
-
-        if (!selection || !activeLayerId) {
-          clearSelection();
-          return;
-        }
-
-        const { bounds, mask } = selection;
-        useAppStore.setState({
-          selectionStart: { x: bounds.x, y: bounds.y },
-          selectionEnd: { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
-          selectionVectorPath: null,
-          selectionMask: mask,
-          selectionMaskBounds: bounds,
-          selectionMaskLayerId: activeLayerId,
+        const didApply = applyMagicWandSelection({
+          activeLayer,
+          activeLayerId,
+          worldPos,
+          wandSettings: tools.wandSettings,
+          append: event.shiftKey,
+          clearSelection,
         });
-        return;
+        if (didApply) {
+          return;
+        }
       }
 
       // Handle fill tool
@@ -2758,6 +2723,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         worldPos,
         pointerId: event.pointerId,
         clickCount: event.detail,
+        shiftKey: event.shiftKey,
         tools,
         dynamic: getDynamicDeps(),
       })) {
@@ -2776,7 +2742,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return;
       }
       
-      if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
+      if ((tools.currentTool === 'selection' || tools.currentTool === 'custom') && !event.shiftKey) {
         selectionHandlers.handleSelectionClearOnOutsideClick({
           worldPos,
           selectionStart,
@@ -3201,7 +3167,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         useCrosshair:
           shouldRouteToShapeHandler ||
           tools.shapeMode ||
-          tools.currentTool === 'magic-wand',
+          shouldUseMagicWandSelectionMode(tools),
       });
     }
 

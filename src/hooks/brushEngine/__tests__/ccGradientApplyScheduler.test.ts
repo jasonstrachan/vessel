@@ -64,7 +64,8 @@ describe('applyRuntimeToBrush', () => {
       0,
       expect.arrayContaining([
         expect.objectContaining({ color: '#0000ff' }),
-      ])
+      ]),
+      undefined,
     );
     expect(brush.flush).toHaveBeenCalledWith('layer-1');
   });

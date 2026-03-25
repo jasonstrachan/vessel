@@ -2,6 +2,7 @@
 
 import React from 'react';
 import ButtonGroup from '@/components/ui/ButtonGroup';
+import MagicWandControls from '@/components/toolbar/MagicWandControls';
 import { clampMarqueeDragRectToBounds } from '@/stores/helpers/selectionRoi';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
@@ -11,12 +12,14 @@ const OPTIONS: Array<{ label: string; value: SelectionMode }> = [
   { label: 'Marquee', value: 'marquee' },
   { label: 'Freehand', value: 'freehand' },
   { label: 'Click Line', value: 'click-line' },
+  { label: 'Magic Wand', value: 'magic-wand' },
 ];
 
 const HELP_TEXT: Record<SelectionMode, string> = {
   marquee: '',
   freehand: 'Drag a path and release to auto-close.',
   'click-line': 'Click points. Double-click or click near start to close.',
+  'magic-wand': 'Click pixels to select matching areas on regular or color-cycle layers.',
 };
 
 const deriveSelectionRect = (
@@ -137,6 +140,11 @@ const SelectionOptionsPanel: React.FC = () => {
         >
           Crop
         </button>
+      )}
+      {selectionMode === 'magic-wand' && (
+        <div className="mt-3 rounded border border-[#2F2F2F] bg-[#181818]">
+          <MagicWandControls />
+        </div>
       )}
       {HELP_TEXT[selectionMode] ? (
         <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">{HELP_TEXT[selectionMode]}</p>
