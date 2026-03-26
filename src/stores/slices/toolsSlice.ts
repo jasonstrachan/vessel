@@ -1314,12 +1314,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       updates.colorCycleUseForegroundGradient = true;
       updates.autoSampleGradient = false;
       updates.autoSampleGradientRealtime = false;
-      updates.ccGradientSamplePerShape = false;
     } else if (nextSource === 'sampled') {
       updates.colorCycleUseForegroundGradient = false;
       updates.autoSampleGradient = false;
       updates.autoSampleGradientRealtime = false;
-      updates.ccGradientSamplePerShape = false;
     } else {
       updates.colorCycleUseForegroundGradient = false;
       updates.autoSampleGradient = false;
@@ -2550,6 +2548,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const normalized = {
       ...loadedSettings,
     } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+
+    delete (normalized as Partial<BrushSettings> & { ccGradientSamplePerShape?: unknown }).ccGradientSamplePerShape;
 
     if (normalized.colorCycleFlowForward !== undefined) {
       normalized.colorCycleFlowMode = 'forward';

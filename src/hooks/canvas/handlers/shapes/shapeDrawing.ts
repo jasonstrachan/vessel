@@ -18,15 +18,10 @@ import {
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops, type GradientDefSource } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
-import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import {
   calculatePressureAwareGridSpacing,
   snapToGridPure,
 } from '@/hooks/brushEngine/utilities';
-import {
-  isTempSampleSlotAvailable,
-  resolveActiveGradientSlot,
-} from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 
 type ShapeDrawingRefs = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
@@ -187,7 +182,6 @@ type ShapeDrawingDeps = {
     options?: { layerId?: string | null; markKind?: 'stroke' | 'shape' }
   ) => void;
   updateCcGradientSample: (points: Array<{ x: number; y: number }>, strokeId?: string | null) => void;
-  shouldSampleCcGradient: (settings: BrushSettings, brushPresetId: string | null | undefined) => boolean;
   updateDitherGradSamples: (points: Array<{ x: number; y: number }>) => void;
   capturePendingShapeSnapshot: () => void;
   clearShapeBeforeSnapshot: () => void;
@@ -516,8 +510,6 @@ export const startShapeDrawing = (
       try {
         const st = deps.storeRef.current;
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-        const presetId = deps.storeRef.current.currentBrushPreset?.id;
-        const samplePerShape = deps.shouldSampleCcGradient(st.tools.brushSettings, presetId);
         const sampledSource = st.tools.ccGradientSource === 'sampled';
         const autoSampleEnabled =
           st.tools.brushSettings.autoSampleGradient ||
@@ -588,14 +580,6 @@ export const startShapeDrawing = (
           deps.updateCcSampledGradient(
             refs.ccSampledPointsRef.current,
             { layerId: st.activeLayerId ?? null, markKind: 'shape' }
-          );
-        } else if (isCCShape && samplePerShape) {
-          deps.resetCcGradientSample();
-          refs.ccGradientSampleLastUpdateRef.current = 0;
-          refs.ccGradientSampleSessionRef.current.polyline = [...refs.shapePointsRef.current];
-          deps.updateCcGradientSample(
-            refs.ccGradientSampleSessionRef.current.polyline,
-            refs.activeStrokeSessionRef.current?.id ?? null
           );
         } else if (isCCShape && autoSampleEnabled) {
           refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
@@ -724,8 +708,6 @@ export const continueShapeDrawing = (
       if (added > 0) {
         try {
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-          const presetId = store.currentBrushPreset?.id;
-          const samplePerShape = deps.shouldSampleCcGradient(store.tools.brushSettings, presetId);
           const sampledSource = store.tools.ccGradientSource === 'sampled';
           const autoSampleEnabled =
             store.tools.brushSettings.autoSampleGradient ||
@@ -735,12 +717,6 @@ export const continueShapeDrawing = (
             deps.updateCcSampledGradient(
               refs.ccSampledPointsRef.current,
               { layerId: store.activeLayerId ?? null, markKind: 'shape' }
-            );
-          } else if (isCCShape && samplePerShape) {
-            refs.ccGradientSampleSessionRef.current.polyline = [...refs.shapePointsRef.current];
-            deps.updateCcGradientSample(
-              refs.ccGradientSampleSessionRef.current.polyline,
-              refs.activeStrokeSessionRef.current?.id ?? null
             );
           } else if (isCCShape && autoSampleEnabled) {
             refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
@@ -799,59 +775,6 @@ export const finalizeShapeDrawing = async (
 
     let shapeLayerId: string | null = null;
     let shapeBeforeColorState: ColorCycleSerializedState | null = null;
-
-    const applyCcSampleForShape = (params: {
-      shapePoints: Array<{ x: number; y: number }>;
-      activeLayerId: string;
-      activeLayer: Layer;
-    }): { restore: (() => void) | null } => {
-      const presetId = deps.storeRef.current.currentBrushPreset?.id;
-      const shouldSample = deps.shouldSampleCcGradient(liveBrushSettings, presetId);
-      if (!shouldSample) {
-        return { restore: null };
-      }
-      const session = args.refs.ccGradientSampleSessionRef.current;
-      const cachedStops = session.stops;
-      const stops =
-        cachedStops && cachedStops.length >= 2
-          ? cachedStops
-          : deps.computeAutoSampleStops(params.shapePoints, { allowTiny: true });
-      if (!stops || stops.length < 2) {
-        return { restore: null };
-      }
-      if (!isTempSampleSlotAvailable(params.activeLayer, TEMP_SAMPLE_SLOT)) {
-        return { restore: null };
-      }
-      const brush = deps.getColorCycleBrushManager().getBrush(params.activeLayerId);
-      if (
-        !brush ||
-        (typeof brush.setGradientSlotStops !== 'function' && typeof brush.setGradientSlot !== 'function') ||
-        typeof brush.setActiveGradientSlot !== 'function'
-      ) {
-        return { restore: null };
-      }
-      const activeSlot = typeof (brush as { getActiveGradientSlot?: (layerId: string) => number }).getActiveGradientSlot === 'function'
-        ? (brush as { getActiveGradientSlot: (layerId: string) => number }).getActiveGradientSlot(params.activeLayerId)
-        : resolveActiveGradientSlot(params.activeLayer);
-
-      if (typeof brush.setGradientSlotStops === 'function') {
-        brush.setGradientSlotStops(params.activeLayerId, TEMP_SAMPLE_SLOT, stops);
-      } else {
-        brush.setGradientSlot(params.activeLayerId, TEMP_SAMPLE_SLOT, stops);
-      }
-      brush.setActiveGradientSlot(params.activeLayerId, TEMP_SAMPLE_SLOT);
-      session.active = true;
-      session.stops = stops;
-      session.polyline = [...params.shapePoints];
-      return {
-        restore: () => {
-          if (typeof activeSlot === 'number') {
-            brush.setActiveGradientSlot(params.activeLayerId, activeSlot);
-          }
-          deps.resetCcGradientSample();
-        },
-      };
-    };
 
     if (liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT) {
       const points =
@@ -973,13 +896,6 @@ export const finalizeShapeDrawing = async (
             const keepOverlayAfter =
               Boolean(activeSettings.ditherEnabled) &&
               Math.max(1, Math.round(activeSettings.gradientBands ?? 16)) > 1;
-            const sampleRestore = activeLayer
-              ? applyCcSampleForShape({
-                  shapePoints: shapePointsSnapshot,
-                  activeLayerId,
-                  activeLayer,
-                })
-              : { restore: null };
             const session = finalizeMarkGradientSession(shapeLayerIdString)
               ?? (activeLayer
                 ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, 'linear')
@@ -1022,7 +938,6 @@ export const finalizeShapeDrawing = async (
               debugTime: deps.debugTime,
               debugTimeEnd: deps.debugTimeEnd,
             });
-            sampleRestore.restore?.();
           }
         }
 
@@ -1159,13 +1074,6 @@ export const finalizeShapeDrawing = async (
                 const keepOverlayAfter =
                   Boolean(liveBrushSettings.ditherEnabled) &&
                   Math.max(1, Math.round(liveBrushSettings.gradientBands ?? 16)) > 1;
-                const sampleRestore = activeLayer
-                  ? applyCcSampleForShape({
-                      shapePoints: shapePointsSnapshot,
-                      activeLayerId,
-                      activeLayer,
-                    })
-                  : { restore: null };
                 const session = finalizeMarkGradientSession(shapeLayerIdString)
                   ?? (activeLayer
                     ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, fillMode)
@@ -1213,8 +1121,6 @@ export const finalizeShapeDrawing = async (
                   debugTime: deps.debugTime,
                   debugTimeEnd: deps.debugTimeEnd,
                 });
-                sampleRestore.restore?.();
-
                 handledColorCycleShape = handledColorCycleShape || Boolean(deps.storeRef.current.activeLayerId && activeLayer?.colorCycleData?.canvas);
                 if (shouldResetLinearMode) {
                   args.refs.isSelectingDirectionRef.current = false;

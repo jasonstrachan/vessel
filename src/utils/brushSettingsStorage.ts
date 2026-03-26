@@ -5,6 +5,29 @@ const STORAGE_KEY = 'vessel:brush-settings';
 
 type StoredBrushMap = Record<string, Partial<BrushSettings>>;
 
+const sanitizeBrushSpecificSettings = (
+  settingsMap: StoredBrushMap | undefined
+): StoredBrushMap | undefined => {
+  if (!settingsMap || typeof settingsMap !== 'object') {
+    return undefined;
+  }
+
+  const entries = Object.entries(settingsMap).flatMap(([brushId, settings]) => {
+    if (!settings || typeof settings !== 'object') {
+      return [];
+    }
+
+    const sanitizedSettings = { ...settings } as Partial<BrushSettings> & {
+      ccGradientSamplePerShape?: never;
+    };
+    delete sanitizedSettings.ccGradientSamplePerShape;
+
+    return [[brushId, sanitizedSettings] as const];
+  });
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+};
+
 export interface PressureSettingsPayload {
   enabled?: boolean;
   min?: number;
@@ -65,7 +88,10 @@ export const loadGlobalBrushSettings = (): GlobalBrushSettingsPayload | null => 
     if (!parsed || typeof parsed !== 'object') {
       return null;
     }
-    return parsed;
+    return {
+      ...parsed,
+      brushSpecificSettings: sanitizeBrushSpecificSettings(parsed.brushSpecificSettings),
+    };
   } catch (error) {
     console.warn('[BrushSettingsStorage] Failed to load global brush settings', error);
     return null;
@@ -83,8 +109,9 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
     if (typeof payload.globalBrushSize === 'number' && Number.isFinite(payload.globalBrushSize)) {
       sanitized.globalBrushSize = payload.globalBrushSize;
     }
-    if (payload.brushSpecificSettings && Object.keys(payload.brushSpecificSettings).length > 0) {
-      sanitized.brushSpecificSettings = payload.brushSpecificSettings;
+    const sanitizedBrushSpecificSettings = sanitizeBrushSpecificSettings(payload.brushSpecificSettings);
+    if (sanitizedBrushSpecificSettings && Object.keys(sanitizedBrushSpecificSettings).length > 0) {
+      sanitized.brushSpecificSettings = sanitizedBrushSpecificSettings;
     }
     if (payload.pressureSettings) {
       const { enabled, min, max } = payload.pressureSettings;

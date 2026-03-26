@@ -913,8 +913,6 @@ export interface BrushSettings {
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5
   // Auto color sampling for regular brushes
   autoSampleColor?: boolean; // true = pick brush color from canvas/reference at stroke start
-  /** Color Cycle Gradient only: sample gradient per shape finalize */
-  ccGradientSamplePerShape?: boolean;
   // Mosaic brush settings
   mosaicTilePx?: number;
   mosaicSegmentPx?: number;

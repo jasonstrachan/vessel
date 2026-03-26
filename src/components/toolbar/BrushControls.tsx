@@ -628,7 +628,6 @@ const BrushControls = () => {
       : 'manual';
   const colorCycleFillModeValue =
     activeSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
-  const ccGradientSamplePerShapeEnabled = Boolean(activeSettings.ccGradientSamplePerShape);
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
@@ -1454,26 +1453,6 @@ const BrushControls = () => {
                 className="flex-1 justify-start"
                 size="sm"
               />
-            </div>
-          </div>
-        )}
-
-        {isColorCycleGradientPreset && gradientModeValue === 'manual' && (
-          <div className="mb-3">
-            <div className="flex items-center gap-1">
-              <label
-                htmlFor="cc-gradient-sample-per-shape"
-                className={CONTROL_LABEL_CLASS}
-                style={CONTROL_LABEL_STYLE}
-              >
-                Sample
-              </label>
-              <CustomSwitch
-                id="cc-gradient-sample-per-shape"
-                checked={ccGradientSamplePerShapeEnabled}
-                onChange={(checked) => setActiveSettings({ ccGradientSamplePerShape: checked })}
-              />
-              <span className="text-xs text-[#A0A0A0]">Per Shape</span>
             </div>
           </div>
         )}

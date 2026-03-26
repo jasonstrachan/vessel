@@ -2872,22 +2872,13 @@ export const createShapeToolHandler = (
                   const derivedStops = derivedSpec
                     ? deriveForegroundGradientStops(derivedSpec)
                     : null;
-                  const samplePerShape =
-                    Boolean(brushNow.ccGradientSamplePerShape) &&
-                    isColorCycleGradientPreset &&
-                    !useForegroundDerived;
-                  const sampledStops = samplePerShape
-                    ? drawingHandlers.getCcGradientSampleStops?.()
-                    : null;
                   const stops =
                     ccStopsOverride ??
-                    (samplePerShape && sampledStops && sampledStops.length >= 2
-                      ? sampledStops
-                      : derivedStops && derivedStops.length >= 2
-                        ? derivedStops
-                        : brushNow.colorCycleGradient?.length
-                          ? brushNow.colorCycleGradient
-                          : DEFAULT_COLOR_CYCLE_GRADIENT);
+                    (derivedStops && derivedStops.length >= 2
+                      ? derivedStops
+                      : brushNow.colorCycleGradient?.length
+                        ? brushNow.colorCycleGradient
+                        : DEFAULT_COLOR_CYCLE_GRADIENT);
                   const ditherRenderStops = shouldDitherPreview
                     ? buildCcDitherRenderPalette({
                         baseStops: stops,

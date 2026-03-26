@@ -53,6 +53,25 @@ describe('brushSettingsStorage', () => {
     });
   });
 
+  it('drops deprecated brush-specific keys on load', () => {
+    storage.setItem('vessel:brush-settings', JSON.stringify({
+      brushSpecificSettings: {
+        'color-cycle-gradient': {
+          spacing: 4,
+          ccGradientSamplePerShape: true,
+        },
+      },
+    }));
+
+    expect(loadGlobalBrushSettings()).toEqual({
+      brushSpecificSettings: {
+        'color-cycle-gradient': {
+          spacing: 4,
+        },
+      },
+    });
+  });
+
   it('saves sanitized payload', () => {
     saveGlobalBrushSettings({ globalBrushSize: 20, brushSpecificSettings: { demo: { spacing: 4 } }, lastBrushId: 'pixel-square' });
     const setCalls = (storage.setItem as jest.Mock).mock.calls;
@@ -61,6 +80,26 @@ describe('brushSettingsStorage', () => {
       globalBrushSize: 20,
       brushSpecificSettings: { demo: { spacing: 4 } },
       lastBrushId: 'pixel-square'
+    });
+  });
+
+  it('does not persist deprecated brush-specific keys', () => {
+    saveGlobalBrushSettings({
+      brushSpecificSettings: {
+        'color-cycle-gradient': {
+          spacing: 4,
+          ccGradientSamplePerShape: true,
+        } as Partial<Record<string, unknown>>,
+      },
+    } as Parameters<typeof saveGlobalBrushSettings>[0]);
+
+    const payload = JSON.parse((storage.setItem as jest.Mock).mock.calls[0][1]);
+    expect(payload).toEqual({
+      brushSpecificSettings: {
+        'color-cycle-gradient': {
+          spacing: 4,
+        },
+      },
     });
   });
 

@@ -15,7 +15,6 @@ import {
   computeFallbackLinearDirection,
   runColorCycleShapeFill,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
-import { shouldSampleCcGradient } from '@/hooks/canvas/handlers/colorCycle/ccGradientSampling';
 import { isColorCycleLayerWithData } from '@/hooks/canvas/utils/layerGuards';
 import { applyBackdropFromSnapshot } from '@/hooks/canvas/utils/canvasBackdrop';
 import {
@@ -202,7 +201,6 @@ export const useDrawingShapeRuntime = ({
     updateAutoSampledGradient,
     updateCcSampledGradient,
     updateCcGradientSample,
-    shouldSampleCcGradient,
     updateDitherGradSamples,
     capturePendingShapeSnapshot,
     clearShapeBeforeSnapshot,
